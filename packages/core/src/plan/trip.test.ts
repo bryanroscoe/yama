@@ -89,6 +89,10 @@ describe("the trip", () => {
     const t = planTrip({ ...bundle, stores, quotes }, { today: "2026-11-01" });
     expect(t.stops.map((s) => s.store.key)).toContain("zz");
     expect(t.print.map((p) => p.want.card)).not.toContain("Exotic Orchard");
+    // Two stores past the limit share it: one of them still comes.
+    const two = planTrip({ ...bundle, stores: [...stores, { ...pats, key: "zy", name: "Far Store 2", sort: 98 }], quotes: [...quotes, q("Exotic Orchard", "zy", 0.75)] }, { today: "2026-11-01" });
+    expect(two.print.map((p) => p.want.card)).not.toContain("Exotic Orchard");
+    expect(two.stops.filter((s) => s.store.key === "zz" || s.store.key === "zy")).toHaveLength(1);
   });
 
   test("a store left out only by the buy-local rule says so, not that you won't go", () => {

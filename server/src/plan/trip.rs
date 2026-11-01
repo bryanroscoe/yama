@@ -624,12 +624,15 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             .then(sort_of(x).cmp(&sort_of(y)))
             .then(key_of(x).cmp(&key_of(y)))
     });
-    // Past the search limit, a store that is the only one with a needed card is on every trip.
+    // Past the search limit: a needed card that only stores past it have brings the first of them
+    // (in the same ranking) onto every trip, so no coverable card is lost (`trip.ts`).
+    let ranked: Vec<String> = pool.iter().map(|x| key_of(x)).collect();
+    let searched: HashSet<&str> = ranked.iter().take(MAX_SEARCH).map(String::as_str).collect();
     let mut only_at: HashSet<String> = HashSet::new();
     for w in &needed {
         let at: HashSet<&str> = offers_of[&w.id].iter().filter(|o| usable(w, o) && eligible(o.store)).map(|o| o.key()).collect();
-        if at.len() == 1 {
-            only_at.extend(at.into_iter().map(String::from));
+        if !at.is_empty() && !at.iter().any(|k| searched.contains(k)) {
+            only_at.extend(ranked.iter().find(|k| at.contains(k.as_str())).cloned());
         }
     }
     let forced: Vec<&Value> = pool.split_off(MAX_SEARCH.min(pool.len())).into_iter().filter(|x| only_at.contains(&key_of(x))).collect();

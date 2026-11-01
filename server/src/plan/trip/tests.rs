@@ -155,4 +155,15 @@ fn past_the_search_limit_a_store_that_alone_has_a_needed_card_still_makes_the_tr
     let t = plan(&b, "2026-11-01");
     assert!(t.stops.iter().any(|x| s(x.store, "key") == Some("zz")));
     assert!(t.print.iter().all(|p| p.want.card != "Exotic Orchard"));
+    // Two stores past the limit share it: one of them still comes.
+    let mut far2 = pats.clone();
+    far2["key"] = json!("zy");
+    far2["name"] = json!("Far Store 2");
+    far2["sort"] = json!(98);
+    b["stores"].as_array_mut().unwrap().push(far2);
+    let q = quote("Exotic Orchard", "zy", 0.75);
+    b["quotes"].as_array_mut().unwrap().push(q);
+    let t = plan(&b, "2026-11-01");
+    assert!(t.print.iter().all(|p| p.want.card != "Exotic Orchard"));
+    assert_eq!(t.stops.iter().filter(|x| matches!(s(x.store, "key"), Some("zz" | "zy"))).count(), 1);
 }
