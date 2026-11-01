@@ -159,6 +159,8 @@ export function Login() {
 
   const signedIn = (r: { user: User; token: string }) => {
     setToken(r.token);
+    // Remembered now, not at the next check: games started or saved from here on are this account's.
+    localStorage.setItem(ME_KEY, JSON.stringify(r.user));
     chooseGuest(false);
     qc.setQueryData(["me"], r.user);
   };

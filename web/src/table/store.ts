@@ -48,9 +48,14 @@ const CURRENT = "yama.table.current";
  * one never sees (or overwrites) the game of an account that signed out on this device.
  */
 const GUEST_CURRENT = "yama.table.guestCurrent";
-/** Which game this device shows: the signed-in account's, or the one without an account. */
-let slot: "account" | "guest" = "account";
-const currentKey = () => (slot === "guest" ? GUEST_CURRENT : CURRENT);
+/**
+ * Which game this device shows: one account's ("account:<id>"), or the one without an account.
+ * Each account keeps its own, so someone signing in after another never sees (or discards) the
+ * other's game. "account:" (nobody known yet) is the old shared key, from before accounts had
+ * their own.
+ */
+let slot = "account:";
+const currentKey = () => (slot === "guest" ? GUEST_CURRENT : slot === "account:" ? CURRENT : `${CURRENT}.${slot.slice("account:".length)}`);
 const OUTBOX = "yama.table.outbox";
 /** Finished games the server refused (not a network problem). Kept so nothing is lost. */
 const REJECTED = "yama.table.rejected";
@@ -121,13 +126,22 @@ function setCurrent(next: LocalGame | null) {
  * while it renders). The two never mix: a game counted without an account stays in its own slot
  * until whoever signs in says to save it (saveGuestGames), so nothing an account does reaches it.
  */
-export function selectSlot(guest: boolean) {
-  const want = guest ? "guest" : "account";
+export function selectSlot(guest: boolean, user?: string | null) {
+  const want = guest ? "guest" : `account:${user ?? ""}`;
   if (slot === want) return;
   slot = want;
   current = read<LocalGame | null>(currentKey(), null);
+  // A game kept under the old shared key comes along only for its own account (or one from before
+  // games recorded theirs); another account's stays where it is until that account signs in.
+  if (!guest && user && !current) {
+    const old = read<LocalGame | null>(CURRENT, null);
+    if (old && (!old.owner || old.owner === user)) {
+      current = { ...old, owner: old.owner ?? user };
+      localStorage.removeItem(CURRENT);
+    }
+  }
   derived = current ? replay(current.setup, current.log) : null;
-  waitingGuest = slot === "account" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
+  waitingGuest = slot !== "guest" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
   // The pages below App read the new game as they render; anything already showing hears about
   // it once the render is over.
   queueMicrotask(emit);
@@ -176,7 +190,7 @@ export function saveGuestGames() {
     const { guest: _, ...g } = current;
     current = { ...g, owner };
   }
-  if (slot === "account" && waitingGuest && !current) {
+  if (slot !== "guest" && waitingGuest && !current) {
     const { guest: _, ...g } = waitingGuest;
     current = { ...g, owner };
     derived = replay(g.setup, g.log);
@@ -190,7 +204,7 @@ export function saveGuestGames() {
 /** Throw away the games counted here without an account, the one going included. */
 export function dropGuestGames() {
   guestGames = [];
-  if (slot === "account" && waitingGuest) {
+  if (slot !== "guest" && waitingGuest) {
     waitingGuest = null;
     localStorage.removeItem(GUEST_CURRENT);
   }

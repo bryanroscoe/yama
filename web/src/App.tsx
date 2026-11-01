@@ -138,7 +138,7 @@ export function App() {
   // The account's game only once an account is signed in: on the sign-in page the guest's game
   // stays where it is, so backing out to the counter finds it again.
   if (guest) selectSlot(true);
-  else if (me.data) selectSlot(false);
+  else if (me.data) selectSlot(false, me.data.id);
   if (me.error && !guest) {
     return (
       <main className="login">
