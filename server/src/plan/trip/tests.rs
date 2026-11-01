@@ -98,6 +98,20 @@ fn a_maybe_store_doesnt_bundle_and_a_non_local_store_is_named_as_such() {
 }
 
 #[test]
+fn unknown_stock_is_not_a_reason_to_go() {
+    let f: Value = serde_json::from_str(FIXTURE).unwrap();
+    let mut b = f["bundle"].clone();
+    for q in b["quotes"].as_array_mut().unwrap() {
+        if q["card"] == "Exotic Orchard" {
+            q["in_stock"] = Value::Null;
+        }
+    }
+    let t = plan(&b, "2026-11-01", None);
+    assert!(t.stops.iter().all(|x| s(x.store, "key") != Some("multiverse-hobbies")));
+    assert_eq!(t.print.iter().find(|p| p.want.card == "Exotic Orchard").unwrap().reason, "unknown-stock");
+}
+
+#[test]
 fn preferences_read_the_old_name_and_order_the_stores() {
     let b = json!({
         "stores": [{"key": "a", "sort": 1}, {"key": "b", "sort": 2}, {"key": "c", "sort": 3}],

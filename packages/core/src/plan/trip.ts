@@ -11,7 +11,7 @@
 
 import { boughtInfo, markIndex } from "./marks";
 import { newestChecks } from "./quotes";
-import { cheapestMarket, printingMarket, recordedMarket, rulesAt, specialVersion, type MarketBasis, type PriceData, type RuleSet, type Rules } from "./rules";
+import { cheapestMarket, printingMarket, recordedMarket, rulesAt, type MarketBasis, type PriceData, type RuleSet, type Rules } from "./rules";
 import { usd } from "./source";
 import { answerIndex } from "./text";
 import { cartUrl } from "./buy";
@@ -179,7 +179,7 @@ export interface TripStop {
   search: { card: string; url: string }[];
 }
 
-export type PrintReason = "never-store" | "not-local" | "left-out" | "over-max" | "over-market" | "no-market" | "no-price" | "not-stocked" | "no-check";
+export type PrintReason = "never-store" | "not-local" | "left-out" | "over-max" | "over-market" | "no-market" | "no-price" | "unknown-stock" | "not-stocked" | "no-check";
 
 export interface PrintRow {
   want: Want;
@@ -291,6 +291,13 @@ export function tripWants(b: TripData, answers: Map<string, Review>, bought: (ke
   return out;
 }
 
+/** A foil or etched listing ("non-foil" doesn't count), whatever else it says ("Borderless Foil"). */
+export function foilListing(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const t = text.toLowerCase().replaceAll("non-foil", " ").replaceAll("nonfoil", " ");
+  return t.split(/[^a-z0-9]+/).some((w) => w === "foil" || w === "etched");
+}
+
 /** A listing's market for the rule: its own printing, else the cheapest non-foil copy, else the plan's benchmark. */
 function offerMarket(q: Quote, card: string, recorded: Quote[], p: PriceData): MarketBasis | null {
   const ref = q.scryfall_id || (q.set && q.num) ? { scryfall_id: q.scryfall_id, set: q.set, num: q.num } : null;
@@ -332,12 +339,13 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const checked = new Set<string>();
   // Every want's in-stock, priced listings at known stores, judged; plus what was seen for the reasons.
   const offersOf = new Map<string, TripOffer[]>();
-  const seenOf = new Map<string, { checks: number; unpriced: Quote | null }>();
+  const seenOf = new Map<string, { checks: number; unpriced: Quote | null; unknown: boolean }>();
   for (const w of wants) {
     const quotes = quotesByCard.get(norm(w.card)) ?? [];
     const recorded = quotes.filter((q) => q.kind === "market_benchmark");
     const latest = newestChecks(quotes);
     let unpriced: Quote | null = null;
+    let unknown = false;
     let checks = 0;
     const offers: TripOffer[] = [];
     for (const q of latest) {
@@ -347,18 +355,22 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       checks++;
       checked.add(q.checked);
       if (q.in_stock === false) continue;
+      // A check that didn't say whether it's in stock isn't a reason to go: ask the store.
+      if (q.in_stock !== true) {
+        unknown = true;
+        continue;
+      }
       if (q.price == null) {
         unpriced ??= q;
         continue;
       }
-      const sv = specialVersion(q.result);
-      if (sv === "foil" || sv === "etched") continue; // a plain copy is the rule; a foil isn't one
+      if (foilListing(q.result)) continue; // a plain copy is the rule; a foil isn't one
       const market = offerMarket(q, w.card, recorded, b);
       offers.push({ quote: q, store, preference: storePreference(b, store.key), price: q.price, market, verdict: judge(rule.rule, q.price, market?.usd ?? null) });
     }
     offers.sort(compareOffers);
     offersOf.set(w.id, offers);
-    seenOf.set(w.id, { checks, unpriced });
+    seenOf.set(w.id, { checks, unpriced, unknown });
   }
 
   const going = opts.stores ? new Set(opts.stores) : null;
@@ -459,6 +471,7 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       const o = (firstOf("over-market") ?? firstOf("no-market") ?? firstOf("over-max"))!;
       print.push({ want: w, reason: o.verdict as PrintReason, offer: o, stores: [] });
     } else if (seen.unpriced) print.push({ want: w, reason: "no-price", offer: null, stores: [] });
+    else if (seen.unknown) print.push({ want: w, reason: "unknown-stock", offer: null, stores: [] });
     else print.push({ want: w, reason: seen.checks ? "not-stocked" : "no-check", offer: null, stores: [] });
   }
 
