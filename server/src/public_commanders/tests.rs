@@ -83,7 +83,8 @@ fn counts(id: u32, name: &str, printing: &str, wins: u64, games: u64) -> Value {
 }
 
 fn scored(ids: &[&str], name: &str, s: f64, lo: f64, hi: f64, games: u64) -> Value {
-    let key = ids.join("+");
+    // Dataset keys allow no "+", so pairs join with "." as the Mythic converter does.
+    let key = ids.join(".");
     json!({"id":format!("mythic:{key}"),"kind":"commander","entity":format!("mythic:commander:{key}"),"sources":[SHA],
         "data":{"name":name,"oracle_ids":ids,"score_0_100":s,"interval_low":lo,"interval_high":hi,"games":games,"decks":games / 3,"baseline":0.367,"prior_strength":100}})
 }
