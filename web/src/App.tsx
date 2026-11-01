@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useMatch } from "react-router";
-import { setGuestActive, useGuestChosen } from "./guest";
+import { chooseGuest, setGuestActive, useGuestChosen } from "./guest";
 import { selectSlot } from "./table/store";
 import { useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "./admin/AdminLayout";
@@ -147,7 +147,9 @@ export function App() {
             <Wordmark />
           </h1>
           <ErrorText error={me.error} />
-          <p className="dim">The server didn't answer. If you're offline, the life counter still works once you've signed in on this device.</p>
+          <p className="dim">The server didn't answer. If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
+          {/* Counting without an account needs nothing from the server. */}
+          <button className="primary" onClick={() => chooseGuest(true)}>Count life without an account</button>
         </div>
       </main>
     );
