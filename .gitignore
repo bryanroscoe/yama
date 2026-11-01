@@ -1,6 +1,7 @@
 /target
 /target-dev
 node_modules/
+__pycache__/
 dist/
 /data/*
 !/data/.gitkeep
