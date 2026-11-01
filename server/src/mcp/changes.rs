@@ -1497,6 +1497,15 @@ pub async fn set_store_preference(st: &AppState, user: &User, via: &Via, args: &
 
 async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
     let key = p["store"].as_str().unwrap_or_default();
+    // Check the store is still one of theirs before writing anything (an import may have retired it).
+    let active: Option<String> = sqlx::query_scalar("SELECT key FROM plan_stores WHERE owner_id = ? AND key = ? AND retired_at IS NULL AND kind != 'printer'")
+        .bind(&user.id)
+        .bind(key)
+        .fetch_optional(&st.pool)
+        .await?;
+    if active.is_none() {
+        return Err(AppError::Conflict(format!("{key} is no longer one of their stores.")));
+    }
     let pref = crate::plan::shopping::Pref {
         preference: p["preference"].as_str().unwrap_or("ok").into(),
         note: p["note"].as_str().map(String::from),

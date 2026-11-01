@@ -1437,6 +1437,17 @@ async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
     let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "default", "hassle": 2, "premium_usd": 0.25})).await;
     assert_eq!((status, r["preference"].as_str()), (StatusCode::OK, Some("favorite")), "{r}");
     assert_eq!(bundle(&app, &token).await["store_prefs"]["shop"]["premium_usd"], 0.25);
+    // The whole order at once: only your current stores (not a printer), each once.
+    let order = |keys: Value| {
+        let (app, token) = (app.clone(), token.clone());
+        async move { send(&app, Method::PUT, "/api/plan/store-order", Some(&token), Some(json!({"keys": keys}))).await }
+    };
+    assert_eq!(order(json!(["shop", "shop"])).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(order(json!(["printer"])).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::PUT, "/api/plan/store-order", Some(&friend_token), Some(json!({"keys": ["shop"]}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(order(json!(["shop"])).await.0, StatusCode::OK);
+    let b = bundle(&app, &token).await;
+    assert_eq!((b["store_prefs"]["shop"]["hassle"].as_i64(), b["store_prefs"]["shop"]["preference"].as_str()), (Some(1), Some("favorite")), "other settings stay");
     let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "never", "note": "  Too far  "})).await;
     assert_eq!(status, StatusCode::OK, "{r}");
 

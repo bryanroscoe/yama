@@ -78,6 +78,9 @@ export interface StorePrefBody {
   premium_usd: number | null;
 }
 
+/** Your whole order of stores, easiest first, saved at once. */
+export const setStoreOrder = (keys: string[]) => api<{ keys: string[] }>("/api/plan/store-order", { method: "PUT", json: { keys } });
+
 export const setStorePreference = (store: string, body: StorePrefBody) =>
   api<{ store: string; preference: StorePreference | null }>(`/api/plan/stores/${encodeURIComponent(store)}/preference`, { method: "PUT", json: body });
 

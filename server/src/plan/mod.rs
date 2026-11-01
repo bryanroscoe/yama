@@ -48,6 +48,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/plan/decks/{key}/yama-deck", post(decks::make_yama_deck))
         .route("/api/plan/decks/{key}/swap-in", get(swap_in::preview_route).post(swap_in::apply_route))
         .route("/api/plan/stores/{key}/preference", put(shopping::preference_route))
+        .route("/api/plan/store-order", put(shopping::order_route))
         .route("/api/plan/settings", post(shopping::save_route))
         .route("/api/plan/settings/{date}", delete(shopping::remove_route))
         .merge(inputs::router())

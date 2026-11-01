@@ -133,8 +133,10 @@ this time" (all are, until he unticks one; `?stores=` on the page, `stores` on `
 and it has a qualifying copy of a needed card.
 
 - **A favourite with a qualifying needed card is on every trip.** "Use them as much as possible."
-- The other candidates are searched exhaustively (at most 12, the ones covering most; 4,095
-  subsets), each subset together with the favourites. For each number of stores, the best subset
+- The other candidates are searched exhaustively (up to 12; 4,095 subsets), each subset together
+  with the favourites. With more than 12, a greedy cover picks the stores searched (the rest of a
+  longer cover goes on every trip), so every coverable card is reached but the fewest stores is
+  approximate. For each number of stores, the best subset
   covers the most needed cards, then has the fewest "maybe" stores, then is **easiest to get to**
   (the lowest sum of the stores' places in his order), then has the lowest total.
 - The trip is the smallest set that covers as many cards as any set can; the smaller sets that

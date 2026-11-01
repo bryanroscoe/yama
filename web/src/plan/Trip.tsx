@@ -21,7 +21,7 @@ import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
-import { setStorePreference, type StorePrefBody } from "./api";
+import { setStoreOrder, setStorePreference, type StorePrefBody } from "./api";
 import { marketSentence } from "./marks";
 import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -338,6 +338,8 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["plan", userId] }),
   });
+  const reorder = useMutation({ mutationFn: setStoreOrder, onSettled: () => qc.invalidateQueries({ queryKey: ["plan", userId] }) });
+  const busy = set.isPending || reorder.isPending;
   if (!stores.length) return null;
   const order = hassleOrder({ stores, store_prefs: prefs });
   const sorted = [...stores].sort((x, y) => order.get(x.key)! - order.get(y.key)!);
@@ -345,7 +347,7 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
   const move = (i: number, by: -1 | 1) => {
     const next = [...sorted];
     [next[i], next[i + by]] = [next[i + by]!, next[i]!];
-    set.mutate(next.map((s, n) => ({ key: s.key, body: prefBody(prefs[s.key], { hassle: n + 1 }) })).filter((c, n) => prefs[c.key]?.hassle !== n + 1));
+    reorder.mutate(next.map((s) => s.key));
   };
   return (
     <section className="plan-section trip-prefs" aria-labelledby="trip-prefs">
@@ -376,7 +378,7 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
               <select
                 aria-label={`How you feel about ${s.name}`}
                 value={pref}
-                disabled={set.isPending}
+                disabled={busy}
                 onChange={(e) => set.mutate([{ key: s.key, body: prefBody(prefs[s.key], { preference: e.target.value as StorePreference }) }])}
               >
                 {CHOICES.map((c) => (
@@ -389,18 +391,18 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
                 <Premium
                   store={s}
                   value={storePremium(view.b, s.key)}
-                  disabled={set.isPending}
+                  disabled={busy}
                   onSave={(v) => set.mutate([{ key: s.key, body: prefBody(prefs[s.key], { premium_usd: v }) }])}
                 />
               )}
-              <button type="button" className="trip-move" aria-label={`${s.name} is easier to get to`} disabled={set.isPending || i === 0} onClick={() => move(i, -1)}>
+              <button type="button" className="trip-move" aria-label={`${s.name} is easier to get to`} disabled={busy || i === 0} onClick={() => move(i, -1)}>
                 ↑
               </button>
               <button
                 type="button"
                 className="trip-move"
                 aria-label={`${s.name} is harder to get to`}
-                disabled={set.isPending || i === sorted.length - 1}
+                disabled={busy || i === sorted.length - 1}
                 onClick={() => move(i, 1)}
               >
                 ↓
@@ -409,7 +411,7 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
           </div>
         );
       })}
-      {set.error && <ErrorText error={set.error} />}
+      {(set.error || reorder.error) && <ErrorText error={set.error ?? reorder.error} />}
     </section>
   );
 }

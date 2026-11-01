@@ -292,15 +292,55 @@ pub async fn place_store(pool: &SqlitePool, owner: &str, key: &str, place: i64) 
     let Some(at) = order.iter().position(|k| k == key) else { return Err(AppError::NotFound("store")) };
     let moved = order.remove(at);
     order.insert(((place - 1).max(0) as usize).min(order.len()), moved);
-    for (i, k) in order.iter().enumerate() {
-        let mut p = get_pref(pool, owner, k).await?;
-        let want = i as i64 + 1;
-        if p.hassle != Some(want) {
-            p.hassle = Some(want);
-            set_pref(pool, owner, k, &p).await?;
+    write_order(pool, owner, &order).await
+}
+
+/// The owner's order of how easy their stores are to get to: the given stores take places 1, 2, ...
+/// in one transaction, and keep their other settings. Each must be one of their current stores.
+pub async fn write_order(pool: &SqlitePool, owner: &str, keys: &[String]) -> AppResult<()> {
+    let known: Vec<String> = sqlx::query_scalar("SELECT key FROM plan_stores WHERE owner_id = ? AND retired_at IS NULL AND kind != 'printer'")
+        .bind(owner)
+        .fetch_all(pool)
+        .await?;
+    let mut seen = std::collections::HashSet::new();
+    for k in keys {
+        if !known.contains(k) {
+            return Err(AppError::bad(format!("No store with key \"{k}\"")));
+        }
+        if !seen.insert(k) {
+            return Err(AppError::bad(format!("\"{k}\" appears twice")));
         }
     }
+    let at = now();
+    let mut tx = pool.begin().await?;
+    for (i, k) in keys.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO plan_store_prefs (owner_id, store_key, preference, hassle, updated_at) VALUES (?, ?, 'ok', ?, ?)
+             ON CONFLICT(owner_id, store_key) DO UPDATE SET hassle = excluded.hassle, updated_at = excluded.updated_at",
+        )
+        .bind(owner)
+        .bind(k)
+        .bind(i as i64 + 1)
+        .bind(&at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct OrderBody {
+    keys: Vec<String>,
+}
+
+/// `PUT /api/plan/store-order`: the caller's whole order of their stores, saved at once.
+pub async fn order_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<OrderBody>) -> AppResult<Json<Value>> {
+    if body.keys.len() > MAX_HASSLE as usize {
+        return Err(AppError::bad("too many stores"));
+    }
+    write_order(&st.pool, &user.id, &body.keys).await?;
+    Ok(Json(json!({"keys": body.keys})))
 }
 
 #[derive(Deserialize)]
