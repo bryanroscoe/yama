@@ -20,19 +20,46 @@ export interface RoomIo<S> {
   /** The newest snapshot, kept across hibernation so late joiners catch up. */
   loadSnapshot(): string | undefined;
   saveSnapshot(text: string): void;
+  /** A guest's tap allowance, kept with its socket across hibernation. */
+  allowance(s: S): Allowance | undefined;
+  setAllowance(s: S, a: Allowance): void;
+  now(): number;
+}
+
+/** Taps a guest may still send, as of `at` (ms). */
+export interface Allowance {
+  taps: number;
+  at: number;
 }
 
 /** A snapshot carries the whole game log, so it may be large; guests only send one tap. */
-export const MAX_SNAPSHOT = 512 * 1024;
+export const MAX_SNAPSHOT = 1024 * 1024;
 export const MAX_EVENT = 8 * 1024;
-/** Phones in one room: a table of up to eight, each maybe on two devices, plus spares. */
-export const MAX_SOCKETS = 24;
+/** Guests in one room: a table of up to eight, each maybe on two devices, plus spares. */
+export const MAX_GUESTS = 24;
+/**
+ * Taps per guest: a burst of 30, then 8 a second (holding a button repeats about 7 a second).
+ * Each tap makes the host send, and the room store, the whole game again, so a phone with the
+ * link can't run the table's free allowance down. Taps over it are dropped.
+ */
+export const TAP_BURST = 30;
+export const TAPS_PER_SECOND = 8;
 
 const hostStatus = (connected: boolean) => JSON.stringify({ type: "host", connected });
 
-/** Whether a room can take another connection. */
-export function hasRoom<S>(io: RoomIo<S>): boolean {
-  return io.sockets().length < MAX_SOCKETS;
+/** Whether a room can take another connection. The host always gets in: it replaces any old one. */
+export function hasRoom<S>(io: RoomIo<S>, role: Role): boolean {
+  return role === "host" || io.sockets("guest").length < MAX_GUESTS;
+}
+
+/** Spend one of a guest's taps; false when it has none left. */
+function spendTap<S>(io: RoomIo<S>, s: S): boolean {
+  const now = io.now();
+  const was = io.allowance(s) ?? { taps: TAP_BURST, at: now };
+  const taps = Math.min(TAP_BURST, was.taps + ((now - was.at) / 1000) * TAPS_PER_SECOND);
+  if (taps < 1) return false;
+  io.setAllowance(s, { taps: taps - 1, at: now });
+  return true;
 }
 
 /** A socket just joined (already among `io.sockets()`). */
@@ -61,6 +88,7 @@ export function message<S>(io: RoomIo<S>, s: S, text: string): void {
   const msg = parse(text);
   const event = msg?.event as { type?: unknown } | undefined;
   if (msg?.type !== "event" || typeof event !== "object" || event === null || typeof event.type !== "string") return;
+  if (!spendTap(io, s)) return;
   // Offline host: the tap is dropped, and the guest's screen says changes wait for it.
   const out = JSON.stringify({ type: "event", event });
   for (const h of io.sockets("host")) io.send(h, out);

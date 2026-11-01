@@ -57,9 +57,10 @@ struct EdgeShare {
     at: Instant,
 }
 
-/// How long a share key left here stays offered: longer than any game night. A phone that stops
-/// sharing takes it back sooner.
-const EDGE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
+/// How long a share key left here stays offered. The sharing phone leaves it again every 20
+/// minutes and takes it back when it stops, so one that closes without stopping (or loses its
+/// signal) stops being offered soon.
+const EDGE_TTL: Duration = Duration::from_secs(60 * 60);
 
 struct Room {
     /// Set by the host; guests must match it.

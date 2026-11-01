@@ -17,6 +17,7 @@ import { cardNamed, unionIdentity } from "./pickers";
 import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
 import { LogGame } from "./TableHome";
 import { isViewing } from "../viewingFlag";
+import { joinFragment } from "./share";
 import "./home.css";
 
 const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
@@ -177,7 +178,7 @@ export function GameDetailPage() {
             <>
               <div className="row">
                 {live.data?.hosting && (
-                  <Link className="button primary" to={`/table/join/${g.id}${live.data.key ? `#k=${live.data.key}` : ""}`}>Follow it live</Link>
+                  <Link className="button primary" to={`/table/join/${g.id}${live.data.key ? joinFragment(live.data.key, "edge") : ""}`}>Follow it live</Link>
                 )}
                 <button className={live.data?.hosting ? "" : "primary"} disabled={busyElsewhere || carryOn.isPending} onClick={() => carryOn.mutate()}>
                   {carryOn.isPending ? "Opening…" : "Continue on this device"}

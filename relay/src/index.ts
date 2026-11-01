@@ -12,7 +12,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { RELAY_TOKEN, relayShareKey } from "../../packages/core/src/relayKey";
-import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
+import { hasRoom, join, leave, message, type Allowance, type Role, type RoomIo } from "./room";
 
 interface Env {
   ROOMS: DurableObjectNamespace<TableRoom>;
@@ -70,11 +70,15 @@ export class TableRoom extends DurableObject<Env> {
     },
     loadSnapshot: () => this.ctx.storage.kv.get<string>("snapshot"),
     saveSnapshot: (text) => this.ctx.storage.kv.put("snapshot", text),
+    // Attachments live with the socket in memory, not in storage: free, and kept across hibernation.
+    allowance: (s) => (s.deserializeAttachment() as Allowance | null) ?? undefined,
+    setAllowance: (s, a) => s.serializeAttachment(a),
+    now: () => Date.now(),
   };
 
   async fetch(req: Request): Promise<Response> {
     const role: Role = req.headers.get("X-Yama-Role") === "host" ? "host" : "guest";
-    if (!hasRoom(this.io)) return new Response("this table is full", { status: 429 });
+    if (!hasRoom(this.io, role)) return new Response("this table is full", { status: 429 });
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server, [role]);
     join(this.io, server);

@@ -47,7 +47,7 @@ import { Spares } from "./plan/Spares";
 import { SwapSheetPage } from "./plan/SwapSheet";
 import { SwapCardsPage } from "./plan/SwapCards";
 import { GuestTable } from "./table/GuestTable";
-import { EDGE_RELAY } from "./table/share";
+import { joinLink } from "./table/share";
 import { GameDetailPage } from "./table/GameDetail";
 import { TableHome } from "./table/TableHome";
 import { TablePlay } from "./table/TablePlay";
@@ -110,7 +110,7 @@ export function App() {
   }, []);
   // Following a shared table needs only its code, not an account, and works while Yama's
   // server is offline: the Cloudflare relay carries it.
-  if (joining && EDGE_RELAY) {
+  if (joining && joinLink(joining.params.gameId ?? "").relay === "edge") {
     return (
       <Routes>
         <Route path="/table/join/:gameId" element={<GuestTable />} />
