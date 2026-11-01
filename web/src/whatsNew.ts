@@ -26,6 +26,15 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/lab/runs", label: "Open my runs" },
   },
   {
+    id: "2026-11-01-whos-playing",
+    date: "2026-11-01",
+    title: "New game: tap who's playing",
+    items: [
+      "Pick Friends or one of your playgroups, then tap the people at the table. Each one takes the next seat; tap again to take them off. Playgroup members' games count for them, and friends from past games sit as guests.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
     id: "2026-11-01-table-pass",
     date: "2026-11-01",
     title: "Life counter: finish, edit players, take commander damage",
