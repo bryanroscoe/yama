@@ -193,3 +193,35 @@ describe("whose games upload", () => {
     items.set("yama.me", JSON.stringify({ id: "me" }));
   });
 });
+
+describe("each account's game", () => {
+  it("is its own: another account signing in on the phone doesn't see it", async () => {
+    guest = false;
+    items.set("yama.me", JSON.stringify({ id: "alice" }));
+    store.selectSlot(false, "alice");
+    store.startGame(setup("alice-1"));
+    // Alice signs out, Bob signs in: no game of Alice's.
+    items.set("yama.me", JSON.stringify({ id: "bob" }));
+    store.selectSlot(false, "bob");
+    expect(store.getGame()).toBeNull();
+    // Alice again: hers, as she left it.
+    items.set("yama.me", JSON.stringify({ id: "alice" }));
+    store.selectSlot(false, "alice");
+    expect(store.getGame()?.setup.id).toBe("alice-1");
+    store.discardGame();
+    await store.sync();
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, null);
+  });
+
+  it("takes a game from the old shared key only if it's that account's", () => {
+    items.set("yama.table.current", JSON.stringify({ setup: setup("old-carol"), log: [], redo: [], syncedThrough: 0, owner: "carol" }));
+    store.selectSlot(false, "dave");
+    expect(store.getGame()).toBeNull();
+    store.selectSlot(false, "carol");
+    expect(store.getGame()?.setup.id).toBe("old-carol");
+    expect(items.get("yama.table.current")).toBeUndefined();
+    store.discardGame();
+    store.selectSlot(false, null);
+  });
+});
