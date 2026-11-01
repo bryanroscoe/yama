@@ -63,8 +63,15 @@ impl RateLimiter {
         self.check_at(key, Instant::now(), true)
     }
 
+    /// Count a hit for `key` that has already happened, whatever the count: for something
+    /// checked with `allows` beforehand and counted only once it really happened.
+    pub fn record(&self, key: &str) {
+        let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        hits.entry(key.to_string()).or_default().push_back(Instant::now());
+    }
+
     /// Whether a hit for `key` would be allowed, without counting it: for checking several
-    /// limits before counting any (`check` them once all allow), so one refusal doesn't use up
+    /// limits before counting any (`record` or `check` once all allow), so one refusal doesn't use up
     /// another's allowance.
     pub fn allows(&self, key: &str) -> AppResult<()> {
         self.check_at(key, Instant::now(), false)
