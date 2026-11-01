@@ -391,6 +391,7 @@ export function DeckPage() {
               <button className="outline" onClick={() => setExporting(true)}>Export</button>
               <button className="outline" onClick={() => setHistory(true)}>History</button>
               <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
+              <Link className="button outline" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
               <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
             </div>
           </details>
