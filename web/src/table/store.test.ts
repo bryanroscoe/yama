@@ -165,3 +165,31 @@ describe("the game slot without an account", () => {
     await store.sync();
   });
 });
+
+describe("whose games upload", () => {
+  it("uploads only the games of the account signed in here", async () => {
+    guest = false;
+    calls.length = 0;
+    // Saved by another account that signed out before it went up.
+    items.set("yama.me", JSON.stringify({ id: "someone-else" }));
+    guest = true;
+    store.startGame(setup("theirs-1"));
+    store.finishGame(0);
+    guest = false;
+    // Saved while offline: it waits in the outbox.
+    failWith = "offline";
+    store.saveGuestGames();
+    await store.sync();
+    failWith = null;
+    calls.length = 0;
+    // Now "me" signs in on the phone: their game isn't sent under "me".
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    await store.sync();
+    expect(calls.map((c) => c.path)).not.toContain("/api/games/theirs-1/finish");
+    // Back as them: it goes up.
+    items.set("yama.me", JSON.stringify({ id: "someone-else" }));
+    await store.sync();
+    expect(calls.map((c) => c.path)).toContain("/api/games/theirs-1/finish");
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+  });
+});

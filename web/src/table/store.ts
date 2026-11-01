@@ -35,6 +35,11 @@ export interface LocalGame {
    * says to save it (saveGuestGames).
    */
   guest?: true;
+  /**
+   * The account whose game it is (signed in when it started, or that said to save it): it's only
+   * uploaded while that account is signed in here. Missing on games from before this was kept.
+   */
+  owner?: string;
 }
 
 const CURRENT = "yama.table.current";
@@ -83,6 +88,8 @@ function signedInUser(): string | null {
   }
 }
 const mine = (d: QueuedDelete) => d.owner === null || d.owner === signedInUser();
+/** A game this device may upload now: no owner recorded, or the account signed in here. */
+const mineGame = (g: LocalGame) => !g.owner || g.owner === signedInUser();
 let pendingIds: string[] = [];
 let derived: TableState | null = current ? replay(current.setup, current.log) : null;
 let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | null } = {
@@ -159,17 +166,19 @@ export function useGuestGames() {
  * another game going it waits, and the question stays until that one is done.
  */
 export function saveGuestGames() {
-  outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => g)];
+  // Saved by the account signed in now: theirs, uploaded only while they're signed in here.
+  const owner = signedInUser() ?? undefined;
+  outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => ({ ...g, owner }))];
   guestGames = [];
   // A game marked as counted without an account in the account's own slot (left by an older
   // version) is saved where it is.
   if (current?.guest) {
     const { guest: _, ...g } = current;
-    current = g;
+    current = { ...g, owner };
   }
   if (slot === "account" && waitingGuest && !current) {
     const { guest: _, ...g } = waitingGuest;
-    current = g;
+    current = { ...g, owner };
     derived = replay(g.setup, g.log);
     waitingGuest = null;
     localStorage.removeItem(GUEST_CURRENT);
@@ -255,7 +264,8 @@ export function useSyncStatus() {
 }
 
 export function startGame(setup: TableSetup) {
-  setCurrent({ setup, log: [], redo: [], syncedThrough: 0, ...(isGuest() ? { guest: true as const } : {}) });
+  const owner = isGuest() ? undefined : (signedInUser() ?? undefined);
+  setCurrent({ setup, log: [], redo: [], syncedThrough: 0, ...(isGuest() ? { guest: true as const } : {}), ...(owner ? { owner } : {}) });
   void sync();
 }
 
@@ -314,7 +324,7 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
  */
 export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
   const through = log[log.length - 1]?.seq ?? 0;
-  setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through });
+  setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through, ...(signedInUser() ? { owner: signedInUser()! } : {}) });
   posted.add(setup.id);
   void sync();
 }
@@ -399,8 +409,8 @@ export function sync(): Promise<void> {
     emit();
     try {
       // Finished games first: they're complete and the most valuable.
-      while (outbox.length) {
-        const g = outbox[0]!;
+      // Another account's games wait until it signs in here again.
+      for (let g = outbox.find(mineGame); g; g = outbox.find(mineGame)) {
         try {
           await pushGame(g);
         } catch (e) {
@@ -414,7 +424,7 @@ export function sync(): Promise<void> {
         emit();
       }
       await pushDeletes();
-      if (current && !current.guest) {
+      if (current && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
         const through = current.log[current.log.length - 1]?.seq ?? 0;
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
