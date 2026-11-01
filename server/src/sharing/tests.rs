@@ -696,23 +696,57 @@ async fn shared_notes_price_the_cards_to_get() {
         "Worth $4.75",
         "About $0.80 to get",
         "as of 30 Oct 2026",
-        "1 card without a market price in Yama is out of the money totals.",
-        "<td>Buy locally</td><td class=\"num\">$0.50</td>",
-        "<td>Print</td><td class=\"num\">$4.25</td><td class=\"num\">$0.30</td>",
-        "<td>No price</td>",
+        "1 card without a market price in Yama is out of the worth.",
+        "<td class=\"get\">Buy locally</td><td class=\"num\">$0.50</td>",
+        "<td class=\"get\">Print</td><td class=\"num\">$4.25</td><td class=\"num\">$0.30</td>",
+        "<td class=\"get\">No price</td>",
+        // The list as text to copy, a box per way of getting the cards.
+        "id=\"shop-buy\" readonly rows=\"8\" aria-label=\"Buy locally (1 card)\">1 Arcane Signet\n</textarea>",
+        "id=\"shop-print\" readonly rows=\"8\" aria-label=\"Print (1 card)\">1 Swords to Plowshares\n</textarea>",
+        ">1 Mystery Card\n</textarea>",
+        "data-copy=\"shop-buy\" hidden>Copy</button>",
+        // The decklist to copy, in the standard format.
+        "id=\"decklist\" readonly rows=\"12\" aria-label=\"Standard list (Commander, then Deck)\">Commander\n1 Nalia de&#39;Arnise\n\nDeck\n",
     ] {
         assert!(deck.contains(shown), "{shown}");
     }
+    // Print every card, or buy every card: the totals follow.
+    let print = page(&app, &format!("/r/{token}/party?get=print")).await.2;
+    assert!(print.contains("3 to print: about $0.90") && print.contains("About $0.90 to get") && !print.contains("to buy locally"), "{print}");
+    let buy = page(&app, &format!("/r/{token}/party?get=buy")).await.2;
+    assert!(buy.contains("3 to buy locally: about $4.75") && buy.contains("About $4.75 to get") && buy.contains("1 card without a known cost is out of the cost."), "{buy}");
+    assert!(buy.contains("aria-current=\"page\" href=\"/r/") && buy.contains(">Buy every card locally</a>"));
+    assert_eq!(page(&app, &format!("/r/{token}/party?get=steal")).await.0, StatusCode::NOT_FOUND);
     // The note page: per deck, overall, and every card with the decks it goes in.
     let (status, _, body) = page(&app, &format!("/r/{token}")).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("3 cards to add across 1 deck<") && body.contains("About $0.80 to get") && body.contains("<td class=\"dim\">Party Time</td>"), "{body}");
+    assert!(body.contains("3 cards to get across 1 deck<") && body.contains("About $0.80 to get") && body.contains("<td class=\"dim\">Party Time</td>"), "{body}");
+    assert!(body.contains("id=\"lists-head\">Deck lists</h2>") && body.contains("// Party Time: Bracket 3 · Upgraded\nCommander\n"), "{body}");
+    assert_eq!(page(&app, &format!("/r/{token}?get=print")).await.0, StatusCode::OK);
+    assert_eq!(page(&app, &format!("/r/{token}?get=steal")).await.0, StatusCode::NOT_FOUND);
     assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
     // One build across the decks; one no deck has is not found.
     let (status, _, b3) = page(&app, &format!("/r/{token}?build=b3")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(b3.contains("About $0.80 to get"));
     assert_eq!(page(&app, &format!("/r/{token}?build=b9")).await.0, StatusCode::NOT_FOUND);
+    // Every build as its own deck, from one precon: shared cards count once per build.
+    let mut both = note();
+    both["decks"][0]["recommended_build"] = json!("b3");
+    both["decks"][0]["builds"] = json!([
+        {"id": "b2", "label": "Bracket 2", "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Stick Together\n1 Arcane Signet",
+         "swaps": [{"id": "signet", "card_in": "Arcane Signet", "card_out": "Plains"}]},
+        {"id": "b3", "label": "Bracket 3", "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Swords to Plowshares\n1 Arcane Signet",
+         "swaps": [{"id": "signet", "card_in": "Arcane Signet", "card_out": "Plains"}, {"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together"}]}
+    ]);
+    crate::deck_research::save(&pool, &bryan, &both).await.unwrap();
+    let all = page(&app, &format!("/r/{token}?build=all")).await.2;
+    // Nalia once more, two Signets, one Swords; the Stick Together b2 keeps is the precon's.
+    assert!(all.contains("4 cards to get across 1 deck<") && all.contains("<td>All 2 builds</td>") && all.contains("2 to buy locally: about $1.00"), "{all}");
+    assert!(all.contains("id=\"shop-buy\" readonly rows=\"8\" aria-label=\"Buy locally (2 cards)\">2 Arcane Signet\n</textarea>"), "{all}");
+    assert!(all.contains("// Party Time: Bracket 2\n") && all.contains("// Party Time: Bracket 3\n") && all.contains("aria-label=\"Every list (2)\""), "{all}");
+    assert!(all.contains(">All builds</a>") && all.contains("aria-current=\"page\" href=\"/r/"), "{all}");
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
     // Nothing priced: worth and cost are unknown, never $0.
     doc["decks"][0]["builds"][0]["swaps"] = json!([{"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains"}]);
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();

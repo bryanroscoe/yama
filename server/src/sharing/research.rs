@@ -340,6 +340,77 @@ const BUY_UP_TO: f64 = 2.0;
 /// About what one printed proxy costs.
 const PRINT_EACH: f64 = 0.30;
 
+/// How to get the cards (`?get=`): buy those at `BUY_UP_TO` or less and print the rest (the
+/// default), buy every card locally, or print every card.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum How {
+    Split,
+    Buy,
+    Print,
+}
+
+/// How one card is got under a `How`. `Unknown`: split, with no price to decide by.
+#[derive(Clone, Copy, PartialEq)]
+enum Get {
+    Buy,
+    Print,
+    Unknown,
+}
+
+impl How {
+    pub(super) const ALL: [How; 3] = [How::Split, How::Buy, How::Print];
+    /// The query value; an unknown one is `None` (not found), like an unknown build.
+    pub(super) fn parse(q: Option<&str>) -> Option<How> {
+        match q.unwrap_or("") {
+            "" => Some(How::Split),
+            "buy" => Some(How::Buy),
+            "print" => Some(How::Print),
+            _ => None,
+        }
+    }
+    fn param(self) -> Option<&'static str> {
+        match self {
+            How::Split => None,
+            How::Buy => Some("buy"),
+            How::Print => Some("print"),
+        }
+    }
+    fn label(self) -> String {
+        match self {
+            How::Split => format!("Buy up to {}, print the rest", usd(Some(BUY_UP_TO))),
+            How::Buy => "Buy every card locally".into(),
+            How::Print => "Print every card".into(),
+        }
+    }
+    fn explain(self) -> String {
+        match self {
+            How::Split => format!("A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less.", usd(Some(BUY_UP_TO)), usd(Some(PRINT_EACH))),
+            How::Buy => "Every card bought as a real card at a local store.".into(),
+            How::Print => format!("Every card printed as a proxy at about {} each.", usd(Some(PRINT_EACH))),
+        }
+    }
+    fn get(self, price: Option<f64>) -> Get {
+        match (self, price) {
+            (How::Print, _) => Get::Print,
+            (How::Buy, _) => Get::Buy,
+            (How::Split, Some(p)) if p > BUY_UP_TO => Get::Print,
+            (How::Split, Some(_)) => Get::Buy,
+            (How::Split, None) => Get::Unknown,
+        }
+    }
+    /// One card's copies: how they're got and their estimated cost (unknown without a price,
+    /// unless printed).
+    fn cost(self, n: i64, price: Option<f64>) -> (Get, Option<f64>) {
+        let get = self.get(price);
+        let cost = match get {
+            Get::Print => Some(PRINT_EACH * n as f64),
+            Get::Buy => price.map(|p| p * n as f64),
+            Get::Unknown => None,
+        };
+        (get, cost)
+    }
+}
+
 /// Copies to get and what they come to.
 #[derive(Default)]
 struct Totals {
@@ -349,34 +420,42 @@ struct Totals {
     print: i64,
     print_cost: f64,
     worth: f64,
+    /// Copies with no market price: out of the worth.
     unpriced: i64,
+    /// Copies whose cost is unknown (no price, and not printed): out of the cost.
+    uncosted: i64,
 }
 
 impl Totals {
-    fn add(&mut self, n: i64, price: Option<f64>) {
+    fn add(&mut self, n: i64, price: Option<f64>, how: How) {
         self.cards += n;
-        let copies = n as f64;
         match price {
+            Some(p) => self.worth += p * n as f64,
             None => self.unpriced += n,
-            Some(p) if p > BUY_UP_TO => {
+        }
+        match how.cost(n, price) {
+            (Get::Print, c) => {
                 self.print += n;
-                self.print_cost += PRINT_EACH * copies;
-                self.worth += p * copies;
+                self.print_cost += c.unwrap_or_default();
             }
-            Some(p) => {
+            (Get::Buy, Some(c)) => {
                 self.buy += n;
-                self.buy_cost += p * copies;
-                self.worth += p * copies;
+                self.buy_cost += c;
             }
+            (Get::Buy, None) => {
+                self.buy += n;
+                self.uncosted += n;
+            }
+            (Get::Unknown, _) => self.uncosted += n,
         }
     }
     /// Market worth, unknown (never $0) when no card has a price.
     fn worth(&self) -> Option<f64> {
-        (self.buy + self.print > 0).then_some(self.worth)
+        (self.unpriced < self.cards).then_some(self.worth)
     }
-    /// Buys plus prints, unknown (never $0) when no card has a price.
+    /// Buys plus prints, unknown (never $0) when no card's cost is known.
     fn cost(&self) -> Option<f64> {
-        (self.buy + self.print > 0).then_some(self.buy_cost + self.print_cost)
+        (self.uncosted < self.cards).then_some(self.buy_cost + self.print_cost)
     }
 }
 
@@ -433,44 +512,93 @@ fn card_ref(name: &str, image: &str) -> String {
     format!("<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(image), e(&scryfall(name)))
 }
 
+/// A card with its copies, kept on one line with its thumbnail: "2× [card] Name".
+fn card_line(name: &str, image: &str, n: i64) -> String {
+    let count = if n > 1 { format!("<span class=\"share-qty\">{n}×</span>") } else { String::new() };
+    format!("<span class=\"share-card-line\">{count}{}</span>", card_ref(name, image))
+}
+
 fn count_cards(n: i64) -> String {
     format!("{n} card{}", if n == 1 { "" } else { "s" })
 }
 
 /// The totals as pills, and how they're worked out.
-fn shopping_totals(t: &Totals, as_of: Option<String>) -> String {
-    let mut s = format!(
-        "<div class=\"share-status\"><span class=\"pill\">{}</span><span class=\"pill\">{} to buy locally: about {}</span><span class=\"pill\">{} to print: about {}</span><span class=\"pill\">{}</span><span class=\"pill\">{}</span></div>",
-        count_cards(t.cards),
-        t.buy,
-        usd(Some(t.buy_cost)),
-        t.print,
-        usd(Some(t.print_cost)),
-        t.worth().map_or("Worth unknown".into(), |w| format!("Worth {}", usd(Some(w)))),
-        t.cost().map_or("Cost unknown".into(), |c| format!("About {} to get", usd(Some(c)))),
-    );
+fn shopping_totals(t: &Totals, as_of: Option<String>, how: How) -> String {
+    let mut s = format!("<div class=\"share-status\"><span class=\"pill\">{}</span>", count_cards(t.cards));
+    if t.buy > 0 || how == How::Split {
+        write!(s, "<span class=\"pill\">{} to buy locally: about {}</span>", t.buy, usd(Some(t.buy_cost))).unwrap();
+    }
+    if t.print > 0 || how == How::Split {
+        write!(s, "<span class=\"pill\">{} to print: about {}</span>", t.print, usd(Some(t.print_cost))).unwrap();
+    }
     write!(
         s,
-        "<p class=\"dim share-shop-how\">Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{}. A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less. This is general advice from market prices, not the sharer's own plan. Worth is what the cards sell for. The cost is an estimate: buys at market price (a store's own price will differ) plus prints.",
+        "<span class=\"pill\">{}</span><span class=\"pill\">{}</span></div>",
+        t.worth().map_or("Worth unknown".into(), |w| format!("Worth {}", usd(Some(w)))),
+        t.cost().map_or("Cost unknown".into(), |c| format!("About {} to get", usd(Some(c)))),
+    )
+    .unwrap();
+    write!(
+        s,
+        "<p class=\"dim share-shop-how\">Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{}. {} This is general advice from market prices, not the sharer's own plan. Worth is what the cards sell for. The cost is an estimate: buys at market price (a store's own price will differ) plus prints.",
         as_of.unwrap_or_default(),
-        usd(Some(BUY_UP_TO)),
-        usd(Some(PRINT_EACH)),
+        how.explain(),
     )
     .unwrap();
     if t.unpriced > 0 {
-        write!(s, " {} without a market price in Yama {} out of the money totals.", count_cards(t.unpriced), if t.unpriced == 1 { "is" } else { "are" }).unwrap();
+        write!(s, " {} without a market price in Yama {} out of the worth.", count_cards(t.unpriced), if t.unpriced == 1 { "is" } else { "are" }).unwrap();
+    }
+    if t.uncosted > 0 {
+        write!(s, " {} without a known cost {} out of the cost.", count_cards(t.uncosted), if t.uncosted == 1 { "is" } else { "are" }).unwrap();
     }
     s.push_str("</p>");
     s
 }
 
+/// Links to each way of getting the cards; `href` gives each one's address.
+fn how_picker(how: How, href: impl Fn(How) -> String) -> String {
+    let mut s = String::from("<nav class=\"share-configs\" aria-label=\"How to get the cards\"><span class=\"dim\">Get</span><ul>");
+    for h in How::ALL {
+        let current = if h == how { " aria-current=\"page\"" } else { "" };
+        write!(s, "<li><a{current} href=\"{}\">{}</a></li>", href(h), e(&h.label())).unwrap();
+    }
+    s.push_str("</ul></nav>");
+    s
+}
+
+/// A text box to copy from, with a Copy button the page's script reveals; without the script
+/// the text can still be selected.
+fn copy_box(id: &str, title: &str, text: &str, rows: usize) -> String {
+    format!(
+        "<div class=\"share-copy-box\"><div class=\"share-copy-head\"><b>{}</b><button type=\"button\" class=\"button\" data-copy=\"{id}\" hidden>Copy</button></div><textarea id=\"{id}\" readonly rows=\"{rows}\" aria-label=\"{0}\">{}</textarea></div>",
+        e(title),
+        e(text)
+    )
+}
+
+/// The shopping list as standard text ("2 Card Name"), one box per way of getting the cards.
+fn shopping_text(items: &[ToGet], how: How) -> String {
+    let mut s = String::from("<div class=\"share-copy-grid\">");
+    for (get, id, title) in [(Get::Buy, "shop-buy", "Buy locally"), (Get::Print, "shop-print", "Print"), (Get::Unknown, "shop-unknown", "No price yet")] {
+        let mut lines: Vec<String> = items.iter().filter(|t| how.get(t.usd()) == get).map(|t| format!("{} {}", t.n, t.name)).collect();
+        if lines.is_empty() {
+            continue;
+        }
+        lines.sort_by(|a, b| a.split_once(' ').map(|x| x.1).cmp(&b.split_once(' ').map(|x| x.1)));
+        let count: i64 = items.iter().filter(|t| how.get(t.usd()) == get).map(|t| t.n).sum();
+        s.push_str(&copy_box(id, &format!("{title} ({})", count_cards(count)), &(lines.join("\n") + "\n"), 8));
+    }
+    s.push_str("</div>");
+    s
+}
+
 /// Every card to get, cards to buy first, then prints, then cards without a price. `decks` adds
 /// a column for the decks each card goes in.
-fn shopping_table(items: &[ToGet], decks: bool) -> String {
-    let group = |t: &ToGet| match t.usd() {
-        Some(p) if p <= BUY_UP_TO => 0,
-        Some(_) => 1,
-        None => 2,
+fn shopping_table(items: &[ToGet], decks: bool, how: How) -> String {
+    let group = |t: &ToGet| match how.get(t.usd()) {
+        Get::Buy => 0,
+        Get::Print => 1,
+        Get::Unknown => 2,
     };
     let mut sorted: Vec<&ToGet> = items.iter().collect();
     sorted.sort_by(|a, b| group(a).cmp(&group(b)).then_with(|| a.name.cmp(&b.name)));
@@ -480,17 +608,17 @@ fn shopping_table(items: &[ToGet], decks: bool) -> String {
     }
     s.push_str("<th scope=\"col\">Get it</th><th scope=\"col\" class=\"num\">Market</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     for t in sorted {
-        let count = if t.n > 1 { format!("{} × ", t.n) } else { String::new() };
-        write!(s, "<tr><td>{count}{}</td>", card_ref(&t.name, &t.image)).unwrap();
+        write!(s, "<tr><td>{}</td>", card_line(&t.name, &t.image, t.n)).unwrap();
         if decks {
             write!(s, "<td class=\"dim\">{}</td>", e(&t.decks.join(", "))).unwrap();
         }
-        let (how, cost) = match t.usd() {
-            Some(p) if p <= BUY_UP_TO => ("Buy locally", Some(p * t.n as f64)),
-            Some(_) => ("Print", Some(PRINT_EACH * t.n as f64)),
-            None => ("No price", None),
+        let (get, cost) = how.cost(t.n, t.usd());
+        let label = match get {
+            Get::Buy => "Buy locally",
+            Get::Print => "Print",
+            Get::Unknown => "No price",
         };
-        write!(s, "<td>{how}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>", usd(t.usd()), usd(cost)).unwrap();
+        write!(s, "<td class=\"get\">{label}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>", usd(t.usd()), usd(cost)).unwrap();
     }
     s.push_str("</tbody></table>");
     s
@@ -546,10 +674,13 @@ pub(super) async fn note(
             choices.push((text(b, "id"), text(b, "label")));
         }
     }
-    let pick = q.build.as_deref().filter(|b| !b.is_empty());
+    // `?build=all`: every build of every deck, each built as its own deck.
+    let all = q.build.as_deref() == Some(ALL) && !choices.iter().any(|c| c.0 == ALL);
+    let pick = q.build.as_deref().filter(|b| !b.is_empty() && !all);
     if pick.is_some_and(|p| !choices.iter().any(|c| c.0 == p)) {
         return Ok(not_found(&st, "Build"));
     }
+    let Some(how) = How::parse(q.get.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
     let mut body = String::new();
     if let Some(h) = &handle {
         write!(body, "<a class=\"back-link\" href=\"/u/{0}\">← @{0}</a>", e(h)).unwrap();
@@ -606,22 +737,109 @@ pub(super) async fn note(
     if !arts.is_empty() {
         write!(body, "<p class=\"art-credits dim\">{}</p>", arts.join(" ")).unwrap();
     }
-    body.push_str(&note_shopping(&st.pool, &token, &decks, &choices, pick).await?);
+    let which = if all { Which::All } else { pick.map_or(Which::Recommended, Which::Build) };
+    body.push_str(&note_shopping(&st.pool, &token, &decks, &choices, which, how).await?);
+    body.push_str(&note_lists(&token, &decks, which, how));
     let description = format!("{title}: Commander deck notes shared on Yama.");
     Ok(response(&headers, page(&st, &format!("/r/{token}"), title, &description, None, &body)))
 }
 
-/// The note's shopping list: each deck's cards to add to its starting list, totals per deck and
-/// overall, and every card in one list.
-async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], pick: Option<&str>) -> AppResult<String> {
-    let per_deck: Vec<(&Value, Option<&Value>, Vec<(String, i64)>)> = decks
+/// `?build=all` on a note's page.
+const ALL: &str = "all";
+
+/// The builds a note's page prices and lists: each deck's recommended build, one build id
+/// across the decks, or every build of every deck.
+#[derive(Clone, Copy, PartialEq)]
+enum Which<'a> {
+    Recommended,
+    Build(&'a str),
+    All,
+}
+
+impl<'a> Which<'a> {
+    fn param(self) -> Option<&'a str> {
+        match self {
+            Which::Recommended => None,
+            Which::Build(id) => Some(id),
+            Which::All => Some(ALL),
+        }
+    }
+    /// A deck's builds this choice covers: none when the deck has no such build.
+    fn builds(self, d: &'a Value) -> Vec<&'a Value> {
+        match self {
+            Which::Recommended => build_of(d, None).into_iter().collect(),
+            Which::Build(id) => build_of(d, Some(id)).into_iter().collect(),
+            Which::All => d["builds"].as_array().map(|a| a.iter().collect()).unwrap_or_default(),
+        }
+    }
+}
+
+/// A note page's address with its choices; `anchor` is the section to land on.
+fn note_href(token: &str, which: Which, how: How, anchor: &str) -> String {
+    let mut q = Vec::new();
+    if let Some(b) = which.param() {
+        q.push(format!("build={}", query_value(b)));
+    }
+    if let Some(g) = how.param() {
+        q.push(format!("get={g}"));
+    }
+    let q = if q.is_empty() { String::new() } else { format!("?{}", q.join("&amp;")) };
+    format!("/r/{}{q}#{anchor}", e(token))
+}
+
+/// Cards to get to build every build of a deck as its own deck, from one copy of its starting
+/// list: each card's copies across the builds, less the starting list's. The starting list is
+/// the recommended build with its swaps undone.
+fn all_builds_need(d: &Value) -> Vec<(String, i64)> {
+    let Some(base) = build_of(d, None) else { return Vec::new() };
+    let (_, mut start) = counts(text(base, "list"));
+    for s in base["swaps"].as_array().into_iter().flatten() {
+        *start.entry(same(text(s, "card_in"))).or_insert(0) -= qty(s);
+        if !text(s, "card_out").is_empty() {
+            *start.entry(same(text(s, "card_out"))).or_insert(0) += qty(s);
+        }
+    }
+    let mut order: Vec<String> = Vec::new();
+    let mut total: HashMap<String, (String, i64)> = HashMap::new();
+    for b in d["builds"].as_array().into_iter().flatten() {
+        let (names, n) = counts(text(b, "list"));
+        for name in names {
+            let k = same(&name);
+            let copies = n.get(&k).copied().unwrap_or(0);
+            match total.get_mut(&k) {
+                Some(t) => t.1 += copies,
+                None => {
+                    order.push(k.clone());
+                    total.insert(k, (name, copies));
+                }
+            }
+        }
+    }
+    order
+        .into_iter()
+        .filter_map(|k| {
+            let (name, n) = total.remove(&k)?;
+            let need = n - start.get(&k).copied().unwrap_or(0).max(0);
+            (need > 0).then_some((name, need))
+        })
+        .collect()
+}
+
+/// The note's shopping list: each deck's cards to get, totals per deck and overall, every card
+/// in one list, and the list as text to copy.
+async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], which: Which<'_>, how: How) -> AppResult<String> {
+    let per_deck: Vec<(&Value, Option<String>, Vec<(String, i64)>)> = decks
         .iter()
         .map(|d| {
-            let b = build_of(d, pick);
+            if which == Which::All {
+                let n = d["builds"].as_array().map_or(0, Vec::len);
+                return (d, Some(format!("All {n} build{}", if n == 1 { "" } else { "s" })), all_builds_need(d));
+            }
+            let b = which.builds(d).first().copied();
             let adds = b
                 .map(|b| from_start(b["swaps"].as_array().map(Vec::as_slice).unwrap_or_default()).into_iter().filter(|c| !c.add.is_empty()).map(|c| (c.add, c.n)).collect())
                 .unwrap_or_default();
-            (d, b, adds)
+            (d, b.map(|b| text(b, "label").to_string()), adds)
         })
         .collect();
     let wanted: Vec<_> = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect();
@@ -632,24 +850,32 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
     let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
     let mut total = Totals::default();
     for t in &items {
-        total.add(t.n, t.usd());
+        total.add(t.n, t.usd(), how);
     }
     let mut s = format!(
-        "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add across {} deck{}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>",
+        "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to get across {} deck{}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>",
         count_cards(total.cards),
         decks.len(),
         if decks.len() == 1 { "" } else { "s" }
     );
     if choices.len() > 1 {
         s.push_str("<nav class=\"share-configs\" aria-label=\"Builds to price\"><span class=\"dim\">Builds</span><ul>");
-        let current = |on: bool| if on { " aria-current=\"page\"" } else { "" };
-        write!(s, "<li><a{} href=\"/r/{}#shop-head\">Recommended</a></li>", current(pick.is_none()), e(token)).unwrap();
-        for (id, label) in choices {
-            write!(s, "<li><a{} href=\"/r/{}?build={}#shop-head\">{}</a></li>", current(pick == Some(*id)), e(token), e(&query_value(id)), e(label)).unwrap();
+        let mut option = |w: Which, label: &str| {
+            let current = if w == which { " aria-current=\"page\"" } else { "" };
+            write!(s, "<li><a{current} href=\"{}\">{}</a></li>", note_href(token, w, how, "shop-head"), e(label)).unwrap();
+        };
+        option(Which::Recommended, "Recommended");
+        for &(id, label) in choices {
+            option(Which::Build(id), label);
         }
+        option(Which::All, "All builds");
         s.push_str("</ul></nav>");
     }
-    s.push_str(&shopping_totals(&total, as_of(&items)));
+    if which == Which::All {
+        s.push_str("<p class=\"dim share-shop-how\">Every build as its own deck, starting from one copy of each precon: the cards the builds share are counted once per build.</p>");
+    }
+    s.push_str(&how_picker(how, |h| note_href(token, which, h, "shop-head")));
+    s.push_str(&shopping_totals(&total, as_of(&items), how));
     s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     let row = |t: &Totals| {
         format!(
@@ -663,20 +889,62 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
             usd(t.cost())
         )
     };
-    for (d, b, adds) in &per_deck {
+    for (d, label, adds) in &per_deck {
         let mut t = Totals::default();
         for (name, n) in adds {
-            t.add(*n, price.get(name.as_str()).copied().flatten());
+            t.add(*n, price.get(name.as_str()).copied().flatten(), how);
         }
-        let build = match b {
-            Some(b) => e(text(b, "label")),
+        let build = match label {
+            Some(l) => e(l),
             None => "<span class=\"dim\">No such build</span>".into(),
         };
-        write!(s, "<tr><td><a href=\"{}\">{}</a></td><td>{build}</td>{}</tr>", deck_href(token, text(d, "key"), b.map(|b| text(b, "id"))), e(text(d, "name")), row(&t)).unwrap();
+        let link = match which {
+            Which::Build(id) if label.is_some() => deck_href(token, text(d, "key"), Some(id)),
+            _ => deck_href(token, text(d, "key"), None),
+        };
+        write!(s, "<tr><td><a href=\"{link}\">{}</a></td><td>{build}</td>{}</tr>", e(text(d, "name")), row(&t)).unwrap();
     }
     write!(s, "</tbody><tfoot><tr><th scope=\"row\" colspan=\"2\">Total</th>{}</tr></tfoot></table>", row(&total)).unwrap();
-    write!(s, "<details><summary>Every card to get ({})</summary>{}</details></section>", count_cards(total.cards), shopping_table(&items, true)).unwrap();
+    write!(s, "<details><summary>Every card to get ({})</summary>{}</details>", count_cards(total.cards), shopping_table(&items, true, how)).unwrap();
+    s.push_str("<h3 class=\"share-copy-title\">Copy the shopping list</h3>");
+    s.push_str(&shopping_text(&items, how));
+    s.push_str("</section>");
     Ok(s)
+}
+
+/// A build's list in the standard text format (Commander, then Deck), with no card lookups:
+/// the format needs only names, counts and sections.
+fn plain_list(b: &Value) -> String {
+    let cards: Vec<SharedCard> = crate::decks::parse_list(text(b, "list"), true)
+        .into_iter()
+        .map(|l| SharedCard { name: l.name, qty: l.qty, board: l.board, type_line: None, cmc: 0.0, layout: None, image: None, printing: None })
+        .collect();
+    export(&cards, "names")
+}
+
+/// Every list the note page's build choice covers, each to copy, and all of them as one text.
+fn note_lists(token: &str, decks: &[Value], which: Which, how: How) -> String {
+    let lists: Vec<(String, String)> = decks
+        .iter()
+        .flat_map(|d| which.builds(d).into_iter().map(move |b| (format!("{}: {}", text(d, "name"), text(b, "label")), plain_list(b))))
+        .collect();
+    if lists.is_empty() {
+        return String::new();
+    }
+    let mut s = format!(
+        "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} list{}</p><h2 id=\"lists-head\">Deck lists</h2></div></div><p class=\"dim share-shop-how\">Standard text lists (Commander, then Deck), for Moxfield, Archidekt or Yama's own import. The builds follow the shopping list's choice; <a href=\"{}\">every build</a> lists them all.</p>",
+        lists.len(),
+        if lists.len() == 1 { "" } else { "s" },
+        note_href(token, Which::All, how, "lists-head"),
+    );
+    let every: String = lists.iter().map(|(title, list)| format!("// {title}\n{list}\n")).collect();
+    s.push_str(&copy_box("lists-all", &format!("Every list ({})", lists.len()), &every, 8));
+    s.push_str("<div class=\"share-copy-grid\">");
+    for (i, (title, list)) in lists.iter().enumerate() {
+        s.push_str(&copy_box(&format!("list-{i}"), title, list, 8));
+    }
+    s.push_str("</div></section>");
+    s
 }
 
 #[derive(Deserialize, Default)]
@@ -686,6 +954,9 @@ pub(super) struct BuildQuery {
     /// Another build to show the changes from; none means the starting list.
     #[serde(default)]
     vs: Option<String>,
+    /// How to get the cards: `buy`, `print`, else the split (see `How`).
+    #[serde(default)]
+    get: Option<String>,
 }
 
 fn list_items(items: &[String]) -> String {
@@ -738,6 +1009,7 @@ pub(super) async fn deck(
         },
         None => None,
     };
+    let Some(how) = How::parse(q.get.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
     let name = text(d, "name");
     let commander = text(d, "commander");
     let build_id = text(b, "id");
@@ -870,8 +1142,7 @@ pub(super) async fn deck(
                 "<span class=\"dim\">Nothing</span>".to_string()
             } else {
                 let image = found(&images, name).and_then(|f| scryfall_image(f.4.clone())).unwrap_or_default();
-                let count = if n > 1 { format!("{n} × ") } else { String::new() };
-                format!("{count}{}", card_ref(name, &image))
+                card_line(name, &image, n)
             }
         };
         for c in &changes {
@@ -887,15 +1158,24 @@ pub(super) async fn deck(
         let items = to_get(&st.pool, changes.iter().map(|c| (c.add.clone(), c.n, None)).collect()).await?;
         let mut t = Totals::default();
         for i in &items {
-            t.add(i.n, i.usd());
+            t.add(i.n, i.usd(), how);
         }
+        let vs_id = vs.map(|v| text(v, "id"));
+        let picker = how_picker(how, |h| {
+            let mut href = compare_href(&token, &key, build_id, vs_id);
+            if let Some(g) = h.param() {
+                write!(href, "&amp;get={g}").unwrap();
+            }
+            href + "#shop-head"
+        });
         write!(
             body,
-            "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add to {}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>{}{}</section>",
+            "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add to {}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>{picker}{}{}<h3 class=\"share-copy-title\">Copy the shopping list</h3>{}</section>",
             count_cards(t.cards),
             e(vs_label),
-            shopping_totals(&t, as_of(&items)),
-            shopping_table(&items, false),
+            shopping_totals(&t, as_of(&items), how),
+            shopping_table(&items, false, how),
+            shopping_text(&items, how),
         )
         .unwrap();
     }
@@ -914,13 +1194,9 @@ pub(super) async fn deck(
         .unwrap();
     }
     body.push_str("</div>");
+    body.push_str(&copy_box("decklist", "Standard list (Commander, then Deck)", &plain_list(b), 12));
     body.push_str(&card_views(&cards));
-    write!(
-        body,
-        "<details><summary>Select the list to copy</summary><textarea readonly rows=\"14\" aria-label=\"Decklist\">{}</textarea></details></section>",
-        e(&export(&cards, "names"))
-    )
-    .unwrap();
+    body.push_str("</section>");
     if cut {
         write!(body, "<p class=\"dim\">Only the first {MAX_LINES} lines of this list are shown.</p>").unwrap();
     }

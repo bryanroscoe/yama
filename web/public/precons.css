@@ -1456,6 +1456,18 @@ table:not([class]) tbody th { white-space:nowrap; }
 .share-shop-decks tfoot th, .share-shop-decks tfoot td { border-top:1px solid var(--line); font-weight:700; padding:8px 10px; text-align:left; }
 .share-shop-decks tfoot td.num { text-align:right; }
 @media(max-width:700px) { .share-shop-decks { display:block; overflow-x:auto; } }
+/* A card with its copies on one line: "2× [thumbnail] Name". */
+.share-card-line { display:inline-flex; align-items:center; gap:10px; }
+.share-qty { min-width:2.4ch; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+.share-shop th, .share-shop td.get, .share-shop td.num, .share-shop-decks th { white-space:nowrap; }
+.share-shop td:first-child { min-width:16rem; }
+/* Text to copy: lists and the shopping list. */
+.share-copy-title { margin:28px 0 12px; font-size:24px; }
+.share-copy-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:16px; margin:16px 0; }
+.share-copy-box { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.share-copy-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:36px; }
+.share-copy-head .button { min-height:32px; padding:4px 14px; font-size:14px; }
+.share-copy-box textarea { width:100%; box-sizing:border-box; resize:vertical; font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; color:inherit; background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
 .share-note-method { margin:8px 0 0; max-width:80ch; }
 .share-notes { margin:32px 0; }
 .share-notes h2 { font-size:32px; margin:0 0 12px; }
