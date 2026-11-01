@@ -17,7 +17,9 @@ repo's `npm test`); `src/index.ts` is the Worker and Durable Object around it.
   requests per 10 s per IP on relay.yama.ing, `waf-rule.py`), so a flood is blocked before it
   counts against the Worker's 100,000 daily requests; 30 connections a minute per client address
   and role inside the Worker (`CONNECTS`, Workers rate limiting, before any Durable Object is
-  touched; hosts and guests counted apart, since a table shares one Wi-Fi address); and `GUEST_JOIN`:
+  touched; hosts and guests counted apart, since a table shares one Wi-Fi address); 1,000
+  messages a minute per client address across all its sockets and rooms (`MESSAGES`), and per
+  connection a burst of 60 then 20 a second; and `GUEST_JOIN`:
   set it to `off` (wrangler.toml and deploy, or the dashboard's Workers, yama-relay, Settings,
   Variables) to refuse every phone joining by code. Refused phones are told why (close codes
   4429 and 4403). If a deploy says the rate limiting binding isn't on this plan, remove the

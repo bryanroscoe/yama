@@ -24,6 +24,18 @@ namespace_id = "1001"
   limit = 30
   period = 60
 
+# Messages per client address per minute across all its sockets and rooms. The day's allowance is
+# 100,000 requests, and incoming WebSocket messages count 20 to 1: 1,000 a minute from one address
+# all day is about 72,000, so one address can't use the day up; a busy table on one Wi-Fi peaks
+# at a couple of dozen a second for a few seconds.
+[[ratelimits]]
+name = "MESSAGES"
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 1000
+  period = 60
+
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "TableRoom"

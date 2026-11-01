@@ -24,6 +24,11 @@ interface Env {
    * local run without it): no limit.
    */
   CONNECTS?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /**
+   * Messages per client address across all its sockets and rooms (Workers rate limiting): one
+   * address keeping many sockets open can't add up past what the day's allowance can take.
+   */
+  MESSAGES?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** "off" refuses phones joining by code (guests): the switch if joining without an account is abused. */
   GUEST_JOIN?: string;
 }
@@ -76,8 +81,9 @@ export default {
       return refuse(CLOSE_TOO_MANY, "Too many connections from this network. Wait a minute.");
     }
     const room = env.ROOMS.get(env.ROOMS.idFromName(`${gameId}/${key}`));
-    // The room needs only the role; the secret and key stay here.
-    return room.fetch("https://room/connect", { headers: { Upgrade: "websocket", "X-Yama-Role": role } });
+    // The room needs only the role and the address (for its message limit); the secret and key
+    // stay here.
+    return room.fetch("https://room/connect", { headers: { Upgrade: "websocket", "X-Yama-Role": role, "X-Yama-Address": address ?? "" } });
   },
 } satisfies ExportedHandler<Env>;
 
@@ -110,6 +116,8 @@ export class TableRoom extends DurableObject<Env> {
     if (!hasRoom(this.io, role)) return new Response("this table is full", { status: 429 });
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server, [role]);
+    // Kept with the socket, so its address survives the room sleeping.
+    server.serializeAttachment({ address: req.headers.get("X-Yama-Address") ?? "" });
     join(this.io, server);
     await this.ctx.storage.setAlarm(Date.now() + KEEP_MS);
     return new Response(null, { status: 101, webSocket: client });
@@ -119,6 +127,10 @@ export class TableRoom extends DurableObject<Env> {
     // Phones send only text; anything else is closed rather than ignored, so it can't run up
     // the room's message count unseen.
     if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
+    const address = (ws.deserializeAttachment() as { address?: string } | null)?.address;
+    if (this.env.MESSAGES && address && !(await this.env.MESSAGES.limit({ key: address })).success) {
+      return this.io.close(ws, CLOSE_TOO_MANY, "Too many messages from this network. Wait a minute.");
+    }
     message(this.io, ws, msg);
   }
 
