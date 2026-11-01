@@ -62,7 +62,7 @@ macro_rules! limited_sql {
 pub(crate) use limited_sql;
 
 /// SQL that is true for a `users u` row that may use the heavy and AI features (`User::power`):
-/// an admin, or an account an admin made a power user (migration 0046).
+/// an admin, or an account an admin made a power user (migration 0047).
 macro_rules! power_sql {
     () => {
         "(u.is_admin = 1 OR u.power_user = 1)"

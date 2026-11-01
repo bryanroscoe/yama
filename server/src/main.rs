@@ -1,6 +1,7 @@
 mod admin;
 mod advisor;
 mod auth;
+mod bridges;
 mod calendar;
 mod cards;
 mod collection;
