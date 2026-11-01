@@ -56,15 +56,15 @@ export const newDraft = (deckId: string, commanders: string[]): ScanDraft => ({ 
 
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
-export function addCard(d: ScanDraft, name: string, opts: { typed?: boolean; at?: number; key?: string } = {}): ScanDraft {
+export function addCard<D extends ScanDraft>(d: D, name: string, opts: { typed?: boolean; at?: number; key?: string } = {}): D {
   const card: ScannedCard = { key: opts.key ?? newKey(), name, at: opts.at ?? Date.now(), ...(opts.typed ? { typed: true } : {}) };
   return { ...d, cards: [...d.cards, card] };
 }
 
-export const removeCard = (d: ScanDraft, key: string): ScanDraft => ({ ...d, cards: d.cards.filter((c) => c.key !== key) });
+export const removeCard = <D extends ScanDraft>(d: D, key: string): D => ({ ...d, cards: d.cards.filter((c) => c.key !== key) });
 
 /** A misread card: the same physical card under the right name. */
-export const fixCard = (d: ScanDraft, key: string, name: string): ScanDraft => ({
+export const fixCard = <D extends ScanDraft>(d: D, key: string, name: string): D => ({
   ...d,
   cards: d.cards.map((c) => (c.key === key ? { ...c, name, typed: true } : c)),
 });

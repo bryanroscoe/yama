@@ -22,6 +22,7 @@ import { CollectionPage } from "./pages/Collection";
 import { DeckPage, DecksPage } from "./pages/Decks";
 import { ImportPage } from "./decks/ImportPage";
 import { DeckScanPage } from "./decks/DeckScanPage";
+import { DeckCheckPage } from "./decks/DeckCheckPage";
 import { GroupPage } from "./pages/Group";
 import { MythicImportPage } from "./bridges/mythic/MythicImport";
 import { LabHead, LabLayout } from "./lab/LabLayout";
@@ -172,6 +173,7 @@ export function App() {
         <Route path="decks/import" element={<ImportPage />} />
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="decks/:id/scan" element={<DeckScanPage />} />
+        <Route path="decks/:id/check" element={<DeckCheckPage />} />
         <Route path="group" element={<GroupPage />} />
         <Route path="group/mythic" element={<MythicImportPage />} />
         <Route path="new" element={<WhatsNewPage />} />

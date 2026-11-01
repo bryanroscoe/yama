@@ -70,6 +70,10 @@ export interface ScannerViewProps {
   renderResult?: (card: ScanCandidate) => ReactNode;
   /** Only the card's identity matters: no printing, price or picker. */
   identityOnly?: boolean;
+  /** Shown over the camera view, under the top buttons (the deck check's verdict). */
+  overlay?: ReactNode;
+  /** The word for what accepting does, in the camera's chips: "Added" unless set ("Checked"). */
+  addedWord?: string;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -206,6 +210,8 @@ export function ScannerView({
   acceptLabel = "Add",
   renderResult,
   identityOnly = false,
+  overlay,
+  addedWord = "Added",
 }: ScannerViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
@@ -785,13 +791,13 @@ export function ScannerView({
     again();
     void Promise.resolve(saved).then(
       (ok) => {
-        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap Added to try again`);
+        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`);
         else {
           navigator.vibrate?.(40);
-          setJustAdded(`Added ${label}`);
+          setJustAdded(`${addedWord} ${label}`);
         }
       },
-      () => setJustAdded(`Couldn't save ${label}. Tap Added to try again`),
+      () => setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`),
     );
     // again() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -833,12 +839,13 @@ export function ScannerView({
         {addedCount > 0 &&
           (onShowAdded ? (
             <button className="scan-count" onClick={onShowAdded}>
-              Added {addedCount}
+              {addedWord} {addedCount}
               {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
             </button>
           ) : (
-            <span className="scan-count">Added {addedCount} so far</span>
+            <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
+        {overlay}
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
           {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
         </span>
