@@ -10,6 +10,8 @@ import type { HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
 import { ConfidenceLine } from "./confidence";
 import {
+  deckName,
+  fieldResult,
   baseConfidence,
   baseConfidenceSentence,
   caveat,
@@ -647,7 +649,8 @@ function SoloResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine
 
 /** Decks head to head: each deck's win share, who finished ahead of whom, and game length. */
 function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
-  const v = s.versus!;
+  const precons = usePrecons().data?.precons ?? [];
+  const v = { ...s.versus!, entrants: s.versus!.entrants.map((x) => ({ ...x, label: deckName(x.label, precons) })) };
   const ids = v.entrants.map((x) => x.id);
   const level = `${Math.round(s.level * 100)}%`;
   const even = 1 / v.pod;
@@ -662,7 +665,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
   return (
     <section>
       <h2>{s.verdict.final ? "Result" : "So far"}</h2>
-      <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      <p className="lab-verdict">{fieldResult(s, s.verdict.final || e.status === "cancelled", (l) => deckName(l, precons))?.text ?? verdictText(e.status, s)}</p>
       {modeOf(e) === "tournament" && !s.verdict.final && <p className="small dim">Progress updates each game; the ranking may lag by up to 24 games while a batch finishes.</p>}
       <IntervalChart
         caption={`Win share in ${v.pod === 2 ? "1v1 games" : "4-player pods"}`}
@@ -781,6 +784,7 @@ function changeShort(e: ExperimentItem): string {
 }
 
 function Change({ e }: { e: ExperimentDetail }) {
+  const precons = usePrecons().data?.precons ?? [];
   const v = e.variant;
   const mode = modeOf(e);
   // A "both" run's label counts both engines' games; say them per engine.
@@ -796,7 +800,7 @@ function Change({ e }: { e: ExperimentDetail }) {
         <ul className="lab-decks small">
           {decks.map((d) => (
             <li key={d.label}>
-              <b>{d.label}</b>
+              <b>{deckName(d.label, precons)}</b>
               {d.commanders.length ? `: ${d.commanders.join(" and ")}` : ""}
               {d.source.kind === "deck" ? " (the deck's version when the run was made)" : d.source.kind === "precon" ? " (the precon's stock list)" : ""}
             </li>

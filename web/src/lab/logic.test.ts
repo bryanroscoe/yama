@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Confidence, Pace, PreconItem, Summary } from "./api";
 import {
+  deckName,
   fieldResult,
   allowanceText,
   gamesToSettle,
@@ -406,5 +407,16 @@ describe("fieldResult", () => {
       text: "A wins most often, clear of the other 2 (wins 60%, 90% interval 50 to 70%)",
     });
     expect(fieldResult(run([entrant("A", 0.6, [0.5, 0.7]), entrant("B", 0.2, [0.1, 0.3]), entrant("C", 0.2, [0.1, 0.3])], "unclear", 5), true)).toBeNull();
+  });
+});
+
+describe("deckName", () => {
+  const precons = [{ id: "quantum-quandrix", name: "Quantum Quandrix" }];
+  it("names a precon played under one of its commanders", () => {
+    expect(deckName("quantum-quandrix / Esix, Fractal Bloom", precons)).toBe("Quantum Quandrix (Esix)");
+  });
+  it("leaves other names as typed", () => {
+    expect(deckName("unknown-precon / Esix, Fractal Bloom", precons)).toBe("unknown-precon / Esix, Fractal Bloom");
+    expect(deckName("Riders of Rohan (after prints)", precons)).toBe("Riders of Rohan (after prints)");
   });
 });
