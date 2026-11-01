@@ -445,6 +445,9 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 }
                 // Open sign-up makes accounts at a person's pace: a few per address a day, and a
                 // ceiling for everyone together, so scripted sign-ups stop. Invites aren't counted.
+                // One sign-up at a time from here to the count below (making accounts is rare), so
+                // sign-ups arriving together can't all pass the limits before any is counted.
+                let _gate = if invited { None } else { Some(st.limits.new_account_gate.lock().await) };
                 if !invited {
                     // Both must allow it, and it counts only once the account is really made
                     // (below): a refusal from the ceiling for everyone, or two sign-ins racing to
