@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
 import { Details, ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
@@ -148,6 +149,7 @@ function loadGoogle(): Promise<void> {
 
 export function Login() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const config = useAuthConfig();
   const googleRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<unknown>(null);
@@ -214,7 +216,16 @@ export function Login() {
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
       {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
       {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
-      <button className="login-secondary" onClick={() => chooseGuest(true)}>Count life without an account</button>
+      <button
+        className="login-secondary"
+        onClick={() => {
+          chooseGuest(true);
+          // A join link on Yama's own relay needs an account; counting without one starts afresh.
+          if (location.pathname.startsWith("/table/join/")) navigate("/", { replace: true });
+        }}
+      >
+        Count life without an account
+      </button>
       {config.data?.cf_access && (
         <div className="stack">
           <p className="dim">Yama signs you in with the email your host invited.</p>
