@@ -311,6 +311,21 @@ async fn a_changed_mythic_note_never_rewrites_the_game() {
     assert_eq!(a["skipped"], 1, "{a}");
     let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
     assert_eq!(winner, Some(0));
+    // Keeping Yama's version settles it: asked once, not again.
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": { "games": changed() }, "me": "1", "choices": { "70": "keep" } }))).await;
+    assert_eq!(a["kept"], 1, "{a}");
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": { "games": changed() } }))).await;
+    assert_eq!(p["games"][0]["status"], "unchanged", "{p}");
+    let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(winner, Some(0));
+
+    // Mythic changes again, and this time the person takes Mythic's version.
+    let changed = || json!([mythic_game(70, "2026-10-04T01:00:00Z", 77, Some("third"))]);
+    sqlx::query("UPDATE game_seats SET fun = 4 WHERE game_id = ? AND seat = 0").bind(&id).execute(&pool).await.unwrap();
+    let mut g = changed();
+    g[0]["game"]["ended_at"] = json!("2026-10-04T02:00:00Z");
+    let changed = move || g.clone();
     let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
         Some(json!({ "export": { "games": changed() }, "me": "1", "choices": { "70": "update" } }))).await;
     assert_eq!(a["updated"], 1, "{a}");

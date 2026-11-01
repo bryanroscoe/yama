@@ -215,7 +215,8 @@ struct GameRow {
     /// already in Yama; needs a choice), linked
     /// (matched to a game in Yama before), deleted (removed in Yama) or invalid.
     status: &'static str,
-    /// create, update, note (the private note alone), link or skip: what Apply does.
+    /// create, update, note (the private note alone), keep (a conflict settled for Yama's version),
+    /// link or skip: what Apply does.
     action: &'static str,
     yama_id: Option<String>,
     matches: Vec<Candidate>,
@@ -594,7 +595,13 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
                 Some((by, mode)) if *yama == derived && by == owner && mode == "in_person" => match changed_parts(changed.as_deref(), &b.fingerprint) {
                     // Changed in Yama too since the last import: the person picks which stays.
                     (true, _) if edited_in_yama => {
-                        if choice == Some("update") { ("conflict", "update") } else { ("conflict", "skip") }
+                        // "update" takes Mythic's version; "keep" keeps Yama's and settles it, so
+                        // the same conflict isn't asked again; no choice yet asks again next time.
+                        match choice {
+                            Some("update") => ("conflict", "update"),
+                            Some("keep") => ("conflict", "keep"),
+                            _ => ("conflict", "skip"),
+                        }
                     }
                     (true, _) if choice == Some("skip") => ("update", "skip"),
                     (true, _) => ("update", "update"),
@@ -727,6 +734,8 @@ struct Applied {
     linked: usize,
     /// Games whose Mythic note or tags alone changed.
     notes: usize,
+    /// Conflicts settled by keeping the Yama version.
+    kept: usize,
     skipped: usize,
     errors: Vec<GameError>,
 }
@@ -823,7 +832,8 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
             }
             // Only Mythic's note changed, or a game matched to one logged in Yama: the game stays as
             // it is, and Mythic's note is kept privately.
-            "note" | "link" => {
+            // Yama's version kept: its state now is what's synced, with Mythic's new fingerprint.
+            "note" | "link" | "keep" => {
                 let keep = if p.action == "note" { p.saved_yama.as_deref() } else { None };
                 sync_game(pool, owner, Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: keep, note: b.note.as_deref(), tags: &b.tags }).await
             }
@@ -838,6 +848,7 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     "create" => out.created += 1,
                     "update" => out.updated += 1,
                     "note" => out.notes += 1,
+                    "keep" => out.kept += 1,
                     _ => out.linked += 1,
                 }
             }

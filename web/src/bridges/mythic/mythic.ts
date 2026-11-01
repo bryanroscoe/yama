@@ -27,7 +27,7 @@ export interface MythicGameRow {
   mythic_id: string;
   started_at: string | null;
   status: MythicStatus;
-  action: "create" | "update" | "note" | "link" | "skip";
+  action: "create" | "update" | "note" | "keep" | "link" | "skip";
   yama_id: string | null;
   matches: { id: string; started_at: string; seats: number; players: string[] }[];
   seats: MythicSeat[];
@@ -46,6 +46,7 @@ export interface MythicApplied {
   updated: number;
   linked: number;
   notes: number;
+  kept: number;
   skipped: number;
   errors: { mythic_id: string; error: string }[];
 }
@@ -77,7 +78,11 @@ export function statusText(g: MythicGameRow): string {
     case "update":
       return g.action === "update" ? "Changed in Mythic, updates" : "Changed in Mythic, skipped";
     case "conflict":
-      return g.action === "update" ? "Changed in Mythic and in Yama, Mythic's version replaces Yama's" : "Changed in Mythic and in Yama, Yama's version stays";
+      return g.action === "update"
+        ? "Changed in Mythic and in Yama, Mythic's version replaces Yama's"
+        : g.action === "keep"
+          ? "Changed in Mythic and in Yama, Yama's version stays"
+          : "Changed in Mythic and in Yama, choose which to keep";
     case "note":
       return "Mythic's note changed, the note updates";
     case "unchanged":
@@ -119,6 +124,7 @@ export function resultText(r: MythicApplied): string {
     r.updated && `${r.updated} updated`,
     r.linked && `${r.linked} matched to games already in Yama`,
     r.notes && `${r.notes} with Mythic notes updated`,
+    r.kept && `${r.kept} kept as they are in Yama`,
     r.skipped && `${r.skipped} skipped`,
   ].filter(Boolean);
   return parts.length ? `${parts.join(", ")}.` : "Nothing changed.";

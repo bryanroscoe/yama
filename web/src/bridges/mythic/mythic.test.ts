@@ -17,7 +17,8 @@ describe("Mythic Tools import", () => {
     expect(statusText(game())).toBe("New");
     expect(statusText(game({ status: "match", action: "skip" }))).toBe("Looks like a game already in Yama");
     expect(statusText(game({ status: "match", action: "link" }))).toBe("Matched to a game in Yama");
-    expect(statusText(game({ status: "conflict", action: "skip" }))).toBe("Changed in Mythic and in Yama, Yama's version stays");
+    expect(statusText(game({ status: "conflict", action: "skip" }))).toBe("Changed in Mythic and in Yama, choose which to keep");
+    expect(statusText(game({ status: "conflict", action: "keep" }))).toBe("Changed in Mythic and in Yama, Yama's version stays");
     expect(statusText(game({ status: "invalid", action: "skip", reason: "it isn't finished in Mythic" }))).toBe("Can't import: it isn't finished in Mythic");
     expect(applyLabel([game(), game({ action: "skip" }), game({ action: "link" })])).toBe("Import 2 games");
     expect(applyLabel([game({ action: "skip" })])).toBe("Nothing to import");
@@ -41,8 +42,8 @@ describe("Mythic Tools import", () => {
   });
 
   it("sums up an import", () => {
-    expect(resultText({ created: 3, updated: 0, linked: 1, notes: 1, skipped: 2, errors: [] })).toBe("3 imported, 1 matched to games already in Yama, 1 with Mythic notes updated, 2 skipped.");
-    expect(resultText({ created: 0, updated: 0, linked: 0, notes: 0, skipped: 0, errors: [] })).toBe("Nothing changed.");
+    expect(resultText({ created: 3, updated: 0, linked: 1, notes: 1, kept: 0, skipped: 2, errors: [] })).toBe("3 imported, 1 matched to games already in Yama, 1 with Mythic notes updated, 2 skipped.");
+    expect(resultText({ created: 0, updated: 0, linked: 0, notes: 0, kept: 0, skipped: 0, errors: [] })).toBe("Nothing changed.");
   });
 
   it("ships a snippet that parses and only reads from Mythic", () => {

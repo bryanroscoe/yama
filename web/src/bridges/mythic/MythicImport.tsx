@@ -198,7 +198,8 @@ function GameLine({ g, choice, onChoose }: { g: MythicGameRow; choice: string | 
         <label className="small">
           <span className="visually-hidden">Which version to keep</span>
           <select value={choice ?? "skip"} onChange={(e) => onChoose(e.target.value)}>
-            <option value="skip">Keep the Yama version</option>
+            <option value="skip">Decide later</option>
+            <option value="keep">Keep the Yama version</option>
             <option value="update">Replace it with Mythic's version</option>
           </select>
         </label>
