@@ -4,6 +4,8 @@ Status (2026-10-28): the hybrid is built. The scanner in `web/src/scanner/` reco
 
 Why it changed (Bryan, 2026-10-28): scanning is now how the collection is kept, and the OCR scanner was slow, needed the card lined up exactly, misread cards, and filed two cards under the wrong printing. That last one was a bug: a title-only read was added as Scryfall's default printing (`Collection.tsx`). It's gone; a scan without a settled printing can't be added.
 
+Since 2026-11-01, "Check this deck" (`/decks/:id/check`) runs the same identity-only scanner over a physical deck against a list picked on the page (the current list, another configuration or version, the plan's lists and bracket builds, research builds). Each card's verdict (belongs, take out, already seen) is worked out on the device as soon as the card is recognised, shown over the camera (`ScannerView`'s `overlay` prop) with a tone and, where the browser can, a buzz. It saves nothing; see ARCHITECTURE.md, "Check this deck". Camera-loop timing on a phone still needs the real-device check below.
+
 Since 2026-10-25, Plans, Prints, Swap sheet (and each plan deck's Changes tab) can scan either side of a now-to-after-prints swap and immediately show the replacement, add and cut reasons, destination and installed status. This mode reads identity from the saved card names plus plan names, including both faces, without a printing lookup or network price request. It changes no data. The sheet also accepts a photo or an exact typed name. Live phone-camera accuracy still needs a real device check; the measurements below use synthetic captures.
 
 Labels used below:
@@ -192,7 +194,7 @@ import { ScannerView } from "./scanner";
 
 `card` is a `ScanCandidate`: `{ name, set?, number?, lang?, scryfall_id?, image?, confidence, method }`. `method` is `"art"`, `"collector+name"`, `"collector"` or `"name"`. Unless `identityOnly` is set, `onAccept` is only offered once the printing is settled, so `scryfall_id` is always there.
 
-`identityOnly` is for uses where only the card matters: the plan's swap check, and scanning a whole deck (`web/src/decks/DeckScanPage.tsx`, `/decks/:id/scan`). It looks up no printings. With `autoAdd` (Keep adding) it adds any card the camera found unless the art also looks like another card (`addsByIdentity`); a typed name still waits for Add. `NameEntry.tsx` is the type-a-name box, also used by the deck scan page.
+`identityOnly` is for uses where only the card matters: the plan's swap check, scanning a whole deck (`web/src/decks/DeckScanPage.tsx`, `/decks/:id/scan`) and checking one (`web/src/decks/DeckCheckPage.tsx`, `/decks/:id/check`). It looks up no printings. With `autoAdd` (Keep adding) it adds any card the camera found unless the art also looks like another card (`addsByIdentity`); a typed name still waits for Add. `NameEntry.tsx` is the type-a-name box, also used by the deck scan page.
 
 For other uses, the pipeline is pure:
 

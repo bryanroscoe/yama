@@ -1,7 +1,7 @@
 import type { PlanBundle, Slot } from "@yama/core/plan";
-import { bracketBuilds } from "@yama/core/plan";
+import { bracketBuilds, slotSource, sourceContext, type PlanDeck, type SourceContext } from "@yama/core/plan";
 import { ownedBuildProblems } from "../research/availability";
-import type { ResearchBundle } from "../research/api";
+import type { Item, ResearchBundle } from "../research/api";
 import type { DeckSummary } from "../api";
 
 export type BuildKind = "current" | "original" | "bracket" | "legacy";
@@ -9,6 +9,25 @@ export interface BuildChoice {
   id: string; label: string; kind: BuildKind; bracket?: number;
   track?: "owned_now" | "aspirational" | "unverified";
   list?: string; savedDeck?: string; source: string; href: string; warnings: string[];
+  /** The build's known swaps (card out, card in), and where the card going in comes from. */
+  pairs?: SwapPair[];
+}
+export interface SwapPair { out: string; in: string; where?: string | null; why?: string | null }
+
+/** Where a research swap's card comes from, from its acquisition record, without copy ids. */
+export function researchWhere(a: Item | undefined): string | null {
+  if (!a) return null;
+  if (a.transfer && a.source_deck) return `From ${a.source_deck}.`;
+  const real = a.detail?.match(/^real: ([^.]+)\./);
+  if (real) return `Yours, in ${real[1]}.`;
+  if (a.kind === "arrived_print" || a.detail?.startsWith("arrived_print")) return "A print that has arrived.";
+  if (a.kind === "print") return "To print.";
+  if (a.kind === "buy" || a.store) return "To buy.";
+  return null;
+}
+/** A plan list's swaps: each card that names the card it replaces. */
+function slotPairs(cards: Slot[], ctx: SourceContext, deck: PlanDeck): SwapPair[] {
+  return cards.flatMap((c) => (c.replaces ? [{ out: c.replaces, in: c.name, where: slotSource(c, ctx, deck) || null }] : []));
 }
 export interface BuildFamily { key: string; name: string; choices: BuildChoice[]; planKeys?: string[]; detail?: string }
 export type BuildTrack = "owned_now" | "aspirational" | "saved";
@@ -76,24 +95,27 @@ export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | und
         id: `research:${bundle.document.id}:${deck.key}:${b.id}`, kind: isBracket ? "bracket" : "legacy",
         track: b.acquisition?.track === "owned_now" ? ownershipProblems.length ? "unverified" : "owned_now" : "aspirational",
         bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? `[${b.bracket ?? "?"}] Ownership not verified` : isBracket ? `[${b.bracket}] ${b.label.replace(/^(?:\[\d\]|(?:Bracket\s*|B)\d)\s*[—:-]?\s*/i, "") || "Research"}` : `Research starting snapshot (${bundle.updated_at.slice(0, 10)})`,
-        list: b.list, source: `${bundle.document.title}, revision ${bundle.revision}, ${bundle.updated_at.slice(0, 10)}`,
+        list: b.list, pairs: (b.swaps ?? []).flatMap((s) => (s.card_out ? [{ out: s.card_out, in: s.card_in, where: researchWhere(s.acquisition), why: s.why ?? null }] : [])),
+        source: `${bundle.document.title}, revision ${bundle.revision}, ${bundle.updated_at.slice(0, 10)}`,
         href: `/decks/research/${encodeURIComponent(bundle.document.id)}/${encodeURIComponent(deck.key)}?build=${encodeURIComponent(b.id)}`,
         warnings: [...ownershipProblems, ...(b.prospective ? ["Future build: requires purchase or arrival; not an owned or installed deck."] : []), ...(b.risks ?? [])],
       });
     }
   }
+  // Bundles from before orders and stores (and test plans) can lack them.
+  const ctx = plan ? sourceContext({ orders: plan.orders ?? [], stores: plan.stores ?? [], decks: plan.decks ?? [] }) : null;
   for (const deck of plans) {
     const f = planFamilies.get(deck.key)!;
     const href = `/decks/plan/d/${encodeURIComponent(deck.key)}`;
     for (const state of ["stock", "now", "after"] as const) {
       const s = deck.states[state]; if (!s) continue;
-      f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Original (plan commander)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), source: `Plan v${plan?.head?.guide_version ?? "?"}, ${s.updated_at.slice(0, 10)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });
+      f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Original (plan commander)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), pairs: ctx ? slotPairs(s.cards, ctx, deck) : [], source: `Plan v${plan?.head?.guide_version ?? "?"}, ${s.updated_at.slice(0, 10)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });
     }
     if (deck.bracket && deck.states.after) {
       for (const b of bracketBuilds(deck.states.after.cards, deck.bracket)) {
         // A bag with the same number as the full target is not another build.
         if (f.choices.some((c) => c.id === `plan:${deck.key}:b${b.bracket}`)) continue;
-        f.choices.push({ id: `plan:${deck.key}:b${b.bracket}`, label: `[${b.bracket}] Plan (availability unchecked)`, kind: "bracket", track: "unverified", bracket: b.bracket, list: slotsText(b.cards), source: `Plan v${plan?.head?.guide_version ?? "?"}`, href: `${href}?tab=brackets`, warnings: [...b.warnings, ...(deck.bracket.callouts ?? [])] });
+        f.choices.push({ id: `plan:${deck.key}:b${b.bracket}`, label: `[${b.bracket}] Plan (availability unchecked)`, kind: "bracket", track: "unverified", bracket: b.bracket, list: slotsText(b.cards), pairs: ctx ? slotPairs(b.cards, ctx, deck) : [], source: `Plan v${plan?.head?.guide_version ?? "?"}`, href: `${href}?tab=brackets`, warnings: [...b.warnings, ...(deck.bracket.callouts ?? [])] });
       }
     }
   }

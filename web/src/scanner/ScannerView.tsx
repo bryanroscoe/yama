@@ -70,6 +70,14 @@ export interface ScannerViewProps {
   renderResult?: (card: ScanCandidate) => ReactNode;
   /** Only the card's identity matters: no printing, price or picker. */
   identityOnly?: boolean;
+  /** Shown over the camera view, under the top buttons (the deck check's verdict). A function is
+   * given the card found and waiting to be accepted, else null, so the overlay never shows an
+   * older card while a new one waits. */
+  overlay?: ReactNode | ((pending: ScanCandidate | null) => ReactNode);
+  /** The word for what accepting does, in the camera's chips: "Added" unless set ("Checked"). */
+  addedWord?: string;
+  /** Buzz on a find, an add or a needed tap (where the browser can). Default on. */
+  haptics?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -206,7 +214,16 @@ export function ScannerView({
   acceptLabel = "Add",
   renderResult,
   identityOnly = false,
+  overlay,
+  addedWord = "Added",
+  haptics = true,
 }: ScannerViewProps) {
+  // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
+  const hapticsRef = useRef(haptics);
+  hapticsRef.current = haptics;
+  const buzz = (pattern: number | number[]) => {
+    if (hapticsRef.current) navigator.vibrate?.(pattern);
+  };
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
   /** The part of the panel that needs a tap, when scanning can't go on by itself. */
@@ -414,7 +431,7 @@ export function ScannerView({
       setShowAll(false);
       setCopies(1);
       setPhase("found");
-      navigator.vibrate?.(30);
+      buzz(30);
       if (!identityOnly) void settle(seq, f, { art: top.illustrationId, id: top.id }, read);
     },
     [identityOnly, settle],
@@ -442,7 +459,7 @@ export function ScannerView({
       setShowAll(false);
       setCopies(1);
       setPhase("found");
-      navigator.vibrate?.(30);
+      buzz(30);
       // The text reader's proof of a printing: set code and number found together with a matching
       // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
       const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
@@ -719,7 +736,7 @@ export function ScannerView({
             const chosenNow = c.chosen;
             setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, options: c.options, raw: text } : cur));
             setCloseup(null);
-            navigator.vibrate?.(30);
+            buzz(30);
             return;
           }
           previous = c.chosen?.scryfall_id ?? null;
@@ -772,7 +789,7 @@ export function ScannerView({
           : null;
   useEffect(() => {
     if (!tapNeeded) return;
-    navigator.vibrate?.([20, 60, 20]);
+    buzz([20, 60, 20]);
     tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [tapNeeded]);
   useEffect(() => {
@@ -785,13 +802,13 @@ export function ScannerView({
     again();
     void Promise.resolve(saved).then(
       (ok) => {
-        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap Added to try again`);
+        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`);
         else {
-          navigator.vibrate?.(40);
-          setJustAdded(`Added ${label}`);
+          buzz(40);
+          setJustAdded(`${addedWord} ${label}`);
         }
       },
-      () => setJustAdded(`Couldn't save ${label}. Tap Added to try again`),
+      () => setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`),
     );
     // again() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -833,12 +850,13 @@ export function ScannerView({
         {addedCount > 0 &&
           (onShowAdded ? (
             <button className="scan-count" onClick={onShowAdded}>
-              Added {addedCount}
+              {addedWord} {addedCount}
               {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
             </button>
           ) : (
-            <span className="scan-count">Added {addedCount} so far</span>
+            <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
+        {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
           {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
         </span>

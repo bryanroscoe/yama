@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-check-a-deck",
+    date: "2026-11-01",
+    title: "Check a deck box card by card",
+    items: [
+      "On a deck, Check this deck (under More actions on a phone) flips through the physical deck with the camera. Each card shows at once, in green or red with a sound, whether it belongs or has to come out, and warns about a second copy.",
+      "Pick what the box should match: the deck's current list, another configuration or saved version, your plan's after-prints list or bracket builds, or a research build.",
+      "For a card to take out it says what goes in instead and where that card is, when Yama knows. A running count shows what's left to take out and what's still missing.",
+      "Nothing is saved. Mute it from the page; the setting stays on this device. Save as a deck scan turns the check into a normal scan if you want the list saved.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
     id: "2026-10-31-table-layouts-join",
     date: "2026-10-31",
     title: "Life counter: panel layouts, join from the start, dice",
