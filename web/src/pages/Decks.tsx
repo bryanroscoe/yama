@@ -95,7 +95,7 @@ export function DecksPage() {
         {groupConfigurations(decks.data ?? []).map(({ main, configurations }) => (
           <li key={main.id} className={configurations.length ? "has-configs" : undefined}>
             <DeckTile d={main} />
-            <div className="deck-configs"><Link to={`/decks/builds?savedDeck=${encodeURIComponent(main.id)}`}>[2] / [3] / [4] builds and swap cards</Link></div>
+            <div className="deck-configs"><Link to={`/decks/builds?savedDeck=${encodeURIComponent(main.id)}`}>Bracket builds and swap cards</Link></div>
             {configurations.length > 0 && <ConfigurationList main={main} configurations={configurations} />}
           </li>
         ))}

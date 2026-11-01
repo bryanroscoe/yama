@@ -497,6 +497,8 @@
   }
   .grp-player-name {
     font-weight: 800;
+    /* Room for descenders under the ellipsis's overflow: hidden. */
+    line-height: 1.15;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

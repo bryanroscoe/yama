@@ -136,6 +136,8 @@ fieldset.seat.seat-card2 {
 }
 .seat-head2 .seat-name {
   font-size: 34px;
+  /* Room for descenders: overflow is hidden for the ellipsis, so line-height 1 cut off g, y, p. */
+  line-height: 1.15;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

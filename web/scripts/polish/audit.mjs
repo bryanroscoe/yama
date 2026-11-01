@@ -277,6 +277,114 @@ export function audit(opts) {
     }
   }
 
+  // 9. Boxes touching: a visible box (border, fill, shadow, image) that sits flush against, or
+  //    within a few px of, another box or a line of text that isn't inside it. Off-scale spacing
+  //    can't see this: a missing gap is 0, which is on every scale.
+  const minGap = opts.minGap ?? 4;
+  const alpha = (c) => {
+    const m = /rgba?\(([^)]+)\)/.exec(c);
+    if (!m) return 0;
+    const parts = m[1].split(/[ ,/]+/).filter(Boolean);
+    return parts.length < 4 ? 1 : Number(parts[3]);
+  };
+  const boxed = (el, s) => {
+    if (/^(IMG|VIDEO|CANVAS|INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName)) return true;
+    for (const side of ["Top", "Right", "Bottom", "Left"])
+      if (parseFloat(s[`border${side}Width`]) > 0 && s[`border${side}Style`] !== "none" && alpha(s[`border${side}Color`]) > 0.05) return true;
+    return alpha(s.backgroundColor) > 0.04 || s.backgroundImage !== "none" || s.boxShadow !== "none";
+  };
+  const boxes = [];
+  for (const el of document.body.querySelectorAll("*")) {
+    if (boxes.length >= 2500) break;
+    if (el.closest("[data-polish-overlay], svg")) continue;
+    const r = el.getBoundingClientRect();
+    if (!inView(r) || r.width < 12 || r.height < 12 || r.width >= vw - 2) continue;
+    const s = styleOf(el);
+    if (s.display === "inline" || s.display === "contents" || s.position === "fixed") continue;
+    if (!boxed(el, s) || !visible(el) || ancestorHidden(el)) continue;
+    boxes.push({ el, rect: r, box: true });
+  }
+  const items = [...boxes, ...texts.map((t) => ({ el: t.el, rect: t.rect, text: t.text, box: false }))];
+  const near = new Map();
+  items.forEach((it, idx) => {
+    for (let gx = Math.floor((it.rect.left - minGap) / cell); gx <= Math.floor((it.rect.right + minGap) / cell); gx++)
+      for (let gy = Math.floor((it.rect.top - minGap) / cell); gy <= Math.floor((it.rect.bottom + minGap) / cell); gy++) {
+        const k = `${gx},${gy}`;
+        if (!near.has(k)) near.set(k, []);
+        near.get(k).push(idx);
+      }
+  });
+  // The fixed or sticky layer an element scrolls with (null: the page). A bottom tab bar passing
+  // over a form isn't a missing gap.
+  const layers = new Map();
+  const layerOf = (el) => {
+    if (layers.has(el)) return layers.get(el);
+    let layer = null;
+    for (let cur = el; cur && cur !== document.body; cur = cur.parentElement) {
+      const p = styleOf(cur).position;
+      if (p === "fixed" || p === "sticky") {
+        layer = cur;
+        break;
+      }
+    }
+    layers.set(el, layer);
+    return layer;
+  };
+  const large = (r) => r.width > vw * 0.4 || r.height > vh * 0.4;
+  const nearPairs = new Set();
+  for (const bucket of near.values()) {
+    for (let a = 0; a < bucket.length; a++)
+      for (let b = a + 1; b < bucket.length; b++) {
+        const A = items[bucket[a]];
+        const B = items[bucket[b]];
+        if (!A.box && !B.box) continue; // lines of text sit close by design
+        if (A.el === B.el || A.el.contains(B.el) || B.el.contains(A.el)) continue;
+        const key = `${bucket[a]}-${bucket[b]}`;
+        if (nearPairs.has(key)) continue;
+        nearPairs.add(key);
+        const ox = Math.min(A.rect.right, B.rect.right) - Math.max(A.rect.left, B.rect.left);
+        const oy = Math.min(A.rect.bottom, B.rect.bottom) - Math.max(A.rect.top, B.rect.top);
+        // Gap along the axis they face each other on; the other axis must share at least 8px.
+        let gap = null;
+        if (ox >= 8 && oy <= 0.5) gap = -oy;
+        else if (oy >= 8 && ox <= 0.5) gap = -ox;
+        if (gap === null || gap < -0.5 || gap >= minGap) continue;
+        // A text's own box (a label inside a pill) is already excluded; text in a box next door isn't.
+        const [box, other] = A.box ? [A, B] : [B, A];
+        if (!other.box && box.el.contains(other.el)) continue;
+        // Meant to touch: different layers, tables, things pinned in place, page regions meeting
+        // (sidebar and footer), and rows of a divided list.
+        if (layerOf(A.el) !== layerOf(B.el)) continue;
+        const table = A.el.closest("table");
+        if (table && table === B.el.closest("table")) continue;
+        if (styleOf(A.el).position === "absolute" || styleOf(B.el).position === "absolute") continue;
+        if (large(A.rect) && large(B.rect)) continue;
+        // A button or chip set in a line of text has a space or a comma beside it, not a gap.
+        if (!other.box && oy >= 8 && styleOf(box.el).display.startsWith("inline")) continue;
+        if (
+          other.box &&
+          A.el.parentElement === B.el.parentElement &&
+          A.el.className === B.el.className &&
+          gap <= 1 &&
+          (oy >= 8 ? Math.abs(A.rect.height - B.rect.height) < 1 : Math.abs(A.rect.width - B.rect.width) < 1)
+        )
+          continue;
+        const what = other.box ? describe(other.el) : `"${other.text.slice(0, 30)}"`;
+        add(
+          "touching",
+          gap <= 1 ? "warn" : "info",
+          box.el,
+          `${gap <= 1 ? "Touches" : `${Math.round(gap)}px from`} ${what}`,
+          {
+            left: Math.min(A.rect.left, B.rect.left),
+            top: Math.min(A.rect.top, B.rect.top),
+            width: Math.max(A.rect.right, B.rect.right) - Math.min(A.rect.left, B.rect.left),
+            height: Math.max(A.rect.bottom, B.rect.bottom) - Math.min(A.rect.top, B.rect.top),
+          },
+        );
+      }
+  }
+
   // Spacing off the 8 / 12 / 16 / 24 / 32 scale, counted by element, for the spacing summary.
   const offScale = {};
   const scale = new Set(opts.spacingScale);

@@ -35,7 +35,7 @@ export function ServerPage() {
             <Facts
               rows={[
                 ...s.scryfall.map((r): [string, ReactNode] => [
-                  `Scryfall ${r.kind.replace("_", " ")}`,
+                  `Scryfall ${r.kind.replace(/^scryfall_/, "").replaceAll("_", " ")}`,
                   r.error ? (
                     <span className="admin-bad">Failed {ago(r.started_at)}: {r.error}</span>
                   ) : r.finished_at ? (

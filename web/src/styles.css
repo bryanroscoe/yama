@@ -2019,11 +2019,17 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   cursor: progress;
 }
 
-/* Configurations: other builds of a deck, a row of links under its tile and switched on its page. */
-.deck-tiles > li.has-configs {
+/* Under each tile: the builds link, then configurations (other builds of a deck, a row of links
+   switched on its page). A gap keeps them off the tile. */
+.deck-tiles > li {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 8px;
+}
+.deck-configs a {
+  display: inline-block;
+  padding-block: 2px;
+  font-size: var(--t-sm);
 }
 .deck-configs-list {
   list-style: none;

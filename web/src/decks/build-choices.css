@@ -1,3 +1,5 @@
+/* The deck picker and the build choices under it are separate blocks: keep a gap between them. */
+.build-choices { display: grid; gap: var(--gap); align-content: start; }
 .bc-selects { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }
 .bc-controls label { display: grid; gap: .4rem; }
 .bc-controls select { width: 100%; max-width: 100%; }
