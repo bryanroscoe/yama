@@ -200,20 +200,24 @@ function ImportResearch() {
   return <details><summary>Import a note file</summary><p className="small dim">Store a yama-research/1 file in your private account. This imports advice, not decks or collection cards.</p><input type="file" accept="application/json,.json" disabled={save.isPending} onChange={(e) => { const f = e.target.files?.[0]; if (f) save.mutate(f); }} /><ErrorText error={save.error} /></details>;
 }
 
-/** One id per copy of a shared note in this tab, so a reload or a retry after a lost answer gets the copy already made. */
+/** One id per Save-a-copy action in this tab: a reload or a retry after a lost answer gets the
+ * copy already made. It is forgotten once the copy opens, so saving again makes another copy. */
+const copyKey = (token: string) => `yama-copy:${token}`;
 function copyOp(token: string): string | undefined {
   try {
-    const key = `yama-copy:${token}`;
-    const op = sessionStorage.getItem(key) ?? crypto.randomUUID();
-    sessionStorage.setItem(key, op);
+    const op = sessionStorage.getItem(copyKey(token)) ?? crypto.randomUUID();
+    sessionStorage.setItem(copyKey(token), op);
     return op;
   } catch { return undefined; }
+}
+function forgetCopyOp(token: string) {
+  try { sessionStorage.removeItem(copyKey(token)); } catch { /* no storage: nothing kept */ }
 }
 
 /** `?copy=<token>` from a shared note's page: save the copy once, then open it. */
 function CopyShared({ token }: { token: string }) {
   const navigate = useNavigate();const qc = useQueryClient();
-  const copy = useMutation({ mutationFn: () => copySharedNote(token, copyOp(token)), onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["research"] }); navigate(`/decks/research/${encodeURIComponent(r.id)}`, { replace: true }); } });
+  const copy = useMutation({ mutationFn: () => copySharedNote(token, copyOp(token)), onSuccess: (r) => { forgetCopyOp(token); void qc.invalidateQueries({ queryKey: ["research"] }); navigate(`/decks/research/${encodeURIComponent(r.id)}`, { replace: true }); } });
   const started = useRef(false);
   useEffect(() => { if (!started.current) { started.current = true; copy.mutate(); } }, [copy]);
   return <section className="research-copy">{copy.isError ? <><p>The shared note wasn't copied.</p><ErrorText error={copy.error} /><Link to="/decks/research">Open your agent notes</Link></> : <p>Saving a copy of the shared note…</p>}</section>;
