@@ -39,6 +39,11 @@ describe("power signals from card text", () => {
     expect(isCheapMana(card("Exploration", "Enchantment", 1, "You may play an additional land on each of your turns."))).toBe(true);
     // A spell with a land back is a land drop, not ramp.
     expect(isCheapMana(rebirth)).toBe(false);
+    // Filters put in what they take out; a Signet pays one for two.
+    expect(isCheapMana(card("Prophetic Prism", "Artifact", 2, "When Prophetic Prism enters, draw a card.\n{1}, {T}: Add one mana of any color.", "WUBRG"))).toBe(false);
+    expect(isCheapMana(card("Chromatic Star", "Artifact", 1, "{1}, {T}, Sacrifice Chromatic Star: Add one mana of any color.\nWhen Chromatic Star is put into a graveyard from the battlefield, draw a card.", "WUBRG"))).toBe(false);
+    expect(isCheapMana(card("Golgari Signet", "Artifact", 2, "{1}, {T}: Add {B}{G}.", "BG"))).toBe(true);
+    expect(isCheapMana(card("Birds of Paradise", "Creature — Bird", 1, "Flying\n{T}: Add one mana of any color.", "WUBRG"))).toBe(true);
     // Before produced mana is loaded, the rules text decides.
     expect(isCheapMana({ ...solRing, producedMana: null })).toBe(true);
     expect(isCheapMana(card("Arcane Signet", "Artifact", 2, "{T}: Add one mana of any color in your commander's color identity.", null as unknown as string))).toBe(true);
@@ -62,10 +67,14 @@ describe("power signals from card text", () => {
       ["Darkblast", "Target creature gets -1/-1 until end of turn.\nDredge 3"],
       ["White Orchid Phantom", "Flash\nFirst strike\nWhen White Orchid Phantom enters, destroy up to one target nonbasic land. Its controller may search their library for a basic land card."],
       ["Ram Through", "Target creature you control deals damage equal to its power to target creature you don't control. If the creature you control has trample, excess damage is dealt to that creature's controller instead."],
+      ["Defile", "Target creature gets -1/-1 until end of turn for each Swamp you control."],
       ["Diabolic Edict", "Target player sacrifices a creature of their choice."],
       ["Sheoldred's Edict", "Choose one —\n• Each opponent sacrifices a nontoken creature of their choice."],
       ["Prey Upon", "Target creature you control fights target creature you don't control."],
     ]) expect(isCheapInteraction(card(name!, "Instant", 1, text))).toBe(true);
+    expect(isCheapInteraction(card("Darksteel Mutation", "Enchantment — Aura", 2, "Enchant creature\nEnchanted creature is an Insect artifact creature with base power and toughness 0/1 and has indestructible, and it loses all other abilities."))).toBe(true);
+    expect(isCheapInteraction(card("Frogify", "Enchantment — Aura", 2, "Enchant creature\nEnchanted creature loses all abilities and is a blue Frog creature with base power and toughness 1/1."))).toBe(true);
+    expect(isCheapInteraction(card("Rancor", "Enchantment — Aura", 1, "Enchant creature\nEnchanted creature gets +2/+0 and has trample."))).toBe(false);
     expect(isCheapInteraction(card("Feed the Swarm", "Sorcery", 2, "Destroy target creature or enchantment an opponent controls. You lose life equal to that permanent's mana value."))).toBe(true);
     expect(isCheapInteraction(relic)).toBe(false);
     expect(isCheapInteraction(big)).toBe(false);

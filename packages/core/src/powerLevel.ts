@@ -77,17 +77,46 @@ const INTERACTION = new RegExp(
 );
 /** Targets limited to your own things (Ephemerate, Cloudshift) make a blink, not interaction;
  *  a sentence counts while one target isn't yours (Prey Upon). */
-const OWN_TARGET = /\btarget (?:[^.]*?)\byou (?:control|own)\b/gi;
+const OWN_TARGET = /\btarget (?:[\w'-]+,? ){0,4}?you (?:control|own)\b/gi;
+/** An Aura that shuts a creature off (Pacifism, Darksteel Mutation, Lignify, Frogify). */
+const REMOVAL_AURA = /\benchanted (?:creature|permanent)\b[^.]*?(?:loses all (?:other )?abilities|can't attack or block|can't block|doesn't untap)/i;
 function onlyOwnTargets(sentence: string): boolean {
   const targets = (sentence.match(/\btarget\b/gi) ?? []).length;
   return targets > 0 && (sentence.match(OWN_TARGET) ?? []).length >= targets;
 }
 
 const faceText = (c: StatCard) => c.oracleText ?? "";
+const front = (s: string | null | undefined) => (s ?? "").split(" // ")[0]!;
 /** The card data joins a multi-face card's rules text with a "//" line. The mana value is the
  *  front face's, so the cheap factors read only the front face: an Adventure's draw costs more. */
 const frontText = (c: StatCard) => faceText(c).split(/\n\/\/\n/)[0]!;
 const hasLandBack = (c: StatCard) => (c.typeLine ?? "").split(" // ").slice(1).some((t) => t.includes("Land"));
+
+const WORD_COUNT: Record<string, number> = { one: 1, two: 2, three: 3, x: 2 };
+
+/**
+ * Net mana from the card's "cost: Add ..." abilities: the best of mana out minus mana in, or
+ * null with no such ability. A filter (Prophetic Prism, Chromatic Star) puts in what it takes
+ * out; a Signet pays one for two.
+ */
+function netManaAbility(text: string): number | null {
+  let best: number | null = null;
+  for (const line of text.split("\n")) {
+    const m = line.match(/^(.*?):\s*(?:[^.]*?\s)?adds? (.*)$/i);
+    if (!m) continue;
+    let cost = 0;
+    for (const [, sym] of m[1]!.matchAll(/\{([^}]+)\}/g)) {
+      if (/^\d+$/.test(sym!)) cost += Number(sym);
+      else if (/^[WUBRGC](?:\/[WUBRGP])?$/i.test(sym!)) cost += 1;
+    }
+    const made = m[2]!.split(".")[0]!;
+    const symbols = (made.match(/\{[WUBRGC]\}/gi) ?? []).length;
+    const words = made.match(/\b(one|two|three|x) mana\b/i);
+    const out = symbols || (words ? WORD_COUNT[words[1]!.toLowerCase()]! : 0);
+    best = Math.max(best ?? -Infinity, out - cost);
+  }
+  return best;
+}
 
 /** A rock, dork or ritual, or a spell that puts a land onto the battlefield. */
 export function isCheapMana(c: StatCard): boolean {
@@ -99,6 +128,8 @@ export function isCheapMana(c: StatCard): boolean {
   // Produced mana covers every face, so a spell with a land back (Malakir Rebirth) would count
   // for its land; then only the front face's own mana counts.
   // While produced mana isn't loaded, the rules text says whether the card makes mana.
+  const net = netManaAbility(text);
+  if (net != null) return net > 0;
   if (hasLandBack(c) || c.producedMana == null) return MAKES_MANA.test(text);
   return !!c.producedMana;
 }
@@ -113,7 +144,9 @@ export function isCheapDraw(c: StatCard): boolean {
  *  at two mana or less. */
 export function isCheapInteraction(c: StatCard): boolean {
   if (c.cmc == null || c.cmc > CHEAP || isLand(c)) return false;
-  return frontText(c).split(/[.\n]/).some((sentence) => INTERACTION.test(sentence) && !onlyOwnTargets(sentence));
+  const text = frontText(c);
+  if (front(c.typeLine).includes("Aura") && REMOVAL_AURA.test(text)) return true;
+  return text.split(/[.\n]/).some((sentence) => INTERACTION.test(sentence) && !onlyOwnTargets(sentence));
 }
 
 /** Finds a card other than a land from the library. */
