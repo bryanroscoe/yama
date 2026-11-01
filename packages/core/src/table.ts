@@ -41,6 +41,9 @@ export interface PlayerSetup {
 /** The commander fields a seat can change mid-game (someone grabbed another deck, or a typo). */
 export type CommanderPick = Pick<PlayerSetup, "commanderName" | "partnerName" | "colorIdentity" | "art" | "artist" | "partnerArt" | "partnerArtist" | "deckLabel" | "deckVersionId">;
 
+/** Who sits at a seat: renamed mid-game, or tied to a playgroup member or account after all. */
+export type PlayerPick = Pick<PlayerSetup, "name" | "memberId" | "userId">;
+
 export type TableFormat = "commander" | "standard" | "other";
 
 /** The game types New game offers, with the starting life each one usually uses. */
@@ -113,6 +116,11 @@ export type TableEvent =
       /** What it was playing before, so the game's history can still name it (the server keeps only the newest). */
       was?: { commanderName?: string; partnerName?: string };
     } & CommanderPick)
+  /**
+   * Someone else sits here, or the same person under another name or tied to their member row or
+   * account. Every field is replaced. `was` keeps the old name for the game's history.
+   */
+  | ({ type: "player"; seat: Seat; was?: { name: string } } & PlayerPick)
   | ({ type: "finish"; winnerSeat: Seat | null; endedAt: string } & FinishDetails);
 
 export interface LoggedEvent {
@@ -286,6 +294,8 @@ export function apply(state: TableState, e: TableEvent): TableState {
         deckVersionId: pick.deckVersionId,
       }));
     }
+    case "player":
+      return updatePlayer(state, e.seat, (p) => ({ ...p, name: e.name, memberId: e.memberId, userId: e.userId }));
     case "revive":
       return updatePlayer(state, e.seat, (p) => {
         const { eliminated: _, ...rest } = p;

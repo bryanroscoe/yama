@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSummary, ProfileDeck } from "../api";
 import type { PreconItem } from "../lab/api";
-import { deckPicks, handlePrefix, type DeckPick } from "./pickers";
+import { canPair, deckPicks, handlePrefix, type DeckPick } from "./pickers";
 
 const mine = (name: string, commanders: string[]) => ({ id: name, name, commanders, color_identity: "W", commander_image: null, commander_artist: null }) as unknown as DeckSummary;
 const theirs = (name: string, commanders: string[]): ProfileDeck => ({ name, commanders, color_identity: "G", art: null, artist: null, card_count: 100, version_id: `v-${name}` });
@@ -35,6 +35,29 @@ describe("deckPicks", () => {
     expect(names(deckPicks("r", { ...decks, yours: true }))).toEqual(["mine:Eternal Might", "mine:Rohan night"]);
     // Your own seat never shows "their" decks, even with your handle on it.
     expect(names(deckPicks("", { ...decks, handle: "saget", yours: true }))).toEqual(["mine:Eternal Might", "mine:Rohan night"]);
+  });
+});
+
+describe("deckPicks and configurations", () => {
+  it("lists a deck once; its stock and after-prints lists are picked after it", () => {
+    const main = mine("Riders of Rohan", ["Éowyn, Shieldmaiden"]);
+    const stock = { ...mine("Riders of Rohan (stock)", ["Éowyn, Shieldmaiden"]), parent_id: main.id, configuration: "stock" } as DeckSummary;
+    expect(names(deckPicks("", { mine: [main, stock], yours: true }))).toEqual(["mine:Riders of Rohan"]);
+    expect(names(deckPicks("stock", { mine: [main, stock], yours: true }))).toEqual([]);
+  });
+});
+
+describe("canPair", () => {
+  const card = (name: string, oracle_text: string, type_line = "Legendary Creature") => ({ name, oracle_text, type_line });
+  it("pairs partners, Backgrounds, Doctors and named partners, and nothing else", () => {
+    expect(canPair(card("Tana", "Partner"), card("Tymna", "Partner"))).toBe(true);
+    expect(canPair(card("Wilson", "Choose a Background"), card("Raised by Giants", "", "Legendary Enchantment — Background"))).toBe(true);
+    expect(canPair(card("The Tenth Doctor", "", "Legendary Creature — Time Lord Doctor"), card("Rose Tyler", "Doctor's companion"))).toBe(true);
+    expect(canPair(card("Pir, Imaginative Rascal", "Partner with Toothy, Imaginary Friend"), card("Toothy, Imaginary Friend", "Partner with Pir, Imaginative Rascal"))).toBe(true);
+    expect(canPair(card("Pir, Imaginative Rascal", "Partner with Toothy, Imaginary Friend"), card("Tymna", "Partner"))).toBe(false);
+    expect(canPair(card("Tana", "Partner"), card("Will", "Friends forever"))).toBe(false);
+    // A precon's face commander and its alternate: a choice, not a pair.
+    expect(canPair(card("Éowyn, Shieldmaiden", "First strike"), card("Éomer, King of Rohan", "Double strike"))).toBe(false);
   });
 });
 

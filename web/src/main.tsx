@@ -13,6 +13,8 @@ import "./styles.css";
 import "./controls.css";
 import "./art-framing.css";
 import { refreshOfflineCardsIfStale } from "./offline/cards";
+// Catches the browser's install prompt as early as it fires, for the Install Yama buttons.
+import "./install";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },

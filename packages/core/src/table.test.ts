@@ -67,6 +67,17 @@ describe("table", () => {
     expect(commanderSources(s, 1).map((c) => [c.key, c.name])).toEqual([["0", "Atraxa, Praetors' Voice"], ["0~1", "Tana"]]);
   });
 
+  it("a player event renames the seat or ties it to a member, keeping everything else", () => {
+    let s = initialState(setup);
+    s = apply(s, { type: "life", seat: 1, delta: -7 });
+    s = apply(s, { type: "player", seat: 1, name: "Samantha", memberId: "m-sam", was: { name: "Sam" } });
+    expect(s.players[1]).toMatchObject({ name: "Samantha", memberId: "m-sam", life: 33 });
+    // Every field is replaced: a typed name drops the member row.
+    s = apply(s, { type: "player", seat: 1, name: "Jo" });
+    expect(s.players[1]!.memberId).toBeUndefined();
+    expect(toServerEvents([{ seq: 1, at: t0.toISOString(), event: { type: "player", seat: 1, name: "Jo" } }])[0]!.actor_seat).toBe(1);
+  });
+
   it("lists every cause, so a later one can still be asked about", () => {
     let s = initialState(setup);
     s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 21 });

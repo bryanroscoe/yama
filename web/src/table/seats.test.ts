@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, renameSeat, seatDeckLabel, type SeatDraft } from "./seats";
+import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, personPatch, renameSeat, seatDeckLabel, seatHolds, togglePerson, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -172,5 +172,47 @@ describe("rebuildForGroup", () => {
     expect(seats[1]).toMatchObject({ memberId: "m-jo" });
     expect(seats[2]).toMatchObject({ name: "Kim", userId: undefined, memberId: undefined, handle: "kim", deckLabel: "Food and Fellowship" });
     expect(seats[3]).toMatchObject({ name: "Guest" });
+  });
+});
+
+describe("togglePerson (Who's playing)", () => {
+  const me = { id: "u1", display_name: "Bryan" };
+  const group = { id: "pg", name: "Friday", owner_id: "u1", join_code: "X", members: [
+    { id: "m-me", user_id: "u1", display_name: "Bryan", handle: null },
+    { id: "m-sam", user_id: "u2", display_name: "Sam", handle: "sam" },
+    { id: "m-jo", user_id: null, display_name: "Jo", handle: null },
+  ] } as unknown as Playgroup;
+  const sam = { name: "Sam", memberId: "m-sam", userId: "u2" };
+  const jo = { name: "Jo", memberId: "m-jo" };
+  const start = (): SeatDraft[] => [{ ...emptySeat(), name: "Bryan", memberId: "m-me", userId: "u1" }, emptySeat(), emptySeat()];
+
+  it("seats people in the open seats in tap order, then adds seats up to the most", () => {
+    let s = togglePerson(start(), sam, personPatch(sam, group, me)!, 4);
+    s = togglePerson(s, jo, personPatch(jo, group, me)!, 4);
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "Sam", "Jo"]);
+    expect(s[1]).toMatchObject({ memberId: "m-sam", userId: "u2", handle: "sam" });
+    const alex = { name: "Alex" };
+    s = togglePerson(s, alex, personPatch(alex, group, me)!, 4);
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "Sam", "Jo", "Alex"]);
+    // Full: nobody else fits.
+    expect(togglePerson(s, { name: "Kim" }, { name: "Kim" }, 4)).toBe(s);
+  });
+
+  it("a second tap takes them off, leaving their seat open where it was", () => {
+    let s = togglePerson(start(), sam, personPatch(sam, group, me)!, 6);
+    s = togglePerson(s, jo, personPatch(jo, group, me)!, 6);
+    s = togglePerson(s, sam, personPatch(sam, group, me)!, 6);
+    // Jo stays in seat 3: seats never move.
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "", "Jo"]);
+    expect(s[1]).toEqual(emptySeat());
+    // The next one tapped fills the open seat. A guest is matched by name, whatever the case.
+    s = togglePerson(s, { name: "Alex" }, { name: "Alex" }, 6);
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "Alex", "Jo"]);
+    expect(seatHolds(s[1]!, { name: "alex" })).toBe(true);
+  });
+
+  it("without a playgroup a friend sits as a guest by name, and only you keep your account", () => {
+    expect(personPatch(sam, undefined, me)).toMatchObject({ name: "Sam", memberId: undefined, userId: undefined });
+    expect(personPatch({ name: "Bryan", userId: "u1" }, undefined, me)).toMatchObject({ userId: "u1" });
   });
 });
