@@ -96,6 +96,9 @@ pub enum OpKind {
         #[serde(default, deserialize_with = "crate::util::double_option")]
         note: Option<Option<String>>,
         proxy: Option<bool>,
+        /// Another printing of the same card (the row was filed under the wrong one).
+        #[serde(default)]
+        scryfall_id: Option<String>,
     },
     Remove { item_id: String },
 }
@@ -184,12 +187,19 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                     .await?;
             }
         }
-        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy } => {
+        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy, scryfall_id } => {
             let item_id = &resolve_item(tx, owner, item_id).await?;
             let Some(item) = load_item(tx, owner, item_id).await? else { return Ok(true) };
             if let Some(Some(c)) = container_id {
                 check_container(tx, owner, Some(c)).await?;
             }
+            let printing = match scryfall_id {
+                Some(p) if *p != item.scryfall_id => {
+                    check_same_card(tx, &item.scryfall_id, p).await?;
+                    p.clone()
+                }
+                _ => item.scryfall_id.clone(),
+            };
             let copy = CopyKind {
                 condition: condition.clone().unwrap_or(item.condition.clone()),
                 finish: finish.clone().unwrap_or(item.finish.clone()),
@@ -210,7 +220,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                  AND altered=? AND signed=? AND misprint=? AND proxy=? AND IFNULL(container_id,'') = IFNULL(?, '') AND id != ?",
             )
             .bind(owner)
-            .bind(&item.scryfall_id)
+            .bind(&printing)
             .bind(&copy.condition)
             .bind(&copy.finish)
             .bind(&copy.lang)
@@ -249,9 +259,10 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                 }
                 None => {
                     sqlx::query(
-                        "UPDATE collection_items SET condition=?, finish=?, lang=?, proxy=?, container_id=?, purchase_price=?, note=?, updated_at=?
+                        "UPDATE collection_items SET scryfall_id=?, condition=?, finish=?, lang=?, proxy=?, container_id=?, purchase_price=?, note=?, updated_at=?
                          WHERE id = ?",
                     )
+                    .bind(&printing)
                     .bind(&copy.condition)
                     .bind(&copy.finish)
                     .bind(&copy.lang)
@@ -276,6 +287,19 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
         }
     }
     Ok(true)
+}
+
+/// A row's printing may change only to another printing of the same card that's in our card
+/// data. (A row whose printing isn't in our data yet may take any known printing.)
+async fn check_same_card(tx: &mut Transaction<'_, Sqlite>, from: &str, to: &str) -> AppResult<()> {
+    const ORACLE: &str = "SELECT oracle_id FROM printings WHERE scryfall_id = ?";
+    let Some(new) = sqlx::query_scalar::<_, String>(ORACLE).bind(to).fetch_optional(&mut **tx).await? else {
+        return Err(AppError::bad("that printing isn't in our card data"));
+    };
+    match sqlx::query_scalar::<_, String>(ORACLE).bind(from).fetch_optional(&mut **tx).await? {
+        Some(old) if old != new => Err(AppError::bad("that's a printing of a different card")),
+        _ => Ok(()),
+    }
 }
 
 /// Follow merge aliases to the row an old item id now lives in.
@@ -767,6 +791,7 @@ async fn delete_container(State(st): State<AppState>, CurrentUser(user): Current
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                scryfall_id: None,
             },
         };
         apply_op(&mut tx, &user.id, &op).await?;
@@ -872,6 +897,7 @@ mod tests {
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                scryfall_id: None,
             },
         };
         apply_op(&mut tx, &owner, &up).await.unwrap();
@@ -923,7 +949,7 @@ mod tests {
         let update = Op {
             op_id: "c".into(),
             device_id: None,
-            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None },
+            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, scryfall_id: None },
         };
         apply_op(&mut tx, &owner, &update).await.unwrap();
         // Device B, offline before that, adds two to the old row id.
@@ -931,5 +957,72 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+
+    #[tokio::test]
+    async fn update_changes_the_printing_of_the_same_card_only() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        for (id, oracle, set) in [("ltr", "doom", "ltr"), ("ltr-x", "doom", "ltc"), ("bolt", "bolt", "m10")] {
+            sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?,?,'Card',?,'Set','1','en','now')")
+                .bind(id)
+                .bind(oracle)
+                .bind(set)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let add = |op_id: &str, scryfall_id: &str, qty| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: scryfall_id.into(),
+                qty,
+                copy: CopyKind { condition: nm(), finish: nonfoil(), lang: en(), ..Default::default() },
+                container_id: None,
+                purchase_price: None,
+                purchase_currency: None,
+            },
+        };
+        let reprint = |op_id: &str, item_id: &str, to: &str| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Update {
+                item_id: item_id.into(),
+                condition: None,
+                finish: None,
+                lang: None,
+                container_id: None,
+                purchase_price: None,
+                note: None,
+                proxy: None,
+                scryfall_id: Some(to.into()),
+            },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &add("a", "ltr", 2)).await.unwrap();
+        tx.commit().await.unwrap();
+        let id: String = sqlx::query_scalar("SELECT id FROM collection_items").fetch_one(&pool).await.unwrap();
+
+        // Another card's printing, or one we don't know, is refused.
+        for (op_id, to) in [("b", "bolt"), ("c", "nope")] {
+            let mut tx = pool.begin().await.unwrap();
+            assert!(apply_op(&mut tx, &owner, &reprint(op_id, &id, to)).await.is_err());
+        }
+
+        // The right card: the row keeps its id and copies.
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &reprint("d", &id, "ltr-x")).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, String, i64)> = sqlx::query_as("SELECT id, scryfall_id, qty FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![(id.clone(), "ltr-x".into(), 2)]);
+
+        // Back again, onto a row that already holds that printing: they merge.
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &add("e", "ltr", 1)).await.unwrap();
+        apply_op(&mut tx, &owner, &reprint("f", &id, "ltr")).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT scryfall_id, qty FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("ltr".into(), 3)]);
     }
 }

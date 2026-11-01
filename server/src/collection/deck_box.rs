@@ -338,6 +338,7 @@ pub async fn add_deck(pool: &SqlitePool, owner: &str, deck_id: &str, same: SameP
                     purchase_price: None,
                     note: None,
                     proxy: None,
+                    scryfall_id: None,
                 });
             } else {
                 ops.push(OpKind::Adjust { item_id: source.id.clone(), delta: -take });

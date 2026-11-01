@@ -1,4 +1,5 @@
-import { CardHover, CardRef } from "../components/CardRef";
+import { CardHover } from "../components/CardRef";
+import { CollectionItemSheet } from "./CollectionItemSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useRef, useState } from "react";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
@@ -43,7 +44,6 @@ function byValue(a: Item, b: Item): number {
 }
 
 export function CollectionPage() {
-  const qc = useQueryClient();
   const [container, setContainer] = useState("");
   const [filter, setFilter] = useState("");
   const [importing, setImporting] = useState(false);
@@ -67,20 +67,8 @@ export function CollectionPage() {
     placeholderData: (prev) => prev,
   });
 
-  const op = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api("/api/collection/ops", { method: "POST", json: [{ op_id: crypto.randomUUID(), ...body }] }),
-    onSuccess: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
-  });
   const [newContainer, setNewContainer] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const adjust = useMutation({
-    mutationFn: (v: { item: Item; delta: number }) =>
-      api("/api/collection/ops", {
-        method: "POST",
-        json: [{ op_id: crypto.randomUUID(), kind: "adjust", item_id: v.item.id, delta: v.delta }],
-      }),
-    onSuccess: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
-  });
 
   const s = summary.data;
   const proxies = s?.proxies ?? 0;
@@ -262,65 +250,7 @@ export function CollectionPage() {
         <a className="button outline coll-export-narrow" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
       </section>
 
-      {open && (
-        <Sheet label={open.name ?? "Card"} onClose={() => setOpen(null)}>
-          <div className="stack">
-            <div className="sheet-head">
-              <h2>{open.name&&<CardRef name={open.name} oracleId={open.oracle_id} image={open.image_small}/>}</h2>
-              <button className="quiet" onClick={() => setOpen(null)}>Close</button>
-            </div>
-            <div style={{ maxWidth: 260 }}>
-              <CardImage src={open.image_normal} name={open.name ?? ""} />
-            </div>
-            <p className="dim">
-              {open.set_name} #{open.collector_number}, {open.finish}, {open.condition}, {open.lang}
-              {open.purchase_price != null ? `. Paid ${usd(open.purchase_price)}` : ""}
-            </p>
-            <div className="row">
-              <button onClick={() => { adjust.mutate({ item: open, delta: -1 }); setOpen(null); }}>Remove one</button>
-              <button onClick={() => { adjust.mutate({ item: open, delta: 1 }); setOpen(null); }}>Add one more</button>
-            </div>
-            <label>
-              Kept in
-              <select
-                value={open.container_id ?? ""}
-                onChange={(e) => {
-                  op.mutate({ kind: "update", item_id: open.id, container_id: e.target.value || null });
-                  setOpen(null);
-                }}
-              >
-                <option value="">Not filed anywhere</option>
-                {containers.data?.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
-              </select>
-            </label>
-            <label>
-              Condition
-              <select
-                value={open.condition}
-                onChange={(e) => {
-                  op.mutate({ kind: "update", item_id: open.id, condition: e.target.value });
-                  setOpen(null);
-                }}
-              >
-                {["NM", "LP", "MP", "HP", "DMG"].map((c) => <option key={c}>{c}</option>)}
-              </select>
-            </label>
-            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-              <input
-                type="checkbox"
-                checked={open.proxy}
-                style={{ width: "auto", minHeight: 0 }}
-                onChange={(e) => {
-                  op.mutate({ kind: "update", item_id: open.id, proxy: e.target.checked });
-                  setOpen(null);
-                }}
-              />
-              This is a proxy
-            </label>
-            <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
-          </div>
-        </Sheet>
-      )}
+      {open && <CollectionItemSheet item={open} containers={containers.data ?? []} onClose={() => setOpen(null)} />}
       {importing && <ImportSheet onClose={() => setImporting(false)} />}
       {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
     </main>
