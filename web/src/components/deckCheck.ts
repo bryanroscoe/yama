@@ -39,6 +39,13 @@ export function estimateValue(tag: string, bracket: number | null): { value: str
   return { value: "Unknown", sub: () => `Commander Spellbook answered with a tag Yama doesn't know yet ("${tag}")` };
 }
 
+/** The starting suggestion as a number, 2-4, when the check gives one (E is the provisional
+ *  Core starting point); null for a banned card or a tag Yama doesn't know. */
+export function suggestedBracket(tag: string, bracket: number | null): number | null {
+  const v = Number(estimateValue(tag, bracket).value);
+  return Number.isInteger(v) ? v : null;
+}
+
 export function estimateExplanation(tag: string): string {
   if (tag === "E") return "Start with Core (2): the card-list check found no signals that suggest a higher bracket among the cards it recognized. This doesn't prove the deck's power or speed. Exhibition (1) is for decks deliberately built around theme over power, so Yama never assigns it automatically. A highly tuned deck may still belong above Core without any Game Changers.";
   if (tag === "B") return "The card-list check found a card banned in Commander. Review it before choosing a bracket; a bracket doesn't override card legality.";

@@ -591,6 +591,7 @@ export function DeckPage() {
             versionId={d.version_id}
             declared={d.bracket}
             gameChangers={d.game_changers}
+            cards={d.cards}
             onCard={openByName}
             onDeclare={() => setEditing(true)}
           />
