@@ -1908,7 +1908,6 @@ pub async fn more_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
-    user.require_power()?;
     let remote: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lab_execution_runs WHERE experiment_id=? AND owner_id=? AND comparison=0)")
         .bind(id).bind(&user.id).fetch_one(pool).await?;
     if remote {
@@ -1925,6 +1924,8 @@ pub async fn more_with(
         // Applied already (a retried request), or changed since the page loaded.
         return detail(pool, &user.id, id).await;
     }
+    // Only new games need power: a retry above answers even after the grant is gone.
+    user.require_power()?;
     if status != "done" {
         return Err(AppError::Conflict(match status.as_str() {
             "queued" | "running" => "This run is still playing. Add games once it has finished.".into(),

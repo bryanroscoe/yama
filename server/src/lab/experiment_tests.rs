@@ -295,7 +295,10 @@ async fn only_admins_and_power_users_start_repeat_or_extend_experiments() {
     let forbidden = |e: AppError| matches!(e, AppError::Forbidden(m) if m == crate::auth::POWER_ONLY);
     assert!(forbidden(create_with(&pool, &plain, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
     assert!(forbidden(again_with(&pool, &plain, &id, 100, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
-    assert!(forbidden(more_with(&pool, &plain, &id, 100, 0, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    // 100 games of a change run are 50 pods: asking from that count is new work, from any other
+    // it's a retry (or a stale page) and answers with the run.
+    assert!(forbidden(more_with(&pool, &plain, &id, 100, 50, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert_eq!(more_with(&pool, &plain, &id, 100, 0, sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
     assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.id, id);
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id='bryan'").fetch_one(&pool).await.unwrap();
     assert_eq!(count, 1);
