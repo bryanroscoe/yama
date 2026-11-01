@@ -369,3 +369,9 @@
 .coll-delete p {
   margin: 0;
 }
+.coll-done {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--good-tint);
+}

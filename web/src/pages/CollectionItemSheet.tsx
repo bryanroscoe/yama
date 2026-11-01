@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, usd, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
@@ -13,9 +13,20 @@ type Item = CollectionItem & { altered?: boolean; signed?: boolean; misprint?: b
 
 const priceOf = (p: Printing, finish: string) => (finish === "foil" ? p.usd_foil : finish === "etched" ? p.usd_etched : p.usd);
 
-/** One collection row: its copies, where they live, its printing, and deleting it. */
-export function CollectionItemSheet({ item, containers, onClose }: { item: Item; containers: Container[]; onClose: () => void }) {
+/**
+ * One collection row: its copies, where they live, its printing, and deleting it. `onClose` gets
+ * a line to show on the page when a change needs saying (a new printing, a deleted row).
+ */
+export function CollectionItemSheet({ item, containers, onClose }: { item: Item; containers: Container[]; onClose: (done?: string) => void }) {
   const qc = useQueryClient();
+  // A save that lands after this sheet closed mustn't close the next card's sheet.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const [picking, setPicking] = useState(false);
   const [rescanning, setRescanning] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -26,12 +37,14 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
 
   const send = useMutation({
     mutationFn: (ops: Op[]) => api("/api/collection/ops", { method: "POST", json: ops }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
-      onClose();
-    },
+    onSuccess: () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
   });
-  const one = (body: Record<string, unknown>) => send.mutate([{ op_id: crypto.randomUUID(), kind: "update", item_id: item.id, ...body } as Op]);
+  const busy = send.isPending;
+  const save = (ops: Op[], done?: string) => send.mutate(ops, { onSuccess: () => alive.current && onClose(done) });
+  const one = (body: Record<string, unknown>) => save([{ op_id: crypto.randomUUID(), kind: "update", item_id: item.id, ...body } as Op]);
+  const adjust = (delta: number) => save([{ op_id: crypto.randomUUID(), kind: "adjust", item_id: item.id, delta }]);
+  const name = item.name ?? "The card";
+  const nowIs = (p: Printing) => `${scope === "one" && item.qty > 1 ? `One ${name}` : name} is now ${printingLabel(p)}.`;
   // Every printing of this card, newest first: the picker's list, and the check on a rescan.
   const printings = useQuery({
     queryKey: ["printings-of", item.scryfall_id],
@@ -42,13 +55,20 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
   const reprint = (p: Printing) => {
     const ops = reprintOps(item, p, scope, () => crypto.randomUUID());
     if (ops.length === 0) onClose();
-    else send.mutate(ops);
+    else save(ops, nowIs(p));
   };
 
   /** A rescanned card: the same card in another printing replaces this row's (or one copy's). */
   const rescanned = async (c: ScanCandidate): Promise<boolean> => {
     if (!c.scryfall_id) throw new Error(`Pick the printing of ${c.name} first`);
-    const list = printings.data ?? (await printings.refetch()).data ?? [];
+    // One change per rescan: the scanner goes on looking while a save is out.
+    if (send.isPending) return false;
+    let list = printings.data;
+    if (!list) {
+      const r = await printings.refetch();
+      if (r.error) throw new Error(`Couldn't load the printings of ${item.name ?? "this card"} to check the scan. Nothing was changed; try again.`);
+      list = r.data ?? [];
+    }
     const p = list.find((x) => x.scryfall_id === c.scryfall_id);
     if (!p) throw new Error(`That's ${c.name}, not ${item.name ?? "this card"}. Nothing was changed.`);
     if (p.scryfall_id === item.scryfall_id) {
@@ -57,6 +77,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
       return true;
     }
     await send.mutateAsync(reprintOps(item, p, scope, () => crypto.randomUUID()));
+    if (alive.current) onClose(nowIs(p));
     return true;
   };
 
@@ -73,6 +94,8 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
             }
             onClose={() => setRescanning(false)}
             finish={item.finish === "foil" ? "foil" : "nonfoil"}
+            single
+            paused={busy}
             acceptLabel="Use this printing"
             addedWord="Changed"
             controls={
@@ -90,11 +113,11 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
   }
 
   return (
-    <Sheet label={item.name ?? "Card"} onClose={onClose}>
+    <Sheet label={item.name ?? "Card"} onClose={() => onClose()}>
       <div className="stack">
         <div className="sheet-head">
           <h2>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
+          <button className="quiet" onClick={() => onClose()}>Close</button>
         </div>
         <div style={{ maxWidth: 260 }}>
           <CardImage src={item.image_normal} name={item.name ?? ""} />
@@ -104,8 +127,8 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
           {item.purchase_price != null ? `. Paid ${usd(item.purchase_price)}` : ""}
         </p>
         <div className="row">
-          <button onClick={() => send.mutate([{ op_id: crypto.randomUUID(), kind: "adjust", item_id: item.id, delta: -1 }])}>Remove one</button>
-          <button onClick={() => send.mutate([{ op_id: crypto.randomUUID(), kind: "adjust", item_id: item.id, delta: 1 }])}>Add one more</button>
+          <button disabled={busy} onClick={() => adjust(-1)}>Remove one</button>
+          <button disabled={busy} onClick={() => adjust(1)}>Add one more</button>
         </div>
 
         <section className="coll-printing stack" aria-label="Printing">
@@ -119,6 +142,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
           <div className="row">
             <button aria-expanded={picking} onClick={() => setPicking(!picking)}>Change printing</button>
             <button
+              disabled={busy}
               onClick={() => {
                 setScanError(null);
                 setScanNote(null);
@@ -138,7 +162,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
                   const current = p.scryfall_id === item.scryfall_id;
                   return (
                     <li key={p.scryfall_id}>
-                      <button className="coll-printing-choice" aria-current={current} disabled={send.isPending} onClick={() => reprint(p)}>
+                      <button className="coll-printing-choice" aria-current={current} disabled={busy} onClick={() => reprint(p)}>
                         <CardImage src={p.image_small} name={p.name} className="coll-printing-img" />
                         <span className="coll-printing-text">
                           <span>{printingLabel(p)}</span>
@@ -159,19 +183,19 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
 
         <label>
           Kept in
-          <select value={item.container_id ?? ""} onChange={(e) => one({ container_id: e.target.value || null })}>
+          <select value={item.container_id ?? ""} disabled={busy} onChange={(e) => one({ container_id: e.target.value || null })}>
             <option value="">Not filed anywhere</option>
             {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
           </select>
         </label>
         <label>
           Condition
-          <select value={item.condition} onChange={(e) => one({ condition: e.target.value })}>
+          <select value={item.condition} disabled={busy} onChange={(e) => one({ condition: e.target.value })}>
             {["NM", "LP", "MP", "HP", "DMG"].map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
         <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-          <input type="checkbox" checked={item.proxy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => one({ proxy: e.target.checked })} />
+          <input type="checkbox" checked={item.proxy} disabled={busy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => one({ proxy: e.target.checked })} />
           This is a proxy
         </label>
         <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
@@ -182,7 +206,11 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
               Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {item.container_name ?? "your collection"}?
             </p>
             <div className="row">
-              <button className="coll-danger" disabled={send.isPending} onClick={() => send.mutate([{ op_id: crypto.randomUUID(), kind: "remove", item_id: item.id }])}>
+              <button
+                className="coll-danger"
+                disabled={busy}
+                onClick={() => save([{ op_id: crypto.randomUUID(), kind: "remove", item_id: item.id }], `Deleted ${item.qty === 1 ? name : `${item.qty} copies of ${name}`} from ${item.container_name ?? "your collection"}.`)}
+              >
                 Delete
               </button>
               <button className="quiet" onClick={() => setDeleting(false)}>Keep</button>

@@ -48,6 +48,8 @@ export function CollectionPage() {
   const [filter, setFilter] = useState("");
   const [importing, setImporting] = useState(false);
   const [open, setOpen] = useState<Item | null>(null);
+  /** What the last change in a card's sheet did ("Mount Doom is now …"). */
+  const [done, setDone] = useState<string | null>(null);
   const [sort, setSort] = useState<"value" | "name">("value");
   const [all, setAll] = useState(false);
   const [kind, setKind] = useState<"all" | "real" | "proxy">("all");
@@ -194,6 +196,11 @@ export function CollectionPage() {
           {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
         </div>
 
+        {done && (
+          <p className="coll-done" role="status">
+            {done} <button className="quiet small" onClick={() => setDone(null)}>OK</button>
+          </p>
+        )}
         <ErrorText error={items.error ?? summary.error} />
         {items.data && items.data.length === 0 && !filter && !container && kind === "all" && (
           <div className="empty">
@@ -250,7 +257,16 @@ export function CollectionPage() {
         <a className="button outline coll-export-narrow" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
       </section>
 
-      {open && <CollectionItemSheet item={open} containers={containers.data ?? []} onClose={() => setOpen(null)} />}
+      {open && (
+        <CollectionItemSheet
+          item={open}
+          containers={containers.data ?? []}
+          onClose={(done) => {
+            setOpen(null);
+            setDone(done ?? null);
+          }}
+        />
+      )}
       {importing && <ImportSheet onClose={() => setImporting(false)} />}
       {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
     </main>

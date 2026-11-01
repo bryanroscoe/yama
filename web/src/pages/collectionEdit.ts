@@ -17,10 +17,11 @@ export function finishFor(item: Pick<CollectionItem, "finish">, printing: Pick<P
 /**
  * Ops that file the row's copies (all, or one) under `printing`. The whole row is updated in place,
  * so it keeps its id, note and price paid (and merges into a matching row if there is one); one
- * copy is taken off the row and added as the new printing, in the same place and condition.
+ * copy is taken off the row and added as the new printing, in the same place and condition, with
+ * its price paid (the note stays with the row).
  */
 export function reprintOps(
-  item: CollectionItem & { altered?: boolean; signed?: boolean; misprint?: boolean },
+  item: CollectionItem & { altered?: boolean; signed?: boolean; misprint?: boolean; purchase_currency?: string | null },
   printing: Pick<Printing, "scryfall_id" | "lang" | "finishes">,
   scope: Scope,
   newId: () => string,
@@ -45,6 +46,8 @@ export function reprintOps(
       misprint: item.misprint ?? false,
       proxy: item.proxy,
       container_id: item.container_id,
+      purchase_price: item.purchase_price,
+      purchase_currency: item.purchase_currency ?? null,
     },
   ];
 }

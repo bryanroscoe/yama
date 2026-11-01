@@ -55,6 +55,8 @@ describe("reprintOps", () => {
         misprint: false,
         proxy: false,
         container_id: "bulk",
+        purchase_price: null,
+        purchase_currency: null,
       },
     ]);
   });
