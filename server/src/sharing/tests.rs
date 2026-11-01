@@ -443,7 +443,11 @@ fn a_build_compares_with_another_build_card_by_card() {
     assert_eq!(loose, vec![Change { add: "Q".into(), n: 1, ..Default::default() }, Change { cut: "Plains".into(), n: 2, ..Default::default() }]);
     assert!(compare(&b3, &b3s, &b3, &b3s, "B3").is_empty());
     // Names compare as the card lookup matches them: ASCII case aside.
-    assert!(compare(&list(&["Sol Ring"], 10), &[], &list(&["sol ring"], 10), &[], "B2").is_empty());
+    assert!(compare(&list(&["Sol Ring", "Fire // Ice"], 10), &[], &list(&["sol ring", "Fire"], 10), &[], "B2").is_empty());
+    // A pairing note stays with its swap when both builds replace the same card.
+    let mut noted = b4s.clone();
+    noted[2]["pairing_note"] = json!("Swap with the land change.");
+    assert_eq!(compare(&b4, &noted, &b3, &b3s, "B3")[2].notes, vec!["Both builds cut C for these.".to_string(), "Swap with the land change.".to_string()]);
     // The whole lists: builds that differ only past the page's list cap still differ.
     let long = |last: &str| format!("Commander\n1 Nalia\nDeck\n{}\n1 {last}", (0..300).map(|i| format!("1 Card {i}")).collect::<Vec<_>>().join("\n"));
     assert_eq!(compare(&long("Late A"), &[], &long("Late B"), &[], "B2"), vec![Change { add: "Late A".into(), n: 1, ..Default::default() }, Change { cut: "Late B".into(), n: 1, ..Default::default() }]);

@@ -196,10 +196,11 @@ fn from_start(swaps: &[Value]) -> Vec<Change> {
         .collect()
 }
 
-/// A card name as builds are compared: ASCII case folded, as the card lookup matches names, so
-/// "Sol Ring" and "sol ring" are one card. Rows keep the spelling as written.
+/// A card name as builds are compared, matching names as the card lookup does: its front face,
+/// ASCII case folded. "Sol Ring" and "sol ring" are one card, and so are "Fire // Ice" and
+/// "Fire". Rows keep the spelling as written.
 fn same(name: &str) -> String {
-    name.to_ascii_lowercase()
+    front(name).to_ascii_lowercase()
 }
 
 /// Copies of each card a list plays (commander and main deck), keyed by `same`, and the names
@@ -263,7 +264,7 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
                     cut: text(t, "card_in").into(),
                     n,
                     why: text(s, "why").into(),
-                    notes: vec![format!("Both builds cut {} for these.", text(s, "card_out"))],
+                    notes: [vec![format!("Both builds cut {} for these.", text(s, "card_out"))], labelled("", text(s, "pairing_note"))].concat(),
                 });
             }
         }
