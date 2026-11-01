@@ -446,6 +446,10 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 // Open sign-up makes accounts at a person's pace: a few per address a day, and a
                 // ceiling for everyone together, so scripted sign-ups stop. Invites aren't counted.
                 if !invited {
+                    // Both must allow it before either counts, so a refusal from the ceiling for
+                    // everyone doesn't use up this address's own few.
+                    st.limits.new_accounts_address.allows(address)?;
+                    st.limits.new_accounts.allows("all")?;
                     st.limits.new_accounts_address.check(address)?;
                     st.limits.new_accounts.check("all")?;
                 }

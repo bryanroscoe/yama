@@ -25,7 +25,8 @@ import { useInstall } from "../install";
 import "./seats.css";
 import "./home.css";
 
-const LAST_SETUP = "yama.table.lastSetup";
+/** The last setup on this device: an account's, or (apart, so no names carry over) a guest's. */
+const lastSetupKey = () => (isGuest() ? "yama.table.lastSetup.guest" : "yama.table.lastSetup");
 
 /** Laptop layout (the rail and inline seat cards) from 900 px, as in styles.css. */
 function useWide(): boolean {
@@ -127,7 +128,7 @@ export function TableHome() {
         }
       />}
       {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
-      {rejected.length > 0 && (
+      {!guest && rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). They're kept on this phone.
         </p>
@@ -217,7 +218,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   /** Everyone keeps their own totals on their own phone: the join code shows as the game opens. */
   const [phones, setPhones] = useState<"one" | "everyone">(() => {
     try {
-      return JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null")?.phones === "everyone" ? "everyone" : "one";
+      return JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null")?.phones === "everyone" ? "everyone" : "one";
     } catch {
       return "one";
     }
@@ -227,7 +228,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   // When the seats came back from the last game set up on this phone, and when that was.
   const [restored] = useState<{ at?: string } | null>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       return saved?.seats?.length ? { at: saved.at } : null;
     } catch {
       return null;
@@ -235,7 +236,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       if (saved?.seats?.length) return saved.seats;
     } catch {
       /* ignore */
@@ -249,7 +250,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       if (saved?.groupId) setGroupId(saved.groupId);
       if (saved?.life) setLife(saved.life);
       if (FORMATS.some((f) => f.key === saved?.format)) setFormat(saved.format);
@@ -342,7 +343,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
+    localStorage.setItem(lastSetupKey(), JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
     startGame(setup);
     onStart(phones === "everyone" && !guest);
   };

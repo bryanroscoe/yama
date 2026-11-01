@@ -38,6 +38,14 @@ export interface LocalGame {
 }
 
 const CURRENT = "yama.table.current";
+/**
+ * The game going without an account. Kept apart from an account's, so someone counting without
+ * one never sees (or overwrites) the game of an account that signed out on this device.
+ */
+const GUEST_CURRENT = "yama.table.guestCurrent";
+/** Which game this device shows: the signed-in account's, or the one without an account. */
+let slot: "account" | "guest" = "account";
+const currentKey = () => (slot === "guest" ? GUEST_CURRENT : CURRENT);
 const OUTBOX = "yama.table.outbox";
 /** Finished games the server refused (not a network problem). Kept so nothing is lost. */
 const REJECTED = "yama.table.rejected";
@@ -84,7 +92,7 @@ let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | 
 };
 
 function emit() {
-  localStorage.setItem(CURRENT, JSON.stringify(current));
+  localStorage.setItem(currentKey(), JSON.stringify(current));
   localStorage.setItem(OUTBOX, JSON.stringify(outbox));
   localStorage.setItem(REJECTED, JSON.stringify(rejected));
   localStorage.setItem(DELETES, JSON.stringify(deletes));
@@ -93,6 +101,31 @@ function emit() {
 }
 
 function setCurrent(next: LocalGame | null) {
+  current = next;
+  derived = next ? replay(next.setup, next.log) : null;
+  // Called while App renders: the pages below it read the new game as they render, and anything
+  // already showing hears about it once the render is over.
+  localStorage.setItem(currentKey(), JSON.stringify(current));
+  queueMicrotask(emit);
+}
+
+/**
+ * Show the game without an account (guest) or the account's (App calls it as the mode changes).
+ * Signing in on a phone whose account has no game going brings the guest game along, still
+ * marked as counted without an account, so the save question covers it.
+ */
+export function selectSlot(guest: boolean) {
+  const want = guest ? "guest" : "account";
+  if (slot === want) return;
+  slot = want;
+  let next = read<LocalGame | null>(currentKey(), null);
+  if (!guest && !next) {
+    const waiting = read<LocalGame | null>(GUEST_CURRENT, null);
+    if (waiting) {
+      next = { ...waiting, guest: true };
+      localStorage.removeItem(GUEST_CURRENT);
+    }
+  }
   current = next;
   derived = next ? replay(next.setup, next.log) : null;
   emit();

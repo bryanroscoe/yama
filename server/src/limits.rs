@@ -60,7 +60,14 @@ impl RateLimiter {
 
     /// Count a hit for `key`, or refuse it with a 429 that says how long to wait.
     pub fn check(&self, key: &str) -> AppResult<()> {
-        self.check_at(key, Instant::now())
+        self.check_at(key, Instant::now(), true)
+    }
+
+    /// Whether a hit for `key` would be allowed, without counting it: for checking several
+    /// limits before counting any (`check` them once all allow), so one refusal doesn't use up
+    /// another's allowance.
+    pub fn allows(&self, key: &str) -> AppResult<()> {
+        self.check_at(key, Instant::now(), false)
     }
 
     /// Per-account limits leave admins out.
@@ -68,7 +75,7 @@ impl RateLimiter {
         if user.is_admin { Ok(()) } else { self.check(&user.id) }
     }
 
-    fn check_at(&self, key: &str, now: Instant) -> AppResult<()> {
+    fn check_at(&self, key: &str, now: Instant, count: bool) -> AppResult<()> {
         let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
         if hits.len() >= SWEEP_AT {
             let window = self.window;
@@ -85,7 +92,9 @@ impl RateLimiter {
                 retry_after: wait.as_secs().max(1),
             });
         }
-        q.push_back(now);
+        if count {
+            q.push_back(now);
+        }
         Ok(())
     }
 }
@@ -280,17 +289,17 @@ mod tests {
         let l = RateLimiter::new("tries", 10, Duration::from_secs(600));
         let t0 = Instant::now();
         for i in 0..10 {
-            l.check_at("a", t0 + Duration::from_secs(i)).unwrap();
+            l.check_at("a", t0 + Duration::from_secs(i), true).unwrap();
         }
-        let Err(AppError::TooManyRequests { message, retry_after }) = l.check_at("a", t0 + Duration::from_secs(30)) else { panic!("11th allowed") };
+        let Err(AppError::TooManyRequests { message, retry_after }) = l.check_at("a", t0 + Duration::from_secs(30), true) else { panic!("11th allowed") };
         assert_eq!(message, "Too many tries. Try again in 10 minutes.");
         assert_eq!(retry_after, 570);
         // Another key has its own count; refused hits weren't counted.
-        l.check_at("b", t0 + Duration::from_secs(30)).unwrap();
+        l.check_at("b", t0 + Duration::from_secs(30), true).unwrap();
         // The oldest hit leaves the window at 600 s, which frees exactly one place.
-        l.check_at("a", t0 + Duration::from_secs(600)).unwrap();
-        assert!(l.check_at("a", t0 + Duration::from_secs(600)).is_err());
-        l.check_at("a", t0 + Duration::from_secs(602)).unwrap();
+        l.check_at("a", t0 + Duration::from_secs(600), true).unwrap();
+        assert!(l.check_at("a", t0 + Duration::from_secs(600), true).is_err());
+        l.check_at("a", t0 + Duration::from_secs(602), true).unwrap();
     }
 
     #[test]
@@ -298,9 +307,9 @@ mod tests {
         let l = RateLimiter::new("tries", 1, Duration::from_secs(1));
         let t0 = Instant::now();
         for i in 0..SWEEP_AT {
-            l.check_at(&format!("k{i}"), t0).unwrap();
+            l.check_at(&format!("k{i}"), t0, true).unwrap();
         }
-        l.check_at("late", t0 + Duration::from_secs(2)).unwrap();
+        l.check_at("late", t0 + Duration::from_secs(2), true).unwrap();
         assert_eq!(l.hits.lock().unwrap().len(), 1);
     }
 
@@ -342,5 +351,17 @@ mod tests {
         assert_eq!(address_key(Some(ip("2001:db8:1:2:bbbb::9"))), "2001:db8:1:2::/64");
         assert_eq!(address_key(Some(ip("203.0.113.9"))), "203.0.113.9");
         assert_eq!(address_key(None), "unknown");
+    }
+
+    #[test]
+    fn allows_checks_without_counting() {
+        let l = RateLimiter::new("tries", 1, Duration::from_secs(60));
+        let t0 = Instant::now();
+        // Asking any number of times uses nothing up.
+        for _ in 0..5 {
+            l.check_at("a", t0, false).unwrap();
+        }
+        l.check_at("a", t0, true).unwrap();
+        assert!(l.check_at("a", t0, false).is_err());
     }
 }
