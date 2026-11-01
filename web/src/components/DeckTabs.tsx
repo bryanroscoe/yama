@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from "react";
-import { Link, NavLink } from "react-router";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { Link, NavLink, useLocation } from "react-router";
 import { useMe } from "../auth";
 import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
@@ -33,10 +33,43 @@ function useToReview(): number {
 /** The segmented control at the top of the Decks tab: the Decks list, the plan pages and the
  *  agent notes all show it. Drawn as the shared .segmented pill (styles.css). Plans carries a count of
  *  proposals still waiting for an answer. */
+/** On a phone the sections run past the screen's edge: bring the chosen one into view and mark
+ *  which ends have more (`data-more`), so the track fades there instead of cutting a word off. */
+function useScrollHint<T extends HTMLElement>(content: unknown) {
+  const ref = useRef<T>(null);
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLElement>('[aria-current="page"]');
+    if (active && el.scrollWidth > el.clientWidth) {
+      const a = active.getBoundingClientRect();
+      const e = el.getBoundingClientRect();
+      el.scrollLeft += a.left - e.left - (e.width - a.width) / 2;
+    }
+    const update = () => {
+      const more = [el.scrollLeft > 1 && "start", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 && "end"].filter(Boolean).join(" ");
+      if (more) el.dataset.more = more;
+      else delete el.dataset.more;
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    resize?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      resize?.disconnect();
+    };
+  }, [pathname, content]);
+  return ref;
+}
+
 export function DeckTabs() {
   const toReview = useToReview();
+  // The Plans count arrives after load and widens the track: measure again when it does.
+  const track = useScrollHint<HTMLElement>(toReview);
   return (
-    <nav className="segmented deck-sections" aria-label="Decks sections">
+    <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
       {DECK_SECTIONS.map((s) => (
         <NavLink key={s.to} to={s.to} end={s.end}>
           {s.label}
@@ -76,16 +109,19 @@ export function BackButton({ to, label, text, className = "" }: { to: string; la
 export function SubNav({ label, pages, also }: { label: string; pages: { to: string; label: string; end?: boolean; also?: string }[]; also?: string }) {
   return (
     <nav className="area-subnav" aria-label={label}>
-      {pages.map((p) => (
-        <NavLink
-          key={p.to}
-          to={p.to}
-          end={p.end}
-          className={({ isActive }) => (isActive || (p.also && also?.startsWith(p.also)) ? "active" : "")}
-        >
-          {p.label}
-        </NavLink>
-      ))}
+      {pages.map((p) =>
+        // A page that belongs under another (Swap cards under Overview) marks it current for
+        // screen readers too, which NavLink only does for its own path.
+        p.also && also?.startsWith(p.also) ? (
+          <Link key={p.to} to={p.to} className="active" aria-current="page">
+            {p.label}
+          </Link>
+        ) : (
+          <NavLink key={p.to} to={p.to} end={p.end} className={({ isActive }) => (isActive ? "active" : "")}>
+            {p.label}
+          </NavLink>
+        ),
+      )}
     </nav>
   );
 }

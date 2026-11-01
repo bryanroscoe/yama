@@ -132,10 +132,12 @@ function ContinueHero({ game }: { game: OnlineGame }) {
       : v.active === game.you
         ? `Your turn ${v.turn}`
         : `${active?.ai ? "The computer" : active?.name ?? "Someone"}'s move, turn ${v.turn}`;
+  // One tile per distinct commander: the same art repeated across seats looked like a tiling bug.
+  const tiles = seats.filter((s, i) => !s.commander_art || seats.findIndex((o) => o.commander_art === s.commander_art) === i);
   return (
-    <Link to={`/play/${game.id}`} className="ph-hero" aria-label={`Continue your game: ${headline}`} data-n={seats.length}>
+    <Link to={`/play/${game.id}`} className="ph-hero" aria-label={`Continue your game: ${headline}`} data-n={tiles.length}>
       <span className="ph-hero-art" aria-hidden="true">
-        {seats.map((s) => (s.commander_art ? <img key={s.seat} src={s.commander_art} alt="" /> : <span key={s.seat} className="ph-hero-blank" />))}
+        {tiles.map((s) => (s.commander_art ? <img key={s.seat} src={s.commander_art} alt="" /> : <span key={s.seat} className="ph-hero-blank" />))}
       </span>
       <span className="ph-hero-wash" aria-hidden="true" />
       <span className="ph-hero-text">

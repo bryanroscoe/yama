@@ -82,7 +82,7 @@ describe("deck research evidence", () => {
     expect(index).toContain("<h1>Agent notes</h1>");expect(index).toContain("Agent notes are what Claude and other agents save");expect(index).toContain("nothing here needs you to do anything");
     expect(index).toContain('href="/decks/plan/review"');expect(index).toContain("has changed since the note was saved");
     const note=fullPage();
-    expect(note).toContain("Agent notes are what Claude and other agents save");expect(note).toContain("Note saved 2026-10-27");
+    expect(note).toContain("Agent notes are what Claude and other agents save");expect(note).toContain("Note saved 27 Oct 2026");
   });
 
   it("flags a note's deck when the deck changed after the note was saved",()=>{

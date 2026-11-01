@@ -286,7 +286,7 @@ export function PreconsPage() {
             <tr>
               <Th k="rank" label={run && run.ranked > 0 ? `Rank of ${run.ranked}` : "Rank"} sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="name" label="Deck" sort={sort} desc={desc} onSort={sortBy} />
-              <Th k="p4" label={`Model win rate in 4-player pods, ${level} interval`} sort={sort} desc={desc} onSort={sortBy} />
+              <Th k="p4" label={`Model win rate in 4-player pods, ${level} interval`} sort={sort} desc={desc} onSort={sortBy} className="bar" />
               <Th k="games" label="Games" sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="strength" label="Strength" sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="upgradeability" label="Upgradeability" sort={sort} desc={desc} onSort={sortBy} num />
@@ -297,14 +297,16 @@ export function PreconsPage() {
             <tbody className="lab-mine">
               <tr className="lab-mine-head">
                 <th colSpan={7} scope="rowgroup">
-                  <span className="lab-mine-title">
-                    Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
-                  </span>
-                  {!needle && (
-                    <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
-                      {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists`}
-                    </button>
-                  )}
+                  <div className="lab-mine-bar">
+                    <span className="lab-mine-title">
+                      Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
+                    </span>
+                    {!needle && (
+                      <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
+                        {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists`}
+                      </button>
+                    )}
+                  </div>
                 </th>
               </tr>
               {(mineOpen || needle) &&
@@ -561,7 +563,7 @@ function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level
           <span className="dim small">no data</span>
         )}
       </td>
-      <td className="num"><UpgradeabilitySummary value={p.upgradeability} /></td>
+      <td className="num upg"><UpgradeabilitySummary value={p.upgradeability} /></td>
       <td className="real num">
         {pg?.rank != null ? (
           <>
@@ -618,7 +620,7 @@ function MineRow({ m, max, level }: { m: MyList; max: number; level: string }) {
           <span className="dim small">no data</span>
         )}
       </td>
-      <td className="num"><span className="dim small">Not assessed for this list</span></td>
+      <td className="num upg"><span className="dim small">Not assessed for this list</span></td>
       <td className="real num">
         <span className="dim small">Your list</span>
       </td>

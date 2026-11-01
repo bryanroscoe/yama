@@ -99,7 +99,8 @@ export function SwapCardsPage() {
 }
 
 function CardName({ name, gc }: { name: string; gc: boolean }) {
-  return <>{name}{gc && <> <abbr className="sc-gc" title="Game Changer">GC</abbr></>}</>;
+  // A no-break space keeps GC with the name's last word, never alone on a line.
+  return <>{name}{gc && <>{"\u00a0"}<abbr className="sc-gc" title="Game Changer">GC</abbr></>}</>;
 }
 
 /** One deck's card, laid out like commander-decks' swapcards.py. */

@@ -2013,7 +2013,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   // The hosted board shares this origin's cookie and /board/ assets. Remote-API
   // builds (including Capacitor) need a separate authenticated handoff first.
   const phaseButton = !API_BASE && playing && you !== null && phaseBoard && playStatus.data?.board ? (
-    <button type="button" className="rail-log" onClick={() => openPhaseBoard(id, you)}>Phase board</button>
+    <button type="button" className={wide ? "rail-log" : "quiet"} onClick={() => openPhaseBoard(id, you)}>Phase board</button>
   ) : null;
   const whose = view.active === you ? (
     <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {view.turn}</span>
@@ -2761,6 +2761,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         <div className="dock-links">
           <Link to={leaveTo}>Leave</Link>
           {playing && savedTurns && <button type="button" className="quiet" onClick={() => setSettings("yields")}>Settings</button>}
+          {phaseButton}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>

@@ -70,12 +70,25 @@ export function swapPool(family: BuildFamily | undefined, plan: PlanBundle | und
   return pool;
 }
 
+/** Where copies are, short enough to read: "deck: Ahoy Mateys, Blight Curse, Eternal Might and
+ *  10 more". A Sol Ring in every deck would otherwise list them all, each with its "deck:". */
+export function placesText(locations: Record<string, number>, max = 3): string {
+  let kind = "";
+  const all = Object.entries(locations).map(([k, n]) => {
+    const m = /^([^:]+): (.+)$/.exec(k);
+    const label = m && m[1] === kind ? m[2] : k;
+    kind = m ? m[1]! : "";
+    return `${label}${n > 1 ? ` ×${n}` : ""}`;
+  });
+  return all.length > max + 1 ? `${all.slice(0, max).join(", ")} and ${all.length - max} more` : all.join(", ");
+}
+
 /** Where your copies of a deck card are, from the deck page's ownership. */
 export function entryWhere(e: Partial<DeckEntry>): string | null {
   if (e.owned == null) return null;
   if (e.owned > 0) {
-    const where = Object.entries(e.locations ?? {}).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`);
-    return where.length ? `Yours, in ${where.join(", ")}.` : "Yours.";
+    const where = placesText(e.locations ?? {});
+    return where ? `Yours, in ${where}.` : "Yours.";
   }
   return e.proxies ? "A proxy stands in for it." : "Not in your collection.";
 }

@@ -53,6 +53,7 @@ Every finding is a lead to look at in the screenshot, not a verdict.
 | `page-overflow-x`, `off-viewport` | The page scrolls sideways, or an element pokes past the screen edge |
 | `clipped-x`, `clipped-y`, `truncated` | Text cut off by its box (`truncated` when an ellipsis shows it's intended) |
 | `text-overlap` | Text drawn over other text, unless something opaque covers it |
+| `touching` | A box (border, fill, shadow, image, control) flush against or within 4 px of another box or a line of text outside it: "Touches" at 0–1 px, a note above that |
 | `edge-text` | Text within 12 px of the screen edge on tablet and phone (missing page padding) |
 | `under-fixed-bar` | At the end of the page, content still sits under a fixed bar |
 | `small-target` | Buttons and links smaller than the size's target; links in running text are exempt |
@@ -61,7 +62,7 @@ Every finding is a lead to look at in the screenshot, not a verdict.
 | `copy` | `undefined`/`NaN`, repeated words, stray spaces around punctuation, `...` for `…` |
 | `broken-image`, `still-loading` | An image that failed, a "Loading…" that never went away |
 
-Console errors, failed requests and 4xx/5xx responses are listed per page and size. The report also counts padding, margin and gap values off the 8 / 12 / 16 / 24 / 32 scale (`design/tokens.md`), by element, most widespread first.
+Console errors, failed requests and 4xx/5xx responses are listed per page and size. The report also counts padding, margin and gap values off the 8 / 12 / 16 / 24 / 32 scale (`design/tokens.md`), by element, most widespread first. A missing gap is 0 px, which is on every scale; `touching` is what finds it.
 
 ## Output
 

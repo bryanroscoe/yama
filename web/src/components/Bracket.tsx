@@ -184,12 +184,12 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, cards,
             )}
           </ul>
           <div>
-            <h3 style={{ fontSize: "var(--t-base)", margin: "0 0 0.4rem" }}>Two-card combos: {twoCard.length}</h3>
+            <h3 className="bracket-subhead">Two-card combos: {twoCard.length}</h3>
             {twoCard.length > 0 ? <ComboList combos={twoCard} onCard={onCard} /> : <p className="note">Commander Spellbook found none in this list.</p>}
           </div>
           {arguably.length > 0 && (
             <div>
-              <h3 style={{ fontSize: "var(--t-base)", margin: "0 0 0.4rem" }}>Arguably two-card: {arguably.length}</h3>
+              <h3 className="bracket-subhead">Arguably two-card: {arguably.length}</h3>
               <p className="note" style={{ margin: "0 0 0.4rem" }}>Two cards, plus one more thing that has to be in place first. How it works says what.</p>
               <ComboList combos={arguably} onCard={onCard} />
             </div>

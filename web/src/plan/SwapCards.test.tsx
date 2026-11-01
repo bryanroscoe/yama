@@ -44,9 +44,9 @@ describe("bracket swap cards page", () => {
     expect(html).toContain("Bracket 3 → 2");
     expect(html).toContain("Bracket 4 → 3");
     expect(html).not.toContain("Bracket 3 → 3");
-    expect(html).toContain(`Teferi&#x27;s Protection <abbr class="sc-gc" title="Game Changer">GC</abbr>`);
+    expect(html).toContain(`Teferi&#x27;s Protection\u00a0<abbr class="sc-gc" title="Game Changer">GC</abbr>`);
     expect(html).toContain("Bracket 4 extras (not in any build)");
-    expect(html).toMatch(/Smothering Tithe <abbr class="sc-gc"[^>]*>GC<\/abbr><\/span><span>, Esper Sentinel<\/span>/);
+    expect(html).toMatch(/Smothering Tithe\u00a0<abbr class="sc-gc"[^>]*>GC<\/abbr><\/span><span>, Esper Sentinel<\/span>/);
     expect(html).toContain("GC = Game Changer. Guide v27.");
     expect(html).not.toContain("Plain deck");
   });

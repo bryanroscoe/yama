@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PlanBundle } from "@yama/core/plan";
 import type { BuildFamily } from "./buildCatalog";
 import { researchWhere } from "./buildCatalog";
-import { CURRENT, cardsTarget, entryWhere, listTarget, swapPool, targetOptions } from "./checkTargets";
+import { CURRENT, cardsTarget, entryWhere, listTarget, placesText, swapPool, targetOptions } from "./checkTargets";
 import { BUZZ, TONES } from "./checkSound";
 import {
   cardKey, classify, insteadOf, loadCheck, newCheck, shownVerdict, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
@@ -179,6 +179,13 @@ describe("what to check against", () => {
     expect(saved.cards.map((c) => [c.name, c.where])).toEqual([["Sol Ring", "Yours, in Prismari box, Spares."], ["Mana Drain", "A proxy stands in for it."]]);
     expect(entryWhere({ owned: 0, proxies: 0 })).toBe("Not in your collection.");
     expect(entryWhere({ owned: 3, locations: { Spares: 3 } })).toBe("Yours, in Spares ×3.");
+  });
+
+  it("names a card's places once per kind and folds a long list", () => {
+    expect(placesText({ "box: Spares": 2, "deck: Ahoy Mateys": 1, "deck: Blight Curse": 1 })).toBe("box: Spares ×2, deck: Ahoy Mateys, Blight Curse");
+    const decks = Object.fromEntries(["A", "B", "C", "D", "E"].map((d) => [`deck: ${d}`, 1]));
+    expect(placesText(decks)).toBe("deck: A, B, C and 2 more");
+    expect(placesText({ "deck: A": 1, "deck: B": 1, "deck: C": 1, "deck: D": 1 })).toBe("deck: A, B, C, D");
   });
 
   it("says where a research swap's card comes from without copy ids", () => {

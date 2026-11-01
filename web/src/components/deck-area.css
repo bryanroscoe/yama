@@ -24,9 +24,10 @@
   margin: 0;
   min-width: 0;
 }
+/* A status line gets its own row under the title: beside it, a long one squeezed the title. */
 .area-top > .area-status {
-  grid-area: action;
-  justify-self: end;
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 .area-top > .area-action {
   grid-area: action;
@@ -70,7 +71,7 @@
     display: none;
   }
   .is-sub .area-top {
-    grid-template-areas: "back title status";
+    grid-template-areas: "back title .";
     align-items: center;
   }
   .is-sub .area-title {
@@ -78,12 +79,6 @@
   }
   .is-slim .area-top {
     grid-template-areas: "back . .";
-  }
-  .is-sub .area-top > .area-status {
-    grid-area: status;
-  }
-  .is-sub .area-top > .area-status:only-of-type {
-    grid-column: 1 / -1;
   }
 }
 
@@ -96,10 +91,6 @@
   }
   .area-top > .area-back {
     display: none;
-  }
-  .area-top > .area-status {
-    grid-area: auto;
-    align-self: center;
   }
   .is-slim .area-top {
     grid-template-columns: minmax(0, 1fr) auto;

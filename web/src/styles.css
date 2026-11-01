@@ -298,6 +298,18 @@ textarea:hover {
 :where(.sheet, fieldset.seat, .surface, .side, .scan-controls) :is(input, select, textarea) {
   background-color: var(--ground);
 }
+/* The file picker's button in Yama's secondary style, not the browser's grey default. */
+input[type="file"]::file-selector-button {
+  font: inherit;
+  font-weight: 700;
+  margin-right: 12px;
+  padding: 0.2rem 1rem;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  cursor: pointer;
+}
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--text);
@@ -403,6 +415,16 @@ label > span.hint {
 /* The Decks | Plans | Lab control at the top of the Decks tab (components/DeckTabs.tsx). */
 .deck-sections {
   margin-bottom: 1rem;
+}
+/* A track wider than the screen fades at an end with more to scroll to (DeckTabs sets data-more). */
+.segmented[data-more="end"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
+.segmented[data-more="start"] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+}
+.segmented[data-more="start end"] {
+  mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
 }
 
 /* "Details": a quiet disclosure for file names, hashes and the full rule discussion
@@ -1432,13 +1454,16 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   box-shadow: 0 0 0 2px var(--text);
 }
 .ct-kind,
+/* Pretty wrapping: "1 with no price" and "swap bag" left one word alone on the last line. */
 .ct-meta {
   font-size: 0.75rem;
   color: var(--on-art-dim);
+  text-wrap: pretty;
 }
 .ct-name {
   font-weight: 700;
   font-size: 0.9375rem;
+  text-wrap: pretty;
 }
 .container-tile .art-none .ct-kind,
 .container-tile .art-none .ct-meta,
@@ -1757,11 +1782,12 @@ fieldset.seat > legend:not(.visually-hidden) + * {
     gap: 14px 40px;
     align-items: end;
   }
+  /* Top-aligned: a two-line caption under one stat lifted its number above the others. */
   .hero-stats {
     display: flex;
     flex-wrap: wrap;
     gap: 14px 40px;
-    align-items: end;
+    align-items: start;
   }
   .hero-stats .deck-stat b {
     font-size: 2.5rem;
@@ -2020,6 +2046,8 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .deck-shared {
   font-weight: 600;
   color: var(--on-art);
+  /* Stays at the right end when the foot wraps onto a second line. */
+  margin-left: auto;
 }
 .hero-configs {
   display: flex;

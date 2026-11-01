@@ -18,7 +18,7 @@ export function fmtDate(iso: string | null | undefined): string {
 
 /** Dollars with cents, or "no price". Never $0 for a missing price. */
 export function usd(v: number | null | undefined): string {
-  return v == null ? "no price" : `$${v.toFixed(2)}`;
+  return v == null ? "no price" : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export interface SourceContext {

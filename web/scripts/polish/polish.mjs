@@ -315,7 +315,7 @@ async function settle(page, net, { quiet = 500, max = 12_000 } = {}) {
     .catch(() => {});
 }
 
-/** The thing that scrolls: a big scrolling box on top in the middle of the screen (a full-screen
+/** The thing that scrolls: a big scrolling sheet on top in the middle of the screen (a full-screen
  *  sheet over a longer page), else the window, else the biggest scrolling box. */
 async function findScroller(page) {
   return page.evaluate(() => {
@@ -329,7 +329,11 @@ async function findScroller(page) {
       const r = el.getBoundingClientRect();
       const area = r.width * r.height;
       if (area < innerWidth * innerHeight * 0.4) continue;
-      const onTop = !!hit && el.contains(hit);
+      // On top only counts for a sheet over the page (fixed, or nearly screen-high): a code
+      // block or a list that happens to sit mid-screen is part of the page, not its scroller.
+      let fixed = false;
+      for (let cur = el; cur && !fixed; cur = cur.parentElement) fixed = getComputedStyle(cur).position === "fixed";
+      const onTop = !!hit && el.contains(hit) && (fixed || r.height >= innerHeight * 0.8);
       if (!best || onTop > best.onTop || (onTop === best.onTop && area > best.area)) best = { el, area, onTop };
     }
     const docScrolls = doc.scrollHeight > innerHeight + 2;

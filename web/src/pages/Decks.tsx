@@ -32,6 +32,7 @@ import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
+import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
 
@@ -644,8 +645,8 @@ function PlanCardLine({ plan, name }: { plan: DeckPlanInfo; name: string }) {
 function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean; plan?: DeckPlanInfo | null }) {
   const cls = small ? "small" : "";
   if (e.owned > 0) {
-    const where = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
-    return <span className={`${cls} dim`}>Own {e.owned}: {where}</span>;
+    const all = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
+    return <span className={`${cls} dim`} title={all}>Own {e.owned}: {placesText(e.locations)}</span>;
   }
   if (e.proxies > 0) return <span className={`${cls} dim`}>Proxy only</span>;
   const s = plan?.swapsByIn.get(e.name);

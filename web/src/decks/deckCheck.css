@@ -28,6 +28,19 @@
 .deck-check-section h2 {
   margin: 0;
 }
+/* Each card's name on its own line, where its copies are below it; the + and − marks hang
+   in the margin so wrapped lines start under the name, not under the mark. */
+.deck-check-section .deck-scan-plain li {
+  position: relative;
+  padding: 4px 0 4px 1em;
+}
+.deck-check-section .deck-scan-plain li > [aria-hidden="true"]:first-child {
+  position: absolute;
+  left: 0;
+}
+.deck-check-where {
+  display: block;
+}
 
 /* The verdict: a solid block of the tone, dark text, a big mark. */
 .deck-check-verdict {

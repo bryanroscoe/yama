@@ -292,7 +292,7 @@ function TakeOut({ verdicts }: { verdicts: Verdict[] }) {
               {g.count > 1 ? `${g.count} ${g.name}` : g.name}
               {g.kind === "duplicate" && <span className="deck-scan-tag is-warn">second copy</span>}
               {g.kind === "extra" && <span className="deck-scan-tag is-warn">one too many</span>}{" "}
-              <span className="small dim"><Instead pairs={g.instead} /></span>
+              <span className="small dim deck-check-where"><Instead pairs={g.instead} /></span>
             </li>
           ))}
         </ul>
@@ -313,7 +313,7 @@ function StillMissing({ target, verdicts }: { target: CheckTarget; verdicts: Ver
           <span className="deck-scan-good" aria-hidden="true">+ </span>
           {m.missing > 1 ? `${m.missing} ${m.name}` : m.name}
           {m.commander && <span className="deck-scan-tag">Commander</span>}{" "}
-          <span className="small dim">
+          <span className="small dim deck-check-where">
             {m.replaces.length > 0 && `Goes in for ${m.replaces.join(" or ")}. `}
             {m.where}
           </span>

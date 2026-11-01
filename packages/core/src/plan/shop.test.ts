@@ -467,7 +467,7 @@ describe("spares", () => {
 
   it("marks spares another deck's plan takes, and ones a proposal would use", () => {
     const guide = find(sp.after, "Guide")!;
-    expect(guide.why).toBe("Leaves when the Ark print arrives.");
+    expect(guide.why).toBe("Leaves when the new print of Ark arrives.");
     expect(guide.usedIn.map((u) => [u.deck?.name, u.when])).toEqual([["Beta", "after"]]);
     expect(guide.free).toBe(false);
     const prim = find(sp.after, "Primordial")!;
@@ -478,7 +478,7 @@ describe("spares", () => {
 
   it("lists cards your own change took out, and basics only when a plan swap cuts them", () => {
     expect(sp.before.map((s) => [s.card, s.why])).toEqual([["Stock Land", "Taken out for Off Color, your own change before the plans."]]);
-    expect(find(sp.after, "Forest")?.why).toBe("Leaves when the Fable of the Mirror-Breaker print arrives.");
+    expect(find(sp.after, "Forest")?.why).toBe("Leaves when the new print of Fable of the Mirror-Breaker arrives.");
     // The Island that holds Volcano's slot for now isn't a spare.
     expect(find(sp.after, "Island")).toBeUndefined();
   });

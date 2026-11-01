@@ -61,8 +61,11 @@
   font-weight: 700;
   border-bottom: 1px solid #333;
 }
+/* Fixed layout: Out and In split the width evenly, so the In column starts at the same place in
+   every table on every card instead of following the longest name. */
 .sc-card table {
   width: 100%;
+  table-layout: fixed;
   font-size: 1.04em;
   border-collapse: collapse;
 }
