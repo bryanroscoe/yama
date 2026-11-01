@@ -34,6 +34,8 @@ serves authenticated, viewer-filtered games over Yama's board socket. It include
 and font licenses, text icons, runtime Scryfall image metadata, and an exact pin marker.
 Audio and board backgrounds remain available; preview recordings are excluded. The shared
 client bundle helper serves both the isolated local builder and the production image.
+The Phase entrypoint is offered only in same-origin web builds; remote-API/Capacitor
+builds use the existing board until an authenticated hosted-board handoff is available.
 The separately installed host entrypoint must be reviewed and installed before merging
 this release: it exports the full public Phase inputs and validates the actual candidate
 board marker and mounts before activation, alongside both engine-data/runtime probes.

@@ -2010,8 +2010,9 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const settingsButton = playing && savedTurns ? (
     <button type="button" className="rail-log" onClick={() => setSettings("yields")}>Settings</button>
   ) : null;
-  // The same game on phase's own board (/board/), for your seat.
-  const phaseButton = playing && you !== null && phaseBoard && playStatus.data?.board ? (
+  // The hosted board shares this origin's cookie and /board/ assets. Remote-API
+  // builds (including Capacitor) need a separate authenticated handoff first.
+  const phaseButton = !API_BASE && playing && you !== null && phaseBoard && playStatus.data?.board ? (
     <button type="button" className="rail-log" onClick={() => openPhaseBoard(id, you)}>Phase board</button>
   ) : null;
   const whose = view.active === you ? (
