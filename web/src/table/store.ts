@@ -117,6 +117,12 @@ function setCurrent(next: LocalGame | null) {
 export function selectSlot(guest: boolean) {
   const want = guest ? "guest" : "account";
   if (slot === want) return;
+  // A game counted without an account and not yet saved goes back to the guest slot when the
+  // account leaves (it came along at sign-in), with every tap made since.
+  if (guest && current?.guest) {
+    localStorage.setItem(GUEST_CURRENT, JSON.stringify(current));
+    localStorage.setItem(CURRENT, "null");
+  }
   slot = want;
   let next = read<LocalGame | null>(currentKey(), null);
   if (!guest && !next) {

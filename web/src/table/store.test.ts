@@ -156,6 +156,13 @@ describe("the game slot without an account", () => {
     expect(store.getGame()?.setup.id).toBe("guest-9");
     store.selectSlot(false);
     expect(store.getGame()).toMatchObject({ setup: { id: "guest-9" }, guest: true });
+    // Signed out again without saving it: it's back with the counter, taps and all.
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    store.selectSlot(true);
+    expect(store.getGame()).toMatchObject({ setup: { id: "guest-9" }, guest: true });
+    expect(store.getGame()!.log).toHaveLength(1);
+    store.selectSlot(false);
+    expect(store.getGame()?.setup.id).toBe("guest-9");
     store.discardGame();
     await store.sync();
   });
