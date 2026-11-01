@@ -147,11 +147,15 @@ fn query_value(v: &str) -> String {
     url::form_urlencoded::byte_serialize(v.as_bytes()).collect()
 }
 
-/// A build's page compared with another build (`&vs=`), else with the starting list.
-fn compare_href(token: &str, deck: &str, build: &str, vs: Option<&str>) -> String {
+/// A build's page compared with another build (`&vs=`), else with the starting list, keeping
+/// how the cards are got (`&get=`).
+fn compare_href(token: &str, deck: &str, build: &str, vs: Option<&str>, how: How) -> String {
     let mut path = deck_href(token, deck, Some(build));
     if let Some(v) = vs {
         write!(path, "&amp;vs={}", query_value(v)).unwrap();
+    }
+    if let Some(g) = how.param() {
+        write!(path, "&amp;get={g}").unwrap();
     }
     path
 }
@@ -424,6 +428,8 @@ struct Totals {
     unpriced: i64,
     /// Copies whose cost is unknown (no price, and not printed): out of the cost.
     uncosted: i64,
+    /// The buys among them: out of the buy subtotal.
+    buy_uncosted: i64,
 }
 
 impl Totals {
@@ -445,8 +451,18 @@ impl Totals {
             (Get::Buy, None) => {
                 self.buy += n;
                 self.uncosted += n;
+                self.buy_uncosted += n;
             }
             (Get::Unknown, _) => self.uncosted += n,
+        }
+    }
+    /// The buys' cost: unknown when none has a price, else the known part, saying how many
+    /// copies it leaves out.
+    fn buy_money(&self) -> String {
+        match self.buy_uncosted {
+            0 => format!("about {}", usd(Some(self.buy_cost))),
+            n if n == self.buy => "cost unknown".into(),
+            n => format!("about {} + {n} without a price", usd(Some(self.buy_cost))),
         }
     }
     /// Market worth, unknown (never $0) when no card has a price.
@@ -526,7 +542,7 @@ fn count_cards(n: i64) -> String {
 fn shopping_totals(t: &Totals, as_of: Option<String>, how: How) -> String {
     let mut s = format!("<div class=\"share-status\"><span class=\"pill\">{}</span>", count_cards(t.cards));
     if t.buy > 0 || how == How::Split {
-        write!(s, "<span class=\"pill\">{} to buy locally: about {}</span>", t.buy, usd(Some(t.buy_cost))).unwrap();
+        write!(s, "<span class=\"pill\">{} to buy locally: {}</span>", t.buy, t.buy_money()).unwrap();
     }
     if t.print > 0 || how == How::Split {
         write!(s, "<span class=\"pill\">{} to print: about {}</span>", t.print, usd(Some(t.print_cost))).unwrap();
@@ -674,8 +690,12 @@ pub(super) async fn note(
             choices.push((text(b, "id"), text(b, "label")));
         }
     }
-    // `?build=all`: every build of every deck, each built as its own deck.
-    let all = q.build.as_deref() == Some(ALL) && !choices.iter().any(|c| c.0 == ALL);
+    // `?builds=all`: every build of every deck, each built as its own deck.
+    let all = match q.builds.as_deref() {
+        None | Some("") => false,
+        Some(ALL) => true,
+        Some(_) => return Ok(not_found(&st, "Build")),
+    };
     let pick = q.build.as_deref().filter(|b| !b.is_empty() && !all);
     if pick.is_some_and(|p| !choices.iter().any(|c| c.0 == p)) {
         return Ok(not_found(&st, "Build"));
@@ -744,7 +764,7 @@ pub(super) async fn note(
     Ok(response(&headers, page(&st, &format!("/r/{token}"), title, &description, None, &body)))
 }
 
-/// `?build=all` on a note's page.
+/// `?builds=all` on a note's page.
 const ALL: &str = "all";
 
 /// The builds a note's page prices and lists: each deck's recommended build, one build id
@@ -757,11 +777,12 @@ enum Which<'a> {
 }
 
 impl<'a> Which<'a> {
-    fn param(self) -> Option<&'a str> {
+    /// Its query: `build=<id>`, or `builds=all` (its own parameter, so no build id can take it).
+    fn query(self) -> Option<String> {
         match self {
             Which::Recommended => None,
-            Which::Build(id) => Some(id),
-            Which::All => Some(ALL),
+            Which::Build(id) => Some(format!("build={}", query_value(id))),
+            Which::All => Some(format!("builds={ALL}")),
         }
     }
     /// A deck's builds this choice covers: none when the deck has no such build.
@@ -777,8 +798,8 @@ impl<'a> Which<'a> {
 /// A note page's address with its choices; `anchor` is the section to land on.
 fn note_href(token: &str, which: Which, how: How, anchor: &str) -> String {
     let mut q = Vec::new();
-    if let Some(b) = which.param() {
-        q.push(format!("build={}", query_value(b)));
+    if let Some(w) = which.query() {
+        q.push(w);
     }
     if let Some(g) = how.param() {
         q.push(format!("get={g}"));
@@ -882,7 +903,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
             "<td class=\"num\">{}</td><td class=\"num\">{} · {}</td><td class=\"num\">{} · {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
             t.cards,
             t.buy,
-            usd(Some(t.buy_cost)),
+            t.buy_money().trim_start_matches("about ").to_string(),
             t.print,
             usd(Some(t.print_cost)),
             usd(t.worth()),
@@ -957,6 +978,9 @@ pub(super) struct BuildQuery {
     /// How to get the cards: `buy`, `print`, else the split (see `How`).
     #[serde(default)]
     get: Option<String>,
+    /// `all`: a note page's every build of every deck.
+    #[serde(default)]
+    builds: Option<String>,
 }
 
 fn list_items(items: &[String]) -> String {
@@ -1044,7 +1068,7 @@ pub(super) async fn deck(
             let current = if id == build_id { " aria-current=\"page\"" } else { "" };
             // Switching builds keeps the comparison, unless it's the build switched to.
             let keep = vs.map(|v| text(v, "id")).filter(|v| *v != id);
-            write!(body, "<li><a{current} href=\"{}\">{}{recommended}</a></li>", compare_href(&token, &key, id, keep), e(text(x, "label"))).unwrap();
+            write!(body, "<li><a{current} href=\"{}\">{}{recommended}</a></li>", compare_href(&token, &key, id, keep, how), e(text(x, "label"))).unwrap();
         }
         body.push_str("</ul></nav>");
     }
@@ -1122,7 +1146,7 @@ pub(super) async fn deck(
         .unwrap();
         let option = |id: Option<&str>, label: &str| {
             let current = if id == vs.map(|v| text(v, "id")) { " aria-current=\"true\"" } else { "" };
-            format!("<li><a{current} href=\"{}#changes-head\">{}</a></li>", compare_href(&token, &key, build_id, id), e(label))
+            format!("<li><a{current} href=\"{}#changes-head\">{}</a></li>", compare_href(&token, &key, build_id, id, how), e(label))
         };
         body.push_str(&option(None, START));
         for x in &others {
@@ -1161,13 +1185,7 @@ pub(super) async fn deck(
             t.add(i.n, i.usd(), how);
         }
         let vs_id = vs.map(|v| text(v, "id"));
-        let picker = how_picker(how, |h| {
-            let mut href = compare_href(&token, &key, build_id, vs_id);
-            if let Some(g) = h.param() {
-                write!(href, "&amp;get={g}").unwrap();
-            }
-            href + "#shop-head"
-        });
+        let picker = how_picker(how, |h| compare_href(&token, &key, build_id, vs_id, h) + "#shop-head");
         write!(
             body,
             "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add to {}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>{picker}{}{}<h3 class=\"share-copy-title\">Copy the shopping list</h3>{}</section>",

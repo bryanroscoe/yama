@@ -714,7 +714,9 @@ async fn shared_notes_price_the_cards_to_get() {
     let print = page(&app, &format!("/r/{token}/party?get=print")).await.2;
     assert!(print.contains("3 to print: about $0.90") && print.contains("About $0.90 to get") && !print.contains("to buy locally"), "{print}");
     let buy = page(&app, &format!("/r/{token}/party?get=buy")).await.2;
-    assert!(buy.contains("3 to buy locally: about $4.75") && buy.contains("About $4.75 to get") && buy.contains("1 card without a known cost is out of the cost."), "{buy}");
+    assert!(buy.contains("3 to buy locally: about $4.75 + 1 without a price") && buy.contains("About $4.75 to get") && buy.contains("1 card without a known cost is out of the cost."), "{buy}");
+    // The choice stays when switching builds or comparisons.
+    assert!(buy.contains("&amp;get=buy"), "{buy}");
     assert!(buy.contains("aria-current=\"page\" href=\"/r/") && buy.contains(">Buy every card locally</a>"));
     assert_eq!(page(&app, &format!("/r/{token}/party?get=steal")).await.0, StatusCode::NOT_FOUND);
     // The note page: per deck, overall, and every card with the decks it goes in.
@@ -740,12 +742,20 @@ async fn shared_notes_price_the_cards_to_get() {
          "swaps": [{"id": "signet", "card_in": "Arcane Signet", "card_out": "Plains"}, {"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together"}]}
     ]);
     crate::deck_research::save(&pool, &bryan, &both).await.unwrap();
-    let all = page(&app, &format!("/r/{token}?build=all")).await.2;
+    let all = page(&app, &format!("/r/{token}?builds=all")).await.2;
+    assert_eq!(page(&app, &format!("/r/{token}?builds=some")).await.0, StatusCode::NOT_FOUND);
     // Nalia once more, two Signets, one Swords; the Stick Together b2 keeps is the precon's.
     assert!(all.contains("4 cards to get across 1 deck<") && all.contains("<td>All 2 builds</td>") && all.contains("2 to buy locally: about $1.00"), "{all}");
     assert!(all.contains("id=\"shop-buy\" readonly rows=\"8\" aria-label=\"Buy locally (2 cards)\">2 Arcane Signet\n</textarea>"), "{all}");
     assert!(all.contains("// Party Time: Bracket 2\n") && all.contains("// Party Time: Bracket 3\n") && all.contains("aria-label=\"Every list (2)\""), "{all}");
     assert!(all.contains(">All builds</a>") && all.contains("aria-current=\"page\" href=\"/r/"), "{all}");
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+    // A build may be called "all": the every-build view has its own parameter.
+    let mut named = both.clone();
+    named["decks"][0]["builds"][0]["id"] = json!("all");
+    crate::deck_research::save(&pool, &bryan, &named).await.unwrap();
+    assert!(page(&app, &format!("/r/{token}?builds=all")).await.2.contains("<td>All 2 builds</td>"));
+    assert!(page(&app, &format!("/r/{token}?build=all")).await.2.contains("<td>Bracket 2</td>"));
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
     // Nothing priced: worth and cost are unknown, never $0.
     doc["decks"][0]["builds"][0]["swaps"] = json!([{"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains"}]);
