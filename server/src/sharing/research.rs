@@ -138,8 +138,20 @@ fn build_of<'a>(deck: &'a Value, wanted: Option<&str>) -> Option<&'a Value> {
 fn deck_href(token: &str, deck: &str, build: Option<&str>) -> String {
     let mut path = format!("/r/{}/{}", e(token), e(deck));
     if let Some(b) = build {
-        let enc: String = url::form_urlencoded::byte_serialize(b.as_bytes()).collect();
-        write!(path, "?build={enc}").unwrap();
+        write!(path, "?build={}", query_value(b)).unwrap();
+    }
+    path
+}
+
+fn query_value(v: &str) -> String {
+    url::form_urlencoded::byte_serialize(v.as_bytes()).collect()
+}
+
+/// A build's page compared with another build (`&vs=`), else with the starting list.
+fn compare_href(token: &str, deck: &str, build: &str, vs: Option<&str>) -> String {
+    let mut path = deck_href(token, deck, Some(build));
+    if let Some(v) = vs {
+        write!(path, "&amp;vs={}", query_value(v)).unwrap();
     }
     path
 }
@@ -152,6 +164,134 @@ fn qty(s: &Value) -> i64 {
 /// Copies added and cut by a build's swaps.
 fn moved(swaps: &[Value], side: &str) -> i64 {
     swaps.iter().filter(|s| !text(s, side).is_empty()).map(qty).sum()
+}
+
+/// One row of the changes table: copies of a card added and of one cut, with the reason and
+/// any notes under it.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct Change {
+    pub add: String,
+    pub cut: String,
+    pub n: i64,
+    pub why: String,
+    pub notes: Vec<String>,
+}
+
+/// `label` and `t` as one note, or nothing when `t` is empty.
+fn labelled(label: &str, t: &str) -> Vec<String> {
+    if t.is_empty() { Vec::new() } else { vec![format!("{label}{t}")] }
+}
+
+/// A build's changes from the starting list: its swaps as written.
+fn from_start(swaps: &[Value]) -> Vec<Change> {
+    swaps
+        .iter()
+        .map(|s| Change {
+            add: text(s, "card_in").into(),
+            cut: text(s, "card_out").into(),
+            n: qty(s),
+            why: text(s, "why").into(),
+            notes: [labelled("Cut: ", text(s, "why_out")), labelled("", text(s, "pairing_note"))].concat(),
+        })
+        .collect()
+}
+
+/// Copies of each card a list plays (commander and main deck), in list order.
+fn counts(list: &str) -> (Vec<String>, HashMap<String, i64>) {
+    let mut lines = crate::decks::parse_list(list, true);
+    lines.truncate(MAX_LINES);
+    let (mut order, mut n) = (Vec::new(), HashMap::new());
+    for line in lines.into_iter().filter(|l| l.board != Board::Side) {
+        let copies = n.entry(line.name.clone()).or_insert(0);
+        if *copies == 0 {
+            order.push(line.name);
+        }
+        *copies += line.qty;
+    }
+    (order, n)
+}
+
+/// Pairs up to `want` copies of `add` with `cut` while both are still unaccounted for.
+fn take(adds: &mut HashMap<String, i64>, add: &str, cuts: &mut HashMap<String, i64>, cut: &str, want: i64) -> i64 {
+    let n = want.min(adds.get(add).copied().unwrap_or(0)).min(cuts.get(cut).copied().unwrap_or(0));
+    if n > 0 {
+        *adds.get_mut(add).unwrap() -= n;
+        *cuts.get_mut(cut).unwrap() -= n;
+    }
+    n
+}
+
+/// What a build changes from another build of the same deck. The two lists are compared card by
+/// card; each build's swaps (its changes from the starting list) pair the cards and give the
+/// reasons. Cards no swap explains are listed on their own.
+pub(super) fn compare(list: &str, swaps: &[Value], vs_list: &str, vs_swaps: &[Value], vs_label: &str) -> Vec<Change> {
+    let (order, here) = counts(list);
+    let (vs_order, there) = counts(vs_list);
+    let extra = |a: &HashMap<String, i64>, b: &HashMap<String, i64>| -> HashMap<String, i64> {
+        a.iter().map(|(k, n)| (k.clone(), n - b.get(k).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect()
+    };
+    let (mut adds, mut cuts) = (extra(&here, &there), extra(&there, &here));
+    let swaps = &swaps[..swaps.len().min(MAX_LINES)];
+    let vs_swaps = &vs_swaps[..vs_swaps.len().min(MAX_LINES)];
+    let mut rows = Vec::new();
+    // This build's own swap: its reason holds against either list.
+    for s in swaps {
+        let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(s, "card_out"), qty(s));
+        if n > 0 {
+            rows.push(Change { add: text(s, "card_in").into(), cut: text(s, "card_out").into(), n, why: text(s, "why").into(), notes: labelled("Cut: ", text(s, "why_out")) });
+        }
+    }
+    // Both builds replace the same starting card, each with a different card.
+    for s in swaps {
+        for t in vs_swaps.iter().filter(|t| !text(s, "card_out").is_empty() && text(t, "card_out") == text(s, "card_out")) {
+            let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), qty(s).min(qty(t)));
+            if n > 0 {
+                rows.push(Change {
+                    add: text(s, "card_in").into(),
+                    cut: text(t, "card_in").into(),
+                    n,
+                    why: text(s, "why").into(),
+                    notes: vec![format!("Both builds cut {} for these.", text(s, "card_out"))],
+                });
+            }
+        }
+    }
+    // The other build swapped a starting card out; this one keeps it.
+    for t in vs_swaps {
+        let n = take(&mut adds, text(t, "card_out"), &mut cuts, text(t, "card_in"), qty(t));
+        if n > 0 {
+            rows.push(Change {
+                add: text(t, "card_out").into(),
+                cut: text(t, "card_in").into(),
+                n,
+                why: format!("Keeps the starting list's card; {vs_label} swaps it for {}.", text(t, "card_in")),
+                notes: labelled(&format!("{}: ", text(t, "card_in")), text(t, "why")),
+            });
+        }
+    }
+    for name in &order {
+        let n = adds.get(name).copied().unwrap_or(0);
+        if n > 0 {
+            let why = match (swaps.iter().find(|s| text(s, "card_in") == name.as_str()), vs_swaps.iter().find(|t| text(t, "card_out") == name.as_str())) {
+                (Some(s), _) => text(s, "why").to_string(),
+                (None, Some(_)) => format!("Keeps the starting list's card; {vs_label} cuts it."),
+                _ => String::new(),
+            };
+            rows.push(Change { add: name.clone(), n, why, ..Default::default() });
+        }
+    }
+    for name in &vs_order {
+        let n = cuts.get(name).copied().unwrap_or(0);
+        if n > 0 {
+            let why = match (swaps.iter().find(|s| text(s, "card_out") == name.as_str()), vs_swaps.iter().find(|t| text(t, "card_in") == name.as_str())) {
+                (Some(s), _) => text(s, "why_out").to_string(),
+                (None, Some(t)) => format!("Only in {vs_label}: {}", text(t, "why")),
+                _ => String::new(),
+            };
+            rows.push(Change { cut: name.clone(), n, why, ..Default::default() });
+        }
+    }
+    rows
 }
 
 /// A source link, only for http(s) addresses; anything else is its title as text.
@@ -238,6 +378,9 @@ pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, hea
 pub(super) struct BuildQuery {
     #[serde(default)]
     build: Option<String>,
+    /// Another build to show the changes from; none means the starting list.
+    #[serde(default)]
+    vs: Option<String>,
 }
 
 fn list_items(items: &[String]) -> String {
@@ -282,6 +425,14 @@ pub(super) async fn deck(
     };
     let (Some(d), title) = (deck_of(&doc, &key), text(&doc, "title")) else { return Ok(not_found(&st, "Deck")) };
     let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Build")) };
+    // Like `?build=`: a comparison build that isn't there (or is this one) is not found.
+    let vs = match q.vs.as_deref().filter(|v| !v.is_empty()) {
+        Some(v) => match build_of(d, Some(v)).filter(|x| text(x, "id") != text(b, "id")) {
+            Some(x) => Some(x),
+            None => return Ok(not_found(&st, "Build")),
+        },
+        None => None,
+    };
     let name = text(d, "name");
     let commander = text(d, "commander");
     let build_id = text(b, "id");
@@ -314,7 +465,9 @@ pub(super) async fn deck(
             let id = text(x, "id");
             let recommended = if id == text(d, "recommended_build") { " (recommended)" } else { "" };
             let current = if id == build_id { " aria-current=\"page\"" } else { "" };
-            write!(body, "<li><a{current} href=\"{}\">{}{recommended}</a></li>", deck_href(&token, &key, Some(id)), e(text(x, "label"))).unwrap();
+            // Switching builds keeps the comparison, unless it's the build switched to.
+            let keep = vs.map(|v| text(v, "id")).filter(|v| *v != id);
+            write!(body, "<li><a{current} href=\"{}\">{}{recommended}</a></li>", compare_href(&token, &key, id, keep), e(text(x, "label"))).unwrap();
         }
         body.push_str("</ul></nav>");
     }
@@ -369,21 +522,43 @@ pub(super) async fn deck(
     }
     body.push_str("</div>");
 
-    // The changes, as a table a player can work through with the deck box open.
-    write!(
-        body,
-        "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p><h2 id=\"changes-head\">Changes from the starting list</h2></div></div>",
-        moved(&swaps, "card_in"),
-        moved(&swaps, "card_out"),
-    )
-    .unwrap();
-    if swaps.is_empty() {
-        body.push_str("<p class=\"dim\">This build is the starting list.</p>");
+    // The changes, as a table a player can work through with the deck box open. From the
+    // starting list by default; the heading picks another build to compare with instead.
+    const START: &str = "the starting list";
+    let vs_label = vs.map(|v| text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START);
+    let changes = match vs {
+        Some(v) => compare(text(b, "list"), &swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), vs_label),
+        None => from_start(&swaps[..swaps.len().min(MAX_LINES)]),
+    };
+    let copies = |add: bool| -> i64 { changes.iter().filter(|c| !(if add { &c.add } else { &c.cut }).is_empty()).map(|c| c.n).sum() };
+    write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p>", copies(true), copies(false)).unwrap();
+    let others: Vec<&Value> = builds.iter().filter(|x| text(x, "id") != build_id).collect();
+    if others.is_empty() {
+        body.push_str("<h2 id=\"changes-head\">Changes from the starting list</h2>");
+    } else {
+        write!(
+            body,
+            "<div class=\"share-vs\"><h2 id=\"changes-head\">Changes from<span class=\"sr-only\"> {0}</span></h2><details><summary aria-label=\"Compare with: {0}\">{0}</summary><ul>",
+            e(vs_label)
+        )
+        .unwrap();
+        let option = |id: Option<&str>, label: &str| {
+            let current = if id == vs.map(|v| text(v, "id")) { " aria-current=\"true\"" } else { "" };
+            format!("<li><a{current} href=\"{}#changes-head\">{}</a></li>", compare_href(&token, &key, build_id, id), e(label))
+        };
+        body.push_str(&option(None, START));
+        for x in &others {
+            body.push_str(&option(Some(text(x, "id")), text(x, "label")));
+        }
+        body.push_str("</ul></details></div>");
+    }
+    body.push_str("</div></div>");
+    if changes.is_empty() {
+        body.push_str(if vs.is_some() { "<p class=\"dim\">These builds play the same cards.</p>" } else { "<p class=\"dim\">This build is the starting list.</p>" });
     } else {
         body.push_str("<table class=\"share-collection share-swaps\"><thead><tr><th scope=\"col\">Add</th><th scope=\"col\">Cut</th><th scope=\"col\">Why</th></tr></thead><tbody>");
         // Cut cards aren't in the build's list, so both sides are looked up for their images.
-        let swapped = swaps.iter().take(MAX_LINES).flat_map(|s| [text(s, "card_in"), text(s, "card_out")]).filter(|n| !n.is_empty());
-        let images = lookup(&st.pool, swapped).await?;
+        let images = lookup(&st.pool, changes.iter().flat_map(|c| [c.add.as_str(), c.cut.as_str()]).filter(|n| !n.is_empty())).await?;
         let link = |name: &str, n: i64| {
             if name.is_empty() {
                 "<span class=\"dim\">Nothing</span>".to_string()
@@ -393,18 +568,9 @@ pub(super) async fn deck(
                 format!("{count}<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
             }
         };
-        let line = |label: &str, t: &str| if t.is_empty() { String::new() } else { format!("<br><span class=\"dim\">{label}{}</span>", e(t)) };
-        for s in &swaps {
-            write!(
-                body,
-                "<tr><td>{}</td><td>{}</td><td>{}{}{}</td></tr>",
-                link(text(s, "card_in"), qty(s)),
-                link(text(s, "card_out"), qty(s)),
-                e(text(s, "why")),
-                line("Cut: ", text(s, "why_out")),
-                line("", text(s, "pairing_note")),
-            )
-            .unwrap();
+        for c in &changes {
+            let notes: String = c.notes.iter().map(|t| format!("<br><span class=\"dim\">{}</span>", e(t))).collect();
+            write!(body, "<tr><td>{}</td><td>{}</td><td>{}{notes}</td></tr>", link(&c.add, c.n), link(&c.cut, c.n), e(&c.why)).unwrap();
         }
         body.push_str("</tbody></table>");
     }

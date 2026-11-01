@@ -407,6 +407,43 @@ fn a_deck_matches_a_plan_list_by_cards_not_label() {
     assert_ne!(super::list_key(deck.iter().copied()), super::list_key(swapped.iter().copied()), "a different commander is a different list");
 }
 
+#[test]
+fn a_build_compares_with_another_build_card_by_card() {
+    use super::research::{Change, compare};
+    let sw = |i: &str, o: &str| json!({"card_in": i, "card_out": o, "why": format!("{i} is better."), "why_out": format!("{o} is worse.")});
+    let list = |cards: &[&str], plains: i64| format!("Commander\n1 Nalia\nDeck\n{}\n{plains} Plains", cards.iter().map(|c| format!("1 {c}")).collect::<Vec<_>>().join("\n"));
+    let row = |add: &str, cut: &str, why: &str, notes: &[&str]| Change { add: add.into(), cut: cut.into(), n: 1, why: why.into(), notes: notes.iter().map(|n| n.to_string()).collect() };
+    // Starting list: A B C D and 10 Plains.
+    let (b2, b2s) = (list(&["X", "B", "C", "D"], 10), vec![sw("X", "A")]);
+    let (b3, b3s) = (list(&["X", "Y", "Z", "D"], 10), vec![sw("X", "A"), sw("Y", "B"), sw("Z", "C")]);
+    let b4s = vec![sw("X", "A"), sw("Y", "B"), sw("W", "C"), sw("V", "D"), json!({"card_in": "Sol Ring", "card_out": "Plains", "why": "Fast mana."})];
+    let b4 = list(&["X", "Y", "W", "V", "Sol Ring"], 9);
+
+    // Up a bracket: the higher build's own swaps, with their reasons.
+    assert_eq!(compare(&b3, &b3s, &b2, &b2s, "B2"), vec![row("Y", "B", "Y is better.", &["Cut: B is worse."]), row("Z", "C", "Z is better.", &["Cut: C is worse."])]);
+    // Down a bracket: the starting cards come back, and the other build says why it swaps them.
+    assert_eq!(
+        compare(&b2, &b2s, &b3, &b3s, "B3"),
+        vec![
+            row("B", "Y", "Keeps the starting list's card; B3 swaps it for Y.", &["Y: Y is better."]),
+            row("C", "Z", "Keeps the starting list's card; B3 swaps it for Z.", &["Z: Z is better."]),
+        ]
+    );
+    // Copies count (a Plains for Sol Ring), and two builds replacing one card differently pair up.
+    assert_eq!(
+        compare(&b4, &b4s, &b3, &b3s, "B3"),
+        vec![
+            row("V", "D", "V is better.", &["Cut: D is worse."]),
+            row("Sol Ring", "Plains", "Fast mana.", &[]),
+            row("W", "Z", "W is better.", &["Both builds cut C for these."]),
+        ]
+    );
+    // Differences no swap explains still show, each on its own.
+    let loose = compare(&list(&["X", "Q"], 10), &[], &list(&["X"], 12), &[], "B2");
+    assert_eq!(loose, vec![Change { add: "Q".into(), n: 1, ..Default::default() }, Change { cut: "Plains".into(), n: 2, ..Default::default() }]);
+    assert!(compare(&b3, &b3s, &b3, &b3s, "B3").is_empty());
+}
+
 fn note() -> serde_json::Value {
     json!({
         "schema": "yama-research/1", "id": "upgrades", "title": "Precon upgrade notes", "generated_at": "2026-10-31T00:00:00Z",
@@ -492,6 +529,26 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     let eowyn = page(&app, &format!("/r/{token}/party")).await.2;
     assert!(eowyn.contains("https://cards.scryfall.io/normal/eowyn.jpg"), "Éowyn's image");
     assert!(!eowyn.contains("Not in Yama's card data: Nalia de&#39;Arnise, Éowyn"));
+    // Changes from another build: the heading picks it, and the rows compare the two lists.
+    let mut two = note();
+    two["decks"][0]["builds"] = json!([
+        {"id": "b2", "label": "Bracket 2 · Core", "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Stick Together\n98 Plains", "swaps": []},
+        note()["decks"][0]["builds"][0].clone(),
+    ]);
+    crate::deck_research::save(&pool, &bryan, &two).await.unwrap();
+    let start = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(start.contains("Compare with: the starting list") && start.contains(&format!("href=\"/r/{token}/party?build=b3&amp;vs=b2#changes-head\">Bracket 2 · Core</a>")), "{start}");
+    let (status, _, up) = page(&app, &format!("/r/{token}/party?build=b3&vs=b2")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(up.contains("<summary aria-label=\"Compare with: Bracket 2 · Core\">Bracket 2 · Core</summary>"));
+    assert!(up.contains("One-mana exile.") && up.contains("Cut: Symmetrical."));
+    assert!(up.contains(&format!("href=\"/r/{token}/party?build=b2\">")), "switching to the compared build drops the comparison");
+    let down = page(&app, &format!("/r/{token}/party?build=b2&vs=b3")).await.2;
+    assert!(down.contains("Keeps the starting list&#39;s card; Bracket 3 · Upgraded swaps it for Swords to Plowshares.") && down.contains("Swords to Plowshares: One-mana exile."), "{down}");
+    assert!(down.contains(&format!("href=\"/r/{token}/party?build=b3\">")), "no build is compared with itself");
+    for bad in ["vs=b3", "vs=b9"] {
+        assert_eq!(page(&app, &format!("/r/{token}/party?build=b3&{bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
+    }
     crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
     assert_eq!(page(&app, &format!("/r/{token}/nope")).await.0, StatusCode::NOT_FOUND);
     assert_eq!(page(&app, &format!("/r/{token}/party?build=b9")).await.0, StatusCode::NOT_FOUND);
