@@ -9,6 +9,21 @@ compatibility_date = "2026-10-01"
 workers_dev = false
 routes = [{ pattern = "relay.yama.ing", custom_domain = true }]
 
+# Phones joining by code (guests): "off" refuses them, the switch if it's abused. Change it here
+# and deploy, or in the dashboard (Workers, yama-relay, Settings, Variables).
+[vars]
+GUEST_JOIN = "on"
+
+# Connections per client address per minute, per Cloudflare location, counted before any room
+# is touched. A table on one Wi-Fi is a few phones reconnecting now and then.
+[[ratelimits]]
+name = "CONNECTS"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "TableRoom"

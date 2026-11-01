@@ -16,6 +16,26 @@ import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
 
 interface Env {
   ROOMS: DurableObjectNamespace<TableRoom>;
+  /**
+   * Connections per client address (Workers rate limiting, wrangler.toml), counted before a
+   * room is touched, so a flood can't spend the plan's Durable Object requests. Missing (a plan
+   * or a local run without it): no limit.
+   */
+  CONNECTS?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /** "off" refuses phones joining by code (guests): the switch if joining without an account is abused. */
+  GUEST_JOIN?: string;
+}
+
+/** Close codes a refused phone sees (GuestTable.tsx says why instead of retrying blindly). */
+export const CLOSE_GUESTS_OFF = 4403;
+export const CLOSE_TOO_MANY = 4429;
+
+/** Accept and close at once with a reason: a browser can't read an HTTP refusal of a WebSocket. */
+function refuse(code: number, reason: string): Response {
+  const { 0: client, 1: server } = new WebSocketPair();
+  server.accept();
+  server.close(code, reason);
+  return new Response(null, { status: 101, webSocket: client });
 }
 
 /** A room's snapshot outlives its last connection by this long (a long night, a slow host). */
@@ -43,6 +63,13 @@ export default {
       if (!RELAY_TOKEN.test(key)) return new Response("missing share key", { status: 400 });
     } else {
       return new Response("bad role", { status: 400 });
+    }
+    if (role === "guest" && env.GUEST_JOIN === "off") {
+      return refuse(CLOSE_GUESTS_OFF, "Joining a table by its code is turned off right now.");
+    }
+    const address = req.headers.get("CF-Connecting-IP");
+    if (env.CONNECTS && address && !(await env.CONNECTS.limit({ key: address })).success) {
+      return refuse(CLOSE_TOO_MANY, "Too many connections from this network. Wait a minute.");
     }
     const room = env.ROOMS.get(env.ROOMS.idFromName(`${gameId}/${key}`));
     // The room needs only the role; the secret and key stay here.

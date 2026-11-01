@@ -13,6 +13,14 @@ repo's `npm test`); `src/index.ts` is the Worker and Durable Object around it.
 - The web app uses it when built with `VITE_RELAY_URL=wss://relay.yama.ing`; without it, the
   server's own relay (`server/src/table_rooms.rs`).
 - Logs: observability is off, so connection URLs (with host secrets) aren't stored.
+- Abuse guards (2026-11-01): 30 connections a minute per client address (`CONNECTS`, Workers
+  rate limiting, counted in the Worker before any Durable Object is touched), and `GUEST_JOIN`:
+  set it to `off` (wrangler.toml and deploy, or the dashboard's Workers, yama-relay, Settings,
+  Variables) to refuse every phone joining by code. Refused phones are told why (close codes
+  4429 and 4403). If a deploy says the rate limiting binding isn't on this plan, remove the
+  `[[ratelimits]]` block: the Worker runs without it. A Cloudflare WAF rate limiting rule (one
+  is free: per IP, 10-second windows) on `relay.yama.ing/table/*` also stops a flood before it
+  counts against the Worker's daily requests; it's set in the dashboard, not here.
 
 ## Work on it
 
