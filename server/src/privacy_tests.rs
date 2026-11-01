@@ -216,3 +216,67 @@ async fn online_games_a_stranger_can_host_are_capped() {
     }
     assert_eq!(send(&app, Method::POST, "/api/play", Some(&mt), Some(body)).await.0, StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn only_whoever_recorded_a_table_game_can_delete_it() {
+    let (app, pool) = open_server().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_alex, at) = user(&pool, "alex@example.com").await;
+    // Alex is in Bryan's playgroup, and the game is a playgroup game.
+    let (_, group) = send(&app, Method::POST, "/api/playgroups", Some(&bt), Some(json!({ "name": "Thursday" }))).await;
+    let (group_id, code) = (group["id"].as_str().unwrap().to_string(), group["join_code"].as_str().unwrap().to_string());
+    assert_eq!(send(&app, Method::POST, "/api/playgroups/join", Some(&at), Some(json!({ "code": code }))).await.0, StatusCode::OK);
+    let game = "0b5a3d1e-2f4c-4e8a-9a51-7c2d9e1f0b11";
+    let new_game = json!({ "id": game, "playgroup_id": group_id, "started_at": "2026-10-31T01:00:00Z",
+        "seats": [{ "seat": 0, "user_id": bryan }, { "seat": 1, "guest_name": "Alex" }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(new_game)).await.0, StatusCode::OK);
+    let event = json!([{ "seq": 1, "actor_seat": 0, "kind": "life", "payload": { "type": "life", "seat": 0, "delta": -3 }, "created_at": "2026-10-31T01:01:00Z" }]);
+    assert_eq!(send(&app, Method::POST, &format!("/api/games/{game}/events"), Some(&bt), Some(event)).await.0, StatusCode::OK);
+    let path = format!("/api/games/{game}");
+
+    // Alex can read it through the playgroup, but it's Bryan's record.
+    let (status, detail) = get(&app, &at, &path).await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail["can_delete"], false);
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&at), None).await.0, StatusCode::NOT_FOUND);
+
+    let (_, detail) = get(&app, &bt, &path).await;
+    assert_eq!(detail["can_delete"], true);
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&bt), None).await.0, StatusCode::OK);
+    assert_eq!(get(&app, &bt, &path).await.0, StatusCode::NOT_FOUND);
+    // Another device that still has it can't put it back.
+    let again = json!({ "id": game, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(again)).await.0, StatusCode::GONE);
+    // Its seats and events go with it.
+    let left: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM game_seats WHERE game_id = ?1) + (SELECT COUNT(*) FROM game_events WHERE game_id = ?1)")
+        .bind(game)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}
+
+#[tokio::test]
+async fn deleting_a_game_never_uploaded_stops_it_being_uploaded_later() {
+    let (app, pool) = open_server().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, st) = user(&pool, "sam@example.com").await;
+    let game = "5d0c7a2b-8e1f-4b3a-9c6d-2a1e0f9b8c77";
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{game}"), Some(&bt), None).await.0, StatusCode::OK);
+    let upload = json!({ "id": game, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::GONE);
+
+    // Someone else's game is still "not found" to Sam, and stays undeleted.
+    let other = "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b";
+    let upload = json!({ "id": other, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::OK);
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{other}"), Some(&st), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(get(&app, &bt, &format!("/api/games/{other}")).await.0, StatusCode::OK);
+    let fenced: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deleted_games WHERE id = ?").bind(other).fetch_one(&pool).await.unwrap();
+    assert_eq!(fenced, 0);
+    // Sam deleting an id Bryan hasn't uploaded yet (it's in the join link) doesn't block Bryan.
+    let early = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{early}"), Some(&st), None).await.0, StatusCode::OK);
+    let upload = json!({ "id": early, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::OK);
+}

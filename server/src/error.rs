@@ -15,6 +15,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// 410: it was deleted on purpose and won't come back (a table game its recorder deleted).
+    #[error("{0} was deleted")]
+    Gone(&'static str),
     /// 400 with extra fields beside `error`, e.g. the names a list couldn't resolve.
     #[error("{message}")]
     Invalid { message: String, details: serde_json::Value },
@@ -48,6 +51,7 @@ impl IntoResponse for AppError {
             Self::BadRequest(_) | Self::Invalid { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Gone(_) => StatusCode::GONE,
             Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Db(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
             Self::Db(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,

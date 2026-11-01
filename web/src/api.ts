@@ -607,6 +607,8 @@ export interface GameRow {
 export interface GameDetail extends GameRow {
   events: { seq: number; actor_seat: number | null; kind: string; payload: unknown; created_at: string | null }[];
   can_continue: boolean;
+  /** This account recorded this table game, so it may delete it. Absent from older servers. */
+  can_delete?: boolean;
   /** Logged after it was played, by this account: Log a game can open it again. */
   can_edit?: boolean;
   /** Seat number to deck id, for seats that played one of your own decks. */
