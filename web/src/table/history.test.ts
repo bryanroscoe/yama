@@ -23,6 +23,12 @@ const setup: TableSetup = {
 const log = (events: TableEvent[]): LoggedEvent[] => events.map((event, i) => ({ seq: i + 1, at: `2026-10-29T19:0${i}:00Z`, event }));
 
 describe("table history", () => {
+  it("names a seat's new player with the old name, even from a saved game's seats", () => {
+    const renamed = { ...setup, players: [setup.players[0]!, { ...setup.players[1]!, name: "Samantha" }] };
+    const lines = history(renamed, log([{ type: "player", seat: 1, name: "Samantha", memberId: "m1", was: { name: "Sam" } }]));
+    expect(lines.map((l) => l.text)).toEqual(["Sam's seat is Samantha now."]);
+  });
+
   it("tells a game turn by turn, naming commanders and partners", () => {
     const lines = history(
       setup,

@@ -14,17 +14,19 @@ changelogs, mythic.tools, Draftsim's life counter roundup (updated 2026-10-07).
 |---|---|
 | 1 to 6 players, layout picker | Done 2026-10-31: named layouts per count, picked at setup |
 | Card art behind each player, two arts for partners | Done (partners share the panel since 2026-10-31) |
-| Commander damage per source, partners, off life, KO prompt | Done |
+| Commander damage per source, partners, off life, KO prompt | Done; taken Lifetap's way (shield, then tap the source) since 2026-11-01, or dealt from the attacker |
 | Commander tax | Done |
 | Poison, energy, experience, rad, storm, treasure | Done (storm and treasure 2026-10-31) |
 | Mana pool counters | Missing |
 | Monarch, initiative, day/night, city's blessing | Done (blessing 2026-10-31) |
 | Dice d4 to d20 and custom, coin, random player | Done 2026-10-31 |
-| Random seating, first player | Done (Shuffle the seats, Roll for first) |
+| Random seating, first player | Done (Shuffle the seats; "Who goes first?" as each game opens, 2026-11-01) |
 | Quick reset / rematch | Done: Save and play again |
 | Turn-by-turn log in the game | Done: "What's happened" in the menu; the full log on the game's page |
 | Game history, win rates, CSV/JSON export | History and stats done; per-user CSV/JSON export from the app missing (games.json export is server-side) |
-| Chess clock, timers | Skipped for now: not tracking turns |
+| Chess clock, timers | Skipped for now: turn counting is an opt-in setting (off by default since 2026-11-01) |
+| Rename a player or swap their deck mid-game | Done 2026-11-01 (Change player or deck on the player sheet) |
+| Install, full screen | Done 2026-11-01 (Install Yama where the browser offers it; Full screen in the menu) |
 | Planechase, Archenemy, Bounty | Missing. Plane and scheme cards come from the Scryfall import |
 | Drag to reorder seats mid-game | Missing |
 | One-player mode tracking incoming commander damage | Missing |

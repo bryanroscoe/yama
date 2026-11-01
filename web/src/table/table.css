@@ -1171,11 +1171,15 @@
 
 /* The swords on each panel start it; it sits bottom-left in the panel's own frame, so the art
    credit moves over to make room. */
-.attack-btn {
+.cmdr-btns {
   position: absolute;
   left: 10px;
   bottom: max(8px, 2cqmin);
   z-index: 2;
+  display: flex;
+  gap: 8px;
+}
+.attack-btn {
   width: var(--target);
   height: var(--target);
   min-height: 0;
@@ -1190,8 +1194,8 @@
 .attack-btn:hover {
   background: rgb(11 12 14 / 0.92);
 }
-.panel-inner:has(> .attack-btn) > .panel-credit {
-  left: calc(var(--target) + 20px);
+.panel-inner:has(> .cmdr-btns) > .panel-credit {
+  left: calc(2 * var(--target) + 28px);
 }
 /* While a commander attacks, every other panel becomes its damage counter: a near-solid layer
    over the art (an overlay, never a filter), the attacker's art and name, then − amount +. */
@@ -1587,4 +1591,144 @@
 .dice-custom input {
   width: 5.5rem;
   min-width: 0;
+}
+
+/* ── commander damage taken, Lifetap's way: each other panel is its commander's damage to one player ── */
+.take-source {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+/* Partners: two counters in one panel, so each is smaller. */
+.take-layer:has(.take-source + .take-source) {
+  gap: 4px;
+}
+.take-layer:has(.take-source + .take-source) .attack-amount {
+  font-size: clamp(1.75rem, 14cqmin, 3.5rem);
+}
+.take-layer:has(.take-source + .take-source) .attack-step {
+  width: clamp(40px, 14cqmin, 56px);
+  height: clamp(40px, 14cqmin, 56px);
+  font-size: clamp(1.5rem, 9cqmin, 2rem);
+}
+
+/* ── menu: pass, finish, this phone, leave ─────────────────────────────── */
+.table-menu .tm-pass > button:first-child {
+  min-height: 56px;
+  gap: 10px;
+}
+.table-menu .tm-pass-turn {
+  min-height: 56px;
+  gap: 10px;
+}
+.tm-finish {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.tm-finish h3 {
+  margin: 0;
+}
+.tm-finish p {
+  margin: 0;
+}
+/* Who won, and who goes first: one big tile per player, their art in a circle. */
+.tm-winners {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 8px;
+}
+.tm-winner {
+  min-height: 64px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  text-align: left;
+  font-weight: 700;
+}
+.tm-winner > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-winner-dot {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.tm-settings .check-row {
+  align-items: flex-start;
+}
+.tm-setting-note {
+  display: block;
+}
+.tm-screen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tm-screen:empty {
+  display: none;
+}
+.tm-leave {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tm-leave button {
+  min-height: 50px;
+}
+.table-menu .tm-leave-note {
+  margin: -6px 0 0;
+}
+
+/* ── who goes first, as the game opens ─────────────────────────────────── */
+.first-rolled {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  text-align: center;
+}
+.first-rolled h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 2.25rem;
+}
+.first-rolled-dot {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* ── player sheet: poison out of ten, the name opens the seat, who won ── */
+.ps-of {
+  font-size: 1.125rem;
+  color: var(--dim);
+  font-weight: 500;
+}
+.player-sheet button.ps-name-edit {
+  display: block;
+  align-self: flex-start;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+}
+.player-sheet button.ps-name-edit:hover {
+  background: none;
+}
+.player-sheet .ps-win {
+  margin-left: auto;
 }

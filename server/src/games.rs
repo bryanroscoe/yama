@@ -172,7 +172,7 @@ struct StoredSeat {
 }
 
 impl StoredSeat {
-    /// Who sits in the seat: what a retry of the same game can't change.
+    /// Who sits in the seat: what a retry of the same game can't change, unless the table logged it (a "player" event).
     fn who(&self) -> (i64, Option<&str>, Option<&str>, Option<&str>, Option<&str>) {
         (self.seat, self.member_id.as_deref(), self.user_id.as_deref(), self.guest_name.as_deref(), self.ai_kind.as_deref())
     }
@@ -360,8 +360,33 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
                 .await?;
                 let mut sent: Vec<&StoredSeat> = seats.iter().collect();
                 sent.sort_by_key(|s| s.seat);
-                if stored_group != g.playgroup_id || !stored.iter().map(StoredSeat::who).eq(sent.iter().map(|s| s.who())) {
+                if stored_group != g.playgroup_id || !stored.iter().map(|s| s.seat).eq(sent.iter().map(|s| s.seat)) {
                     return Err(AppError::Conflict("this game was already saved with different players".into()));
+                }
+                // Someone else took a seat mid-game, or the same person under another name or tied
+                // to their member row: only while the game is going, and only for a seat whose
+                // change the table logged (a "player" event, stored or arriving now). Anything else
+                // is a different game under the same id.
+                let changed: Vec<&StoredSeat> = sent.iter().zip(&stored).filter(|(s, old)| s.who() != old.who()).map(|(s, _)| *s).collect();
+                if !changed.is_empty() {
+                    let mut logged: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT actor_seat FROM game_events WHERE game_id = ? AND kind = 'player' AND actor_seat IS NOT NULL")
+                        .bind(&g.id)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                    logged.extend(g.events.iter().filter(|e| e.kind == "player").filter_map(|e| e.actor_seat));
+                    if status != "in_progress" || changed.iter().any(|s| s.ai_kind.is_some() || !logged.contains(&s.seat)) {
+                        return Err(AppError::Conflict("this game was already saved with different players".into()));
+                    }
+                    for s in &changed {
+                        sqlx::query("UPDATE game_seats SET member_id = ?, user_id = ?, guest_name = ? WHERE game_id = ? AND seat = ?")
+                            .bind(&s.member_id)
+                            .bind(&s.user_id)
+                            .bind(&s.guest_name)
+                            .bind(&g.id)
+                            .bind(s.seat)
+                            .execute(&mut *tx)
+                            .await?;
+                    }
                 }
                 // The same players, but a seat may have changed commanders mid-game: keep the newest,
                 // and the deck it's playing now (checked against its owner by resolve_seat; none
@@ -1084,6 +1109,42 @@ mod tests {
         assert_eq!(status, "in_progress");
         // Someone else can't take over the id either.
         assert!(matches!(create_game(&pool, "sam", new_game(id, None)).await, Err(AppError::Conflict(_))));
+    }
+
+    async fn seat_names(pool: &SqlitePool, id: &str) -> Vec<Option<String>> {
+        sqlx::query_scalar("SELECT guest_name FROM game_seats WHERE game_id = ? ORDER BY seat").bind(id).fetch_all(pool).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_seat_changes_player_mid_game_only_with_a_logged_player_event() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0008";
+        create_game(&pool, "me", new_game(id, None)).await.unwrap();
+        let renamed = |events: serde_json::Value| -> NewGame {
+            serde_json::from_value(json!({
+                "id": id, "started_at": "2026-10-18T01:00:00Z",
+                "seats": [{ "seat": 0, "user_id": "me" }, { "seat": 1, "guest_name": "Samantha", "deck_version_id": "v-sam" }, { "seat": 2, "guest_name": "Alex" }],
+                "events": events,
+            }))
+            .unwrap()
+        };
+        // No event says why: still a different game under the same id.
+        assert!(matches!(create_game(&pool, "me", renamed(json!([]))).await, Err(AppError::Conflict(_))));
+        // A player event for another seat doesn't explain this one.
+        let wrong = json!([{ "seq": 1, "actor_seat": 2, "kind": "player", "payload": { "type": "player", "seat": 2, "name": "Alex" } }]);
+        assert!(matches!(create_game(&pool, "me", renamed(wrong)).await, Err(AppError::Conflict(_))));
+        assert_eq!(seat_names(&pool, id).await[1].as_deref(), Some("Sam"));
+        // The table logged it: the seat takes the new name, and the event is stored with it.
+        let logged = json!([{ "seq": 1, "actor_seat": 1, "kind": "player", "payload": { "type": "player", "seat": 1, "name": "Samantha", "was": { "name": "Sam" } } }]);
+        assert_eq!(create_game(&pool, "me", renamed(logged)).await.unwrap()["existing"], true);
+        assert_eq!(seat_names(&pool, id).await[1].as_deref(), Some("Samantha"));
+        // A retry after that needs nothing more: the stored event still explains it.
+        create_game(&pool, "me", renamed(json!([]))).await.unwrap();
+        // Once the game is over, its players are settled.
+        finish_as(&pool, id, "me", finish(json!({ "winner_seat": 0, "seats": [] }))).await.unwrap();
+        let mut again = renamed(json!([]));
+        again.seats[2].guest_name = Some("Jo".into());
+        assert!(matches!(create_game(&pool, "me", again).await, Err(AppError::Conflict(_))));
     }
 
     /// The seat deck-version rule through the real router. Planner slice 0 refused another user's

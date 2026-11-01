@@ -28,6 +28,8 @@ export interface SeatDraft {
   pairs?: "partner" | "background" | null;
   pairsWith?: string | null;
   pairScope?: string;
+  /** The deck's listed commanders, when they can't all lead it together: the seat plays one. */
+  commanderChoices?: string[];
 }
 
 export interface Me {
@@ -36,7 +38,7 @@ export interface Me {
 }
 
 /** What a seat drops when it stops being someone's: their account, profile and deck. */
-export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined } as const;
+export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined } as const;
 
 /**
  * The seat's label on the server: the deck picked (a precon, or the player's public deck), else
@@ -98,7 +100,7 @@ export function commandersPatch(seat: SeatDraft, d: Partial<SeatDraft>): Partial
     ...d,
     commanderName: d.commanderName ?? "",
     colorIdentity: d.colorIdentity ?? "",
-    ...(changed ? { deckId: undefined, deckVersionId: undefined, deckLabel: undefined } : {}),
+    ...(changed ? { deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined } : {}),
   };
 }
 
