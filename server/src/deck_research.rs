@@ -32,6 +32,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/research/{id}/reviews", post(review_route))
         .route("/api/research/{id}/sharing", put(sharing_route))
         .route("/api/research/{id}/share-link", post(reset_link_route))
+        .route("/api/research/copy", post(copy_route))
 }
 
 // Deserialize the fields consumed by the UI. The original JSON, including additional fields,
@@ -841,6 +842,33 @@ pub async fn shared(pool: &SqlitePool, token: &str) -> AppResult<(Option<String>
     let (handle, text, updated_at) = row.ok_or(AppError::NotFound("research"))?;
     let doc: Value = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
     Ok((handle, public_view(&doc), updated_at))
+}
+
+/// Copies a shared note into `owner`'s notes: only what its page shows (`public_view`), never
+/// the sharer's answers or evidence. A copy never replaces a note of theirs: when the id is
+/// taken it is saved as `<id>-copy`, `<id>-copy-2` and so on. Returns `save`'s answer.
+pub async fn copy_shared(pool: &SqlitePool, owner: &str, token: &str) -> AppResult<Value> {
+    let (handle, mut doc, _) = shared(pool, token).await?;
+    let taken: HashSet<String> = sqlx::query_scalar::<_, String>("SELECT id FROM research_reports WHERE owner_id = ?").bind(owner).fetch_all(pool).await?.into_iter().collect();
+    // Room for the suffix within key_ok's 160 bytes; ids are ASCII.
+    let base: String = doc["id"].as_str().unwrap_or("note").chars().take(140).collect();
+    let id = std::iter::once(base.clone())
+        .chain((1..).map(|n| if n == 1 { format!("{base}-copy") } else { format!("{base}-copy-{n}") }))
+        .find(|id| !taken.contains(id))
+        .expect("an unused id");
+    doc["schema"] = json!("yama-research/1");
+    doc["id"] = json!(id);
+    doc["copied_from"] = json!({"link": format!("/r/{token}"), "by": handle});
+    save(pool, owner, &doc).await
+}
+
+#[derive(Deserialize)]
+struct CopyRequest {
+    token: String,
+}
+
+async fn copy_route(State(st): State<AppState>, CurrentUser(u): CurrentUser, Json(r): Json<CopyRequest>) -> AppResult<Json<Value>> {
+    Ok(Json(copy_shared(&st.pool, &u.id, &r.token).await?))
 }
 
 /// A profile's public notes: (token, title, deck count, saved at), newest first.
