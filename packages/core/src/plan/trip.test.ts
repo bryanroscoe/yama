@@ -102,6 +102,8 @@ describe("the trip", () => {
     const t = planTrip({ ...bundle, quotes }, { today: "2026-11-01" });
     expect(t.stops.map((s) => s.store.key)).not.toContain("multiverse-hobbies");
     expect(t.print.find((p) => p.want.card === "Exotic Orchard")?.reason).toBe("unknown-stock");
+    const cad = planTrip({ ...bundle, quotes: bundle.quotes.map((q) => (q.card === "Exotic Orchard" ? { ...q, currency: "CAD" } : q)) }, { today: "2026-11-01" });
+    expect(cad.print.find((p) => p.want.card === "Exotic Orchard")?.reason).toBe("no-price");
   });
 
   test("a store left off this trip is named, not used", () => {
