@@ -8,7 +8,7 @@ import { DeckCheckPage } from "./DeckCheckPage";
 const entry = (name: string, board: "commander" | "main", qty = 1, owned = 1) =>
   ({ oracle_id: name, name, qty, board, owned, proxies: 0, locations: owned ? { "Prismari box": owned } : {} }) as unknown as DeckView["cards"][number];
 
-function page(saved?: object) {
+function page(saved?: object, research?: object[]) {
   const mem = new Map<string, string>();
   if (saved) mem.set("yama.deckCheck.d1", JSON.stringify(saved));
   vi.stubGlobal("localStorage", { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) });
@@ -20,7 +20,7 @@ function page(saved?: object) {
   client.setQueryData(["me"], { id: "u1" });
   client.setQueryData(["deck", "d1"], deck);
   client.setQueryData(["decks"], [{ id: "d1", name: "Prismari Artistry", parent_id: null, configuration: null, bracket: 4, updated_at: "2026-10-31T00:00:00Z" }]);
-  client.setQueryData(["research", "u1", "list"], []);
+  client.setQueryData(["research", "u1", "list"], research ?? []);
   client.setQueryData(["deck-versions", "d1", "v2"], [{ id: "v2", note: "Installed", created_at: "2026-10-31T10:00:00Z" }, { id: "v1", note: "Stock", created_at: "2026-10-20T10:00:00Z" }]);
   client.setQueryData(["plan", "u1"], {
     orders: [], stores: [], head: { guide_version: 28 },
@@ -84,6 +84,17 @@ describe("Check this deck", () => {
     expect(html).toContain("Still missing: 2");
     expect(html).toContain("Goes in for Ancient Tomb.");
     expect(html).toContain("Save as a deck scan");
+  });
+
+  it("waits for a saved research target to load rather than check against the wrong list", () => {
+    const html = page(
+      { v: 1, deckId: "d1", commanders: [], target: "research:r1:prismari-artistry:b2-owned-now", cards: [card("k0", "Ancient Tomb", 1)] },
+      [{ id: "r1", title: "Buildable now", revision: 1, updated_at: "2026-10-31T00:00:00Z" }],
+    );
+    expect(html).toContain("Loading the list this check was against…");
+    expect(html).toContain("Loading the list…");
+    expect(html).not.toContain("deck-check-verdict");
+    expect(html).not.toContain("Check with the camera");
   });
 
   it("falls back to the current list when the saved target is gone", () => {

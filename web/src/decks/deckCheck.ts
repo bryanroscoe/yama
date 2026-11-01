@@ -224,5 +224,11 @@ export function storeCheck(d: CheckDraft, storage: Pick<Storage, "setItem" | "re
   }
 }
 
-/** The check's cards as a deck scan of the same deck, to save as a version on the scan page. */
-export const toScanDraft = (d: CheckDraft): ScanDraft => ({ v: 1, deckId: d.deckId, cards: d.cards, commanders: d.commanders });
+/**
+ * The check's cards as a deck scan of the same deck, to save as a version on the scan page. The
+ * commander is the target's when it names one (a configuration can lead with another card).
+ */
+export function toScanDraft(d: CheckDraft, target?: CheckTarget | null): ScanDraft {
+  const named = target?.cards.filter((c) => c.commander).map((c) => c.name) ?? [];
+  return { v: 1, deckId: d.deckId, cards: d.cards, commanders: named.length ? named : d.commanders };
+}

@@ -106,6 +106,9 @@ describe("checking a deck", () => {
     mem.set("yama.deckCheck.deck-1", "{not json");
     expect(loadCheck("deck-1", storage)).toBeNull();
     expect(toScanDraft(d)).toEqual({ v: 1, deckId: "deck-1", cards: d.cards, commanders: ["Rootha, Mastering the Moment"] });
+    // Saved as a scan, the commander is the target's: a configuration can lead with another card.
+    expect(toScanDraft(d, { ...target, cards: [{ name: "Veyran, Voice of Duality", qty: 1, commander: true }] }).commanders).toEqual(["Veyran, Voice of Duality"]);
+    expect(toScanDraft(d, { ...target, cards: [] }).commanders).toEqual(["Rootha, Mastering the Moment"]);
   });
 
   it("has a distinct sound and buzz for a card to take out", () => {

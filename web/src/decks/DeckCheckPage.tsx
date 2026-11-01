@@ -32,6 +32,7 @@ const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView }
 const KEEP_ADDING = "yama.deckScan.keepAdding";
 const CLOSEUPS = "yama.scan.closeups";
 const MUTE = "yama.deckCheck.mute";
+const PENDING = "pending";
 
 type SetDraft = (next: (d: CheckDraft) => CheckDraft) => void;
 
@@ -55,8 +56,12 @@ export function DeckCheckPage() {
 
   const { options, pool, loadingMore, error: optionsError } = useTargetOptions(deck.data);
   const option = options.find((o) => o.id === (draft?.target ?? CURRENT));
+  // A saved target not among the choices yet: wait for the plan and research before checking
+  // anything, so no card is called against the wrong list. Once they're in (or failed), say so
+  // and check against the current list.
+  const pending = !!draft?.target && !option && loadingMore;
   const lost = !!draft?.target && !option && !loadingMore;
-  const target = useTarget(deck.data, option ?? options[0], pool);
+  const target = useTarget(deck.data, pending ? undefined : (option ?? options[0]), pool);
   const verdicts = useMemo(() => (target.data && draft ? classify(target.data, draft.cards) : null), [target.data, draft]);
 
   // Sounds: one for the newest card each time a card goes in, never for cards already there when
@@ -99,7 +104,7 @@ export function DeckCheckPage() {
   const saveAsScan = () => {
     const existing = loadDraft(id);
     if (existing && existing.cards.length > 0 && !confirm(`A scan of this deck is already in progress on this device (${existing.cards.length} cards). Replace it with this check's ${draft.cards.length} cards?`)) return;
-    storeDraft(toScanDraft(draft));
+    storeDraft(toScanDraft(draft, t));
     navigate(`/decks/${id}/scan`);
   };
 
@@ -114,7 +119,8 @@ export function DeckCheckPage() {
       <div className="deck-check-target">
         <label>
           <span>Check against</span>
-          <select value={option?.id ?? CURRENT} onChange={(e) => setDraft((x) => ({ ...x, target: e.target.value === CURRENT ? null : e.target.value }))}>
+          <select value={pending ? PENDING : (option?.id ?? CURRENT)} onChange={(e) => setDraft((x) => ({ ...x, target: e.target.value === CURRENT ? null : e.target.value }))}>
+            {pending && <option value={PENDING} disabled>Loading the list this check was against…</option>}
             {groupsOf(options).map(([group, list]) => (
               <optgroup key={group} label={group}>
                 {list.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -126,7 +132,11 @@ export function DeckCheckPage() {
           {option ? option.source : options[0]?.source}
           {loadingMore ? ". Loading the plan and research builds…" : ""}
         </p>
-        {lost && <p className="small deck-scan-warn">The list this check was against isn't there any more, so it's checking against the deck's current list.</p>}
+        {lost && (
+          <p className="small deck-scan-warn">
+            {optionsError ? "The list this check was against couldn't be loaded" : "The list this check was against isn't there any more"}, so it's checking against the deck's current list. Pick another above if that's not right.
+          </p>
+        )}
         <ErrorText error={optionsError} />
       </div>
 
@@ -193,10 +203,10 @@ function useTargetOptions(deck: DeckView | undefined) {
       pool: swapPool(family, plan.bundle),
       loadingMore: plan.pending || decks.isPending || index.isPending || versions.isPending || notes.some((r) => r.isPending),
       // Research or History not loading leaves the other choices; say so, don't block.
-      error: index.error || versions.error || notes.find((r) => r.error)?.error || null,
+      error: plan.error || index.error || versions.error || notes.find((r) => r.error)?.error || null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deck, plan.bundle, plan.pending, decks.data, decks.isPending, index.isPending, index.error, versions.data, versions.isPending, versions.error, notesKey]);
+  }, [deck, plan.bundle, plan.pending, plan.error, decks.data, decks.isPending, index.isPending, index.error, versions.data, versions.isPending, versions.error, notesKey]);
 }
 
 /** The chosen list's cards. The deck's own list is already loaded; another saved list or a
@@ -419,6 +429,7 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
             addedCount={sum.checked}
             onShowAdded={() => setReviewing(true)}
             addedWord="Checked"
+            haptics={!muted}
             recent={recent}
             controls={controls}
             acceptLabel="Count it and check next"

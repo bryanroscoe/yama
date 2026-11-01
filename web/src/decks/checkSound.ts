@@ -28,7 +28,13 @@ export function unlockSound(): boolean {
   const a = audio();
   if (!a) return false;
   if (a.state === "running") return true;
-  if (a.state === "suspended") void a.resume().catch(() => undefined);
+  if (a.state === "closed") {
+    // Closed for good: start a new one on this tap.
+    ctx = null;
+    return unlockSound();
+  }
+  // "suspended", or Safari's "interrupted" after another app or a locked screen took the audio.
+  void a.resume().catch(() => undefined);
   try {
     // iOS also wants something started inside the tap itself.
     const src = a.createBufferSource();
