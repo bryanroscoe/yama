@@ -70,6 +70,8 @@ export interface ScannerViewProps {
   renderResult?: (card: ScanCandidate) => ReactNode;
   /** Only the card's identity matters: no printing, price or picker. */
   identityOnly?: boolean;
+  /** One card, once (a rescan of a card already filed): no Copies choice. */
+  single?: boolean;
   /** Shown over the camera view, under the top buttons (the deck check's verdict). A function is
    * given the card found and waiting to be accepted, else null, so the overlay never shows an
    * older card while a new one waits. */
@@ -214,6 +216,7 @@ export function ScannerView({
   acceptLabel = "Add",
   renderResult,
   identityOnly = false,
+  single = false,
   overlay,
   addedWord = "Added",
   haptics = true,
@@ -1002,7 +1005,7 @@ export function ScannerView({
             <div className="scan-buttons">
               {onAccept && (
                 <div className="scan-accept">
-                  {!identityOnly && (
+                  {!identityOnly && !single && (
                     <label className="scan-copies">
                       Copies
                       <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>

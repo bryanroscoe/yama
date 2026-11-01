@@ -36,6 +36,28 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/decks/plan/trip", label: "Store trip" },
   },
   {
+    id: "2026-11-01-fix-a-printing",
+    date: "2026-11-01",
+    title: "Fix a card's printing in your collection",
+    items: [
+      "Tap a card on the Collection page and choose Change printing to pick the right one from every printing of that card, with its picture, year and price.",
+      "Or choose Rescan this card and hold it up to the camera: the printing you confirm replaces the old one. A different card is refused, so nothing changes by mistake.",
+      "With several copies in one row, change all of them or just one. Copies stay where they live, in the same condition.",
+      "Delete from collection removes the whole row, after you confirm.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
+    id: "2026-11-01-table-relay",
+    date: "2026-11-01",
+    title: "Everyone's phones: no account needed, and it keeps going if Yama's server is down",
+    items: [
+      "Friends who scan the join code no longer sign in to Yama: the code is all they need.",
+      "Shared tables now meet on Cloudflare instead of Yama's own server, so a game everyone follows keeps going even when Yama's server or its internet connection is down. The host's phone still keeps the game and uploads it when it can.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
     id: "2026-11-01-check-a-deck",
     date: "2026-11-01",
     title: "Check a deck box card by card",

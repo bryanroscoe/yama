@@ -10,6 +10,9 @@ CI is skipped when either:
   the head already contains the base branch, so the merge CI would test is that
   same tree.
 
+Otherwise the web job always runs, and the Rust job is skipped when every changed
+file is web-only (see `rust_needed`).
+
 Any error reading GitHub falls back to running CI.
 """
 
@@ -47,6 +50,26 @@ def decide(labels, message, tree, behind_by, base_ref='main'):
     return True, f'Local checks passed on tree `{tree}`, and the branch contains `{base_ref}`.'
 
 
+# Paths the Rust/Python job cannot see: the web app and its shared TypeScript package.
+WEB_ONLY = ('web/', 'packages/')
+WEB_ONLY_FILES = {'package.json', 'package-lock.json'}
+# ...except files the server compiles in with include_str! (site notice, page CSS).
+RUST_READS = ('web/public/',)
+RUST_READS_SUFFIXES = ('.css', '.html')
+MAX_FILES = 3000  # GitHub lists at most this many files for one PR.
+
+
+def rust_needed(files):
+    """Whether a PR changing `files` needs the Rust and Python job. Unknown means yes."""
+    if not files or len(files) >= MAX_FILES:
+        return True
+    for path in files:
+        web_only = path in WEB_ONLY_FILES or path.startswith(WEB_ONLY)
+        if not web_only or path.startswith(RUST_READS) or path.endswith(RUST_READS_SUFFIXES):
+            return True
+    return False
+
+
 def api(path):
     request = urllib.request.Request(
         os.environ.get('GITHUB_API_URL', 'https://api.github.com') + path,
@@ -66,6 +89,19 @@ def gather(repo, number, head_sha, base_ref):
     return labels, commit['message'], commit['tree']['sha'], behind_by
 
 
+def changed_files(repo, number):
+    files = []
+    for page in range(1, MAX_FILES // 100 + 1):
+        batch = api(f'/repos/{repo}/pulls/{number}/files?per_page=100&page={page}')
+        for entry in batch:
+            files.append(entry['filename'])
+            if entry.get('previous_filename'):
+                files.append(entry['previous_filename'])
+        if len(batch) < 100:
+            break
+    return files
+
+
 def write(name, text):
     path = os.environ.get(name)
     if path:
@@ -82,9 +118,14 @@ def main():
         labels, message, tree, behind_by = gather(
             os.environ['GITHUB_REPOSITORY'], int(os.environ['PR_NUMBER']), head_sha, base_ref)
         skip, reason = decide(labels, message, tree, behind_by, base_ref)
+        rust = skip or rust_needed(changed_files(os.environ['GITHUB_REPOSITORY'],
+                                                 int(os.environ['PR_NUMBER'])))
     except Exception as error:  # Fail safe: an unreadable PR runs CI.
         print(f'::warning::CI gate could not read the PR ({error}); running CI.')
         skip, reason = False, f'The gate could not read the PR ({type(error).__name__}), so CI runs.'
+        rust = True
+    if not skip and not rust:
+        reason += ' Only web files changed, so the Rust and Python job is skipped.'
     title = 'CI skipped' if skip else 'CI runs'
     print(f'{title}: {reason}')
     write('GITHUB_STEP_SUMMARY',
@@ -92,7 +133,8 @@ def main():
           + ('The web and Rust jobs show as skipped. Push CI on main still runs every check '
              'before deployment.\n' if skip else ''))
     # Last, so a failure anywhere above leaves no skip behind.
-    write('GITHUB_OUTPUT', f'skip={"true" if skip else "false"}\n')
+    write('GITHUB_OUTPUT', f'rust={"true" if rust else "false"}\n'
+                           f'skip={"true" if skip else "false"}\n')
     return 0
 
 
