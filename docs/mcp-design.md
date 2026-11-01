@@ -74,7 +74,7 @@ Read (no review needed):
 | `shopping_trip` | Which of their stores to visit: the fewest stores covering the most cards under their local buy rule and store preferences, each store's cards, total and cart link, what to print instead and why, and the real-card wishlist by price tier ([shopping-design.md](shopping-design.md)) |
 | `spares` | Cards you own outside any deck, and what a plan would free |
 | `lab_runs`, `lab_run` | Your experiments and rating runs, with live progress, the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate. Admins also see the count of earlier Phase games ahead in the shared queue; for both-engine runs, ETA and queue position are Phase-only. No other account's run or deck details are exposed. |
-| `lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it |
+| `lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it; a head-to-head or tournament run's tables for one deck (`deck`) or one table (`table`), with finish order, who went first and knockout turns |
 | `precon` | A precon's list, playgroup.gg data and the global rating |
 | `games` | Real game results for a deck |
 
