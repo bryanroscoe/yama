@@ -6,3 +6,4 @@ export * from "./deckStats";
 export * from "./deckExport";
 export * from "./decklist";
 export * from "./powerLevel";
+export * from "./relayKey";

@@ -1420,6 +1420,26 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 
 /* Shared research notes (/r/): the change table and the profile's list of notes. */
 .share-swaps td:nth-child(-n+2) { white-space:nowrap; font-weight:600; }
+/* "Changes from [the starting list ▾]": the heading picks the build to compare with. */
+.share-vs { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 .3em; }
+.share-vs details { position:relative; border:0; padding:0; }
+.share-vs summary { list-style:none; min-height:0; font:700 36px/1.05 var(--display); letter-spacing:-.015em; text-decoration:underline dashed; text-decoration-thickness:2px; text-underline-offset:6px; }
+.share-vs summary::-webkit-details-marker { display:none; }
+.share-vs summary::after { content:" ▾"; font-size:.55em; vertical-align:middle; }
+.share-vs ul { position:absolute; z-index:5; top:100%; left:0; min-width:max-content; margin:8px 0 0; padding:6px; list-style:none; background:var(--raised); border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 32px rgba(0,0,0,.45); }
+.share-vs li { margin:0; font-size:16px; color:inherit; }
+.share-vs a { display:block; padding:8px 12px; border-radius:6px; color:inherit; text-decoration:none; }
+.share-vs a:hover, .share-vs a:focus-visible { background:var(--line); }
+.share-vs a[aria-current] { font-weight:700; }
+/* Copy a shared note, and its shopping list. */
+.share-copy { margin:20px 0 8px; }
+.share-copy .dim { font-size:14px; }
+.share-shop-how { max-width:80ch; margin:12px 0 0; font-size:14px; }
+.share-shop td:first-child { font-weight:600; }
+.share-shop-decks td.num { white-space:nowrap; }
+.share-shop-decks tfoot th, .share-shop-decks tfoot td { border-top:1px solid var(--line); font-weight:700; padding:8px 10px; text-align:left; }
+.share-shop-decks tfoot td.num { text-align:right; }
+@media(max-width:700px) { .share-shop-decks { display:block; overflow-x:auto; } }
 .share-note-method { margin:8px 0 0; max-width:80ch; }
 .share-notes { margin:32px 0; }
 .share-notes h2 { font-size:32px; margin:0 0 12px; }
