@@ -125,7 +125,10 @@ export function App() {
   // unreachable, since it needs nothing from it), else the sign-in page.
   const guest = !me.data && guestChosen;
   setGuestActive(guest);
-  selectSlot(guest);
+  // The account's game only once an account is signed in: on the sign-in page the guest's game
+  // stays where it is, so backing out to the counter finds it again.
+  if (guest) selectSlot(true);
+  else if (me.data) selectSlot(false);
   if (me.error && !guest) {
     return (
       <main className="login">
