@@ -372,3 +372,74 @@ async fn a_yama_edit_during_apply_is_not_overwritten() {
     let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
     assert_eq!(winner, Some(0));
 }
+
+#[tokio::test]
+async fn a_game_logged_with_typed_names_matches_the_members_they_became() {
+    let (app, pool) = app().await;
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    // Logged before the group existed: Chris and Dana are only typed names.
+    let hand = crate::util::new_id();
+    let (s, r) = send(&app, Method::POST, "/api/games", Some(&token), Some(json!({
+        "id": hand, "started_at": "2026-10-04T20:00:00Z",
+        "seats": [{ "seat": 0, "user_id": bryan }, { "seat": 1, "guest_name": "chris " }, { "seat": 2, "guest_name": "Dana" }],
+        "finish": { "winner_seat": 0, "ended_at": "2026-10-04T20:00:00Z" }
+    }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let (pg, _) = group(&app, &token).await;
+    let mut member = |name: &'static str| {
+        let (app, token, pg) = (app.clone(), token.clone(), pg.clone());
+        async move {
+            let (s, m) = send(&app, Method::POST, &format!("/api/playgroups/{pg}/guests"), Some(&token), Some(json!({ "name": name }))).await;
+            assert_eq!(s, StatusCode::OK, "{m}");
+            m["id"].as_str().unwrap().to_string()
+        }
+    };
+    let chris = member("Chris").await;
+    let chelsey = member("Chelsey").await;
+    let file = || export(vec![mythic_game(60, "2026-10-04T12:00:00Z", 2, None)]);
+
+    // Chris the member is the Chris typed in that game.
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token),
+        Some(json!({ "export": file(), "playgroup_id": pg, "players": { "2": chris } }))).await;
+    assert_eq!(p["games"][0]["status"], "match", "{p}");
+    assert_eq!(p["games"][0]["matches"][0]["id"], hand.as_str());
+    let (s, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": file(), "playgroup_id": pg, "players": { "2": chris }, "choices": { "60": format!("link:{hand}") } }))).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    assert_eq!(a["linked"], 1, "{a}");
+    // The game stays as it was logged.
+    let typed: Option<String> = sqlx::query_scalar("SELECT guest_name FROM game_seats WHERE game_id = ? AND seat = 1").bind(&hand).fetch_one(&pool).await.unwrap();
+    assert_eq!(typed.as_deref(), Some("chris "));
+
+    // Someone else typed there isn't a match.
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token),
+        Some(json!({ "export": export(vec![mythic_game(61, "2026-10-04T12:30:00Z", 2, None)]), "playgroup_id": pg, "players": { "2": chelsey } }))).await;
+    assert_eq!(p["games"][0]["status"], "new", "{p}");
+}
+
+#[tokio::test]
+async fn a_game_mythic_saved_twice_is_imported_once() {
+    let (app, pool) = app().await;
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    let copies = |ids: [i64; 2]| export(ids.iter().map(|&id| mythic_game(id, "2026-10-08T01:41:29Z", 1, None)).collect());
+
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": copies([70, 71]) }))).await;
+    let rows: Vec<(&str, &str)> = p["games"].as_array().unwrap().iter().map(|g| (g["status"].as_str().unwrap(), g["action"].as_str().unwrap())).collect();
+    assert_eq!(rows, [("new", "create"), ("duplicate", "skip")], "{p}");
+    let (s, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": copies([70, 71]) }))).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    assert_eq!((a["created"].as_i64(), a["skipped"].as_i64()), (Some(1), Some(1)), "{a}");
+
+    // Next time, in another order, the imported one is still the game and the other the copy.
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": copies([71, 70]) }))).await;
+    let rows: Vec<(&str, &str)> = p["games"].as_array().unwrap().iter().map(|g| (g["mythic_id"].as_str().unwrap(), g["status"].as_str().unwrap())).collect();
+    assert_eq!(rows, [("71", "duplicate"), ("70", "unchanged")], "{p}");
+
+    // Two games really were played: the copy can be imported too.
+    let (s, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": copies([70, 71]), "choices": { "71": "import" } }))).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    assert_eq!(a["created"], 1, "{a}");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id IN (?, ?)").bind(derived_id(&bryan, "70")).bind(derived_id(&bryan, "71")).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 2);
+}

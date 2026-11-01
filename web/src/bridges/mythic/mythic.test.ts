@@ -20,6 +20,7 @@ describe("Mythic Tools import", () => {
     expect(statusText(game({ status: "conflict", action: "skip" }))).toBe("Changed in Mythic and in Yama, choose which to keep");
     expect(statusText(game({ status: "conflict", action: "keep" }))).toBe("Changed in Mythic and in Yama, Yama's version stays");
     expect(statusText(game({ status: "invalid", action: "skip", reason: "it isn't finished in Mythic" }))).toBe("Can't import: it isn't finished in Mythic");
+    expect(statusText(game({ status: "duplicate", action: "skip" }))).toBe("Same as another game in the file, Mythic saved it twice");
     expect(applyLabel([game(), game({ action: "skip" }), game({ action: "link" })])).toBe("Import 2 games");
     expect(applyLabel([game({ action: "skip" })])).toBe("Nothing to import");
   });

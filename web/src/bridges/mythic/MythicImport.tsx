@@ -216,6 +216,15 @@ function GameLine({ g, choice, onChoose }: { g: MythicGameRow; choice: string | 
       </span>
       {seats && <span className="small">{seats}</span>}
       {g.yama_id && g.action !== "create" && g.status !== "deleted" && <Link className="small" to={`/table/games/${g.yama_id}`}>Open in Yama</Link>}
+      {g.status === "duplicate" && (
+        <label className="small">
+          <span className="visually-hidden">What to do with this copy</span>
+          <select value={choice ?? "skip"} onChange={(e) => onChoose(e.target.value)}>
+            <option value="skip">Skip the copy</option>
+            <option value="import">Import it as its own game</option>
+          </select>
+        </label>
+      )}
       {canChoose && (
         <label className="small">
           <span className="visually-hidden">What to do with this game</span>

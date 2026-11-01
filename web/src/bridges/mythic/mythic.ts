@@ -21,7 +21,7 @@ export interface MythicSeat {
   me: boolean;
 }
 
-export type MythicStatus = "new" | "update" | "conflict" | "note" | "unchanged" | "match" | "linked" | "deleted" | "invalid";
+export type MythicStatus = "new" | "update" | "conflict" | "note" | "unchanged" | "match" | "linked" | "deleted" | "duplicate" | "invalid";
 
 export interface MythicGameRow {
   mythic_id: string;
@@ -93,6 +93,8 @@ export function statusText(g: MythicGameRow): string {
       return g.action === "note" ? "Matched to a game in Yama before, Mythic's note updates" : "Matched to a game in Yama before";
     case "deleted":
       return "Deleted in Yama, stays deleted";
+    case "duplicate":
+      return g.action === "create" ? "Same as another game in the file, imported anyway" : "Same as another game in the file, Mythic saved it twice";
     case "invalid":
       return g.reason ? `Can't import: ${g.reason}` : "Can't import";
   }

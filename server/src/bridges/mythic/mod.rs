@@ -231,16 +231,26 @@ struct Candidate {
     seats: i64,
     /// Who played, by name, so the person can tell the game apart.
     players: Vec<String>,
-    /// Each seat's (member, account), to compare with the Mythic game's known players.
+    /// Each seat's (member, account, typed name), to compare with the Mythic game's known players.
     #[serde(skip)]
-    who: Vec<(Option<String>, Option<String>)>,
+    who: Vec<(Option<String>, Option<String>, Option<String>)>,
 }
 
 impl Candidate {
-    /// Whether someone (by member, or by account) sat in this game.
-    fn has(&self, member: Option<&str>, user: Option<&str>) -> bool {
-        self.who.iter().any(|(m, u)| (member.is_some() && m.as_deref() == member) || (user.is_some() && u.as_deref() == user))
+    /// Whether someone sat in this game: by member, by account, or, for a seat logged with only a
+    /// typed name (before the group had them as a member), by that name.
+    fn has(&self, member: Option<&str>, user: Option<&str>, name: Option<&str>) -> bool {
+        self.who.iter().any(|(m, u, typed)| {
+            (member.is_some() && m.as_deref() == member)
+                || (user.is_some() && u.as_deref() == user)
+                || (m.is_none() && u.is_none() && matches!((typed, name), (Some(t), Some(n)) if same_name(t, n)))
+        })
     }
+}
+
+fn same_name(a: &str, b: &str) -> bool {
+    let a = a.trim();
+    !a.is_empty() && a.to_lowercase() == b.trim().to_lowercase()
 }
 
 #[derive(Serialize)]
@@ -420,6 +430,11 @@ fn saved_yama(saved: Option<&str>) -> Option<&str> {
     saved?.split(' ').nth(2).filter(|y| !y.is_empty())
 }
 
+/// The game part of a fingerprint, without Mythic's note.
+fn content_of(fingerprint: &str) -> &str {
+    fingerprint.split(' ').next().unwrap_or_default()
+}
+
 /// What a game is in Yama now, to tell whether it was edited there since the last import.
 async fn yama_print<'c, E: sqlx::SqliteExecutor<'c>>(conn: E, game: &str) -> AppResult<String> {
     let state: Option<String> = sqlx::query_scalar(
@@ -557,6 +572,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
 
     // A member's account, so a game logged with the person but not the playgroup still matches.
     let member_user: HashMap<String, Option<String>> = group_members.iter().map(|(id, u, _)| (id.clone(), u.clone())).collect();
+    let member_name: HashMap<&str, &str> = group_members.iter().map(|(id, _, n)| (id.as_str(), n.as_str())).collect();
     let ctx = Ctx { owner, playgroup, my_member, me: me.clone(), members: matched };
     let game_links = links(pool, owner, "game").await?;
     let linked_yama: HashSet<&str> = game_links.values().map(|(y, _)| y.as_str()).collect();
@@ -566,6 +582,23 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
     let mut ids = HashSet::new();
     // Yama games chosen as matches in this upload: each can be one Mythic game's only.
     let mut chosen: HashSet<String> = HashSet::new();
+    // Mythic sometimes saves one game more than once, under new ids. Each game's content (times,
+    // seats, decks, winner) goes to one Mythic game: the one linked before, else the first in the
+    // file. The other copies are offered as duplicates.
+    let mut originals: HashMap<String, String> = HashMap::new();
+    for e in &req.export.games {
+        let (Some(id), Ok(b)) = (id_of(&e.game().id), build(e.game(), &ctx)) else { continue };
+        let content = content_of(&b.fingerprint).to_string();
+        match originals.get(&content) {
+            None => {
+                originals.insert(content, id);
+            }
+            Some(first) if !game_links.contains_key(first) && game_links.contains_key(&id) => {
+                originals.insert(content, id);
+            }
+            Some(_) => {}
+        }
+    }
     for e in &req.export.games {
         let g = e.game();
         let Some(mythic_id) = id_of(&g.id) else {
@@ -621,6 +654,14 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             games.push(p);
             continue;
         }
+        if originals.get(content_of(&b.fingerprint)).is_some_and(|o| *o != p.mythic_id) {
+            (p.status, p.action) = ("duplicate", if choice == Some("import") { "create" } else { "skip" });
+            if p.action == "create" {
+                p.yama_id = Some(derived);
+            }
+            games.push(p);
+            continue;
+        }
         let start = parse_time(&Some(b.started_at.clone()));
         p.matches = visible
             .iter()
@@ -635,7 +676,8 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
                     (None, None) => true,
                     (m, u) => {
                         let account = u.clone().or_else(|| m.as_ref().and_then(|m| member_user.get(m).cloned().flatten()));
-                        v.has(m.as_deref(), account.as_deref())
+                        let name = m.as_deref().and_then(|m| member_name.get(m).copied());
+                        v.has(m.as_deref(), account.as_deref(), name)
                     }
                 })
             })
@@ -679,7 +721,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
 async fn visible_games(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Candidate>> {
     Ok(sqlx::query_as::<_, (String, String, i64, String)>(
         "SELECT g.id, g.started_at, (SELECT COUNT(*) FROM game_seats s WHERE s.game_id = g.id),
-                (SELECT json_group_array(json_array(s.member_id, s.user_id, COALESCE(u.display_name, s.guest_name, pm.guest_name, '')))
+                (SELECT json_group_array(json_array(s.member_id, s.user_id, COALESCE(u.display_name, s.guest_name, pm.guest_name, ''), s.guest_name))
                    FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members pm ON pm.id = s.member_id
                   WHERE s.game_id = g.id)
            FROM games g
@@ -698,9 +740,9 @@ async fn visible_games(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Candidat
     .await?
     .into_iter()
     .map(|(id, started_at, seats, people)| {
-        let rows: Vec<(Option<String>, Option<String>, String)> = serde_json::from_str(&people).unwrap_or_default();
-        let players = rows.iter().map(|(_, _, n)| n.clone()).filter(|n| !n.is_empty()).collect();
-        let who = rows.into_iter().map(|(m, u, _)| (m, u)).collect();
+        let rows: Vec<(Option<String>, Option<String>, String, Option<String>)> = serde_json::from_str(&people).unwrap_or_default();
+        let players = rows.iter().map(|(_, _, n, _)| n.clone()).filter(|n| !n.is_empty()).collect();
+        let who = rows.into_iter().map(|(m, u, _, typed)| (m, u, typed)).collect();
         Candidate { id, started_at, seats, players, who }
     })
     .collect())
