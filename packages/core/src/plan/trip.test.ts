@@ -63,6 +63,8 @@ describe("the trip", () => {
     const noPremium = { ...bundle, store_prefs: { ...bundle.store_prefs, "black-castle": { ...bundle.store_prefs!["black-castle"]!, premium_usd: null } } };
     const plain = planTrip(noPremium, { today: "2026-11-01" });
     expect(plain.stops.find((s) => s.store.key === "mothership")!.rows.map((r) => r.want.card)).toContain("Sol Ring");
+    const demoted = { ...bundle, store_prefs: { ...bundle.store_prefs, "black-castle": { ...bundle.store_prefs!["black-castle"]!, preference: "ok" as const } } };
+    expect(planTrip(demoted, { today: "2026-11-01" }).stops.find((s) => s.store.key === "mothership")!.rows.map((r) => r.want.card)).toContain("Sol Ring");
     const easierPats = { ...bundle, store_prefs: { ...bundle.store_prefs, pats: { ...bundle.store_prefs!.pats!, hassle: 2 }, mothership: { ...bundle.store_prefs!.mothership!, hassle: 3 } } };
     expect(planTrip(easierPats, { today: "2026-11-01" }).stops.map((s) => s.store.key)).toEqual(["black-castle", "pats", "multiverse-hobbies"]);
   });

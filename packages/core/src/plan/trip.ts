@@ -113,6 +113,7 @@ export const PREFERENCE_TEXT: Record<StorePreference, string> = {
 
 /** How much more a card may cost at this store and still come from it (USD, 0 when unset). */
 export function storePremium(b: Pick<PlanBundle, "store_prefs">, key: string): number {
+  if (storePreference(b, key) !== "favorite") return 0; // a premium kept from when it was a favourite
   const v = num(b.store_prefs?.[key]?.premium_usd);
   return v != null && v > 0 ? v : 0;
 }

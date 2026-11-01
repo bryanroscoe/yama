@@ -115,7 +115,7 @@ fn unknown_stock_is_not_a_reason_to_go() {
             q["currency"] = json!("CAD");
         }
     }
-    let t = plan(&b, "2026-11-01");
+    let t = plan(&b, "2026-11-01", None);
     assert_eq!(t.print.iter().find(|p| p.want.card == "Exotic Orchard").unwrap().reason, "no-price");
 }
 
@@ -127,8 +127,10 @@ fn preferences_read_the_old_name_and_order_the_stores() {
     });
     assert_eq!(store_preference(&b, "a"), "favorite");
     assert_eq!(store_preference(&b, "b"), "ok");
-    assert_eq!(store_premium(&b, "c"), 0.4);
+    assert_eq!(store_premium(&b, "c"), 0.0, "only a favourite's premium counts");
     assert_eq!(store_premium(&b, "a"), 0.0);
+    let fav = json!({"store_prefs": {"c": {"preference": "favorite", "premium_usd": 0.4}}});
+    assert_eq!(store_premium(&fav, "c"), 0.4);
     let order = hassle_order(&b);
     assert_eq!((order["c"], order["a"], order["b"]), (1, 2, 3));
     assert_eq!(mass_entry_url(&["Sol Ring", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "+2 Mace", "Sol Ring"]).as_deref(),

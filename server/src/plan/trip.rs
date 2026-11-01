@@ -44,6 +44,9 @@ pub fn store_preference(b: &Value, key: &str) -> &'static str {
 
 /// How much more a card may cost at this store and still come from it (0 when unset).
 pub fn store_premium(b: &Value, key: &str) -> f64 {
+    if store_preference(b, key) != "favorite" {
+        return 0.0; // a premium kept from when it was a favourite
+    }
     b["store_prefs"][key].get("premium_usd").and_then(num).filter(|v| *v > 0.0).unwrap_or(0.0)
 }
 

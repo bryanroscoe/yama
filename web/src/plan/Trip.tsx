@@ -62,11 +62,17 @@ export function Trip() {
   const { view, userId } = usePlanOutlet();
   const [params, setParams] = useSearchParams();
   const stores = view.b.stores.filter((s) => !s.retired && s.kind !== "printer");
-  // The stores you're going to this time (?stores=a,b); none given: every store you'll go to.
-  const going = params.get("stores")?.split(",").filter((k) => stores.some((s) => s.key === k)) ?? null;
-  const goingKey = going?.join(",") ?? "";
+  // The stores you're going to this time (?stores=a,b; "?stores=" is none); no parameter: every store you'll go to.
+  const going = params.has("stores") ? (params.get("stores") ?? "").split(",").filter((k) => stores.some((s) => s.key === k)) : null;
+  const goingKey = going ? going.join(",") : null;
   const trip = useMemo(
-    () => planTrip(view.b, { today: view.today, answers: view.answers, bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought), stores: goingKey ? goingKey.split(",") : null }),
+    () =>
+      planTrip(view.b, {
+        today: view.today,
+        answers: view.answers,
+        bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought),
+        stores: goingKey == null ? null : goingKey.split(",").filter(Boolean),
+      }),
     [view, goingKey],
   );
   const willGo = stores.filter((s) => storePreference(view.b, s.key) !== "never");
