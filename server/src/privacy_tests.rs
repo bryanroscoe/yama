@@ -280,3 +280,30 @@ async fn deleting_a_game_never_uploaded_stops_it_being_uploaded_later() {
     let upload = json!({ "id": early, "started_at": "2026-10-31T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
     assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(upload)).await.0, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn only_a_games_creator_gets_its_cloudflare_share_key() {
+    let (app, pool) = open_server().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, st) = user(&pool, "sam@example.com").await;
+    let game = "7e2a9c1d-4b3f-4d8e-a6c5-1f0e9d8c7b66";
+    let live = format!("/api/table/{game}/live");
+    let key = "0123456789abcdef0123456789abcdef";
+    let new_game = json!({ "id": game, "started_at": "2026-11-01T01:00:00Z", "seats": [{ "seat": 0, "user_id": bryan }] });
+    assert_eq!(send(&app, Method::POST, "/api/games", Some(&bt), Some(new_game)).await.0, StatusCode::OK);
+
+    // Someone else can neither leave a key for it nor read Bryan's.
+    assert_eq!(send(&app, Method::PUT, &live, Some(&st), Some(json!({ "key": key }))).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(send(&app, Method::PUT, &live, Some(&bt), Some(json!({ "key": "not-a-key" }))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::PUT, &live, Some(&bt), Some(json!({ "key": key }))).await.0, StatusCode::OK);
+    let (_, theirs) = get(&app, &st, &live).await;
+    assert_eq!(theirs, json!({ "hosting": false }));
+    // Sam stopping it changes nothing.
+    assert_eq!(send(&app, Method::DELETE, &live, Some(&st), None).await.0, StatusCode::OK);
+
+    let (_, mine) = get(&app, &bt, &live).await;
+    assert_eq!(mine, json!({ "hosting": true, "key": key }));
+    assert_eq!(send(&app, Method::DELETE, &live, Some(&bt), None).await.0, StatusCode::OK);
+    let (_, mine) = get(&app, &bt, &live).await;
+    assert_eq!(mine, json!({ "hosting": false }));
+}

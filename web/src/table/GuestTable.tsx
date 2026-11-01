@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
-import { wsUrl } from "./share";
+import { guestWsUrl } from "./share";
 import { useLandscape } from "./layouts";
 import { DispatchContext, KnockOut, LethalSheet, Panel, PlayerSheet, pendingDelta, uprightLayout, useLethalPrompt, useTableArt } from "./TablePlay";
 import "./table.css";
@@ -58,7 +58,7 @@ function GuestGame({ gameId }: { gameId: string }) {
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
-      const ws = new WebSocket(wsUrl(gameId, "guest", key));
+      const ws = new WebSocket(guestWsUrl(gameId, key));
       let opened = false;
       socket.current = ws;
       ws.onopen = () => {

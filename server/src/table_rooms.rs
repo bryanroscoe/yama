@@ -15,6 +15,10 @@
 //! The creator's own other devices (a laptop following the game on their phone) may join
 //! without it: it's their game.
 //!
+//! Production tables meet on Yama's Cloudflare relay instead (`relay/`), which keeps working when
+//! this server is offline and needs no account. For those, the host phone leaves the share key
+//! here (`PUT /live`, memory only, for a while) so the creator's own other devices can follow.
+//!
 //! Memory: a room keeps its newest snapshot (at most [`MAX_MESSAGE`]) and a short backlog for slow
 //! guests, so anyone but an admin may host at most [`MAX_HOSTED`] tables at once.
 
@@ -30,18 +34,32 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/table/{game_id}/ws", get(connect))
-        .route("/api/table/{game_id}/live", get(live))
+        .route("/api/table/{game_id}/live", get(live).put(set_live).delete(clear_live))
 }
 
 #[derive(Default)]
 pub struct Rooms {
     rooms: Mutex<HashMap<String, Room>>,
+    /// Games shared through the Cloudflare relay, by game id.
+    edge: Mutex<HashMap<String, EdgeShare>>,
 }
+
+/// A game its creator's phone is sharing on the Cloudflare relay.
+struct EdgeShare {
+    user: String,
+    key: String,
+    at: Instant,
+}
+
+/// How long a share key left here stays offered: longer than any game night. A phone that stops
+/// sharing takes it back sooner.
+const EDGE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
 
 struct Room {
     /// Set by the host; guests must match it.
@@ -68,11 +86,65 @@ struct ConnectParams {
 }
 
 /// Whether the creator's phone is sharing this game right now, so their other devices can offer
-/// to follow it. Anyone else gets "no": a game's room is only found with its share key.
+/// to follow it, with the Cloudflare relay's share key when it's there. Anyone else gets "no": a
+/// game's room is only found with its share key.
 async fn live(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> Json<serde_json::Value> {
+    let edge = {
+        let map = st.rooms.edge.lock().unwrap();
+        map.get(&game_id).filter(|e| e.user == user.id && e.at.elapsed() < EDGE_TTL).map(|e| e.key.clone())
+    };
+    if let Some(key) = edge {
+        return Json(serde_json::json!({ "hosting": true, "key": key }));
+    }
     let map = st.rooms.rooms.lock().unwrap();
     let hosting = map.get(&game_id).is_some_and(|r| r.host_user.as_deref() == Some(user.id.as_str()) && r.host.is_some());
     Json(serde_json::json!({ "hosting": hosting }))
+}
+
+#[derive(Deserialize)]
+struct SetLive {
+    key: String,
+}
+
+/// A share key from the relay: 32 lowercase hex characters (packages/core relayKey.ts).
+fn is_relay_key(key: &str) -> bool {
+    key.len() == 32 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The creator's phone is sharing this game on the Cloudflare relay.
+async fn set_live(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(game_id): Path<String>,
+    Json(body): Json<SetLive>,
+) -> AppResult<Json<serde_json::Value>> {
+    if !is_relay_key(&body.key) {
+        return Err(AppError::bad("not a share key"));
+    }
+    let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
+        .bind(&game_id)
+        .fetch_optional(&st.pool)
+        .await?;
+    if creator.as_deref() != Some(user.id.as_str()) {
+        return Err(AppError::Forbidden("only the phone that started this game can share it".into()));
+    }
+    let mut map = st.rooms.edge.lock().unwrap();
+    map.retain(|_, e| e.at.elapsed() < EDGE_TTL);
+    let others = map.iter().filter(|(id, e)| **id != game_id && e.user == user.id).count();
+    if !user.is_admin && others >= MAX_HOSTED {
+        return Err(AppError::Conflict(format!("You're sharing {others} tables already. Close one on its phone first.")));
+    }
+    map.insert(game_id, EdgeShare { user: user.id, key: body.key, at: Instant::now() });
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// It stopped sharing.
+async fn clear_live(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> Json<serde_json::Value> {
+    let mut map = st.rooms.edge.lock().unwrap();
+    if map.get(&game_id).is_some_and(|e| e.user == user.id) {
+        map.remove(&game_id);
+    }
+    Json(serde_json::json!({ "ok": true }))
 }
 
 /// A guest may join with the room's share key, or as the account hosting it.
