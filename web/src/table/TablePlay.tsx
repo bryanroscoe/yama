@@ -41,6 +41,7 @@ import { LayoutPicker } from "./LayoutPicker";
 import { EditSeat } from "./SeatEditor";
 import { setCountTurns, useCountTurns } from "./turns";
 import { useFullscreen, useInstall } from "../install";
+import { isGuest } from "../guest";
 
 /** Where panel taps go: this device's game, or the host's game for a guest phone. */
 export const DispatchContext = createContext<(e: TableEvent) => void>(dispatch);
@@ -1233,7 +1234,12 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
         </section>
       )}
 
-      <ShareCard gameId={state.setup.id} onBigger={onJoin} />
+      {/* Sharing the table with everyone's phones needs an account. */}
+      {isGuest() ? (
+        <p className="small dim tm-guest-share">To share this table with everyone's phones, sign in with Google from the Table page. This game stays on this phone.</p>
+      ) : (
+        <ShareCard gameId={state.setup.id} onBigger={onJoin} />
+      )}
 
       <section className="tm-section" aria-labelledby="tm-on-table">
         <h3 id="tm-on-table">On the table</h3>
@@ -1323,7 +1329,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
       <p className="small dim tm-leave-note">Leaving keeps the game going on this phone: it's on the Table page to come back to.</p>
       <div className="tm-foot">
         <span>
-          {sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
+          {isGuest() ? "Kept on this phone. Sign in to save it to Yama." : sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
         </span>
       </div>
       {artists.length > 0 && <p className="tm-credit">Commander art: {artCredits(artists)}</p>}

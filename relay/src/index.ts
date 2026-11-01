@@ -12,10 +12,40 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { RELAY_TOKEN, relayShareKey } from "../../packages/core/src/relayKey";
-import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
+import { addressKey } from "./address";
+import { admit, handle, hasRoom, join, leave, type Role, type RoomIo } from "./room";
 
 interface Env {
   ROOMS: DurableObjectNamespace<TableRoom>;
+  /**
+   * Connections per client address and role (Workers rate limiting, wrangler.toml), counted
+   * before a room is touched, so a flood can't spend the plan's Durable Object requests. It can't
+   * spare the Worker's own daily requests (each one has counted by then): the zone's rate
+   * limiting rule in front of the Worker does that (relay/waf-rule.py). Missing (a plan or a
+   * local run without it): no limit.
+   */
+  CONNECTS?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /**
+   * Messages per client address across all its sockets and rooms (Workers rate limiting), hosts
+   * and guests apart: one address keeping many sockets open can't add up past what the day's
+   * allowance can take, and a table's guests can't use up its host's share.
+   */
+  MESSAGES_HOST?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  MESSAGES_GUEST?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /** "off" refuses phones joining by code (guests): the switch if joining without an account is abused. */
+  GUEST_JOIN?: string;
+}
+
+/** Close codes a refused phone sees (GuestTable.tsx says why instead of retrying blindly). */
+export const CLOSE_GUESTS_OFF = 4403;
+export const CLOSE_TOO_MANY = 4429;
+
+/** Accept and close at once with a reason: a browser can't read an HTTP refusal of a WebSocket. */
+function refuse(code: number, reason: string): Response {
+  const { 0: client, 1: server } = new WebSocketPair();
+  server.accept();
+  server.close(code, reason);
+  return new Response(null, { status: 101, webSocket: client });
 }
 
 /** A room's snapshot outlives its last connection by this long (a long night, a slow host). */
@@ -44,9 +74,20 @@ export default {
     } else {
       return new Response("bad role", { status: 400 });
     }
+    if (role === "guest" && env.GUEST_JOIN === "off") {
+      return refuse(CLOSE_GUESTS_OFF, "Joining a table by its code is turned off right now.");
+    }
+    // Per role: a table's phones usually share one Wi-Fi address, and guests coming and going
+    // mustn't use up the host phone's own allowance.
+    const ip = req.headers.get("CF-Connecting-IP");
+    const address = ip ? addressKey(ip) : null;
+    if (env.CONNECTS && address && !(await env.CONNECTS.limit({ key: `${role}:${address}` })).success) {
+      return refuse(CLOSE_TOO_MANY, "Too many connections from this network. Wait a minute.");
+    }
     const room = env.ROOMS.get(env.ROOMS.idFromName(`${gameId}/${key}`));
-    // The room needs only the role; the secret and key stay here.
-    return room.fetch("https://room/connect", { headers: { Upgrade: "websocket", "X-Yama-Role": role } });
+    // The room needs only the role and the address (for its message limit); the secret and key
+    // stay here.
+    return room.fetch("https://room/connect", { headers: { Upgrade: "websocket", "X-Yama-Role": role, "X-Yama-Address": address ?? "" } });
   },
 } satisfies ExportedHandler<Env>;
 
@@ -79,13 +120,39 @@ export class TableRoom extends DurableObject<Env> {
     if (!hasRoom(this.io, role)) return new Response("this table is full", { status: 429 });
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server, [role]);
+    // Kept with the socket, so its address survives the room sleeping.
+    server.serializeAttachment({ address: req.headers.get("X-Yama-Address") ?? "" });
     join(this.io, server);
     await this.ctx.storage.setAlarm(Date.now() + KEEP_MS);
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer) {
-    if (typeof msg === "string") message(this.io, ws, msg);
+  /**
+   * Messages are handled one after another, in the order they arrived: the rate limit check is a
+   * wait, and without the queue a later message could finish first and reach the host out of
+   * order (the host keeps events in the order it gets them).
+   */
+  private queue: Promise<void> = Promise.resolve();
+
+  webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer) {
+    // Phones send only text; anything else is closed rather than ignored, so it can't run up
+    // the room's message count unseen.
+    if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
+    // The connection's budget is spent now, before any wait, so a burst is cut off as it comes.
+    if (!admit(this.io, ws)) return;
+    this.queue = this.queue.then(() => this.forward(ws, msg)).catch(() => undefined);
+    return this.queue;
+  }
+
+  private async forward(ws: WebSocket, msg: string) {
+    // Closed meanwhile (over a budget, or gone): what it queued goes nowhere.
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const address = (ws.deserializeAttachment() as { address?: string } | null)?.address;
+    const limiter = this.io.roleOf(ws) === "host" ? this.env.MESSAGES_HOST : this.env.MESSAGES_GUEST;
+    if (limiter && address && !(await limiter.limit({ key: address })).success) {
+      return this.io.close(ws, CLOSE_TOO_MANY, "Too many messages from this network. Wait a minute.");
+    }
+    if (ws.readyState === WebSocket.OPEN) handle(this.io, ws, msg);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {

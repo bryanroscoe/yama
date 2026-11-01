@@ -273,7 +273,7 @@ export interface Store {
 export type StorePreference = "favorite" | "ok" | "maybe" | "never";
 
 export interface StorePref {
-  /** Bundles before migration 0050 say "default" for a favourite; `storePreference` reads both. */
+  /** Bundles before migration 0051 say "default" for a favourite; `storePreference` reads both. */
   preference: StorePreference | "default";
   note: string | null;
   updated_at: string;

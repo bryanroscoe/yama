@@ -94,7 +94,7 @@ force (its `local_buy`, else the rule read from its older fields).
 | What | Where | Status |
 |---|---|---|
 | Stores (name, kind, location, cart link template, note) | `plan_stores`, from the plan import (`data/planner/stores.json`); Yama-made stores in planner slice 6 | Exists |
-| **Store preferences** | `plan_store_prefs (owner_id, store_key, preference, note, updated_at)`, migration 0049; migration 0050 renames `default` to `favorite` and adds `hassle` (his order, from 1) and `premium_usd` (0 to $10). Keyed by store key, apart from `plan_stores`, so an import never overwrites them and a retired store keeps its preference when it returns. No row: "fine to go". | Built (slice 1, v2) |
+| **Store preferences** | `plan_store_prefs (owner_id, store_key, preference, note, updated_at)`, migration 0050; migration 0051 renames `default` to `favorite` and adds `hassle` (his order, from 1) and `premium_usd` (0 to $10). Keyed by store key, apart from `plan_stores`, so an import never overwrites them and a retired store keeps its preference when it returns. No row: "fine to go". | Built (slice 1, v2) |
 | **Rule sets made in Yama** | `plan_settings` rows with `origin = 'yama'`, from Settings or the staged `set_shopping_rules` (see "Account-level rules") | Built |
 | Dated listings for plan cards | `plan_quotes` (`stock_check`: store, checked date, in stock, price, printing, cart variant, URL) | Exists |
 | Real-card wishlist | Research scenarios with `purpose: permanent_real_wishlist` (`research_reports`), one entry per card | Exists; the bundle now carries it as `wishlist` |
@@ -196,7 +196,7 @@ Read (built):
 | `shopping_trip` (`today`, `stores` optional) | The trip in words: the rule and its date, check dates, each store with its preference, cards, cart link and total, what comes along, the best with fewer stores, what to print and why, skipped stores, and the wishlist by tier |
 | `shopping_settings` | The rule in force today and every dated set with its origin, the sealed cap, and each store's preference, place in the order and premium |
 
-Staged writes (built with migration 0050, which rebuilds `assistant_changes` for its `kind` CHECK),
+Staged writes (built with migration 0051, which rebuilds `assistant_changes` for its `kind` CHECK),
 applied by the person in Yama: `set_shopping_rules` (a new dated set on the day they apply it) and
 `set_store_preference` (one store's level, place and premium; unspecified parts stay as they are).
 

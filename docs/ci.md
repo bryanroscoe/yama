@@ -5,7 +5,7 @@ dispatch. There are no path filters: documentation and workflow changes also rec
 Draft PRs skip every job. Ready PRs skip the web and Rust jobs when their head commit passed
 the same checks locally on its exact tree and contains `main`, or when they carry the
 `skip-ci` label; see [Skip CI on a PR](#skip-ci-on-a-pr).
-Superseded runs for the same event type and PR/ref are cancelled. Manual diagnostic CI uses
+A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
@@ -36,7 +36,7 @@ limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci
 The `state` and `cache` directories belong to UID/GID 1001. `/ci-cache/cargo` holds registry
 and Git dependencies, `/ci-cache/target` holds one dev/test build profile, and `/ci-cache/npm`
 holds npm downloads. These are distinct from production/BuildKit caches. Saget jobs use no
-Actions cache or artifact service. The completion hook removes the job checkout (including
+Actions cache; a passing PR Rust job uploads only the tiny passed-tree artifact. The completion hook removes the job checkout (including
 `node_modules`, web build output and temporary Phase checkout) and job temporary files after
 post-actions. It retains the single warm compiler/dependency cache to avoid repeated cold builds.
 Check cache size after the first run and during maintenance; investigate growth beyond the
@@ -69,7 +69,14 @@ Only push CI on main saves the Rust cache, so a PR reuses main's warm build and 
 evicts it. The engine checkout's files are dated to its commit first, because Cargo
 rebuilds a path dependency whose files look newer than its cached build. Hosted Rust jobs also
 delete unused preinstalled toolsets (.NET, Android, GHC, CodeQL) because the image leaves
-about 4 GiB free. Saget uses its preinstalled tools and persistent
+about 4 GiB free. Play's integration tests (`play/tests/*.rs`) build as one binary, `integration`
+(`tests/integration.rs` lists each file as a module), because every test binary links the
+whole engine; run one file's tests with a filter, such as
+`cargo test -p yama-play --test integration determinism::`. `cargo test` runs with `--timings`; the **Show where Rust build time
+went** step prints the slowest compile units (then deletes the report, so saget's cache
+doesn't grow). Tools in `play/src/bin` without unit tests set `test = false`, so CI doesn't
+build and link a second copy of each against the engine; give a tool `test = true` when it
+gains tests. Saget uses its preinstalled tools and persistent
 cache, with no sudo or host swap changes. Tests and deployment authorization are
 identical on both backends. The local job budget includes time waiting for the
 shared compute slot; hosted job budgets retain their previous limits.
@@ -125,8 +132,14 @@ On saget, the first workflow step waits for CI capacity before checkout. The pre
 ## Skip CI on a PR
 
 GitHub-hosted minutes are paid, so PR CI runs only when it adds something. Push CI on `main`
-and manual runs are never skipped: they ignore trailers and labels, always run both jobs, and
-the successful push run is what authorizes deployment.
+ignores trailers and labels, and the successful push run is what authorizes deployment. It
+skips its web and Rust jobs only when a PR run already passed both on the identical tree (see
+[Don't test a merge twice](#dont-test-a-merge-twice)); manual runs are never skipped.
+
+**When not to wait (Bryan, 1 Nov 2026).** If PR CI is backed up (jobs still queued after 10
+minutes), GitHub is out of minutes or blocks hosted jobs on billing, or a run has taken more
+than 30 minutes, don't wait for it. Run the checks locally, treat that as good enough, run
+`scripts/ci/skip.sh`, and merge. Local results are the evidence; say so in the PR.
 
 - **Drafts run no jobs.** Open work-in-progress PRs as drafts (`gh pr create --draft`). The
   workflow still starts for each push, but every job is skipped, so it uses no runner time.
@@ -149,7 +162,8 @@ the successful push run is what authorizes deployment.
   the server compiles in (`web/public/`, any `.css` or `.html`) still run it, as does any
   failure to list the PR's files.
 - **Queued or slow CI: `scripts/ci/skip.sh <pr> "<what you ran>"`.** After running the
-  checks locally (at least what your change touches; `scripts/local-ci.sh` for all of them),
+  checks locally (`cargo test`, `npm test` and `npm run typecheck` at least for what your change
+  touches; `scripts/local-ci.sh` for all of them),
   this labels the PR `skip-ci`, cancels its unfinished run, re-runs it so the gate skips the
   jobs within seconds, and records what you ran on the PR. Report it as local evidence, not
   GitHub CI.
@@ -164,6 +178,23 @@ the successful push run is what authorizes deployment.
 
 To force full CI on a PR that would skip, run it manually:
 `gh workflow run CI --ref <branch>`. The run tests that branch's head and appears on the commit.
+
+## Don't test a merge twice
+
+After every check passes on a PR, the Rust job uploads a small artifact named
+`ci-passed-tree-<tree>`: the tree of the merge it tested (PR CI tests the PR merged into main,
+not the bare head). When the merge lands, the gate on main's push CI looks up the new commit's
+tree. If a PR run with that artifact passed both the **Web checks** and **Rust and Python tests**
+jobs (same repository, this workflow), both jobs are skipped, the push run succeeds and the
+deploy proceeds. The gate's summary links the run it reused.
+
+The trees match when nothing reached main between the PR's last CI run and its merge (a merge
+commit of an up-to-date PR, or a squash with nothing new on main). Otherwise, or when the PR
+skipped CI on local checks or skipped the Rust job, main tests in full. Main also tests in
+full when the push changes what keys the Rust cache (`Cargo.lock`, a `Cargo.toml`,
+`deploy/phase-rev`, `rust-toolchain*`) or `package-lock.json`, because only main's push CI saves
+the caches every PR restores. Artifacts are kept for
+14 days. Any error reading GitHub runs the jobs.
 
 What a local pass doesn't cover: it usually runs on macOS, not CI's Linux (case-insensitive
 paths, BSD tools), may use a Node major other than 22 (recorded in the trailer), and can see

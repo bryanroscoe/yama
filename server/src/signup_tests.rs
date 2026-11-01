@@ -473,3 +473,24 @@ async fn the_sign_in_page_hears_whether_sign_up_is_open() {
     .await;
     assert_eq!(config(no_google).await["open_signup"], false);
 }
+
+#[tokio::test]
+async fn open_signup_makes_a_few_accounts_per_address_and_invites_skip_the_count() {
+    let (app, pool) = server(|c| c.open_signup = true).await;
+    let from = "203.0.113.9";
+    let new = |n: u32| json!({ "credential": google(&format!("g-new{n}"), &format!("new{n}@gmail.com")) });
+    for n in 0..crate::limits::NEW_ACCOUNTS_PER_ADDRESS as u32 {
+        assert_eq!(post_from(&app, "/api/auth/google", new(n), from, None).await.0, StatusCode::OK);
+    }
+    let before = users(&pool).await;
+    let (status, body, _) = post_from(&app, "/api/auth/google", new(99), from, None).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(body["error"].as_str().unwrap().starts_with("Too many new accounts from this address"), "{body}");
+    assert_eq!(users(&pool).await, before);
+    // Someone who already has an account still signs in from there.
+    assert_eq!(post_from(&app, "/api/auth/google", new(0), from, None).await.0, StatusCode::OK);
+    // And an invited email is never counted or refused.
+    sqlx::query("INSERT INTO invites (email, created_at) VALUES ('invited@gmail.com', 'now')").execute(&pool).await.unwrap();
+    let invited = json!({ "credential": google("g-invited", "invited@gmail.com") });
+    assert_eq!(post_from(&app, "/api/auth/google", invited, from, None).await.0, StatusCode::OK);
+}

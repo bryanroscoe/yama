@@ -1433,7 +1433,7 @@ async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
     assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "sometimes"})).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "ok", "hassle": 0})).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "favorite", "premium_usd": 11})).await.0, StatusCode::BAD_REQUEST);
-    // The name before migration 0050 still means a favourite.
+    // The name before migration 0051 still means a favourite.
     let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "default", "hassle": 2, "premium_usd": 0.25})).await;
     assert_eq!((status, r["preference"].as_str()), (StatusCode::OK, Some("favorite")), "{r}");
     assert_eq!(bundle(&app, &token).await["store_prefs"]["shop"]["premium_usd"], 0.25);

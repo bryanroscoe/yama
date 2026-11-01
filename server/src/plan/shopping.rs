@@ -357,7 +357,7 @@ pub struct PrefBody {
 pub async fn preference_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(key): Path<String>, Json(body): Json<PrefBody>) -> AppResult<Json<Value>> {
     let preference = match body.preference.as_deref() {
         None => "ok".to_string(),
-        Some("default") => "favorite".to_string(), // the name before migration 0050
+        Some("default") => "favorite".to_string(), // the name before migration 0051
         Some(p) => p.to_string(),
     };
     let note = body.note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());

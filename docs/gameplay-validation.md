@@ -11,8 +11,8 @@ For game-related acceptance, explicitly run these targets with the pinned card d
 export CARGO_BUILD_JOBS=4
 export RUST_MIN_STACK=33554432
 export YAMA_ENGINE_CARD_DATA="$PWD/data/engine/card-data-1e5608e61683de41.json"
-cargo test --release -p yama-play --test determinism -- --ignored --nocapture --test-threads=1
-cargo test --release -p yama-play --test lab_regressions -- --ignored --nocapture --test-threads=1
+cargo test --release -p yama-play --test integration -- --ignored --nocapture --test-threads=1 determinism::
+cargo test --release -p yama-play --test integration -- --ignored --nocapture --test-threads=1 lab_regressions::
 ```
 
 Both targets fail when explicitly requested without card data. The determinism target requires
