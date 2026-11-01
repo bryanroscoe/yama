@@ -62,8 +62,22 @@ class Decision(unittest.TestCase):
             result = subprocess.run([sys.executable, str(HERE / 'gate.py')], env={**os.environ, **env},
                                     capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(out.read_text(), 'skip=false\n')
+            self.assertEqual(out.read_text(), 'rust=true\nskip=false\n')
             self.assertIn('CI runs', summary.read_text())
+
+
+class RustScope(unittest.TestCase):
+    def test_web_only_changes_skip_rust(self):
+        self.assertFalse(gate.rust_needed(['web/src/App.tsx', 'packages/core/src/a.ts',
+                                           'package-lock.json']))
+
+    def test_anything_rust_can_see_runs_rust(self):
+        for files in ([], ['server/src/main.rs'], ['web/src/App.tsx', 'README.md'],
+                      ['web/public/sw.js'], ['web/src/styles.css'], ['web/src/x.html'],
+                      ['.github/workflows/ci.yml'], ['docs/research-format.md'],
+                      ['web/src/a.ts'] * gate.MAX_FILES):
+            with self.subTest(files=files[:3]):
+                self.assertTrue(gate.rust_needed(files))
 
 
 class Workflow(unittest.TestCase):
@@ -95,6 +109,7 @@ class Workflow(unittest.TestCase):
                 condition = re.search(r'if: >-\n(.*?)\n    runs-on', text, re.S).group(1)
                 self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n\s*\(github\.event_name != 'pull_request' \|\|")
                 self.assertIn("needs.gate.outputs.skip != 'true'", condition)
+                self.assertNotIn("outputs.rust == 'true'", condition)  # a failed gate runs both
                 self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', condition)
 
 

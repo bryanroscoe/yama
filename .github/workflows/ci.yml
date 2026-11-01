@@ -20,7 +20,8 @@ concurrency:
 
 jobs:
   # Ready PRs only: skips the web and Rust jobs when the head commit records local
-  # checks on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label.
+  # checks on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label,
+  # and skips the Rust job alone when only web files changed.
   # Pushes to main and manual runs never consult it; push CI is the release gate.
   gate:
     name: Local CI gate
@@ -38,6 +39,7 @@ jobs:
       pull-requests: read
     outputs:
       skip: ${{ steps.decide.outputs.skip }}
+      rust: ${{ steps.decide.outputs.rust }}
     steps:
       - name: Wait for saget CI capacity
         if: runner.environment == 'self-hosted'
@@ -89,6 +91,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
+          cache: npm
       - name: Check Node
         run: |
           node --version
@@ -106,7 +109,8 @@ jobs:
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        needs.gate.outputs.skip != 'true'))
+        needs.gate.outputs.skip != 'true' &&
+        needs.gate.outputs.rust != 'false'))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
@@ -158,13 +162,35 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          # The hosted image leaves ~4 GiB free; drop toolsets CI never uses so the
+          # restored cache, the build and the swapfile fit.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # Only the disposable hosted VM may create swap. Saget has no sudo.
           sudo fallocate -l 8G /swapfile-yama-ci
           sudo chmod 600 /swapfile-yama-ci
           sudo mkswap /swapfile-yama-ci
           sudo swapon /swapfile-yama-ci
+      # Cargo judges path dependencies by file time, and a fresh checkout is always
+      # newer than a cached build. Dating the engine's files to its commit lets the
+      # cached engine build count as fresh; the cache key holds the engine revision.
+      - name: Date the engine's files to its commit
+        if: runner.environment == 'github-hosted'
+        working-directory: yama-phase
+        run: |
+          stamp="$(git log -1 --format=%ct)"
+          git ls-files -z | xargs -0 touch -h -d "@$stamp"
+      # Hosted VMs start empty; restore dependency and engine builds from main.
+      # Only push CI on main saves, so PRs never evict main's cache.
+      - name: Restore the Rust build cache
+        if: runner.environment == 'github-hosted'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: yama -> target
+          key: phase-${{ steps.phase.outputs.sha }}
+          # rust-cache counts ../yama-phase as a workspace crate (its path starts with
+          # this workspace's path), so keep workspace crates or the engine is dropped.
+          cache-workspace-crates: 'true'
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Check Rust and dedicated cache
         run: |
           test "${RUSTUP_TOOLCHAIN:-}" = 1.98.1
@@ -173,7 +199,8 @@ jobs:
           fi
           rustc --version
           free -h
-          df -h . "$CARGO_TARGET_DIR/.."
+          df -h .
+          if [ -n "${CARGO_TARGET_DIR:-}" ]; then df -h "$CARGO_TARGET_DIR/.."; fi
       - name: Test the Rust workspace
         run: |
           git log -1 --format='Tested Yama revision: %H'
