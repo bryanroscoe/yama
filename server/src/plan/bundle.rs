@@ -25,7 +25,8 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// told it was still current. `SHAPE` goes up when the bundle gains fields, so saved copies
 /// without them are fetched again.
 /// 3: installed states read from the owner's decks (`installed.rs`, 2026-10-28).
-const SHAPE: u32 = 3;
+/// 4: store preferences and the real-card wishlist, for the store trip (2026-11-01).
+const SHAPE: u32 = 4;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
@@ -37,8 +38,12 @@ pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
         "SELECT id || '=' || COALESCE(current_version_id, '') || '/' || COALESCE(parent_id, '') || '/' || name AS line
          FROM decks WHERE owner_id = ? AND archived = 0
          UNION ALL SELECT 'plan:' || key || '=' || COALESCE(deck_id, '') || '/' || name FROM plan_decks WHERE owner_id = ?
+         UNION ALL SELECT 'pref:' || store_key || '=' || preference || '/' || updated_at FROM plan_store_prefs WHERE owner_id = ?
+         UNION ALL SELECT 'research:' || id || '=' || revision || '/' || updated_at FROM research_reports WHERE owner_id = ?
          ORDER BY 1",
     )
+    .bind(owner)
+    .bind(owner)
     .bind(owner)
     .bind(owner)
     .fetch_all(pool)
@@ -359,6 +364,22 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
             })
         })
         .collect();
+
+    // Your store preferences (made in Yama, never by an import) and your real-card wishlist (research
+    // scenarios with purpose `permanent_real_wishlist`), for the store trip (packages/core trip.ts).
+    let pref_rows: Vec<(String, String, Option<String>, String)> =
+        sqlx::query_as("SELECT store_key, preference, note, updated_at FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
+            .bind(owner)
+            .fetch_all(pool)
+            .await?;
+    let store_prefs: Map<String, Value> = pref_rows
+        .into_iter()
+        .map(|(key, preference, note, at)| (key, json!({"preference": preference, "note": note, "updated_at": at})))
+        .collect();
+    let wishlist = wishlist(pool, owner).await?;
+    for w in &wishlist {
+        names.add(Some(&w.card));
+    }
 
     // Decks and their current lists
     let deck_rows: Vec<DeckRow> = sqlx::query_as(
@@ -733,5 +754,39 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         "names": names_map, "unresolved": unresolved, "cards": cards,
         "market": market, "market_by_printing": market_by_printing, "printing_ids": printing_ids,
         "prices_as_of": prices_as_of,
+        "store_prefs": store_prefs, "wishlist": wishlist,
     }))
+}
+
+/// One card on the owner's real-card wishlist.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WishItem {
+    pub card: String,
+    pub reason: Option<String>,
+    pub detail: Option<String>,
+    pub url: Option<String>,
+    pub report: String,
+    pub scenario: String,
+}
+
+/// Every card in the owner's research scenarios with purpose `permanent_real_wishlist`, once each
+/// (the first report by id wins). It is a watchlist: no quantity, no purchase, no store quote.
+pub async fn wishlist(pool: &SqlitePool, owner: &str) -> AppResult<Vec<WishItem>> {
+    let rows: Vec<WishItem> = sqlx::query_as(
+        "SELECT TRIM(json_extract(b.value, '$.card')) AS card,
+                CASE json_type(b.value, '$.reason') WHEN 'text' THEN json_extract(b.value, '$.reason') END AS reason,
+                CASE json_type(b.value, '$.detail') WHEN 'text' THEN json_extract(b.value, '$.detail') END AS detail,
+                CASE json_type(b.value, '$.url') WHEN 'text' THEN json_extract(b.value, '$.url') END AS url,
+                r.id AS report, COALESCE(CAST(json_extract(s.value, '$.id') AS TEXT), '') AS scenario
+         FROM research_reports r, json_each(r.document, '$.scenarios') s, json_each(s.value, '$.buys') b
+         WHERE r.owner_id = ? AND json_type(r.document, '$.scenarios') = 'array' AND json_type(s.value, '$.buys') = 'array'
+           AND json_extract(s.value, '$.purpose') = 'permanent_real_wishlist' AND json_type(b.value, '$.card') = 'text'
+           AND TRIM(json_extract(b.value, '$.card')) != ''
+         ORDER BY r.id, s.key, b.key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let mut seen = BTreeSet::new();
+    Ok(rows.into_iter().filter(|w| seen.insert(w.card.to_lowercase())).collect())
 }

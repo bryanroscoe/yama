@@ -42,6 +42,7 @@ import { ComparePage } from "./lab/Compare";
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
 import { OAuthConsent } from "./oauth/Consent";
 import { Buy } from "./plan/Buy";
+import { Trip } from "./plan/Trip";
 import { DeckPlan } from "./plan/DeckPlan";
 import { Overview } from "./plan/Overview";
 import { PlanLayout } from "./plan/PlanLayout";
@@ -198,6 +199,7 @@ export function App() {
           <Route index element={<Overview />} />
           <Route path="review" element={<Review />} />
           <Route path="buy" element={<Buy />} />
+          <Route path="trip" element={<Trip />} />
           <Route path="prints" element={<Prints />} />
           <Route path="prints/swap" element={<SwapSheetPage />} />
           <Route path="swap-cards" element={<SwapCardsPage />} />

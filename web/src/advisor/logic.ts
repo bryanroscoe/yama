@@ -208,6 +208,8 @@ export function toolActivity(name: string): string {
       return "Reading a plan…";
     case "review_queue":
       return "Reading your proposals…";
+    case "shopping_trip":
+      return "Planning a store trip…";
     case "find_cards":
     case "search_scryfall":
       return "Searching cards…";

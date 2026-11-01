@@ -123,6 +123,19 @@ const TOOLS: &[Tool] = &[
         does: Does::Read,
     },
     Tool {
+        name: "shopping_trip",
+        title: "Which stores to visit",
+        description: "Plan a trip to their stores for the cards they want to buy: the fewest stores that cover the most \
+                      cards under their local buy rule (the rule set in force that day), honoring their store preferences \
+                      (usual store, fine, maybe, won't go). Needed cards are planned buys with no order yet and proposals \
+                      they want; undecided proposals and their real-card wishlist only come along from stores already on \
+                      the trip. Gives each store's cards, listed total and cart link, the best choice with fewer stores, \
+                      what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
+                      purchases; a missing price is unknown, never $0.",
+        schema: || obj(&[("today", "string", "Optional YYYY-MM-DD the trip is for; picks the rule set. Default: today (UTC).")], &[]),
+        does: Does::Read,
+    },
+    Tool {
         name: "review_queue",
         title: "Proposals to review",
         description: "Every proposed swap, deck by deck: the ones still waiting for their answer first, then the ones they answered.",
@@ -706,6 +719,15 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "deck" => deck(pool, user, text_arg(args, "deck")?).await,
         "plan_deck" => context::build(pool, user, "plan_deck", Some(text_arg(args, "key")?)).await,
         "review_queue" => context::build(pool, user, "review", None).await,
+        "shopping_trip" => {
+            let today = match args.get("today").and_then(Value::as_str) {
+                Some(d) if crate::plan::model::is_date(d) => d.to_string(),
+                Some(d) => return Err(AppError::bad(format!("today: \"{d}\" isn't a YYYY-MM-DD date"))),
+                None => chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            };
+            let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
+            Ok(crate::plan::trip::text(&crate::plan::trip::plan(&bundle, &today)))
+        }
         "find_cards" => {
             st.limits.search.check_user(user)?;
             find_cards(pool, user, args).await

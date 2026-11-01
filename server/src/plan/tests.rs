@@ -1410,3 +1410,68 @@ async fn old_lab_links_redirect_to_the_lab_section() {
         assert_eq!(res.headers()[header::LOCATION], to, "{from}");
     }
 }
+
+// ── store preferences, the wishlist and the trip (docs/shopping-design.md) ──
+
+async fn set_pref(app: &Router, token: &str, store: &str, body: Value) -> (StatusCode, Value) {
+    send(app, Method::PUT, &format!("/api/plan/stores/{store}/preference"), Some(token), Some(body)).await
+}
+
+#[tokio::test]
+async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
+    let (app, pool, id, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    yama_answer(&pool, &id, "alpha-idea", Some("want"), "2026-10-19T10:00:00Z").await;
+    let before = bundle(&app, &token).await;
+    assert_eq!(before["store_prefs"], json!({}));
+    assert_eq!(before["wishlist"], json!([]));
+
+    // Only your own stores, and only the four preferences.
+    let (friend, friend_token) = user(&pool, "friend@example.com").await;
+    assert_eq!(set_pref(&app, &token, "nowhere", json!({"preference": "never"})).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(set_pref(&app, &friend_token, "shop", json!({"preference": "never"})).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "sometimes"})).await.0, StatusCode::BAD_REQUEST);
+    let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "never", "note": "  Too far  "})).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+
+    // A wishlist scenario in research; another kind of scenario isn't one.
+    let document = json!({"id": "audit", "scenarios": [
+        {"id": "wish", "purpose": "permanent_real_wishlist", "buys": [{"card": "Sol Ring", "reason": "Printed"}, {"card": "Unknown Future Card"}, {"card": "sol ring"}]},
+        {"id": "default", "buys": [{"card": "Red Card"}]}]});
+    for (owner, rid) in [(&id, "audit"), (&friend, "theirs")] {
+        sqlx::query("INSERT INTO research_reports (owner_id, id, title, content_hash, document, updated_at) VALUES (?, ?, 'Audit', 'h', ?, '2026-11-01T00:00:00Z')")
+            .bind(owner)
+            .bind(rid)
+            .bind(document.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let b = bundle(&app, &token).await;
+    assert_ne!(b["rev"], before["rev"], "a preference or research change refetches the bundle");
+    assert_eq!(b["store_prefs"]["shop"]["preference"], "never");
+    assert_eq!(b["store_prefs"]["shop"]["note"], "Too far");
+    let wish: Vec<&str> = b["wishlist"].as_array().unwrap().iter().map(|w| w["card"].as_str().unwrap()).collect();
+    assert_eq!(wish, ["Sol Ring", "Unknown Future Card"]);
+    assert_eq!(b["names"]["Sol Ring"], "o-sol");
+    assert!(b["unresolved"].as_array().unwrap().contains(&json!("Unknown Future Card")));
+    assert_eq!(bundle(&app, &friend_token).await["store_prefs"], json!({}), "preferences are per user");
+
+    // You won't go there, so the wanted card is left to print, and the store is named.
+    let t = super::trip::plan(&b, "2026-11-01");
+    assert!(t.stops.is_empty());
+    assert_eq!(t.print.len(), 1);
+    assert_eq!((t.print[0].want.card.as_str(), t.print[0].reason), ("Proposal Card", "never-store"));
+    assert_eq!(t.skipped.len(), 1);
+
+    // Cleared: fine to go again, and the trip goes there.
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": null})).await.0, StatusCode::OK);
+    let b = bundle(&app, &token).await;
+    assert_eq!(b["store_prefs"], json!({}));
+    let t = super::trip::plan(&b, "2026-11-01");
+    assert_eq!(t.stops.len(), 1);
+    assert_eq!(t.stops[0].rows[0].want.card, "Proposal Card");
+    assert_eq!(t.total, Some(0.75));
+    assert!(super::trip::text(&t).contains("1. Example Games (fine to go): 1 card, $0.75"));
+}

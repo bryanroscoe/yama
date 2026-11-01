@@ -1096,6 +1096,19 @@ The existing multiplayer summary now supports a varying field: each deck's denom
 
 **Tables, decks and games (2026-10-29, Bryan: "dig through the data and see exactly what happened").** `GET /api/lab/experiments/{id}/tables?engine=&entrant=&table=` (head to head and tournaments only, owner-checked) groups an engine's games by table, numbered from 1 in play order over the whole run (both schedules play game g at ord 2g in blocks of `pod` games with one set of decks, a seat apart), so a filter keeps the numbers. Each game carries its seats, who went first, the winner, every seat's place, knockout turn and final life, its end, turns and CPU time; the response names every deck it mentions with its commanders and art (fillers' art is looked up from their commander cards). One table or one deck's tables are filtered in SQL, and the pages poll while a run plays. Pages: the run's standings and head to head link to a deck's page (`/lab/runs/:id/decks/:deck`, `?vs=` for a pair, `?engine=` for a "both" run's half): its record over its tables (win share with a Wilson 90% interval from the same games, average place, finishing places; a tie counts at the place it starts, so a winner and three survivors at the cap are 1st and tied 2nd), who it sat with (finish order against each deck it met, "too few to tell" under 12 games), and every table with its commanders' art and the deck's place in each game, filterable by "won a game", "won none" and a rival. A table's page (`/lab/runs/:id/tables/:n`) has the four decks as art panels with their record there, then each game's finish order with who went when and how each seat ended. "Every game" links each game to its table. The head-to-head rows say "A finished higher than B in 3 of 4", whoever won the game, and mark small samples. Nothing new is stored: it is the result lines. There is no turn-by-turn log; that would need recording at play time (option 2 of the same conversation, not built). MCP `lab_games` takes `deck` (name or entrant id) or `table` and prints the same tables in words.
 
+### Store trips (2026-11-01)
+
+Bryan asked for the shopping work in commander-decks to move into Yama. Design and slices:
+[docs/shopping-design.md](docs/shopping-design.md). Slice 1: each person's store preferences
+(`plan_store_prefs`, migration 0050: usual store, fine, maybe, won't go; set on the Trip page,
+never by an import), the real-card wishlist (research scenarios with `purpose:
+permanent_real_wishlist`) and preferences in the plan bundle, and the trip (`packages/core`
+`planTrip`, page `/decks/plan/trip`): the fewest stores that cover the most planned and wanted buys
+under the person's dated `local_buy` rule, with what comes along, what to print and why, and the
+wishlist by price tier. Claude's `shopping_trip` tool runs a Rust port (`server/src/plan/trip.rs`)
+checked against the same fixture. Listings are still the plan's dated `plan_quotes`; store
+snapshots fetched by the server come in slice 2.
+
 ### Deck market values (2026-10-27)
 
 Saved deck lists and the precon catalog show a singles replacement estimate alongside the existing cost to finish. `server/src/deck_prices.rs` uses the planner's cheapest eligible nonfoil paper-printing policy, with snapshots within three days of each card's newest snapshot. Commander and main quantities count, including basics; sideboards do not. This estimates the card list independent of ownership and proxies, not the resale value of the user's actual printings. Totals include priced copies only, are null when none are priced, count missing copies explicitly, and carry the oldest and newest contributing dates and TCGplayer/Scryfall provenance.
