@@ -35,12 +35,14 @@ import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { PreconDetailPage } from "./lab/PreconDetail";
 import { PreconsPage } from "./lab/Precons";
 import { RunPage } from "./lab/Run";
+import { RunDeckPage, RunTablePage } from "./lab/RunTables";
 import { BatchPage, RunsPage } from "./lab/Runs";
 import { TryPage } from "./lab/Try";
 import { ComparePage } from "./lab/Compare";
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
 import { OAuthConsent } from "./oauth/Consent";
 import { Buy } from "./plan/Buy";
+import { Trip } from "./plan/Trip";
 import { DeckPlan } from "./plan/DeckPlan";
 import { Overview } from "./plan/Overview";
 import { PlanLayout } from "./plan/PlanLayout";
@@ -197,6 +199,7 @@ export function App() {
           <Route index element={<Overview />} />
           <Route path="review" element={<Review />} />
           <Route path="buy" element={<Buy />} />
+          <Route path="trip" element={<Trip />} />
           <Route path="prints" element={<Prints />} />
           <Route path="prints/swap" element={<SwapSheetPage />} />
           <Route path="swap-cards" element={<SwapCardsPage />} />
@@ -214,6 +217,8 @@ export function App() {
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />
+          <Route path="runs/:id/decks/:deck" element={<RunDeckPage />} />
+          <Route path="runs/:id/tables/:table" element={<RunTablePage />} />
         </Route>
         <Route path="decks/changes" element={<ChangesPage />} />
         <Route path="decks/import" element={<ImportPage />} />

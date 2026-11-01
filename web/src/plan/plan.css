@@ -1787,3 +1787,17 @@
 .review-stack .card-zoom-open {
   width: 100%;
 }
+
+/* Trip: your stores, one row each with its preference. */
+.trip-pref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.trip-pref select {
+  flex: none;
+}

@@ -28,6 +28,7 @@ mod people;
 mod playgroups;
 mod precon_evidence;
 mod public_page;
+mod public_commanders;
 mod public_precons;
 #[cfg(test)]
 mod privacy_tests;
@@ -116,6 +117,9 @@ USAGE:
   yama-server import-dataset FILE --owner EMAIL [--dry-run]
                                              Import a private versioned yama-dataset/1
                                              JSON or gzip document; never publishes data
+  yama-server commander-evidence report | use SOURCE --owner EMAIL | stop SOURCE --owner EMAIL
+                                             Choose which of EMAIL's dataset sources feed the
+                                             public /commanders ranking; report shows it
   yama-server import-precons INDEX [--playgroup FILE]
                                              Import the Commander precon catalog from
                                              commander-decks data/sim/decks/index.json and
@@ -233,6 +237,7 @@ async fn main() -> anyhow::Result<()> {
             datasets::cli(&pool,file,&email,args.iter().any(|a|a=="--dry-run")).await
         }
         Some("precon-evidence") => precon_evidence::cli(&pool, &args[1..]).await,
+        Some("commander-evidence") => public_commanders::cli(&pool, &args[1..]).await,
         Some("import-research") => {
             let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-research FILE --owner EMAIL [--dry-run]")?;
             let email = flag_value(&args, "--owner").context("--owner EMAIL is required")?;

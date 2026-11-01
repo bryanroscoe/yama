@@ -14,6 +14,29 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-store-trip",
+    date: "2026-11-01",
+    title: "Plan a trip to your stores",
+    items: [
+      "Plans has a Trip page: the fewest of your stores that have the cards you're buying under your shopping rule, with each store's cards, total and cart, and what to print instead.",
+      "Mark each store as your usual one, fine, maybe or one you won't go to. The trip never sends you to a store you won't go to.",
+      "Proposals you haven't decided on and your real-card wishlist come along from stores you're visiting anyway. Listings are the dated checks in your plan, not a promise the card is still there.",
+    ],
+    link: { to: "/decks/plan/trip", label: "Store trip" },
+  },
+  {
+    id: "2026-11-01-lab-tables",
+    date: "2026-11-01",
+    title: "See what happened at every table of a lab run",
+    items: [
+      "In a head-to-head or tournament run, every deck's name opens its own page: how it placed, who it sat with and how it did against each, and every table it played at with the commanders' art.",
+      "Open a table to see its four games one by one: who went first, the finishing order, the turn each deck was knocked out, and the life left when a game hit the cap.",
+      "Head to head now says it in words, such as \"Lorehold Spirit finished higher than Fantastic Four in 3 of 4\", and marks pairs with too few games to tell.",
+      "New tournaments keep versions of the same deck (yours, the stock list, a variant) at separate tables while every deck still plays as often as the others. In a big field they never meet; in a very small field with several versions they sometimes have to.",
+    ],
+    link: { to: "/lab/runs", label: "Open my runs" },
+  },
+  {
     id: "2026-11-01-no-account-counter",
     date: "2026-11-01",
     title: "Count life without an account",

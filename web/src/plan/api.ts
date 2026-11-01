@@ -1,5 +1,5 @@
 // The planner's server calls. Types live in @yama/core/plan, next to the logic that reads them.
-import type { ImportReport, PlanBundle, StateName } from "@yama/core/plan";
+import type { ImportReport, PlanBundle, StateName, StorePreference } from "@yama/core/plan";
 import { api } from "../api";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
@@ -65,3 +65,9 @@ export interface ImportRecord {
 }
 
 export const listImports = () => api<ImportRecord[]>("/api/plan/imports");
+
+// ── store preferences (Trip) ───────────────────────────────────────────────
+
+/** Your own setting for one of your stores; null clears it (the store is "fine to go" again). */
+export const setStorePreference = (store: string, preference: StorePreference | null, note: string | null = null) =>
+  api<{ store: string; preference: StorePreference | null }>(`/api/plan/stores/${encodeURIComponent(store)}/preference`, { method: "PUT", json: { preference, note } });

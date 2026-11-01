@@ -29,6 +29,8 @@ export interface Rules {
   proxy_cost_note?: string;
   /** Points the owner hasn't settled yet, shown next to the flags. */
   needs_confirmation?: string[];
+  /** Which local listings are worth buying, for the store trip (trip.ts `LocalBuyRule`). */
+  local_buy?: { max_usd?: number | null; always_ok_usd?: number | null; tiers?: { market_under?: number | null; max_multiple: number }[] };
 }
 
 export interface RuleSet {

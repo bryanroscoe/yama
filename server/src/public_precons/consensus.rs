@@ -4,12 +4,12 @@ use super::Precon;
 use serde::Serialize;
 
 pub(super) const METHOD: &str = "common-cohort-percentiles-v1";
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Component {
     pub source: String,
     pub percentile: f64,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Meta {
     pub method: &'static str,
     pub rank: usize,

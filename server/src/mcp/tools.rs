@@ -123,6 +123,19 @@ const TOOLS: &[Tool] = &[
         does: Does::Read,
     },
     Tool {
+        name: "shopping_trip",
+        title: "Which stores to visit",
+        description: "Plan a trip to their stores for the cards they want to buy: the fewest stores that cover the most \
+                      cards under their local buy rule (the rule set in force that day), honoring their store preferences \
+                      (usual store, fine, maybe, won't go). Needed cards are planned buys with no order yet and proposals \
+                      they want; undecided proposals and their real-card wishlist only come along from stores already on \
+                      the trip. Gives each store's cards, listed total and cart link, the best choice with fewer stores, \
+                      what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
+                      purchases; a missing price is unknown, never $0.",
+        schema: || obj(&[("today", "string", "Optional YYYY-MM-DD the trip is for; picks the rule set. Default: today (UTC).")], &[]),
+        does: Does::Read,
+    },
+    Tool {
         name: "review_queue",
         title: "Proposals to review",
         description: "Every proposed swap, deck by deck: the ones still waiting for their answer first, then the ones they answered.",
@@ -211,7 +224,9 @@ const TOOLS: &[Tool] = &[
         description: "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and \
                       error. With `game`, that one game's schedule line, result line and every seat's list, enough to \
                       replay it with the lab runner (games replay move for move from their schedule line on the same \
-                      engine build).",
+                      engine build). Head-to-head and tournament runs: with `deck` (a deck's name or entrant id) or \
+                      `table`, those tables game by game, as the run's deck and table pages show them: who went first, \
+                      the finish order, each seat's knockout turn or final life.",
         schema: || {
             json!({
                 "type": "object",
@@ -220,6 +235,8 @@ const TOOLS: &[Tool] = &[
                     "engine": {"type": "string", "enum": ["phase", "forge"], "description": "Which engine's games (default: the run's first)."},
                     "only": {"type": "string", "enum": ["all", "unscored"], "description": "unscored: only pods with a game that wasn't scored (default all)."},
                     "game": {"type": "string", "description": "One game id (from this list) for its schedule line, result line and lists."},
+                    "deck": {"type": "string", "description": "Head to head and tournaments: only the tables this deck sat at (its name as the run shows it, or its entrant id e0, e1, ...)."},
+                    "table": {"type": "integer", "minimum": 1, "description": "Head to head and tournaments: only this table (1-based, as the run's pages number them)."},
                 },
                 "required": ["id"],
                 "additionalProperties": false,
@@ -702,6 +719,15 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "deck" => deck(pool, user, text_arg(args, "deck")?).await,
         "plan_deck" => context::build(pool, user, "plan_deck", Some(text_arg(args, "key")?)).await,
         "review_queue" => context::build(pool, user, "review", None).await,
+        "shopping_trip" => {
+            let today = match args.get("today").and_then(Value::as_str) {
+                Some(d) if crate::plan::model::is_date(d) => d.to_string(),
+                Some(d) => return Err(AppError::bad(format!("today: \"{d}\" isn't a YYYY-MM-DD date"))),
+                None => chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            };
+            let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
+            Ok(crate::plan::trip::text(&crate::plan::trip::plan(&bundle, &today)))
+        }
         "find_cards" => {
             st.limits.search.check_user(user)?;
             find_cards(pool, user, args).await
@@ -1023,6 +1049,11 @@ async fn lab_games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<St
     if let Some(game) = args.get("game").and_then(Value::as_str).map(str::trim).filter(|g| !g.is_empty()) {
         return lab_game(pool, user, id, game).await;
     }
+    let deck = args.get("deck").and_then(Value::as_str).map(str::trim).filter(|d| !d.is_empty());
+    let table = args.get("table").and_then(Value::as_u64);
+    if deck.is_some() || table.is_some() {
+        return lab_tables(pool, user, id, engine, deck, table).await;
+    }
     let unscored_only = match args.get("only").and_then(Value::as_str) {
         None | Some("all") => false,
         Some("unscored") => true,
@@ -1074,6 +1105,94 @@ async fn lab_games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<St
             variant,
             game_words(p.variant.as_ref())
         );
+    }
+    Ok(out)
+}
+
+/// A head-to-head or tournament run's tables for one deck, or one table, game by game.
+async fn lab_tables(pool: &SqlitePool, user: &User, id: &str, engine: Option<&str>, deck: Option<&str>, table: Option<u64>) -> AppResult<String> {
+    use crate::lab::experiments::tables_for;
+    let table = table.map(|t| usize::try_from(t).unwrap_or(usize::MAX));
+    // A deck by entrant id, or by its name (exact first, then the only one containing it).
+    let entrant = match deck {
+        None => None,
+        Some(d) => {
+            let own: Option<i64> = sqlx::query_scalar("SELECT 1 FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(&user.id).fetch_optional(pool).await?;
+            if own.is_none() {
+                return Err(AppError::NotFound("experiment"));
+            }
+            let names: Vec<(String, String)> = sqlx::query_as(
+                "SELECT json_extract(o.value, '$.id'), json_extract(o.value, '$.label') FROM lab_experiments e, json_each(e.spec, '$.entrants') o WHERE e.id = ? AND e.owner_id = ?",
+            )
+            .bind(id)
+            .bind(&user.id)
+            .fetch_all(pool)
+            .await?;
+            let low = d.to_lowercase();
+            let listed = |m: &[&(String, String)]| m.iter().take(8).map(|(i, l)| format!("{l} ({i})")).collect::<Vec<_>>().join(", ");
+            // An entrant id wins; then a name only when exactly one deck has it, or contains it.
+            if let Some((i, _)) = names.iter().find(|(i, _)| i.eq_ignore_ascii_case(d)) {
+                Some(i.clone())
+            } else {
+                let exact: Vec<&(String, String)> = names.iter().filter(|(_, l)| l.to_lowercase() == low).collect();
+                let partial: Vec<&(String, String)> = names.iter().filter(|(_, l)| l.to_lowercase().contains(&low)).collect();
+                let pick = if exact.is_empty() { &partial } else { &exact };
+                match pick.as_slice() {
+                    [one] => Some(one.0.clone()),
+                    [] => return Err(AppError::bad(format!("No deck in this run is called \"{d}\""))),
+                    many => return Err(AppError::bad(format!("\"{d}\" matches {} decks: {}; give its entrant id", many.len(), listed(many)))),
+                }
+            }
+        }
+    };
+    let t = tables_for(pool, &user.id, id, engine, entrant.as_deref(), table).await?;
+    let label = |d: &str| t.decks.iter().find(|x| x.id == d).map_or_else(|| d.to_string(), |x| x.label.clone());
+    let mut out = format!(
+        "{} table{} on {}{}. A table is the same decks for a block of games, a seat apart. Turns count every player's turn. \
+         Each seat is listed best first with its place (1 is the winner; \"tied 2\" when several shared it).\n",
+        t.tables.len(),
+        if t.tables.len() == 1 { "" } else { "s" },
+        t.engine,
+        entrant.as_deref().map(|e| format!(" where {} sat", label(e))).unwrap_or_default(),
+    );
+    for tv in &t.tables {
+        let names: Vec<String> = tv.decks.iter().map(|d| label(d)).collect();
+        let _ = writeln!(out, "Table {} ({}):", tv.table, names.join(", "));
+        for g in &tv.games {
+            if !g.played {
+                let _ = writeln!(out, "- {}: not played yet", g.game);
+                continue;
+            }
+            let n = g.seats.len();
+            let first = usize::from(g.first_seat.unwrap_or(0));
+            let mut order: Vec<usize> = (0..n).map(|i| (first + i) % n).collect();
+            if g.scored {
+                order.sort_by(|a, b| g.places[*a].unwrap_or(99.0).total_cmp(&g.places[*b].unwrap_or(99.0)));
+            }
+            let seats: Vec<String> = order
+                .iter()
+                .map(|&s| {
+                    // Tied players share the mean of their places: name the place the tie starts at.
+                    let place = g.places[s].map(|p| {
+                        let better = g.places.iter().flatten().filter(|o| **o < p).count();
+                        let tied = g.places.iter().flatten().filter(|o| **o == p).count() > 1;
+                        format!("{}{}", if tied { "tied " } else { "" }, better + 1)
+                    });
+                    let went = (s + n - first) % n + 1;
+                    let how = if g.winner == Some(s as u8) && g.end.as_deref() == Some("win") {
+                        "won".to_string()
+                    } else if let Some(turn) = g.out_turn[s] {
+                        format!("out on turn {turn}")
+                    } else {
+                        g.final_life[s].map_or_else(|| "lasted".to_string(), |l| format!("lasted, {l} life"))
+                    };
+                    let went = ["first", "second", "third", "fourth", "fifth", "sixth"].get(went - 1).map_or_else(|| format!("{went}th"), |w| (*w).to_string());
+                    format!("{}{} (went {went}, {how})", place.map(|p| format!("{p}. ")).unwrap_or_default(), label(&g.seats[s]))
+                })
+                .collect();
+            let end = end_words(g.end.as_deref().unwrap_or("error"), g.error.as_deref());
+            let _ = writeln!(out, "- {} ({end}, {} turns, {:.0} s CPU): {}", g.game, g.turns, g.seconds, seats.join("; "));
+        }
     }
     Ok(out)
 }

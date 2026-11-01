@@ -26,6 +26,7 @@ const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] 
   { to: "/decks/plan", label: "Overview", end: true, also: "/decks/plan/swap-cards" },
   { to: "/decks/plan/review", label: "Review" },
   { to: "/decks/plan/buy", label: "Buy" },
+  { to: "/decks/plan/trip", label: "Trip" },
   { to: "/decks/plan/prints", label: "Prints" },
   { to: "/decks/plan/spares", label: "Spares" },
   { to: "/decks/plan/settings", label: "Settings" },

@@ -478,6 +478,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "plan_inputs", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_reviews", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_marks", &[("owner_id", t(&v))]).await;
+    fill(&pool, "plan_store_prefs", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_meta", &[("owner_id", t(&b))]).await;
 
     // Keys, watches, the lab and the advisor.
@@ -509,6 +510,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     for owner in [&v,&b] {
         fill(&pool,"evidence_datasets",&[("owner_id",t(owner))]).await;
         fill(&pool,"precon_evidence_sources",&[("owner_id",t(owner))]).await;
+        fill(&pool,"commander_evidence_sources",&[("owner_id",t(owner))]).await;
         let report=crate::util::new_id();
         fill(&pool,"research_reports",&[("owner_id",t(owner)),("id",t(&report)),("document",t("{}"))]).await;
         fill(&pool,"research_reviews",&[("owner_id",t(owner)),("report_id",t(&report)),("version",V::I(1))]).await;
