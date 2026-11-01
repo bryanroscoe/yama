@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-store-trip",
+    date: "2026-11-01",
+    title: "Plan a trip to your stores",
+    items: [
+      "Plans has a Trip page: the fewest of your stores that have the cards you're buying under your shopping rule, with each store's cards, total and cart, and what to print instead.",
+      "Mark each store as your usual one, fine, maybe or one you won't go to. The trip never sends you to a store you won't go to.",
+      "Proposals you haven't decided on and your real-card wishlist come along from stores you're visiting anyway. Listings are the dated checks in your plan, not a promise the card is still there.",
+    ],
+    link: { to: "/decks/plan/trip", label: "Store trip" },
+  },
+  {
     id: "2026-11-01-lab-tables",
     date: "2026-11-01",
     title: "See what happened at every table of a lab run",

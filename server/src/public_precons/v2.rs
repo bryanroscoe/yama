@@ -195,6 +195,18 @@ async fn table(pool: &SqlitePool) -> AppResult<Table> {
     Ok(t)
 }
 
+/// Each ranked precon's rating v2 rank and the number ranked, for links from other public pages.
+/// Empty when the rating can't be derived: a link then shows no rank rather than fail the page.
+pub(crate) async fn ranks(pool: &SqlitePool) -> (HashMap<String, usize>, usize) {
+    match table(pool).await {
+        Ok(t) => (t.1.iter().map(|(id, row)| (id.clone(), row.rank)).collect(), t.0.ranked),
+        Err(e) => {
+            tracing::warn!(error = ?e, "public rating v2 unavailable for precon links");
+            (HashMap::new(), 0)
+        }
+    }
+}
+
 /// Attach rating v2 to every row it ranks. `None` when no real-game source is enabled, or when
 /// the rating can't be derived: the pages then keep meta rank v1 rather than fail.
 pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<Option<Info>> {

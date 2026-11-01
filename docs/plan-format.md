@@ -108,6 +108,7 @@ Every section is optional; a missing section is empty. For an imported plan, a m
 
 - One entry per date, sorted by `effective_from`, dates unique. Each entry is the **complete** rule set from that date until the next one, so a purchase is judged by the rules of its own day.
 - `rules` keys are in `docs/planner-design.md` section 9. All are optional, an unset rule raises no flag, and unknown rule keys are ignored. Rules only produce flags; they never block or hide anything.
+- `local_buy` (optional, 2026-11-01) is the rule the store trip uses to pick which local listings are worth buying: `{"max_usd": 2.0, "always_ok_usd": 0.5, "tiers": [{"market_under": 1.0, "max_multiple": 2.0}, {"market_under": null, "max_multiple": 1.5}]}`. At most `max_usd`; at or under `always_ok_usd` whatever the market (the only way an unknown market qualifies); otherwise at most `max_multiple` times the market of the first tier whose `market_under` is above it (null: any market). Without it, the trip reads the set's ceiling and `max_over_market_pct`. See [shopping-design.md](shopping-design.md).
 - For owners with imported decks, settings are managed by the export, and editing them in Yama returns 409.
 
 ### `stores`

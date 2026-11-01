@@ -34,7 +34,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin === location.origin && url.pathname.startsWith("/api/")) return; // always live
   // Public reference/notice pages, exports and phase's board (/board/, its own app and service
   // worker) are not the private app shell: never cache them as "/".
-  if (url.origin === location.origin && (/^\/(about|privacy|tos|precons|docs|u|d|r|board)(\/|$)/.test(url.pathname) || url.pathname === "/sitemap.xml")) return;
+  if (url.origin === location.origin && (/^\/(about|privacy|tos|precons|commanders|docs|u|d|r|board)(\/|$)/.test(url.pathname) || url.pathname === "/sitemap.xml")) return;
 
   // Page loads: network first so updates arrive, cached shell when offline.
   if (req.mode === "navigate") {
