@@ -38,26 +38,10 @@ describe("reprintOps", () => {
     ]);
   });
 
-  it("splits one copy off into the new printing, same place and condition", () => {
+  it("splits one copy off on the server", () => {
     n = 0;
     expect(reprintOps(row, { scryfall_id: "ltr-x", lang: "en", finishes: ["nonfoil"] }, "one", id)).toEqual([
-      { op_id: "op1", kind: "adjust", item_id: "row", delta: -1 },
-      {
-        op_id: "op2",
-        kind: "add",
-        scryfall_id: "ltr-x",
-        qty: 1,
-        condition: "LP",
-        finish: "nonfoil",
-        lang: "en",
-        altered: false,
-        signed: false,
-        misprint: false,
-        proxy: false,
-        container_id: "bulk",
-        purchase_price: null,
-        purchase_currency: null,
-      },
+      { op_id: "op1", kind: "update", item_id: "row", scryfall_id: "ltr-x", lang: "en", finish: "nonfoil", split: 1 },
     ]);
   });
 

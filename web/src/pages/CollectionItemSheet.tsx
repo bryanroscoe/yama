@@ -9,7 +9,7 @@ import { printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit
 // The scanner pulls in OCR; load it only when someone rescans.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
 
-type Item = CollectionItem & { altered?: boolean; signed?: boolean; misprint?: boolean };
+
 
 const priceOf = (p: Printing, finish: string) => (finish === "foil" ? p.usd_foil : finish === "etched" ? p.usd_etched : p.usd);
 
@@ -17,7 +17,7 @@ const priceOf = (p: Printing, finish: string) => (finish === "foil" ? p.usd_foil
  * One collection row: its copies, where they live, its printing, and deleting it. `onClose` gets
  * a line to show on the page when a change needs saying (a new printing, a deleted row).
  */
-export function CollectionItemSheet({ item, containers, onClose }: { item: Item; containers: Container[]; onClose: (done?: string) => void }) {
+export function CollectionItemSheet({ item, containers, onClose }: { item: CollectionItem; containers: Container[]; onClose: (done?: string) => void }) {
   const qc = useQueryClient();
   // A save that lands after this sheet closed mustn't close the next card's sheet.
   const alive = useRef(true);
@@ -69,9 +69,12 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Item;
       if (r.error instanceof ApiError && r.error.status === 404) {
         // This row's printing isn't in our card data, so there's no card to check the scan
         // against: the scanned printing replaces it (the server still checks it's a known one).
-        const p = { scryfall_id: c.scryfall_id, lang: c.lang ?? "en", finishes: [] as string[] };
+        // The scanned printing's own finishes, so a foil row doesn't land on a nonfoil-only printing.
+        const known = await api<{ printings: Printing[] }>(`/api/scan/printings?id=${encodeURIComponent(c.scryfall_id)}`);
+        const p = known.printings.find((x) => x.scryfall_id === c.scryfall_id);
+        if (!p) throw new Error(`Couldn't find that printing of ${c.name}. Nothing was changed.`);
         await send.mutateAsync(reprintOps(item, p, scope, () => crypto.randomUUID()));
-        if (alive.current) onClose(`${c.name} is now ${c.set?.toUpperCase() ?? ""} #${c.number ?? ""}.`);
+        if (alive.current) onClose(`${c.name} is now ${printingLabel(p)}.`);
         return true;
       }
       if (r.error) throw new Error(`Couldn't load the printings of ${item.name ?? "this card"} to check the scan. Nothing was changed; try again.`);

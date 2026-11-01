@@ -15,41 +15,21 @@ export function finishFor(item: Pick<CollectionItem, "finish">, printing: Pick<P
 }
 
 /**
- * Ops that file the row's copies (all, or one) under `printing`. The whole row is updated in place,
- * so it keeps its id, note and price paid (and merges into a matching row if there is one); one
- * copy is taken off the row and added as the new printing, in the same place and condition, with
- * its price paid (the note stays with the row).
+ * The op that files the row's copies (all, or one) under `printing`. The whole row is updated in
+ * place, so it keeps its id, note and price paid (and merges into a matching row if there is one).
+ * One copy is split off on the server, with its place, condition and price paid, and only if the
+ * row still has a copy to split: a row deleted elsewhere meanwhile gains nothing.
  */
 export function reprintOps(
-  item: CollectionItem & { altered?: boolean; signed?: boolean; misprint?: boolean; purchase_currency?: string | null },
+  item: Pick<CollectionItem, "id" | "scryfall_id" | "qty" | "finish">,
   printing: Pick<Printing, "scryfall_id" | "lang" | "finishes">,
   scope: Scope,
   newId: () => string,
 ): Op[] {
   if (printing.scryfall_id === item.scryfall_id) return [];
-  const finish = finishFor(item, printing);
-  if (scope === "all" || item.qty <= 1) {
-    return [{ op_id: newId(), kind: "update", item_id: item.id, scryfall_id: printing.scryfall_id, lang: printing.lang, finish }];
-  }
-  return [
-    { op_id: newId(), kind: "adjust", item_id: item.id, delta: -1 },
-    {
-      op_id: newId(),
-      kind: "add",
-      scryfall_id: printing.scryfall_id,
-      qty: 1,
-      condition: item.condition,
-      finish,
-      lang: printing.lang,
-      altered: item.altered ?? false,
-      signed: item.signed ?? false,
-      misprint: item.misprint ?? false,
-      proxy: item.proxy,
-      container_id: item.container_id,
-      purchase_price: item.purchase_price,
-      purchase_currency: item.purchase_currency ?? null,
-    },
-  ];
+  const op: Op = { op_id: newId(), kind: "update", item_id: item.id, scryfall_id: printing.scryfall_id, lang: printing.lang, finish: finishFor(item, printing) };
+  if (scope === "one" && item.qty > 1) op.split = 1;
+  return [op];
 }
 
 /** "The Lord of the Rings: Tales of Middle-earth (LTR) #258", with the language when not English. */

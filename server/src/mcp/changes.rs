@@ -1306,6 +1306,7 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
                 note: None,
                 proxy: None,
                 scryfall_id: None,
+                split: None,
             };
             apply_op(&mut tx, &user.id, &op(n, update)).await?;
         }
@@ -1338,6 +1339,7 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
                     note: None,
                     proxy: None,
                     scryfall_id: None,
+                    split: None,
                 };
                 apply_op(&mut tx, &user.id, &op(n, update)).await?;
                 n += 1;

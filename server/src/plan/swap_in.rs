@@ -244,6 +244,7 @@ fn move_ops(copies: &mut [OwnedCopy], from: &dyn Fn(&OwnedCopy) -> bool, oracle_
                     note: None,
                     proxy: None,
                     scryfall_id: None,
+                    split: None,
                 });
             } else {
                 ops.push(OpKind::Adjust { item_id: c.id.clone(), delta: -take });
