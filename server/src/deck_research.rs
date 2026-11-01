@@ -610,9 +610,33 @@ pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult
             .fetch_one(&mut *tx)
             .await?;
     tx.commit().await?;
-    Ok(
-        json!({"id":id,"revision":revision,"content_hash":hash,"changed":changed,"link":format!("/decks/research/{id}"),"effect":"Research saved. No decks, plans, collection, orders or games changed."}),
-    )
+    Ok(saved(id, revision, &hash, changed))
+}
+
+fn saved(id: &str, revision: i64, hash: &str, changed: bool) -> Value {
+    json!({"id":id,"revision":revision,"content_hash":hash,"changed":changed,"link":format!("/decks/research/{id}"),"effect":"Research saved. No decks, plans, collection, orders or games changed."})
+}
+
+/// Saves `document` as a new note only: `None` when `owner` already has one with its id, which
+/// stays as it was. The insert itself decides, so two saves at once can't both take an id.
+pub(crate) async fn save_new(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult<Option<Value>> {
+    targets(document)?;
+    let id = document["id"].as_str().unwrap();
+    let encoded = serde_json::to_string(document).map_err(anyhow::Error::from)?;
+    let hash = sha256_hex(&encoded);
+    let mut tx = pool.begin().await?;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM research_reports WHERE owner_id=?").bind(owner).fetch_one(&mut *tx).await?;
+    if count >= 20 {
+        return Err(AppError::bad("Keep at most 20 research reports per account."));
+    }
+    let inserted = sqlx::query("INSERT INTO research_reports(owner_id,id,title,content_hash,document,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(owner_id,id) DO NOTHING")
+        .bind(owner).bind(id).bind(document["title"].as_str().unwrap()).bind(&hash).bind(&encoded).bind(now()).execute(&mut *tx).await?.rows_affected() > 0;
+    if !inserted {
+        return Ok(None);
+    }
+    let revision: i64 = sqlx::query_scalar("SELECT revision FROM research_reports WHERE owner_id=? AND id=?").bind(owner).bind(id).fetch_one(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(Some(saved(id, revision, &hash, true)))
 }
 
 #[derive(Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -852,14 +876,18 @@ pub async fn copy_shared(pool: &SqlitePool, owner: &str, token: &str) -> AppResu
     let taken: HashSet<String> = sqlx::query_scalar::<_, String>("SELECT id FROM research_reports WHERE owner_id = ?").bind(owner).fetch_all(pool).await?.into_iter().collect();
     // Room for the suffix within key_ok's 160 bytes; ids are ASCII.
     let base: String = doc["id"].as_str().unwrap_or("note").chars().take(140).collect();
-    let id = std::iter::once(base.clone())
-        .chain((1..).map(|n| if n == 1 { format!("{base}-copy") } else { format!("{base}-copy-{n}") }))
-        .find(|id| !taken.contains(id))
-        .expect("an unused id");
     doc["schema"] = json!("yama-research/1");
-    doc["id"] = json!(id);
     doc["copied_from"] = json!({"link": format!("/r/{token}"), "by": handle});
-    save(pool, owner, &doc).await
+    // `taken` skips the ids already there; one taken since (another copy at the same moment) is
+    // refused by the insert, and the next id is tried. An account holds at most 20 notes.
+    let ids = std::iter::once(base.clone()).chain((1..).map(|n| if n == 1 { format!("{base}-copy") } else { format!("{base}-copy-{n}") }));
+    for id in ids.filter(|id| !taken.contains(id)).take(25) {
+        doc["id"] = json!(id);
+        if let Some(saved) = save_new(pool, owner, &doc).await? {
+            return Ok(saved);
+        }
+    }
+    Err(AppError::bad("Couldn't find a free name for the copy. Try again."))
 }
 
 #[derive(Deserialize)]

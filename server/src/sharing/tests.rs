@@ -623,6 +623,11 @@ async fn a_shared_note_can_be_copied_without_its_private_parts() {
     assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&bt), Some(copy(&token))).await.1["id"], "upgrades-copy");
     let (_, own) = send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await;
     assert!(own["document"].get("method").is_some(), "the original is untouched");
+    // The insert decides: a note that appeared since the ids were read is refused, not replaced.
+    let mut late = note();
+    late["title"] = json!("Replaced?");
+    assert!(crate::deck_research::save_new(&pool, &bryan, &late).await.unwrap().is_none());
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await.1["document"]["title"], "Precon upgrade notes");
     // Its pages offer the copy.
     let link = format!("href=\"/decks/research?copy={token}\"");
     assert!(page(&app, &format!("/r/{token}")).await.2.contains(&link));
