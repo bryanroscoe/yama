@@ -159,6 +159,9 @@ pub fn rule_text(rule: &LocalBuyRule) -> String {
             low = *u;
         }
     }
+    if let Some(top) = rule.tiers.last().and_then(|t| t.0) {
+        parts.push(format!("nothing qualifies when market is {} or more", usd(Some(top))));
+    }
     if !rule.tiers.is_empty() {
         parts.push(match rule.always_ok_usd {
             Some(a) => format!("an unknown market qualifies only at {} or less", usd(Some(a))),
@@ -199,7 +202,8 @@ pub fn judge(rule: Option<&LocalBuyRule>, price: f64, market: Option<f64>) -> Ve
         return Verdict::Ok;
     }
     let Some(market) = market else { return Verdict::NoMarket };
-    let tier = rule.tiers.iter().find(|(u, _)| u.is_none_or(|u| market < u)).unwrap_or(rule.tiers.last().unwrap());
+    // Above every range the rule names: it doesn't qualify.
+    let Some(tier) = rule.tiers.iter().find(|(u, _)| u.is_none_or(|u| market < u)) else { return Verdict::OverMarket };
     if price <= tier.1 * market + EPS { Verdict::Ok } else { Verdict::OverMarket }
 }
 
@@ -441,6 +445,7 @@ fn recorded_market(quotes: &[&Value]) -> Option<Market> {
     let q = quotes
         .iter()
         .filter(|q| s(q, "kind") == Some("market_benchmark") && q.get("price").and_then(num).is_some())
+        .filter(|q| s(q, "currency").is_none_or(|c| c.eq_ignore_ascii_case("USD")))
         .max_by(|a, b| s(a, "checked").cmp(&s(b, "checked")))?;
     Some(Market { usd: q.get("price").and_then(num)?, date: s(q, "checked").map(String::from), kind: "recorded", printing: s(q, "printing").map(String::from) })
 }
@@ -648,7 +653,16 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
             .then(rank(pref(&key_of(x))).cmp(&rank(pref(&key_of(y)))))
             .then(by_order(x, y))
     });
-    pool.truncate(MAX_SEARCH);
+    // Past the search limit, a store that is the only one with a needed card is on every trip too.
+    let mut only_at: HashSet<String> = HashSet::new();
+    for w in &needed {
+        let at: HashSet<&str> = offers_of[&w.id].iter().filter(|o| usable(w, o) && eligible(o.store)).map(|o| o.key()).collect();
+        if at.len() == 1 {
+            only_at.extend(at.into_iter().map(String::from));
+        }
+    }
+    forced.extend(pool.split_off(MAX_SEARCH.min(pool.len())).into_iter().filter(|x| only_at.contains(&key_of(x))));
+    forced.sort_by(by_order);
     pool.sort_by(by_order);
 
     // (keys, covered, maybes, hassle, total), the best of each size; every subset has the favourites.

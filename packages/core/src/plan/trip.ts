@@ -76,6 +76,8 @@ export function ruleText(rule: LocalBuyRule): string {
     parts.push(`at most ${times(t.max_multiple)} market${range ? ` ${range}` : ""}`);
     if (t.market_under != null) low = t.market_under;
   }
+  const top = rule.tiers[rule.tiers.length - 1]?.market_under;
+  if (top != null) parts.push(`nothing qualifies when market is ${usd(top)} or more`);
   if (rule.tiers.length) parts.push(rule.always_ok_usd != null ? `an unknown market qualifies only at ${usd(rule.always_ok_usd)} or less` : "an unknown market doesn't qualify");
   return parts.length ? `Buy locally: ${parts.join("; ")}.` : "Every listed price counts.";
 }
@@ -89,7 +91,8 @@ export function judge(rule: LocalBuyRule | null, price: number, market: number |
   if (rule.always_ok_usd != null && price <= rule.always_ok_usd + EPS) return "ok";
   if (!rule.tiers.length) return "ok";
   if (market == null) return "no-market";
-  const tier = rule.tiers.find((t) => t.market_under == null || market < t.market_under) ?? rule.tiers[rule.tiers.length - 1]!;
+  const tier = rule.tiers.find((t) => t.market_under == null || market < t.market_under);
+  if (!tier) return "over-market"; // above every range the rule names
   return price <= tier.max_multiple * market + EPS ? "ok" : "over-market";
 }
 
@@ -343,7 +346,7 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const seenOf = new Map<string, { checks: number; unpriced: Quote | null; unknown: boolean }>();
   for (const w of wants) {
     const quotes = quotesByCard.get(norm(w.card)) ?? [];
-    const recorded = quotes.filter((q) => q.kind === "market_benchmark");
+    const recorded = quotes.filter((q) => q.kind === "market_benchmark" && (q.currency == null || q.currency.toUpperCase() === "USD"));
     const latest = newestChecks(quotes);
     let unpriced: Quote | null = null;
     let unknown = false;
@@ -396,12 +399,17 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   }
   const byOrder = (x: Store, y: Store) => x.sort - y.sort || cmp(x.key, y.key);
   const covering = [...coverage.keys()].map((k) => stores.get(k)!);
-  const forced = covering.filter((s) => storePreference(b, s.key) === "favorite").sort(byOrder);
-  const pool = covering
+  const ranked = covering
     .filter((s) => storePreference(b, s.key) !== "favorite")
-    .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || byOrder(x, y))
-    .slice(0, MAX_SEARCH)
-    .sort(byOrder);
+    .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || byOrder(x, y));
+  const pool = ranked.slice(0, MAX_SEARCH).sort(byOrder);
+  // Past the search limit, a store that is the only one with a needed card is on every trip too.
+  const onlyAt = new Set<string>();
+  for (const w of needed) {
+    const at = new Set((offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && eligible(o.store)).map((o) => o.store.key));
+    if (at.size === 1) onlyAt.add([...at][0]!);
+  }
+  const forced = [...covering.filter((s) => storePreference(b, s.key) === "favorite"), ...ranked.slice(MAX_SEARCH).filter((s) => onlyAt.has(s.key))].sort(byOrder);
 
   // Every subset (with the favourites): cards covered, then fewer "maybe" stores, then the easier
   // stores to get to (the sum of their places in your order), then the lower total, then store order.

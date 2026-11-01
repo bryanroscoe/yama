@@ -120,6 +120,51 @@ fn unknown_stock_is_not_a_reason_to_go() {
 }
 
 #[test]
+fn a_market_above_every_range_doesnt_qualify() {
+    let r = LocalBuyRule { max_usd: Some(5.0), always_ok_usd: Some(0.25), tiers: vec![(Some(1.0), 2.0)] };
+    assert_eq!(judge(Some(&r), 1.5, Some(0.9)), Verdict::Ok);
+    assert_eq!(judge(Some(&r), 1.5, Some(2.0)), Verdict::OverMarket);
+    assert_eq!(judge(Some(&r), 0.25, Some(2.0)), Verdict::Ok);
+    assert!(rule_text(&r).contains("nothing qualifies when market is $1.00 or more"));
+}
+
+#[test]
+fn past_the_search_limit_a_store_that_alone_has_a_needed_card_still_makes_the_trip() {
+    let f: Value = serde_json::from_str(FIXTURE).unwrap();
+    let mut b = f["bundle"].clone();
+    let pats = b["stores"].as_array().unwrap().iter().find(|x| x["key"] == "pats").unwrap().clone();
+    let orchard = b["quotes"].as_array().unwrap().iter().find(|q| q["card"] == "Exotic Orchard").unwrap().clone();
+    let quote = |card: &str, store: &str, price: f64| {
+        let mut q = orchard.clone();
+        q["card"] = json!(card);
+        q["store"] = json!(store);
+        q["price"] = json!(price);
+        q["variant"] = Value::Null;
+        q
+    };
+    b["quotes"].as_array_mut().unwrap().retain(|q| q["card"] != "Exotic Orchard");
+    for i in 0..13 {
+        let mut st = pats.clone();
+        st["key"] = json!(format!("s{i}"));
+        st["name"] = json!(format!("Store {i}"));
+        st["sort"] = json!(20 + i);
+        b["stores"].as_array_mut().unwrap().push(st);
+        let (a, c) = (quote("Fellwar Stone", &format!("s{i}"), 0.5), quote("Swords to Plowshares", &format!("s{i}"), 1.0));
+        b["quotes"].as_array_mut().unwrap().extend([a, c]);
+    }
+    let mut far = pats.clone();
+    far["key"] = json!("zz");
+    far["name"] = json!("Far Store");
+    far["sort"] = json!(99);
+    b["stores"].as_array_mut().unwrap().push(far);
+    let q = quote("Exotic Orchard", "zz", 0.75);
+    b["quotes"].as_array_mut().unwrap().push(q);
+    let t = plan(&b, "2026-11-01", None);
+    assert!(t.stops.iter().any(|x| s(x.store, "key") == Some("zz")));
+    assert!(t.print.iter().all(|p| p.want.card != "Exotic Orchard"));
+}
+
+#[test]
 fn preferences_read_the_old_name_and_order_the_stores() {
     let b = json!({
         "stores": [{"key": "a", "sort": 1}, {"key": "b", "sort": 2}, {"key": "c", "sort": 3}],

@@ -18,6 +18,7 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
 import { setStorePreference, type StorePrefBody } from "./api";
@@ -91,6 +92,10 @@ export function Trip() {
     );
   };
   const nameOf = (key: string) => view.b.stores.find((s) => s.key === key)?.name ?? key;
+  // Every art crop on the page, credited at the bottom.
+  const shownArtists = [...trip.stops.flatMap((st) => [...st.rows, ...st.along].map((r) => r.want.card)), ...trip.print.map((p) => p.want.card)].map(
+    (c) => view.card(c)?.artist,
+  );
 
   return (
     <>
@@ -285,6 +290,7 @@ export function Trip() {
           ))}
         </section>
       )}
+      {shownArtists.some(Boolean) && <p className="small dim art-credits">{artCredits(shownArtists)}</p>}
     </>
   );
 }
