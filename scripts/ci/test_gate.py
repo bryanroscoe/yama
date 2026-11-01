@@ -181,6 +181,9 @@ class Workflow(unittest.TestCase):
         self.assertIn('ref: ${{ github.event.pull_request.base.sha || github.sha }}', gate_job)
         self.assertIn('continue-on-error: true', gate_job)
 
+    def test_main_push_ci_is_never_cancelled_by_a_newer_push(self):
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", self.workflow)
+
     def test_gate_runs_on_main_pushes_but_never_manual_runs(self):
         gate_if = re.search(r'if: >-\n(.*?)\n    # ', job(self.workflow, 'gate'), re.S).group(1)
         self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/main') ||", gate_if)

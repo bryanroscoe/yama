@@ -16,7 +16,11 @@ permissions:
 concurrency:
   # A manual diagnostic run must never cancel the push CI that authorizes release.
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer PR push supersedes its old run. Push CI on main is never cancelled: merges land
+  # every few minutes and a cold Rust build takes ~25, so cancelling meant main CI never
+  # finished, nothing deployed and the Rust cache (saved only by main) was never written.
+  # GitHub keeps one main run going and only the newest waiting behind it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Ready PRs: skips the web and Rust jobs when the head commit records local checks
