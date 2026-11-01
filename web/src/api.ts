@@ -704,8 +704,10 @@ export interface PreconList {
   unknown: string[];
 }
 
-/** A market price, or "No price" when there isn't one (never $0). */
-export const usd = (v: number | null | undefined) => (v == null ? "No price" : `$${v.toFixed(2)}`);
+/** A market price, or "No price" when there isn't one (never $0). Grouped like the collection
+ *  total beside it: "$1,630.77", not "$1630.77". */
+export const usd = (v: number | null | undefined) =>
+  v == null ? "No price" : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** A price snapshot date ("2026-10-19") as people say it: "Oct 19". Read as a local date, not UTC. */
 export function shortDate(iso: string | null | undefined): string | null {

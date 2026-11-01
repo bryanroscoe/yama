@@ -87,7 +87,8 @@
 .swap-sheet tr {
   break-inside: avoid;
 }
-.swap-sheet .num {
+/* Table cells only: a bare .num also caught the Plans count in the page head and stretched it. */
+.swap-sheet :is(td, th).num {
   text-align: right;
   width: 4rem;
 }
@@ -208,6 +209,15 @@
   .swap-sheet .ss-takeouts th {
     padding: 5px 3px;
   }
+  /* At 42% each the "then" column was 33 px: "to Prismari Artistry" spilled off the page and
+     widened it, which pushed the tab bar below the screen. */
+  .swap-sheet .ss-steps th:nth-child(2),
+  .swap-sheet .ss-steps th:nth-child(3) {
+    width: 32%;
+  }
+  .swap-sheet .ss-then {
+    overflow-wrap: anywhere;
+  }
 }
 
 @media print {
@@ -303,10 +313,19 @@
   align-items: center;
   gap: 8px;
 }
+/* min-height 0: the global 44 px field height made every row 50 px tall, 62 px apart. */
 .ss-print-options input {
   width: 20px;
   height: 20px;
+  min-height: 0;
+  margin: 0;
   flex: none;
+}
+/* On a touch screen the whole label stays a 44 px target. */
+@media (pointer: coarse) {
+  .ss-print-options label {
+    min-height: 44px;
+  }
 }
 @media print {
   .swap-sheet .ss-reasons {
@@ -324,6 +343,11 @@
   vertical-align: top;
 }
 
+/* No side padding on these quiet buttons, so their words line up with the checkboxes. */
 .ss-deck-select-actions {
   flex-basis: 100%;
+  gap: 24px;
+}
+.ss-deck-select-actions > button {
+  padding-inline: 0;
 }

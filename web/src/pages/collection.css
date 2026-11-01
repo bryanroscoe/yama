@@ -19,8 +19,9 @@
   flex-direction: column;
   gap: 6px;
 }
+/* The total's display numerals touched the title's descenders; 12px keeps them apart. */
 .coll-page .coll-title h1 {
-  margin: 0;
+  margin: 0 0 12px;
 }
 .coll-value {
   display: flex;
@@ -183,11 +184,15 @@
   line-height: 1.25;
   min-width: 0;
 }
+/* A tag that wraps starts under the name, not 6px in from it. */
 .coll-row-name {
   font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
 }
 .coll-row-name .tag {
-  margin-left: 6px;
   font-size: 0.75rem;
   padding: 0 8px;
 }
@@ -234,7 +239,6 @@
   }
   .coll-value {
     gap: 14px;
-    margin-top: 10px;
   }
   .coll-value b {
     font-size: 3.5rem;

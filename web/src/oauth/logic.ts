@@ -93,7 +93,7 @@ export function claudeCodeCommand(mcpUrl: string): string {
 
 /** A connected app's kind, from where it sends people back. */
 export function appKind(app: Pick<ConnectedApp, "redirect_host" | "loopback">): string {
-  if (app.loopback) return "On this computer, such as Claude Code";
+  if (app.loopback) return "On this computer";
   if (app.redirect_host === "claude.ai" || app.redirect_host === "claude.com") return "Claude on the web, desktop and phone";
   return app.redirect_host;
 }

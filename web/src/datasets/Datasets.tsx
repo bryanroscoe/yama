@@ -1,3 +1,4 @@
+import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -19,7 +20,7 @@ export function DatasetCard({ d }: { d: Dataset }) {
   const revision = `revision=${d.revision}`;
   return <article className="dataset-card">
     <h2><Link to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}`}>{d.title}</Link></h2>
-    <p className="dim">{d.source.name}, revision {d.revision}. Imported {d.imported_at.slice(0, 10)}.</p>
+    <p className="dim">{d.source.name}, revision {d.revision}. Imported {fmtDate(d.imported_at)}.</p>
     <p>{count(Object.values(d.records).reduce((a, b) => a + (b ?? 0), 0))} records from {count(d.source_documents)} source documents</p>
     <div className="dataset-counts">{Object.entries(KINDS).map(([kind, label]) => <Link key={kind} to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}&kind=${kind}`}>{label} <b>{count(d.records[kind as keyof typeof KINDS] ?? 0)}</b></Link>)}</div>
   </article>;
@@ -182,7 +183,7 @@ function DatasetDetail({ id }: { id: string }) {
     {read.isPending && <p role="status">Loading evidence…</p>}
     {head && <>
       <h2>{head.title}</h2>
-      <p className="dim">Private to your account. Revision {head.revision}, imported {head.imported_at.slice(0, 10)}.</p>
+      <p className="dim">Private to your account. Revision {head.revision}, imported {fmtDate(head.imported_at)}.</p>
       <p>{head.method}</p>
       <div className="dataset-actions">
         <button className={sources ? "outline" : "primary"} onClick={() => update({ section: "" })}>Browse records</button>

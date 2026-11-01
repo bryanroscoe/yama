@@ -51,6 +51,8 @@ export function writeReports(outDir, run) {
       totals[f.severity]++;
       (byKind[f.kind] ??= { count: 0, pages: new Set(), severity: f.severity }).count++;
       byKind[f.kind].pages.add(p.url);
+      // The kind's most severe finding, not its first: 261 warnings shouldn't read as notes.
+      if (RANK[f.severity] < RANK[byKind[f.kind].severity]) byKind[f.kind].severity = f.severity;
     }
   const shots = pages.reduce((n, p) => n + Object.values(p.views).reduce((m, v) => m + v.shots.length, 0), 0);
   const md = [];

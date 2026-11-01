@@ -108,7 +108,7 @@ export function MythicImportPage() {
 
           <section className="stack" aria-labelledby="mythic-upload">
             <h2 id="mythic-upload">2. Upload the file</h2>
-            <div className="row">
+            <div className="row mythic-upload-row">
               <label>
                 <span className="visually-hidden">Mythic games file</span>
                 <input type="file" accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} />

@@ -8,14 +8,39 @@ function InlineText({ text }: { text: string }) {
   return <>{inline(text).map((s, i) => s.bold ? <b key={i}>{s.text}</b> : s.code ? <code key={i}>{s.text}</code> : <Fragment key={i}>{s.text}</Fragment>)}</>;
 }
 
+/** A deck list's line: "1 Sol Ring". */
+const DECK_LINE = /^\d+x?\s+\S/;
+/** A deck list's section line: "Commander", "Deck", "Sideboard:". */
+const DECK_SECTION = /^(commanders?|deck|main(board)?|sideboard|companion|maybeboard):?$/i;
+
+/** A pasted deck list, one card a line, would otherwise join into one run-on paragraph. */
+function keepDeckLines(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  // Inside a ``` fence the lines are kept as they are already.
+  let fenced = false;
+  const inFence = lines.map((l) => (/^\s*```/.test(l) ? ((fenced = !fenced), true) : fenced));
+  const deck = lines.map((l, i) => !inFence[i] && DECK_LINE.test(l.trim()));
+  // A deck list is a run under a section line ("Commander", "Deck") or a long run (five or
+  // more); two sentences that happen to open with numbers ("3 lands cut.") stay prose.
+  const listed = new Array<boolean>(lines.length).fill(false);
+  for (let i = 0; i < lines.length; ) {
+    let j = i;
+    while (j < lines.length && deck[j]) j++;
+    if (j > i && (j - i >= 5 || DECK_SECTION.test(lines[i - 1]?.trim() ?? ""))) listed.fill(true, i, j);
+    i = Math.max(j, i + 1);
+  }
+  return lines.map((l, i) => (listed[i] ? `- ${l.trim()}` : l)).join("\n");
+}
+
 /** Small, text-only Markdown vocabulary; external content is never interpreted as HTML. */
 export function ProposalText({ text }: { text: string }) {
   // Older tools put "Why:" before the first numbered reason, hiding its list structure.
-  const blocks = parseAnswer(text.replace(/^Why:\s*(?=\d+[.)]\s)/, ""));
+  const blocks = parseAnswer(keepDeckLines(text.replace(/^Why:\s*(?=\d+[.)]\s)/, "")));
   return <div className="proposal-text">{blocks.map((b, i) => {
     if (b.kind === "list") {
       const List = b.ordered ? "ol" : "ul";
-      return <List key={i}>{b.items.map((item, n) => <li key={n}><InlineText text={item} /></li>)}</List>;
+      const deck = !b.ordered && b.items.every((item) => DECK_LINE.test(item));
+      return <List key={i} className={deck ? "proposal-deck-list" : undefined}>{b.items.map((item, n) => <li key={n}><InlineText text={item} /></li>)}</List>;
     }
     if (b.kind === "heading") return <h4 key={i}><InlineText text={b.text} /></h4>;
     if (b.kind === "code" || b.kind === "suggestion") return <pre key={i}>{b.kind === "code" ? b.text : b.raw}</pre>;

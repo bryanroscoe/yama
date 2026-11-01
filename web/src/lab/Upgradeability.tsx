@@ -7,7 +7,7 @@ export function UpgradeabilitySummary({ value, detailed = false }: { value?: Upg
   if (value?.package) {
     const p = value.package;
     return (
-      <span>
+      <span className="upg-summary">
         <strong>
           {p.best_supported_score == null
             ? "Package ungraded"

@@ -32,7 +32,8 @@ export function bytes(n: number | null | undefined): string {
     v /= 1024;
     i += 1;
   }
-  return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+  // A no-break space: "560 MB" wrapped as "560 / MB" in the backups list.
+  return `${v >= 10 ? Math.round(v) : v.toFixed(1)}\u00a0${units[i]}`;
 }
 
 /** Accounts whose name or email contains every word of the search. */
@@ -90,6 +91,8 @@ export function advisorLine(a: UsageRow): string {
   if (a.advisor_mode === "own_key") return a.advisor_shared ? "Asks Claude with its own API key (it also has the shared key, used if it removes its own)." : "Asks Claude with its own API key.";
   if (a.advisor_mode === "shared") return "Asks Claude on the shared key.";
   if (a.advisor_shared && a.advisor_reason === "needs_key") return "Has the shared key, but the advisor doesn't hold one yet.";
+  // People shows the shared key ticked for these accounts; say why it still doesn't work.
+  if (a.advisor_shared && a.advisor_reason === "power_only") return "Has the shared key, but can't use it: not a power user.";
   if (a.advisor_reason === "off") return "Ask Claude is off on this server.";
   if (a.advisor_reason === "power_only") return "Can't ask Claude: not a power user.";
   if (a.advisor_reason === "keys_off") return "Can't ask Claude: this server doesn't store people's own keys.";

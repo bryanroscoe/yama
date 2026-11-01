@@ -9,11 +9,12 @@
 .share-choices legend {
   margin-bottom: 0.4rem;
 }
+/* Centred, not baseline: a radio has no text baseline, so it sat above its label. */
 .share-choices label {
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 10px;
-  align-items: baseline;
+  align-items: center;
 }
 .share-choices .hint {
   grid-column: 2;
@@ -43,7 +44,15 @@
 .share-settings label.share-collection-toggle {
   grid-template-columns: auto 1fr;
   column-gap: 10px;
-  align-items: baseline;
+  align-items: start;
+}
+/* The whole label is the target, so the box can drop the 44 px field height and sit on the
+   label's first line (on baseline it floated a line above the text). */
+.share-collection-toggle > input[type="checkbox"] {
+  min-height: 0;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
 }
 .share-collection-toggle .hint {
   grid-column: 2;

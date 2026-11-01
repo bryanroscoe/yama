@@ -36,6 +36,16 @@
 .lab section {
   margin: 0 0 2rem;
 }
+/* A sub-heading straight under a heading read as one two-line title ("Upgradeability / The
+   complete package", "Comparisons / Now against stock"); a heading after a disclosure sat
+   on its summary ("Other commander options"). */
+.lab h2 + h3,
+.lab h2 + div > h3:first-child {
+  margin-top: 16px;
+}
+.lab details + h3 {
+  margin-top: 24px;
+}
 .lab-label {
   font-size: var(--t-sm);
   color: var(--dim);
@@ -204,7 +214,7 @@
 .ichart {
   display: grid;
   grid-template-columns: minmax(7rem, 14rem) 1fr;
-  gap: 0.25rem 1rem;
+  gap: 0.5rem 1rem;
   align-items: center;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -269,6 +279,10 @@
 .ichart-axis span:last-child {
   transform: translateX(-100%);
 }
+/* The caption under a chart sat on the chart's border. */
+.ichart + .lab-note {
+  margin-top: 12px;
+}
 @media (max-width: 560px) {
   .ichart {
     grid-template-columns: 1fr;
@@ -276,6 +290,12 @@
   }
   .ichart-axis-pad {
     display: none;
+  }
+  /* Stacked, one deck's numbers ran straight into the next deck's name. */
+  .ichart > div + div > .ichart-label {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    margin-top: 8px;
   }
 }
 
@@ -398,8 +418,20 @@
   font-size: 1.375rem;
   width: 3.5rem;
 }
+/* Outside the table these ran inline: "Package ungraded0/2 commander configurations". */
+.upg-summary .sub {
+  display: block;
+}
+/* Deck and upgradeability text wrapped to six lines beside a mostly empty bar track. */
 .lab-table td.deck {
-  min-width: 14rem;
+  min-width: 17rem;
+}
+.lab-table td.upg {
+  min-width: 9rem;
+}
+.lab-table thead th.bar,
+.lab-table thead th.real {
+  white-space: normal;
 }
 .lab-deck-name {
   display: flex;
@@ -420,8 +452,8 @@
   text-decoration: underline;
 }
 .lab-table td.bar {
-  width: 36%;
-  min-width: 14rem;
+  width: 22%;
+  min-width: 11rem;
 }
 .lab-rate {
   display: grid;
@@ -475,8 +507,12 @@
   padding-top: 6px;
   padding-bottom: 6px;
 }
-.lab-mine-head th > .lab-mine-title {
-  margin-right: 12px;
+/* The show/hide button sat mid-row after the long note; keep it at the row's end. */
+.lab-mine-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 .lab-mine-title > span {
   margin-left: 8px;
@@ -651,7 +687,8 @@
   align-items: center;
   width: 100%;
   min-height: 44px;
-  padding: 0.15rem 0.25rem;
+  /* At 2px, names and card thumbnails sat on the dividers. */
+  padding: 8px 4px;
   background: none;
   border: none;
   border-bottom: 1px solid var(--line);
@@ -711,6 +748,10 @@
 .lab-step h2 {
   margin: 0;
   font-size: 1.625rem;
+}
+/* "First deck" sat about 5px under "1. The two decks". */
+.lab-step h2 + .lab-cmp-slot {
+  margin-top: 8px;
 }
 .lab-step h2 .n {
   color: var(--dim);
@@ -793,6 +834,21 @@
 .lab-chips .pip {
   width: 0.9em;
   height: 0.9em;
+}
+/* On phones a wrapped choice row left one option alone on a second line ("Paste a list",
+   "Head to head  Tournament"); lay text choices out on an even grid instead. */
+@media (max-width: 560px) {
+  .lab .lab-chips[role="radiogroup"]:not(:has(.pip)) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .lab .lab-chips[role="radiogroup"]:not(.lab-modes, :has(.pip)):has(> button:nth-child(3):last-child) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .lab .lab-modes > button:first-child {
+    grid-column: 1 / -1;
+  }
 }
 .lab-diff {
   display: flex;
@@ -940,6 +996,10 @@
   font-weight: 800;
   font-size: 1.875rem;
 }
+/* Keep "My runs" and "Try a change" whole in the panel's narrow footer note. */
+.lab-run .lab-note a {
+  white-space: nowrap;
+}
 .lab-run :is(input, select) {
   background-color: var(--ground);
 }
@@ -997,17 +1057,36 @@
   flex-direction: column;
   gap: 8px;
 }
+/* Title beside the pill; the meta line runs on under the pill instead of squeezing into a
+   narrow column beside it. Works with and without the art crop. */
 .lab-runcard-head {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 2px;
   align-items: start;
+  line-height: 1.25;
+}
+.lab-runcard-head:not(:has(> .crop)) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.lab-runcard-head > .crop {
+  grid-row: 1 / span 2;
 }
 .lab-runcard-title {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-  min-width: 0;
+  display: contents;
+}
+.lab-runcard-title > a {
+  grid-column: -3 / -2;
+  grid-row: 1;
+}
+.lab-runcard-title > span {
+  grid-column: -3 / -1;
+  grid-row: 2;
+}
+.lab-runcard-head > .pill {
+  grid-column: -2 / -1;
+  grid-row: 1;
 }
 .lab .lab-runcard-title a {
   font-weight: 700;
@@ -1193,6 +1272,13 @@ button.conf-mark.doubtful:hover {
 button.conf-mark:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+/* "Close" sat lower than the title: centre it on the title's line. */
+.conf-sheet .sheet-head {
+  align-items: center;
+}
+.conf-sheet .sheet-head h2 {
+  margin: 0;
 }
 .conf-sheet-deck {
   margin: 0;
@@ -1578,7 +1664,7 @@ button.conf-mark:focus-visible {
 .lab-engine-head {
   color: var(--dim);
   font-size: var(--t-md, 1.1rem);
-  margin: 0 0 4px;
+  margin: 0 0 12px;
 }
 /* How a paired run's games count, under its verdict. */
 .lab-counts {

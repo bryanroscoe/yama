@@ -97,13 +97,14 @@ fieldset.seat.seat-card2 {
   padding: 0;
   border: none;
   border-radius: 18px;
-  overflow: hidden;
+  /* Visible so a deck or player list can drop out past the card; the art rounds its own corners. */
+  overflow: visible;
   background: var(--surface);
   display: flex;
   flex-direction: column;
 }
 .seat-head2.art-panel {
-  border-radius: 0;
+  border-radius: 18px 18px 0 0;
   height: 132px;
   display: grid;
 }
@@ -113,14 +114,18 @@ fieldset.seat.seat-card2 {
 .seat-head2 > .art-body {
   align-self: end;
   display: flex;
+  /* "Seat 1, holding the phone" drops under a long name rather than cutting it short. */
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: 0 8px;
   padding: 14px 18px;
   min-width: 0;
 }
 .seat-head2 .seat-name {
   font-size: 34px;
+  /* Room for descenders: overflow is hidden for the ellipsis, so line-height 1 cut off g, y, p. */
+  line-height: 1.15;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -617,7 +622,8 @@ a.rg-row:focus-visible {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   gap: 16px;
-  align-items: center;
+  /* Top edges line up; centred, the art floated beside a title that wraps. */
+  align-items: start;
 }
 .gd-art {
   display: block;
@@ -632,6 +638,9 @@ a.rg-row:focus-visible {
 }
 .gd-title p {
   margin: 0;
+}
+.gd-title > .row {
+  margin-top: 16px;
 }
 .gd-going {
   display: grid;
@@ -713,9 +722,10 @@ a.rg-row:focus-visible {
   font-size: var(--t-sm);
   padding-top: 2px;
 }
+/* On a phone the art sits above the title, so the title and its facts get the full width. */
 @media (max-width: 520px) {
   .gd-head {
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
   .gd-art {
     width: 88px;

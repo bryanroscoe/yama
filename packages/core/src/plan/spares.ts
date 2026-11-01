@@ -167,7 +167,7 @@ export function spares(b: SpareData, answers: Map<string, Review>): Spares {
       }
       const slot = afterCards.find((c) => c.board === "main" && c.replaces === card);
       let why = "Not in the after-prints list.";
-      if (slot?.kind === "print") why = `Leaves when the ${slot.name} print arrives.`;
+      if (slot?.kind === "print") why = `Leaves when the new print of ${slot.name} arrives.`;
       else if (slot?.kind === "moved") why = `Leaves when ${slot.name} moves in from ${deckName(slot.from_deck)}, once your prints arrive.`;
       else if (slot) why = `Replaced by ${slot.name} when your prints arrive.`;
       out.after.push(spare(card, qty, d, "after", why, slot?.swap ?? null));

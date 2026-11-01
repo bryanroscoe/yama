@@ -1,7 +1,7 @@
 import { fmtDate, type PlanHead } from "@yama/core/plan";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, type ReactNode } from "react";
-import { Outlet, useMatch, useOutletContext } from "react-router";
+import { Outlet, useLocation, useMatch, useOutletContext } from "react-router";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { AreaHead, SubNav } from "../components/DeckTabs";
@@ -21,9 +21,9 @@ export function usePlanOutlet(): PlanOutlet {
   return useOutletContext<PlanOutlet>();
 }
 
-/** The Plans pages, in order. */
-const PLAN_PAGES: { to: string; label: string; end?: boolean }[] = [
-  { to: "/decks/plan", label: "Overview", end: true },
+/** The Plans pages, in order. Swap cards print from Overview, so Overview stays underlined there. */
+const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] = [
+  { to: "/decks/plan", label: "Overview", end: true, also: "/decks/plan/swap-cards" },
   { to: "/decks/plan/review", label: "Review" },
   { to: "/decks/plan/buy", label: "Buy" },
   { to: "/decks/plan/trip", label: "Trip" },
@@ -96,6 +96,7 @@ export function PlanLayout() {
  */
 export function PlansHead({ title, index = false, action, status }: { title: ReactNode; index?: boolean; action?: ReactNode; status?: ReactNode }) {
   const { view } = useOutletContext<PlanOutlet | undefined>() ?? {};
+  const { pathname } = useLocation();
   const hasPlans = !!view && view.b.decks.length > 0;
   return (
     <AreaHead
@@ -104,7 +105,7 @@ export function PlansHead({ title, index = false, action, status }: { title: Rea
       back={{ to: "/decks/plan", label: "Back to plans" }}
       action={action}
       status={status}
-      nav={hasPlans ? <SubNav label="Plans pages" pages={PLAN_PAGES} /> : undefined}
+      nav={hasPlans ? <SubNav label="Plans pages" pages={PLAN_PAGES} also={pathname} /> : undefined}
     />
   );
 }
