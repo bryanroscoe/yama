@@ -398,7 +398,9 @@ impl ToGet {
 
 /// Prices the cards to get, given as (name, copies, deck), merging repeats of a name. One
 /// lookup for the names and one for the prices.
-async fn to_get(pool: &SqlitePool, wanted: impl IntoIterator<Item = (String, i64, Option<String>)>) -> AppResult<Vec<ToGet>> {
+// A Vec rather than an iterator: a borrowing closure held in a handler's future fails axum's
+// Send check ("FnOnce is not general enough").
+async fn to_get(pool: &SqlitePool, wanted: Vec<(String, i64, Option<String>)>) -> AppResult<Vec<ToGet>> {
     let mut items: Vec<ToGet> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
     for (name, n, deck) in wanted {
@@ -622,7 +624,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
             (d, b, adds)
         })
         .collect();
-    let wanted = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string()))));
+    let wanted: Vec<_> = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect();
     let items = to_get(pool, wanted).await?;
     if items.is_empty() {
         return Ok(String::new());
@@ -882,7 +884,7 @@ pub(super) async fn deck(
 
     // What the added cards come to: from the same comparison as the table above.
     if changes.iter().any(|c| !c.add.is_empty()) {
-        let items = to_get(&st.pool, changes.iter().map(|c| (c.add.clone(), c.n, None))).await?;
+        let items = to_get(&st.pool, changes.iter().map(|c| (c.add.clone(), c.n, None)).collect()).await?;
         let mut t = Totals::default();
         for i in &items {
             t.add(i.n, i.usd());
