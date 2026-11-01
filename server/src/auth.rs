@@ -448,7 +448,11 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 // One sign-up at a time from here to the count below (making accounts is rare), so
                 // sign-ups arriving together can't all pass the limits before any is counted.
                 let _gate = if invited { None } else { Some(st.limits.new_account_gate.lock().await) };
-                if !invited {
+                // Another sign-in for this same Google account may have made it while this one
+                // waited at the gate: then it's theirs to sign in to, with no limit to meet.
+                let made_meanwhile: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE google_sub = ?)").bind(sub).fetch_one(&st.pool).await?;
+                if !invited && !made_meanwhile {
                     // Both must allow it, and it counts only once the account is really made
                     // (below): a refusal from the ceiling for everyone, or two sign-ins racing to
                     // make the same account, doesn't use up this address's own few.
