@@ -198,12 +198,16 @@ describe("togglePerson (Who's playing)", () => {
     expect(togglePerson(s, { name: "Kim" }, { name: "Kim" }, 4)).toBe(s);
   });
 
-  it("a second tap takes them off, and their seat goes with them", () => {
+  it("a second tap takes them off, leaving their seat open where it was", () => {
     let s = togglePerson(start(), sam, personPatch(sam, group, me)!, 6);
+    s = togglePerson(s, jo, personPatch(jo, group, me)!, 6);
     s = togglePerson(s, sam, personPatch(sam, group, me)!, 6);
-    expect(s.map((x) => x.name)).toEqual(["Bryan", ""]);
-    // A guest is matched by name, whatever the case.
+    // Jo stays in seat 3: seats never move.
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "", "Jo"]);
+    expect(s[1]).toEqual(emptySeat());
+    // The next one tapped fills the open seat. A guest is matched by name, whatever the case.
     s = togglePerson(s, { name: "Alex" }, { name: "Alex" }, 6);
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "Alex", "Jo"]);
     expect(seatHolds(s[1]!, { name: "alex" })).toBe(true);
   });
 

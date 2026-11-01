@@ -227,13 +227,14 @@ export function seatHolds(s: Pick<SeatDraft, "name" | "memberId" | "userId">, p:
 export const isOpenSeat = (s: Pick<SeatDraft, "name" | "memberId" | "userId">) => !s.name.trim() && !s.memberId && !s.userId;
 
 /**
- * Who's playing, one tap per person: someone already seated leaves (their seat goes, so the
- * count follows; the last seat is emptied instead), anyone else takes the first open seat or a
- * new one, up to `max`. The same seats back when there's no room.
+ * Who's playing, one tap per person: someone already seated leaves, their seat staying as an
+ * open seat (seats never move, so New game's seat editors and their slow lookups stay on the
+ * right seat); anyone else takes the first open seat or a new one, up to `max`. The same seats
+ * back when there's no room.
  */
 export function togglePerson(seats: SeatDraft[], p: SeatPerson, patch: Partial<SeatDraft>, max: number): SeatDraft[] {
   const at = seats.findIndex((s) => seatHolds(s, p));
-  if (at >= 0) return seats.length > 1 ? seats.filter((_, i) => i !== at) : [emptySeat()];
+  if (at >= 0) return seats.map((s, i) => (i === at ? emptySeat() : s));
   const open = seats.findIndex(isOpenSeat);
   if (open >= 0) return patchSeat(seats, open, { ...emptySeat(), ...patch });
   if (seats.length >= max) return seats;
