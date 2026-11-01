@@ -23,6 +23,9 @@ export function MythicImportPage() {
   const [players, setPlayers] = useState<Record<string, string | null>>({});
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
+  // A match to a Yama game depends on who's who: changing that drops the matches chosen so far,
+  // which the next preview may no longer offer.
+  const dropMatches = () => setChoices((c) => Object.fromEntries(Object.entries(c).filter(([, v]) => !v.startsWith("link:"))));
   const group = groups.data?.find((g) => g.id === (groupId ?? groups.data?.[0]?.id)) ?? null;
   const playgroupId = groupId === "" ? null : (group?.id ?? null);
 
@@ -111,7 +114,7 @@ export function MythicImportPage() {
               </label>
               <label>
                 Playgroup{" "}
-                <select value={groupId ?? group?.id ?? ""} onChange={(e) => { setGroupId(e.target.value); setPlayers({}); }}>
+                <select value={groupId ?? group?.id ?? ""} onChange={(e) => { setGroupId(e.target.value); setPlayers({}); dropMatches(); }}>
                   {groups.data?.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                   <option value="">No playgroup</option>
                 </select>
@@ -131,7 +134,7 @@ export function MythicImportPage() {
                     <div className="stack">
                       <label>
                         Which player are you in Mythic?{" "}
-                        <select value={me ?? ""} onChange={(e) => setMe(e.target.value)}>
+                        <select value={me ?? ""} onChange={(e) => { setMe(e.target.value); dropMatches(); }}>
                           {!me && <option value="">Choose</option>}
                           {p.players.map((x) => <option key={x.mythic_id} value={x.mythic_id}>{x.name}</option>)}
                         </select>
@@ -146,7 +149,7 @@ export function MythicImportPage() {
                               <tr key={x.mythic_id}>
                                 <td>{x.name} <span className="dim small">{x.games} {x.games === 1 ? "game" : "games"}</span></td>
                                 <td>
-                                  <select value={players[x.mythic_id] ?? ""} aria-label={`${x.name} in ${group?.name}`} onChange={(e) => setPlayers((m) => ({ ...m, [x.mythic_id]: e.target.value || null }))}>
+                                  <select value={players[x.mythic_id] ?? ""} aria-label={`${x.name} in ${group?.name}`} onChange={(e) => { setPlayers((m) => ({ ...m, [x.mythic_id]: e.target.value || null })); dropMatches(); }}>
                                     <option value="">Keep the name {x.name}</option>
                                     {members.map((m) => <option key={m.id} value={m.id} disabled={taken(x.mythic_id, m)}>{m.display_name}</option>)}
                                   </select>

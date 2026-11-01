@@ -340,3 +340,35 @@ fn derived_ids_are_stable_uuids_per_person() {
     assert_ne!(a, derived_id("u2", "10"));
     assert!(uuid::Uuid::parse_str(&a).is_ok());
 }
+
+#[tokio::test]
+async fn a_yama_edit_during_apply_is_not_overwritten() {
+    let (app, pool) = app().await;
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": export(vec![mythic_game(80, "2026-10-04T01:00:00Z", 2, None)]) }))).await;
+    assert_eq!(a["created"], 1, "{a}");
+    let id = derived_id(&bryan, "80");
+    // The plan saw the game one way; by the time Apply writes it, someone edited it in Yama.
+    let seen = yama_print(&pool, &id).await.unwrap();
+    sqlx::query("UPDATE games SET winner_seat = 0 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    let game = NewGame {
+        id: id.clone(),
+        playgroup_id: None,
+        format: "commander".into(),
+        starting_life: 40,
+        started_at: Some("2026-10-04T01:00:00+00:00".into()),
+        seats: vec![Seat {
+            seat: 0, member_id: None, user_id: Some(bryan.clone()), guest_name: None, ai_kind: None, deck_version_id: None,
+            deck_label: None, commander_name: None, final_life: None, eliminated_turn: None, eliminated_by_seat: None, fun: None, display_name: None,
+        }],
+        events: vec![],
+        finish: Some(Finish { winner_seat: None, turns: None, ended_at: None, first_seat: None, win_condition: None, seats: vec![] }),
+        note: Some(NOTE.into()),
+    };
+    let sync = Sync { mythic: "80", yama: &id, fingerprint: "a b", keep_yama: None, note: None, tags: &[] };
+    let r = save_game(&pool, &bryan, game, Some(&seen), sync).await;
+    assert!(matches!(r, Err(AppError::Conflict(_))));
+    let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(winner, Some(0));
+}

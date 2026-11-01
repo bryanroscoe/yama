@@ -390,6 +390,9 @@ struct Planned {
     /// The Yama game as last synced, kept when only Mythic's note changes: a note saved again
     /// mustn't make edits made in Yama since look synced.
     saved_yama: Option<String>,
+    /// The Yama game as the plan saw it: Apply writes only if it's still so, so an edit made in
+    /// Yama while a long import runs isn't overwritten.
+    seen_yama: Option<String>,
 }
 
 struct Plan {
@@ -575,7 +578,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
         let built = build(g, &ctx);
         let choice = req.choices.get(&mythic_id).map(String::as_str);
         let derived = derived_id(owner, &mythic_id);
-        let mut p = Planned { mythic_id, built, status: "new", action: "create", yama_id: None, matches: vec![], saved_yama: None };
+        let mut p = Planned { mythic_id, built, status: "new", action: "create", yama_id: None, matches: vec![], saved_yama: None, seen_yama: None };
         let Ok(b) = &p.built else {
             (p.status, p.action) = ("invalid", "skip");
             games.push(p);
@@ -585,10 +588,10 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             p.yama_id = Some(yama.clone());
             p.saved_yama = saved_yama(changed.as_deref()).map(str::to_string);
             let row: Option<(String, String)> = sqlx::query_as("SELECT created_by, mode FROM games WHERE id = ?").bind(yama).fetch_optional(pool).await?;
-            let edited_in_yama = match (&row, &p.saved_yama) {
-                (Some(_), Some(saved)) => *saved != yama_print(pool, yama).await?,
-                _ => false,
-            };
+            if row.is_some() {
+                p.seen_yama = Some(yama_print(pool, yama).await?);
+            }
+            let edited_in_yama = matches!((&p.saved_yama, &p.seen_yama), (Some(saved), Some(seen)) if saved != seen);
             (p.status, p.action) = match row {
                 None => ("deleted", "skip"),
                 // A game the bridge made: Mythic's changes are saved again.
@@ -828,7 +831,7 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     finish: Some(b.finish),
                     note: Some(NOTE.into()),
                 };
-                save_game(pool, owner, game, Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: None, note: b.note.as_deref(), tags: &b.tags }).await
+                save_game(pool, owner, game, p.seen_yama.as_deref(), Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: None, note: b.note.as_deref(), tags: &b.tags }).await
             }
             // Only Mythic's note changed, or a game matched to one logged in Yama: the game stays as
             // it is, and Mythic's note is kept privately.
@@ -879,9 +882,14 @@ async fn sync_game(pool: &SqlitePool, owner: &str, s: Sync<'_>) -> AppResult<()>
 
 /// A Mythic game saved as a Yama game, with its link and note, in one commit: a failure leaves
 /// the game, link and note all as they were, so importing the file again finishes the job.
-async fn save_game(pool: &SqlitePool, owner: &str, game: NewGame, s: Sync<'_>) -> AppResult<()> {
+async fn save_game(pool: &SqlitePool, owner: &str, game: NewGame, seen: Option<&str>, s: Sync<'_>) -> AppResult<()> {
     crate::games::check_game(pool, owner, &game).await?;
     let mut tx = pool.begin().await?;
+    if let Some(seen) = seen
+        && yama_print(&mut *tx, &game.id).await? != seen
+    {
+        return Err(AppError::Conflict("the game was changed in Yama during the import; preview again".into()));
+    }
     crate::games::create_game_in(&mut tx, owner, game).await?;
     sync_in(&mut tx, owner, s).await?;
     tx.commit().await?;
