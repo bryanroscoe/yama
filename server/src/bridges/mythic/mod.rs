@@ -261,7 +261,8 @@ struct Ctx<'a> {
 }
 
 fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
-    if g.formatid.is_some_and(|f| f != 6) {
+    // 6 is Commander in Mythic (`GET /formats`); a game that doesn't say isn't taken for one.
+    if g.formatid != Some(6) {
         return Err("only Commander games are imported for now".into());
     }
     let started = parse_time(&g.started_at).ok_or("Mythic has no start time for it")?;
@@ -280,6 +281,11 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
         return Err("a game needs 1 to 10 players".into());
     }
     players.sort_by_key(|p| p.position.unwrap_or(i64::MAX));
+    // The winner is named by account, or by managed id for a player without one.
+    let winner_at = winner.as_ref().and_then(|w| {
+        players.iter().position(|p| p.id.as_ref().and_then(id_of).as_ref() == Some(w))
+            .or_else(|| players.iter().position(|p| p.id.as_ref().and_then(id_of).is_none() && p.managed_player_id.as_ref().and_then(id_of).as_ref() == Some(w)))
+    });
 
     let (mut seats, mut rows) = (Vec::new(), Vec::new());
     let (mut winner_seat, mut first_seat) = (None, None);
@@ -297,7 +303,7 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
         };
         let deck = p.deck.as_ref().and_then(|d| clean(&d.name));
         let commander = p.deck.as_ref().and_then(|d| clean(&d.commander_name));
-        let won = winner.is_some() && p.id.as_ref().and_then(id_of) == winner;
+        let won = winner_at == Some(n);
         if won {
             winner_seat = Some(seat);
         }
@@ -468,6 +474,8 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
 
     let mut games = Vec::new();
     let mut ids = HashSet::new();
+    // Yama games chosen as matches in this upload: each can be one Mythic game's only.
+    let mut chosen: HashSet<String> = HashSet::new();
     for e in &req.export.games {
         let g = e.game();
         let Some(mythic_id) = id_of(&g.id) else {
@@ -526,7 +534,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
                 if !visible.iter().any(|v| v.id == target) {
                     return Err(AppError::NotFound("game to match"));
                 }
-                if linked_yama.contains(target) {
+                if linked_yama.contains(target) || !chosen.insert(target.to_string()) {
                     return Err(AppError::Conflict("that Yama game is already matched to another Mythic game".into()));
                 }
                 (p.status, p.action, p.yama_id) = ("match", "link", Some(target.to_string()));
@@ -682,7 +690,8 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     Err(e) => Err(e),
                 }
             }
-            "link" => Ok(()),
+            // The game stays as it was logged in Yama; only Mythic's note is kept, privately.
+            "link" => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
             _ => {
                 out.skipped += 1;
                 continue;

@@ -166,8 +166,22 @@ async fn a_game_already_in_yama_is_offered_and_only_linked() {
     assert_eq!(p["games"][0]["matches"][0]["id"], hand.as_str());
 
     let choice = json!({ "40": format!("link:{hand}") });
-    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": file(), "choices": choice }))).await;
+    // The same Yama game can't be chosen for two Mythic games.
+    let mut twin = mythic_game(41, "2026-10-04T13:00:00Z", 2, None);
+    twin["game"]["id"] = json!(41);
+    let both = json!({ "40": format!("link:{hand}"), "41": format!("link:{hand}") });
+    let (s, _) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": export(vec![mythic_game(40, "2026-10-04T12:00:00Z", 2, Some("Close one")), twin]), "choices": both }))).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM mythic_links WHERE kind = 'game'").fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 0);
+
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": export(vec![mythic_game(40, "2026-10-04T12:00:00Z", 2, Some("Close one"))]), "choices": choice }))).await;
     assert_eq!(a["linked"], 1, "{a}");
+    // Mythic's note is kept for the importer, beside the game logged by hand.
+    let (s, n) = send(&app, Method::GET, &format!("/api/bridges/mythic/games/{hand}/note"), Some(&token), None).await;
+    assert_eq!((s, n["note"].as_str()), (StatusCode::OK, Some("Close one")));
     // Nothing was written to the game logged by hand.
     let (n, note): (i64, Option<String>) =
         sqlx::query_as("SELECT (SELECT COUNT(*) FROM games), note FROM games WHERE id = ?").bind(&hand).fetch_one(&pool).await.unwrap();
@@ -186,8 +200,23 @@ async fn games_yama_cant_store_are_listed_not_imported() {
     unfinished["game"]["winners"] = json!([]);
     let mut other_format = mythic_game(51, "2026-10-04T01:00:00Z", 1, None);
     other_format["game"]["formatid"] = json!(1);
-    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": export(vec![unfinished, other_format]) }))).await;
-    assert_eq!((a["created"].as_i64(), a["skipped"].as_i64()), (Some(0), Some(2)), "{a}");
+    let mut no_format = mythic_game(52, "2026-10-04T01:00:00Z", 1, None);
+    no_format["game"]["formatid"] = Value::Null;
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": export(vec![unfinished, other_format, no_format]) }))).await;
+    assert_eq!((a["created"].as_i64(), a["skipped"].as_i64()), (Some(0), Some(3)), "{a}");
+}
+
+#[tokio::test]
+async fn a_guest_player_can_win() {
+    let (app, pool) = app().await;
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    // Dana, kept by Bryan without a Mythic account, won.
+    let mut g = mythic_game(60, "2026-10-04T01:00:00Z", 77, None);
+    g["game"]["winners"] = json!([{ "id": 77 }]);
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": export(vec![g]) }))).await;
+    assert_eq!(a["created"], 1, "{a}");
+    let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(derived_id(&bryan, "60")).fetch_one(&pool).await.unwrap();
+    assert_eq!(winner, Some(2));
 }
 
 #[test]
