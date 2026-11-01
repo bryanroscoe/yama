@@ -60,7 +60,9 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("lab_runs", "owner_id"),
     ("lab_usage", "owner_id"),
     ("lab_worker_instances", "owner_id"),
+    ("mythic_game_notes", "owner_id"),
     ("mythic_imports", "owner_id"),
+    ("mythic_links", "owner_id"),
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
     ("online_games", "host_id"),
@@ -148,6 +150,9 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("containers", "owner_id"),
     ("item_aliases", "owner_id"),
     ("applied_ops", "owner_id"),
+    // The Mythic Tools bridge: its links, and Mythic's notes kept for this account alone.
+    ("mythic_game_notes", "owner_id"),
+    ("mythic_links", "owner_id"),
     ("mythic_imports", "owner_id"),
     ("decks", "owner_id"),
 ];

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { formatLabel, winConditionLabel, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
+import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
@@ -145,6 +146,7 @@ export function GameDetailPage() {
         <div className="gd-title">
           <h1>{title}</h1>
           <p className="dim">{facts.join(" ")}</p>
+          {g.mode === "in_person" && <MythicNote gameId={g.id} />}
           {g.mode === "in_person" && !going && !isViewing() && (
             <div className="row">
               {g.can_edit && <button disabled={!decks.data && !decks.isError} onClick={() => setSheet("edit")}>Edit this game</button>}

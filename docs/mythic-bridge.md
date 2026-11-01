@@ -33,11 +33,16 @@ What Yama knows about Mythic Tools' private API, from exporting Bryan's own acco
 | Collection | `GET /user/collection`, `/user/lists`, `/user/lists/{id}` | `lists` is `{lists:{global:[…], user:[…]}}`. |
 | Exports | `GET /user/collection/export?format=…`, `GET /user/lists/{id}/export?format=…` | `format` is `mythictools`, `moxfield` or `manabox`. Answers `{url}`: a signed Google Cloud Storage link to the CSV. |
 | Collection rows | `GET /user/collection/search?page=&limit=` | Card-level JSON with `pagination`; quantities summed to the collection's card count. |
+| Card by Mythic id | `GET /card/id?id=…` | Decks in games name cards by Mythic's own ids (`commander_card_id`, `partner_card_id`; not Scryfall's). The web app calls this to show one; the import snippet uses it for commander names. Response shape assumed to carry `name`; not yet checked by hand. |
 | Commander aggregate | `GET /deck/{id}/platform-meta` | `{platformMeta:{totalDecks, stats:{games,wins,draws,losses,rate}}}` for that deck's commander across Mythic. Keyed by deck, not commander. |
 
 ## Writes the export side would use (untested)
 
 From the web client, not yet called: `POST /game` (create), `PUT /game/{id}/participation`, `POST /game/{id}/note`, `PUT /game/{id}/note`, `POST /game/{id}/tag`; `POST /deck`, `PUT /deck/{id}`, `PUT /deck/{id}/commander`; `POST /user/lists/{id}/cards`, `bulk-edit`, `bulk-move`, `bulk-remove`; deck import by Moxfield or Archidekt link. Games name other Mythic users, who may be asked to confirm their seat (`/user/pending-seats`). Try each on one test record first.
+
+## In Yama
+
+The games import (server `server/src/bridges/mythic`, web `web/src/bridges/mythic`, behind `YAMA_MYTHIC_BRIDGE=1`) takes the file `web/src/bridges/mythic/snippet.ts` saves when pasted into the console on mythic.tools: `/auth/signin`, `/games` pages, `/game/{id}` for each, and `/card/id` for commander names, with events and pictures dropped.
 
 ## Prototype
 

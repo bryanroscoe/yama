@@ -413,6 +413,13 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "game_seats", &[("game_id", t(&g6)), ("seat", V::I(1)), ("user_id", t(&v))]).await;
     let seats6 = json!([seat_json(0, &b, "bystander"), seat_json(1, &v, "victim")]).to_string();
     fill(&pool, "online_games", &[("game_id", t(&g6)), ("host_id", t(&b)), ("stage", t("over")), ("seats", t(seats6))]).await;
+    // The Mythic Tools bridge: the victim's links and its Mythic notes go, also on games that stay
+    // (its own g1, the bystander's g3); the bystander's own note and link on g1 stay.
+    fill(&pool, "mythic_game_notes", &[("owner_id", t(&v)), ("game_id", t(&g1))]).await;
+    fill(&pool, "mythic_game_notes", &[("owner_id", t(&v)), ("game_id", t(&g3))]).await;
+    fill(&pool, "mythic_game_notes", &[("owner_id", t(&b)), ("game_id", t(&g1))]).await;
+    fill(&pool, "mythic_links", &[("owner_id", t(&v)), ("kind", t("game")), ("yama_id", t(&g1))]).await;
+    fill(&pool, "mythic_links", &[("owner_id", t(&b)), ("kind", t("game")), ("yama_id", t(&g1))]).await;
 
     // Plans.
     fill(&pool, "plan_meta", &[("owner_id", t(&v))]).await;

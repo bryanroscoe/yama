@@ -23,6 +23,7 @@ import { DeckPage, DecksPage } from "./pages/Decks";
 import { ImportPage } from "./decks/ImportPage";
 import { DeckScanPage } from "./decks/DeckScanPage";
 import { GroupPage } from "./pages/Group";
+import { MythicImportPage } from "./bridges/mythic/MythicImport";
 import { LabLayout } from "./lab/LabLayout";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { PreconDetailPage } from "./lab/PreconDetail";
@@ -171,6 +172,7 @@ export function App() {
         <Route path="decks/:id" element={<DeckPage />} />
         <Route path="decks/:id/scan" element={<DeckScanPage />} />
         <Route path="group" element={<GroupPage />} />
+        <Route path="group/mythic" element={<MythicImportPage />} />
         <Route path="new" element={<WhatsNewPage />} />
         <Route path="admin" element={<AdminLayout />}>
           <Route index element={<PeoplePage />} />

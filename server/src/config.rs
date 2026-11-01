@@ -25,6 +25,9 @@ pub struct Config {
     /// Check each saved deck version with Commander Spellbook in the background (bracket
     /// estimate, flagged cards, combos). On unless `YAMA_DECK_CHECKS=0`; sends deck lists there.
     pub deck_checks: bool,
+    /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
+    /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
+    pub mythic_bridge: bool,
     /// The rules engine's card data (phase card-data.json). Online play is off without it.
     pub engine_card_data: Option<PathBuf>,
     /// Cloudflare Access team name (`<team>.cloudflareaccess.com`) and application audience
@@ -296,6 +299,7 @@ impl Config {
             cors_origins: list("YAMA_CORS_ORIGINS"),
             auto_import: flag("YAMA_AUTO_IMPORT"),
             deck_checks: !off("YAMA_DECK_CHECKS"),
+            mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
             cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),
