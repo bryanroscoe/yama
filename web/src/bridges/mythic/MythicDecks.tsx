@@ -15,8 +15,10 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
     queryFn: () => api<MythicDeckPreview>("/api/bridges/mythic/decks/preview", { method: "POST", json: request }),
     retry: false,
   });
+  // Apply leaves alone a Yama deck that changed after the preview the person saw.
+  const seen = Object.fromEntries((preview.data?.decks ?? []).flatMap((d) => (d.yama_version ? [[d.mythic_id, d.yama_version]] : [])));
   const apply = useMutation({
-    mutationFn: () => api<MythicApplied>("/api/bridges/mythic/decks/apply", { method: "POST", json: request }),
+    mutationFn: () => api<MythicApplied>("/api/bridges/mythic/decks/apply", { method: "POST", json: { ...request, seen } }),
     onSuccess: () => {
       setChoices({});
       void qc.invalidateQueries({ queryKey: ["mythic-deck-preview"] });
@@ -32,6 +34,11 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
       <h2 id="mythic-decks">Decks</h2>
       <p>A Mythic deck with the same commander as one of your Yama decks is linked to it; the others come in as new decks in the Mythic Tools folder. Linked decks update each other: importing again brings Mythic's changes, and a deck's page sends Yama's to Mythic.</p>
       <ErrorText error={preview.error} />
+      {preview.error && Object.keys(choices).length > 0 && (
+        <div className="row">
+          <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
+        </div>
+      )}
       {preview.isLoading && <p className="dim">Reading the decks…</p>}
       {p && (
         <>

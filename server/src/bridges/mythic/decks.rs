@@ -81,6 +81,10 @@ struct DeckRequest {
     /// linked before, "update" (Mythic's list replaces Yama's) or "keep" (Yama's stays).
     #[serde(default)]
     choices: HashMap<String, String>,
+    /// Per Mythic deck, the Yama deck's version the preview showed (`yama_version`). Apply leaves
+    /// a deck edited since then alone.
+    #[serde(default)]
+    seen: HashMap<String, String>,
 }
 
 /// What Yama compares of a list: commander and main deck, by card and count, sideboard aside.
@@ -159,8 +163,11 @@ struct Planned {
     status: &'static str,
     action: &'static str,
     yama_id: Option<String>,
-    /// The Yama deck's version when previewed: Apply leaves a deck edited since then alone.
+    /// The Yama deck's version as the person saw it in the preview (else as it is now): Apply
+    /// leaves a deck edited since then alone.
     seen_version: Option<String>,
+    /// The Yama deck's sideboard, which Mythic's main list doesn't have: an update keeps it.
+    side: Vec<DeckCard>,
     matches: Vec<DeckMatch>,
     cards: Vec<DeckCard>,
     prints: Vec<DeckPrint>,
@@ -177,6 +184,8 @@ struct DeckRow {
     action: &'static str,
     yama_id: Option<String>,
     yama_name: Option<String>,
+    /// The Yama deck's version this preview compared, to send back as `seen` with Apply.
+    yama_version: Option<String>,
     matches: Vec<DeckMatch>,
     cards: i64,
     commanders: Vec<String>,
@@ -241,6 +250,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &DeckRequest) -> AppResult<Ve
             action: "import",
             yama_id: None,
             seen_version: None,
+            side: vec![],
             matches: vec![],
             cards,
             prints,
@@ -266,7 +276,8 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &DeckRequest) -> AppResult<Ve
                 out.push(p);
                 continue;
             };
-            p.seen_version = deck.version.clone();
+            p.seen_version = req.seen.get(&p.mythic_id).cloned().or_else(|| deck.version.clone());
+            p.side = deck.cards.iter().filter(|c| c.board == Board::Side).cloned().collect();
             let saved = saved.as_deref().and_then(|s| s.split(' ').next()).unwrap_or_default();
             let here = list_print(&deck.cards);
             let (mythic_changed, yama_changed) = (p.print != saved, here != saved);
@@ -306,7 +317,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &DeckRequest) -> AppResult<Ve
                 return Err(AppError::Conflict("that Yama deck is already chosen for another Mythic deck".into()));
             }
             (p.status, p.action, p.yama_id) = ("match", "link", Some(target.to_string()));
-            p.seen_version = mine.get(target).and_then(|d| d.version.clone());
+            p.seen_version = req.seen.get(&p.mythic_id).cloned().or_else(|| mine.get(target).and_then(|d| d.version.clone()));
             Ok(())
         };
         match choice {
@@ -353,6 +364,7 @@ async fn preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Jso
                 action: p.action,
                 yama_id: p.yama_id,
                 yama_name,
+                yama_version: p.seen_version,
                 matches: p.matches,
                 unknown: p.unknown,
                 reason: p.reason,
@@ -393,6 +405,15 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
 /// A Mythic deck as a new Yama deck, linked, in one commit.
 async fn import_deck(pool: &SqlitePool, owner: &str, p: &Planned) -> AppResult<String> {
     let mut tx = pool.begin().await?;
+    // Another Apply (another tab, a retry) may have imported it already: one Yama deck per Mythic deck.
+    let done: Option<String> = sqlx::query_scalar("SELECT yama_id FROM mythic_links WHERE owner_id = ? AND kind = 'deck' AND mythic_id = ?")
+        .bind(owner)
+        .bind(&p.mythic_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if done.is_some() {
+        return Err(AppError::Conflict("this Mythic deck was just imported; preview again".into()));
+    }
     let id = crate::decks::create_deck_in(&mut tx, owner, &p.name, Some(FOLDER), &p.cards, "Imported from Mythic Tools").await?;
     let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&mut *tx).await?;
     link_in(&mut tx, owner, "deck", &p.mythic_id, &id, Some(&format!("{} {version}", p.print))).await?;
@@ -416,14 +437,20 @@ async fn sync_deck(pool: &SqlitePool, owner: &str, p: &Planned) -> AppResult<()>
         return Err(AppError::Conflict("the Yama deck changed since the preview; preview again".into()));
     }
     let version = if p.action == "update" {
-        Some(crate::decks::insert_version_in(&mut tx, yama, &p.cards, Some("Updated from Mythic Tools")).await?)
+        // Mythic's commander and main deck, and the sideboard Yama keeps.
+        let cards: Vec<DeckCard> = p.cards.iter().chain(&p.side).cloned().collect();
+        Some(crate::decks::insert_version_in(&mut tx, yama, &cards, Some("Updated from Mythic Tools")).await?)
     } else {
         now_version
     };
     link_in(&mut tx, owner, "deck", &p.mythic_id, yama, Some(&format!("{} {}", p.print, version.unwrap_or_default()))).await?;
     tx.commit().await?;
     if p.action == "update" {
-        crate::deck_import::save_prints(pool, yama, &p.prints).await?;
+        // Mythic's printings, except where the owner marked a proxy, which Mythic doesn't know.
+        let proxies: HashSet<String> =
+            sqlx::query_scalar("SELECT oracle_id FROM deck_prints WHERE deck_id = ? AND proxy != 0").bind(yama).fetch_all(pool).await?.into_iter().collect();
+        let prints: Vec<DeckPrint> = p.prints.iter().filter(|x| !proxies.contains(&x.oracle_id)).cloned().collect();
+        crate::deck_import::save_prints(pool, yama, &prints).await?;
     }
     Ok(())
 }

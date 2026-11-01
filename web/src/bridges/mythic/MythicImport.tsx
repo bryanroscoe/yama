@@ -128,6 +128,11 @@ export function MythicImportPage() {
             <section className="stack" aria-labelledby="mythic-check">
               <h2 id="mythic-check">3. Check and import</h2>
               <ErrorText error={preview.error} />
+              {preview.error && Object.keys(choices).length > 0 && (
+                <div className="row">
+                  <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
+                </div>
+              )}
               {preview.isLoading && <p className="dim">Reading the file…</p>}
               {p && (
                 <>

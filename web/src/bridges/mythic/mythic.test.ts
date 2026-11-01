@@ -60,7 +60,7 @@ describe("Mythic Tools import", () => {
   });
 
   it("says what Apply does with each deck", () => {
-    const deck = (over: Partial<MythicDeckRow> = {}): MythicDeckRow => ({ mythic_id: "9", name: "Ramp", status: "new", action: "import", yama_id: null, yama_name: null, matches: [], cards: 100, commanders: [], unknown: [], reason: null, ...over });
+    const deck = (over: Partial<MythicDeckRow> = {}): MythicDeckRow => ({ mythic_id: "9", name: "Ramp", status: "new", action: "import", yama_id: null, yama_name: null, yama_version: null, matches: [], cards: 100, commanders: [], unknown: [], reason: null, ...over });
     expect(deckStatusText(deck())).toBe("New, imported into the Mythic Tools folder");
     expect(deckStatusText(deck({ status: "match", action: "link", yama_name: "Éowyn" }))).toBe('Same commander as "Éowyn", linked to it');
     expect(deckStatusText(deck({ status: "yama_changed", action: "skip", yama_name: "Éowyn" }))).toBe('"Éowyn" changed since; send it to Mythic from its page');

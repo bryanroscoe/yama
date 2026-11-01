@@ -528,11 +528,27 @@ async fn mythic_decks_are_linked_imported_and_updated_both_ways() {
     let p = preview(json!({ "export": file(3, false) })).await;
     assert_eq!(rows(&p), [row("500", "unchanged", "skip"), row("501", "unchanged", "skip"), row("502", "invalid", "skip")], "{p}");
 
-    // Mythic's list changed: a new Yama version.
+    // A sideboard in Yama isn't a change Mythic would see.
+    let (s, r) = send(&app, Method::PUT, &format!("/api/decks/{ramp}"), Some(&token), Some(json!({
+        "cards": [dc("o-signet", "Arcane Signet", 1, "commander"), dc("o-forest", "Forest", 3, "main"), dc("o-sol", "Sol Ring", 1, "side")] }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    // Mythic's list changed: a new Yama version, keeping the sideboard. Not if the deck changed
+    // after the preview the person saw.
     let p = preview(json!({ "export": file(4, false) })).await;
     assert_eq!(rows(&p)[1], row("501", "update", "update"), "{p}");
-    let a = apply(json!({ "export": file(4, false) })).await;
+    let a = apply(json!({ "export": file(4, false), "seen": { "501": "an-older-version" } })).await;
+    assert_eq!((a["updated"].as_i64(), a["errors"].as_array().map(Vec::len)), (Some(0), Some(1)), "{a}");
+    let a = apply(json!({ "export": file(4, false), "seen": { "501": p["decks"][1]["yama_version"] } })).await;
     assert_eq!(a["updated"], 1, "{a}");
+    let side: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM decks d JOIN deck_versions v ON v.id = d.current_version_id, json_each(v.cards) j
+          WHERE d.id = ? AND j.value ->> 'board' = 'side'",
+    )
+    .bind(&ramp)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(side, 1);
     let qty: i64 = sqlx::query_scalar(
         "SELECT j.value ->> 'qty' FROM decks d JOIN deck_versions v ON v.id = d.current_version_id, json_each(v.cards) j
           WHERE d.id = ? AND j.value ->> 'oracle_id' = 'o-forest'",

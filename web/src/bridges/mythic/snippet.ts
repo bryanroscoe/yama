@@ -167,7 +167,10 @@ const SEND = String.raw`
     try {
       const b = await load(SEND.mythic_id);
       if (b.deck && !b.deck.deleted && String(b.deck.created_by) === mythicId) deck = b;
-    } catch (e) {}
+    } catch (e) {
+      // Only a deck that's gone gets replaced; a passing failure stops here, so it isn't doubled.
+      if (!/answered 404 /.test(String(e && e.message))) throw e;
+    }
   }
   if (!deck) {
     const ids = [];

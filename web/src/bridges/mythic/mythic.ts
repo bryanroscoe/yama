@@ -69,6 +69,8 @@ export interface MythicDeckRow {
   action: "import" | "link" | "update" | "keep" | "skip";
   yama_id: string | null;
   yama_name: string | null;
+  /** The Yama deck's version this preview compared; Apply sends it back. */
+  yama_version: string | null;
   matches: { id: string; name: string }[];
   cards: number;
   commanders: string[];
