@@ -5,7 +5,7 @@ import { researchWhere } from "./buildCatalog";
 import { CURRENT, cardsTarget, entryWhere, listTarget, swapPool, targetOptions } from "./checkTargets";
 import { BUZZ, TONES } from "./checkSound";
 import {
-  cardKey, classify, insteadOf, loadCheck, newCheck, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
+  cardKey, classify, insteadOf, loadCheck, newCheck, shownVerdict, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
   type CheckDraft, type CheckTarget,
 } from "./deckCheck";
 import { addCard, fixCard, removeCard } from "./deckScan";
@@ -41,6 +41,15 @@ describe("checking a deck", () => {
     ]);
     expect(verdictText(v[2]!).title).toBe("Already seen");
     expect(verdictText(v[1]!).title).toBe("Take out");
+  });
+
+  it("shows the card waiting to be counted over the camera, not the previous card", () => {
+    const cards = check(["Sol Ring"]).cards;
+    expect(shownVerdict(target, cards, null)).toMatchObject({ name: "Sol Ring", kind: "belongs" });
+    // Ancient Tomb is found but not counted yet (Keep going off, or it looks like another card).
+    expect(shownVerdict(target, cards, "Ancient Tomb")).toMatchObject({ name: "Ancient Tomb", kind: "out" });
+    expect(shownVerdict(target, cards, "Sol Ring")).toMatchObject({ kind: "duplicate", copy: 2 });
+    expect(shownVerdict(target, [], null)).toBeNull();
   });
 
   it("counts basics against the list's quantity", () => {

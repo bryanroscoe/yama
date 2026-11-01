@@ -18,7 +18,7 @@ import { buildFamilies, resolveBuildFamily } from "./buildCatalog";
 import { CURRENT, cardsTarget, listTarget, swapPool, targetOptions, type TargetOption } from "./checkTargets";
 import { playVerdict, unlockSound } from "./checkSound";
 import {
-  classify, loadCheck, newCheck, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
+  classify, loadCheck, newCheck, shownVerdict, stillMissing, storeCheck, takeOut, tally, toScanDraft, verdictText,
   type CheckDraft, type CheckTarget, type SwapPair, type Verdict,
 } from "./deckCheck";
 import { addCard, deviceFlag, fixCard, loadDraft, removeCard, setDeviceFlag, storeDraft } from "./deckScan";
@@ -262,7 +262,7 @@ function Instead({ pairs }: { pairs: SwapPair[] }) {
 const TONE: Record<Verdict["kind"], string> = { belongs: "is-good", out: "is-out", extra: "is-out", duplicate: "is-warn" };
 
 /** The newest card's verdict, big enough to read at arm's length. */
-function VerdictCard({ v, compact = false }: { v: Pick<Verdict, "name" | "kind" | "wanted" | "copy" | "instead">; compact?: boolean }) {
+function VerdictCard({ v, compact = false, pending = false }: { v: Pick<Verdict, "name" | "kind" | "wanted" | "copy" | "instead">; compact?: boolean; pending?: boolean }) {
   const text = verdictText(v);
   return (
     <div className={`deck-check-verdict ${TONE[v.kind]}${compact ? " is-compact" : ""}`} role="status" aria-live="assertive">
@@ -271,6 +271,7 @@ function VerdictCard({ v, compact = false }: { v: Pick<Verdict, "name" | "kind" 
         <b className="deck-check-title">{text.title}</b>
         <span className="deck-check-name">{v.name}</span>
         <span className="deck-check-detail">{text.detail} <Instead pairs={v.instead} /></span>
+        {pending && <span className="deck-check-detail">Not counted yet.</span>}
       </span>
     </div>
   );
@@ -391,7 +392,6 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
     };
   }, []);
   const sum = tally(target, verdicts);
-  const last = newest(verdicts);
   const recent = [...draft.cards].sort((a, b) => b.at - a.at).map((c) => c.name);
   /** What a card would be if counted now, before Keep adding or Count it puts it in. */
   const preview = (name: string) => classify(target, [...draft.cards, { key: "preview", name, at: Number.MAX_SAFE_INTEGER }])[draft.cards.length]!;
@@ -434,7 +434,11 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
             controls={controls}
             acceptLabel="Count it and check next"
             renderResult={(card) => <VerdictCard v={preview(card.name)} compact />}
-            overlay={last ? <div className="deck-check-overlay"><VerdictCard v={last} /></div> : null}
+            overlay={(pending) => {
+              // A card waiting for Count it shows its own verdict, never the previous card's.
+              const v = shownVerdict(target, draft.cards, pending?.name ?? null);
+              return v ? <div className="deck-check-overlay"><VerdictCard v={v} pending={!!pending} /></div> : null;
+            }}
           />
           {reviewing && (
             <Sheet onClose={() => setReviewing(false)} label="Checked cards">

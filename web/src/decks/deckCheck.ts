@@ -77,6 +77,14 @@ export function insteadOf(name: string, target: CheckTarget): SwapPair[] {
   return out;
 }
 
+/** The verdict shown over the camera: the card found and waiting to be counted, if any, else the
+ * newest card counted. Never an older card while a new one waits. */
+export function shownVerdict(target: CheckTarget, cards: ScannedCard[], pending: string | null): Verdict | null {
+  if (pending !== null) return classify(target, [...cards, { key: "pending", name: pending, at: Number.MAX_SAFE_INTEGER }])[cards.length]!;
+  const vs = classify(target, cards);
+  return vs.length ? vs.reduce((a, b) => (b.at > a.at ? b : a)) : null;
+}
+
 /** Every scanned card's verdict, in scan order. Basics count against the target's quantity. */
 export function classify(target: CheckTarget, cards: ScannedCard[]): Verdict[] {
   const want = counts(target.cards);

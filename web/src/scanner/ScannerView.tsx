@@ -70,8 +70,10 @@ export interface ScannerViewProps {
   renderResult?: (card: ScanCandidate) => ReactNode;
   /** Only the card's identity matters: no printing, price or picker. */
   identityOnly?: boolean;
-  /** Shown over the camera view, under the top buttons (the deck check's verdict). */
-  overlay?: ReactNode;
+  /** Shown over the camera view, under the top buttons (the deck check's verdict). A function is
+   * given the card found and waiting to be accepted, else null, so the overlay never shows an
+   * older card while a new one waits. */
+  overlay?: ReactNode | ((pending: ScanCandidate | null) => ReactNode);
   /** The word for what accepting does, in the camera's chips: "Added" unless set ("Checked"). */
   addedWord?: string;
   /** Buzz on a find, an add or a needed tap (where the browser can). Default on. */
@@ -854,7 +856,7 @@ export function ScannerView({
           ) : (
             <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
-        {overlay}
+        {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
           {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
         </span>
