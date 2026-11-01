@@ -12,7 +12,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { RELAY_TOKEN, relayShareKey } from "../../packages/core/src/relayKey";
-import { hasRoom, join, leave, message, type Allowance, type Role, type RoomIo } from "./room";
+import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
 
 interface Env {
   ROOMS: DurableObjectNamespace<TableRoom>;
@@ -70,9 +70,7 @@ export class TableRoom extends DurableObject<Env> {
     },
     loadSnapshot: () => this.ctx.storage.kv.get<string>("snapshot"),
     saveSnapshot: (text) => this.ctx.storage.kv.put("snapshot", text),
-    // Attachments live with the socket in memory, not in storage: free, and kept across hibernation.
-    allowance: (s) => (s.deserializeAttachment() as Allowance | null) ?? undefined,
-    setAllowance: (s, a) => s.serializeAttachment(a),
+    memory: {},
     now: () => Date.now(),
   };
 

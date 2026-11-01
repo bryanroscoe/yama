@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { MAX_EVENT, MAX_GUESTS, MAX_SNAPSHOT, TAP_BURST, TAPS_PER_SECOND, hasRoom, join, leave, message, type Allowance, type Role, type RoomIo } from "./room";
+import { MAX_EVENT, MAX_GUESTS, MAX_SNAPSHOT, SAVE_EVERY_MS, TAP_BURST, TAPS_PER_SECOND, hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
 
 interface Fake {
   role: Role;
   open: boolean;
   got: string[];
   closed?: { code: number; reason: string };
-  allowance?: Allowance;
 }
 
 function fakeRoom() {
   const all: Fake[] = [];
   let snapshot: string | undefined;
+  let saves = 0;
   const clock = { now: 1_000_000 };
   const io: RoomIo<Fake> = {
     sockets: (role) => all.filter((s) => s.open && (!role || s.role === role)),
@@ -22,9 +22,11 @@ function fakeRoom() {
       s.closed = { code, reason };
     },
     loadSnapshot: () => snapshot,
-    saveSnapshot: (t) => void (snapshot = t),
-    allowance: (s) => s.allowance,
-    setAllowance: (s, a) => void (s.allowance = a),
+    saveSnapshot: (t) => {
+      snapshot = t;
+      saves++;
+    },
+    memory: {},
     now: () => clock.now,
   };
   const connect = (role: Role) => {
@@ -33,11 +35,16 @@ function fakeRoom() {
     join(io, s);
     return s;
   };
-  return { io, connect, clock, snapshot: () => snapshot };
+  /** The Durable Object slept: its memory is gone, its storage and sockets aren't. */
+  const sleep = () => void (io.memory = {});
+  return { io, connect, clock, sleep, snapshot: () => snapshot, saves: () => saves };
 }
 
 const state = (life: number, extra: object = {}) => JSON.stringify({ type: "state", setup: { id: "g1" }, log: [{ life }], ...extra });
 const tap = JSON.stringify({ type: "event", event: { type: "life", seat: 1, delta: -1 } });
+const resend = JSON.stringify({ type: "resend" });
+/** What reached the host from guests, leaving out the room asking it to resend. */
+const taps = (host: Fake) => host.got.filter((t) => t !== resend);
 
 describe("table room", () => {
   it("passes the host's snapshots to guests and guests' taps to the host", () => {
@@ -48,7 +55,7 @@ describe("table room", () => {
     message(r.io, host, state(40));
     expect(guest.got.at(-1)).toBe(state(40));
     message(r.io, guest, tap);
-    expect(host.got).toEqual([tap]);
+    expect(taps(host)).toEqual([tap]);
   });
 
   it("catches up a late joiner with the newest snapshot, even while the host is away", () => {
@@ -83,8 +90,8 @@ describe("table room", () => {
     leave(r.io, first);
     expect(guest.got.length).toBe(before);
     message(r.io, guest, tap);
-    expect(second.got).toEqual([tap]);
-    expect(first.got).toEqual([]);
+    expect(taps(second)).toEqual([tap]);
+    expect(taps(first)).toEqual([]);
   });
 
   it("never lets a guest speak for the host", () => {
@@ -104,9 +111,9 @@ describe("table room", () => {
     for (const junk of ["not json", "[]", "null", '{"type":"event"}', '{"type":"event","event":{"seat":1}}', '{"type":"state","setup":{},"log":[]}']) {
       message(r.io, guest, junk);
     }
-    expect(host.got).toEqual([]);
+    expect(taps(host)).toEqual([]);
     message(r.io, guest, JSON.stringify({ type: "event", event: { type: "life", seat: 1, delta: 2 }, from: "someone else", extra: 1 }));
-    expect(host.got).toEqual([JSON.stringify({ type: "event", event: { type: "life", seat: 1, delta: 2 } })]);
+    expect(taps(host)).toEqual([JSON.stringify({ type: "event", event: { type: "life", seat: 1, delta: 2 } })]);
   });
 
   it("ignores host messages that aren't snapshots", () => {
@@ -141,18 +148,64 @@ describe("table room", () => {
     expect(hasRoom(r.io, "host")).toBe(true);
   });
 
-  it("drops a guest's taps beyond a burst, and lets them through again as time passes", () => {
+  it("drops guests' taps beyond a burst, room-wide, and lets them through again as time passes", () => {
     const r = fakeRoom();
     const host = r.connect("host");
     const guest = r.connect("guest");
     for (let i = 0; i < TAP_BURST + 10; i++) message(r.io, guest, tap);
-    expect(host.got.length).toBe(TAP_BURST);
+    expect(taps(host).length).toBe(TAP_BURST);
+    // Reconnecting, or another phone, doesn't buy a fresh allowance.
+    guest.open = false;
+    const again = r.connect("guest");
+    message(r.io, again, tap);
+    message(r.io, r.connect("guest"), tap);
+    expect(taps(host).length).toBe(TAP_BURST);
     r.clock.now += 1000;
-    for (let i = 0; i < TAPS_PER_SECOND + 5; i++) message(r.io, guest, tap);
-    expect(host.got.length).toBe(TAP_BURST + TAPS_PER_SECOND);
-    // Each guest has its own allowance.
-    const other = r.connect("guest");
-    message(r.io, other, tap);
-    expect(host.got.length).toBe(TAP_BURST + TAPS_PER_SECOND + 1);
+    for (let i = 0; i < TAPS_PER_SECOND + 5; i++) message(r.io, again, tap);
+    expect(taps(host).length).toBe(TAP_BURST + TAPS_PER_SECOND);
+  });
+
+  it("stores snapshots at most every few seconds, and the newest when the host leaves", () => {
+    const r = fakeRoom();
+    const host = r.connect("host");
+    const guest = r.connect("guest");
+    for (let life = 40; life > 30; life--) message(r.io, host, state(life));
+    expect(r.saves()).toBe(1);
+    expect(r.snapshot()).toBe(state(40));
+    // Guests got every one.
+    expect(guest.got.at(-1)).toBe(state(31));
+    r.clock.now += SAVE_EVERY_MS;
+    message(r.io, host, state(30));
+    expect(r.saves()).toBe(2);
+    message(r.io, host, state(29));
+    host.open = false;
+    leave(r.io, host);
+    expect(r.snapshot()).toBe(state(29));
+    expect(r.saves()).toBe(3);
+  });
+
+  it("stores the next game's link at once", () => {
+    const r = fakeRoom();
+    const host = r.connect("host");
+    message(r.io, host, state(40));
+    message(r.io, host, state(40, { next: { gameId: "g2", key: "k" } }));
+    expect(r.snapshot()).toContain('"next"');
+  });
+
+  it("after sleeping, gives a joiner the stored snapshot and asks the host for the newest", () => {
+    const r = fakeRoom();
+    const host = r.connect("host");
+    message(r.io, host, state(40));
+    message(r.io, host, state(39));
+    r.sleep();
+    const late = r.connect("guest");
+    expect(late.got).toEqual([JSON.stringify({ type: "host", connected: true }), state(40)]);
+    expect(host.got.at(-1)).toBe(resend);
+    message(r.io, host, state(39));
+    expect(late.got.at(-1)).toBe(state(39));
+    // Awake again, nobody else asks.
+    host.got.length = 0;
+    r.connect("guest");
+    expect(host.got).toEqual([]);
   });
 });

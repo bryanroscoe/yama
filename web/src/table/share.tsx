@@ -166,6 +166,11 @@ function open(gameId: string, attempt = 0) {
     try {
       const msg = JSON.parse(m.data) as { type: string; event?: TableEvent };
       if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type)) dispatch(msg.event);
+      // The Cloudflare relay slept and lost its newest copy, and someone joined.
+      else if (msg.type === "resend") {
+        lastSent = null;
+        sendSnapshot();
+      }
     } catch {
       /* ignore malformed */
     }
