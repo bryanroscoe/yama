@@ -624,7 +624,9 @@ pub(crate) async fn save_new(pool: &SqlitePool, owner: &str, document: &Value) -
     let id = document["id"].as_str().unwrap();
     let encoded = serde_json::to_string(document).map_err(anyhow::Error::from)?;
     let hash = sha256_hex(&encoded);
-    let mut tx = pool.begin().await?;
+    // Write lock first: two copies at once then wait in turn (busy timeout) rather than one
+    // failing when its read snapshot goes stale at the insert.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM research_reports WHERE owner_id=?").bind(owner).fetch_one(&mut *tx).await?;
     if count >= 20 {
         return Err(AppError::bad("Keep at most 20 research reports per account."));

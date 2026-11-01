@@ -635,6 +635,13 @@ async fn a_shared_note_can_be_copied_without_its_private_parts() {
     late["title"] = json!("Replaced?");
     assert!(crate::deck_research::save_new(&pool, &bryan, &late).await.unwrap().is_none());
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await.1["document"]["title"], "Precon upgrade notes");
+    // Copies at the same moment each get their own note.
+    let (a, b) = tokio::join!(
+        send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token))),
+        send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token)))
+    );
+    assert_eq!((a.0, b.0), (StatusCode::OK, StatusCode::OK), "{} {}", a.1, b.1);
+    assert_ne!(a.1["id"], b.1["id"]);
     // Its pages offer the copy.
     let link = format!("href=\"/decks/research?copy={token}\"");
     assert!(page(&app, &format!("/r/{token}")).await.2.contains(&link));
