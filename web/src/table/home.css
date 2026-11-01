@@ -33,21 +33,6 @@
   gap: 10px 32px;
 }
 /* Phones: the playgroup is a quiet picker beside the title. */
-.new-game2 .ng-group-quiet {
-  flex: 0 0 auto;
-  display: block;
-}
-.new-game2 .ng-group-quiet select {
-  width: auto;
-  max-width: 11rem;
-  min-height: var(--target);
-  border: none;
-  background-color: transparent;
-  color: var(--dim);
-  font-size: var(--t-sm);
-  padding: 0 4px;
-  text-align: right;
-}
 
 /* Laptops: seat cards beside a sketch of the phone, the start button by the title. */
 .ng-body {
@@ -760,4 +745,53 @@ a.rg-row:focus-visible {
 }
 .gd-delete p {
   margin: 0;
+}
+
+/* Install Yama: a raised card between the game and Recent games, until installed or waved off. */
+.install-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 2rem;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.install-card p {
+  margin: 0;
+  flex: 1 1 18rem;
+}
+
+/* Who's playing: a row of people to tap; the ones seated are filled in white. */
+.who-playing {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 20px;
+}
+.who-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.who-chip {
+  min-height: var(--target);
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  font-weight: 700;
+}
+.who-chip[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--ground);
+  border-color: var(--text);
+}
+.who-chip-sub {
+  font-weight: 400;
+  opacity: 0.75;
+}
+.who-playing .segmented {
+  flex-wrap: wrap;
+  border-radius: 22px;
 }

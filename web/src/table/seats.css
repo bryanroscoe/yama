@@ -27,3 +27,16 @@
   flex: 0 0 auto;
   align-self: end;
 }
+
+/* Under a seat's deck: which of its lists, which of its commanders. */
+.seat-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.seat-choice-row {
+  align-self: start;
+  flex-wrap: wrap;
+  border-radius: 22px;
+}
