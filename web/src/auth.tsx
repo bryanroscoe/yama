@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
 import { Details, ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
@@ -8,6 +9,7 @@ import { clearPlanData } from "./plan/store";
 import "./auth.css";
 import { noteViewing } from "./viewing";
 import { Landing } from "./pages/Landing";
+import { chooseGuest } from "./guest";
 
 const ME_KEY = "yama.me";
 
@@ -147,6 +149,7 @@ function loadGoogle(): Promise<void> {
 
 export function Login() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const config = useAuthConfig();
   const googleRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<unknown>(null);
@@ -156,6 +159,9 @@ export function Login() {
 
   const signedIn = (r: { user: User; token: string }) => {
     setToken(r.token);
+    // Remembered now, not at the next check: games started or saved from here on are this account's.
+    localStorage.setItem(ME_KEY, JSON.stringify(r.user));
+    chooseGuest(false);
     qc.setQueryData(["me"], r.user);
   };
 
@@ -211,6 +217,17 @@ export function Login() {
       {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
       {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
+      <button
+        className="login-secondary"
+        onClick={() => {
+          chooseGuest(true);
+          // Any other page here needs an account; counting without one starts at the Table page.
+          if (location.pathname !== "/") navigate("/", { replace: true });
+        }}
+      >
+        Count life without an account
+      </button>
       {config.data?.cf_access && (
         <div className="stack">
           <p className="dim">Yama signs you in with the email your host invited.</p>

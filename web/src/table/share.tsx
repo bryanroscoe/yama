@@ -139,12 +139,31 @@ let liveTimer: number | null = null;
 /** The last snapshot sent: the store emits on every sync, and most change nothing. */
 let lastSent: string | null = null;
 
+/**
+ * The game goes to the relay at most this often while it changes (always the newest; nothing is
+ * lost), so guests tapping fast can't make this phone use up its share of the relay's messages.
+ */
+export const SNAPSHOT_EVERY_MS = 200;
+let lastSentAt = 0;
+let snapshotTimer: number | null = null;
+
+/** Send the game soon: now if the last one went long enough ago, else once the wait is over. */
+function queueSnapshot() {
+  if (snapshotTimer !== null) return;
+  const wait = Math.max(0, lastSentAt + SNAPSHOT_EVERY_MS - Date.now());
+  snapshotTimer = window.setTimeout(() => {
+    snapshotTimer = null;
+    sendSnapshot();
+  }, wait);
+}
+
 function sendSnapshot() {
   const g = getGame();
   if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
   const msg = JSON.stringify({ type: "state", setup: g.setup, log: g.log });
   if (msg === lastSent) return;
   lastSent = msg;
+  lastSentAt = Date.now();
   socket.send(msg);
 }
 
@@ -187,7 +206,10 @@ function open(gameId: string, attempt = 0) {
     // Keep trying while we're still sharing this game; the table works offline meanwhile.
     if (status.gameId === gameId) {
       const next = opened ? 0 : attempt + 1;
-      retry = window.setTimeout(() => open(gameId, next), Math.min(15_000, 1000 * 2 ** next));
+      // Too many from this network (the relay closes with 4429): wait out the minute rather than
+      // knocking again and using up the table's shared allowance. Otherwise back off, spread out.
+      const wait = e.code === 4429 ? 60_000 : Math.min(15_000, 1000 * 2 ** next) * (0.75 + Math.random() / 2);
+      retry = window.setTimeout(() => open(gameId, next), wait);
     }
   };
 }
@@ -226,7 +248,7 @@ export function startHosting(gameId: string) {
   unsubscribe = subscribeTable(() => {
     const g = getGame();
     if (!g || g.setup.id !== gameId) stopHosting(); // game finished or discarded
-    else sendSnapshot();
+    else queueSnapshot();
   });
   if (hostRelay(gameId) === "edge") {
     // The Cloudflare relay needs nothing from Yama's server, so the table is live at once.
@@ -275,9 +297,9 @@ async function tellOwnDevices(gameId: string) {
 
 /** Stop sharing on this phone, without telling the server. */
 function reset() {
-  for (const t of [retry, postWait]) if (t) window.clearTimeout(t);
+  for (const t of [retry, postWait, snapshotTimer]) if (t) window.clearTimeout(t);
   if (liveTimer) window.clearInterval(liveTimer);
-  retry = postWait = liveTimer = null;
+  retry = postWait = liveTimer = snapshotTimer = null;
   unsubscribe?.();
   unsubscribe = null;
   const s = socket;

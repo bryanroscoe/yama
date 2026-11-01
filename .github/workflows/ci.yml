@@ -16,28 +16,38 @@ permissions:
 concurrency:
   # A manual diagnostic run must never cancel the push CI that authorizes release.
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer PR push supersedes its old run. Push CI on main is never cancelled: merges land
+  # every few minutes and a cold Rust build takes ~25, so cancelling meant main CI never
+  # finished, nothing deployed and the Rust cache (saved only by main) was never written.
+  # GitHub keeps one main run going and only the newest waiting behind it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Ready PRs only: skips the web and Rust jobs when the head commit records local
-  # checks on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label.
-  # Pushes to main and manual runs never consult it; push CI is the release gate.
+  # Ready PRs: skips the web and Rust jobs when the head commit records local checks
+  # on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label, and skips
+  # the Rust job alone when only web files changed.
+  # Pushes to main: skips both jobs only when a PR run already passed both on the very
+  # same tree (the passed-tree artifact below), so a merge isn't tested twice.
+  # Manual runs never consult it.
   gate:
     name: Local CI gate
     if: >-
-      github.event_name == 'pull_request' &&
-      !github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' &&
+       !github.event.pull_request.draft &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     # Same backend as the other jobs, so a hosted billing block can't stop it on saget.
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
     # A gate failure never fails CI: the web and Rust jobs then simply run.
     continue-on-error: true
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
       skip: ${{ steps.decide.outputs.skip }}
+      rust: ${{ steps.decide.outputs.rust }}
     steps:
       - name: Wait for saget CI capacity
         if: runner.environment == 'self-hosted'
@@ -45,19 +55,20 @@ jobs:
         run: |
           test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
           python3 /run/saget-ci/slot.py --step
-      # main's gate decides, never the copy in the PR under test.
+      # main's gate decides, never the copy in the PR under test (a push is main itself).
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
           sparse-checkout: scripts/ci/gate.py
           sparse-checkout-cone-mode: false
-      - name: Decide whether local checks cover this PR
+      - name: Decide which checks this change still needs
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python3 scripts/ci/gate.py
 
@@ -68,10 +79,10 @@ jobs:
     # explicit skip from the gate, a draft or a fork PR does not.
     if: >-
       !cancelled() &&
+      needs.gate.outputs.skip != 'true' &&
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        needs.gate.outputs.skip != 'true'))
+        github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
     steps:
@@ -89,6 +100,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
+          cache: npm
       - name: Check Node
         run: |
           node --version
@@ -103,10 +115,11 @@ jobs:
     needs: gate
     if: >-
       !cancelled() &&
+      needs.gate.outputs.skip != 'true' &&
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        needs.gate.outputs.skip != 'true'))
+        needs.gate.outputs.rust != 'false'))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
@@ -158,13 +171,35 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          # The hosted image leaves ~4 GiB free; drop toolsets CI never uses so the
+          # restored cache, the build and the swapfile fit.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           # Only the disposable hosted VM may create swap. Saget has no sudo.
           sudo fallocate -l 8G /swapfile-yama-ci
           sudo chmod 600 /swapfile-yama-ci
           sudo mkswap /swapfile-yama-ci
           sudo swapon /swapfile-yama-ci
+      # Cargo judges path dependencies by file time, and a fresh checkout is always
+      # newer than a cached build. Dating the engine's files to its commit lets the
+      # cached engine build count as fresh; the cache key holds the engine revision.
+      - name: Date the engine's files to its commit
+        if: runner.environment == 'github-hosted'
+        working-directory: yama-phase
+        run: |
+          stamp="$(git log -1 --format=%ct)"
+          git ls-files -z | xargs -0 touch -h -d "@$stamp"
+      # Hosted VMs start empty; restore dependency and engine builds from main.
+      # Only push CI on main saves, so PRs never evict main's cache.
+      - name: Restore the Rust build cache
+        if: runner.environment == 'github-hosted'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: yama -> target
+          key: phase-${{ steps.phase.outputs.sha }}
+          # rust-cache counts ../yama-phase as a workspace crate (its path starts with
+          # this workspace's path), so keep workspace crates or the engine is dropped.
+          cache-workspace-crates: 'true'
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Check Rust and dedicated cache
         run: |
           test "${RUSTUP_TOOLCHAIN:-}" = 1.98.1
@@ -173,7 +208,8 @@ jobs:
           fi
           rustc --version
           free -h
-          df -h . "$CARGO_TARGET_DIR/.."
+          df -h .
+          if [ -n "${CARGO_TARGET_DIR:-}" ]; then df -h "$CARGO_TARGET_DIR/.."; fi
       - name: Test the Rust workspace
         run: |
           git log -1 --format='Tested Yama revision: %H'
@@ -181,7 +217,10 @@ jobs:
           vmstat -w 30 &
           ci_monitor_pid=$!
           trap 'kill "$ci_monitor_pid" 2>/dev/null || true' EXIT
-          /usr/bin/time -v cargo test --locked
+          /usr/bin/time -v cargo test --locked --timings
+      - name: Show where Rust build time went
+        if: always()
+        run: python3 scripts/ci/build_timings.py "${CARGO_TARGET_DIR:-target}"
       - name: Report runner resources
         if: always()
         run: |
@@ -210,3 +249,22 @@ jobs:
         run: python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
       - name: Test list validation with Python optimization enabled
         run: python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
+      # Every check above passed on this tree (a PR tests its merge with main). Name an
+      # artifact after the tree so main's push CI can skip re-testing an identical merge;
+      # the gate there also confirms this run's web job passed.
+      - name: Note the tree these checks passed on
+        if: github.event_name == 'pull_request'
+        id: tested
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          printf 'tree %s\ncommit %s\nrun %s\n' "$tree" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-passed.txt"
+      - name: Publish the passed tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-passed-tree-${{ steps.tested.outputs.tree }}
+          path: ${{ runner.temp }}/ci-passed.txt
+          retention-days: 14
+          # Re-running all jobs reuses the run ID; replace the earlier attempt's artifact.
+          overwrite: true

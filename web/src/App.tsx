@@ -1,5 +1,8 @@
 import { useEffect } from "react";
 import { NavLink, Outlet, Route, Routes, useMatch } from "react-router";
+import { chooseGuest, setGuestActive, useGuestChosen } from "./guest";
+import { selectSlot } from "./table/store";
+import { useQueryClient } from "@tanstack/react-query";
 import { AdminLayout } from "./admin/AdminLayout";
 import { LabRunsPage } from "./admin/LabRuns";
 import { PeoplePage } from "./admin/People";
@@ -24,6 +27,7 @@ import { ImportPage } from "./decks/ImportPage";
 import { DeckScanPage } from "./decks/DeckScanPage";
 import { DeckCheckPage } from "./decks/DeckCheckPage";
 import { GroupPage } from "./pages/Group";
+import { MythicSentPage } from "./bridges/mythic/MythicDeck";
 import { MythicImportPage } from "./bridges/mythic/MythicImport";
 import { LabHead, LabLayout } from "./lab/LabLayout";
 import { PowerOnly } from "./components/PowerOnly";
@@ -99,6 +103,16 @@ function Shell() {
 
 export function App() {
   const me = useMe();
+  const guestChosen = useGuestChosen();
+  const qc = useQueryClient();
+  const guestNow = !me.data && guestChosen && !me.isPending;
+  // Counting without an account: an earlier session's lists (its games, playgroups, decks, people)
+  // go from this tab's cache, so nothing of that account shows.
+  useEffect(() => {
+    if (!guestNow) return;
+    const accountLists = new Set(["games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
+    qc.removeQueries({ predicate: (q) => accountLists.has(String(q.queryKey[0])) });
+  }, [guestNow, qc]);
   const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
   useEffect(() => {
@@ -118,7 +132,15 @@ export function App() {
     );
   }
   if (me.isPending) return null;
-  if (me.error) {
+  // Nobody signed in: the life counter on its own if they chose it (even with Yama's server
+  // unreachable, since it needs nothing from it), else the sign-in page.
+  const guest = !me.data && guestChosen;
+  setGuestActive(guest);
+  // The account's game only once an account is signed in: on the sign-in page the guest's game
+  // stays where it is, so backing out to the counter finds it again.
+  if (guest) selectSlot(true);
+  else if (me.data) selectSlot(false, me.data.id);
+  if (me.error && !guest) {
     return (
       <main className="login">
         <div className="login-inner">
@@ -126,9 +148,22 @@ export function App() {
             <Wordmark />
           </h1>
           <ErrorText error={me.error} />
-          <p className="dim">The server didn't answer. If you're offline, the life counter still works once you've signed in on this device.</p>
+          <p className="dim">The server didn't answer. If you're offline, the life counter still works: signed in on this device before, or without an account.</p>
+          {/* Counting without an account needs nothing from the server. */}
+          <button className="primary" onClick={() => chooseGuest(true)}>Count life without an account</button>
         </div>
       </main>
+    );
+  }
+  if (guest) {
+    return (
+      <Routes>
+        <Route path="/table/play" element={<TablePlay />} />
+        <Route index element={<TableHome />} />
+        {/* Anything else needs an account (a join link on Yama's own relay, an app asking to
+            connect, a deck): sign in, and the same address opens once signed in. */}
+        <Route path="*" element={<Login />} />
+      </Routes>
     );
   }
   if (!me.data) return <Login />;
@@ -187,6 +222,7 @@ export function App() {
         <Route path="decks/:id/check" element={<DeckCheckPage />} />
         <Route path="group" element={<GroupPage />} />
         <Route path="group/mythic" element={<MythicImportPage />} />
+        <Route path="mythic/sent" element={<MythicSentPage />} />
         <Route path="new" element={<WhatsNewPage />} />
         <Route path="admin" element={<AdminLayout />}>
           <Route index element={<PeoplePage />} />

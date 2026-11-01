@@ -310,3 +310,78 @@
     min-width: 80px;
   }
 }
+
+/* A row's sheet: another printing (picked or rescanned), and deleting the row. */
+.coll-printing h3 {
+  margin: 0;
+  font-size: var(--t-label);
+}
+.coll-printings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+.coll-page .coll-printing-choice {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 4px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+.coll-page .coll-printing-choice:hover,
+.coll-page .coll-printing-choice[aria-current="true"] {
+  background: var(--surface);
+}
+.coll-page .coll-printing-choice[aria-current="true"] {
+  box-shadow: inset 3px 0 0 var(--text);
+}
+.coll-printing-img {
+  display: block;
+  width: 40px;
+  border-radius: 3px;
+}
+.coll-printing-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.coll-page .coll-danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--ground);
+}
+.coll-page .coll-danger-quiet {
+  align-self: flex-start;
+  color: var(--bad);
+}
+.coll-delete {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bad-tint);
+}
+.coll-delete p {
+  margin: 0;
+}
+.coll-done {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--good-tint);
+}
+.coll-printing-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+}

@@ -15,6 +15,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api";
 import { isViewing } from "../viewingFlag";
+import { isGuest } from "../guest";
 
 export interface LocalGame {
   setup: TableSetup;
@@ -29,14 +30,39 @@ export interface LocalGame {
    */
   frozenThrough?: number;
   finishSynced?: boolean;
+  /**
+   * Counted without an account (guest.ts): it stays on this phone until whoever signs in here
+   * says to save it (saveGuestGames).
+   */
+  guest?: true;
+  /**
+   * The account whose game it is (signed in when it started, or that said to save it): it's only
+   * uploaded while that account is signed in here. Missing on games from before this was kept.
+   */
+  owner?: string;
 }
 
 const CURRENT = "yama.table.current";
+/**
+ * The game going without an account. Kept apart from an account's, so someone counting without
+ * one never sees (or overwrites) the game of an account that signed out on this device.
+ */
+const GUEST_CURRENT = "yama.table.guestCurrent";
+/**
+ * Which game this device shows: one account's ("account:<id>"), or the one without an account.
+ * Each account keeps its own, so someone signing in after another never sees (or discards) the
+ * other's game. "account:" (nobody known yet) is the old shared key, from before accounts had
+ * their own.
+ */
+let slot = "account:";
+const currentKey = () => (slot === "guest" ? GUEST_CURRENT : slot === "account:" ? CURRENT : `${CURRENT}.${slot.slice("account:".length)}`);
 const OUTBOX = "yama.table.outbox";
 /** Finished games the server refused (not a network problem). Kept so nothing is lost. */
 const REJECTED = "yama.table.rejected";
 /** Games to delete from Yama: discarded or deleted here, waiting for a connection. */
 const DELETES = "yama.table.deletes";
+/** Finished games counted without an account, waiting for someone to sign in and save them. */
+const GUEST_GAMES = "yama.table.guestGames";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -53,6 +79,7 @@ function read<T>(key: string, fallback: T): T {
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
 let outbox: LocalGame[] = read<LocalGame[]>(OUTBOX, []);
 let rejected: { game: LocalGame; error: string }[] = read(REJECTED, []);
+let guestGames: LocalGame[] = read<LocalGame[]>(GUEST_GAMES, []);
 /** Each delete remembers whose it is: it's only sent while that account is signed in here. */
 type QueuedDelete = { id: string; owner: string | null };
 let deletes: QueuedDelete[] = read<(QueuedDelete | string)[]>(DELETES, []).map((d) => (typeof d === "string" ? { id: d, owner: null } : d));
@@ -66,6 +93,8 @@ function signedInUser(): string | null {
   }
 }
 const mine = (d: QueuedDelete) => d.owner === null || d.owner === signedInUser();
+/** A game this device may upload now: no owner recorded, or the account signed in here. */
+const mineGame = (g: LocalGame) => !g.owner || g.owner === signedInUser();
 let pendingIds: string[] = [];
 let derived: TableState | null = current ? replay(current.setup, current.log) : null;
 let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | null } = {
@@ -75,17 +104,54 @@ let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | 
 };
 
 function emit() {
-  localStorage.setItem(CURRENT, JSON.stringify(current));
+  localStorage.setItem(currentKey(), JSON.stringify(current));
   localStorage.setItem(OUTBOX, JSON.stringify(outbox));
   localStorage.setItem(REJECTED, JSON.stringify(rejected));
   localStorage.setItem(DELETES, JSON.stringify(deletes));
+  localStorage.setItem(GUEST_GAMES, JSON.stringify(guestGames));
   for (const l of listeners) l();
 }
 
 function setCurrent(next: LocalGame | null) {
   current = next;
   derived = next ? replay(next.setup, next.log) : null;
-  emit();
+  // Called while App renders: the pages below it read the new game as they render, and anything
+  // already showing hears about it once the render is over.
+  localStorage.setItem(currentKey(), JSON.stringify(current));
+  queueMicrotask(emit);
+}
+
+/**
+ * Show the game without an account (guest) or the account's (App calls it as the mode changes,
+ * while it renders). The two never mix: a game counted without an account stays in its own slot
+ * until whoever signs in says to save it (saveGuestGames), so nothing an account does reaches it.
+ */
+export function selectSlot(guest: boolean, user?: string | null) {
+  const want = guest ? "guest" : `account:${user ?? ""}`;
+  if (slot === want) return;
+  slot = want;
+  current = read<LocalGame | null>(currentKey(), null);
+  // A game kept under the old shared key comes along only for its own account (or one from before
+  // games recorded theirs); another account's stays where it is until that account signs in.
+  if (!guest && user && !current) {
+    const old = read<LocalGame | null>(CURRENT, null);
+    if (old && (!old.owner || old.owner === user)) {
+      current = { ...old, owner: old.owner ?? user };
+      localStorage.removeItem(CURRENT);
+    }
+  }
+  derived = current ? replay(current.setup, current.log) : null;
+  waitingGuest = slot !== "guest" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
+  // The pages below App read the new game as they render; anything already showing hears about
+  // it once the render is over.
+  queueMicrotask(emit);
+}
+
+/** The game going without an account, as the signed-in account sees it: waiting to be saved. */
+// The device starts on the account's slot, so whatever waits in the guest slot is known from the start.
+let waitingGuest: LocalGame | null = read<LocalGame | null>(GUEST_CURRENT, null);
+export function useWaitingGuestGame() {
+  return useSyncExternalStore(subscribe, () => waitingGuest);
 }
 
 const subscribe = (l: Listener) => {
@@ -101,6 +167,48 @@ export function useTable() {
 
 export function useOutbox() {
   return useSyncExternalStore(subscribe, () => outbox);
+}
+
+/** Games counted on this phone without an account: the finished ones, and the one going. */
+export function useGuestGames() {
+  return useSyncExternalStore(subscribe, () => guestGames);
+}
+
+/**
+ * Put the games counted here without an account on the signed-in account, and upload them. The
+ * one still going comes along only into an empty slot (it becomes this device's game); with
+ * another game going it waits, and the question stays until that one is done.
+ */
+export function saveGuestGames() {
+  // Saved by the account signed in now: theirs, uploaded only while they're signed in here.
+  const owner = signedInUser() ?? undefined;
+  outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => ({ ...g, owner }))];
+  guestGames = [];
+  // A game marked as counted without an account in the account's own slot (left by an older
+  // version) is saved where it is.
+  if (current?.guest) {
+    const { guest: _, ...g } = current;
+    current = { ...g, owner };
+  }
+  if (slot !== "guest" && waitingGuest && !current) {
+    const { guest: _, ...g } = waitingGuest;
+    current = { ...g, owner };
+    derived = replay(g.setup, g.log);
+    waitingGuest = null;
+    localStorage.removeItem(GUEST_CURRENT);
+  }
+  emit();
+  void sync();
+}
+
+/** Throw away the games counted here without an account, the one going included. */
+export function dropGuestGames() {
+  guestGames = [];
+  if (slot !== "guest" && waitingGuest) {
+    waitingGuest = null;
+    localStorage.removeItem(GUEST_CURRENT);
+  }
+  emit();
 }
 
 export function useRejected() {
@@ -170,7 +278,8 @@ export function useSyncStatus() {
 }
 
 export function startGame(setup: TableSetup) {
-  setCurrent({ setup, log: [], redo: [], syncedThrough: 0 });
+  const owner = isGuest() ? undefined : (signedInUser() ?? undefined);
+  setCurrent({ setup, log: [], redo: [], syncedThrough: 0, ...(isGuest() ? { guest: true as const } : {}), ...(owner ? { owner } : {}) });
   void sync();
 }
 
@@ -214,8 +323,10 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   const fun = details.fun?.length ? details.fun : undefined;
   const winCondition = winnerSeat === null ? undefined : details.winCondition;
   log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
-  // A finished game uploads whole: drop the in-flight mark so nothing is held back.
-  outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
+  // A finished game uploads whole: drop the in-flight mark so nothing is held back. One counted
+  // without an account waits on this phone instead.
+  if (current.guest) guestGames = [...guestGames, { ...current, log, frozenThrough: undefined }];
+  else outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
   forgetPrompts(current.setup.id);
   setCurrent(null);
   void sync();
@@ -227,7 +338,7 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
  */
 export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
   const through = log[log.length - 1]?.seq ?? 0;
-  setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through });
+  setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through, ...(signedInUser() ? { owner: signedInUser()! } : {}) });
   posted.add(setup.id);
   void sync();
 }
@@ -239,7 +350,13 @@ function forgetPrompts(gameId: string) {
 
 /** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
-  if (current) void deleteGame(current.setup.id);
+  if (!current) return;
+  // Never uploaded: it only has to go from this phone.
+  if (current.guest) {
+    forgetPrompts(current.setup.id);
+    return setCurrent(null);
+  }
+  void deleteGame(current.setup.id);
 }
 
 /** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */
@@ -250,8 +367,10 @@ export function deckLabel(p: { deckLabel?: string; commanderName?: string; partn
 
 async function pushGame(g: LocalGame): Promise<number> {
   const s = g.setup;
-  // A seat that changed commanders mid-game uploads the one it has now.
+  // A seat that changed commanders or players mid-game uploads the one it has now.
   const now = new Map(replay(s, g.log).players.map((p) => [p.seat, p]));
+  const upTo = g.frozenThrough ?? Infinity;
+  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
   await api("/api/games", {
     method: "POST",
     json: {
@@ -260,21 +379,24 @@ async function pushGame(g: LocalGame): Promise<number> {
       format: s.format,
       starting_life: s.startingLife,
       started_at: s.startedAt,
-      seats: s.players.map((p) => ({
-        seat: p.seat,
-        member_id: p.memberId ?? null,
-        user_id: p.userId ?? null,
-        guest_name: p.memberId || p.userId ? null : p.name,
-        deck_version_id: (now.get(p.seat) ?? p).deckVersionId ?? null,
-        deck_label: deckLabel(now.get(p.seat) ?? p),
-        commander_name: now.get(p.seat)?.commanderName ?? null,
-      })),
+      seats: s.players.map((p) => {
+        const c = now.get(p.seat) ?? p;
+        return {
+          seat: p.seat,
+          member_id: c.memberId ?? null,
+          user_id: c.userId ?? null,
+          guest_name: c.memberId || c.userId ? null : c.name,
+          deck_version_id: c.deckVersionId ?? null,
+          deck_label: deckLabel(c),
+          commander_name: now.get(p.seat)?.commanderName ?? null,
+        };
+      }),
+      // The events ride along, so a seat's new player arrives with the "player" event that
+      // explains it (Yama refuses different players without one).
+      events: toServerEvents(fresh),
     },
   });
   posted.add(s.id);
-  const upTo = g.frozenThrough ?? Infinity;
-  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
-  if (fresh.length) await api(`/api/games/${s.id}/events`, { method: "POST", json: toServerEvents(fresh) });
   // Built from the log alone, so a retry sends exactly the same finish.
   const finish = toServerFinish(s, g.log);
   if (finish) await api(`/api/games/${s.id}/finish`, { method: "POST", json: finish });
@@ -293,14 +415,16 @@ export function sync(): Promise<void> {
   // An admin viewing as someone sends nothing: games recorded on this device wait until the view
   // ends (the server would refuse them, and they'd be set aside as rejected).
   if (isViewing()) return Promise.resolve();
+  // Nobody is signed in: there's no account to send anything to.
+  if (isGuest()) return Promise.resolve();
   if (inflight) return inflight;
   inflight = (async () => {
     syncState = { ...syncState, syncing: true };
     emit();
     try {
       // Finished games first: they're complete and the most valuable.
-      while (outbox.length) {
-        const g = outbox[0]!;
+      // Another account's games wait until it signs in here again.
+      for (let g = outbox.find(mineGame); g; g = outbox.find(mineGame)) {
         try {
           await pushGame(g);
         } catch (e) {
@@ -314,7 +438,7 @@ export function sync(): Promise<void> {
         emit();
       }
       await pushDeletes();
-      if (current) {
+      if (current && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
         const through = current.log[current.log.length - 1]?.seq ?? 0;
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };

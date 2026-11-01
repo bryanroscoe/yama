@@ -4,7 +4,7 @@
 //! (`?build=`), with how to pilot it, its changes from the starting list and the full list.
 use super::html::{card_views, credit, not_found, page, response, scryfall};
 use super::*;
-use crate::public_page::{bracket_name, e, identity as pips, when};
+use crate::public_page::{bracket_name, e, identity as pips, usd, when};
 use axum::extract::Query;
 use serde_json::Value;
 use std::fmt::Write;
@@ -58,8 +58,8 @@ async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(Stri
 /// a note can hold far longer text, and a public page mustn't do work in proportion to it.
 const MAX_LINES: usize = 300;
 
-/// A looked-up card: (name asked for, type line, mana value, layout, image).
-type Found = (String, Option<String>, f64, Option<String>, Option<String>);
+/// A looked-up card: (name asked for, type line, mana value, layout, image, oracle id).
+type Found = (String, Option<String>, f64, Option<String>, Option<String>, String);
 
 fn front(name: &str) -> &str {
     name.split(" // ").next().unwrap_or(name)
@@ -74,7 +74,7 @@ async fn lookup<'a>(pool: &SqlitePool, names: impl Iterator<Item = &'a str>) -> 
     names.sort();
     names.dedup();
     let rows: Vec<Found> = sqlx::query_as(
-        "SELECT j.value, c.type_line, c.cmc, c.layout, c.image_normal
+        "SELECT j.value, c.type_line, c.cmc, c.layout, c.image_normal, c.oracle_id
          FROM json_each(?) j JOIN card_names n ON n.name = j.value JOIN cards c ON c.oracle_id = n.oracle_id
          ORDER BY c.type_line LIKE 'Token%', json_extract(c.legalities, '$.commander') IS NOT 'legal'",
     )
@@ -103,7 +103,7 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
         .into_iter()
         .map(|line| {
             let (type_line, cmc, layout, image) = match found(&rows, &line.name) {
-                Some((_, t, cmc, layout, image)) => (t.clone(), *cmc, layout.clone(), scryfall_image(image.clone())),
+                Some((_, t, cmc, layout, image, _)) => (t.clone(), *cmc, layout.clone(), scryfall_image(image.clone())),
                 None => (None, 0.0, None, None),
             };
             SharedCard { name: line.name, qty: line.qty, board: line.board, type_line, cmc, layout, image, printing: None }
@@ -312,26 +312,203 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
     for name in &order {
         let n = adds.get(&same(name)).copied().unwrap_or(0);
         if n > 0 {
-            let why = match (ins.get(&same(name)), vs_outs.get(&same(name))) {
-                (Some(s), _) => text(s, "why").to_string(),
-                (None, Some(_)) => format!("Keeps the starting list's card; {vs_label} cuts it."),
-                _ => String::new(),
+            let (why, notes) = match (ins.get(&same(name)), vs_outs.get(&same(name))) {
+                (Some(s), _) => (text(s, "why").to_string(), labelled("", text(s, "pairing_note"))),
+                (None, Some(t)) => (format!("Keeps the starting list's card; {vs_label} cuts it."), labelled("", text(t, "pairing_note"))),
+                _ => Default::default(),
             };
-            rows.push(Change { add: name.clone(), n, why, ..Default::default() });
+            rows.push(Change { add: name.clone(), n, why, notes, ..Default::default() });
         }
     }
     for name in &vs_order {
         let n = cuts.get(&same(name)).copied().unwrap_or(0);
         if n > 0 {
-            let why = match (outs.get(&same(name)), vs_ins.get(&same(name))) {
-                (Some(s), _) => text(s, "why_out").to_string(),
-                (None, Some(t)) => format!("Only in {vs_label}: {}", text(t, "why")),
-                _ => String::new(),
+            let (why, notes) = match (outs.get(&same(name)), vs_ins.get(&same(name))) {
+                (Some(s), _) => (text(s, "why_out").to_string(), labelled("", text(s, "pairing_note"))),
+                (None, Some(t)) => (format!("Only in {vs_label}: {}", text(t, "why")), labelled("", text(t, "pairing_note"))),
+                _ => Default::default(),
             };
-            rows.push(Change { cut: name.clone(), n, why, ..Default::default() });
+            rows.push(Change { cut: name.clone(), n, why, notes, ..Default::default() });
         }
     }
     rows
+}
+
+/// A card at this market price or less is worth buying at a local store; above it, a printed
+/// proxy costs less. A card with no price is neither and stays out of the money totals.
+const BUY_UP_TO: f64 = 2.0;
+/// About what one printed proxy costs.
+const PRINT_EACH: f64 = 0.30;
+
+/// Copies to get and what they come to.
+#[derive(Default)]
+struct Totals {
+    cards: i64,
+    buy: i64,
+    buy_cost: f64,
+    print: i64,
+    print_cost: f64,
+    worth: f64,
+    unpriced: i64,
+}
+
+impl Totals {
+    fn add(&mut self, n: i64, price: Option<f64>) {
+        self.cards += n;
+        let copies = n as f64;
+        match price {
+            None => self.unpriced += n,
+            Some(p) if p > BUY_UP_TO => {
+                self.print += n;
+                self.print_cost += PRINT_EACH * copies;
+                self.worth += p * copies;
+            }
+            Some(p) => {
+                self.buy += n;
+                self.buy_cost += p * copies;
+                self.worth += p * copies;
+            }
+        }
+    }
+    /// Market worth, unknown (never $0) when no card has a price.
+    fn worth(&self) -> Option<f64> {
+        (self.buy + self.print > 0).then_some(self.worth)
+    }
+    /// Buys plus prints, unknown (never $0) when no card has a price.
+    fn cost(&self) -> Option<f64> {
+        (self.buy + self.print > 0).then_some(self.buy_cost + self.print_cost)
+    }
+}
+
+/// A card to get: copies, its market price and that price's date (the cheapest paper
+/// printing, as the planner prices), its image, and the decks it goes in.
+struct ToGet {
+    name: String,
+    n: i64,
+    price: Option<(f64, String)>,
+    image: String,
+    decks: Vec<String>,
+}
+
+impl ToGet {
+    fn usd(&self) -> Option<f64> {
+        self.price.as_ref().map(|p| p.0)
+    }
+}
+
+/// Prices the cards to get, given as (name, copies, deck), merging repeats of a name. One
+/// lookup for the names and one for the prices.
+// A Vec rather than an iterator: a borrowing closure held in a handler's future fails axum's
+// Send check ("FnOnce is not general enough").
+async fn to_get(pool: &SqlitePool, wanted: Vec<(String, i64, Option<String>)>) -> AppResult<Vec<ToGet>> {
+    let mut items: Vec<ToGet> = Vec::new();
+    let mut at: HashMap<String, usize> = HashMap::new();
+    for (name, n, deck) in wanted {
+        if name.is_empty() || n <= 0 {
+            continue;
+        }
+        let i = *at.entry(name.clone()).or_insert_with(|| {
+            items.push(ToGet { name, n: 0, price: None, image: String::new(), decks: Vec::new() });
+            items.len() - 1
+        });
+        items[i].n += n;
+        if let Some(d) = deck.filter(|d| !items[i].decks.contains(d)) {
+            items[i].decks.push(d);
+        }
+    }
+    let rows = lookup(pool, items.iter().map(|t| t.name.as_str())).await?;
+    let ids: Vec<&str> = items.iter().filter_map(|t| found(&rows, &t.name)).map(|f| f.5.as_str()).collect();
+    let prices = crate::deck_prices::prices_for(pool, &ids).await?;
+    for t in &mut items {
+        if let Some(f) = found(&rows, &t.name) {
+            t.price = prices.get(&f.5).cloned();
+            t.image = scryfall_image(f.4.clone()).unwrap_or_default();
+        }
+    }
+    Ok(items)
+}
+
+/// A card's name as a link that previews its image.
+fn card_ref(name: &str, image: &str) -> String {
+    format!("<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(image), e(&scryfall(name)))
+}
+
+fn count_cards(n: i64) -> String {
+    format!("{n} card{}", if n == 1 { "" } else { "s" })
+}
+
+/// The totals as pills, and how they're worked out.
+fn shopping_totals(t: &Totals, as_of: Option<String>) -> String {
+    let mut s = format!(
+        "<div class=\"share-status\"><span class=\"pill\">{}</span><span class=\"pill\">{} to buy locally: about {}</span><span class=\"pill\">{} to print: about {}</span><span class=\"pill\">{}</span><span class=\"pill\">{}</span></div>",
+        count_cards(t.cards),
+        t.buy,
+        usd(Some(t.buy_cost)),
+        t.print,
+        usd(Some(t.print_cost)),
+        t.worth().map_or("Worth unknown".into(), |w| format!("Worth {}", usd(Some(w)))),
+        t.cost().map_or("Cost unknown".into(), |c| format!("About {} to get", usd(Some(c)))),
+    );
+    write!(
+        s,
+        "<p class=\"dim share-shop-how\">Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{}. A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less. This is general advice from market prices, not the sharer's own plan. Worth is what the cards sell for. The cost is an estimate: buys at market price (a store's own price will differ) plus prints.",
+        as_of.unwrap_or_default(),
+        usd(Some(BUY_UP_TO)),
+        usd(Some(PRINT_EACH)),
+    )
+    .unwrap();
+    if t.unpriced > 0 {
+        write!(s, " {} without a market price in Yama {} out of the money totals.", count_cards(t.unpriced), if t.unpriced == 1 { "is" } else { "are" }).unwrap();
+    }
+    s.push_str("</p>");
+    s
+}
+
+/// Every card to get, cards to buy first, then prints, then cards without a price. `decks` adds
+/// a column for the decks each card goes in.
+fn shopping_table(items: &[ToGet], decks: bool) -> String {
+    let group = |t: &ToGet| match t.usd() {
+        Some(p) if p <= BUY_UP_TO => 0,
+        Some(_) => 1,
+        None => 2,
+    };
+    let mut sorted: Vec<&ToGet> = items.iter().collect();
+    sorted.sort_by(|a, b| group(a).cmp(&group(b)).then_with(|| a.name.cmp(&b.name)));
+    let mut s = String::from("<table class=\"share-collection share-shop\"><thead><tr><th scope=\"col\">Card</th>");
+    if decks {
+        s.push_str("<th scope=\"col\">Decks</th>");
+    }
+    s.push_str("<th scope=\"col\">Get it</th><th scope=\"col\" class=\"num\">Market</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
+    for t in sorted {
+        let count = if t.n > 1 { format!("{} × ", t.n) } else { String::new() };
+        write!(s, "<tr><td>{count}{}</td>", card_ref(&t.name, &t.image)).unwrap();
+        if decks {
+            write!(s, "<td class=\"dim\">{}</td>", e(&t.decks.join(", "))).unwrap();
+        }
+        let (how, cost) = match t.usd() {
+            Some(p) if p <= BUY_UP_TO => ("Buy locally", Some(p * t.n as f64)),
+            Some(_) => ("Print", Some(PRINT_EACH * t.n as f64)),
+            None => ("No price", None),
+        };
+        write!(s, "<td>{how}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>", usd(t.usd()), usd(cost)).unwrap();
+    }
+    s.push_str("</tbody></table>");
+    s
+}
+
+/// When the prices are from: one date, or the range when cards' prices are from different days.
+fn as_of(items: &[ToGet]) -> Option<String> {
+    let dates: Vec<&str> = items.iter().filter_map(|t| t.price.as_ref().map(|p| p.1.as_str())).collect();
+    let (first, last) = (dates.iter().min()?, dates.iter().max()?);
+    Some(if first == last { format!(", as of {}", when(first)) } else { format!(", from {} to {}", when(first), when(last)) })
+}
+
+/// Signed-in or not, Yama opens the copy; signing in comes first when needed.
+fn copy_button(token: &str) -> String {
+    format!(
+        "<div class=\"public-actions share-copy\"><a class=\"button primary\" href=\"/decks/research?copy={}\">Save a copy in Yama</a><span class=\"dim\">Free with a Google sign-in. Your copy is private and yours to change.</span></div>",
+        e(&query_value(token))
+    )
 }
 
 /// A source link, only for http(s) addresses; anything else is its title as text.
@@ -348,13 +525,31 @@ fn bracket_label(b: &Value) -> Option<String> {
     b.get("bracket").and_then(Value::as_i64).filter(|n| (1..=5).contains(n)).map(|n| format!("Bracket {n}, {}", bracket_name(n)))
 }
 
-pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, headers: HeaderMap, Path(token): Path<String>) -> AppResult<Response> {
+pub(super) async fn note(
+    State(st): State<AppState>,
+    address: ClientAddress,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+    Query(q): Query<BuildQuery>,
+) -> AppResult<Response> {
     let (handle, doc, saved) = match load(&st, &address, &token).await? {
         Ok(x) => x,
         Err(res) => return Ok(res),
     };
     let title = text(&doc, "title");
     let decks = doc["decks"].as_array().cloned().unwrap_or_default();
+    // The shopping list prices one build id across the decks (`?build=`), else each deck's
+    // recommended build. An id no deck has is not found, like a deck page's `?build=`.
+    let mut choices: Vec<(&str, &str)> = Vec::new();
+    for b in decks.iter().flat_map(|d| d["builds"].as_array().into_iter().flatten()) {
+        if !choices.iter().any(|c| c.0 == text(b, "id")) {
+            choices.push((text(b, "id"), text(b, "label")));
+        }
+    }
+    let pick = q.build.as_deref().filter(|b| !b.is_empty());
+    if pick.is_some_and(|p| !choices.iter().any(|c| c.0 == p)) {
+        return Ok(not_found(&st, "Build"));
+    }
     let mut body = String::new();
     if let Some(h) = &handle {
         write!(body, "<a class=\"back-link\" href=\"/u/{0}\">← @{0}</a>", e(h)).unwrap();
@@ -370,6 +565,7 @@ pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, hea
         when(&saved),
     )
     .unwrap();
+    body.push_str(&copy_button(&token));
     body.push_str("<ul class=\"share-decks\">");
     let mut arts = Vec::new();
     for d in &decks {
@@ -410,8 +606,77 @@ pub(super) async fn note(State(st): State<AppState>, address: ClientAddress, hea
     if !arts.is_empty() {
         write!(body, "<p class=\"art-credits dim\">{}</p>", arts.join(" ")).unwrap();
     }
+    body.push_str(&note_shopping(&st.pool, &token, &decks, &choices, pick).await?);
     let description = format!("{title}: Commander deck notes shared on Yama.");
     Ok(response(&headers, page(&st, &format!("/r/{token}"), title, &description, None, &body)))
+}
+
+/// The note's shopping list: each deck's cards to add to its starting list, totals per deck and
+/// overall, and every card in one list.
+async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], pick: Option<&str>) -> AppResult<String> {
+    let per_deck: Vec<(&Value, Option<&Value>, Vec<(String, i64)>)> = decks
+        .iter()
+        .map(|d| {
+            let b = build_of(d, pick);
+            let adds = b
+                .map(|b| from_start(b["swaps"].as_array().map(Vec::as_slice).unwrap_or_default()).into_iter().filter(|c| !c.add.is_empty()).map(|c| (c.add, c.n)).collect())
+                .unwrap_or_default();
+            (d, b, adds)
+        })
+        .collect();
+    let wanted: Vec<_> = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect();
+    let items = to_get(pool, wanted).await?;
+    if items.is_empty() {
+        return Ok(String::new());
+    }
+    let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
+    let mut total = Totals::default();
+    for t in &items {
+        total.add(t.n, t.usd());
+    }
+    let mut s = format!(
+        "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add across {} deck{}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>",
+        count_cards(total.cards),
+        decks.len(),
+        if decks.len() == 1 { "" } else { "s" }
+    );
+    if choices.len() > 1 {
+        s.push_str("<nav class=\"share-configs\" aria-label=\"Builds to price\"><span class=\"dim\">Builds</span><ul>");
+        let current = |on: bool| if on { " aria-current=\"page\"" } else { "" };
+        write!(s, "<li><a{} href=\"/r/{}#shop-head\">Recommended</a></li>", current(pick.is_none()), e(token)).unwrap();
+        for (id, label) in choices {
+            write!(s, "<li><a{} href=\"/r/{}?build={}#shop-head\">{}</a></li>", current(pick == Some(*id)), e(token), e(&query_value(id)), e(label)).unwrap();
+        }
+        s.push_str("</ul></nav>");
+    }
+    s.push_str(&shopping_totals(&total, as_of(&items)));
+    s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
+    let row = |t: &Totals| {
+        format!(
+            "<td class=\"num\">{}</td><td class=\"num\">{} · {}</td><td class=\"num\">{} · {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
+            t.cards,
+            t.buy,
+            usd(Some(t.buy_cost)),
+            t.print,
+            usd(Some(t.print_cost)),
+            usd(t.worth()),
+            usd(t.cost())
+        )
+    };
+    for (d, b, adds) in &per_deck {
+        let mut t = Totals::default();
+        for (name, n) in adds {
+            t.add(*n, price.get(name.as_str()).copied().flatten());
+        }
+        let build = match b {
+            Some(b) => e(text(b, "label")),
+            None => "<span class=\"dim\">No such build</span>".into(),
+        };
+        write!(s, "<tr><td><a href=\"{}\">{}</a></td><td>{build}</td>{}</tr>", deck_href(token, text(d, "key"), b.map(|b| text(b, "id"))), e(text(d, "name")), row(&t)).unwrap();
+    }
+    write!(s, "</tbody><tfoot><tr><th scope=\"row\" colspan=\"2\">Total</th>{}</tr></tfoot></table>", row(&total)).unwrap();
+    write!(s, "<details><summary>Every card to get ({})</summary>{}</details></section>", count_cards(total.cards), shopping_table(&items, true)).unwrap();
+    Ok(s)
 }
 
 #[derive(Deserialize, Default)]
@@ -524,6 +789,7 @@ pub(super) async fn deck(
     let swaps = b["swaps"].as_array().cloned().unwrap_or_default();
     write!(body, "<a class=\"pill dashed\" href=\"#changes-head\">{} in, {} out from the starting list</a>", moved(&swaps, "card_in"), moved(&swaps, "card_out")).unwrap();
     body.push_str("</div>");
+    body.push_str(&copy_button(&token));
 
     // What the deck does and how to play it come first: the reason someone opens the link.
     body.push_str("<div class=\"share-more\">");
@@ -605,7 +871,7 @@ pub(super) async fn deck(
             } else {
                 let image = found(&images, name).and_then(|f| scryfall_image(f.4.clone())).unwrap_or_default();
                 let count = if n > 1 { format!("{n} × ") } else { String::new() };
-                format!("{count}<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
+                format!("{count}{}", card_ref(name, &image))
             }
         };
         for c in &changes {
@@ -615,6 +881,24 @@ pub(super) async fn deck(
         body.push_str("</tbody></table>");
     }
     body.push_str("</section>");
+
+    // What the added cards come to: from the same comparison as the table above.
+    if changes.iter().any(|c| !c.add.is_empty()) {
+        let items = to_get(&st.pool, changes.iter().map(|c| (c.add.clone(), c.n, None)).collect()).await?;
+        let mut t = Totals::default();
+        for i in &items {
+            t.add(i.n, i.usd());
+        }
+        write!(
+            body,
+            "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add to {}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>{}{}</section>",
+            count_cards(t.cards),
+            e(vs_label),
+            shopping_totals(&t, as_of(&items)),
+            shopping_table(&items, false),
+        )
+        .unwrap();
+    }
 
     write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{size} cards</p><h2>Decklist</h2></div></div>").unwrap();
     body.push_str("<div class=\"public-actions\">");

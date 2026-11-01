@@ -45,6 +45,11 @@ describe("deck research evidence", () => {
     const b={target_hashes:{[target]:"old"}} as unknown as ResearchBundle;expect(changedAnswer(b,review)).toBe(false);
     b.target_hashes[target]="new";expect(changedAnswer(b,review)).toBe(true);delete b.target_hashes[target];expect(changedAnswer(b,review)).toBe(true);
   });
+  it("opens a copy of a shared note instead of the note list",()=>{
+    const client=new QueryClient();
+    const html=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research?copy=abc123"]}><Routes><Route path="/decks/research" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
+    expect(html).toContain("Saving a copy of the shared note");expect(html).not.toContain("Import a note file");
+  });
   it("shows exact swaps, retained answers and alternatives without an Apply action",()=>{
     const html=fullPage();expect(html).toContain("Living Energy");expect(html).toContain("Thought Monitor");expect(html).toContain("Glimmer of Genius");expect(html).toContain("Repeatable artifact draw");expect(html).toContain("Preferred build ✓");expect(html).toContain("Keep friends games interactive");expect(html).toContain('aria-pressed="true"');expect(html).toContain("Download list");expect(html).toContain("100 cards total");expect(html).toContain("97");expect(html).toContain("Copy artifacts and turn a developed board into combat pressure.");expect(html).toContain('aria-label="Preview Thought Monitor"');expect(html).not.toContain(">Apply</button>");expect(html).toContain("do not apply swaps");
   });

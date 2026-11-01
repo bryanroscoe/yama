@@ -1,7 +1,15 @@
-"""Decide whether a pull request's CI may skip its web and Rust jobs.
+"""Decide which of CI's web and Rust jobs a change still needs.
 
-The CI gate job runs this for ready (non-draft) pull requests only; pushes to main
-and manual runs never reach it and always test in full. Standard library only.
+The CI gate job runs this for ready (non-draft) pull requests and for pushes to main;
+manual runs never reach it and always test in full. Standard library only.
+
+A push to main skips both jobs only when a pull request run already passed both on the
+very same tree: its Rust job publishes a `ci-passed-tree-<tree>` artifact after every
+check passes, and the run's web job must have passed too. A merge commit whose tree is
+the tree the PR tested (the PR contained main) is then not tested twice. Anything else,
+including a PR that skipped CI on local checks, runs both jobs on main.
+
+For a pull request:
 
 CI is skipped when either:
 - the PR carries the `skip-ci` label (a manual override), or
@@ -9,6 +17,9 @@ CI is skipped when either:
   commit's own tree (written by scripts/local-ci.sh after the checks pass), and
   the head already contains the base branch, so the merge CI would test is that
   same tree.
+
+Otherwise the web job always runs, and the Rust job is skipped when every changed
+file is web-only (see `rust_needed`).
 
 Any error reading GitHub falls back to running CI.
 """
@@ -47,6 +58,70 @@ def decide(labels, message, tree, behind_by, base_ref='main'):
     return True, f'Local checks passed on tree `{tree}`, and the branch contains `{base_ref}`.'
 
 
+# Paths the Rust/Python job cannot see: the web app and its shared TypeScript package.
+WEB_ONLY = ('web/', 'packages/')
+WEB_ONLY_FILES = {'package.json', 'package-lock.json'}
+# ...except files the server compiles in with include_str! (site notice, page CSS).
+RUST_READS = ('web/public/',)
+RUST_READS_SUFFIXES = ('.css', '.html')
+MAX_FILES = 3000  # GitHub lists at most this many files for one PR.
+
+
+def rust_needed(files):
+    """Whether a PR changing `files` needs the Rust and Python job. Unknown means yes."""
+    if not files or len(files) >= MAX_FILES:
+        return True
+    for path in files:
+        web_only = path in WEB_ONLY_FILES or path.startswith(WEB_ONLY)
+        if not web_only or path.startswith(RUST_READS) or path.endswith(RUST_READS_SUFFIXES):
+            return True
+    return False
+
+
+PASSED_ARTIFACT = 'ci-passed-tree-'
+CI_WORKFLOW = '.github/workflows/ci.yml'
+REQUIRED_JOBS = ('Web checks', 'Rust and Python tests')
+# Only main's push CI saves the Rust and npm caches PRs restore, so a push that changes
+# their keys tests (and saves) in full.
+CACHE_KEYS = ('Cargo.lock', 'package-lock.json', 'deploy/phase-rev')
+
+
+def changes_cache_key(files):
+    return any(path in CACHE_KEYS or path.endswith('Cargo.toml')
+               or path.split('/')[-1].startswith('rust-toolchain') for path in files)
+
+
+def passed_run(run, jobs, repo):
+    """Whether a CI run is a same-repository PR run whose web and Rust jobs both passed."""
+    if (run.get('path', '').split('@')[0] != CI_WORKFLOW or run.get('event') != 'pull_request'
+            or run.get('head_repository', {}).get('full_name') != repo):
+        return False
+    results = {job.get('name'): job.get('conclusion') for job in jobs}
+    return all(results.get(name) == 'success' for name in REQUIRED_JOBS)
+
+
+def decide_push(repo, sha):
+    """Return (skip, reason) for a push to main."""
+    commit = api(f'/repos/{repo}/git/commits/{sha}')
+    tree = commit['tree']['sha']
+    parent = commit['parents'][0]['sha']
+    files = [entry['filename'] for entry in api(f'/repos/{repo}/compare/{parent}...{sha}').get('files', [])]
+    if not files or len(files) >= 300 or changes_cache_key(files):
+        return False, ('This push changes the Rust or npm cache key (or its file list is unreadable), '
+                       'so main tests in full and saves fresh caches.')
+    artifacts = api(f'/repos/{repo}/actions/artifacts?per_page=30&name={PASSED_ARTIFACT}{tree}')
+    for artifact in artifacts.get('artifacts', []):
+        if artifact.get('expired') or artifact.get('name') != PASSED_ARTIFACT + tree:
+            continue
+        run_id = int(artifact['workflow_run']['id'])
+        run = api(f'/repos/{repo}/actions/runs/{run_id}')
+        jobs = api(f'/repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100')['jobs']
+        if passed_run(run, jobs, repo):
+            return True, (f'PR CI run [{run_id}]({run.get("html_url", "")}) already passed the web '
+                          f'and Rust jobs on this exact tree `{tree}`.')
+    return False, f'No PR run passed both jobs on tree `{tree}`, so main tests it in full.'
+
+
 def api(path):
     request = urllib.request.Request(
         os.environ.get('GITHUB_API_URL', 'https://api.github.com') + path,
@@ -66,6 +141,19 @@ def gather(repo, number, head_sha, base_ref):
     return labels, commit['message'], commit['tree']['sha'], behind_by
 
 
+def changed_files(repo, number):
+    files = []
+    for page in range(1, MAX_FILES // 100 + 1):
+        batch = api(f'/repos/{repo}/pulls/{number}/files?per_page=100&page={page}')
+        for entry in batch:
+            files.append(entry['filename'])
+            if entry.get('previous_filename'):
+                files.append(entry['previous_filename'])
+        if len(batch) < 100:
+            break
+    return files
+
+
 def write(name, text):
     path = os.environ.get(name)
     if path:
@@ -76,23 +164,39 @@ def write(name, text):
 def main():
     head_sha = os.environ['HEAD_SHA']
     base_ref = os.environ.get('BASE_REF', 'main')
+    push = os.environ.get('EVENT_NAME') == 'push'
     try:
         if not re.fullmatch(r'[0-9a-f]{40}(?:[0-9a-f]{24})?', head_sha):
             raise ValueError('HEAD_SHA is not a full commit SHA')
-        labels, message, tree, behind_by = gather(
-            os.environ['GITHUB_REPOSITORY'], int(os.environ['PR_NUMBER']), head_sha, base_ref)
-        skip, reason = decide(labels, message, tree, behind_by, base_ref)
-    except Exception as error:  # Fail safe: an unreadable PR runs CI.
-        print(f'::warning::CI gate could not read the PR ({error}); running CI.')
-        skip, reason = False, f'The gate could not read the PR ({type(error).__name__}), so CI runs.'
+        if push:
+            skip, reason = decide_push(os.environ['GITHUB_REPOSITORY'], head_sha)
+            rust = True
+        else:
+            labels, message, tree, behind_by = gather(
+                os.environ['GITHUB_REPOSITORY'], int(os.environ['PR_NUMBER']), head_sha, base_ref)
+            skip, reason = decide(labels, message, tree, behind_by, base_ref)
+            rust = skip or rust_needed(changed_files(os.environ['GITHUB_REPOSITORY'],
+                                                     int(os.environ['PR_NUMBER'])))
+    except Exception as error:  # Fail safe: unreadable GitHub runs CI.
+        print(f'::warning::CI gate could not read GitHub ({error}); running CI.')
+        skip, reason = False, f'The gate could not read GitHub ({type(error).__name__}), so CI runs.'
+        rust = True
+    if not skip and not rust:
+        reason += ' Only web files changed, so the Rust and Python job is skipped.'
+    return finish(head_sha, skip, rust, reason, push)
+
+
+def finish(head_sha, skip, rust, reason, push):
     title = 'CI skipped' if skip else 'CI runs'
     print(f'{title}: {reason}')
-    write('GITHUB_STEP_SUMMARY',
-          f'### {title} for `{head_sha[:12]}`\n\n{reason}\n\n'
-          + ('The web and Rust jobs show as skipped. Push CI on main still runs every check '
-             'before deployment.\n' if skip else ''))
+    note = ('The web and Rust jobs show as skipped; this push CI still authorizes deployment.\n'
+            if push else 'The web and Rust jobs show as skipped. Push CI on main still tests '
+            'before deployment unless a PR run passed on the same tree.\n')
+    write('GITHUB_STEP_SUMMARY', f'### {title} for `{head_sha[:12]}`\n\n{reason}\n\n'
+          + (note if skip else ''))
     # Last, so a failure anywhere above leaves no skip behind.
-    write('GITHUB_OUTPUT', f'skip={"true" if skip else "false"}\n')
+    write('GITHUB_OUTPUT', f'rust={"true" if rust else "false"}\n'
+                           f'skip={"true" if skip else "false"}\n')
     return 0
 
 

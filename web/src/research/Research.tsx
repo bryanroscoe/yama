@@ -1,13 +1,13 @@
 import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { ErrorText } from "../components/ui";
 import { CardRef, CardText } from "../components/CardRef";
 import { AccountingSummary, CompleteList, Gameplay, buildAccounting, listEntries, resolvedCombos } from "./details";
-import { changedAnswer, importReport, money, report, reports, safeUrl, saveReview, targetForSwap, type Build, type Combo, type Item, type Power, type ResearchBundle, type ResearchDeck, type ReviewOp, type Scenario, type Source } from "./api";
+import { changedAnswer, copySharedNote, importReport, money, report, reports, safeUrl, saveReview, targetForSwap, type Build, type Combo, type Item, type Power, type ResearchBundle, type ResearchDeck, type ReviewOp, type Scenario, type Source } from "./api";
 import { isOwnedBuild, ownedBuildProblems } from "./availability";
 import { AgentNotesAbout, DeckChanged } from "./about";
 import { ShareNote } from "./ShareNote";
@@ -185,7 +185,7 @@ function DeckOverview({ bundle }: { bundle: ResearchBundle }) {
         <h2><Link to={`/decks/research/${doc.id}/${deck.key}`}>{deck.name}</Link></h2>
         <p className="small dim"><CardName name={deck.commander}/></p>
         <DeckChanged name={deck.name} savedAt={bundle.updated_at} />
-        <p className="small">{sentences(deck.ownership, deck.installed_state)}</p>
+        {(deck.ownership || deck.installed_state) && <p className="small">{sentences(deck.ownership, deck.installed_state)}</p>}
         <div className="research-overview-profile"><b>{recommended?.label??"Suggested build"}</b><p className="small">{recommended?.gameplay_profile?.plan??recommended?.power?.rationale??deck.summary}</p>{recommended?.gameplay_profile?.pace&&<p className="small dim">{recommended.gameplay_profile.pace}</p>}</div>
         {current&&<p className="small dim">Starting reference: {buildAccounting(current).total} cards. Each proposed build is an independent full list.</p>}
         {preference?.decision&&<p className="small">Your preference: {deck.builds.find((b)=>b.id===preference.decision)?.label??preference.decision}{changedAnswer(bundle,preference)&&" (evidence changed)"}</p>}
@@ -203,6 +203,29 @@ function ImportResearch() {
   return <details><summary>Import a note file</summary><p className="small dim">Store a yama-research/1 file in your private account. This imports advice, not decks or collection cards.</p><input type="file" accept="application/json,.json" disabled={save.isPending} onChange={(e) => { const f = e.target.files?.[0]; if (f) save.mutate(f); }} /><ErrorText error={save.error} /></details>;
 }
 
+/** One id per Save-a-copy action in this tab: a reload or a retry after a lost answer gets the
+ * copy already made. It is forgotten once the copy opens, so saving again makes another copy. */
+const copyKey = (token: string) => `yama-copy:${token}`;
+function copyOp(token: string): string | undefined {
+  try {
+    const op = sessionStorage.getItem(copyKey(token)) ?? crypto.randomUUID();
+    sessionStorage.setItem(copyKey(token), op);
+    return op;
+  } catch { return undefined; }
+}
+function forgetCopyOp(token: string) {
+  try { sessionStorage.removeItem(copyKey(token)); } catch { /* no storage: nothing kept */ }
+}
+
+/** `?copy=<token>` from a shared note's page: save the copy once, then open it. */
+function CopyShared({ token }: { token: string }) {
+  const navigate = useNavigate();const qc = useQueryClient();
+  const copy = useMutation({ mutationFn: () => copySharedNote(token, copyOp(token)), onSuccess: (r) => { forgetCopyOp(token); void qc.invalidateQueries({ queryKey: ["research"] }); navigate(`/decks/research/${encodeURIComponent(r.id)}`, { replace: true }); } });
+  const started = useRef(false);
+  useEffect(() => { if (!started.current) { started.current = true; copy.mutate(); } }, [copy]);
+  return <section className="research-copy">{copy.isError ? <><p>The shared note wasn't copied.</p><ErrorText error={copy.error} /><Link to="/decks/research">Open your agent notes</Link></> : <p>Saving a copy of the shared note…</p>}</section>;
+}
+
 export function ResearchPage() {
   const { reportId, deckKey } = useParams();
   const userId = useMe().data?.id;
@@ -215,7 +238,8 @@ export function ResearchPage() {
   const retired = b?.reviews.filter((r) => !b.target_hashes[r.target]) ?? [];
   const guideNames=[...new Set(deck?.builds.flatMap((x)=>listEntries(x.list).map((r)=>r.name))??[])];
   return <LocalChecks.Provider value={b?.document.local_checks ?? {}}><main className="page research-page"><AreaHead title={deck?.name ?? b?.document.title ?? "Agent notes"} index={!reportId} back={deckKey ? { to: `/decks/research/${reportId}`, label: "Back to this note" } : { to: "/decks/research", label: "Back to agent notes" }} />
-    {!reportId && <><AgentNotesAbout /><ErrorText error={listing.error} />{listing.isPending && <p>Loading…</p>}{listing.data?.map((r) => <p key={r.id}><Link to={`/decks/research/${r.id}`}>{r.title}</Link><span className="small dim"> — updated {fmtDate(r.updated_at)}, revision {r.revision}{r.visibility === "link" ? ", shared by link" : r.visibility === "public" ? ", public on your profile" : ""}</span></p>)}{listing.data?.length === 0 && <p>No agent notes saved yet.</p>}<ImportResearch /></>}
+    {!reportId && params.get("copy") && <CopyShared token={params.get("copy")!} />}
+    {!reportId && !params.get("copy") && <><AgentNotesAbout /><ErrorText error={listing.error} />{listing.isPending && <p>Loading…</p>}{listing.data?.map((r) => <p key={r.id}><Link to={`/decks/research/${r.id}`}>{r.title}</Link><span className="small dim"> — updated {fmtDate(r.updated_at)}, revision {r.revision}{r.visibility === "link" ? ", shared by link" : r.visibility === "public" ? ", public on your profile" : ""}</span></p>)}{listing.data?.length === 0 && <p>No agent notes saved yet.</p>}<ImportResearch /></>}
     {reportId && <><ErrorText error={data.error} />{data.isPending && <p>Loading the note…</p>}{b && <><AgentNotesAbout short /><p className="dim">{b.document.summary}</p><p className="small dim">Note saved {fmtDate(b.updated_at)}, revision {b.revision}. Estimates are advice, not game results. Bracket and power are separate.</p>{!deckKey ? <><ShareNote bundle={b} /><details><summary>How to read the estimates and acquisition evidence</summary><ul>{b.document.method?.map((m, i) => <li key={i}><CardText text={m} names={guideNames}/></li>)}</ul><p>Build strength is explained through setup, pressure, finishing lines, interaction, consistency, recovery and weaknesses. Official brackets run 1–5; cEDH is Bracket 5.</p></details><DeckOverview bundle={b} /></> : deck && build ? <><nav className="research-deck-picker" aria-label="Research decks">{b.document.decks.map((d) => <Link key={d.key} aria-current={d.key === deck.key ? "page" : undefined} to={`/decks/research/${reportId}/${d.key}`}>{d.name}</Link>)}</nav><DeckChanged name={deck.name} savedAt={b.updated_at} /><p><CardText text={deck.summary??""} names={guideNames}/></p>{!!deck.warnings?.length && <ul className="warn small">{deck.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}<details><summary>Upgrade guides, prior swaps and mechanics rechecked</summary>{deck.guide_comparison && <p><CardText text={deck.guide_comparison} names={guideNames}/></p>}<ul>{deck.mechanics?.map((m,i)=><li key={i}><CardText text={m} names={guideNames}/></li>)}</ul>{!!deck.existing_swap_audit?.length && <><h3>Existing upgrade judgments ({deck.existing_swap_audit.length})</h3>{deck.existing_swap_audit.map((r,i)=><div className="research-item" key={i}><p><b>{r.inn&&<CardName name={r.inn}/>}</b>{r.out&&<> for <CardName name={r.out}/></>} — {r.verdict}</p><p className="small"><CardText text={r.reason??""} names={guideNames}/></p></div>)}</>}{deck.combo_limits?.map((m,i)=><p className="small dim" key={i}>{m}</p>)}</details><p className="small dim"><CardName name={deck.commander}/>. {sentences(deck.ownership, deck.installed_state)}</p><nav className="research-build-tabs" aria-label="Build alternatives">{deck.builds.map((x) => <button type="button" key={x.id} aria-pressed={x.id === build.id} className={x.id === build.id ? "primary" : "outline"} onClick={() => setParams({ build: x.id })}>{x.label}</button>)}</nav><BuildView key={`${deck.key}:${build.id}`} bundle={b} deck={deck} build={build} />{deck.pilot && <section><h2>How to pilot this deck</h2><p><CardText text={deck.pilot} names={guideNames}/></p></section>}{deck.competitive_path&&<section><h2>Competitive path: Bracket 5</h2><p><b>{deck.competitive_path.status}</b></p><p><CardText text={deck.competitive_path.summary??""} names={guideNames}/></p>{deck.competitive_path.commander_change&&<p className="small">Commander/archetype changes: {deck.competitive_path.commander_change}</p>}<Sources sources={deck.competitive_path.sources}/><p className="small dim">This is a discussion of a sourced competitive direction, not an automatic claim that this identity build is tournament-tested. There is no official Bracket 6.</p></section>}<section><h2>Research sources</h2><Sources sources={deck.sources}/></section></> : <p>That deck is not in this note. <Link to={`/decks/research/${reportId}`}>Open the note.</Link></p>}{retired.length > 0 && <details><summary>Answers for retired research targets ({retired.length})</summary>{retired.map((r) => <p key={r.target}><b>{r.target}</b>: {r.decision ?? "No choice"}. {r.note}</p>)}</details>}</>}</>}
   </main></LocalChecks.Provider>;
 }

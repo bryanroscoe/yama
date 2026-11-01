@@ -9,6 +9,7 @@ import { api, type Card, type DeckSummary, type FoundPerson, type ProfileDeck, t
 import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
+import { cardSearchPath, isGuest } from "../guest";
 import "./pickers.css";
 
 /** The value after the person stops typing for `ms`. */
@@ -226,8 +227,36 @@ function partnerWith(card: Pick<Card, "oracle_text"> | undefined): string | null
   return card?.oracle_text?.match(/Partner with ([^(\n]+?)(?: \(|\n|$)/)?.[1]?.trim() ?? null;
 }
 
+/** How a commander card takes a second commander, or is one: the two halves have to match. */
+function pairKind(c: Pick<Card, "oracle_text" | "type_line">): string | null {
+  const text = c.oracle_text ?? "";
+  if (/\bTime Lord Doctor\b/.test(c.type_line ?? "")) return "doctor";
+  if (/^Doctor's companion\b/im.test(text)) return "companion";
+  if (/Choose a Background/i.test(text)) return "chooser";
+  if (/\bBackground\b/.test(c.type_line ?? "")) return "background";
+  if (partnerWith(c)) return "with";
+  if (/^Friends forever\b/im.test(text)) return "friends";
+  if (/^Partner\b/im.test(text)) return "partner";
+  return null;
+}
+
+/**
+ * Whether two commander cards can share the command zone (CR 702.124): plain partners, Friends
+ * forever, a Doctor and a companion, a commander and a Background, or the two named by "Partner
+ * with". A deck listing two that can't is offering a choice of commander, not a pair.
+ */
+export function canPair(a: Pick<Card, "name" | "oracle_text" | "type_line">, b: Pick<Card, "name" | "oracle_text" | "type_line">): boolean {
+  const ka = pairKind(a);
+  const kb = pairKind(b);
+  if (!ka || !kb) return false;
+  const either = (x: string, y: string) => (ka === x && kb === y) || (ka === y && kb === x);
+  if (either("chooser", "background") || either("doctor", "companion")) return true;
+  if (ka === "with" && kb === "with") return partnerWith(a) === b.name || partnerWith(b) === a.name;
+  return ka === kb && (ka === "partner" || ka === "friends");
+}
+
 async function searchCards(q: string, order?: string): Promise<Card[]> {
-  return (await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(q)}${order ? `&order=${order}` : ""}`)).cards;
+  return (await api<SearchResult>(cardSearchPath(q, order))).cards;
 }
 
 /**
@@ -504,7 +533,8 @@ function usePeopleSearch(text: string) {
   return useQuery({
     queryKey: ["people-search", q],
     queryFn: () => api<FoundPerson[]>(`/api/people?q=${encodeURIComponent(q)}`),
-    enabled: q.length >= 2,
+    // Finding people by handle needs an account.
+    enabled: q.length >= 2 && !isGuest(),
     staleTime: 60_000,
     placeholderData: (prev) => prev,
   });
@@ -604,7 +634,8 @@ export function deckPicks(
 ): DeckPick[] {
   const q = text.trim().toLowerCase();
   const hit = (name: string, commanders: string[]) => !q || deckMatches(q, name, commanders);
-  const own: DeckPick[] = mine.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "mine", deck }));
+  // A deck's other configurations (stock, after prints) are picked after the deck itself.
+  const own: DeckPick[] = mine.filter((d) => !d.parent_id && hit(d.name, d.commanders)).map((deck) => ({ kind: "mine", deck }));
   const theirsPicks: DeckPick[] = handle && !yours ? theirs.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "theirs", handle, deck })) : [];
   const preconPicks: DeckPick[] = q.length >= 2 ? precons.filter((p) => !p.same_list_as && hit(p.name, p.commanders)).map((precon) => ({ kind: "precon", precon })) : [];
   const all = [...theirsPicks, ...own, ...preconPicks];
@@ -639,7 +670,9 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
     switch (p.kind) {
       case "mine": {
         const d = p.deck;
-        return { key: `mine:${d.id}`, value: p, label: d.name, sub: `${lead(d.commanders) || "No commander set"} (${yours ? "your deck" : "your deck, lent"})`, art: d.commander_image, identity: d.color_identity };
+        const lists = 1 + decks.filter((x) => x.parent_id === d.id).length;
+        const whose = yours ? "your deck" : "your deck, lent";
+        return { key: `mine:${d.id}`, value: p, label: d.name, sub: `${lead(d.commanders) || "No commander set"} (${lists > 1 ? `${whose}, ${lists} lists` : whose})`, art: d.commander_image, identity: d.color_identity };
       }
       case "theirs": {
         const d = p.deck;

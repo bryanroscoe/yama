@@ -62,8 +62,103 @@ class Decision(unittest.TestCase):
             result = subprocess.run([sys.executable, str(HERE / 'gate.py')], env={**os.environ, **env},
                                     capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(out.read_text(), 'skip=false\n')
+            self.assertEqual(out.read_text(), 'rust=true\nskip=false\n')
             self.assertIn('CI runs', summary.read_text())
+
+
+class RustScope(unittest.TestCase):
+    def test_web_only_changes_skip_rust(self):
+        self.assertFalse(gate.rust_needed(['web/src/App.tsx', 'packages/core/src/a.ts',
+                                           'package-lock.json']))
+
+    def test_anything_rust_can_see_runs_rust(self):
+        for files in ([], ['server/src/main.rs'], ['web/src/App.tsx', 'README.md'],
+                      ['web/public/sw.js'], ['web/src/styles.css'], ['web/src/x.html'],
+                      ['.github/workflows/ci.yml'], ['docs/research-format.md'],
+                      ['web/src/a.ts'] * gate.MAX_FILES):
+            with self.subTest(files=files[:3]):
+                self.assertTrue(gate.rust_needed(files))
+
+
+class PushReuse(unittest.TestCase):
+    REPO = 'o/r'
+    RUN = {'path': '.github/workflows/ci.yml', 'event': 'pull_request',
+           'head_repository': {'full_name': 'o/r'}}
+    JOBS = [{'name': 'Local CI gate', 'conclusion': 'success'},
+            {'name': 'Web checks', 'conclusion': 'success'},
+            {'name': 'Rust and Python tests', 'conclusion': 'success'}]
+
+    def test_pr_run_that_passed_both_jobs_counts(self):
+        self.assertTrue(gate.passed_run(self.RUN, self.JOBS, self.REPO))
+
+    def test_anything_less_does_not(self):
+        skipped_web = [dict(job, conclusion='skipped') if job['name'] == 'Web checks' else job
+                       for job in self.JOBS]
+        for run, jobs in ((self.RUN, skipped_web), (self.RUN, self.JOBS[:2]),
+                          ({**self.RUN, 'event': 'push'}, self.JOBS),
+                          ({**self.RUN, 'path': '.github/workflows/other.yml'}, self.JOBS),
+                          ({**self.RUN, 'head_repository': {'full_name': 'fork/r'}}, self.JOBS)):
+            with self.subTest(run=run, jobs=jobs):
+                self.assertFalse(gate.passed_run(run, jobs, self.REPO))
+
+    def test_push_reuses_only_a_passed_run_on_the_same_tree(self):
+        calls = []
+        responses = {
+            '/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
+            f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'web/src/App.tsx'}]},
+            f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}': {'artifacts': [
+                {'name': f'ci-passed-tree-{OTHER}', 'expired': True, 'workflow_run': {'id': 1}},
+                {'name': f'ci-passed-tree-{OTHER}', 'expired': False, 'workflow_run': {'id': 2}},
+                {'name': f'ci-passed-tree-{OTHER}', 'expired': False, 'workflow_run': {'id': 3}}]},
+            '/repos/o/r/actions/runs/2': {**self.RUN, 'event': 'push'},
+            '/repos/o/r/actions/runs/2/jobs?filter=latest&per_page=100': {'jobs': self.JOBS},
+            '/repos/o/r/actions/runs/3': {**self.RUN, 'html_url': 'https://example.invalid/3'},
+            '/repos/o/r/actions/runs/3/jobs?filter=latest&per_page=100': {'jobs': self.JOBS},
+        }
+
+        def api(path):
+            calls.append(path)
+            return responses[path]
+
+        original, gate.api = gate.api, api
+        try:
+            skip, reason = gate.decide_push('o/r', TREE)
+        finally:
+            gate.api = original
+        self.assertTrue(skip)
+        self.assertIn('[3]', reason)
+        self.assertNotIn('/repos/o/r/actions/runs/1', calls)
+
+    def test_push_without_a_passed_tree_runs(self):
+        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
+                     f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'server/src/main.rs'}]},
+                     f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}':
+                         {'artifacts': []}}
+        original, gate.api = gate.api, responses.__getitem__
+        try:
+            self.assertFalse(gate.decide_push('o/r', TREE)[0])
+        finally:
+            gate.api = original
+
+
+class CacheKeys(unittest.TestCase):
+    def test_cache_key_changes_force_a_full_main_run(self):
+        for path in ('Cargo.lock', 'play/Cargo.toml', 'deploy/phase-rev', 'package-lock.json',
+                     'rust-toolchain.toml'):
+            with self.subTest(path=path):
+                self.assertTrue(gate.changes_cache_key(['web/src/a.ts', path]))
+        self.assertFalse(gate.changes_cache_key(['server/src/main.rs', 'web/package.json']))
+
+    def test_push_changing_a_cache_key_runs_without_looking_for_artifacts(self):
+        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
+                     f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'deploy/phase-rev'}]}}
+        original, gate.api = gate.api, responses.__getitem__
+        try:
+            skip, reason = gate.decide_push('o/r', TREE)
+        finally:
+            gate.api = original
+        self.assertFalse(skip)
+        self.assertIn('cache key', reason)
 
 
 class Workflow(unittest.TestCase):
@@ -83,19 +178,38 @@ class Workflow(unittest.TestCase):
         self.assertNotIn('secrets.', gate_job)
         self.assertIn('sparse-checkout: scripts/ci/gate.py', gate_job)
         # main's copy of the gate decides, not the PR's.
-        self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', gate_job)
+        self.assertIn('ref: ${{ github.event.pull_request.base.sha || github.sha }}', gate_job)
         self.assertIn('continue-on-error: true', gate_job)
 
-    def test_push_and_manual_runs_never_consult_the_gate(self):
-        # The release gate: anything that is not a PR runs both jobs whatever the gate did.
+    def test_main_push_ci_is_never_cancelled_by_a_newer_push(self):
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", self.workflow)
+
+    def test_gate_runs_on_main_pushes_but_never_manual_runs(self):
+        gate_if = re.search(r'if: >-\n(.*?)\n    # ', job(self.workflow, 'gate'), re.S).group(1)
+        self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/main') ||", gate_if)
+        self.assertNotIn('workflow_dispatch', gate_if)
+        self.assertIn('actions: read', job(self.workflow, 'gate'))
+
+    def test_only_an_explicit_gate_skip_skips_a_job(self):
+        # A failed or skipped gate (manual run) leaves no output, so both jobs run.
         for name in ('web', 'rust'):
             with self.subTest(job=name):
                 text = job(self.workflow, name)
                 self.assertIn('needs: gate', text)
                 condition = re.search(r'if: >-\n(.*?)\n    runs-on', text, re.S).group(1)
-                self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n\s*\(github\.event_name != 'pull_request' \|\|")
-                self.assertIn("needs.gate.outputs.skip != 'true'", condition)
+                self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n\s*needs\.gate\.outputs\.skip != 'true' &&\n"
+                                            r"\s*\(github\.event_name != 'pull_request' \|\|")
+                self.assertNotIn("outputs.rust == 'true'", condition)
+                self.assertNotIn("outputs.skip == 'false'", condition)
                 self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', condition)
+
+    def test_rust_job_publishes_its_tree_only_after_every_check(self):
+        rust = job(self.workflow, 'rust')
+        publish = rust.index('Publish the passed tree')
+        self.assertGreater(publish, rust.index('Test list validation with Python optimization'))
+        self.assertIn('name: ci-passed-tree-${{ steps.tested.outputs.tree }}', rust)
+        self.assertIn('overwrite: true', rust)  # a re-run uploads the same name again
+        self.assertEqual(rust.count("if: github.event_name == 'pull_request'"), 2)
 
 
 class LocalScript(unittest.TestCase):

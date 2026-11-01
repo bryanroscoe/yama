@@ -7,23 +7,26 @@ import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips, Sheet } from "../components/ui";
-import { BracketChips } from "../components/Bracket";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, fitSeatsToGroup, NOT_AN_ACCOUNT, patchSeat, renameSeat, seatDeckLabel, rebuildForGroup, stillHolds, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
-import { discardGame, startGame, sync, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { afterRemoving, applySeatPatch, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
+import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { chooseGuest, isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
 import { recentGameText, winningSeat } from "./recent";
-import { cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
+import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
+import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
 import { formFromGame, settleRebuilt } from "./logEdit";
+import { useInstall } from "../install";
 import "./seats.css";
 import "./home.css";
 
-const LAST_SETUP = "yama.table.lastSetup";
+/** The last setup on this device: an account's, or (apart, so no names carry over) a guest's. */
+const lastSetupKey = () => (isGuest() ? "yama.table.lastSetup.guest" : "yama.table.lastSetup");
 
 /** Laptop layout (the rail and inline seat cards) from 900 px, as in styles.css. */
 function useWide(): boolean {
@@ -47,14 +50,6 @@ export function seatWhere(i: number, n: number): string {
   return "across";
 }
 
-/** "Riders of Rohan" or the commander, and the art credit line under a seat's fields. */
-function seatCredit(seat: SeatDraft, deckName?: string): string {
-  if (!seat.commanderName) return "Pick a commander and their art fills this seat.";
-  if (!seat.art) return seat.partnerName ? `${seat.commanderName} and ${seat.partnerName}` : seat.commanderName;
-  const by = seat.artist ? `Art by ${seat.artist}, © Wizards of the Coast.` : "Art © Wizards of the Coast.";
-  return deckName ? `${seat.commanderName}. ${by}` : by;
-}
-
 /** "Same seats as last Thursday" when the last setup is from this past week, else its date. */
 function sameSeatsLine(at: string | undefined): string {
   if (!at) return "Same seats as last time. Change anyone who swapped decks.";
@@ -72,9 +67,11 @@ export function TableHome() {
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
   const showArt = useShowArt();
+  const guest = isGuest();
 
   return (
     <main className="page table-home">
+      {guest ? <GuestBanner /> : <SaveGuestGames />}
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
@@ -113,10 +110,11 @@ export function TableHome() {
           </div>
         </section>
       ) : (
-        <NewGame onStart={(share) => navigate("/table/play", { state: { share } })} />
+        <NewGame onStart={(share) => navigate("/table/play", { state: { share, fresh: true } })} />
       )}
 
-      <RecentGames
+      <InstallCard />
+      {!guest && <RecentGames
         waiting={
           outbox.length > 0 ? (
             <span className="rg-waiting" role="status">
@@ -128,9 +126,9 @@ export function TableHome() {
             </span>
           ) : null
         }
-      />
+      />}
       {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
-      {rejected.length > 0 && (
+      {!guest && rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). They're kept on this phone.
         </p>
@@ -139,17 +137,91 @@ export function TableHome() {
   );
 }
 
+/** Counting without an account: what that means, and the way to sign in. */
+function GuestBanner() {
+  const games = useGuestGames();
+  return (
+    <aside className="guest-banner" aria-label="Counting without an account">
+      <p>
+        <b>Counting without an account.</b>
+        <span className="dim">
+          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in with Google to share the table with everyone's phones, keep your playgroup's stats, and save these games.
+        </span>
+      </p>
+      <button className="primary" onClick={() => chooseGuest(false)}>Sign in</button>
+    </aside>
+  );
+}
+
+/** Signed in on a phone that counted games without an account: save them to this account? */
+function SaveGuestGames() {
+  const games = useGuestGames();
+  const waiting = useWaitingGuestGame();
+  const { game } = useTable();
+  if (!games.length && !waiting) return null;
+  // The game going without an account comes along only if this device has no other game going.
+  const canBring = !!waiting && !game;
+  const what = [games.length ? `${games.length} finished ${games.length === 1 ? "game" : "games"}` : null, canBring ? "the game going" : null].filter(Boolean).join(" and ");
+  return (
+    <aside className="guest-banner" aria-label="Games counted without an account">
+      <p>
+        <b>{what ? `Save ${what} to your account?` : "A game from before you signed in is waiting."}</b>
+        <span className="dim">
+          {" "}They were counted on this phone without an account. Nothing goes to Yama unless you say so.
+          {waiting && !canBring ? " The one still going comes over once you finish or discard the game going now." : ""}
+        </span>
+      </p>
+      <div className="row">
+        {what && <button className="primary" onClick={saveGuestGames}>Save them</button>}
+        <button className="quiet" onClick={() => confirm("Throw away the games counted without an account? They were never saved to Yama.") && dropGuestGames()}>
+          Throw away
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+const INSTALL_DISMISSED = "yama.install.dismissed";
+
+/** Install Yama as an app: it opens full screen at the table. Until it's installed or waved off. */
+function InstallCard() {
+  const install = useInstall();
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem(INSTALL_DISMISSED) === "1");
+  if (dismissed || !(install.canPrompt || install.fromShareMenu)) return null;
+  const dismiss = () => {
+    localStorage.setItem(INSTALL_DISMISSED, "1");
+    setDismissed(true);
+  };
+  return (
+    <aside className="install-card" aria-label="Install Yama">
+      <p>
+        <b>Install Yama</b>
+        <span className="dim">
+          {install.canPrompt
+            ? " It opens full screen, without the browser's bars, and works offline at the table."
+            : " In Safari, tap Share, then Add to Home Screen. It opens full screen, without the browser's bars."}
+        </span>
+      </p>
+      <div className="row">
+        {install.canPrompt && <button className="primary" onClick={() => void install.install()}>Install</button>}
+        <button className="quiet" onClick={dismiss}>Not now</button>
+      </div>
+    </aside>
+  );
+}
+
 function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const me = useMe();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const guest = isGuest();
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
   const [format, setFormat] = useState<TableFormat>("commander");
   /** Everyone keeps their own totals on their own phone: the join code shows as the game opens. */
   const [phones, setPhones] = useState<"one" | "everyone">(() => {
     try {
-      return JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null")?.phones === "everyone" ? "everyone" : "one";
+      return JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null")?.phones === "everyone" ? "everyone" : "one";
     } catch {
       return "one";
     }
@@ -159,7 +231,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   // When the seats came back from the last game set up on this phone, and when that was.
   const [restored] = useState<{ at?: string } | null>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       return saved?.seats?.length ? { at: saved.at } : null;
     } catch {
       return null;
@@ -167,7 +239,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       if (saved?.seats?.length) return saved.seats;
     } catch {
       /* ignore */
@@ -181,7 +253,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LAST_SETUP) ?? "null");
+      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
       if (saved?.groupId) setGroupId(saved.groupId);
       if (saved?.life) setLife(saved.life);
       if (FORMATS.some((f) => f.key === saved?.format)) setFormat(saved.format);
@@ -218,10 +290,14 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         colorIdentity: d.color_identity,
         art: d.commander_image ?? undefined,
         artist: d.commander_artist ?? undefined,
-        partnerName: d.commanders[1],
+        // A choice until the cards say the two can pair (deckCommanders).
+        partnerName: undefined,
+        commanderChoices: d.commanders.length > 1 ? d.commanders : undefined,
       });
     });
-    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id ? patchSeat(all, 0, c) : all)));
+    // Only onto the seat as it was set here: a commander chosen from the deck's list meanwhile stays.
+    const first = d.commanders[0] ?? "";
+    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id && all[0].commanderName === first && !all[0].partnerName ? patchSeat(all, 0, c) : all)));
     navigate(".", { replace: true, state: null });
   }, [wanted, decks.data, me.data, navigate, groupId, groups.data]);
 
@@ -235,6 +311,12 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     setFormat(f);
     setLife(FORMATS.find((x) => x.key === f)!.life);
   };
+  // A saved playgroup that's no longer one of yours (you left it, or it's gone): play as friends,
+  // its members becoming names, rather than send an id the server refuses.
+  useEffect(() => {
+    if (groupId && groups.data && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups.data, groupId]);
   const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
   const shuffle = () => setSeats((s) => shuffled(s));
   const layoutKey = useLayoutChoice(seats.length);
@@ -244,7 +326,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const start = async () => {
     setStarting(true);
     // Commanders typed but never picked from the list still get their cards' art and colors.
-    const ready = format === "commander" ? await Promise.all(seats.map((s) => (s.deckId ? s : resolveDraft(s as SeatDraft & CommanderDraft)))) : seats;
+    // A deck's seat too, when its commander was picked from the deck's list and hasn't answered
+    // yet (resolveDraft looks up only a name with no art or colors).
+    const ready = format === "commander" ? await Promise.all(seats.map((s) => resolveDraft(s as SeatDraft & CommanderDraft))) : seats;
     const seatsNow = ready as SeatDraft[];
     // Only a Commander game names commanders and Commander decks; a 20-life game left with a
     // seat's last commander would count toward that commander's and deck's results.
@@ -272,22 +356,16 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(LAST_SETUP, JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
+    localStorage.setItem(lastSetupKey(), JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
     startGame(setup);
-    onStart(phones === "everyone");
+    onStart(phones === "everyone" && !guest);
   };
 
-  const groupSelect = (className: string, label: boolean) => (
-    <label className={className}>
-      <span className={label ? undefined : "visually-hidden"}>Playgroup</span>
-      <select value={groupId} onChange={(e) => chooseGroup(e.target.value)}>
-        <option value="">{label ? "None (not counted in group stats)" : "No playgroup"}</option>
-        {groups.data?.map((g) => (
-          <option key={g.id} value={g.id}>{g.name}</option>
-        ))}
-      </select>
-    </label>
-  );
+  // Tap someone in Who's playing: they take the next open seat, or leave theirs.
+  const toggle = (p: Person) => {
+    const patch = personPatch(p, group, me.data);
+    if (patch) setSeats((s) => togglePerson(s, p, patch, MAX_SEATS));
+  };
   const seatProps = (i: number) => {
     const s = seats[i]!;
     return {
@@ -299,16 +377,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       decks: decks.data,
       deckName: decks.data?.find((d) => d.id === s.deckId)?.name ?? s.deckLabel,
       // Not someone already sitting elsewhere: the same member or account, or the same guest name.
-      people: people.filter(
-        (p) =>
-          !seats.some((o, j) =>
-            j === i
-              ? false
-              : p.memberId || p.userId
-                ? (!!p.memberId && o.memberId === p.memberId) || (!!p.userId && !p.memberId && o.userId === p.userId)
-                : !o.memberId && !o.userId && o.name.trim().toLowerCase() === p.name.toLowerCase(),
-          ),
-      ),
+      people: availablePeople(people, seats, i),
       seatedHandles: seats.flatMap((o, j) => (j !== i && o.handle ? [o.handle] : [])),
       commander: format === "commander",
     };
@@ -325,8 +394,6 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           <h1>New game</h1>
           <p className="dim ng-sub">{restored ? sameSeatsLine(restored.at) : "Pick who's playing and what they brought."}</p>
         </div>
-        {/* Phones: the playgroup sits beside the title, as a quiet picker. */}
-        {!wide && groupSelect("ng-group-quiet", false)}
         {wide && (
           <span className="ng-start-wide">
             <button className="primary" onClick={() => void start()} disabled={starting}>{startLabel}</button>
@@ -335,15 +402,16 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         )}
       </div>
       <div className="setup-controls">
-        {wide && groupSelect("setup-group", true)}
         <Choice label="Game" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
-        <Choice label="Players" options={[1, 2, 3, 4, 5, 6]} value={seats.length} onChange={setCount} />
+        <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
-        <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />
+        {/* Sharing the table with everyone's phones needs an account. */}
+        {!guest && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
       </div>
       {phones === "everyone" && (
         <p className="small dim ng-note">The join code shows as soon as the game starts. Friends scan it, pick their seat and keep their own total.</p>
       )}
+      {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
       {wide ? (
         <div className="ng-body">
@@ -386,6 +454,67 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           )}
         </>
       )}
+    </section>
+  );
+}
+
+/** Seats a table game can have, as the layouts are drawn. */
+const MAX_SEATS = 6;
+/** People shown in Who's playing before "more". */
+const PEOPLE_SHOWN = 12;
+
+/**
+ * Playing with (friends, or one of your playgroups) and Who's playing: tap people to seat them in
+ * the order tapped, tap again to take them off. A playgroup's members carry their accounts, so the
+ * game counts for them; friends from other groups and past games sit as guests by name.
+ */
+function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onToggle }: {
+  groups: Playgroup[];
+  groupId: string;
+  /**
+   * The chosen playgroup's members are here. Until then (loading, offline) the seats keep their
+   * members, and no people are offered: a tap would treat a member as a plain name.
+   */
+  groupReady: boolean;
+  onGroup: (id: string) => void;
+  people: Person[];
+  seats: SeatDraft[];
+  onToggle: (p: Person) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const headId = useId();
+  const shown = all ? people : people.slice(0, PEOPLE_SHOWN);
+  const full = seats.length >= MAX_SEATS && !seats.some((s) => !s.name.trim() && !s.memberId && !s.userId);
+  return (
+    <section className="who-playing" aria-labelledby={headId}>
+      {groups.length > 0 && (
+        <Choice label="Playing with" options={["", ...groups.map((g) => g.id)]} value={groupId} onChange={onGroup} name={(id) => (id ? groups.find((g) => g.id === id)!.name : "Friends")} />
+      )}
+      <span id={headId} className="field-label">Who's playing</span>
+      {!groupReady ? (
+        <p className="small dim" style={{ margin: 0 }}>Loading the playgroup's members. The seats below keep who you picked last time.</p>
+      ) : people.length > 0 ? (
+        <div className="who-chips">
+          {shown.map((p) => {
+            const on = seats.some((s) => seatHolds(s, p));
+            return (
+              <button key={p.memberId ?? p.userId ?? `name:${p.name}`} type="button" className="who-chip" aria-pressed={on} disabled={!on && full} onClick={() => onToggle(p)}>
+                {p.name}
+                {p.sub === "You" && <span className="who-chip-sub"> (you)</span>}
+              </button>
+            );
+          })}
+          {people.length > PEOPLE_SHOWN && (
+            <button type="button" className="quiet small" onClick={() => setAll((a) => !a)}>{all ? "Fewer" : `${people.length - PEOPLE_SHOWN} more`}</button>
+          )}
+        </div>
+      ) : (
+        <p className="small dim" style={{ margin: 0 }}>People from your playgroups and past games show up here.</p>
+      )}
+      <p className="small dim" style={{ margin: 0 }}>
+        {groupId ? "Tap who's here; each takes the next seat. The game goes in the playgroup's stats." : "Tap who's here; each takes the next seat. Friends play as guests; pick a playgroup to put the game in its stats."}
+        {full ? ` ${MAX_SEATS} seats is the most.` : ""}
+      </p>
     </section>
   );
 }
@@ -434,182 +563,6 @@ export function shuffled<T>(items: T[]): T[] {
     [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
-}
-
-/** A deck's commanders (and partner) as picked cards, with art and colors; null offline. */
-async function deckCommanders(d: { commanders: string[]; commander_image?: string | null; commander_artist?: string | null }): Promise<Partial<SeatDraft> | null> {
-  const [main, second] = await Promise.all([d.commanders[0] ? cardNamed(d.commanders[0]) : null, d.commanders[1] ? cardNamed(d.commanders[1]) : null]);
-  if (!main) return null;
-  const draft = draftFromCard(main);
-  return {
-    ...draft,
-    commanderName: main.name,
-    // A deck's own picture of its commander wins: it's the art its owner chose.
-    art: d.commander_image ?? draft.art,
-    artist: d.commander_image ? (d.commander_artist ?? undefined) : draft.artist,
-    colorIdentity: second ? unionIdentity(main.color_identity, second.color_identity) : main.color_identity,
-    ...(second
-      ? { partnerName: second.name, partnerArt: second.image_art_crop ?? undefined, partnerArtist: second.artist ?? undefined, partnerIdentity: second.color_identity }
-      : { partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined }),
-  };
-}
-
-/**
- * People a seat can be: you, the chosen playgroup's members, then names from your other
- * playgroups and your recent games (as guests, since only the chosen group's members can carry
- * their account onto the game). Only people this account already shares groups or games with.
- */
-function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined): Person[] {
-  const me = useMe().data;
-  const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games") });
-  const out: Person[] = [];
-  const names = new Set<string>();
-  const ids = new Set<string>();
-  // Members and accounts are told apart by id (two Alexes in a group are two people); a bare
-  // name (another group's member, someone from a past game) only if no one listed has it yet.
-  const add = (p: Person) => {
-    const name = p.name.trim().toLowerCase();
-    const id = p.memberId ?? p.userId;
-    if (!name || (id ? ids.has(id) : names.has(name))) return;
-    if (id) ids.add(id);
-    names.add(name);
-    out.push(p);
-  };
-  if (group) {
-    const mine = group.members.find((m) => me && m.user_id === me.id);
-    if (mine) add({ name: mine.display_name, memberId: mine.id, userId: me!.id, handle: mine.handle ?? undefined, sub: "You" });
-    for (const m of group.members) add({ name: m.display_name, memberId: m.id, userId: m.user_id ?? undefined, handle: m.handle ?? undefined, sub: m.user_id ? group.name : `${group.name}, guest` });
-  } else if (me) {
-    add({ name: me.display_name, userId: me.id, sub: "You" });
-  }
-  for (const g of groups ?? []) if (g.id !== group?.id) for (const m of g.members) add({ name: m.display_name, handle: m.handle ?? undefined, sub: g.name });
-  for (const g of games.data ?? []) {
-    const day = new Date(g.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    for (const seat of g.seats) if (seat.display_name && !seat.ai_kind) add({ name: seat.display_name, sub: `Played ${day}` });
-  }
-  return out;
-}
-
-function SeatEditor({ index, seat, onChange, group, decks, deckName, where, people = [], seatedHandles, commander = true, footer }: {
-  index: number;
-  seat: SeatDraft;
-  onChange: (p: SeatPatch) => void;
-  group?: Playgroup;
-  /** Your decks: yours to play, or to lend to whoever sits here. */
-  decks?: DeckSummary[];
-  deckName?: string;
-  where?: string;
-  people?: Person[];
-  /** Handles already sitting at another seat. */
-  seatedHandles?: string[];
-  /** A Commander game: the seat names its commander. */
-  commander?: boolean;
-  /** The last line in the seat's box (Log a game: who won, and Remove). */
-  footer?: ReactNode;
-}) {
-  const me = useMe().data;
-  const chosen = decks?.find((d) => d.id === seat.deckId);
-  // A deck named for this seat: one of yours, or a precon or the player's public deck.
-  const deckShown = chosen?.name ?? seat.deckLabel;
-  // What's typed in the deck field before anything is picked; null shows the deck picked.
-  const [deckText, setDeckText] = useState<string | null>(null);
-
-  const pickPerson = (p: Person) => {
-    if (group && p.memberId) {
-      const m = group.members.find((x) => x.id === p.memberId);
-      if (!m) return;
-      // Your deck stays only on your own seat.
-      onChange({ ...NOT_AN_ACCOUNT, memberId: m.id, userId: m.user_id ?? undefined, handle: m.handle ?? undefined, name: m.display_name, ...(m.user_id && m.user_id === seat.userId ? { deckId: seat.deckId, deckVersionId: seat.deckVersionId, deckLabel: seat.deckLabel } : {}) });
-    } else if (!group && me && p.userId === me.id) {
-      onChange({ userId: me.id, name: me.display_name, memberId: undefined });
-    } else {
-      // Anyone else is a guest, by name or by the handle they were found by.
-      onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: p.name, handle: p.handle });
-    }
-  };
-  const typeName = (t: string) => {
-    // Typing over a playgroup member, or someone found by handle, makes the seat a guest of that name.
-    if (seat.memberId || seat.handle) onChange({ ...NOT_AN_ACCOUNT, memberId: undefined, name: t });
-    else onChange(renameSeat(seat, t, me));
-  };
-  const pickDeck = (p: DeckPick) => {
-    setDeckText(null);
-    const d =
-      p.kind === "mine"
-        ? { commanders: p.deck.commanders, commander_image: p.deck.commander_image, commander_artist: p.deck.commander_artist }
-        : p.kind === "theirs"
-          ? { commanders: p.deck.commanders, commander_image: p.deck.art, commander_artist: p.deck.artist }
-          : { commanders: p.precon.commanders, commander_image: p.precon.art?.url ?? null, commander_artist: p.precon.art?.artist ?? null };
-    const picked = {
-      // Your deck by id (its version on the day is looked up on save); anyone else's by its list now.
-      deckId: p.kind === "mine" ? p.deck.id : undefined,
-      deckVersionId: p.kind === "mine" ? (p.deck.current_version_id ?? undefined) : p.kind === "theirs" ? (p.deck.version_id ?? undefined) : undefined,
-      // A deck you lend keeps its name on the seat: the server keeps its list only on a guest's seat
-      // (a seat with an account holds that account's own decks), and the name says what was played.
-      deckLabel: p.kind === "mine" ? (me && seat.userId === me.id ? undefined : p.deck.name) : p.kind === "theirs" ? p.deck.name : p.precon.name,
-      commanderName: d.commanders[0] ?? "",
-      partnerName: d.commanders[1],
-      colorIdentity: p.kind === "mine" ? p.deck.color_identity : p.kind === "theirs" ? p.deck.color_identity : p.precon.color_identity,
-      art: d.commander_image ?? undefined,
-      artist: d.commander_artist ?? undefined,
-    };
-    onChange(picked);
-    // The cards' own art and colors land only if the seat still holds this deck by then.
-    void deckCommanders(d).then((c) => c && onChange((now) => (stillHolds(now, picked) ? c : null)));
-  };
-  const typeDeck = (t: string) => {
-    setDeckText(t);
-    // Typing over a deck puts the seat back on its commander alone.
-    if (deckShown) {
-      onChange({ deckId: undefined, deckVersionId: undefined, deckLabel: undefined });
-    }
-  };
-
-  const who = seat.name.trim() || `Player ${index + 1}`;
-  const isMe = !!me && seat.userId === me.id;
-  return (
-    <fieldset className="seat seat-card2">
-      <legend className="visually-hidden">Seat {index + 1}</legend>
-      {/* Commander art once a commander is picked; a raised block until then. The credit is the line under the fields. */}
-      <ArtPanel className="seat-head2" art={seat.art} artist={seat.artist} wash="bottom" credit={false}>
-        <span className="seat-name">{who}{isMe ? <span className="seat-you"> (you)</span> : null}</span>
-        <span className="seat-where">Seat {index + 1}{where ? `, ${where}` : ""}</span>
-      </ArtPanel>
-      <div className="seat-fields2">
-        <PlayerSearch
-          text={seat.name}
-          people={people}
-          seatedHandles={seatedHandles}
-          onText={typeName}
-          onPick={pickPerson}
-          placeholder={group ? "Search the playgroup or a @handle" : "Type a name or a @handle"}
-        />
-        {/* Either a deck (yours, theirs or a precon) or just the commander. */}
-        {commander && (
-          <DeckSearch
-            text={deckText ?? deckShown ?? ""}
-            onText={typeDeck}
-            onPick={pickDeck}
-            onLeave={() => setDeckText(null)}
-            decks={decks}
-            handle={seat.handle}
-            yours={isMe}
-            trailing={deckShown && seat.colorIdentity ? <span className="combo-trailing"><Pips identity={seat.colorIdentity} label={false} /></span> : null}
-          />
-        )}
-        {/* With a deck chosen, the deck names the commander. */}
-        {commander && !deckShown && (
-          <CommanderFields
-            value={seat as CommanderDraft}
-            onChange={(d) => onChange(commandersPatch(seat, d))}
-          />
-        )}
-        {commander && <span className="seat-credit">{seatCredit(seat, deckShown ? (deckName ?? deckShown) : undefined)}</span>}
-        {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
-        {footer && <div className="seat-foot">{footer}</div>}
-      </div>
-    </fieldset>
-  );
 }
 
 /** Recent games to show before "All games and stats": four on a laptop, three on a phone. */
@@ -734,7 +687,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     // The seats' keys start as their places in the form.
     form.seats.forEach((s, key) => {
       if (!s.commanderName || s.art) return;
-      void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }).then(
+      // The saved game already paired them, so they stay a pair.
+      void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }, { checkPair: false }).then(
         (c) => c && updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? settleRebuilt(c, !!s.partnerName, form.savedLabels[key]) : null)),
       );
     });

@@ -1163,14 +1163,6 @@ table.plain tr.few td {
   gap: 16px 32px;
   align-items: end;
 }
-.setup-group {
-  flex: 1 1 15rem;
-}
-/* As tall as the segmented controls beside it (a target plus their 3 px inset), so the row is
-   bottom-aligned without the Playgroup label sitting 4 px below Game and Players. */
-.setup-group select {
-  min-height: calc(var(--target) + 6px);
-}
 .field-label {
   font-weight: 700;
   font-size: var(--t-label);
@@ -2050,48 +2042,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   cursor: progress;
 }
 
-/* Under each tile: the builds link, then configurations (other builds of a deck, a row of links
-   switched on its page). A gap keeps them off the tile. */
-.deck-tiles > li {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-}
-.deck-configs a {
-  display: inline-block;
-  padding-block: 2px;
-  font-size: var(--t-sm);
-}
-.deck-configs-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-/* On a phone's half-width tile the status drops under the name as a whole line instead of
-   wrapping inside the pill; the radius stays a pill on one line, a rounded box on two. */
-.deck-configs-list a {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 8px;
-  min-height: 44px;
-  padding: 10px 14px;
-  border-radius: 22px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: inherit;
-  text-decoration: none;
-}
-.deck-configs-list a:hover,
-.deck-configs-list a:focus-visible {
-  background: var(--raised);
-}
-.deck-configs details > .deck-configs-list {
-  margin-top: 8px;
-}
+/* Configurations: other builds of a deck, switched on its page. */
 .deck-shared {
   font-weight: 600;
   color: var(--on-art);

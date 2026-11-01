@@ -34,6 +34,8 @@ function GuestGame({ gameId }: { gameId: string }) {
   const [connected, setConnected] = useState(false);
   /** Connection attempts that closed without ever opening: the link was refused. */
   const [refused, setRefused] = useState(0);
+  /** Why the relay turned this phone away (it closed with a reason), if it did. */
+  const [turnedAway, setTurnedAway] = useState<string | null>(null);
   const [seat, setSeat] = useState<number | null>(() => {
     const saved = localStorage.getItem(`yama.guest.${gameId}`);
     return saved === null ? null : Number(saved);
@@ -42,6 +44,8 @@ function GuestGame({ gameId }: { gameId: string }) {
   const [sheetSeat, setSheetSeat] = useState<number | null>(null);
   const [knockSeat, setKnockSeat] = useState<number | null>(null);
   const [attack, setAttack] = useState<{ seat: number; partner: boolean } | null>(null);
+  /** The player taking commander damage, Lifetap's way: tap the commander that hit them. */
+  const [taking, setTaking] = useState<number | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
   const landscape = useLandscape();
@@ -67,6 +71,9 @@ function GuestGame({ gameId }: { gameId: string }) {
         attempt = 0;
         setRefused(0);
         setConnected(true);
+        // Let in: any earlier refusal is over (a refusal opens and closes at once, so its reason
+        // is set again by the close that follows).
+        setTurnedAway(null);
       };
       ws.onmessage = (m) => {
         const msg = JSON.parse(m.data);
@@ -79,10 +86,21 @@ function GuestGame({ gameId }: { gameId: string }) {
           navigate(`/table/join/${next.gameId}${joinFragment(next.key, next.relay === "cf" ? "edge" : "server")}`, { replace: true });
         } else if (msg.type === "state") setSnapshot({ setup: msg.setup, log: msg.log });
       };
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         setConnected(false);
+        // The relay says why: joining by code is switched off (don't keep trying), or too many
+        // tries from this network (wait a minute).
+        if (e.code === 4403 || e.code === 4429) {
+          setTurnedAway(e.reason || "The table's relay turned this phone away.");
+          if (e.code === 4403) return;
+          if (!closed) timer = window.setTimeout(open, 60_000);
+          return;
+        }
+        if (opened) setTurnedAway(null);
         if (!opened) setRefused((r) => r + 1);
-        if (!closed) timer = window.setTimeout(open, Math.min(15_000, 1000 * 2 ** attempt++));
+        // Spread out (2 s up, with jitter): a table's phones share one Wi-Fi address, and the
+        // relay's rule in front allows only a few connections from it every 10 s, the host's too.
+        if (!closed) timer = window.setTimeout(open, Math.min(15_000, 2000 * 2 ** attempt++) * (0.75 + Math.random() / 2));
       };
     };
     open();
@@ -116,9 +134,13 @@ function GuestGame({ gameId }: { gameId: string }) {
       <main className="page">
         <h1>Joining the table</h1>
         <p className="dim">
-          {noLink
+          {turnedAway
+            ? turnedAway
+            : noLink
             ? key
-              ? "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
+              ? relay === "edge"
+                ? "Can't reach the table yet. If the host just started the game, or several phones on this Wi-Fi just joined, it connects in a few seconds; if not, ask them to show the code again."
+                : "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
               : "This link is missing its code. Scan the QR code on the host's phone again."
             : !connected
               ? "Connecting to Yama…"
@@ -164,8 +186,9 @@ function GuestGame({ gameId }: { gameId: string }) {
   const others = state.players.filter((p) => p.seat !== me?.seat);
   const host = state.players[0];
   const live = connected && hostOnline !== false;
-  // A commander attack always shows the whole table: that's where the damage goes.
-  const shown: View = !me || attack ? "table" : view;
+  // Commander damage always shows the whole table: that's where it comes from and goes.
+  const busy = !!attack || taking !== null;
+  const shown: View = !me || busy ? "table" : view;
   const credited = (shown === "table" ? state.players : others).map((p) => artFor(p.seat)).filter((a) => !!a).map((a) => a!.artist);
   const grid = uprightLayout(state.players.length, landscape);
   const panel = (s: number, area: string, vertical = false) => {
@@ -185,7 +208,15 @@ function GuestGame({ gameId }: { gameId: string }) {
         onKnockOut={() => setKnockSeat(s)}
         vertical={vertical}
         attack={attack}
-        onAttack={(partner) => setAttack(attack?.seat === s && attack.partner === partner ? null : { seat: s, partner })}
+        onAttack={(partner) => {
+          setTaking(null);
+          setAttack(attack?.seat === s && attack.partner === partner ? null : { seat: s, partner });
+        }}
+        taking={taking}
+        onTake={() => {
+          setAttack(null);
+          setTaking(taking === s ? null : s);
+        }}
       />
     );
   };
@@ -196,7 +227,7 @@ function GuestGame({ gameId }: { gameId: string }) {
         <div className="guest-bar">
           {me ? (
             <div className="segmented" role="group" aria-label="View">
-              <button type="button" aria-pressed={shown === "mine"} disabled={!!attack} onClick={() => setView("mine")}>My seat</button>
+              <button type="button" aria-pressed={shown === "mine"} disabled={busy} onClick={() => setView("mine")}>My seat</button>
               <button type="button" aria-pressed={shown === "table"} onClick={() => setView("table")}>Whole table</button>
             </div>
           ) : (
@@ -241,7 +272,7 @@ function GuestGame({ gameId }: { gameId: string }) {
           </>
         ) : (
           <div
-            className={`table guest-table guest-grid${attack ? " attacking" : ""}`}
+            className={`table guest-table guest-grid${busy ? " attacking" : ""}`}
             style={{ position: "relative", inset: "auto", gridTemplateColumns: `repeat(${grid.cols}, 1fr)`, gridTemplateRows: `repeat(${grid.rows}, 1fr)` }}
           >
             {grid.cells.map(({ seat: s, area }) => panel(s, area))}
@@ -249,8 +280,8 @@ function GuestGame({ gameId }: { gameId: string }) {
         )}
 
         <div className="guest-status">
-          {attack ? (
-            <button className="primary" onClick={() => setAttack(null)}>Done dealing damage</button>
+          {busy ? (
+            <button className="primary" onClick={() => { setAttack(null); setTaking(null); }}>Done with commander damage</button>
           ) : (
             <p className="guest-status-line" role="status" style={{ margin: 0 }}>
               <span className={`status-dot ${live ? "good" : "warn"}`} aria-hidden="true" />
@@ -258,7 +289,7 @@ function GuestGame({ gameId }: { gameId: string }) {
                 ? `Following ${host && host.seat !== me?.seat ? `${host.name}'s` : "the host's"} phone. Tap anyone to change their totals.`
                 : connected
                   ? "The host's phone is offline. Changes will wait until it's back."
-                  : "Reconnecting…"}
+                  : (turnedAway ?? "Reconnecting…")}
             </p>
           )}
           {credited.length > 0 && <span className="guest-credit">{artCredits(credited)}</span>}
@@ -274,6 +305,10 @@ function GuestGame({ gameId }: { gameId: string }) {
                 setAttack({ seat: sheetSeat, partner });
                 setSheetSeat(null);
               }}
+              onTake={() => {
+                setTaking(sheetSeat);
+                setSheetSeat(null);
+              }}
             />
           </Sheet>
         )}
@@ -282,7 +317,7 @@ function GuestGame({ gameId }: { gameId: string }) {
             <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
           </Sheet>
         )}
-        {lethal.ask && sheetSeat === null && knockSeat === null && !attack && (
+        {lethal.ask && sheetSeat === null && knockSeat === null && !busy && (
           <Sheet label="Out of the game?" onClose={lethal.dismiss}>
             <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
           </Sheet>
