@@ -500,7 +500,7 @@ async fn a_granted_friend_asks_on_the_shared_key_and_never_on_the_subscription()
     c.tools_url = Some("http://yama:8787/mcp".into());
     let (app, pool) = app_with(c).await;
     let (owner_id, owner) = bryan(&pool, "owner@example.com").await;
-    let (matt_id, matt) = google_power_user(&pool, "matt@example.com").await;
+    let (matt_id, matt) = google_user(&pool, "matt@example.com").await;
 
     // Not granted: the usual "add your own key", and the sidecar hears nothing.
     let (_, st) = send(&app, Method::GET, "/api/advisor/status", Some(&matt), None).await;
@@ -596,8 +596,8 @@ async fn shared_questions_have_a_daily_cap_and_a_monthly_cap() {
     let (_, owner) = bryan(&pool, "owner@example.com").await;
     let (admin_id, admin) = power_user(&pool, "admin@example.com").await;
     sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&admin_id).execute(&pool).await.unwrap();
-    let (matt_id, matt) = google_power_user(&pool, "matt@example.com").await;
-    let (sam_id, sam) = google_power_user(&pool, "sam@example.com").await;
+    let (matt_id, matt) = google_user(&pool, "matt@example.com").await;
+    let (sam_id, sam) = google_user(&pool, "sam@example.com").await;
 
     // Caps are 1 to 1,000, and only for accounts that exist.
     for bad in [json!({"daily_limit": 0}), json!({"daily_limit": 5000})] {
@@ -682,7 +682,7 @@ async fn without_the_key_on_the_sidecar_a_grant_does_nothing() {
     let url = fake_sidecar(fake.clone()).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
     let (_, owner) = bryan(&pool, "owner@example.com").await;
-    let (matt_id, matt) = google_power_user(&pool, "matt@example.com").await;
+    let (matt_id, matt) = google_user(&pool, "matt@example.com").await;
     let (_, ov) = send(&app, Method::PUT, &grant_path(&matt_id), Some(&owner), Some(json!({}))).await;
     assert_eq!(ov["key_on_sidecar"], false);
     assert!(ov["grants"][0]["mode"].is_null());
@@ -701,7 +701,7 @@ async fn view_as_never_asks_on_someone_elses_grant() {
     let url = fake_sidecar(fake.clone()).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
     let (_, owner) = bryan(&pool, "owner@example.com").await;
-    let (matt_id, _) = google_power_user(&pool, "matt@example.com").await;
+    let (matt_id, _) = google_user(&pool, "matt@example.com").await;
     send(&app, Method::PUT, &grant_path(&matt_id), Some(&owner), Some(json!({}))).await;
 
     let start = Request::builder()

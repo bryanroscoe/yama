@@ -41,10 +41,11 @@ export function useAdvisorStatus(enabled = true) {
 /** The button and its sheet. */
 export function AskClaude({ context, about, ideasFor, className = "" }: Props) {
   const [open, setOpen] = useState(false);
+  const power = usePower();
   const status = useAdvisorStatus();
-  // Nothing to offer on a server without the advisor, to anyone but admins and power users, or
-  // before the status is known.
-  if (!status.data || status.data.reason === "off") return null;
+  // Nothing to offer on a server without the advisor, to anyone but admins and power users (also
+  // once a grant is withdrawn while a status is still cached), or before the status is known.
+  if (!power || !status.data || status.data.reason === "off") return null;
   return (
     <>
       <button type="button" className={`ask-claude-button ${className}`.trim()} onClick={() => setOpen(true)} aria-haspopup="dialog">
