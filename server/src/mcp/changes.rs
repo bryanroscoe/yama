@@ -1504,6 +1504,9 @@ async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppRes
         premium_usd: p["premium_usd"].as_f64(),
     };
     crate::plan::shopping::set_pref(&st.pool, &user.id, key, &pref).await?;
+    if let Some(place) = pref.hassle {
+        crate::plan::shopping::place_store(&st.pool, &user.id, key, place).await?;
+    }
     Ok(json!({"label": format!("Saved your setting for {key}.")}))
 }
 

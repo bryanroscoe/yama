@@ -581,6 +581,28 @@ impl Writer<'_> {
     /// applies from its own date with a warning the first time it arrives or changes, so it never
     /// takes over silently (docs/shopping-design.md, "Account-level rules").
     async fn settings(&self, conn: &mut SqliteConnection, plan: &Plan, report: &mut Report) -> AppResult<()> {
+        if self.origin != "import" {
+            // A Yama backup being restored: as before 1 Nov 2026, its sets replace that origin's rows
+            // and any set on the same date.
+            sqlx::query("DELETE FROM plan_settings WHERE owner_id = ? AND origin = ?").bind(self.owner).bind(self.origin).execute(&mut *conn).await?;
+            for s in &plan.settings {
+                sqlx::query(
+                    "INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(owner_id, effective_from) DO UPDATE SET rules = excluded.rules, note = excluded.note,
+                       origin = excluded.origin, created_at = excluded.created_at",
+                )
+                .bind(self.owner)
+                .bind(&s.effective_from)
+                .bind(json_text(&s.rules)?)
+                .bind(&s.note)
+                .bind(self.origin)
+                .bind(self.stamp)
+                .execute(&mut *conn)
+                .await?;
+            }
+            report.counts.settings = plan.settings.len() as i64;
+            return Ok(());
+        }
         let yama: Vec<String> = sqlx::query_scalar("SELECT effective_from FROM plan_settings WHERE owner_id = ? AND origin != ? ORDER BY effective_from")
             .bind(self.owner)
             .bind(self.origin)

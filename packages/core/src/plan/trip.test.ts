@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import fixture from "./fixtures/trip.json";
-import { foilListing, judge, localBuyRule, planTrip, ruleText, storePreference, tripSummary, type LocalBuyRule, type TripData } from "./trip";
+import { foilListing, hassleOrder, judge, localBuyRule, planTrip, ruleText, storePreference, tripSummary, type LocalBuyRule, type TripData } from "./trip";
 import type { RuleSet } from "./rules";
 
 const bundle = fixture.bundle as unknown as TripData;
@@ -55,6 +55,8 @@ describe("the trip", () => {
     expect(storePreference(bundle, "pats")).toBe("ok");
     expect(storePreference({}, "pats")).toBe("ok");
     expect(storePreference({ store_prefs: { pats: { preference: "default", note: null, updated_at: "" } } }, "pats")).toBe("favorite");
+    // Places: your numbered stores first; printers and retired stores have none.
+    expect([...hassleOrder(bundle)]).toEqual([["black-castle", 1], ["mothership", 2], ["pats", 3], ["multiverse-hobbies", 4], ["alpha-strike", 5]]);
     const t = planTrip(bundle, { today: "2026-11-01" });
     expect(t.stops.map((s) => s.store.key)).not.toContain("alpha-strike");
     expect(t.print.find((p) => p.want.card === "Strike It Rich")?.stores).toEqual(["Alpha Strike Games"]);
@@ -107,6 +109,10 @@ describe("the trip", () => {
     const t = planTrip({ ...bundle, stores, quotes }, { today: "2026-11-01" });
     expect(t.stops.map((s) => s.store.key)).toContain("zz");
     expect(t.print.map((p) => p.want.card)).not.toContain("Exotic Orchard");
+    // Two stores past the limit share it: one of them still comes.
+    const two = planTrip({ ...bundle, stores: [...stores, { ...pats, key: "zy", name: "Far Store 2", sort: 98 }], quotes: [...quotes, q("Exotic Orchard", "zy", 0.75)] }, { today: "2026-11-01" });
+    expect(two.print.map((p) => p.want.card)).not.toContain("Exotic Orchard");
+    expect(two.stops.filter((s) => s.store.key === "zz" || s.store.key === "zy")).toHaveLength(1);
   });
 
   test("a store left out only by the buy-local rule says so, not that you won't go", () => {

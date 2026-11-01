@@ -278,6 +278,31 @@ pub async fn set_pref(pool: &SqlitePool, owner: &str, key: &str, p: &Pref) -> Ap
     Ok(json!({"store": key, "preference": p.preference, "note": p.note, "hassle": p.hassle, "premium_usd": premium, "updated_at": at}))
 }
 
+/// Put one store at `place` (from 1) in the owner's order and renumber the others around it, as the
+/// Trip page's arrows do, so no two stores share a place.
+pub async fn place_store(pool: &SqlitePool, owner: &str, key: &str, place: i64) -> AppResult<()> {
+    let mut order: Vec<String> = sqlx::query_scalar(
+        "SELECT s.key FROM plan_stores s LEFT JOIN plan_store_prefs p ON p.owner_id = s.owner_id AND p.store_key = s.key
+         WHERE s.owner_id = ? AND s.retired_at IS NULL AND s.kind != 'printer'
+         ORDER BY p.hassle IS NULL, p.hassle, s.sort, s.key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let Some(at) = order.iter().position(|k| k == key) else { return Err(AppError::NotFound("store")) };
+    let moved = order.remove(at);
+    order.insert(((place - 1).max(0) as usize).min(order.len()), moved);
+    for (i, k) in order.iter().enumerate() {
+        let mut p = get_pref(pool, owner, k).await?;
+        let want = i as i64 + 1;
+        if p.hassle != Some(want) {
+            p.hassle = Some(want);
+            set_pref(pool, owner, k, &p).await?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct PrefBody {
     /// Null: "ok".

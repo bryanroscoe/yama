@@ -54,7 +54,7 @@ pub fn store_premium(b: &Value, key: &str) -> f64 {
 /// `hassleOrder`): the stores they numbered, by number, then the rest in store order.
 pub fn hassle_order(b: &Value) -> HashMap<String, usize> {
     let h = |k: &str| b["store_prefs"][k].get("hassle").and_then(num).unwrap_or(f64::MAX);
-    let mut all: Vec<&Value> = arr(b, "stores").iter().collect();
+    let mut all: Vec<&Value> = arr(b, "stores").iter().filter(|x| x["retired"] != true && s(x, "kind") != Some("printer")).collect();
     all.sort_by(|x, y| {
         let (kx, ky) = (s(x, "key").unwrap_or_default(), s(y, "key").unwrap_or_default());
         h(kx).partial_cmp(&h(ky)).unwrap_or(std::cmp::Ordering::Equal).then(sort_of(x).cmp(&sort_of(y))).then(kx.cmp(ky))
@@ -653,12 +653,17 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
             .then(rank(pref(&key_of(x))).cmp(&rank(pref(&key_of(y)))))
             .then(by_order(x, y))
     });
-    // Past the search limit, a store that is the only one with a needed card is on every trip too.
+    // Past the search limit: a needed card that only stores past it have brings the first of them
+    // (in the same ranking) onto every trip, so no coverable card is lost (`trip.ts`). Favourites
+    // always come.
+    let ranked: Vec<String> = pool.iter().map(|x| key_of(x)).collect();
+    let fav_keys: Vec<String> = forced.iter().map(|x| key_of(x)).collect();
+    let searched: HashSet<&str> = ranked.iter().take(MAX_SEARCH).chain(fav_keys.iter()).map(String::as_str).collect();
     let mut only_at: HashSet<String> = HashSet::new();
     for w in &needed {
         let at: HashSet<&str> = offers_of[&w.id].iter().filter(|o| usable(w, o) && eligible(o.store)).map(|o| o.key()).collect();
-        if at.len() == 1 {
-            only_at.extend(at.into_iter().map(String::from));
+        if !at.is_empty() && !at.iter().any(|k| searched.contains(k)) {
+            only_at.extend(ranked.iter().find(|k| at.contains(k.as_str())).cloned());
         }
     }
     forced.extend(pool.split_off(MAX_SEARCH.min(pool.len())).into_iter().filter(|x| only_at.contains(&key_of(x))));

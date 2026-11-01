@@ -123,11 +123,12 @@ export function storePremium(b: Pick<PlanBundle, "store_prefs">, key: string): n
 
 /**
  * Every store's place in your order of how easy it is to get to, from 1: the stores you numbered
- * first (by their number), then the rest in the plan's store order.
+ * first (by their number), then the rest in the plan's store order. Retired stores and printers
+ * have no place.
  */
 export function hassleOrder(b: Pick<PlanBundle, "store_prefs" | "stores">): Map<string, number> {
   const h = (k: string) => num(b.store_prefs?.[k]?.hassle) ?? Number.MAX_SAFE_INTEGER;
-  const order = [...b.stores].sort((x, y) => h(x.key) - h(y.key) || x.sort - y.sort || cmp(x.key, y.key));
+  const order = b.stores.filter((s) => !s.retired && s.kind !== "printer").sort((x, y) => h(x.key) - h(y.key) || x.sort - y.sort || cmp(x.key, y.key));
   return new Map(order.map((s, i) => [s.key, i + 1]));
 }
 
@@ -403,11 +404,14 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     .filter((s) => storePreference(b, s.key) !== "favorite")
     .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || byOrder(x, y));
   const pool = ranked.slice(0, MAX_SEARCH).sort(byOrder);
-  // Past the search limit, a store that is the only one with a needed card is on every trip too.
+  // Past the search limit: a needed card that only stores past it have brings the first of them
+  // (in the same ranking) onto every trip, so no coverable card is lost. Favourites always come.
+  const searched = new Set([...pool, ...covering.filter((s) => storePreference(b, s.key) === "favorite")].map((s) => s.key));
+  const rankOf = new Map(ranked.map((s, i) => [s.key, i]));
   const onlyAt = new Set<string>();
   for (const w of needed) {
-    const at = new Set((offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && eligible(o.store)).map((o) => o.store.key));
-    if (at.size === 1) onlyAt.add([...at][0]!);
+    const at = (offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && eligible(o.store)).map((o) => o.store.key);
+    if (at.length && !at.some((k) => searched.has(k))) onlyAt.add(at.sort((x, y) => rankOf.get(x)! - rankOf.get(y)!)[0]!);
   }
   const forced = [...covering.filter((s) => storePreference(b, s.key) === "favorite"), ...ranked.slice(MAX_SEARCH).filter((s) => onlyAt.has(s.key))].sort(byOrder);
 

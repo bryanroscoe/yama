@@ -113,7 +113,7 @@ export function Trip() {
         </p>
       </div>
 
-      {willGo.length > 1 && (
+      {willGo.length > 0 && (
         <fieldset className="trip-going">
           <legend className="small">Going this time</legend>
           {willGo.map((s) => (

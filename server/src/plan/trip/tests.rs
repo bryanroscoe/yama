@@ -162,12 +162,23 @@ fn past_the_search_limit_a_store_that_alone_has_a_needed_card_still_makes_the_tr
     let t = plan(&b, "2026-11-01", None);
     assert!(t.stops.iter().any(|x| s(x.store, "key") == Some("zz")));
     assert!(t.print.iter().all(|p| p.want.card != "Exotic Orchard"));
+    // Two stores past the limit share it: one of them still comes.
+    let mut far2 = pats.clone();
+    far2["key"] = json!("zy");
+    far2["name"] = json!("Far Store 2");
+    far2["sort"] = json!(98);
+    b["stores"].as_array_mut().unwrap().push(far2);
+    let q = quote("Exotic Orchard", "zy", 0.75);
+    b["quotes"].as_array_mut().unwrap().push(q);
+    let t = plan(&b, "2026-11-01", None);
+    assert!(t.print.iter().all(|p| p.want.card != "Exotic Orchard"));
+    assert_eq!(t.stops.iter().filter(|x| matches!(s(x.store, "key"), Some("zz" | "zy"))).count(), 1);
 }
 
 #[test]
 fn preferences_read_the_old_name_and_order_the_stores() {
     let b = json!({
-        "stores": [{"key": "a", "sort": 1}, {"key": "b", "sort": 2}, {"key": "c", "sort": 3}],
+        "stores": [{"key": "a", "sort": 1}, {"key": "p", "sort": 2, "kind": "printer"}, {"key": "b", "sort": 2}, {"key": "r", "sort": 0, "retired": true}, {"key": "c", "sort": 3}],
         "store_prefs": {"a": {"preference": "default"}, "c": {"preference": "maybe", "hassle": 1, "premium_usd": 0.4}},
     });
     assert_eq!(store_preference(&b, "a"), "favorite");
@@ -177,7 +188,7 @@ fn preferences_read_the_old_name_and_order_the_stores() {
     let fav = json!({"store_prefs": {"c": {"preference": "favorite", "premium_usd": 0.4}}});
     assert_eq!(store_premium(&fav, "c"), 0.4);
     let order = hassle_order(&b);
-    assert_eq!((order["c"], order["a"], order["b"]), (1, 2, 3));
+    assert_eq!((order["c"], order["a"], order["b"], order.len()), (1, 2, 3, 3), "printers and retired stores have no place");
     assert_eq!(mass_entry_url(&["Sol Ring", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "+2 Mace", "Sol Ring"]).as_deref(),
         Some("https://www.tcgplayer.com/massentry?productline=Magic&c=2%20Sol%20Ring||1%20Fable%20of%20the%20Mirror-Breaker||1%20%2B2%20Mace"));
     assert_eq!(pro_search_url(&json!({"homepage": "https://evil.com/.tcgplayerpro.com"}), "Sol Ring"), None);

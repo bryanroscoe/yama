@@ -803,6 +803,15 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
                 ),
             };
             let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
+            if let Some(g) = &going {
+                let known: Vec<&str> = bundle["stores"]
+                    .as_array()
+                    .map(|a| a.iter().filter(|s| s["retired"] != true && s["kind"] != "printer").filter_map(|s| s["key"].as_str()).collect())
+                    .unwrap_or_default();
+                if let Some(bad) = g.iter().find(|k| !known.contains(&k.as_str())) {
+                    return Err(AppError::bad(format!("No store with key \"{bad}\". Their store keys: {}.", known.join(", "))));
+                }
+            }
             Ok(crate::plan::trip::text(&crate::plan::trip::plan(&bundle, &today, going.as_deref())))
         }
         "shopping_settings" => {

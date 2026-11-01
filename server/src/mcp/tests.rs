@@ -491,7 +491,22 @@ async fn shopping_rules_and_store_preferences_are_staged_then_applied() {
         .unwrap();
     assert_eq!(row, ("favorite".into(), Some(1), Some(0.25)));
 
+    // Another store to first place: the others move down, no two share a place.
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "pats", "hassle": 1})).await;
+    assert!(!err, "{text}");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{text}");
+    let places: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT store_key, hassle FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
+        .bind(&a)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(places, [("black-castle".to_string(), Some(2)), ("pats".to_string(), Some(1))]);
+    let (err, text) = call(&app, &mcp, "shopping_trip", json!({"stores": ["black-castle", "nowhere"]})).await;
+    assert!(err && text.contains("No store with key \"nowhere\". Their store keys: black-castle, pats."), "{text}");
+
     let (_, text) = call(&app, &mcp, "shopping_settings", json!({})).await;
     assert!(text.contains(&format!("the set from {today} (made in Yama)")), "{text}");
     assert!(text.contains("- Black Castle Gamez (key black-castle): their favourite, to support, up to $0.25 more a card here\n"), "{text}");
+    assert!(text.find("Pat's Games (key pats)") < text.find("Black Castle Gamez (key black-castle)"), "{text}");
 }
