@@ -454,6 +454,12 @@ fn a_build_compares_with_another_build_card_by_card() {
     let rows = compare(&many_list("New "), &many("New "), &many_list("Old "), &many("Old "), "B3");
     assert_eq!(rows.len(), 2000);
     assert_eq!((rows[0].add.as_str(), rows[0].cut.as_str(), rows[1999].cut.as_str()), ("New 0", "Old 0", "Old 1999"));
+    // Two one-copy swaps of the same card each keep their own row and reason.
+    let two = |a: &str, b: &str| vec![json!({"card_in": a, "card_out": "Forest", "why": "First."}), json!({"card_in": b, "card_out": "Forest", "why": "Second."})];
+    let plains = format!("Commander\n1 Nalia\nDeck\n2 Plains\n8 Forest");
+    let other = format!("Commander\n1 Nalia\nDeck\n1 Mountain\n1 Island\n8 Forest");
+    let rows = compare(&plains, &two("Plains", "Plains"), &other, &two("Mountain", "Island"), "B3");
+    assert_eq!(rows.iter().map(|r| (r.cut.as_str(), r.why.as_str(), r.n)).collect::<Vec<_>>(), vec![("Mountain", "First.", 1), ("Island", "Second.", 1)]);
     // The whole lists: builds that differ only past the page's list cap still differ.
     let long = |last: &str| format!("Commander\n1 Nalia\nDeck\n{}\n1 {last}", (0..300).map(|i| format!("1 Card {i}")).collect::<Vec<_>>().join("\n"));
     assert_eq!(compare(&long("Late A"), &[], &long("Late B"), &[], "B2"), vec![Change { add: "Late A".into(), n: 1, ..Default::default() }, Change { cut: "Late B".into(), n: 1, ..Default::default() }]);
