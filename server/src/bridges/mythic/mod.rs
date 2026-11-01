@@ -647,15 +647,19 @@ struct GameError {
 
 async fn link(pool: &SqlitePool, owner: &str, kind: &str, mythic: &str, yama: &str, changed: Option<&str>) -> AppResult<()> {
     let mut tx = pool.begin().await?;
-    // A Yama record is linked to one Mythic record: the newest choice wins.
-    sqlx::query("DELETE FROM mythic_links WHERE owner_id = ? AND kind = ? AND yama_id = ? AND mythic_id != ?")
-        .bind(owner)
-        .bind(kind)
-        .bind(yama)
-        .bind(mythic)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query(
+    // A Yama record is linked to one Mythic record. A player's newest match wins; a game already
+    // linked to another Mythic game is refused by the unique index (another import, at the same
+    // time, may have just linked it), never taken from it.
+    if kind == "player" {
+        sqlx::query("DELETE FROM mythic_links WHERE owner_id = ? AND kind = ? AND yama_id = ? AND mythic_id != ?")
+            .bind(owner)
+            .bind(kind)
+            .bind(yama)
+            .bind(mythic)
+            .execute(&mut *tx)
+            .await?;
+    }
+    let inserted = sqlx::query(
         "INSERT INTO mythic_links (owner_id, kind, mythic_id, yama_id, mythic_changed, synced_at) VALUES (?,?,?,?,?,?)
          ON CONFLICT (owner_id, kind, mythic_id) DO UPDATE SET yama_id = excluded.yama_id, mythic_changed = excluded.mythic_changed, synced_at = excluded.synced_at",
     )
@@ -666,7 +670,13 @@ async fn link(pool: &SqlitePool, owner: &str, kind: &str, mythic: &str, yama: &s
     .bind(changed)
     .bind(now())
     .execute(&mut *tx)
-    .await?;
+    .await;
+    match inserted {
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            return Err(AppError::Conflict("that Yama game is already matched to another Mythic game".into()));
+        }
+        other => other?,
+    };
     tx.commit().await?;
     Ok(())
 }
@@ -717,8 +727,12 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     Err(e) => Err(e),
                 }
             }
-            // The game stays as it was logged in Yama; only Mythic's note is kept, privately.
-            "link" => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
+            // The game stays as it was logged in Yama; only Mythic's note is kept, privately, once
+            // the link has held.
+            "link" => match link(pool, owner, "game", &p.mythic_id, &yama, Some(&b.fingerprint)).await {
+                Ok(()) => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
+                Err(e) => Err(e),
+            },
             _ => {
                 out.skipped += 1;
                 continue;
@@ -726,7 +740,9 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
         };
         match result {
             Ok(()) => {
-                link(pool, owner, "game", &p.mythic_id, &yama, Some(&b.fingerprint)).await?;
+                if p.action != "link" {
+                    link(pool, owner, "game", &p.mythic_id, &yama, Some(&b.fingerprint)).await?;
+                }
                 match p.action {
                     "create" => out.created += 1,
                     "update" => out.updated += 1,
