@@ -290,6 +290,11 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
     if ended.is_none() && winner.is_none() {
         return Err("it isn't finished in Mythic".into());
     }
+    // Without its end, Yama would date the end to the import and the game would seem to have
+    // lasted months in the group's average length.
+    if ended.is_none() {
+        return Err("Mythic has no end time for it".into());
+    }
     let mut players: Vec<&MPlayer> = g.players.iter().collect();
     if players.is_empty() || players.len() > 10 {
         return Err("a game needs 1 to 10 players".into());
@@ -416,7 +421,8 @@ async fn yama_print<'c, E: sqlx::SqliteExecutor<'c>>(conn: E, game: &str) -> App
     let state: Option<String> = sqlx::query_scalar(
         "SELECT json_array(
                   (SELECT json_array(playgroup_id, format, starting_life, started_at, ended_at, turns, winner_seat, first_seat, win_condition) FROM games WHERE id = ?),
-                  (SELECT json_group_array(json_array(seat, member_id, user_id, guest_name, deck_version_id, deck_label, commander_name))
+                  (SELECT json_group_array(json_array(seat, member_id, user_id, guest_name, deck_version_id, deck_label, commander_name,
+                                                 final_life, eliminated_turn, eliminated_by_seat, fun))
                      FROM (SELECT * FROM game_seats WHERE game_id = ? ORDER BY seat)))",
     )
     .bind(game)

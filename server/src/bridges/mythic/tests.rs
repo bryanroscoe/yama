@@ -254,8 +254,10 @@ async fn games_yama_cant_store_are_listed_not_imported() {
     other_format["game"]["formatid"] = json!(1);
     let mut no_format = mythic_game(52, "2026-10-04T01:00:00Z", 1, None);
     no_format["game"]["formatid"] = Value::Null;
-    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": export(vec![unfinished, other_format, no_format]) }))).await;
-    assert_eq!((a["created"].as_i64(), a["skipped"].as_i64()), (Some(0), Some(3)), "{a}");
+    let mut no_end = mythic_game(53, "2026-10-04T01:00:00Z", 1, None);
+    no_end["game"]["ended_at"] = Value::Null;
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": export(vec![unfinished, other_format, no_format, no_end]) }))).await;
+    assert_eq!((a["created"].as_i64(), a["skipped"].as_i64()), (Some(0), Some(4)), "{a}");
 }
 
 #[tokio::test]
@@ -278,8 +280,13 @@ async fn a_changed_mythic_note_never_rewrites_the_game() {
     let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
         Some(json!({ "export": export(vec![mythic_game(70, "2026-10-04T01:00:00Z", 2, Some("first"))]) }))).await;
     assert_eq!(a["created"], 1, "{a}");
-    // Edited in Yama afterwards: Bryan won after all.
     let id = derived_id(&bryan, "70");
+    // A fun rating alone is an edit in Yama too.
+    sqlx::query("UPDATE game_seats SET fun = 5 WHERE game_id = ? AND seat = 0").bind(&id).execute(&pool).await.unwrap();
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token),
+        Some(json!({ "export": export(vec![mythic_game(70, "2026-10-04T01:00:00Z", 1, Some("first"))]) }))).await;
+    assert_eq!(p["games"][0]["status"], "conflict", "{p}");
+    // Edited in Yama afterwards: Bryan won after all.
     sqlx::query("UPDATE games SET winner_seat = 0 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
 
     // Only Mythic's note changed: the note follows, the game keeps the edit.
