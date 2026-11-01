@@ -167,6 +167,11 @@ export function RunsPage() {
                 )}
                 {s && !field && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
                 <span className="lab-note">{cardSimLabel(e)}.</span>
+                {e.label.engine && e.label.engine !== engineFamily(e.label.engine) && (
+                  <Details label="Engine builds" className="lab-runcard-builds">
+                    <p className="lab-note">{e.label.engine}</p>
+                  </Details>
+                )}
                 <span className="lab-runcard-actions">
                   <Link className="button" to={`/lab/runs/${e.id}`}>
                     Open
