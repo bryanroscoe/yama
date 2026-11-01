@@ -405,7 +405,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       {phones === "everyone" && (
         <p className="small dim ng-note">The join code shows as soon as the game starts. Friends scan it, pick their seat and keep their own total.</p>
       )}
-      {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
+      {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
       {wide ? (
         <div className="ng-body">
@@ -462,9 +462,14 @@ const PEOPLE_SHOWN = 12;
  * the order tapped, tap again to take them off. A playgroup's members carry their accounts, so the
  * game counts for them; friends from other groups and past games sit as guests by name.
  */
-function WhoPlaying({ groups, groupId, onGroup, people, seats, onToggle }: {
+function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onToggle }: {
   groups: Playgroup[];
   groupId: string;
+  /**
+   * The chosen playgroup's members are here. Until then (loading, offline) the seats keep their
+   * members, and no people are offered: a tap would treat a member as a plain name.
+   */
+  groupReady: boolean;
   onGroup: (id: string) => void;
   people: Person[];
   seats: SeatDraft[];
@@ -480,7 +485,9 @@ function WhoPlaying({ groups, groupId, onGroup, people, seats, onToggle }: {
         <Choice label="Playing with" options={["", ...groups.map((g) => g.id)]} value={groupId} onChange={onGroup} name={(id) => (id ? groups.find((g) => g.id === id)!.name : "Friends")} />
       )}
       <span id={headId} className="field-label">Who's playing</span>
-      {people.length > 0 ? (
+      {!groupReady ? (
+        <p className="small dim" style={{ margin: 0 }}>Loading the playgroup's members. The seats below keep who you picked last time.</p>
+      ) : people.length > 0 ? (
         <div className="who-chips">
           {shown.map((p) => {
             const on = seats.some((s) => seatHolds(s, p));
