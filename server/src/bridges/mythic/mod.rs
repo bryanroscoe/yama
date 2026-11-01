@@ -210,10 +210,11 @@ struct PlayerRow {
 struct GameRow {
     mythic_id: String,
     started_at: Option<String>,
-    /// new, update, unchanged, match (looks like a game already in Yama; needs a choice), linked
+    /// new, update, note (only Mythic's note or tags changed), unchanged, match (looks like a game
+    /// already in Yama; needs a choice), linked
     /// (matched to a game in Yama before), deleted (removed in Yama) or invalid.
     status: &'static str,
-    /// create, update, link or skip: what Apply does.
+    /// create, update, note (the private note alone), link or skip: what Apply does.
     action: &'static str,
     yama_id: Option<String>,
     matches: Vec<Candidate>,
@@ -332,8 +333,9 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
     let ended_at = ended.map(|e| e.to_rfc3339());
     let note = clean(&g.note);
     let tags = g.tags.clone();
-    // What the import would store, so a later import knows whether Mythic changed it.
-    let fingerprint = crate::util::sha256_hex(
+    // What the import would store, so a later import knows whether Mythic changed it: the game,
+    // then apart from it Mythic's private note, so a note changed alone never rewrites the game.
+    let game_print = crate::util::sha256_hex(
         &serde_json::json!({
             "playgroup": ctx.playgroup,
             "started_at": started_at,
@@ -342,11 +344,11 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
             "seats": seats,
             "winner": winner_seat,
             "first": first_seat,
-            "note": note,
-            "tags": tags,
         })
         .to_string(),
     );
+    let note_print = crate::util::sha256_hex(&serde_json::json!({ "note": note, "tags": tags }).to_string());
+    let fingerprint = format!("{game_print} {note_print}");
     Ok(Built {
         started_at,
         starting_life,
@@ -374,6 +376,15 @@ struct Plan {
     games: Vec<Planned>,
     /// Player links to save on Apply: Mythic player to member (None removes the link).
     player_links: Vec<(String, Option<String>)>,
+}
+
+/// Whether a game's (game, note) changed since the fingerprint saved at its last import.
+fn changed_parts(saved: Option<&str>, now: &str) -> (bool, bool) {
+    let split = |f: &str| f.split_once(' ').map(|(g, n)| (g.to_string(), n.to_string()));
+    match (saved.and_then(split), split(now)) {
+        (Some((g0, n0)), Some((g1, n1))) => (g0 != g1, n0 != n1),
+        _ => (true, true),
+    }
 }
 
 async fn links(pool: &SqlitePool, owner: &str, kind: &str) -> AppResult<HashMap<String, (String, Option<String>)>> {
@@ -525,17 +536,18 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             (p.status, p.action) = match row {
                 None => ("deleted", "skip"),
                 // A game the bridge made: Mythic's changes are saved again.
-                Some((by, mode)) if *yama == derived && by == owner && mode == "in_person" => {
-                    if changed.as_deref() == Some(b.fingerprint.as_str()) {
-                        ("unchanged", "skip")
-                    } else if choice == Some("skip") {
-                        ("update", "skip")
-                    } else {
-                        ("update", "update")
-                    }
-                }
-                // Matched to a game already in Yama, which stays as it was logged there.
-                Some(_) => ("linked", "skip"),
+                Some((by, mode)) if *yama == derived && by == owner && mode == "in_person" => match changed_parts(changed.as_deref(), &b.fingerprint) {
+                    (true, _) if choice == Some("skip") => ("update", "skip"),
+                    (true, _) => ("update", "update"),
+                    (false, true) => ("note", "note"),
+                    (false, false) => ("unchanged", "skip"),
+                },
+                // Matched to a game already in Yama, which stays as it was logged there; only
+                // Mythic's private note follows Mythic.
+                Some(_) => match changed_parts(changed.as_deref(), &b.fingerprint) {
+                    (_, true) => ("linked", "note"),
+                    _ => ("linked", "skip"),
+                },
             };
             games.push(p);
             continue;
@@ -635,6 +647,8 @@ struct Applied {
     created: usize,
     updated: usize,
     linked: usize,
+    /// Games whose Mythic note or tags alone changed.
+    notes: usize,
     skipped: usize,
     errors: Vec<GameError>,
 }
@@ -727,6 +741,8 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     Err(e) => Err(e),
                 }
             }
+            // Only Mythic's note changed: the game stays as it is.
+            "note" => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
             // The game stays as it was logged in Yama; only Mythic's note is kept, privately, once
             // the link has held.
             "link" => match link(pool, owner, "game", &p.mythic_id, &yama, Some(&b.fingerprint)).await {
@@ -746,6 +762,7 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                 match p.action {
                     "create" => out.created += 1,
                     "update" => out.updated += 1,
+                    "note" => out.notes += 1,
                     _ => out.linked += 1,
                 }
             }

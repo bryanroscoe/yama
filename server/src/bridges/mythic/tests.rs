@@ -194,8 +194,17 @@ async fn a_game_already_in_yama_is_offered_and_only_linked() {
     let (n, note): (i64, Option<String>) =
         sqlx::query_as("SELECT (SELECT COUNT(*) FROM games), note FROM games WHERE id = ?").bind(&hand).fetch_one(&pool).await.unwrap();
     assert_eq!((n, note.as_deref()), (1, Some("Logged after the game")));
+    // Mythic's note changed since (file() has none): only the private note follows.
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": file() }))).await;
+    assert_eq!((p["games"][0]["status"].as_str(), p["games"][0]["action"].as_str()), (Some("linked"), Some("note")));
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": file() }))).await;
+    assert_eq!(a["notes"], 1, "{a}");
+    let (s, _) = send(&app, Method::GET, &format!("/api/bridges/mythic/games/{hand}/note"), Some(&token), None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
     let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": file() }))).await;
     assert_eq!((p["games"][0]["status"].as_str(), p["games"][0]["action"].as_str()), (Some("linked"), Some("skip")));
+    let note: Option<String> = sqlx::query_scalar("SELECT note FROM games WHERE id = ?").bind(&hand).fetch_one(&pool).await.unwrap();
+    assert_eq!(note.as_deref(), Some("Logged after the game"));
 }
 
 #[tokio::test]
@@ -225,6 +234,31 @@ async fn a_guest_player_can_win() {
     assert_eq!(a["created"], 1, "{a}");
     let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(derived_id(&bryan, "60")).fetch_one(&pool).await.unwrap();
     assert_eq!(winner, Some(2));
+}
+
+#[tokio::test]
+async fn a_changed_mythic_note_never_rewrites_the_game() {
+    let (app, pool) = app().await;
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": export(vec![mythic_game(70, "2026-10-04T01:00:00Z", 2, Some("first"))]) }))).await;
+    assert_eq!(a["created"], 1, "{a}");
+    // Edited in Yama afterwards: Bryan won after all.
+    let id = derived_id(&bryan, "70");
+    sqlx::query("UPDATE games SET winner_seat = 0 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+
+    // Only Mythic's note changed: the note follows, the game keeps the edit.
+    let file = json!({ "export": export(vec![mythic_game(70, "2026-10-04T01:00:00Z", 2, Some("second"))]) });
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(file.clone())).await;
+    assert_eq!((p["games"][0]["status"].as_str(), p["games"][0]["action"].as_str()), (Some("note"), Some("note")), "{p}");
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(file.clone())).await;
+    assert_eq!(a["notes"], 1, "{a}");
+    let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(winner, Some(0));
+    let (_, n) = send(&app, Method::GET, &format!("/api/bridges/mythic/games/{id}/note"), Some(&token), None).await;
+    assert_eq!(n["note"], "second");
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(file)).await;
+    assert_eq!(p["games"][0]["status"], "unchanged");
 }
 
 #[test]

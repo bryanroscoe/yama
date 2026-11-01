@@ -40,8 +40,8 @@ describe("Mythic Tools import", () => {
   });
 
   it("sums up an import", () => {
-    expect(resultText({ created: 3, updated: 0, linked: 1, skipped: 2, errors: [] })).toBe("3 imported, 1 matched to games already in Yama, 2 skipped.");
-    expect(resultText({ created: 0, updated: 0, linked: 0, skipped: 0, errors: [] })).toBe("Nothing changed.");
+    expect(resultText({ created: 3, updated: 0, linked: 1, notes: 1, skipped: 2, errors: [] })).toBe("3 imported, 1 matched to games already in Yama, 1 with Mythic notes updated, 2 skipped.");
+    expect(resultText({ created: 0, updated: 0, linked: 0, notes: 0, skipped: 0, errors: [] })).toBe("Nothing changed.");
   });
 
   it("ships a snippet that parses and only reads from Mythic", () => {

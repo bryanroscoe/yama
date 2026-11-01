@@ -21,13 +21,13 @@ export interface MythicSeat {
   me: boolean;
 }
 
-export type MythicStatus = "new" | "update" | "unchanged" | "match" | "linked" | "deleted" | "invalid";
+export type MythicStatus = "new" | "update" | "note" | "unchanged" | "match" | "linked" | "deleted" | "invalid";
 
 export interface MythicGameRow {
   mythic_id: string;
   started_at: string | null;
   status: MythicStatus;
-  action: "create" | "update" | "link" | "skip";
+  action: "create" | "update" | "note" | "link" | "skip";
   yama_id: string | null;
   matches: { id: string; started_at: string; seats: number }[];
   seats: MythicSeat[];
@@ -45,6 +45,7 @@ export interface MythicApplied {
   created: number;
   updated: number;
   linked: number;
+  notes: number;
   skipped: number;
   errors: { mythic_id: string; error: string }[];
 }
@@ -75,12 +76,14 @@ export function statusText(g: MythicGameRow): string {
       return g.action === "create" ? "New" : "Skipped";
     case "update":
       return g.action === "update" ? "Changed in Mythic, updates" : "Changed in Mythic, skipped";
+    case "note":
+      return "Mythic's note changed, the note updates";
     case "unchanged":
       return "Already imported";
     case "match":
       return g.action === "link" ? "Matched to a game in Yama" : g.action === "create" ? "New, kept apart from the one in Yama" : "Looks like a game already in Yama";
     case "linked":
-      return "Matched to a game in Yama before";
+      return g.action === "note" ? "Matched to a game in Yama before, Mythic's note updates" : "Matched to a game in Yama before";
     case "deleted":
       return "Deleted in Yama, stays deleted";
     case "invalid":
@@ -113,6 +116,7 @@ export function resultText(r: MythicApplied): string {
     r.created && `${r.created} imported`,
     r.updated && `${r.updated} updated`,
     r.linked && `${r.linked} matched to games already in Yama`,
+    r.notes && `${r.notes} with Mythic notes updated`,
     r.skipped && `${r.skipped} skipped`,
   ].filter(Boolean);
   return parts.length ? `${parts.join(", ")}.` : "Nothing changed.";
