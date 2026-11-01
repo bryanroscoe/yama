@@ -12,6 +12,9 @@
 //! created (cards, and the opponents' cards too), so a later edit to a deck or a re-imported
 //! precon catalog never changes an experiment part way through.
 //!
+//! Who: only admins and power users (`User::power`, 2026-10-31) may start, repeat or extend an
+//! experiment; everyone else still reads their own earlier runs.
+//!
 //! Isolation: every query binds the owner; another user's experiment is "not found". Limits for
 //! anyone but an admin: 100, 200 or 400 games, Easy or Medium, and one experiment playing plus two
 //! waiting. An account that joined without an invite (`User::limited`) gets less: 100 games, one
@@ -269,6 +272,11 @@ pub fn list_text(cards: &[LabCard]) -> String {
     let commanders: String = cards.iter().filter(|c| c.commander).map(line).collect();
     let main: String = cards.iter().filter(|c| !c.commander).map(line).collect();
     format!("Commander\n{commanders}\nDeck\n{main}")
+}
+
+/// The fingerprint a precon's stock list has as a lab list, to recognise it among a run's entrants.
+pub fn precon_list_sha(cards: Vec<PreconCard>) -> String {
+    sha256_hex(&list_text(&normalize(from_precon_cards(cards))))
 }
 
 fn make_list(id: &str, label: &str, source: Value, cards: Vec<LabCard>) -> LabList {
@@ -1289,9 +1297,11 @@ pub async fn create_with(
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
     let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    // A retry of a create that already happened answers with it, even after the grant is gone.
     if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
         return Ok(d);
     }
+    user.require_power()?;
     let mode = Mode::parse(req.mode.as_deref())?;
     let engines = engines_for(&req, fa)?;
     check_games(user, req.games)?;
@@ -1789,6 +1799,7 @@ pub async fn again_with(
     if let Some(d) = by_op_id(pool, user, op_id).await? {
         return Ok(d);
     }
+    user.require_power()?;
     let (old_name, text): (String, String) = sqlx::query_as("SELECT name, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(&user.id)
@@ -1935,6 +1946,8 @@ pub async fn more_with(
         // Applied already (a retried request), or changed since the page loaded.
         return detail(pool, &user.id, id).await;
     }
+    // Only new games need power: a retry above answers even after the grant is gone.
+    user.require_power()?;
     if status != "done" {
         return Err(AppError::Conflict(match status.as_str() {
             "queued" | "running" => "This run is still playing. Add games once it has finished.".into(),
@@ -3107,6 +3120,7 @@ pub struct EngineSupport {
 /// The card support of the lists a run would test, per engine, before it is made. The lists are
 /// read with the owner's checks, as a run would read them.
 async fn engines_check_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<EngineSupport>> {
+    user.require_power()?;
     let sim = st.lab.simulator()?;
     let req: EnginesCheck = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     if req.names.len() > MAX_CHECK_NAMES || req.lists.len() > MAX_CHECK_LISTS {

@@ -1,6 +1,7 @@
 //! Anonymous, read-only stock reference. Public DTOs never serialize Lab summaries or owners.
 //! Publication copies reviewed results; importing or deleting a run cannot change that copy.
 mod consensus;
+mod v2;
 pub(crate) mod html;
 #[cfg(test)]
 mod tests;
@@ -143,6 +144,8 @@ pub struct Precon {
     pub rating: Option<Rating>,
     pub simulations: Vec<Simulation>,
     pub meta: Option<consensus::Meta>,
+    /// Rating v2: real games from the enabled datasets with the published simulation.
+    pub v2: Option<v2::Row>,
     pub rating_status: &'static str,
     pub catalog_updated_at: Option<String>,
     pub source_url: Option<String>,
@@ -176,6 +179,7 @@ pub struct Catalog {
     pub publication: Option<Publication>,
     pub comparisons: Vec<Publication>,
     pub meta_cohort: usize,
+    pub rating_v2: Option<v2::Info>,
     pub precons: Vec<Precon>,
 }
 
@@ -194,6 +198,7 @@ pub struct Detail {
     pub publication: Option<Publication>,
     pub comparisons: Vec<Publication>,
     pub meta_cohort: usize,
+    pub rating_v2: Option<v2::Info>,
     pub precon: Precon,
     pub cards: Vec<Card>,
 }
@@ -323,8 +328,10 @@ impl Filters {
                     rank(a).cmp(&rank(b))
                 }
                 _ => {
+                    // Rating v2 when a real-game source is enabled, then the v1 meta rank.
                     let key = |p: &Precon| {
                         (
+                            p.v2.as_ref().map(|v| v.rank).unwrap_or(usize::MAX),
                             p.meta.as_ref().map(|m| m.rank).unwrap_or(usize::MAX),
                             if p.meta.is_none() {
                                 p.rating
@@ -516,6 +523,7 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
             rating,
             simulations,
             meta: None,
+            v2: None,
             rating_status: if published.is_some() && !unchanged {
                 "stock_list_changed"
             } else if published.is_none() {
@@ -546,11 +554,13 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
         .map(|s| 1 + s.comparisons.len())
         .unwrap_or(0);
     let meta_cohort = consensus::assign(&mut rows, source_count);
+    let rating_v2 = v2::assign(pool, &mut rows).await?;
     Filters::default().apply(&mut rows)?;
     Ok(Catalog {
         publication: snapshot.map(|s| s.publication),
         comparisons,
         meta_cohort,
+        rating_v2,
         precons: rows,
     })
 }
@@ -585,6 +595,7 @@ async fn detail_data(pool: &SqlitePool, slug: &str) -> AppResult<Detail> {
         publication: c.publication,
         comparisons: c.comparisons,
         meta_cohort: c.meta_cohort,
+        rating_v2: c.rating_v2,
         precon,
         cards,
     })

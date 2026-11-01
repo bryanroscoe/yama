@@ -11,6 +11,22 @@ and its reviews. A focused deck read excludes unrelated global shopping scenario
 store evidence. The same file can be imported on the Research page or with
 `yama-server import-research FILE --owner EMAIL [--dry-run]`.
 
+**Sharing (2026-10-31).** A note starts private. Its owner can share it like a deck: `link`
+(anyone with `/r/<token>`) or `public` (that, and listed under "Deck notes" on their profile),
+from "Share this note" on the note's page, `PUT /api/research/{id}/sharing {visibility}`, or
+`yama-server research share --owner EMAIL --id ID --visibility link [--reset-link]` on the
+server. `POST /api/research/{id}/share-link` makes a new link and ends the old one. Refreshing
+a note keeps its visibility and link. The public pages show only the guide part of the
+document, through an allow-list (`deck_research::public_view`): title, summary, and per
+deck its name, commander, summary, warnings, mechanics, sources, recommended build, pilot notes
+and builds (label, bracket, why, risks, Game Changers and their reasons, gameplay profile, swaps
+with their reasons, and the full list). Review answers and notes, ownership, installed state,
+acquisition evidence, scenarios, accounting, local checks, `method` (which often carries
+acquisition rules and price ceilings), combos and any other field stay private. Free text in the
+fields shown is published as written, so an owner should read summaries before sharing. Each deck page shows one build (`/r/<token>/<deck>?build=<id>`) with its changes as a
+table and the list as stacks or a list; `/r/<token>/<deck>/<build>-{names,moxfield}.txt`
+downloads it.
+
 An id-only MCP read is a compact overview. Use `deck`/`build` for one complete audit,
 `scenario` for one global acquisition list, or explicit `full:true` for the complete document.
 `review_research` records a person's stated choice or note using the same review operation as
@@ -68,3 +84,17 @@ Stale target hashes or review versions conflict. An explicit null is a retained 
 Reviews survive imports; changed evidence is flagged and removed targets stay in a retired
 answers section. Writes acknowledge only after saving online; failed edits are never labeled
 saved. MCP reads include all these answers for the next planning pass.
+
+### Acquisition tracks
+
+Optional `build.acquisition.track` is `owned_now` or `aspirational`. It is descriptive source
+metadata, not an inventory operation. Writers must only use `owned_now` after validating the
+complete portfolio against real, individually allocated copies and confirmed arrived prints,
+including counted basic lands and donor-release dependencies. Every target has zero required
+buys, new prints or future stock. Reserve the union across a deck’s bracket alternatives, then
+sum across independent decks; never allocate one physical copy to two decks. Unmarked research
+is treated as aspirational in the Builds page. Existing plans remain availability-unchecked
+until an allocated research version is saved. Preserve the allocation scenario identifier and
+dated evidence in the report; selecting a track changes no cards, orders, or installation ticks.
+
+Builds and Research only display the owned badge when the declaration is internally consistent: no prospective flag, buys, new prints, sealed purchases or projected stock; an allocation scenario; explicit all-owned accounting; and positive, identified owned/basic quantities matching every card in the 100-card list. Contradictory or incomplete owned claims remain reviewable as availability-unchecked. This validates declared evidence, not live inventory or physical installation.

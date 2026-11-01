@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
+import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { Details, ErrorText } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
@@ -16,6 +17,9 @@ const VIA: Record<StagedChange["via"], string> = {
 };
 
 /** One staged change, with Apply and Discard while it waits. */
+/** Staged changes that start simulations when applied. */
+const SIMULATIONS: StagedChange["kind"][] = ["start_lab_run", "more_lab_games", "run_lab_again"];
+
 export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedChange; onNavigate?: () => void; onDecided?: (id: string) => void }) {
   const qc = useQueryClient();
   const decide = useMutation({
@@ -29,6 +33,10 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   });
   const shown = decide.data ?? change;
   const busy = decide.isPending;
+  // Applying a staged lab run starts simulations: admins and power users only (the server refuses
+  // anyone else). Discard stays.
+  const power = usePower();
+  const canApply = power || !SIMULATIONS.includes(shown.kind);
   return (
     <div className={`ask-change is-${shown.status}`}>
       <p className="ask-change-what">
@@ -43,9 +51,11 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
             </p>
           )}
           <div className="ask-change-actions">
-            <button type="button" className="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
-              {busy && decide.variables === "apply" ? "Applying…" : "Apply"}
-            </button>
+            {canApply && (
+              <button type="button" className="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
+                {busy && decide.variables === "apply" ? "Applying…" : "Apply"}
+              </button>
+            )}
             <button type="button" className="outline" disabled={busy} onClick={() => decide.mutate("discard")}>
               Discard
             </button>

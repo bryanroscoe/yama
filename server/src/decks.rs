@@ -385,16 +385,7 @@ pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[De
 /// As `insert_version`, inside the caller's transaction (no wake: the caller wakes the check
 /// worker once it commits).
 pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
-    let vid = new_id();
-    let stamp = now();
-    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
-        .bind(&vid)
-        .bind(deck_id)
-        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
-        .bind(note)
-        .bind(&stamp)
-        .execute(&mut *conn)
-        .await?;
+    let (vid, stamp) = insert_saved_version_in(conn, deck_id, cards, note, false).await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
@@ -405,12 +396,37 @@ pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str
     Ok(vid)
 }
 
+/// Save a version row without making it current. With `history_only` it waits in History, where
+/// "Restore this list" can put it in the deck later as a new version (a scanned list the owner
+/// didn't switch to), so it is never the deck's list itself; no outside check is queued for it.
+/// Returns the version's id and timestamp.
+pub(crate) async fn insert_saved_version_in(
+    conn: &mut SqliteConnection,
+    deck_id: &str,
+    cards: &[DeckCard],
+    note: Option<&str>,
+    history_only: bool,
+) -> AppResult<(String, String)> {
+    let vid = new_id();
+    let stamp = now();
+    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at, history_only) VALUES (?,?,?,?,?,?)")
+        .bind(&vid)
+        .bind(deck_id)
+        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
+        .bind(note)
+        .bind(&stamp)
+        .bind(history_only)
+        .execute(&mut *conn)
+        .await?;
+    Ok((vid, stamp))
+}
+
 pub async fn load_version_cards(pool: &SqlitePool, version_id: &str) -> AppResult<Vec<DeckCard>> {
     let json: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(version_id).fetch_one(pool).await?;
     Ok(serde_json::from_str(&json).map_err(anyhow::Error::from)?)
 }
 
-async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, Option<String>, Option<String>)> {
+pub(crate) async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, Option<String>, Option<String>)> {
     sqlx::query_as("SELECT name, current_version_id, container_id FROM decks WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(owner)
@@ -1176,13 +1192,16 @@ struct VersionRow {
     id: String,
     note: Option<String>,
     created_at: String,
+    /// Saved for History only (a scan not made the list): never the deck's list.
+    #[sqlx(default)]
+    history_only: bool,
 }
 
 async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<VersionRow>>> {
     owned_deck(&st.pool, &user.id, &id).await?;
     Ok(Json(
         // rowid breaks ties between versions saved in the same second.
-        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
+        sqlx::query_as("SELECT id, note, created_at, history_only FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
             .bind(&id)
             .fetch_all(&st.pool)
             .await?,
@@ -1337,7 +1356,7 @@ pub(crate) const BASICS: [&str; 11] = [
     "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest",
 ];
 
-fn is_basic(name: &str) -> bool {
+pub(crate) fn is_basic(name: &str) -> bool {
     BASICS.contains(&name)
 }
 
@@ -1383,6 +1402,13 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
     if v.total != 100 {
         v.errors.push(format!("{} cards; Commander decks have exactly 100 including the commander", v.total));
     }
+    // Copies of a card across the commander and main deck (a commander scanned or listed twice
+    // is one commander row and one main row): singleton counts them together, reported once.
+    let mut copies: HashMap<&str, i64> = HashMap::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        *copies.entry(c.oracle_id.as_str()).or_insert(0) += c.qty;
+    }
+    let mut reported: Vec<&str> = Vec::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let Some(card) = info.get(&c.oracle_id) else {
             v.warnings.push(format!("{} isn't in the card data", c.name));
@@ -1395,8 +1421,10 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
             .zip([7, 9])
             .find(|(phrase, _)| text.contains(&format!("a deck can have {phrase} cards named")))
             .map(|(_, n)| n);
-        if c.qty > 1 && !is_basic(&c.name) && !any_number && up_to.is_none_or(|n| c.qty > n) {
-            v.errors.push(format!("{} × {}: Commander is singleton", c.qty, c.name));
+        let qty = copies[c.oracle_id.as_str()];
+        if qty > 1 && !is_basic(&c.name) && !any_number && up_to.is_none_or(|n| qty > n) && !reported.contains(&c.oracle_id.as_str()) {
+            reported.push(c.oracle_id.as_str());
+            v.errors.push(format!("{} × {}: Commander is singleton", qty, c.name));
         }
         if !commanders.is_empty() {
             if let Some(outside) = card.color_identity.chars().find(|ch| !v.color_identity.contains(*ch)) {
@@ -1626,6 +1654,14 @@ mod tests {
         assert!(v.errors.iter().any(|e| e.contains("Jeweled Lotus is banned")));
         assert!(!v.errors.iter().any(|e| e.contains("Forest")));
         assert!(!v.errors.iter().any(|e| e.contains("100"))); // 1 + 2 + 1 + 1 + 95 = 100
+
+        // The commander listed again in the main deck: one row each, counted together, said once.
+        let twice = vec![dc("Omo", 1, Board::Commander), dc("Omo", 1, Board::Main), dc("Forest", 98, Board::Main)];
+        let v = validate(&twice, &info);
+        assert_eq!(v.errors.iter().filter(|e| e.contains("singleton")).collect::<Vec<_>>(), ["2 × Omo: Commander is singleton"]);
+        // Basics and "any number" cards still may repeat across rows.
+        let rats = vec![dc("Omo", 1, Board::Commander), dc("Relentless Rats", 30, Board::Main), dc("Relentless Rats", 2, Board::Main), dc("Forest", 67, Board::Main)];
+        assert!(!validate(&rats, &info).errors.iter().any(|e| e.contains("singleton")));
     }
 }
 

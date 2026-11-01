@@ -16,6 +16,7 @@ pub mod forge;
 pub mod pairing;
 pub(crate) mod process;
 pub mod stats;
+pub mod strength;
 pub mod worker;
 pub mod remote;
 #[cfg(test)]
@@ -678,6 +679,9 @@ pub struct PreconItem {
     pub art: Option<Art>,
     /// Real games, from playgroup.gg (its own source and date); never mixed with `rating`.
     pub playgroup: Option<Value>,
+    /// Dated real-game history and the commander's own figure, derived from the datasets an
+    /// operator chose (crate::precon_evidence); never mixed with `rating`.
+    pub evidence: Option<crate::precon_evidence::PreconEvidence>,
     /// Simulated, from the run in the response's `run` label.
     pub rating: Option<Rating>,
 }
@@ -722,6 +726,7 @@ impl PreconRow {
                 _ => None,
             },
             playgroup: self.playgroup.filter(|_| reference_matches).and_then(|p| serde_json::from_str(&p).ok()),
+            evidence: None,
             id: self.id,
             lab_id: self.lab_id,
             name: self.name,
@@ -757,7 +762,10 @@ pub async fn precon_list(pool: &SqlitePool) -> AppResult<PreconList> {
     let prices = crate::deck_prices::prices(pool).await?;
     let mut sealed = crate::deck_prices::sealed(pool).await?;
     let lists: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT id, cards FROM precons").fetch_all(pool).await?.into_iter().collect();
+    let mut evidence = crate::precon_evidence::load(pool, chrono::Utc::now()).await?.by_precon;
     for p in &mut precons {
+        // The list carries each precon's summary; its page has the full history.
+        p.evidence = evidence.remove(&p.id).map(crate::precon_evidence::PreconEvidence::summary);
         p.singles_value = crate::deck_prices::singles(&serde_json::from_str(&lists[&p.id]).map_err(anyhow::Error::from)?, &prices);
         p.sealed_price = sealed.remove(&p.id);
     }
@@ -860,6 +868,12 @@ async fn matchups(pool: &SqlitePool, run_id: &str, lab_id: &str) -> AppResult<Op
 }
 
 pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetail> {
+    let evidence = crate::precon_evidence::load(pool, chrono::Utc::now()).await?;
+    precon_detail_with(pool, id, &evidence).await
+}
+
+/// `precon_detail` with the shared dataset evidence already loaded, for callers that reuse it.
+pub async fn precon_detail_with(pool: &SqlitePool, id: &str, evidence: &crate::precon_evidence::Evidence) -> AppResult<PreconDetail> {
     let row: PreconRow = sqlx::query_as(AssertSqlSafe(format!("SELECT {PRECON_COLUMNS} FROM {PRECON_FROM} WHERE p.id = ?")))
         .bind(id)
         .fetch_optional(pool)
@@ -877,6 +891,7 @@ pub async fn precon_detail(pool: &SqlitePool, id: &str) -> AppResult<PreconDetai
     let market_prices = crate::deck_prices::prices(pool).await?;
     precon.singles_value = crate::deck_prices::singles(&serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?, &market_prices);
     precon.sealed_price = crate::deck_prices::sealed(pool).await?.remove(id);
+    precon.evidence = evidence.by_precon.get(id).cloned();
 
     let cards: Vec<PreconCard> = serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?;
     let reference_matches = crate::upgradeability::allows_reference_results(id, &cards);

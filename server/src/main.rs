@@ -1,6 +1,7 @@
 mod admin;
 mod advisor;
 mod auth;
+mod bridges;
 mod calendar;
 mod cards;
 mod collection;
@@ -10,6 +11,7 @@ mod datasets;
 mod deck_checks;
 mod deck_prices;
 mod deck_research;
+mod deck_scan;
 mod deck_stats;
 mod deck_import;
 mod decks;
@@ -22,7 +24,9 @@ mod mcp;
 mod oauth;
 mod play;
 mod plan;
+mod people;
 mod playgroups;
+mod precon_evidence;
 mod public_page;
 mod public_precons;
 #[cfg(test)]
@@ -104,6 +108,11 @@ USAGE:
   yama-server import-research FILE --owner EMAIL [--dry-run]
                                              Store private yama-research/1 notes for review;
                                              never changes decks, plans or collection cards
+  yama-server research share --owner EMAIL --id ID --visibility private|link|public [--reset-link]
+                                             Who can see one of EMAIL's research notes:
+                                             only them, anyone with /r/<token>, or that and
+                                             listed on their profile; prints the link.
+                                             --reset-link makes a new link (old ones stop)
   yama-server import-dataset FILE --owner EMAIL [--dry-run]
                                              Import a private versioned yama-dataset/1
                                              JSON or gzip document; never publishes data
@@ -132,6 +141,9 @@ USAGE:
   yama-server user enable EMAIL              Turn it back on
   yama-server user list                      Every account, how it signs in, and whether
                                              it's invited or turned off
+  yama-server user session EMAIL [--hours N]  Print a session token for EMAIL's existing
+                                             account, good for N hours (default 2, at most
+                                             24), for the polish screenshots (docs/polish.md)
   yama-server advisor share EMAIL [--daily N] [--by ADMIN_EMAIL]
                                              Let EMAIL ask Claude on the shared API key
                                              (advisor/shared.rs), N questions a day (else
@@ -220,6 +232,7 @@ async fn main() -> anyhow::Result<()> {
             let email=flag_value(&args,"--owner").context("--owner EMAIL is required")?;
             datasets::cli(&pool,file,&email,args.iter().any(|a|a=="--dry-run")).await
         }
+        Some("precon-evidence") => precon_evidence::cli(&pool, &args[1..]).await,
         Some("import-research") => {
             let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-research FILE --owner EMAIL [--dry-run]")?;
             let email = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
@@ -233,6 +246,21 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("{}",deck_research::save(&pool,&owner,&doc).await.map_err(|e|anyhow::anyhow!("{e}"))?);
             }
+            Ok(())
+        }
+        Some("research") => {
+            anyhow::ensure!(args.get(1).map(String::as_str) == Some("share"), "usage: yama-server research share --owner EMAIL --id ID --visibility private|link|public [--reset-link]");
+            let email = flag_value(&args, "--owner").context("--owner EMAIL is required")?;
+            let id = flag_value(&args, "--id").context("--id ID is required")?;
+            let visibility = flag_value(&args, "--visibility").context("--visibility private|link|public is required")?;
+            let owner = decks::cli::owner_id(&pool, &email).await?;
+            let err = |e: error::AppError| anyhow::anyhow!("{e}");
+            // A bad visibility changes nothing, the link included.
+            sharing::visibility(&visibility).map_err(err)?;
+            if args.iter().any(|a| a == "--reset-link") {
+                deck_research::reset_link(&pool, &owner, &id).await.map_err(err)?;
+            }
+            println!("{}", deck_research::set_visibility(&pool, &owner, &id, &visibility).await.map_err(err)?);
             Ok(())
         }
         Some("import-plan") => {
@@ -337,6 +365,14 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!("there's no account for {email}");
                 }
+                Ok(())
+            }
+            Some("session") => {
+                let email = args.get(2).filter(|a| !a.starts_with("--")).context("usage: yama-server user session EMAIL [--hours N]")?;
+                let hours = flag_value(&args, "--hours").map(|h| h.parse::<i64>()).transpose().context("--hours takes a whole number")?.unwrap_or(2);
+                // Only the token on stdout, so a script can read it (web/scripts/polish).
+                println!("{}", auth::cli_session(&pool, email, hours).await?);
+                eprintln!("A session for {email}, good for {hours} hours. It signs in as them: keep it private.");
                 Ok(())
             }
             Some("list") => auth::list_users(&pool).await,

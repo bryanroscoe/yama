@@ -16,11 +16,16 @@ services:
       # Yama's public address, for OAuth sign-in from Claude Code and claude.ai's connectors
       # (server/src/oauth): the issuer, endpoints and /mcp resource are built from it.
       YAMA_PUBLIC_URL: https://yama.ing
+      # The Mythic Tools import (server/src/bridges/mythic), on for everyone (Bryan, 2026-10-31:
+      # "productionize it on the site so people who use this site can import data from there").
+      YAMA_MYTHIC_BRIDGE: "1"
     volumes:
       - ./data:/data
     ports:
-      # LAN access; the public route goes through the existing Cloudflare tunnel.
-      - "<saget-lan-address>:8099:8787"
+      # LAN access; the public route goes through the existing Cloudflare tunnel. Set
+      # YAMA_LAN_ADDRESS to saget's LAN address in the server-local .env beside this file to
+      # publish on that interface only (deploy/README.md); unset, it listens on all IPv4.
+      - "${YAMA_LAN_ADDRESS:-0.0.0.0}:8099:8787"
     networks: [tunnel, advisor, forge]
     # The rules engine (about 0.7 GB) plus the lab's game threads and live games. At 3 GB the lab
     # filled it on 2026-10-23 and every game slowed to a crawl while the kernel reclaimed pages.

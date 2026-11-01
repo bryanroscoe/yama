@@ -30,6 +30,7 @@ import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
 
@@ -91,10 +92,10 @@ export function DecksPage() {
         </div>
       )}
       <ul className="deck-tiles">
-        {groupConfigurations(decks.data ?? []).map(({ main, configurations }) => (
-          <li key={main.id} className={configurations.length ? "has-configs" : undefined}>
+        {/* Configurations and bracket builds live on the deck's own page, not under its tile. */}
+        {groupConfigurations(decks.data ?? []).map(({ main }) => (
+          <li key={main.id}>
             <DeckTile d={main} />
-            {configurations.length > 0 && <ConfigurationList main={main} configurations={configurations} />}
           </li>
         ))}
       </ul>
@@ -137,39 +138,6 @@ function DeckTile({ d }: { d: DeckSummary }) {
         </span>
       </ArtPanel>
     </Link>
-  );
-}
-
-/** A main deck's configurations as a row of links under its tile, always in view: the main
- *  list first, then the others, each with how close it is to complete. */
-function ConfigurationList({ main, configurations }: { main: DeckSummary; configurations: DeckSummary[] }) {
-  const qc = useQueryClient();
-  const prefetch = (id: string) => void qc.prefetchQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`), staleTime: 30_000 });
-  return (
-    <nav className="deck-configs" aria-label={`Configurations of ${main.name}`}>
-      <ul className="deck-configs-list">
-        {[main, ...configurations].map((c, i) => {
-          const own = ownership(c.owned, c.card_count, c.proxies ?? 0);
-          const shared = SHARED_LABEL[c.visibility];
-          return (
-            <li key={c.id}>
-              <Link
-                to={`/decks/${c.id}`}
-                onMouseEnter={() => prefetch(c.id)}
-                onFocus={() => prefetch(c.id)}
-                title={[own?.text, shared].filter(Boolean).join(". ") || undefined}
-              >
-                <b>{c.configuration ?? (i === 0 ? "Main" : c.name)}</b>
-                <span className="dim small">
-                  {i === 0 ? "In the deck. " : ""}
-                  {own ? own.short : `${c.card_count} cards`}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
   );
 }
 
@@ -299,11 +267,14 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+      <Link className="button on-art" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
+      <Link className="button on-art" to={`/decks/${d.id}/check`}>Check this deck</Link>
       <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
       <button className="on-art" onClick={() => setSharing(true)}>Share</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
+      <Link className="button on-art" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
       <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
@@ -356,8 +327,8 @@ export function DeckPage() {
           {d.configurations.length > 1 && (
             <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
               <span className="hero-configs-label">Configurations</span>
-              {d.configurations.map((c, i) => {
-                const label = c.configuration ?? (i === 0 ? "Main" : c.name);
+              {d.configurations.filter((c, i) => i === 0 || !legacyConfiguration(c.configuration)).map((c, i) => {
+                const label = configurationLabel(c.configuration, c.name, i === 0);
                 const loading = deck.isPlaceholderData && c.id === id;
                 return (
                   <Link
@@ -374,6 +345,7 @@ export function DeckPage() {
                   </Link>
                 );
               })}
+              {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && <details open={legacyConfiguration(d.configuration)}><summary>Legacy</summary>{d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => <Link key={c.id} className="on-art" to={`/decks/${c.id}`}>{c.configuration ?? c.name}</Link>)}</details>}
             </nav>
           )}
           <div className="hero-row">
@@ -412,11 +384,14 @@ export function DeckPage() {
             <summary>More actions</summary>
             <div className="deck-extra-actions">
               <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+              <Link className="button outline" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
+              <Link className="button outline" to={`/decks/${d.id}/check`}>Check this deck</Link>
               <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
               <button className="outline" onClick={() => setSharing(true)}>Share</button>
               <button className="outline" onClick={() => setExporting(true)}>Export</button>
               <button className="outline" onClick={() => setHistory(true)}>History</button>
               <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
+              <Link className="button outline" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
               <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
             </div>
           </details>
@@ -584,6 +559,7 @@ export function DeckPage() {
             versionId={d.version_id}
             declared={d.bracket}
             gameChangers={d.game_changers}
+            cards={d.cards}
             onCard={openByName}
             onDeclare={() => setEditing(true)}
           />

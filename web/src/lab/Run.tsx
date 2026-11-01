@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName, listText } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { usePower } from "../auth";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
@@ -202,6 +203,7 @@ function fieldFrom(e: ExperimentItem): FieldChoice | undefined {
 }
 
 export function RunPage() {
+  const power = usePower();
   const { id } = useParams();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -288,7 +290,7 @@ export function RunPage() {
         )
       )}
 
-      {e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
+      {power && e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
 
       <section>
         <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
@@ -305,14 +307,14 @@ export function RunPage() {
       )}
 
       <section>
-        {!live && <Again e={e} />}
+        {!live && power && <Again e={e} />}
         <div className="row">
           {live && (
             <button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
               Cancel the rest
             </button>
           )}
-          {modeOf(e) === "change" || modeOf(e) === "solo" ? (
+          {!power ? null : modeOf(e) === "change" || modeOf(e) === "solo" ? (
             <button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
           ) : (
             <button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
@@ -683,6 +685,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
               <b>{pct(x.win_rate)}</b> won, {x.wins} of {x.games}
               {x.wilson ? ` (${level} interval ${pctRange(x.wilson[0], x.wilson[1])})` : ""}
               {x.avg_place != null ? `, average place ${x.avg_place.toFixed(2)}` : ""}
+              {x.strength ? `, strength ${x.strength.strength.toFixed(2)} (${level} interval ${x.strength.lo.toFixed(2)} to ${x.strength.hi.toFixed(2)})` : ""}
             </>
           ),
         }))}
@@ -692,6 +695,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
       />
       <p className="lab-note">
         The line marks {v.pod === 2 ? "a half" : "a quarter"}: what a deck with no edge would win.
+        {v.entrants.some((x) => x.strength) ? " Strength accounts for who each deck sat with: 1 is the field's average, and a strength-2 deck is twice as likely as a strength-1 deck to win a pod they share." : ""}
         {v.filler_wins > 0 ? ` Precons filling empty seats won ${v.filler_wins} games.` : ""}
         {rounds != null ? ` Games lasted about ${Math.round(rounds)} rounds (${v.avg_turns!.toFixed(0)} turns counting every player's).` : ""}
       </p>

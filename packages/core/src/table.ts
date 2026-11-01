@@ -5,10 +5,18 @@
 
 export type Seat = number;
 
-/** A commander that can deal commander damage: seat plus which of a pair (partners). */
-export type CommanderKey = `${number}` | `${number}b`;
+/**
+ * A commander that can deal commander damage: seat plus which of a pair (partners). A commander
+ * the seat stopped playing keeps its damage under a retired key ("0~1", "0b~2"), so a new one
+ * starts from 0 (it's a different commander, CR 704.6c).
+ */
+export type CommanderKey = `${number}` | `${number}b` | `${number}~${number}` | `${number}b~${number}`;
 
-export type CounterKind = "energy" | "experience" | "rad" | "tickets";
+/** The seat a commander key belongs to. */
+export const keySeat = (k: string): Seat => Number.parseInt(k, 10);
+
+/** Player counters beyond life and poison. "blessing" is the city's blessing: 0 or 1, kept for good. */
+export type CounterKind = "energy" | "experience" | "rad" | "tickets" | "storm" | "treasure" | "blessing";
 
 export interface PlayerSetup {
   seat: Seat;
@@ -25,12 +33,34 @@ export interface PlayerSetup {
   art?: string;
   /** Who painted `art`. Scryfall asks for the artist's credit wherever an art crop shows. */
   artist?: string;
+  /** The partner's (or background's) art crop and artist, like `art` and `artist`. */
+  partnerArt?: string;
+  partnerArtist?: string;
+}
+
+/** The commander fields a seat can change mid-game (someone grabbed another deck, or a typo). */
+export type CommanderPick = Pick<PlayerSetup, "commanderName" | "partnerName" | "colorIdentity" | "art" | "artist" | "partnerArt" | "partnerArtist" | "deckLabel" | "deckVersionId">;
+
+/** Who sits at a seat: renamed mid-game, or tied to a playgroup member or account after all. */
+export type PlayerPick = Pick<PlayerSetup, "name" | "memberId" | "userId">;
+
+export type TableFormat = "commander" | "standard" | "other";
+
+/** The game types New game offers, with the starting life each one usually uses. */
+export const FORMATS: { key: TableFormat; label: string; life: number }[] = [
+  { key: "commander", label: "Commander", life: 40 },
+  { key: "standard", label: "Constructed (20 life)", life: 20 },
+  { key: "other", label: "Something else", life: 20 },
+];
+
+export function formatLabel(f: TableFormat): string {
+  return f === "commander" ? "Commander" : f === "standard" ? "Constructed" : "Casual";
 }
 
 export interface TableSetup {
   id: string;
   startedAt: string;
-  format: "commander" | "standard" | "other";
+  format: TableFormat;
   startingLife: number;
   playgroupId?: string;
   players: PlayerSetup[];
@@ -79,6 +109,18 @@ export type TableEvent =
   | { type: "set_first"; seat: Seat; rolled?: boolean }
   | { type: "eliminate"; seat: Seat; bySeat?: Seat }
   | { type: "revive"; seat: Seat }
+  /** The seat changed commanders (or the one picked at setup was wrong). History keeps the old one. */
+  | ({
+      type: "seat";
+      seat: Seat;
+      /** What it was playing before, so the game's history can still name it (the server keeps only the newest). */
+      was?: { commanderName?: string; partnerName?: string };
+    } & CommanderPick)
+  /**
+   * Someone else sits here, or the same person under another name or tied to their member row or
+   * account. Every field is replaced. `was` keeps the old name for the game's history.
+   */
+  | ({ type: "player"; seat: Seat; was?: { name: string } } & PlayerPick)
   | ({ type: "finish"; winnerSeat: Seat | null; endedAt: string } & FinishDetails);
 
 export interface LoggedEvent {
@@ -95,7 +137,8 @@ export interface PlayerState extends PlayerSetup {
   /** Times each commander has been cast from the command zone; tax is 2 per cast. */
   commanderCasts: number;
   partnerCasts: number;
-  eliminated?: { turn: number; bySeat?: Seat };
+  /** `uncounted`: knocked out before the table started counting turns, so `turn` means nothing. */
+  eliminated?: { turn: number; bySeat?: Seat; uncounted?: true };
 }
 
 export interface TableState {
@@ -121,6 +164,8 @@ export interface TableState {
   initiative: Seat | null;
   dayNight: "day" | "night" | null;
   finished?: { winnerSeat: Seat | null; endedAt: string } & FinishDetails;
+  /** Commanders a seat stopped playing that had dealt damage, by retired key, with their names. */
+  retired?: Partial<Record<CommanderKey, { seat: Seat; partner: boolean; name: string }>>;
 }
 
 export function initialState(setup: TableSetup): TableState {
@@ -163,10 +208,11 @@ export function apply(state: TableState, e: TableEvent): TableState {
         return { ...p, life: p.life - (after - before), commanderDamage: { ...p.commanderDamage, [e.source]: after } };
       });
     case "counter":
-      return updatePlayer(state, e.seat, (p) => ({
-        ...p,
-        counters: { ...p.counters, [e.counter]: Math.max(0, (p.counters[e.counter] ?? 0) + e.delta) },
-      }));
+      return updatePlayer(state, e.seat, (p) => {
+        const next = Math.max(0, (p.counters[e.counter] ?? 0) + e.delta);
+        // Once you have the city's blessing you keep it (CR 702.131c); it's a yes or no.
+        return { ...p, counters: { ...p.counters, [e.counter]: e.counter === "blessing" ? Math.min(1, next) : next } };
+      });
     case "commander_cast":
       return updatePlayer(state, e.seat, (p) =>
         e.partner
@@ -203,7 +249,53 @@ export function apply(state: TableState, e: TableEvent): TableState {
       // Before anyone has passed, it's also their turn now. Later it only corrects the record.
       return { ...state, firstSeat: e.seat, activeSeat: state.passes === 0 ? e.seat : state.activeSeat };
     case "eliminate":
-      return updatePlayer(state, e.seat, (p) => ({ ...p, eliminated: { turn: state.turn, bySeat: e.bySeat } }));
+      return updatePlayer(state, e.seat, (p) => ({
+        ...p,
+        eliminated: { turn: state.turn, bySeat: e.bySeat, ...(turnsCounted(state) ? {} : { uncounted: true as const }) },
+      }));
+    case "seat": {
+      const { type: _, seat, was: __, ...pick } = e;
+      const old = state.players.find((p) => p.seat === seat);
+      if (!old) return state;
+      // A commander replaced by a different one keeps the damage it dealt under its own name.
+      let next = state;
+      const retire = (partner: boolean, oldName: string | undefined, newName: string | undefined) => {
+        const live = `${seat}${partner ? "b" : ""}` as CommanderKey;
+        if (oldName === newName || !next.players.some((p) => (p.commanderDamage[live] ?? 0) > 0)) return;
+        const retiredKey = `${live}~${Object.keys(next.retired ?? {}).length + 1}` as CommanderKey;
+        next = {
+          ...next,
+          retired: { ...next.retired, [retiredKey]: { seat, partner, name: oldName ?? `${old.name}'s commander` } },
+          players: next.players.map((p) => {
+            const d = p.commanderDamage[live];
+            if (!d) return p;
+            const { [live]: _moved, ...rest } = p.commanderDamage;
+            return { ...p, commanderDamage: { ...rest, [retiredKey]: d } };
+          }),
+        };
+      };
+      retire(false, old.commanderName, pick.commanderName);
+      retire(true, old.partnerName, pick.partnerName);
+      // Every commander field is replaced, so dropping a partner clears it.
+      return updatePlayer(next, seat, (p) => ({
+        ...p,
+        commanderName: pick.commanderName,
+        partnerName: pick.partnerName,
+        colorIdentity: pick.colorIdentity ?? "",
+        art: pick.art,
+        artist: pick.artist,
+        partnerArt: pick.partnerArt,
+        partnerArtist: pick.partnerArtist,
+        deckLabel: pick.deckLabel ?? pick.commanderName,
+        // Tax is per card: a different commander hasn't been cast yet (CR 903.8).
+        commanderCasts: pick.commanderName === p.commanderName ? p.commanderCasts : 0,
+        partnerCasts: pick.partnerName === p.partnerName ? p.partnerCasts : 0,
+        // Another commander is another deck: the seat keeps its deck only if the event says so.
+        deckVersionId: pick.deckVersionId,
+      }));
+    }
+    case "player":
+      return updatePlayer(state, e.seat, (p) => ({ ...p, name: e.name, memberId: e.memberId, userId: e.userId }));
     case "revive":
       return updatePlayer(state, e.seat, (p) => {
         const { eliminated: _, ...rest } = p;
@@ -261,14 +353,69 @@ export function record(log: LoggedEvent[], event: TableEvent, at: Date, syncedTh
   return [...log, { seq: (last?.seq ?? 0) + 1, at: at.toISOString(), event }];
 }
 
-/** Why a player has probably lost. The app suggests; players confirm (some cards change the rules). */
-export function lossReason(p: PlayerState): string | null {
-  if (p.life <= 0) return "life at 0";
-  if (p.poison >= 10) return "10 poison";
-  for (const [source, dmg] of Object.entries(p.commanderDamage)) {
-    if ((dmg ?? 0) >= 21) return `21 commander damage (${source})`;
+/** Combat damage from one commander that knocks a player out (CR 704.6c). */
+export const COMMANDER_LETHAL = 21;
+/** Poison counters that knock a player out (CR 704.5c). */
+export const POISON_LETHAL = 10;
+
+export interface Loss {
+  kind: "life" | "poison" | "commander_damage";
+  /** "Life at 0", "10 poison", "21 commander damage from Atraxa". */
+  text: string;
+  /** Whose commander dealt it, for "who knocked them out". */
+  bySeat?: Seat;
+  /** Stable per cause, so a prompt the table dismissed isn't asked again for the same thing. */
+  key: string;
+}
+
+/**
+ * Why a player has probably lost, naming the commander when it's commander damage. The app
+ * asks; players confirm, since some cards change the rules (Platinum Angel, Phyrexian Unlife).
+ */
+export function lossOf(state: TableState, p: PlayerState): Loss | null {
+  return lossesOf(state, p)[0] ?? null;
+}
+
+/** Every reason a player has probably lost, commander damage first, then poison, then life. */
+export function lossesOf(state: TableState, p: PlayerState): Loss[] {
+  if (p.eliminated) return [];
+  const out: Loss[] = [];
+  for (const [source, dmg] of Object.entries(p.commanderDamage) as [CommanderKey, number | undefined][]) {
+    if ((dmg ?? 0) >= COMMANDER_LETHAL) {
+      const from = state.players.find((x) => x.seat === keySeat(source));
+      const name = sourceName(state, source) ?? (from ? `${from.name}'s commander` : "one commander");
+      out.push({ kind: "commander_damage", text: `${dmg} commander damage from ${name}`, bySeat: from?.seat, key: `cd:${source}` });
+    }
   }
-  return null;
+  if (p.poison >= POISON_LETHAL) out.push({ kind: "poison", text: `${p.poison} poison counters`, key: "poison" });
+  if (p.life <= 0) out.push({ kind: "life", text: `Life at ${p.life}`, key: "life" });
+  return out;
+}
+
+/** The name of the commander behind a key, retired ones included; undefined if it has none. */
+export function sourceName(state: TableState, key: CommanderKey): string | undefined {
+  const gone = state.retired?.[key];
+  if (gone) return gone.name;
+  const from = state.players.find((x) => x.seat === keySeat(key));
+  return key.endsWith("b") ? from?.partnerName : from?.commanderName;
+}
+
+/**
+ * The commanders that can deal this player commander damage: each opponent's, partners too,
+ * then any a seat stopped playing that already dealt this player some (`retired`).
+ */
+export function commanderSources(state: TableState, seat: Seat): { key: CommanderKey; seat: Seat; partner: boolean; name: string; retired?: boolean }[] {
+  const live = state.players
+    .filter((o) => o.seat !== seat)
+    .flatMap((o) => {
+      const main = { key: `${o.seat}` as CommanderKey, seat: o.seat, partner: false, name: o.commanderName ?? `${o.name}'s commander` };
+      return o.partnerName ? [main, { key: `${o.seat}b` as CommanderKey, seat: o.seat, partner: true, name: o.partnerName }] : [main];
+    });
+  const me = state.players.find((p) => p.seat === seat);
+  const gone = (Object.entries(state.retired ?? {}) as [CommanderKey, { seat: Seat; partner: boolean; name: string }][])
+    .filter(([k, r]) => r.seat !== seat && (me?.commanderDamage[k] ?? 0) > 0)
+    .map(([k, r]) => ({ key: k, seat: r.seat, partner: r.partner, name: r.name, retired: true }));
+  return [...live, ...gone];
 }
 
 export function commanderTax(p: PlayerState, partner = false): number {
@@ -292,16 +439,44 @@ export function turnPosition(seats: Seat[], firstSeat: Seat | null, seat: Seat):
   return ((s - f + seats.length) % seats.length) + 1;
 }
 
+/**
+ * Whether this table counted turns: someone passed the turn at least once. Tables that don't
+ * (most don't bother) send no turn count, so the stats don't learn that every game lasted one turn.
+ */
+export function turnsCounted(state: TableState): boolean {
+  return state.passes > 0;
+}
+
+/**
+ * Whether the turn count covers the whole game: someone passed the turn, and before the first
+ * pass only the starting player's own totals changed (a shock land on turn one is fine).
+ * Counting begun mid-game would undercount, so its total isn't sent.
+ */
+export function turnsFromStart(setup: TableSetup, log: LoggedEvent[]): boolean {
+  let s = initialState(setup);
+  for (const { event: e } of log) {
+    if (e.type === "pass_turn") return true;
+    const touches = e.type === "life" || e.type === "poison" || e.type === "commander_damage" || e.type === "counter" || e.type === "commander_cast" || e.type === "eliminate";
+    if (touches && e.seat !== s.activeSeat) return false;
+    s = apply(s, e);
+  }
+  return false;
+}
+
 /** The finish body POST /api/games/:id/finish expects, from a log that ends in "finish". */
 export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
   const last = log[log.length - 1];
   if (!last || last.event.type !== "finish") return null;
   const f = last.event;
   const state = replay(setup, log);
+  // Elimination turns go all or nothing: the stats order knockouts by them (first out, last out),
+  // so one knockout from before the table counted turns leaves the order unknown for everyone.
+  const fromStart = turnsFromStart(setup, log);
+  const outTurns = fromStart && state.players.every((p) => !p.eliminated?.uncounted);
   const ratings = new Map((f.fun ?? []).filter((r) => r.rating >= 1 && r.rating <= 5).map((r) => [r.seat, Math.round(r.rating)]));
   return {
     winner_seat: f.winnerSeat,
-    turns: state.turn,
+    turns: fromStart ? state.turn : null,
     ended_at: f.endedAt,
     first_seat: state.firstSeat,
     // A draw has no way it was won.
@@ -309,7 +484,7 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,
-      eliminated_turn: p.eliminated?.turn ?? null,
+      eliminated_turn: outTurns ? (p.eliminated?.turn ?? null) : null,
       eliminated_by_seat: p.eliminated?.bySeat ?? null,
       fun: ratings.get(p.seat) ?? null,
     })),

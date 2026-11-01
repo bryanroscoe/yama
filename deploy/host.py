@@ -5,7 +5,7 @@ A caller supplies an exact main SHA and an ephemeral GitHub read token on stdin.
 Only published main with successful push CI reaches Docker. Importing is inert.
 """
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -26,12 +26,14 @@ from urllib.request import Request, urlopen
 REPO = 'bryanroscoe/yama'
 BASE = Path('/mnt/user/appdata/yama-release')
 APP = Path('/mnt/user/appdata/yama')
+CI_ROOT = Path('/mnt/user/appdata/github-ci')
 ENTRYPOINT = str(BASE / 'host.py')
 SERVICES = ('yama', 'yama-advisor', 'yama-forge')
 IMAGE_VARS = ('YAMA_IMAGE', 'YAMA_ADVISOR_IMAGE', 'YAMA_FORGE_IMAGE')
 LOCK_WAIT_SECONDS = 110 * 60
 RELEASE_SECONDS = 105 * 60
 COMMAND_DEADLINE = None
+MAX_TOKEN_LENGTH = 16_384
 
 
 class Refused(Exception):
@@ -109,17 +111,32 @@ def run(args, *, cwd=None, env=None, output=None, timeout=180):
 @contextmanager
 def release_lock():
     BASE.mkdir(parents=True, exist_ok=True)
-    with (BASE / 'release.lock').open('a') as lock:
-        log('Waiting for the production release lock…')
-        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+
+    def take(lock, description):
         while True:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
+                return
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise Refused('Timed out waiting for the production release lock')
+                    raise Refused('Timed out waiting for ' + description)
                 time.sleep(2)
+
+    with ExitStack() as held:
+        # CI takes release SH, then admission EX nonblocking; partial attempts
+        # release everything. Admitted jobs drop admission but keep release SH.
+        # Holding admission here therefore drains existing work without letting
+        # new CI jobs repeatedly get ahead of a pending production release.
+        # Never create/replace a missing pool lock: all callers need one inode.
+        if CI_ROOT.exists():
+            admission = held.enter_context((CI_ROOT / 'slots/admission.lock').open('r'))
+            log('Waiting to reserve production priority…')
+            take(admission, 'CI admission priority')
+            log('Production priority reserved; draining admitted CI jobs…')
+        lock = held.enter_context((BASE / 'release.lock').open('a'))
+        log('Waiting for the production release lock…')
+        take(lock, 'the production release lock')
         yield
 
 
@@ -172,10 +189,22 @@ def phase_checkout(repo):
     env = dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_SSH_COMMAND=(
         'ssh -i ' + str(BASE / 'phase_ed25519') + ' -o IdentitiesOnly=yes'
         ' -o StrictHostKeyChecking=yes -o UserKnownHostsFile=' + str(BASE / 'github_known_hosts')))
-    run(['git', '-C', phase, 'fetch', '--no-tags', 'git@github.com:bryanroscoe/yama-phase.git',
-         '+refs/heads/main:refs/remotes/origin/main'], env=env)
-    run(['git', '-C', phase, 'merge-base', '--is-ancestor', revision, 'origin/main'])
-    return phase, revision
+    # Rebasing the fork's main keeps the previous line under an archive/* tag; a pin on
+    # either is published, so the deployed engine stays releasable until Yama bumps it.
+    run(['git', '-C', phase, 'fetch', '--no-tags', '--prune', 'git@github.com:bryanroscoe/yama-phase.git',
+         '+refs/heads/main:refs/remotes/origin/main',
+         '+refs/tags/archive/*:refs/remotes/origin/archive/*'], env=env)
+    archives = run(['git', '-C', phase, 'for-each-ref', '--format=%(refname)',
+                    'refs/remotes/origin/archive/']).split()
+    for ref in ['refs/remotes/origin/main', *archives]:
+        try:
+            run(['git', '-C', phase, 'merge-base', '--is-ancestor', revision, ref])
+            return phase, revision
+        except Refused as refused:
+            # Exit 1 only means "not an ancestor"; a timeout, deadline or broken object stays its own error.
+            if str(refused) != 'Command failed: git (exit 1)':
+                raise
+    raise Refused('Engine pin is not on the engine repository\'s main or an archive/* tag')
 
 
 def bootstrap_sidecars(directory):
@@ -275,14 +304,32 @@ def inspect(service):
     return json.loads(run(['docker', 'inspect', service]))[0]
 
 
+def health_url(container):
+    # The yama container's published port, wherever server-local Compose
+    # configuration binds it; an all-interfaces bind is checked on loopback.
+    for binding in (container.get('NetworkSettings', {}).get('Ports') or {}).get('8787/tcp') or []:
+        address, port = binding.get('HostIp') or '0.0.0.0', binding.get('HostPort')
+        if ':' in address or not port:
+            continue
+        if address == '0.0.0.0':
+            address = '127.0.0.1'
+        return f'http://{address}:{port}/api/health'
+    return None
+
+
 def healthy(images):
+    url = None
     for service, image in zip(SERVICES, images):
         container = inspect(service)
         if (container['Image'] != image or not container['State'].get('Running')
                 or container['State'].get('Health', {}).get('Status') != 'healthy'):
             return False
+        if service == 'yama':
+            url = health_url(container)
+    if url is None:
+        return False
     try:
-        with urlopen('http://<saget-lan-address>:8099/api/health', timeout=5) as response:
+        with urlopen(url, timeout=5) as response:
             return response.status == 200 and response.read(32).strip() == b'ok'
     except (OSError, URLError):
         return False
@@ -364,14 +411,18 @@ def activate(source, revision, images, record, record_path, token):
 
 def release(revision, token, check_only=False):
     global COMMAND_DEADLINE
+    # Unready requests must not block the CI they need to become deployable.
+    if not verify_ci(revision, token):
+        log('Superseded: requested commit is no longer main; nothing deployed.')
+        return 'superseded'
+    if check_only:
+        log('Host gate passed: current main has successful push CI. No deployment performed.')
+        return 'ready'
     with release_lock():
         COMMAND_DEADLINE = time.monotonic() + RELEASE_SECONDS
         if not verify_ci(revision, token):
             log('Superseded: requested commit is no longer main; nothing deployed.')
-            return
-        if check_only:
-            log('Host gate passed: current main has successful push CI. No deployment performed.')
-            return
+            return 'superseded'
         history = BASE / 'history'
         history.mkdir(exist_ok=True)
         record_path = history / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.json')
@@ -386,14 +437,14 @@ def release(revision, token, check_only=False):
                 if saved.get('revision') == revision and healthy([saved['images'][s] for s in SERVICES]):
                     record['status'] = 'already_healthy'
                     log('Already deployed and healthy at ' + revision + '; nothing restarted.')
-                    return
+                    return 'already_healthy'
             record['stage'] = 'checkout'
             write_json(record_path, record)
             repo = checkout(revision, token)
             if repo is None:
                 record['status'] = 'superseded'
                 log('Superseded during fetch; nothing deployed.')
-                return
+                return 'superseded'
             record['stage'] = 'phase_checkout'
             write_json(record_path, record)
             phase, phase_rev = phase_checkout(repo)
@@ -434,14 +485,15 @@ def release(revision, token, check_only=False):
                 if not verify_ci(revision, token):
                     record['status'] = 'superseded'
                     log('Superseded during build; running production was preserved.')
-                    return
+                    return 'superseded'
                 record['stage'] = 'activate'
                 write_json(record_path, record)
                 if not activate(source, revision, images, record, record_path, token):
-                    return
+                    return 'superseded'
                 record.update(status='success', stage='complete')
                 write_json(BASE / 'current.json', record)
                 log('Production verified at ' + revision + '; HTTP health ok, all image IDs match.')
+                return 'success'
         except Exception as error:
             record['status'] = 'failed'
             # Refused messages are deliberately credential-free. Never persist
@@ -466,14 +518,23 @@ def arguments(argv, original=None):
     return argv[0], argv[1]
 
 
+def read_token(stream):
+    # GitHub installation tokens are opaque and now include JWT punctuation.
+    # Bound transport size and reject whitespace/control characters; GitHub's
+    # API, rather than a provider-specific spelling regex, authenticates them.
+    token = stream.readline(MAX_TOKEN_LENGTH + 2).rstrip('\r\n')
+    if not token or len(token) > MAX_TOKEN_LENGTH or any(not 0x21 <= ord(c) <= 0x7e for c in token):
+        raise Refused('A GitHub read token is required on stdin')
+    return token
+
+
 def main():
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
         mode, revision = arguments(sys.argv[1:], os.environ.get('SSH_ORIGINAL_COMMAND'))
-        token = sys.stdin.readline(4096).strip()
-        if not re.fullmatch(r'[A-Za-z0-9_]{20,1024}', token):
-            raise Refused('A GitHub read token is required on stdin')
-        release(revision, token, mode == 'check')
+        token = read_token(sys.stdin)
+        result = release(revision, token, mode == 'check')
+        log('YAMA_RELEASE_RESULT=' + result)
     except (Refused, OSError, KeyError, ValueError) as error:
         log('Release refused: ' + str(error))
         return 1

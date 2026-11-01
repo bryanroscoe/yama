@@ -90,6 +90,35 @@ export interface Playgroup {
   method?: string | null;
 }
 
+/** A dated source figure: all-time rate over `games` as of `as_of`. */
+export interface EvidenceSnapshot { as_of: string; games: number; rate: number }
+export interface EvidenceInterval { from: string; to: string; games: number; rate: number }
+/** Real-game history derived from the datasets an operator chose (server/src/precon_evidence). */
+export interface RealHistory {
+  source: { name: string; attribution: string; license: string; datasets: { id: string; revision: number; imported_at: string }[] };
+  entity: string; entity_name: string; url: string | null; matched_by: "manual" | "url" | "name" | "slug"; cohort: string;
+  latest: EvidenceSnapshot; snapshots: EvidenceSnapshot[]; intervals: EvidenceInterval[];
+  recent: { rate: number; games: number; effective_games: number; from: string; to: string; half_life_days: number } | null;
+  trend_points_per_30_days: number | null; notes: string[]; as_of: string; method: string;
+}
+export interface CommanderObservation {
+  source: RealHistory["source"]; entity: string; name: string; url: string | null; window_days: number; rate: number; games: number; as_of: string; note: string;
+}
+export interface PreconEvidence { real: RealHistory | null; also?: RealHistory[]; commander: CommanderObservation | null }
+export interface CalibrationScore { predictor: string; spearman: number | null; spearman_ci: [number, number] | null; mse: number | null }
+export interface CalibrationEvaluation {
+  cases: number; held_out_games: number; scores: CalibrationScore[];
+  mapping: { intercept: number; slope: number; sim_variance: number; precons: number } | null;
+  v2_minus_real: [number, [number, number]] | null; gate_passed: boolean; verdict: string;
+}
+export interface V2Estimate { precon: string; rate: number; lo: number; hi: number; real_share: number; rank: number; rank_lo: number; rank_hi: number }
+/** Rating v2 (server/src/precon_evidence): real games and the simulation on one scale, weighted by measured precision. */
+export interface RatingV2 {
+  method: string; as_of: string; split: string; ranked: number; gate_passed: boolean; note: string;
+  simulation: { kind: string; id: string; name: string; engine: string; created_at: string; precons: number } | null;
+  calibration: CalibrationEvaluation | null; precons: V2Estimate[];
+}
+
 export interface UpgradeabilitySource {
   title: string; author: string; publisher: string; published_on: string | null;
   checked_on: string; accessed_on: string; url: string; summary: string; kind: string; rating: string | null;
@@ -133,6 +162,7 @@ export interface PreconItem {
   card_count: number;
   art: Art | null;
   playgroup: Playgroup | null;
+  evidence?: PreconEvidence | null;
   rating: Rating | null;
 }
 
@@ -310,6 +340,8 @@ export interface Entrant {
   avg_place: number | null;
   /** Games it went first in. */
   first: number;
+  /** Fitted strength in the shared field (1 = its geometric mean) with its 90% interval; three or more decks only. */
+  strength?: { strength: number; lo: number; hi: number } | null;
 }
 
 /** Two decks that sat in the same scored games: how often each finished ahead (ties apart). */

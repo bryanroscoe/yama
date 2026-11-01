@@ -10,6 +10,8 @@ describe("versionOn", () => {
     expect(versionOn(versions, "2026-10-10")).toBe("v2");
     expect(versionOn(versions, "2026-10-14")).toBe("v2");
     expect(versionOn(versions, "2026-10-19")).toBe("v3");
+    // A scan saved for History only is never the list played.
+    expect(versionOn([...versions, { ...v("scan", "2026-10-18T09:00:00"), history_only: true }], "2026-10-19")).toBe("v3");
   });
 
   it("credits no version for a game played before the deck had one", () => {

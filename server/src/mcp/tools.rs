@@ -234,7 +234,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "precon",
         title: "A precon",
-        description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg, the simulated rating and matchups, and source-backed upgradeability assessments with the 1–5 rubric, concrete card examples, named reviews and separately scoped raw commander wins/game counts. Commander configurations have separate grades and comparison-list URLs. On-theme swaps are eligible; replacing the strategy is a separate build. Use each prepared list separately when comparing commanders. Unsupported grades are null. Commander rates mix stock and modified lists; do not infer upgrade gains from them. \
+        description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg with their dated history (all-time rate, approximate recent rate between snapshots and trend, or the commander's own figure when the list isn't rated), the simulated rating and matchups, and source-backed upgradeability assessments with the 1–5 rubric, concrete card examples, named reviews and separately scoped raw commander wins/game counts. Commander configurations have separate grades and comparison-list URLs. On-theme swaps are eligible; replacing the strategy is a separate build. Use each prepared list separately when comparing commanders. Unsupported grades are null. Commander rates mix stock and modified lists; do not infer upgrade gains from them. \
                       Give its name (or part of it) or id.",
         schema: || obj(&[("precon", "string", "The precon's name, part of it, or its id.")], &["precon"]),
         does: Does::Read,
@@ -563,14 +563,20 @@ fn obj(props: &[(&str, &str, &str)], required: &[&str]) -> Value {
     json!({"type": "object", "properties": p, "required": required, "additionalProperties": false})
 }
 
-/// The tools this caller gets: Ask Claude can stage changes but not apply them.
-fn for_caller(via: &Via) -> impl Iterator<Item = &'static Tool> {
+/// Tools that start simulations: admins and power users only (`User::power`, 2026-10-31).
+/// Everyone else can still read their runs and cancel one.
+const SIMULATIONS: [&str; 3] = ["start_lab_run", "more_lab_games", "run_lab_again"];
+
+/// The tools this caller gets: Ask Claude can stage changes but not apply them, and only power
+/// users get the tools that start simulations.
+fn for_caller(user: &User, via: &Via) -> impl Iterator<Item = &'static Tool> {
     let decide = via.may_apply();
-    TOOLS.iter().filter(move |t| decide || t.does != Does::Decide)
+    let power = user.power;
+    TOOLS.iter().filter(move |t| (decide || t.does != Does::Decide) && (power || !SIMULATIONS.contains(&t.name)))
 }
 
-pub fn list(via: &Via) -> Vec<Value> {
-    for_caller(via)
+pub fn list(user: &User, via: &Via) -> Vec<Value> {
+    for_caller(user, via)
         .map(|t| {
             let annotations = match t.does {
                 Does::Read => json!({"readOnlyHint": true, "openWorldHint": false}),
@@ -591,8 +597,8 @@ pub fn list(via: &Via) -> Vec<Value> {
         .collect()
 }
 
-pub fn offered(name: &str, via: &Via) -> bool {
-    for_caller(via).any(|t| t.name == name) || super::research::offered(name)
+pub fn offered(name: &str, user: &User, via: &Via) -> bool {
+    for_caller(user, via).any(|t| t.name == name) || super::research::offered(name)
 }
 
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {

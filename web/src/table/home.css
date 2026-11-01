@@ -106,42 +106,7 @@
   background: #000;
   outline: 1px solid var(--line);
   outline-offset: 4px;
-  display: grid;
-  gap: 4px;
 }
-.sketch-cell {
-  position: relative;
-  overflow: hidden;
-  border-radius: 10px;
-  background: var(--raised);
-}
-.sketch-cell img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.sketch-n {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 26px;
-  line-height: 1;
-  color: var(--dim);
-}
-.sketch-n > span {
-  display: block;
-}
-.sketch-cell.has-art .sketch-n {
-  background: rgb(0 0 0 / 0.35);
-  color: var(--on-art);
-}
-
 /* A seat card: the commander art with the name on it, the fields below, the credit last. */
 fieldset.seat.seat-card2 {
   padding: 0;
@@ -196,6 +161,20 @@ fieldset.seat.seat-card2 {
 .seat-fields2 :is(input, select) {
   min-height: var(--target);
   border-radius: 10px;
+}
+/* The seat's last line (Log a game): "Won this game" and Remove, at either end, inside the box. */
+.seat-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.seat-fields2 .seat-foot input[type="radio"] {
+  min-height: 0;
+  border-radius: 50%;
 }
 .seat-player {
   display: flex;
@@ -588,4 +567,214 @@ fieldset.seat.seat-card2 {
 }
 .sheet .seat-head2.art-panel {
   height: 96px;
+}
+
+/* Recent games and the game in progress open: a recent game shows its details, a seat in the
+   game in progress goes back to the table. */
+a.rg-row {
+  color: inherit;
+  text-decoration: none;
+}
+a.rg-row:hover,
+a.rg-row:focus-visible {
+  background: var(--raised);
+}
+.rg-live {
+  color: var(--warn);
+}
+.ip-row-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 16px;
+  background: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.ip-row-btn:hover,
+.ip-row-btn:focus-visible {
+  background: none;
+  box-shadow: 0 0 0 2px var(--text);
+}
+.seat-you {
+  font-weight: 400;
+  color: var(--on-art-dim);
+}
+.ng-start-wide {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+.new-game2 .ng-start {
+  display: grid;
+  place-content: center;
+  gap: 2px;
+}
+.ng-start-sub {
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+
+/* ── one game (table/GameDetail.tsx) ────────────────────────────────────── */
+
+.page.game-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 760px;
+}
+.gd-back {
+  margin: 0;
+}
+.gd-head {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+.gd-art {
+  display: block;
+  width: 120px;
+  height: 88px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--raised);
+}
+.gd-title h1 {
+  margin: 0 0 4px;
+}
+.gd-title p {
+  margin: 0;
+}
+.gd-going {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--r-list);
+  background: var(--surface);
+}
+.gd-going p {
+  margin: 0;
+}
+.gd-seats {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.gd-seat {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 12px 6px 6px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.gd-seat-art {
+  display: block;
+  width: 64px;
+  height: 46px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--raised);
+}
+.gd-seat-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.gd-seat-text,
+.gd-seat-result {
+  display: grid;
+  min-width: 0;
+  line-height: 1.3;
+}
+.gd-seat-name {
+  font-weight: 700;
+}
+.gd-seat-result {
+  text-align: right;
+}
+.gd-turns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+.gd-turns h3 {
+  margin: 0 0 6px;
+  font-size: var(--t-label);
+}
+.gd-turns ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.gd-turns ul li {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 8px;
+}
+.gd-time {
+  color: var(--dim);
+  font-size: var(--t-sm);
+  padding-top: 2px;
+}
+@media (max-width: 520px) {
+  .gd-head {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+  .gd-art {
+    width: 88px;
+    height: 64px;
+  }
+}
+
+/* Setup on a phone: the layout picker sits under the choices, the shuffle under the seats. */
+.new-game2 .ng-layout {
+  margin-top: 4px;
+}
+.new-game2 .ng-shuffle {
+  align-self: flex-start;
+}
+.new-game2 .ng-phone .ng-layout .field-label {
+  text-align: center;
+}
+
+/* Deleting a game you recorded: last on its page, away from everything else. */
+.gd-delete {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.gd-delete p {
+  margin: 0;
+}
+
+/* Install Yama: a raised card between the game and Recent games, until installed or waved off. */
+.install-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 2rem;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.install-card p {
+  margin: 0;
+  flex: 1 1 18rem;
 }

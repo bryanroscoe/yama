@@ -117,9 +117,11 @@ This requires all of the following before any saget call:
 
 - The current branch is `main`, with no tracked edits or untracked files. Detached HEAD and feature branches are refused.
 - A fresh fetch of GitHub main succeeds, and the local commit equals `origin/main` exactly. Ahead, behind and diverged main checkouts are refused.
-- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main`. The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
+- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main` or from a published `archive/*` tag (rebasing the fork's main keeps the previous line under such a tag, so the deployed engine stays releasable until Yama bumps the pin; the server gate applies the same rule). The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
 
-The check does not merge, push, contact saget, build images or restart anything. Once it passes and deployment is requested:
+The check does not merge, push, contact saget, build images or restart anything, and needs no
+server address. Once it passes and deployment is requested (saget's address and SSH user come
+from the gitignored `deploy/.env`; copy `deploy/.env.example`):
 
 ```sh
 ./deploy/deploy.sh
@@ -133,4 +135,4 @@ Server configuration, the local Compose override and secrets remain on saget. No
 the automatic workflow already handles this after main CI passes; a manual call is for
 an explicitly requested retry. `--check` still makes no server calls.
 
-Record the deployed revision, check `curl -fsS http://<saget-lan-address>:8099/api/health`, confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.
+Record the deployed revision, check `./deploy/health.sh` (it reads saget's LAN address from `deploy/.env` or the environment), confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.

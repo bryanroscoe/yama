@@ -5,6 +5,7 @@ Run from any directory: python3 deploy/test_release.py
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -41,7 +42,8 @@ class ReleaseChecks(unittest.TestCase):
             "GIT_COMMITTER_EMAIL": "release-test@example.invalid",
             "YAMA_RELEASE_TEST_CONTACT_LOG": str(self.contact_log),
         }
-        self.env.pop("YAMA_PHASE_DIR", None)
+        for name in ("YAMA_PHASE_DIR", "YAMA_DEPLOY_HOST", "YAMA_DEPLOY_USER"):
+            self.env.pop(name, None)
         phase = self.root / "yama-phase"
         self.git(self.root, "init", "--initial-branch=main", str(phase))
         (phase / "Cargo.toml").write_text("# Test engine commit\n")
@@ -55,7 +57,7 @@ class ReleaseChecks(unittest.TestCase):
         self.git(self.root, "init", "--bare", "--initial-branch=main", str(self.remote))
         self.git(self.root, "init", "--initial-branch=main", str(self.repo))
         (self.repo / "deploy").mkdir()
-        for name in ("check-release.sh", "check-phase.sh", "deploy.sh"):
+        for name in ("check-release.sh", "check-phase.sh", "deploy.sh", "target.sh"):
             shutil.copyfile(SCRIPTS / name, self.repo / "deploy" / name)
         (self.repo / "deploy" / "phase-rev").write_text(phase_rev + "\n")
         (self.repo / "deploy" / "phase-repo").write_text(str(self.phase_remote) + "\n")
@@ -103,13 +105,40 @@ printf '%s' "$*" > "$YAMA_RELEASE_TEST_CAPTURE"
 cat > /dev/null
 exit 97
 ''')
+        # The target comes from the gitignored deploy/.env; never a tracked address.
+        (self.repo / "deploy" / ".env").write_text("YAMA_DEPLOY_HOST=192.0.2.40\n")
+        (self.repo / ".git" / "info" / "exclude").write_text("deploy/.env\n")
         result = subprocess.run(["sh", "deploy/deploy.sh"], cwd=self.repo,
             env={**self.env, "GH_TOKEN": "test-token-not-a-real-secret", "YAMA_RELEASE_TEST_CAPTURE": str(capture)},
             capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 97, result.stdout + result.stderr)
         revision = self.git(self.repo, "rev-parse", "HEAD")
-        self.assertIn("/mnt/user/appdata/yama-release/host.py deploy " + revision, capture.read_text())
+        self.assertIn("root@192.0.2.40 /mnt/user/appdata/yama-release/host.py deploy " + revision, capture.read_text())
         self.assertNotIn("test-token", capture.read_text() + result.stdout + result.stderr)
+
+    def test_deploy_without_a_target_stops_before_contacting_a_server(self):
+        result = subprocess.run(["sh", "deploy/deploy.sh"], cwd=self.repo,
+            env={**self.env, "GH_TOKEN": "test-token-not-a-real-secret"}, capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("YAMA_DEPLOY_HOST is not set", result.stderr)
+        self.assertFalse(self.contact_log.exists(), "deploy contacted a server without a configured target")
+        result = subprocess.run(["sh", "deploy/deploy.sh"], cwd=self.repo,
+            env={**self.env, "GH_TOKEN": "test-token-not-a-real-secret", "YAMA_DEPLOY_HOST": "-oProxyCommand=x"},
+            capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.contact_log.exists(), "deploy passed an option as the host")
+
+    def test_tracked_files_hold_no_lan_addresses(self):
+        # saget's address and other LAN details live in the gitignored deploy/.env and the
+        # deploy secrets. Examples use RFC 5737 documentation addresses (192.0.2.0/24).
+        top = SCRIPTS.parent
+        if not (top / ".git").exists():
+            self.skipTest("not a Git checkout")
+        files = subprocess.run(["git", "ls-files", "-z"], cwd=top, check=True, capture_output=True).stdout
+        pattern = re.compile(rb"(?<![0-9.])192\.168\.[0-9]{1,3}\.[0-9]{1,3}(?![0-9])")
+        found = [name.decode() for name in files.split(b"\0") if name and (top / name.decode()).is_file()
+                 and pattern.search((top / name.decode()).read_bytes())]
+        self.assertEqual(found, [])
 
     def test_wrapper_check_verifies_engine_without_server_calls(self):
         result = self.check(wrapper=True)
@@ -174,6 +203,29 @@ exit 97
         revision = self.git(self.phase, "rev-parse", "HEAD")
         (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
         self.commit(self.repo, "Pin unpublished engine")
+        self.git(self.repo, "push", "origin", "main")
+        self.rejected("not published", wrapper=True)
+
+    def test_engine_commit_on_an_archive_tag_is_published(self):
+        (self.phase / "archived").write_text("Engine line kept after main was rebased\n")
+        self.commit(self.phase, "Archived engine")
+        revision = self.git(self.phase, "rev-parse", "HEAD")
+        self.git(self.phase, "tag", "archive/pre-sync-test", revision)
+        self.git(self.phase, "push", "origin", "refs/tags/archive/pre-sync-test")
+        (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
+        self.commit(self.repo, "Pin archived engine")
+        self.git(self.repo, "push", "origin", "main")
+        result = self.check(wrapper=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_engine_commit_on_another_tag_is_refused(self):
+        (self.phase / "tagged").write_text("Tagged outside archive/\n")
+        self.commit(self.phase, "Other tag")
+        revision = self.git(self.phase, "rev-parse", "HEAD")
+        self.git(self.phase, "tag", "preview-test", revision)
+        self.git(self.phase, "push", "origin", "refs/tags/preview-test")
+        (self.repo / "deploy" / "phase-rev").write_text(revision + "\n")
+        self.commit(self.repo, "Pin other tag")
         self.git(self.repo, "push", "origin", "main")
         self.rejected("not published", wrapper=True)
 

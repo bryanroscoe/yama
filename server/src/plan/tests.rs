@@ -725,6 +725,31 @@ async fn unknown_names_and_printings_are_kept_and_reported() {
 }
 
 #[tokio::test]
+async fn a_bracket_box_and_extras_reach_the_pages_and_are_optional() {
+    let (app, _pool, _owner, token) = setup().await;
+    // Without them (the fixture has neither), the bracket comes back as it was sent.
+    import(&app, &token, &doc()).await;
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["bracket"]["target"], 3);
+    assert!(alpha["bracket"].get("box").is_none() && alpha["bracket"].get("extras").is_none());
+
+    let mut d = doc();
+    d["plan"]["decks"][0]["bracket"]["box"] = json!(2);
+    d["plan"]["decks"][0]["bracket"]["extras"] = json!(["Sol Ring", "Extra Future Card"]);
+    let r = import(&app, &token, &d).await;
+    let unknown = r["unknown_cards"].as_array().unwrap();
+    let extra = unknown.iter().find(|u| u["name"] == "Extra Future Card").expect("an unknown extra is reported");
+    assert!(extra["where"].as_array().unwrap().iter().any(|w| w == "Alpha Deck: Bracket 4 extras"), "{extra}");
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["bracket"]["box"], 2);
+    assert_eq!(alpha["bracket"]["extras"], json!(["Sol Ring", "Extra Future Card"]));
+    assert_eq!(b["names"]["Sol Ring"], "o-sol");
+    assert!(b["unresolved"].as_array().unwrap().iter().any(|n| n == "Extra Future Card"), "extras are resolved like other plan names");
+}
+
+#[tokio::test]
 async fn a_card_added_later_resolves_without_a_new_import() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc()).await;
@@ -831,6 +856,10 @@ async fn bad_documents_get_400_naming_the_json_path() {
         ("plan.decks[0].states.later:", Box::new(|d| d["plan"]["decks"][0]["states"]["later"] = json!({"cards": []}))),
         ("plan.decks[0].states.now.cards[2].qty: invalid type", Box::new(|d| d["plan"]["decks"][0]["states"]["now"]["cards"][2]["qty"] = json!("one"))),
         ("plan.decks[1].key: \"alpha\" appears twice", Box::new(|d| d["plan"]["decks"][1]["key"] = json!("alpha"))),
+        ("plan.decks[0].bracket.box: must be a bracket", Box::new(|d| d["plan"]["decks"][0]["bracket"]["box"] = json!(6))),
+        ("plan.decks[0].bracket.box: must be a bracket", Box::new(|d| d["plan"]["decks"][0]["bracket"]["box"] = json!("2"))),
+        ("plan.decks[0].bracket.extras: must be a list", Box::new(|d| d["plan"]["decks"][0]["bracket"]["extras"] = json!("Sol Ring"))),
+        ("plan.decks[0].bracket.extras[1]: must be a card name", Box::new(|d| d["plan"]["decks"][0]["bracket"]["extras"] = json!(["Sol Ring", " "]))),
         ("plan.reviews[\"alpha-idea\"].at:", Box::new(|d| d["plan"]["reviews"] = json!({"alpha-idea": {"decision": "want", "at": "2026-10-19 01:00"}}))),
         ("plan.reviews[\"alpha-idea\"].decision:", Box::new(|d| d["plan"]["reviews"] = json!({"alpha-idea": {"decision": "maybe", "at": "2026-10-19T01:00:00Z"}}))),
     ];
@@ -1299,6 +1328,28 @@ async fn installed_is_read_from_the_decks_current_list() {
     assert_eq!(swap_of(&b, print)["deck_installed"], true);
     assert_eq!(swap_of(&b, stand)["deck_installed"], false);
     assert_eq!(swap_of(&b, stand)["deck_superseded"], true);
+}
+
+/// A scan of the physical deck saved as a new version (deck_scan.rs) moves installs only when it
+/// becomes the deck's list.
+#[tokio::test]
+async fn a_scanned_list_marks_installs_only_once_it_is_current() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let bought = "plan|Alpha Deck|Bought Card|Cut Card";
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], false);
+    let scan = json!([
+        {"name": "Test Commander", "qty": 1, "commander": true}, {"name": "Sol Ring", "qty": 1},
+        {"name": "Old Card", "qty": 1}, {"name": "Bought Card", "qty": 1}, {"name": "Forest", "qty": 96},
+    ]);
+    let based_on: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&main).fetch_one(&pool).await.unwrap();
+    let (status, saved) = send(&app, Method::POST, &format!("/api/decks/{main}/scan"), Some(&token), Some(json!({"op_id": "scan-a", "cards": scan, "make_current": false, "based_on": based_on}))).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], false);
+    let (status, saved) = send(&app, Method::POST, &format!("/api/decks/{main}/scan"), Some(&token), Some(json!({"op_id": "scan-b", "cards": scan, "make_current": true, "based_on": based_on}))).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], true);
 }
 
 async fn count_versions(pool: &SqlitePool, deck: &str) -> i64 {

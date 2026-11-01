@@ -51,8 +51,10 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::calendar::router())
         .merge(crate::collection::router())
         .merge(crate::decks::router())
+        .merge(crate::deck_scan::router())
         .merge(crate::deck_research::router())
         .merge(crate::datasets::router())
+        .merge(crate::precon_evidence::router())
         .merge(crate::deck_import::router())
         .merge(crate::playgroups::router())
         .merge(crate::games::router())
@@ -65,6 +67,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::public_precons::router())
         .merge(crate::scan::router(&state.cfg.data_dir))
         .merge(crate::sharing::router())
+        .merge(crate::people::router())
         .merge(crate::advisor::router())
         .merge(crate::mcp::router())
         .merge(crate::mcp::changes::router())
@@ -75,6 +78,10 @@ pub fn app(state: AppState) -> Router {
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
+    // The Mythic Tools bridge, when it's switched on (YAMA_MYTHIC_BRIDGE=1).
+    if state.cfg.mythic_bridge {
+        router = router.merge(crate::bridges::mythic::router());
+    }
     // Serve the built web app, falling back to index.html for client-side routes.
     if let Some(dist) = &state.cfg.web_dist {
         let index = dist.join("index.html");

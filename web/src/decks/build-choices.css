@@ -1,0 +1,31 @@
+.bc-selects { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }
+.bc-controls label { display: grid; gap: .4rem; }
+.bc-controls select { width: 100%; max-width: 100%; }
+.bc-controls .row label { min-width: 10rem; }
+.bc-sheet { margin-top: 1.5rem; display: grid; gap: 2rem; overflow-x: auto; }
+.bc-paper { display: grid; grid-template-columns: repeat(3, 2.5in); grid-template-rows: repeat(3, 3.5in); width: 7.5in; height: 10.5in; background: white; color: #111; }
+.bc-card, .bc-blank { width: 2.5in; height: 3.5in; box-sizing: border-box; }
+.bc-card { padding: .12in; border: 1px dashed #777; font-family: Arial, sans-serif; font-size: 8pt; line-height: 1.2; overflow: hidden; }
+.bc-card h2 { font-size: 11pt; line-height: 1.15; margin: 0 0 4pt; }
+.bc-card p { margin: 0 0 4pt; }
+.bc-direction { font-weight: bold; }
+.bc-part { font-size: 7pt; }
+.bc-card table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: inherit; }
+.bc-card th { text-align: left; font-size: 7pt; }
+.bc-card td { vertical-align: top; width: 50%; padding: 3pt 3pt 3pt 0; border-top: 1px solid #ccc; overflow-wrap: anywhere; }
+.bc-card small { display: block; }
+.bc-card footer { font-size: 6pt; margin-top: 6pt; overflow-wrap: anywhere; }
+.bc-card .card-ref { color: inherit; font: inherit; }
+@page build-cards { size: letter; margin: .25in .5in; }
+@media print {
+  body:has(.bc-sheet) :not(:has(.bc-sheet)):not(.bc-sheet):not(.bc-sheet *) { display: none !important; }
+  html:has(.bc-sheet), body:has(.bc-sheet), body:has(.bc-sheet) :has(.bc-sheet) { display: block !important; position: static !important; width: auto !important; max-width: none !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; background: white !important; border: 0 !important; box-shadow: none !important; transform: none !important; }
+  .bc-sheet, .bc-sheet * { visibility: visible !important; }
+  .bc-sheet { page: build-cards; display: block; margin: 0; }
+  .bc-paper { break-after: page; break-inside: avoid; }
+  .bc-paper:last-child { break-after: auto; }
+  .bc-card { break-inside: avoid; }
+  .bc-card .card-ref { text-decoration: none !important; }
+  .bc-overflow::before { content: 'Text overflow: choose fewer swaps per insert before printing.'; display: block; color: black; }
+  .bc-overflow .bc-paper { display: none !important; }
+}

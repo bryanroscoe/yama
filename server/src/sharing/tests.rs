@@ -406,3 +406,316 @@ fn a_deck_matches_a_plan_list_by_cards_not_label() {
     let swapped = [("Éowyn", 1, "main"), ("Sol Ring", 1, "commander"), ("Island", 2, "main")];
     assert_ne!(super::list_key(deck.iter().copied()), super::list_key(swapped.iter().copied()), "a different commander is a different list");
 }
+
+#[test]
+fn a_build_compares_with_another_build_card_by_card() {
+    use super::research::{Change, compare};
+    let sw = |i: &str, o: &str| json!({"card_in": i, "card_out": o, "why": format!("{i} is better."), "why_out": format!("{o} is worse.")});
+    let list = |cards: &[&str], plains: i64| format!("Commander\n1 Nalia\nDeck\n{}\n{plains} Plains", cards.iter().map(|c| format!("1 {c}")).collect::<Vec<_>>().join("\n"));
+    let row = |add: &str, cut: &str, why: &str, notes: &[&str]| Change { add: add.into(), cut: cut.into(), n: 1, why: why.into(), notes: notes.iter().map(|n| n.to_string()).collect() };
+    // Starting list: A B C D and 10 Plains.
+    let (b2, b2s) = (list(&["X", "B", "C", "D"], 10), vec![sw("X", "A")]);
+    let (b3, b3s) = (list(&["X", "Y", "Z", "D"], 10), vec![sw("X", "A"), sw("Y", "B"), sw("Z", "C")]);
+    let b4s = vec![sw("X", "A"), sw("Y", "B"), sw("W", "C"), sw("V", "D"), json!({"card_in": "Sol Ring", "card_out": "Plains", "why": "Fast mana."})];
+    let b4 = list(&["X", "Y", "W", "V", "Sol Ring"], 9);
+
+    // Up a bracket: the higher build's own swaps, with their reasons.
+    assert_eq!(compare(&b3, &b3s, &b2, &b2s, "B2"), vec![row("Y", "B", "Y is better.", &["Cut: B is worse."]), row("Z", "C", "Z is better.", &["Cut: C is worse."])]);
+    // Down a bracket: the starting cards come back, and the other build says why it swaps them.
+    assert_eq!(
+        compare(&b2, &b2s, &b3, &b3s, "B3"),
+        vec![
+            row("B", "Y", "Keeps the starting list's card; B3 swaps it for Y.", &["Y: Y is better."]),
+            row("C", "Z", "Keeps the starting list's card; B3 swaps it for Z.", &["Z: Z is better."]),
+        ]
+    );
+    // Copies count (a Plains for Sol Ring), and two builds replacing one card differently pair up.
+    assert_eq!(
+        compare(&b4, &b4s, &b3, &b3s, "B3"),
+        vec![
+            row("V", "D", "V is better.", &["Cut: D is worse."]),
+            row("Sol Ring", "Plains", "Fast mana.", &[]),
+            row("W", "Z", "W is better.", &["Both builds cut C for these."]),
+        ]
+    );
+    // Differences no swap explains still show, each on its own.
+    let loose = compare(&list(&["X", "Q"], 10), &[], &list(&["X"], 12), &[], "B2");
+    assert_eq!(loose, vec![Change { add: "Q".into(), n: 1, ..Default::default() }, Change { cut: "Plains".into(), n: 2, ..Default::default() }]);
+    assert!(compare(&b3, &b3s, &b3, &b3s, "B3").is_empty());
+    // Names compare as the card lookup matches them: ASCII case aside.
+    assert!(compare(&list(&["Sol Ring", "Fire // Ice"], 10), &[], &list(&["sol ring", "Fire"], 10), &[], "B2").is_empty());
+    // A pairing note stays with its swap when both builds replace the same card.
+    let mut noted = b4s.clone();
+    noted[2]["pairing_note"] = json!("Swap with the land change.");
+    assert_eq!(compare(&b4, &noted, &b3, &b3s, "B3")[2].notes, vec!["Both builds cut C for these.".to_string(), "Swap with the land change.".to_string()]);
+    // Many swaps replacing one card in both builds: each pairs once, in order, without a scan per pair.
+    let many = |prefix: &str| (0..2000).map(|i| json!({"card_in": format!("{prefix}{i}"), "card_out": "Plains", "why": ""})).collect::<Vec<_>>();
+    let many_list = |prefix: &str| format!("Commander\n1 Nalia\nDeck\n{}", (0..2000).map(|i| format!("1 {prefix}{i}")).collect::<Vec<_>>().join("\n"));
+    let rows = compare(&many_list("New "), &many("New "), &many_list("Old "), &many("Old "), "B3");
+    assert_eq!(rows.len(), 2000);
+    assert_eq!((rows[0].add.as_str(), rows[0].cut.as_str(), rows[1999].cut.as_str()), ("New 0", "Old 0", "Old 1999"));
+    // Two one-copy swaps of the same card each keep their own row and reason.
+    let two = |a: &str, b: &str| vec![json!({"card_in": a, "card_out": "Forest", "why": "First."}), json!({"card_in": b, "card_out": "Forest", "why": "Second."})];
+    let plains = format!("Commander\n1 Nalia\nDeck\n2 Plains\n8 Forest");
+    let other = format!("Commander\n1 Nalia\nDeck\n1 Mountain\n1 Island\n8 Forest");
+    let rows = compare(&plains, &two("Plains", "Plains"), &other, &two("Mountain", "Island"), "B3");
+    assert_eq!(rows.iter().map(|r| (r.cut.as_str(), r.why.as_str(), r.n)).collect::<Vec<_>>(), vec![("Mountain", "First.", 1), ("Island", "Second.", 1)]);
+    // A swap that only adds a card keeps its pairing note when nothing pairs with it.
+    let add_only = vec![json!({"id": "x", "card_in": "Extra", "why": "More.", "pairing_note": "Cut a land for it."})];
+    let rows = compare(&list(&["Extra"], 10), &add_only, &list(&[], 10), &[], "B2");
+    assert_eq!(rows, vec![Change { add: "Extra".into(), n: 1, why: "More.".into(), notes: vec!["Cut a land for it.".into()], ..Default::default() }]);
+    // The whole lists: builds that differ only past the page's list cap still differ.
+    let long = |last: &str| format!("Commander\n1 Nalia\nDeck\n{}\n1 {last}", (0..300).map(|i| format!("1 Card {i}")).collect::<Vec<_>>().join("\n"));
+    assert_eq!(compare(&long("Late A"), &[], &long("Late B"), &[], "B2"), vec![Change { add: "Late A".into(), n: 1, ..Default::default() }, Change { cut: "Late B".into(), n: 1, ..Default::default() }]);
+}
+
+fn note() -> serde_json::Value {
+    json!({
+        "schema": "yama-research/1", "id": "upgrades", "title": "Precon upgrade notes", "generated_at": "2026-10-31T00:00:00Z",
+        "summary": "Stronger builds for the stock lists.",
+        "method": ["Buy locally under $2; secret price ceiling."],
+        "scenarios": [{"id": "shop", "label": "Secret shopping list", "buys": [{"card": "Sol Ring", "store": "Secret Store", "price": 1.25}]}],
+        "decks": [{
+            "key": "party", "name": "Party Time", "commander": "Nalia de'Arnise", "recommended_build": "b3",
+            "ownership": "Owner holds a secret binder", "installed_state": "Installed secretly",
+            "pilot": "Play a party member every turn.",
+            "sources": [{"title": "EDHREC guide", "url": "https://edhrec.com/x"}, {"title": "Bad link", "url": "javascript:alert(1)"}],
+            "builds": [{
+                "id": "b3", "label": "Bracket 3 · Upgraded", "bracket": 3, "why": "Cleaner removal.",
+                "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Swords to Plowshares\n98 Plains",
+                "acquisition": {"buys": [{"card": "Swords to Plowshares", "store": "Hidden Hobby Shop", "price": 3.5}]},
+                "swaps": [{"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile.", "why_out": "Symmetrical.", "pairing_note": "Swap together with the land change.",
+                           "acquisition": {"store": "Hidden Hobby Shop", "price": 3.5}}]
+            }]
+        }]
+    })
+}
+
+#[tokio::test]
+async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    sqlx::query("UPDATE users SET handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
+    let (s, _) = send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(json!({
+        "op_id": "op1", "target": "swap:party:b3:stp", "decision": "want", "note": "my private review note",
+        "expected_version": 0,
+        "target_hash": crate::util::sha256_hex(&note()["decks"][0]["builds"][0]["swaps"][0].to_string())
+    }))).await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Private: no link yet, and the owner list says so.
+    let (_, list) = send(&app, Method::GET, "/api/research", Some(&bt), None).await;
+    assert_eq!(list[0]["visibility"], "private");
+    assert!(list[0]["share_token"].is_null());
+
+    // Someone else can't share it; it isn't theirs.
+    let (s, _) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&other), Some(json!({"visibility": "public"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "everyone"}))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Link: the note, its deck page and the download work signed out; the profile doesn't list it.
+    let (s, shared) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "link"}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let token = shared["share_token"].as_str().unwrap().to_string();
+    assert_eq!(shared["link"], format!("/r/{token}"));
+    let (status, headers, body) = page(&app, &format!("/r/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Precon upgrade notes") && body.contains("Party Time") && body.contains("@saget"));
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+    let (status, _, deck) = page(&app, &format!("/r/{token}/party")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(deck.contains("href=\"https://edhrec.com/x\"") && deck.contains("Bad link") && !deck.contains("javascript:"));
+    assert!(deck.contains("1 in, 1 out from the starting list"));
+    for shown in ["Swap together with the land change.", "Cleaner removal.", "Play a party member every turn.", "One-mana exile.", "Symmetrical.", "Swords to Plowshares", "Stick Together"] {
+        assert!(deck.contains(shown), "{shown}");
+    }
+    for hidden in ["my private review note", "secret price ceiling", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "3.5"] {
+        assert!(!body.contains(hidden) && !deck.contains(hidden), "{hidden}");
+    }
+    // A cut card isn't in the build's list; its row still gets its image for the preview.
+    card(&pool, "o-stick", "Stick Together", "Sorcery", "p-stick", "afc", "1").await;
+    sqlx::query("UPDATE cards SET image_normal = 'https://cards.scryfall.io/normal/stick.jpg' WHERE oracle_id = 'o-stick'").execute(&pool).await.unwrap();
+    let with_cut = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(with_cut.contains("data-card-name=\"Stick Together\" data-card-image=\"https://cards.scryfall.io/normal/stick.jpg\""), "cut card's image");
+    let (status, _, file) = page(&app, &format!("/r/{token}/party/b3-names.txt")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(file.starts_with("Commander\n1 Nalia de'Arnise\n"), "{file}");
+    assert!(file.contains("98 Plains"));
+    // Names resolve as written, accents included, in one lookup.
+    card(&pool, "o-eowyn", "Éowyn, Lady of Rohan", "Legendary Creature — Human Noble", "p-eowyn", "ltr", "10").await;
+    sqlx::query("UPDATE cards SET image_normal = 'https://cards.scryfall.io/normal/eowyn.jpg' WHERE oracle_id = 'o-eowyn'").execute(&pool).await.unwrap();
+    let mut with_eowyn = note();
+    with_eowyn["decks"][0]["builds"][0]["list"] = json!("Commander\n1 Nalia de'Arnise\nDeck\n1 Éowyn, Lady of Rohan\n98 Plains");
+    with_eowyn["decks"][0]["builds"][0]["swaps"] = json!([]);
+    crate::deck_research::save(&pool, &bryan, &with_eowyn).await.unwrap();
+    let eowyn = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(eowyn.contains("https://cards.scryfall.io/normal/eowyn.jpg"), "Éowyn's image");
+    assert!(!eowyn.contains("Not in Yama's card data: Nalia de&#39;Arnise, Éowyn"));
+    // Changes from another build: the heading picks it, and the rows compare the two lists.
+    let mut two = note();
+    two["decks"][0]["builds"] = json!([
+        {"id": "b2", "label": "Bracket 2 · Core", "list": "Commander\n1 Nalia de'Arnise\nDeck\n1 Stick Together\n98 Plains", "swaps": []},
+        note()["decks"][0]["builds"][0].clone(),
+    ]);
+    crate::deck_research::save(&pool, &bryan, &two).await.unwrap();
+    let start = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(start.contains("Compare with: the starting list") && start.contains(&format!("href=\"/r/{token}/party?build=b3&amp;vs=b2#changes-head\">Bracket 2 · Core</a>")), "{start}");
+    let (status, _, up) = page(&app, &format!("/r/{token}/party?build=b3&vs=b2")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(up.contains("<summary aria-label=\"Compare with: Bracket 2 · Core\">Bracket 2 · Core</summary>"));
+    assert!(up.contains("One-mana exile.") && up.contains("Cut: Symmetrical.") && up.contains("Swap together with the land change."));
+    assert!(up.contains(&format!("href=\"/r/{token}/party?build=b2\">")), "switching to the compared build drops the comparison");
+    let down = page(&app, &format!("/r/{token}/party?build=b2&vs=b3")).await.2;
+    assert!(down.contains("Keeps the starting list&#39;s card; Bracket 3 · Upgraded swaps it for Swords to Plowshares.") && down.contains("Swords to Plowshares: One-mana exile.") && down.contains("Swap together with the land change."), "{down}");
+    assert!(down.contains(&format!("href=\"/r/{token}/party?build=b3\">")), "no build is compared with itself");
+    for bad in ["vs=b3", "vs=b9"] {
+        assert_eq!(page(&app, &format!("/r/{token}/party?build=b3&{bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
+    }
+    crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
+    assert_eq!(page(&app, &format!("/r/{token}/nope")).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, &format!("/r/{token}/party?build=b9")).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, &format!("/r/{token}/party/b9-names.txt")).await.0, StatusCode::NOT_FOUND);
+    assert!(!page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
+
+    // Public: listed on the profile. Refreshing the note keeps its sharing and link.
+    send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "public"}))).await;
+    assert!(page(&app, "/u/saget").await.2.contains(&format!("/r/{token}")));
+    let mut changed = note();
+    changed["title"] = json!("Upgrades, revised");
+    crate::deck_research::save(&pool, &bryan, &changed).await.unwrap();
+    let (_, bundle) = send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await;
+    assert_eq!((bundle["visibility"].as_str(), bundle["share_token"].as_str()), (Some("public"), Some(token.as_str())));
+    assert!(page(&app, &format!("/r/{token}")).await.2.contains("Upgrades, revised"));
+
+    // A new link ends the old one; private ends both; a disabled account shares nothing.
+    let (_, reset) = send(&app, Method::POST, "/api/research/upgrades/share-link", Some(&bt), None).await;
+    let fresh_token = reset["share_token"].as_str().unwrap().to_string();
+    assert_ne!(fresh_token, token);
+    assert_eq!(page(&app, &format!("/r/{token}")).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, &format!("/r/{fresh_token}")).await.0, StatusCode::OK);
+    sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    assert_eq!(page(&app, &format!("/r/{fresh_token}")).await.0, StatusCode::NOT_FOUND);
+    sqlx::query("UPDATE users SET disabled_at = NULL WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "private"}))).await;
+    let (status, _, body) = page(&app, &format!("/r/{fresh_token}")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!body.contains("Precon upgrade notes"));
+    assert!(!page(&app, "/u/saget").await.2.contains("/r/"));
+}
+
+#[test]
+fn the_public_view_of_a_note_is_an_allow_list() {
+    let view = crate::deck_research::public_view(&note());
+    let text = view.to_string();
+    for hidden in ["scenarios", "acquisition", "ownership", "installed_state", "method", "Hidden Hobby Shop", "Secret"] {
+        assert!(!text.contains(hidden), "{hidden}");
+    }
+    assert_eq!(view["decks"][0]["builds"][0]["swaps"][0]["why"], "One-mana exile.");
+    assert_eq!(view["decks"][0]["pilot"], "Play a party member every turn.");
+}
+
+#[tokio::test]
+async fn a_shared_note_can_be_copied_without_its_private_parts() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, ft) = user(&pool, "friend@example.com").await;
+    crate::deck_research::save(&pool, &bryan, &note()).await.unwrap();
+    let copy = |t: &str| json!({"token": t});
+    // Private: nothing to copy, the same as no note at all.
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy("0123456789abcdef01234567"))).await.0, StatusCode::NOT_FOUND);
+    let (_, shared) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "link"}))).await;
+    let token = shared["share_token"].as_str().unwrap().to_string();
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", None, Some(copy(&token))).await.0, StatusCode::UNAUTHORIZED);
+
+    let (s, copied) = send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token))).await;
+    assert_eq!(s, StatusCode::OK, "{copied}");
+    assert_eq!(copied["id"], "upgrades");
+    let (_, mine) = send(&app, Method::GET, "/api/research/upgrades", Some(&ft), None).await;
+    let doc = &mine["document"];
+    assert_eq!(doc["copied_from"]["link"], format!("/r/{token}"));
+    assert_eq!(doc["decks"][0]["builds"][0]["swaps"][0]["card_in"], "Swords to Plowshares");
+    assert!(doc.get("method").is_none() && doc.get("scenarios").is_none(), "{doc}");
+    assert!(doc["decks"][0].get("ownership").is_none() && doc["decks"][0]["builds"][0].get("acquisition").is_none());
+    assert!(mine["reviews"].as_array().is_none_or(Vec::is_empty), "the sharer's answers stay theirs");
+    // A copy never replaces a note already there, the sharer's own included.
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token))).await.1["id"], "upgrades-copy");
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token))).await.1["id"], "upgrades-copy-2");
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&bt), Some(copy(&token))).await.1["id"], "upgrades-copy");
+    let (_, own) = send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await;
+    assert!(own["document"].get("method").is_some(), "the original is untouched");
+    // The insert decides: a note that appeared since the ids were read is refused, not replaced.
+    let mut late = note();
+    late["title"] = json!("Replaced?");
+    assert!(crate::deck_research::save_new(&pool, &bryan, &late, None).await.unwrap().is_none());
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await.1["document"]["title"], "Precon upgrade notes");
+    // Copies at the same moment each get their own note.
+    let (a, b) = tokio::join!(
+        send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token))),
+        send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(copy(&token)))
+    );
+    assert_eq!((a.0, b.0), (StatusCode::OK, StatusCode::OK), "{} {}", a.1, b.1);
+    assert_ne!(a.1["id"], b.1["id"]);
+    // One Save-a-copy action retried (a lost answer, a reload) gets the copy it already made.
+    let once = json!({"token": token, "op": "op-123"});
+    let first = send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(once.clone())).await.1;
+    let again = send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(once)).await.1;
+    assert_eq!((first["id"].clone(), again["changed"].clone()), (again["id"].clone(), json!(false)), "{first} {again}");
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(json!({"token": token, "op": "bad op!"}))).await.0, StatusCode::BAD_REQUEST);
+    // Its pages offer the copy.
+    let link = format!("href=\"/decks/research?copy={token}\"");
+    assert!(page(&app, &format!("/r/{token}")).await.2.contains(&link));
+    assert!(page(&app, &format!("/r/{token}/party")).await.2.contains(&link));
+}
+
+#[tokio::test]
+async fn shared_notes_price_the_cards_to_get() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    card(&pool, "o-stp", "Swords to Plowshares", "Instant", "p-stp", "sta", "10").await;
+    card(&pool, "o-signet", "Arcane Signet", "Artifact", "p-signet", "cmm", "20").await;
+    sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES ('p-stp', '2026-10-30', 4.25), ('p-signet', '2026-10-30', 0.5)").execute(&pool).await.unwrap();
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"] = json!([
+        {"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile."},
+        {"id": "signet", "card_in": "Arcane Signet", "card_out": "Plains", "why": "Ramp."},
+        {"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains", "why": "Unknown to Yama."}
+    ]);
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+    let (_, shared) = send(&app, Method::PUT, "/api/research/upgrades/sharing", Some(&bt), Some(json!({"visibility": "link"}))).await;
+    let token = shared["share_token"].as_str().unwrap().to_string();
+
+    // A deck page: each added card, how to get it and what it comes to.
+    let deck = page(&app, &format!("/r/{token}/party")).await.2;
+    for shown in [
+        "3 cards to add to the starting list",
+        "1 to buy locally: about $0.50",
+        "1 to print: about $0.30",
+        "Worth $4.75",
+        "About $0.80 to get",
+        "as of 30 Oct 2026",
+        "1 card without a market price in Yama is out of the money totals.",
+        "<td>Buy locally</td><td class=\"num\">$0.50</td>",
+        "<td>Print</td><td class=\"num\">$4.25</td><td class=\"num\">$0.30</td>",
+        "<td>No price</td>",
+    ] {
+        assert!(deck.contains(shown), "{shown}");
+    }
+    // The note page: per deck, overall, and every card with the decks it goes in.
+    let (status, _, body) = page(&app, &format!("/r/{token}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("3 cards to add across 1 deck<") && body.contains("About $0.80 to get") && body.contains("<td class=\"dim\">Party Time</td>"), "{body}");
+    assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
+    // One build across the decks; one no deck has is not found.
+    let (status, _, b3) = page(&app, &format!("/r/{token}?build=b3")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(b3.contains("About $0.80 to get"));
+    assert_eq!(page(&app, &format!("/r/{token}?build=b9")).await.0, StatusCode::NOT_FOUND);
+    // Nothing priced: worth and cost are unknown, never $0.
+    doc["decks"][0]["builds"][0]["swaps"] = json!([{"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains"}]);
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+    let unpriced = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(unpriced.contains("Worth unknown") && unpriced.contains("Cost unknown") && !unpriced.contains("Worth $0.00"), "{unpriced}");
+}

@@ -11,7 +11,7 @@ import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
-import { useMe } from "../auth";
+import { useMe, usePower } from "../auth";
 import type { OnlineGame, SeatInfo, ServerMessage } from "./types";
 import "./play.css";
 
@@ -56,6 +56,7 @@ function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } 
 }
 
 export function PlayHome() {
+  const power = usePower();
   const games = useQuery({ queryKey: ["play"], queryFn: () => api<OnlineGame[]>("/api/play"), refetchInterval: 5000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
@@ -74,7 +75,7 @@ export function PlayHome() {
         {status.data?.enabled && <NewGame decks={decks.data ?? []} />}
         <div className="ph-side">
           {status.data?.enabled && <JoinGame decks={decks.data ?? []} />}
-          {status.data?.enabled && (
+          {status.data?.enabled && power && (
             <section className="ph-watch" aria-labelledby="ph-watch-h">
               <h2 id="ph-watch-h">Watch AIs play</h2>
               <p className="dim">Watch your decks or precons play at your pace.</p>

@@ -35,6 +35,8 @@ const CURRENT = "yama.table.current";
 const OUTBOX = "yama.table.outbox";
 /** Finished games the server refused (not a network problem). Kept so nothing is lost. */
 const REJECTED = "yama.table.rejected";
+/** Games to delete from Yama: discarded or deleted here, waiting for a connection. */
+const DELETES = "yama.table.deletes";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -51,6 +53,20 @@ function read<T>(key: string, fallback: T): T {
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
 let outbox: LocalGame[] = read<LocalGame[]>(OUTBOX, []);
 let rejected: { game: LocalGame; error: string }[] = read(REJECTED, []);
+/** Each delete remembers whose it is: it's only sent while that account is signed in here. */
+type QueuedDelete = { id: string; owner: string | null };
+let deletes: QueuedDelete[] = read<(QueuedDelete | string)[]>(DELETES, []).map((d) => (typeof d === "string" ? { id: d, owner: null } : d));
+
+/** The account signed in on this device, as auth.tsx remembers it (the plan outbox does the same). */
+function signedInUser(): string | null {
+  try {
+    return (JSON.parse(localStorage.getItem("yama.me") ?? "null") as { id?: string } | null)?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+const mine = (d: QueuedDelete) => d.owner === null || d.owner === signedInUser();
+let pendingIds: string[] = [];
 let derived: TableState | null = current ? replay(current.setup, current.log) : null;
 let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | null } = {
   syncing: false,
@@ -62,6 +78,7 @@ function emit() {
   localStorage.setItem(CURRENT, JSON.stringify(current));
   localStorage.setItem(OUTBOX, JSON.stringify(outbox));
   localStorage.setItem(REJECTED, JSON.stringify(rejected));
+  localStorage.setItem(DELETES, JSON.stringify(deletes));
   for (const l of listeners) l();
 }
 
@@ -88,6 +105,59 @@ export function useOutbox() {
 
 export function useRejected() {
   return useSyncExternalStore(subscribe, () => rejected);
+}
+
+/** Games deleted on this device that Yama hasn't removed yet (offline): lists leave them out. */
+export function usePendingDeletes() {
+  return useSyncExternalStore(subscribe, () => {
+    const ids = deletes.filter(mine).map((d) => d.id);
+    // The same array while nothing changed, so React doesn't re-render forever.
+    if (ids.length !== pendingIds.length || ids.some((id, i) => id !== pendingIds[i])) pendingIds = ids;
+    return pendingIds;
+  });
+}
+
+/**
+ * Delete a table game this account recorded: every copy on this device now, and Yama's once the
+ * server answers (queued while offline). Resolves true once Yama has removed it.
+ */
+export async function deleteGame(gameId: string): Promise<boolean> {
+  if (current?.setup.id === gameId) {
+    forgetPrompts(gameId);
+    current = null;
+    derived = null;
+  }
+  outbox = outbox.filter((g) => g.setup.id !== gameId);
+  rejected = rejected.filter((r) => r.game.setup.id !== gameId);
+  if (!deletes.some((d) => d.id === gameId)) deletes = [...deletes, { id: gameId, owner: signedInUser() }];
+  emit();
+  await settle();
+  return !deletes.some((d) => d.id === gameId);
+}
+
+/** Sync, then once more if a run that was already going missed something queued since. */
+async function settle() {
+  await sync();
+  if (deletes.some(mine) || current || outbox.length) await sync();
+}
+
+async function pushDeletes() {
+  // Another account's deletes wait until it signs in here again.
+  for (const { id } of deletes.filter(mine)) {
+    try {
+      await api(`/api/games/${id}`, { method: "DELETE" });
+    } catch (e) {
+      // Not found: the server never had it (or it's gone already), which is what we wanted.
+      if (!(e instanceof ApiError && e.status === 404) && !isPermanent(e)) throw e;
+    }
+    deletes = deletes.filter((d) => d.id !== id);
+    emit();
+  }
+}
+
+/** Yama says the game was deleted on purpose (410). */
+function isGone(e: unknown) {
+  return e instanceof ApiError && e.status === 410;
 }
 
 /** A 4xx other than auth or rate limits: retrying the same upload won't help. */
@@ -146,16 +216,44 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back.
   outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
+  forgetPrompts(current.setup.id);
   setCurrent(null);
   void sync();
 }
 
+/**
+ * Carry on, on this device, with a game this account started elsewhere (the phone died, or the
+ * laptop takes over). Everything the server has is history: it can't be undone from here.
+ */
+export function resumeGame(setup: TableSetup, log: LoggedEvent[]) {
+  const through = log[log.length - 1]?.seq ?? 0;
+  setCurrent({ setup, log, redo: [], syncedThrough: through, frozenThrough: through });
+  posted.add(setup.id);
+  void sync();
+}
+
+/** The table's "not out" answers for a game that's over (TablePlay's useLethalPrompt). */
+function forgetPrompts(gameId: string) {
+  localStorage.removeItem(`yama.table.dismissed.${gameId}`);
+}
+
+/** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
-  setCurrent(null);
+  if (current) void deleteGame(current.setup.id);
+}
+
+/** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */
+export function deckLabel(p: { deckLabel?: string; commanderName?: string; partnerName?: string }): string | null {
+  if (p.partnerName && p.commanderName && (!p.deckLabel || p.deckLabel === p.commanderName)) return `${p.commanderName} and ${p.partnerName}`;
+  return p.deckLabel ?? p.commanderName ?? null;
 }
 
 async function pushGame(g: LocalGame): Promise<number> {
   const s = g.setup;
+  // A seat that changed commanders or players mid-game uploads the one it has now.
+  const now = new Map(replay(s, g.log).players.map((p) => [p.seat, p]));
+  const upTo = g.frozenThrough ?? Infinity;
+  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
   await api("/api/games", {
     method: "POST",
     json: {
@@ -164,20 +262,24 @@ async function pushGame(g: LocalGame): Promise<number> {
       format: s.format,
       starting_life: s.startingLife,
       started_at: s.startedAt,
-      seats: s.players.map((p) => ({
-        seat: p.seat,
-        member_id: p.memberId ?? null,
-        user_id: p.userId ?? null,
-        guest_name: p.memberId || p.userId ? null : p.name,
-        deck_version_id: p.deckVersionId ?? null,
-        deck_label: p.deckLabel ?? null,
-        commander_name: p.commanderName ?? null,
-      })),
+      seats: s.players.map((p) => {
+        const c = now.get(p.seat) ?? p;
+        return {
+          seat: p.seat,
+          member_id: c.memberId ?? null,
+          user_id: c.userId ?? null,
+          guest_name: c.memberId || c.userId ? null : c.name,
+          deck_version_id: c.deckVersionId ?? null,
+          deck_label: deckLabel(c),
+          commander_name: now.get(p.seat)?.commanderName ?? null,
+        };
+      }),
+      // The events ride along, so a seat's new player arrives with the "player" event that
+      // explains it (Yama refuses different players without one).
+      events: toServerEvents(fresh),
     },
   });
-  const upTo = g.frozenThrough ?? Infinity;
-  const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
-  if (fresh.length) await api(`/api/games/${s.id}/events`, { method: "POST", json: toServerEvents(fresh) });
+  posted.add(s.id);
   // Built from the log alone, so a retry sends exactly the same finish.
   const finish = toServerFinish(s, g.log);
   if (finish) await api(`/api/games/${s.id}/finish`, { method: "POST", json: finish });
@@ -185,6 +287,12 @@ async function pushGame(g: LocalGame): Promise<number> {
 }
 
 let inflight: Promise<void> | null = null;
+
+/** Games this device has seen the server accept (the shared-table relay needs the game there first). */
+const posted = new Set<string>();
+export function isPosted(gameId: string): boolean {
+  return posted.has(gameId);
+}
 
 export function sync(): Promise<void> {
   // An admin viewing as someone sends nothing: games recorded on this device wait until the view
@@ -202,19 +310,32 @@ export function sync(): Promise<void> {
           await pushGame(g);
         } catch (e) {
           if (!isPermanent(e)) throw e;
-          // Set it aside so the games behind it still upload.
-          rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
+          // Set it aside so the games behind it still upload; one deleted meanwhile, or deleted
+          // on another device (410), is simply gone.
+          if (!deletes.some((d) => d.id === g.setup.id) && !isGone(e)) rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
         }
-        outbox = outbox.slice(1);
+        // By identity: a delete while this one uploaded may have changed the list.
+        outbox = outbox.filter((o) => o !== g);
         emit();
       }
+      await pushDeletes();
       if (current) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
         const through = current.log[current.log.length - 1]?.seq ?? 0;
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
         emit();
         const snapshot = current;
-        await pushGame(snapshot);
+        try {
+          await pushGame(snapshot);
+        } catch (e) {
+          if (!isGone(e)) throw e;
+          // Whoever recorded it deleted it on another device: it goes from this one too.
+          if (current?.setup.id === snapshot.setup.id) {
+            forgetPrompts(snapshot.setup.id);
+            current = null;
+            derived = null;
+          }
+        }
         // Only advance if the game is still the same one (it may have been finished meanwhile).
         if (current && current.setup.id === snapshot.setup.id) {
           current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };
@@ -233,8 +354,11 @@ export function sync(): Promise<void> {
 
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => void sync());
+  // A game or finished games left on this device from before (a reload, a phone that was off)
+  // go up straight away, so sharing and other devices can find them.
+  if (current || outbox.length || deletes.some(mine)) queueMicrotask(() => void sync());
   setInterval(() => {
-    if (navigator.onLine && (current || outbox.length)) void sync();
+    if (navigator.onLine && (current || outbox.length || deletes.some(mine))) void sync();
   }, 20_000);
 }
 

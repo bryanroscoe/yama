@@ -627,7 +627,10 @@ async fn deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<String> {
 // ── precon ──────────────────────────────────────────────────────────────────
 
 async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
-    let d = crate::lab::precon_detail(pool, id).await?;
+    // One read of the shared evidence serves both the precon and rating v2.
+    let now = chrono::Utc::now();
+    let evidence = crate::precon_evidence::load(pool, now).await?;
+    let d = crate::lab::precon_detail_with(pool, id, &evidence).await?;
     let v = serde_json::to_value(&d).map_err(anyhow::Error::from)?;
     let p = &v["precon"];
     let commanders: Vec<String> = serde_json::from_value(p["commanders"].clone()).unwrap_or_default();
@@ -645,6 +648,27 @@ async fn precon(pool: &SqlitePool, id: &str) -> AppResult<String> {
     }
     if let Some(pg) = p.get("playgroup").filter(|x| !x.is_null()) {
         let _ = writeln!(out, "Real games (playgroup.gg): {pg}");
+    }
+    if let Some(ev) = &d.precon.evidence {
+        out.push_str(&evidence_text(ev));
+    }
+    let v2 = crate::precon_evidence::rating_v2_with(pool, now, evidence).await?;
+    if let Some(e) = v2.precons.iter().find(|e| e.precon == id) {
+        let _ = writeln!(
+            out,
+            "Rating v2 (experimental, {}): about {:.1}% expected wins in 4-player pods (90% interval {:.1} to {:.1}), rank {} of {} (range {} to {}), {:.0}% of its weight from real games. The simulation {} beside real games in the time-split test. {}",
+            v2.method,
+            e.rate,
+            e.lo,
+            e.hi,
+            e.rank,
+            v2.ranked,
+            e.rank_lo,
+            e.rank_hi,
+            e.real_share * 100.0,
+            if v2.gate_passed { "earned a place" } else { "did not earn a place, so it only ranks precons without real games" },
+            v2.note
+        );
     }
     if let Some(r) = p.get("rating").filter(|x| !x.is_null()) {
         let run = &v["run"];
@@ -821,7 +845,8 @@ fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::
     if let Some(v) = &sm.versus {
         let _ = writeln!(out, "{} scored games of {} players{}.", v.games, v.pod, if v.pending > 0 { format!(", {} still to play", v.pending) } else { String::new() });
         for en in &v.entrants {
-            let _ = writeln!(out, "- {}, went first in {}", list(&en.label, &ListStats { games: en.games, wins: en.wins, win_rate: en.win_rate, wilson: en.wilson, avg_place: en.avg_place, ..Default::default() }), en.first);
+            let strength = en.strength.map(|f| format!(", fitted strength {:.2} (90% interval {:.2} to {:.2}; 1 = the field's geometric mean)", f.strength, f.lo, f.hi)).unwrap_or_default();
+            let _ = writeln!(out, "- {}, went first in {}{strength}", list(&en.label, &ListStats { games: en.games, wins: en.wins, win_rate: en.win_rate, wilson: en.wilson, avg_place: en.avg_place, ..Default::default() }), en.first);
         }
         for m in &v.meetings {
             let (x, y) = (&v.entrants[m.a].label, &v.entrants[m.b].label);
@@ -907,4 +932,55 @@ fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::
 fn cap(s: &str) -> String {
     let mut c = s.chars();
     c.next().map_or(String::new(), |f| f.to_uppercase().collect::<String>() + c.as_str())
+}
+
+/// A precon's dataset-derived real-game history, in words a model reads (crate::precon_evidence).
+fn evidence_text(ev: &crate::precon_evidence::PreconEvidence) -> String {
+    let mut out = String::new();
+    for r in ev.real.iter().chain(ev.also.iter()) {
+        let datasets: Vec<String> = r.source.datasets.iter().map(|d| format!("{} revision {}", d.id, d.revision)).collect();
+        let _ = write!(
+            out,
+            "Real-game history from {} ({}; licence {}; datasets {}): all-time {:.2}% wins over {} games as of {}.",
+            r.source.name,
+            r.source.attribution,
+            r.source.license,
+            datasets.join(", "),
+            r.latest.rate,
+            r.latest.games,
+            r.latest.as_of.date_naive(),
+        );
+        if let Some(recent) = &r.history.recent {
+            let _ = write!(
+                out,
+                " Recent, from games played {} to {}: about {:.1}% over {} new games ({}-day recency half-life).",
+                recent.from.date_naive(),
+                recent.to.date_naive(),
+                recent.rate,
+                recent.games,
+                recent.half_life_days,
+            );
+        }
+        if let Some(t) = r.history.trend_points_per_30_days {
+            let _ = write!(out, " Trend: {t:+.1} points per 30 days.");
+        }
+        let _ = writeln!(out, " {} {}", r.method, r.history.notes.join("; "));
+    }
+    if let Some(c) = &ev.commander {
+        let _ = writeln!(
+            out,
+            "Commander figure from {} ({}; licence {}; datasets {}; {} days to {}): {} won {:.2}% of {} games. {}",
+            c.source.name,
+            c.source.attribution,
+            c.source.license,
+            c.source.datasets.iter().map(|d| format!("{} revision {}", d.id, d.revision)).collect::<Vec<_>>().join(", "),
+            c.window_days,
+            c.as_of.date_naive(),
+            c.name,
+            c.rate,
+            c.games,
+            c.note
+        );
+    }
+    out
 }

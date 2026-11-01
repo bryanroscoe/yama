@@ -3,6 +3,8 @@
   python3 forge-worker/test_worker.py
 """
 import json
+import os
+import re
 import sys
 import tempfile
 import threading
@@ -17,6 +19,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import forge_runner as F  # noqa: E402
 import worker as W  # noqa: E402
+import forge_serve as S  # noqa: E402
 
 # Deck files go to a scratch folder, never next to a checkout.
 _SCRATCH = tempfile.TemporaryDirectory()
@@ -144,6 +147,178 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call("POST", "/check", {"names": "Forest"})[0], 400)
         self.assertEqual(self.call("POST", "/play", {"key": "k"})[0], 400)
         self.assertEqual(self.call("POST", "/nowhere", {})[0], 404)
+
+
+FAKE_SERVE = r'''
+import os, sys, time
+if os.path.exists(os.environ.get("FAKE_FAIL_START", "/nonexistent")):
+    os.remove(os.environ["FAKE_FAIL_START"]); sys.stderr.write("Error: Could not find or load main class\n"); sys.exit(1)
+print("Forge prints its card loading here", flush=True)
+print("ready", flush=True)
+for line in sys.stdin:
+    j = line.rstrip("\n").split("\t")
+    game, out, decks = j[0], j[3], j[6:]
+    if game == "crash":
+        sys.stderr.write("java.lang.OutOfMemoryError: Java heap space\n"); sys.stderr.flush(); sys.exit(3)
+    if game == "hang":
+        time.sleep(60)
+    if game == "liar":
+        print("done\tsomething-else\tok\t1", flush=True); continue
+    if game == "setup":
+        open(out, "w").write("Simulation mode\n")
+        open(out + ".err", "w").write("java.lang.IllegalStateException: no deck\n")
+        print(f"done\t{game}\terror\t1", flush=True); continue
+    names = [f"Ai({i + 1})-{d.split('/')[-1][:-4]}" for i, d in enumerate(decks)]
+    log = ["Simulation mode", f"Turn: Turn 1 ({names[0]})"]
+    log += [f"Game Outcome: {names[0]} has won because all opponents have lost"]
+    log += [f"Game Outcome: {n} has lost because life total reached 0" for n in names[1:]]
+    log += ["", f"Game Result: Game 1 ended in 1234 ms. {names[0]} has won!"]
+    open(out, "w").write("\n".join(log) + "\n")
+    open(out + ".err", "w").write("")
+    print("a Forge thread printing between games", flush=True)
+    print(f"done\t{game}\t{'timeout' if game == 'capped' else 'ok'}\t100", flush=True)
+'''
+
+
+class ServeTests(unittest.TestCase):
+    """Long-lived JVMs (forge_serve), with a fake `java` that speaks yama-serve.jar's protocol."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = Path(self.tmp.name)
+        (t / "forge/res/cardsfolder").mkdir(parents=True)
+        (t / "forge/yama-serve.jar").write_bytes(b"")
+        java = t / "java"
+        java.write_text(f"#!{sys.executable}\n" + FAKE_SERVE)
+        java.chmod(0o755)
+        self.forge = SimpleNamespace(engine="forge 9.9", card_data="forge res 9.9", version="9.9", dir=t / "forge",
+                                     res=t / "forge/res", jar=t / "forge/forge.jar", java=str(java))
+        self.fail_start = t / "fail-start"
+        os.environ["FAKE_FAIL_START"] = str(self.fail_start)
+        self.w = W.Worker(self.forge, NAMES, slots=1)
+
+    def tearDown(self):
+        jvm = self.w.jvms.get()
+        jvm.stop()
+        self.tmp.cleanup()
+
+    def game(self, name):
+        return self.w.play({"key": name + str(time.monotonic()), "spec": spec(name), "decks": [deck("base", GOOD), deck("o1", GOOD)]})
+
+    def jvm(self):
+        jvm = self.w.jvms.get()
+        self.w.jvms.put(jvm)
+        return jvm
+
+    def test_games_reuse_one_jvm_and_are_read_like_forge_sim_output(self):
+        self.assertIsNotNone(self.w.jvms)
+        rotation, _ = F.seat_rotation(W.forge_seed(7), [99, 99])
+        for g in ("g1", "g2", "g3"):
+            r = self.game(g)
+            self.assertEqual((r["end"], r["winner"], r["ms"], r["error"]), ("win", (0 - rotation) % 2, 1234, None))
+        self.assertEqual(self.jvm().started, 1)
+
+    def test_a_jvm_is_replaced_after_a_game_at_forges_time_limit(self):
+        r = self.game("capped")  # the fake prints a win: the JVM's "timeout" decides
+        self.assertEqual((r["end"], r["winner"]), ("time_cap", None))
+        self.assertFalse(self.jvm().alive)
+        self.assertEqual(self.game("g1")["end"], "win")
+        self.assertEqual(self.jvm().started, 2)
+
+    def test_a_jvm_that_dies_fails_only_its_game(self):
+        r = self.game("crash")
+        self.assertEqual(r["end"], "error")
+        self.assertIn("Forge exited (exit 3)", r["error"])
+        self.assertIn("OutOfMemoryError", r["error"])
+        self.assertEqual(self.game("g1")["end"], "win")
+
+    def test_a_jvm_that_doesnt_answer_is_killed(self):
+        jvm = self.jvm()
+        with self.assertRaises(S.JvmFailed):
+            jvm.run("hang", 1, 900, "Default", ["a.dck", "b.dck"], timeout=1)
+        self.assertFalse(jvm.alive)
+
+    def test_a_hung_game_is_an_error_result_and_the_next_game_gets_a_new_jvm(self):
+        jvm = self.jvm()
+        grace = F.KILL_GRACE
+        F.KILL_GRACE = 1
+        try:
+            decks = {d: F.Deck(d, [(1, "Ghave, Guru of Spores")], [(99, "Forest")], f"{d}.dck") for d in ("base", "o1")}
+            job = {"game": "hang", "seed": 7, "decks": ["base", "o1"], "max_turns": 120, "max_seconds": 1}
+            r = S.play(jvm, job, self.forge, decks, "label", "Default")
+        finally:
+            F.KILL_GRACE = grace
+        self.assertEqual(r["end"], "error")
+        self.assertIn("killed: Forge still running 2s after the game was sent", r["error"])
+        self.assertEqual(self.game("g1")["end"], "win")
+        self.assertEqual(jvm.started, 2)
+
+    def test_a_reply_for_another_game_fails_that_game(self):
+        r = self.game("liar")
+        self.assertIn("Forge answered for another game", r["error"])
+        self.assertEqual(self.game("g1")["end"], "win")
+
+    def test_a_game_whose_setup_threw_reports_the_exception_and_replaces_the_jvm(self):
+        r = self.game("setup")
+        self.assertEqual(r["end"], "error")
+        self.assertIn("IllegalStateException: no deck", r["error"])
+        self.assertFalse(self.jvm().alive)
+
+    def test_warm_starts_the_jvms_and_a_failed_start_is_retried_by_the_first_game(self):
+        self.fail_start.write_text("")
+        self.w.warm()
+        jvm = self.w.jvms.get()  # back in the queue once its start finished (failed)
+        self.w.jvms.put(jvm)
+        self.assertFalse(jvm.alive)
+        self.assertFalse(self.fail_start.exists())
+        self.assertEqual(self.game("g1")["end"], "win")
+        self.w.warm()  # a running JVM isn't started twice
+        jvm = self.w.jvms.get()
+        self.w.jvms.put(jvm)
+        self.assertEqual((jvm.alive, jvm.started), (True, 2))
+
+    def test_without_yama_serve_jar_or_with_serve_off_every_game_gets_its_own_jvm(self):
+        self.assertIsNone(W.Worker(FORGE, NAMES).jvms)
+        off = W.Worker(self.forge, NAMES, serve=False)
+        self.assertIsNone(off.jvms)
+        self.assertTrue(off.label.endswith(" one-jvm-per-game"))
+        self.assertFalse(self.w.label.endswith(" one-jvm-per-game"))
+
+    def test_xmx_sizes(self):
+        self.assertEqual([S.xmx_mb(x) for x in ("1536m", "2g", "2048k", str(2**30))], [1536, 2048, 2, 1024])
+
+
+class ForgeDistTests(unittest.TestCase):
+    """The worker image's Forge: Yama's own build, pinned in deploy/Dockerfile.forge-worker."""
+
+    def test_the_runner_reads_a_dist_folder_and_its_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "forge-2.0.16-745401a4+yama2"
+            (d / "res/cardsfolder").mkdir(parents=True)
+            (d / "res/cardsfolder/cardsfolder.zip").write_bytes(b"")
+            (d / "forge-gui-desktop-2.0.16-745401a4+yama2.5aca6b2e-jar-with-dependencies.jar").write_bytes(b"")
+            current = Path(tmp) / "current"
+            current.symlink_to(d)  # the image's FORGE_DIR is /opt/forge/current
+            forge = F.Forge(current, "java")
+            self.assertEqual((forge.engine, forge.card_data),
+                             ("forge 2.0.16-745401a4+yama2.5aca6b2e", "forge res 2.0.16-745401a4+yama2.5aca6b2e"))
+
+    def test_the_dockerfile_pins_one_dist_by_sha256(self):
+        text = (Path(__file__).resolve().parent.parent / "deploy/Dockerfile.forge-worker").read_text()
+        name = re.findall(r"^ARG FORGE_DIST=([a-z0-9]+)$", text, re.M)
+        sha = re.findall(r"^ARG FORGE_DIST_SHA256=([0-9a-f]{64})$", text, re.M)
+        self.assertEqual((len(name), len(sha)), (1, 1))
+        self.assertIn("ENV FORGE_DIR=/opt/forge/current", text)
+        self.assertIn('cut -c1-8)-jar-with-dependencies.jar"', text)  # the tarball's hash is in the label
+        self.assertNotIn("releases/download", text)  # no unpinned Forge download
+
+    def test_the_image_has_every_file_the_worker_runs(self):
+        here = Path(__file__).resolve().parent
+        text = (here.parent / "deploy/Dockerfile.forge-worker").read_text()
+        copied = set(re.search(r"^COPY (.+) /opt/forge-worker/$", text, re.M).group(1).split())
+        self.assertEqual(copied, {p.name for p in here.glob("*.py")} - {"test_worker.py"})
+        hashed = re.search(r'for name in \((.+?)\):', (here / "worker.py").read_text()).group(1)
+        self.assertEqual(set(re.findall(r'"([\w.]+)"', hashed)), copied)  # a change to any of them is a new runner label
 
 
 if __name__ == "__main__":

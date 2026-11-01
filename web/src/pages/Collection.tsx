@@ -1,4 +1,5 @@
-import { CardHover, CardRef } from "../components/CardRef";
+import { CardHover } from "../components/CardRef";
+import { CollectionItemSheet } from "./CollectionItemSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useRef, useState } from "react";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
@@ -26,6 +27,8 @@ const AddedList = lazy(() => scanner().then((m) => ({ default: m.AddedList })));
 
 /** Keep adding is remembered on this device. */
 const KEEP_ADDING = "yama.scan.keepAdding";
+/** The close-up step, on unless turned off on this device (a fixed camera). Shared with the deck scan. */
+const CLOSEUPS = "yama.scan.closeups";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
@@ -41,11 +44,12 @@ function byValue(a: Item, b: Item): number {
 }
 
 export function CollectionPage() {
-  const qc = useQueryClient();
   const [container, setContainer] = useState("");
   const [filter, setFilter] = useState("");
   const [importing, setImporting] = useState(false);
   const [open, setOpen] = useState<Item | null>(null);
+  /** What the last change in a card's sheet did ("Mount Doom is now …"). */
+  const [done, setDone] = useState<string | null>(null);
   const [sort, setSort] = useState<"value" | "name">("value");
   const [all, setAll] = useState(false);
   const [kind, setKind] = useState<"all" | "real" | "proxy">("all");
@@ -65,20 +69,8 @@ export function CollectionPage() {
     placeholderData: (prev) => prev,
   });
 
-  const op = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api("/api/collection/ops", { method: "POST", json: [{ op_id: crypto.randomUUID(), ...body }] }),
-    onSuccess: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
-  });
   const [newContainer, setNewContainer] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const adjust = useMutation({
-    mutationFn: (v: { item: Item; delta: number }) =>
-      api("/api/collection/ops", {
-        method: "POST",
-        json: [{ op_id: crypto.randomUUID(), kind: "adjust", item_id: v.item.id, delta: v.delta }],
-      }),
-    onSuccess: () => qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" }),
-  });
 
   const s = summary.data;
   const proxies = s?.proxies ?? 0;
@@ -204,6 +196,11 @@ export function CollectionPage() {
           {tiles.length === 0 && loose === 0 && <button onClick={() => setNewContainer(true)}>New binder, box or deck</button>}
         </div>
 
+        {done && (
+          <p className="coll-done" role="status">
+            {done} <button className="quiet small" onClick={() => setDone(null)}>OK</button>
+          </p>
+        )}
         <ErrorText error={items.error ?? summary.error} />
         {items.data && items.data.length === 0 && !filter && !container && kind === "all" && (
           <div className="empty">
@@ -261,63 +258,14 @@ export function CollectionPage() {
       </section>
 
       {open && (
-        <Sheet label={open.name ?? "Card"} onClose={() => setOpen(null)}>
-          <div className="stack">
-            <div className="sheet-head">
-              <h2>{open.name&&<CardRef name={open.name} oracleId={open.oracle_id} image={open.image_small}/>}</h2>
-              <button className="quiet" onClick={() => setOpen(null)}>Close</button>
-            </div>
-            <div style={{ maxWidth: 260 }}>
-              <CardImage src={open.image_normal} name={open.name ?? ""} />
-            </div>
-            <p className="dim">
-              {open.set_name} #{open.collector_number}, {open.finish}, {open.condition}, {open.lang}
-              {open.purchase_price != null ? `. Paid ${usd(open.purchase_price)}` : ""}
-            </p>
-            <div className="row">
-              <button onClick={() => { adjust.mutate({ item: open, delta: -1 }); setOpen(null); }}>Remove one</button>
-              <button onClick={() => { adjust.mutate({ item: open, delta: 1 }); setOpen(null); }}>Add one more</button>
-            </div>
-            <label>
-              Kept in
-              <select
-                value={open.container_id ?? ""}
-                onChange={(e) => {
-                  op.mutate({ kind: "update", item_id: open.id, container_id: e.target.value || null });
-                  setOpen(null);
-                }}
-              >
-                <option value="">Not filed anywhere</option>
-                {containers.data?.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
-              </select>
-            </label>
-            <label>
-              Condition
-              <select
-                value={open.condition}
-                onChange={(e) => {
-                  op.mutate({ kind: "update", item_id: open.id, condition: e.target.value });
-                  setOpen(null);
-                }}
-              >
-                {["NM", "LP", "MP", "HP", "DMG"].map((c) => <option key={c}>{c}</option>)}
-              </select>
-            </label>
-            <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
-              <input
-                type="checkbox"
-                checked={open.proxy}
-                style={{ width: "auto", minHeight: 0 }}
-                onChange={(e) => {
-                  op.mutate({ kind: "update", item_id: open.id, proxy: e.target.checked });
-                  setOpen(null);
-                }}
-              />
-              This is a proxy
-            </label>
-            <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
-          </div>
-        </Sheet>
+        <CollectionItemSheet
+          item={open}
+          containers={containers.data ?? []}
+          onClose={(done) => {
+            setOpen(null);
+            setDone(done ?? null);
+          }}
+        />
       )}
       {importing && <ImportSheet onClose={() => setImporting(false)} />}
       {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
@@ -469,6 +417,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const [finish, setFinish] = useState<Finish>("nonfoil");
   const [container, setContainer] = useState("");
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
+  const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
   /**
    * What this session added, newest first, so mistakes can be fixed (see scanner/session.ts). The
    * ref is the truth (read right after a write); the state mirrors it for rendering.
@@ -663,6 +612,19 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           <strong>Keep adding.</strong> Add each card as soon as the scanner is sure of its printing, and go on to the next. It still stops to ask when it isn't sure.
         </span>
       </label>
+      <label className="scan-keep">
+        <input
+          type="checkbox"
+          checked={closeups}
+          onChange={(e) => {
+            setCloseups(e.target.checked);
+            localStorage.setItem(CLOSEUPS, e.target.checked ? "1" : "0");
+          }}
+        />
+        <span>
+          <strong>Close-ups.</strong> When several printings share the art, ask to bring the camera close to the set code and number. Turn off for a camera that stays put, such as a stand or card feeder: you tap the printing instead.
+        </span>
+      </label>
       <ErrorText error={error} />
     </div>
   );
@@ -676,6 +638,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           onShowAdded={() => setReviewing(true)}
           unsavedCount={added.filter((a) => a.pending?.error && a.pending.fix === null).length}
           autoAdd={keepAdding}
+          closeups={closeups}
           paused={reviewing}
           recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}

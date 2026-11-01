@@ -107,6 +107,8 @@ pub struct Limits {
     pub search: RateLimiter,
     /// `/api/cards/autocomplete`, per account (it runs while someone types).
     pub autocomplete: RateLimiter,
+    /// Player searches by handle and their public decks (Log a game, New game), per account.
+    pub people: RateLimiter,
     /// The 5 MB offline card bundle, per account.
     pub offline_cards: RateLimiter,
     /// Joining a playgroup or an online game by code, right or wrong, per account: a 6-letter
@@ -114,6 +116,9 @@ pub struct Limits {
     pub join_codes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
+    /// Mythic Tools bridge game previews and imports, per account (bridges/mythic). The page
+    /// previews again on each change, so this allows more than `imports`.
+    pub mythic_bridge: RateLimiter,
     /// New decks (pasted, from a precon or from a plan list), saved versions and list previews,
     /// per account (each save also queues a Commander Spellbook check).
     pub deck_writes: RateLimiter,
@@ -140,9 +145,11 @@ impl Default for Limits {
             sign_in_email: RateLimiter::new("sign-in attempts for this email", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             search: RateLimiter::new("card searches", 120, MINUTE),
             autocomplete: RateLimiter::new("card name lookups", 300, MINUTE),
+            people: RateLimiter::new("player searches", 120, MINUTE),
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
+            mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
             advisor: RateLimiter::new("questions to Claude", 6, MINUTE),
@@ -305,7 +312,7 @@ mod tests {
         // Through the tunnel: the visitor's address.
         assert_eq!(client_address(connector, Some("203.0.113.9"), &tunnel), Some(ip("203.0.113.9")));
         // From the LAN, or any peer outside the list, the header is ignored.
-        assert_eq!(client_address(Some(ip("<saget-lan-address>")), Some("203.0.113.9"), &tunnel), Some(ip("<saget-lan-address>")));
+        assert_eq!(client_address(Some(ip("192.0.2.17")), Some("203.0.113.9"), &tunnel), Some(ip("192.0.2.17")));
         // With no list nothing is trusted, so every tunnel visitor counts as the connector.
         assert_eq!(client_address(connector, Some("203.0.113.9"), &[]), connector);
         // A garbled header from the tunnel falls back to the peer; no header is the peer.

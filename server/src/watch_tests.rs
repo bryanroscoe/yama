@@ -242,7 +242,7 @@ fn nobody_watching_pauses_the_game_then_ends_it() {
 // ── the hub ────────────────────────────────────────────────────────────────
 
 fn user(id: &str, limited: bool, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: true }
 }
 
 fn request() -> CreateRequest {
@@ -377,14 +377,19 @@ fn a_panicking_game_ends_with_a_message() {
 async fn routes_check_seats_decks_and_owners() {
     let st = testutil::state().await;
     let app = crate::routes::app(st.clone());
-    let (ann, ann_token) = testutil::user(&st.pool, "ann@example.com").await;
-    let (_sam, sam_token) = testutil::user(&st.pool, "sam@example.com").await;
+    let (ann, ann_token) = testutil::power_user(&st.pool, "ann@example.com").await;
+    let (_sam, sam_token) = testutil::power_user(&st.pool, "sam@example.com").await;
+    let (_kim, kim_token) = testutil::user(&st.pool, "kim@example.com").await;
     let (deck, _) = testutil::deck(&st.pool, &ann, "Ann's deck").await;
     let seat = |deck: &str| json!({"deck": {"kind": "deck", "id": deck}, "pilot": {"kind": "ai", "difficulty": "Hard"}});
 
     // Not signed in.
     let (code, _) = testutil::send(&app, Method::GET, "/api/watch", None, None).await;
     assert_eq!(code, StatusCode::UNAUTHORIZED);
+    // Watched AI games are for admins and power users only (2026-10-31).
+    let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&kim_token), Some(json!({"seats": [seat(&deck), seat(&deck)]}))).await;
+    assert_eq!(code, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.to_string().contains("power users"), "{body}");
     // Seat counts, levels and LLM seats.
     let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&ann_token), Some(json!({"seats": [seat(&deck)]}))).await;
     assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
@@ -410,7 +415,7 @@ async fn routes_check_seats_decks_and_owners() {
     assert!(body.to_string().contains("online play is off"), "{body}");
 
     // A running game: its owner sees it, nobody else does.
-    let owner = User { id: ann.clone(), email: "ann@example.com".into(), display_name: "ann".into(), is_admin: false, limited: false };
+    let owner = User { id: ann.clone(), email: "ann@example.com".into(), display_name: "ann".into(), is_admin: false, limited: false, power: true };
     let g = park(&st.watch, &owner);
     let (code, body) = testutil::send(&app, Method::GET, &format!("/api/watch/{}", g.id), Some(&ann_token), None).await;
     assert_eq!(code, StatusCode::OK, "{body}");

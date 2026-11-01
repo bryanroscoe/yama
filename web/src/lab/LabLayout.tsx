@@ -1,13 +1,15 @@
 import type { ReactNode } from "react";
 import { Outlet, useLocation } from "react-router";
+import { usePower } from "../auth";
 import { AreaHead, SubNav } from "../components/DeckTabs";
 import "./lab.css";
 
 /** The Lab pages, in order. `also` marks deeper pages that belong to an entry. */
-const LAB_PAGES: { to: string; label: string; end?: boolean; also?: string }[] = [
+/** `power`: starts simulations, so admins and power users only. */
+const LAB_PAGES: { to: string; label: string; end?: boolean; also?: string; power?: boolean }[] = [
   { to: "/lab", label: "Precons", end: true, also: "/lab/p/" },
-  { to: "/lab/try", label: "Try a change" },
-  { to: "/lab/compare", label: "Compare decks" },
+  { to: "/lab/try", label: "Try a change", power: true },
+  { to: "/lab/compare", label: "Compare decks", power: true },
   { to: "/lab/runs", label: "My runs" },
 ];
 
@@ -31,7 +33,9 @@ export function LabHead({
   action?: ReactNode;
 }) {
   const { pathname } = useLocation();
-  return <AreaHead title={title} index={index} slim={slim} back={back} area="Lab" sections={null} action={action ?? (index ? <a className="button" href="/precons">Public precons</a> : undefined)} nav={<SubNav label="Lab pages" pages={LAB_PAGES} also={pathname} />} />;
+  const power = usePower();
+  const pages = LAB_PAGES.filter((p) => power || !p.power);
+  return <AreaHead title={title} index={index} slim={slim} back={back} area="Lab" sections={null} action={action ?? (index ? <a className="button" href="/precons">Public precons</a> : undefined)} nav={<SubNav label="Lab pages" pages={pages} also={pathname} />} />;
 }
 
 /** The Lab tab (`/lab`). Each page draws its own head (LabHead). */

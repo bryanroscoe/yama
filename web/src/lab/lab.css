@@ -58,6 +58,29 @@
 .lab-real h3 {
   margin: 0 0 0.25rem;
 }
+.lab-real + .lab-real {
+  margin-top: 0.75rem;
+}
+.lab-evidence-other {
+  margin-top: 0.75rem;
+}
+.lab-evidence-other h4 {
+  margin: 0 0 0.25rem;
+}
+.lab-evidence {
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+  margin: 0.5rem 0;
+}
+.lab-evidence th,
+.lab-evidence td {
+  padding: 0.25rem 0.75rem 0.25rem 0;
+  text-align: left;
+}
+.lab-evidence .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .lab-note {
   color: var(--dim);
   font-size: var(--t-sm);
@@ -1005,9 +1028,19 @@
   margin: 0;
   font-size: 0.75rem;
 }
+.lab-runcard-leaders {
+  margin: 0;
+  padding-left: 1.4rem;
+  font-size: var(--t-sm);
+}
+.lab-runcard-leaders li span:last-child {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
 .lab-runcard-actions {
   display: flex;
   gap: 8px;
+  margin-top: auto;
 }
 .lab .lab-runcard-actions > :is(a, button) {
   min-height: 44px;
@@ -1568,4 +1601,65 @@ button.conf-mark:focus-visible {
 }
 .lab-more h2 {
   margin-bottom: 4px;
+}
+
+/* "How these ratings work" at the foot of the precon list (Precons.tsx): the method, marks,
+   sources and run facts, under their own headings instead of one folded wall of text. */
+.lab-about {
+  margin: 3rem 0 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 1rem;
+}
+.lab-about h2 {
+  margin: 0 0 0.25rem;
+}
+.lab-about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 2rem;
+  margin-top: 1.5rem;
+  color: var(--dim);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+}
+.lab-about-grid h3 {
+  font-size: var(--t-md);
+  color: var(--text);
+  margin: 0 0 0.6rem;
+}
+.lab-about-grid h4 {
+  font-size: var(--t-sm);
+  color: var(--text);
+  margin: 1rem 0 0.4rem;
+}
+.lab-about-grid p {
+  margin: 0 0 0.75rem;
+  max-width: 62ch;
+}
+.lab-about-grid b {
+  color: var(--text);
+}
+.lab-about-grid ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  max-width: 62ch;
+}
+.lab-about-grid li + li {
+  margin-top: 0.4rem;
+}
+.lab-about-run {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+.lab-about-run dt {
+  color: var(--dim);
+}
+.lab-about-run dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }

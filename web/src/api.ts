@@ -81,6 +81,11 @@ export interface User {
    * Missing from a user cached by an older build, which reads as false.
    */
   limited?: boolean;
+  /**
+   * An admin, or an account an admin made a power user: may start simulations and watched AI
+   * games and use Ask Claude. Missing from a user cached by an older build, which reads as false.
+   */
+  power?: boolean;
   /** Set while an admin views Yama as this person, read only (viewing.ts). */
   viewing?: import("./viewing").Viewing;
 }
@@ -93,6 +98,8 @@ export interface AccountInfo {
   is_admin: boolean;
   limited: boolean;
   invited: boolean;
+  /** Made a power user by an admin (admins are power users without it). */
+  power_user: boolean;
   google: boolean;
   password: boolean;
   disabled_at: string | null;
@@ -439,6 +446,8 @@ export interface DeckVersionRow {
   id: string;
   note: string | null;
   created_at: string;
+  /** Saved for History only (a deck scan not made the deck's list): never the deck's list itself. */
+  history_only?: boolean;
 }
 
 export interface DeckVersion extends DeckVersionRow {
@@ -470,6 +479,24 @@ export interface Member {
   user_id: string | null;
   guest_name: string | null;
   display_name: string;
+  /** Their profile handle, if they picked one: their seat can offer their public decks. */
+  handle: string | null;
+}
+
+/** Someone on Yama found by their profile handle (`/api/people`). */
+export interface FoundPerson {
+  handle: string;
+}
+
+/** A public deck of someone's profile (`/api/people/{handle}/decks`). */
+export interface ProfileDeck {
+  name: string;
+  commanders: string[];
+  color_identity: string;
+  art: string | null;
+  artist: string | null;
+  card_count: number;
+  version_id: string | null;
 }
 
 export interface Playgroup {
@@ -549,6 +576,7 @@ export interface GameSeat {
   guest_name: string | null;
   /** Set for a computer seat in an online game ("phase-ai easy"). */
   ai_kind?: string | null;
+  deck_version_id?: string | null;
   deck_label: string | null;
   commander_name: string | null;
   final_life: number | null;
@@ -562,6 +590,9 @@ export interface GameRow {
   id: string;
   mode: string;
   playgroup_id: string | null;
+  format?: string;
+  starting_life?: number;
+  note?: string | null;
   status: string;
   started_at: string;
   ended_at: string | null;
@@ -570,6 +601,18 @@ export interface GameRow {
   first_seat: number | null;
   win_condition: string | null;
   seats: GameSeat[];
+}
+
+/** GET /api/games/:id: a game, its logged events, and whether this account can carry it on. */
+export interface GameDetail extends GameRow {
+  events: { seq: number; actor_seat: number | null; kind: string; payload: unknown; created_at: string | null }[];
+  can_continue: boolean;
+  /** This account recorded this table game, so it may delete it. Absent from older servers. */
+  can_delete?: boolean;
+  /** Logged after it was played, by this account: Log a game can open it again. */
+  can_edit?: boolean;
+  /** Seat number to deck id, for seats that played one of your own decks. */
+  your_decks?: Record<number, string>;
 }
 
 /** GET /api/decks/:id/results: finished games per deck version, newest version first. */

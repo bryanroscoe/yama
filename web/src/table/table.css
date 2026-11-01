@@ -1166,3 +1166,569 @@
 .panel .panel-inner::before {
   transition: opacity 400ms ease;
 }
+
+/* ── commander damage, dealt from the attacker's panel ──────────────────── */
+
+/* The swords on each panel start it; it sits bottom-left in the panel's own frame, so the art
+   credit moves over to make room. */
+.cmdr-btns {
+  position: absolute;
+  left: 10px;
+  bottom: max(8px, 2cqmin);
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+}
+.attack-btn {
+  width: var(--target);
+  height: var(--target);
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--art-chip);
+  color: var(--on-art);
+}
+.attack-btn:hover {
+  background: rgb(11 12 14 / 0.92);
+}
+.panel-inner:has(> .cmdr-btns) > .panel-credit {
+  left: calc(2 * var(--target) + 28px);
+}
+/* While a commander attacks, every other panel becomes its damage counter: a near-solid layer
+   over the art (an overlay, never a filter), the attacker's art and name, then − amount +. */
+.attack-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px;
+  background: rgb(11 12 14 / 0.88);
+  color: var(--text);
+  text-align: center;
+}
+.attack-layer.is-attacker {
+  background: rgb(11 12 14 / 0.55);
+  gap: 10px;
+}
+.panel.attacker::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 4px var(--bad),
+    inset 0 0 0 6px var(--ground);
+  pointer-events: none;
+}
+.attack-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(1.25rem, 9cqmin, 2rem);
+  line-height: 1.05;
+}
+.attack-hint {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+}
+.attack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.attack-from {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: var(--t-sm);
+  max-width: 100%;
+}
+.attack-from img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.attack-steps {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 5cqmin, 24px);
+}
+.attack-step {
+  width: clamp(48px, 20cqmin, 72px);
+  height: clamp(48px, 20cqmin, 72px);
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--text);
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--display);
+  font-size: clamp(1.75rem, 12cqmin, 2.5rem);
+  line-height: 1;
+}
+.attack-step:hover {
+  background: var(--raised);
+}
+.attack-amount {
+  min-width: 2ch;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(2.5rem, 28cqmin, 6rem);
+  line-height: 0.9;
+}
+.attack-amount.warn {
+  color: var(--bad);
+}
+.hub.hub-done {
+  width: auto;
+  min-width: 76px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  font-size: 1.25rem;
+  background: var(--text);
+  color: var(--ground);
+}
+.hub.hub-done:hover {
+  background: var(--text);
+}
+
+/* ── is this player out? ────────────────────────────────────────────────── */
+
+.lethal .lethal-cause {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-lg);
+  color: var(--bad);
+}
+.lethal .primary {
+  min-height: var(--target-primary, 52px);
+}
+
+/* ── player sheet additions ─────────────────────────────────────────────── */
+
+.ps-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ps-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ps-actions-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ps-counter-text b.warn {
+  color: var(--bad);
+}
+.ps-more .ps-counters {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ps-counter-about .ps-counter-text {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  line-height: 1.3;
+}
+.ps-counter-about .ps-counter-text > span {
+  flex: 1;
+  color: var(--text);
+}
+.tm-facing .segmented button {
+  font-size: var(--t-sm);
+}
+.ps-jump {
+  min-width: 52px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+/* ── guest views: my seat, or the whole table ───────────────────────────── */
+
+.guest.view-mine {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+.guest.view-table {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.guest-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 0;
+}
+.guest-bar .segmented button {
+  font-size: var(--t-sm);
+}
+.guest-bar-title {
+  font-weight: 700;
+  padding-left: 4px;
+}
+.guest .guest-others > li {
+  min-width: 0;
+}
+.guest-tile-btn {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 16px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.guest-tile-btn:hover,
+.guest-tile-btn:focus-visible {
+  background: none;
+  box-shadow: 0 0 0 2px var(--text);
+}
+.guest .guest-grid {
+  gap: 6px;
+  padding: 6px 8px;
+}
+.guest .guest-grid .panel {
+  border-radius: 18px;
+}
+.guest .guest-status .primary {
+  min-width: 60%;
+}
+.ps-counters-one {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* The attacker's art credit in the damage layer; the panel's own credit stays above the layer. */
+.attack-credit {
+  font-size: 10px;
+  color: var(--on-art-dim);
+}
+.panel-inner:has(> .attack-layer) > .panel-credit {
+  z-index: 5;
+}
+
+/* Not counting turns: the hub is just the menu. */
+.hub.hub-menu {
+  display: grid;
+  place-items: center;
+}
+/* Shared with other phones: a small connected dot on the hub's rim. */
+.hub-live {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 2px var(--ground);
+}
+
+/* Partners: two art crops side by side, each cover-fitted in its own half. */
+.panel-inner > .panel-art-pair {
+  display: flex;
+}
+.panel-art-pair > .art-panel {
+  flex: 1 1 50%;
+  min-width: 0;
+  border-radius: 0;
+}
+
+/* The life total on the player sheet is a button: tap to type a new total. */
+.player-sheet button.ps-life {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+}
+.player-sheet .ps-life-set input {
+  width: 3.2ch;
+  font-weight: 700;
+  font-size: 72px;
+  line-height: 0.9;
+  padding: 0 4px;
+  text-align: right;
+  background: var(--art-chip);
+  color: var(--on-art);
+  border: 2px solid var(--text);
+  border-radius: var(--r-input);
+}
+
+/* The menu's join code opens the full-size one. */
+.table-menu .tm-qr-btn {
+  padding: 0;
+  min-height: 0;
+  border: none;
+}
+.table-menu .tm-layout,
+.table-menu .tm-log {
+  margin-top: 4px;
+}
+.tm-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--t-sm);
+}
+.tm-log-list li {
+  display: flex;
+  gap: 10px;
+}
+.tm-log-when {
+  flex: none;
+  min-width: 4.5em;
+  color: var(--dim);
+}
+
+/* The join code, full size: as wide as the sheet allows, light on dark so cameras read it. */
+.join-sheet .join-qr {
+  width: min(78vw, 340px);
+  aspect-ratio: 1;
+  align-self: center;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--text);
+}
+.join-sheet .join-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.join-sheet .join-qr-wait {
+  background: var(--raised);
+}
+.join-sheet .tm-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.join-sheet .status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.join-sheet .status-dot.good {
+  background: var(--good);
+}
+.join-sheet .status-dot.warn {
+  background: var(--warn);
+}
+
+/* Dice and coin. */
+.dice-result {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--r-list);
+  background: var(--raised);
+}
+.dice-title {
+  color: var(--dim);
+  font-size: var(--t-sm);
+}
+.dice-value {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 64px;
+  line-height: 1;
+  animation: dice-pop 220ms ease-out;
+}
+@keyframes dice-pop {
+  from {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dice-value {
+    animation: none;
+  }
+}
+.dice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.dice-grid button {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-md);
+}
+.dice-row {
+  align-items: center;
+}
+.dice-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--display);
+  font-weight: 700;
+}
+.dice-custom input {
+  width: 5.5rem;
+  min-width: 0;
+}
+
+/* ── commander damage taken, Lifetap's way: each other panel is its commander's damage to one player ── */
+.take-source {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+/* Partners: two counters in one panel, so each is smaller. */
+.take-layer:has(.take-source + .take-source) {
+  gap: 4px;
+}
+.take-layer:has(.take-source + .take-source) .attack-amount {
+  font-size: clamp(1.75rem, 14cqmin, 3.5rem);
+}
+.take-layer:has(.take-source + .take-source) .attack-step {
+  width: clamp(40px, 14cqmin, 56px);
+  height: clamp(40px, 14cqmin, 56px);
+  font-size: clamp(1.5rem, 9cqmin, 2rem);
+}
+
+/* ── menu: pass, finish, this phone, leave ─────────────────────────────── */
+.table-menu .tm-pass > button:first-child {
+  min-height: 56px;
+  gap: 10px;
+}
+.table-menu .tm-pass-turn {
+  min-height: 56px;
+  gap: 10px;
+}
+.tm-finish {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.tm-finish h3 {
+  margin: 0;
+}
+.tm-finish p {
+  margin: 0;
+}
+/* Who won, and who goes first: one big tile per player, their art in a circle. */
+.tm-winners {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 8px;
+}
+.tm-winner {
+  min-height: 64px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  text-align: left;
+  font-weight: 700;
+}
+.tm-winner > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-winner-dot {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.tm-settings .check-row {
+  align-items: flex-start;
+}
+.tm-setting-note {
+  display: block;
+}
+.tm-screen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tm-screen:empty {
+  display: none;
+}
+.tm-leave {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tm-leave button {
+  min-height: 50px;
+}
+.table-menu .tm-leave-note {
+  margin: -6px 0 0;
+}
+
+/* ── who goes first, as the game opens ─────────────────────────────────── */
+.first-rolled {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  text-align: center;
+}
+.first-rolled h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 2.25rem;
+}
+.first-rolled-dot {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* ── player sheet: poison out of ten, the name opens the seat, who won ── */
+.ps-of {
+  font-size: 1.125rem;
+  color: var(--dim);
+  font-weight: 500;
+}
+.player-sheet button.ps-name-edit {
+  display: block;
+  align-self: flex-start;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+}
+.player-sheet button.ps-name-edit:hover {
+  background: none;
+}
+.player-sheet .ps-win {
+  margin-left: auto;
+}

@@ -96,6 +96,13 @@ pub enum OpKind {
         #[serde(default, deserialize_with = "crate::util::double_option")]
         note: Option<Option<String>>,
         proxy: Option<bool>,
+        /// Another printing of the same card (the row was filed under the wrong one).
+        #[serde(default)]
+        scryfall_id: Option<String>,
+        /// Change only this many of the row's copies, split off into their own row (merging into a
+        /// matching one). Fewer copies left than this: the whole row changes. No row: nothing.
+        #[serde(default)]
+        split: Option<i64>,
     },
     Remove { item_id: String },
 }
@@ -184,12 +191,19 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                     .await?;
             }
         }
-        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy } => {
+        OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy, scryfall_id, split } => {
             let item_id = &resolve_item(tx, owner, item_id).await?;
             let Some(item) = load_item(tx, owner, item_id).await? else { return Ok(true) };
             if let Some(Some(c)) = container_id {
                 check_container(tx, owner, Some(c)).await?;
             }
+            let printing = match scryfall_id {
+                Some(p) if *p != item.scryfall_id => {
+                    check_same_card(tx, &item.scryfall_id, p).await?;
+                    p.clone()
+                }
+                _ => item.scryfall_id.clone(),
+            };
             let copy = CopyKind {
                 condition: condition.clone().unwrap_or(item.condition.clone()),
                 finish: finish.clone().unwrap_or(item.finish.clone()),
@@ -202,6 +216,26 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
             let container = container_id.clone().unwrap_or(item.container_id.clone());
             let price = purchase_price.unwrap_or(item.purchase_price);
             let note = note.clone().unwrap_or(item.note.clone());
+            if let Some(n) = *split {
+                if n <= 0 {
+                    return Err(AppError::bad("split needs a positive number of copies"));
+                }
+                if n < item.qty {
+                    sqlx::query("UPDATE collection_items SET qty = qty - ?, updated_at = ? WHERE id = ?")
+                        .bind(n)
+                        .bind(now())
+                        .bind(item_id)
+                        .execute(&mut **tx)
+                        .await?;
+                    let to = add_copies(tx, owner, &printing, n, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE collection_items SET note = {MERGE_NOTE} WHERE id = ?2")))
+                        .bind(&note)
+                        .bind(&to)
+                        .execute(&mut **tx)
+                        .await?;
+                    return Ok(true);
+                }
+            }
             // If the change makes this row identical to another one, merge into it and leave an
             // alias so ops still naming this row (from other devices) follow. Otherwise update in
             // place, keeping the row's id.
@@ -210,7 +244,7 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                  AND altered=? AND signed=? AND misprint=? AND proxy=? AND IFNULL(container_id,'') = IFNULL(?, '') AND id != ?",
             )
             .bind(owner)
-            .bind(&item.scryfall_id)
+            .bind(&printing)
             .bind(&copy.condition)
             .bind(&copy.finish)
             .bind(&copy.lang)
@@ -224,11 +258,19 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
             .await?;
             match twin {
                 Some(twin) => {
-                    sqlx::query("UPDATE collection_items SET qty = qty + ?, updated_at = ?, purchase_price = COALESCE(purchase_price, ?), note = COALESCE(note, ?) WHERE id = ?")
+                    // The price paid comes over with its currency, when the twin has none. Both
+                    // rows' notes are kept (once, if they're the same).
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "UPDATE collection_items SET qty = qty + ?2, updated_at = ?3,
+                            purchase_currency = CASE WHEN purchase_price IS NULL THEN ?4 ELSE purchase_currency END,
+                            purchase_price = COALESCE(purchase_price, ?5), note = {MERGE_NOTE}
+                         WHERE id = ?6"
+                    )))
+                        .bind(&note)
                         .bind(item.qty)
                         .bind(now())
+                        .bind(&item.purchase_currency)
                         .bind(price)
-                        .bind(&note)
                         .bind(&twin)
                         .execute(&mut **tx)
                         .await?;
@@ -249,9 +291,10 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                 }
                 None => {
                     sqlx::query(
-                        "UPDATE collection_items SET condition=?, finish=?, lang=?, proxy=?, container_id=?, purchase_price=?, note=?, updated_at=?
+                        "UPDATE collection_items SET scryfall_id=?, condition=?, finish=?, lang=?, proxy=?, container_id=?, purchase_price=?, note=?, updated_at=?
                          WHERE id = ?",
                     )
+                    .bind(&printing)
                     .bind(&copy.condition)
                     .bind(&copy.finish)
                     .bind(&copy.lang)
@@ -276,6 +319,22 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
         }
     }
     Ok(true)
+}
+
+/// A row's note after copies with note `?1` join it: both kept, one per line (a shared note once).
+const MERGE_NOTE: &str = "CASE WHEN ?1 IS NULL OR note = ?1 THEN note WHEN note IS NULL THEN ?1 ELSE note || char(10) || ?1 END";
+
+/// A row's printing may change only to another printing of the same card that's in our card
+/// data. (A row whose printing isn't in our data yet may take any known printing.)
+async fn check_same_card(tx: &mut Transaction<'_, Sqlite>, from: &str, to: &str) -> AppResult<()> {
+    const ORACLE: &str = "SELECT oracle_id FROM printings WHERE scryfall_id = ?";
+    let Some(new) = sqlx::query_scalar::<_, String>(ORACLE).bind(to).fetch_optional(&mut **tx).await? else {
+        return Err(AppError::bad("that printing isn't in our card data"));
+    };
+    match sqlx::query_scalar::<_, String>(ORACLE).bind(from).fetch_optional(&mut **tx).await? {
+        Some(old) if old != new => Err(AppError::bad("that's a printing of a different card")),
+        _ => Ok(()),
+    }
 }
 
 /// Follow merge aliases to the row an old item id now lives in.
@@ -400,15 +459,16 @@ async fn add_copies(
     let id = new_id();
     let stamp = now();
     // The unique index on the copy identity turns a duplicate into a quantity bump.
-    // A merged row keeps its existing purchase price unless it had none.
+    // A merged row keeps its existing purchase price unless it had none, and the currency goes
+    // with whichever price it keeps.
     sqlx::query(
         "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed,
             misprint, proxy, container_id, purchase_price, purchase_currency, created_at, updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(owner_id, scryfall_id, condition, finish, lang, altered, signed, misprint, proxy, IFNULL(container_id, ''))
          DO UPDATE SET qty = qty + excluded.qty, updated_at = excluded.updated_at,
-            purchase_price = COALESCE(purchase_price, excluded.purchase_price),
-            purchase_currency = COALESCE(purchase_currency, excluded.purchase_currency)",
+            purchase_currency = CASE WHEN purchase_price IS NULL THEN excluded.purchase_currency ELSE purchase_currency END,
+            purchase_price = COALESCE(purchase_price, excluded.purchase_price)",
     )
     .bind(&id)
     .bind(owner)
@@ -459,13 +519,14 @@ struct ItemRow {
     proxy: bool,
     container_id: Option<String>,
     purchase_price: Option<f64>,
+    purchase_currency: Option<String>,
     note: Option<String>,
 }
 
 async fn load_item(tx: &mut Transaction<'_, Sqlite>, owner: &str, id: &str) -> AppResult<Option<ItemRow>> {
     Ok(sqlx::query_as(
         "SELECT scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, container_id,
-            purchase_price, note FROM collection_items WHERE id = ? AND owner_id = ?",
+            purchase_price, purchase_currency, note FROM collection_items WHERE id = ? AND owner_id = ?",
     )
     .bind(id)
     .bind(owner)
@@ -767,6 +828,8 @@ async fn delete_container(State(st): State<AppState>, CurrentUser(user): Current
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                scryfall_id: None,
+                split: None,
             },
         };
         apply_op(&mut tx, &user.id, &op).await?;
@@ -872,6 +935,8 @@ mod tests {
                 purchase_price: None,
                 note: None,
                 proxy: None,
+                scryfall_id: None,
+                split: None,
             },
         };
         apply_op(&mut tx, &owner, &up).await.unwrap();
@@ -923,7 +988,7 @@ mod tests {
         let update = Op {
             op_id: "c".into(),
             device_id: None,
-            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None },
+            op: OpKind::Update { item_id: nonfoil.clone(), condition: None, finish: Some("foil".into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, scryfall_id: None, split: None },
         };
         apply_op(&mut tx, &owner, &update).await.unwrap();
         // Device B, offline before that, adds two to the old row id.
@@ -931,5 +996,163 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+
+    #[tokio::test]
+    async fn update_changes_the_printing_of_the_same_card_only() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        for (id, oracle, set) in [("ltr", "doom", "ltr"), ("ltr-x", "doom", "ltc"), ("bolt", "bolt", "m10")] {
+            sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?,?,'Card',?,'Set','1','en','now')")
+                .bind(id)
+                .bind(oracle)
+                .bind(set)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let add = |op_id: &str, scryfall_id: &str, qty| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: scryfall_id.into(),
+                qty,
+                copy: CopyKind { condition: nm(), finish: nonfoil(), lang: en(), ..Default::default() },
+                container_id: None,
+                purchase_price: None,
+                purchase_currency: None,
+            },
+        };
+        let reprint = |op_id: &str, item_id: &str, to: &str| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Update {
+                item_id: item_id.into(),
+                condition: None,
+                finish: None,
+                lang: None,
+                container_id: None,
+                purchase_price: None,
+                note: None,
+                proxy: None,
+                scryfall_id: Some(to.into()),
+                split: None,
+            },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &add("a", "ltr", 2)).await.unwrap();
+        tx.commit().await.unwrap();
+        let id: String = sqlx::query_scalar("SELECT id FROM collection_items").fetch_one(&pool).await.unwrap();
+
+        // Another card's printing, or one we don't know, is refused.
+        for (op_id, to) in [("b", "bolt"), ("c", "nope")] {
+            let mut tx = pool.begin().await.unwrap();
+            assert!(apply_op(&mut tx, &owner, &reprint(op_id, &id, to)).await.is_err());
+        }
+
+        // The right card: the row keeps its id and copies.
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &reprint("d", &id, "ltr-x")).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, String, i64)> = sqlx::query_as("SELECT id, scryfall_id, qty FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![(id.clone(), "ltr-x".into(), 2)]);
+
+        // Back again, onto a row that already holds that printing: they merge.
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &add("e", "ltr", 1)).await.unwrap();
+        // Both rows' notes survive the merge.
+        sqlx::query("UPDATE collection_items SET note = CASE scryfall_id WHEN 'ltr' THEN 'mine' ELSE 'from a trade' END")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        apply_op(&mut tx, &owner, &reprint("f", &id, "ltr")).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as("SELECT scryfall_id, qty, note FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("ltr".into(), 3, Some("mine\nfrom a trade".into()))]);
+    }
+
+    #[tokio::test]
+    async fn split_moves_some_copies_and_never_more_than_are_there() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        for id in ["ltr", "ltr-x"] {
+            sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?,'doom','Card','ltr','Set','1','en','now')")
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let mut tx = pool.begin().await.unwrap();
+        let add = Op {
+            op_id: "a".into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: "ltr".into(),
+                qty: 3,
+                copy: CopyKind { condition: nm(), finish: nonfoil(), lang: en(), ..Default::default() },
+                container_id: None,
+                purchase_price: Some(4.0),
+                purchase_currency: Some("EUR".into()),
+            },
+        };
+        apply_op(&mut tx, &owner, &add).await.unwrap();
+        tx.commit().await.unwrap();
+        let id: String = sqlx::query_scalar("SELECT id FROM collection_items").fetch_one(&pool).await.unwrap();
+        let split = |op_id: &str, n| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Update {
+                item_id: id.clone(),
+                condition: None,
+                finish: None,
+                lang: None,
+                container_id: None,
+                purchase_price: None,
+                note: None,
+                proxy: None,
+                scryfall_id: Some("ltr-x".into()),
+                split: Some(n),
+            },
+        };
+        async fn rows(pool: &SqlitePool) -> Vec<(String, i64, Option<f64>, Option<String>)> {
+            sqlx::query_as("SELECT scryfall_id, qty, purchase_price, purchase_currency FROM collection_items ORDER BY scryfall_id")
+                .fetch_all(pool)
+                .await
+                .unwrap()
+        }
+
+        // A twin with a price but no currency keeps both as they were after a merge.
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, altered, signed, misprint, proxy, purchase_price, created_at, updated_at) VALUES ('t','u1','ltr-x',1,'NM','nonfoil','en',0,0,0,0,5.0,'now','now')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &split("t1", 1)).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(rows(&pool).await, vec![("ltr".into(), 2, Some(4.0), Some("EUR".into())), ("ltr-x".into(), 2, Some(5.0), None)]);
+        sqlx::query("DELETE FROM collection_items WHERE id = 't'").execute(&pool).await.unwrap();
+        sqlx::query("UPDATE collection_items SET qty = 3").execute(&pool).await.unwrap();
+
+        // One copy moves, with its price, currency and note.
+        sqlx::query("UPDATE collection_items SET note = 'signed by a friend'").execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &split("b", 1)).await.unwrap();
+        tx.commit().await.unwrap();
+        let eur = Some("EUR".to_string());
+        assert_eq!(rows(&pool).await, vec![("ltr".into(), 2, Some(4.0), eur.clone()), ("ltr-x".into(), 1, Some(4.0), eur.clone())]);
+        let notes: Vec<Option<String>> = sqlx::query_scalar("SELECT note FROM collection_items ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(notes, vec![Some("signed by a friend".into()); 2]);
+
+        // The rest go as a whole row (merging), then a split of a row that's gone adds nothing.
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &split("c", 5)).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(rows(&pool).await, vec![("ltr-x".into(), 3, Some(4.0), eur.clone())]);
+        sqlx::query("DELETE FROM collection_items").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM item_aliases").execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &split("d", 1)).await.unwrap();
+        tx.commit().await.unwrap();
+        assert!(rows(&pool).await.is_empty());
     }
 }

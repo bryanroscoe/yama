@@ -1,0 +1,94 @@
+/* The panels in miniature: each seat's art (or a raised block) with its number, turned to face
+   its player. A dark veil over the art keeps the number readable; the art is never filtered. */
+.layout-sketch {
+  display: grid;
+  gap: 3px;
+}
+.sketch-cell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--raised);
+}
+.sketch-cell img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sketch-n {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--dim);
+}
+.sketch-n > span {
+  display: block;
+}
+.sketch-cell.has-art .sketch-n {
+  background: rgb(0 0 0 / 0.35);
+  color: var(--on-art);
+}
+
+/* The picker: one small phone per arrangement, the chosen one outlined in white. */
+.layout-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.layout-options {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px;
+}
+.layout-option {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 92px;
+  min-height: 0;
+  padding: 8px 6px;
+  border-radius: var(--r-list);
+  background: var(--surface);
+  border: 2px solid transparent;
+  color: var(--dim);
+}
+.layout-option:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.layout-option[aria-pressed="true"] {
+  border-color: var(--text);
+  color: var(--text);
+}
+.layout-option .layout-sketch {
+  width: 44px;
+  height: 80px;
+  padding: 3px;
+  border-radius: 9px;
+  background: #000;
+}
+.layout-option .sketch-cell {
+  border-radius: 4px;
+}
+.layout-option .sketch-n {
+  font-size: 13px;
+}
+.layout-label {
+  font-size: var(--t-sm);
+  line-height: 1.2;
+  text-align: center;
+}
+.layout-about {
+  margin: 0;
+}

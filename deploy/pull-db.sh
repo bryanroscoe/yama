@@ -9,8 +9,9 @@
 # first. Afterwards, sign in locally as yourself with dev login (YAMA_DEV_LOGIN=1) or give your
 # account a password: `./target/debug/yama-server user add you@example.com --admin`.
 set -eu
-cd "$(dirname "$0")/.."
-HOST=root@<saget-lan-address>
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+cd "$DEPLOY_DIR/.."
+. "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama
 
 if lsof -nP -iTCP:8787 -sTCP:LISTEN > /dev/null 2>&1; then
