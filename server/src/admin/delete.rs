@@ -48,6 +48,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("assistant_changes", "owner_id"),
     ("calendar_watches", "user_id"),
     ("collection_items", "owner_id"),
+    ("commander_evidence_sources", "owner_id"),
     ("containers", "owner_id"),
     ("decks", "owner_id"),
     ("deleted_games", "deleted_by"),
@@ -103,6 +104,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("precon_evidence_sources", "owner_id"),
     // and its chosen simulation, whose tournaments go with it.
     ("precon_evidence_simulation", "owner_id"),
+    // and the public commander ranking.
+    ("commander_evidence_sources", "owner_id"),
     ("evidence_datasets", "owner_id"),
     ("research_reviews", "owner_id"),
     ("research_review_ops", "owner_id"),

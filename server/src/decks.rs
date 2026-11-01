@@ -226,7 +226,13 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     }
     let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
     let mut estimates = crate::deck_checks::estimates(&st.pool, &versions).await?;
-    let market_prices = crate::deck_prices::prices(&st.pool).await?;
+    let mut cards_by_version: HashMap<String, Vec<DeckCard>> = HashMap::new();
+    for v in &versions {
+        cards_by_version.insert(v.clone(), load_version_cards(&st.pool, v).await?);
+    }
+    // Price only the cards these decks hold, not every card Yama knows.
+    let ids: std::collections::BTreeSet<&str> = cards_by_version.values().flatten().map(|c| c.oracle_id.as_str()).collect();
+    let market_prices = crate::deck_prices::prices_for(&st.pool, &ids.into_iter().collect::<Vec<_>>()).await?;
     for d in &mut decks {
         d.estimate = d.current_version_id.as_ref().and_then(|v| estimates.remove(v));
         // Same rule as the deck page's results (stats::results_by_version): only seats where the
@@ -242,7 +248,10 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
         .await?;
         (d.games, d.wins, d.draws) = (games, wins, draws);
         if let Some(v) = &d.current_version_id {
-            let cards = load_version_cards(&st.pool, v).await?;
+            let cards = match cards_by_version.remove(v) {
+                Some(cards) => cards,
+                None => load_version_cards(&st.pool, v).await?,
+            };
             d.singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &market_prices);
             d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
             for c in cards.iter().filter(|c| c.board != Board::Side) {

@@ -190,3 +190,30 @@ existing admin MCP connection upload powers. Then add
 scheduled, dated source adapters with last-good-state retention, explicit dataset
 promotion and a dedicated public projection. Current imports remain private and
 do not change existing public precon or commander assessments.
+
+## Public commander ranking
+
+1 November 2026. `/commanders` ranks commanders from the real-game sources an admin enables for
+it, separately from the precon pages (ARCHITECTURE.md, "Public commander ranking"):
+
+```sh
+./target/debug/yama-server commander-evidence use Playgroup.gg --owner you@example.com
+./target/debug/yama-server commander-evidence use "Mythic Tools" --owner you@example.com
+./target/debug/yama-server commander-evidence report
+./target/debug/yama-server commander-evidence stop "Mythic Tools" --owner you@example.com
+```
+
+`PUT`/`DELETE /api/admin/commander-evidence/sources/{source name}` do the same for the signed-in
+admin. It reads `commander` records from the active revision of each of that owner's datasets
+with that source name: either wins and games (`game_win_count`, `game_played_count`, optional
+`pilot_count`, identified by `oracle_id`(s), `scryfall_id` or a unique `name`) or a source's own
+score on the page's scale (`score_0_100`, `interval_low`, `interval_high`, `games`, `baseline`,
+`prior_strength`, `oracle_ids`). When several datasets from one source have a commander, the
+newest import's figure stands. `report` shows coverage, how far the sources agree and the top 15.
+
+The Mythic Tools scores come from the clean-room hand-off, never Mythic's responses:
+
+```sh
+python3 -I scripts/mythic-commander-dataset.py ~/Developer/.agent-tasks/mythic-meta-cleanroom-20261031/deliver mythic.json
+./target/debug/yama-server import-dataset mythic.json --owner you@example.com
+```
