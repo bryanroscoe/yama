@@ -21,7 +21,7 @@ export interface MythicSeat {
   me: boolean;
 }
 
-export type MythicStatus = "new" | "update" | "note" | "unchanged" | "match" | "linked" | "deleted" | "invalid";
+export type MythicStatus = "new" | "update" | "conflict" | "note" | "unchanged" | "match" | "linked" | "deleted" | "invalid";
 
 export interface MythicGameRow {
   mythic_id: string;
@@ -29,7 +29,7 @@ export interface MythicGameRow {
   status: MythicStatus;
   action: "create" | "update" | "note" | "link" | "skip";
   yama_id: string | null;
-  matches: { id: string; started_at: string; seats: number }[];
+  matches: { id: string; started_at: string; seats: number; players: string[] }[];
   seats: MythicSeat[];
   reason: string | null;
 }
@@ -76,6 +76,8 @@ export function statusText(g: MythicGameRow): string {
       return g.action === "create" ? "New" : "Skipped";
     case "update":
       return g.action === "update" ? "Changed in Mythic, updates" : "Changed in Mythic, skipped";
+    case "conflict":
+      return g.action === "update" ? "Changed in Mythic and in Yama, Mythic's version replaces Yama's" : "Changed in Mythic and in Yama, Yama's version stays";
     case "note":
       return "Mythic's note changed, the note updates";
     case "unchanged":

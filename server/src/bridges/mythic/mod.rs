@@ -14,7 +14,7 @@
 //! - **Mythic's notes and tags stay private**: in the bridge's own owner-only table, not in
 //!   `games.note`, which everyone seated can read.
 //!
-//! Removing the bridge: this folder, migration 0046, its line in routes.rs, the flag in config.rs
+//! Removing the bridge: this folder, migration 0047, its line in routes.rs, the flag in config.rs
 //! and testutil.rs, its two tables in admin/delete.rs, and web/src/bridges/mythic.
 
 use crate::auth::CurrentUser;
@@ -210,7 +210,8 @@ struct PlayerRow {
 struct GameRow {
     mythic_id: String,
     started_at: Option<String>,
-    /// new, update, note (only Mythic's note or tags changed), unchanged, match (looks like a game
+    /// new, update, conflict (changed in Mythic and in Yama; "update" takes Mythic's), note (only
+    /// Mythic's note or tags changed), unchanged, match (looks like a game
     /// already in Yama; needs a choice), linked
     /// (matched to a game in Yama before), deleted (removed in Yama) or invalid.
     status: &'static str,
@@ -227,6 +228,18 @@ struct Candidate {
     id: String,
     started_at: String,
     seats: i64,
+    /// Who played, by name, so the person can tell the game apart.
+    players: Vec<String>,
+    /// Each seat's (member, account), to compare with the Mythic game's known players.
+    #[serde(skip)]
+    who: Vec<(Option<String>, Option<String>)>,
+}
+
+impl Candidate {
+    /// Whether someone (by member, or by account) sat in this game.
+    fn has(&self, member: Option<&str>, user: Option<&str>) -> bool {
+        self.who.iter().any(|(m, u)| (member.is_some() && m.as_deref() == member) || (user.is_some() && u.as_deref() == user))
+    }
 }
 
 #[derive(Serialize)]
@@ -368,6 +381,9 @@ struct Planned {
     action: &'static str,
     yama_id: Option<String>,
     matches: Vec<Candidate>,
+    /// The Yama game as last synced, kept when only Mythic's note changes: a note saved again
+    /// mustn't make edits made in Yama since look synced.
+    saved_yama: Option<String>,
 }
 
 struct Plan {
@@ -380,11 +396,34 @@ struct Plan {
 
 /// Whether a game's (game, note) changed since the fingerprint saved at its last import.
 fn changed_parts(saved: Option<&str>, now: &str) -> (bool, bool) {
-    let split = |f: &str| f.split_once(' ').map(|(g, n)| (g.to_string(), n.to_string()));
+    let split = |f: &str| {
+        let mut parts = f.split(' ');
+        Some((parts.next()?.to_string(), parts.next()?.to_string()))
+    };
     match (saved.and_then(split), split(now)) {
         (Some((g0, n0)), Some((g1, n1))) => (g0 != g1, n0 != n1),
         _ => (true, true),
     }
+}
+
+/// The Yama game as it was when last synced (the fingerprint's third part).
+fn saved_yama(saved: Option<&str>) -> Option<&str> {
+    saved?.split(' ').nth(2).filter(|y| !y.is_empty())
+}
+
+/// What a game is in Yama now, to tell whether it was edited there since the last import.
+async fn yama_print<'c, E: sqlx::SqliteExecutor<'c>>(conn: E, game: &str) -> AppResult<String> {
+    let state: Option<String> = sqlx::query_scalar(
+        "SELECT json_array(
+                  (SELECT json_array(playgroup_id, format, starting_life, started_at, ended_at, turns, winner_seat, first_seat, win_condition) FROM games WHERE id = ?),
+                  (SELECT json_group_array(json_array(seat, member_id, user_id, guest_name, deck_version_id, deck_label, commander_name))
+                     FROM (SELECT * FROM game_seats WHERE game_id = ? ORDER BY seat)))",
+    )
+    .bind(game)
+    .bind(game)
+    .fetch_one(conn)
+    .await?;
+    Ok(crate::util::sha256_hex(&state.unwrap_or_default()))
 }
 
 async fn links(pool: &SqlitePool, owner: &str, kind: &str) -> AppResult<HashMap<String, (String, Option<String>)>> {
@@ -506,6 +545,8 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
         }
     }
 
+    // A member's account, so a game logged with the person but not the playgroup still matches.
+    let member_user: HashMap<String, Option<String>> = group_members.iter().map(|(id, u, _)| (id.clone(), u.clone())).collect();
     let ctx = Ctx { owner, playgroup, my_member, me: me.clone(), members: matched };
     let game_links = links(pool, owner, "game").await?;
     let linked_yama: HashSet<&str> = game_links.values().map(|(y, _)| y.as_str()).collect();
@@ -527,7 +568,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
         let built = build(g, &ctx);
         let choice = req.choices.get(&mythic_id).map(String::as_str);
         let derived = derived_id(owner, &mythic_id);
-        let mut p = Planned { mythic_id, built, status: "new", action: "create", yama_id: None, matches: vec![] };
+        let mut p = Planned { mythic_id, built, status: "new", action: "create", yama_id: None, matches: vec![], saved_yama: None };
         let Ok(b) = &p.built else {
             (p.status, p.action) = ("invalid", "skip");
             games.push(p);
@@ -535,11 +576,20 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
         };
         if let Some((yama, changed)) = game_links.get(&p.mythic_id) {
             p.yama_id = Some(yama.clone());
+            p.saved_yama = saved_yama(changed.as_deref()).map(str::to_string);
             let row: Option<(String, String)> = sqlx::query_as("SELECT created_by, mode FROM games WHERE id = ?").bind(yama).fetch_optional(pool).await?;
+            let edited_in_yama = match (&row, &p.saved_yama) {
+                (Some(_), Some(saved)) => *saved != yama_print(pool, yama).await?,
+                _ => false,
+            };
             (p.status, p.action) = match row {
                 None => ("deleted", "skip"),
                 // A game the bridge made: Mythic's changes are saved again.
                 Some((by, mode)) if *yama == derived && by == owner && mode == "in_person" => match changed_parts(changed.as_deref(), &b.fingerprint) {
+                    // Changed in Yama too since the last import: the person picks which stays.
+                    (true, _) if edited_in_yama => {
+                        if choice == Some("update") { ("conflict", "update") } else { ("conflict", "skip") }
+                    }
                     (true, _) if choice == Some("skip") => ("update", "skip"),
                     (true, _) => ("update", "update"),
                     (false, true) => ("note", "note"),
@@ -562,6 +612,16 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             .filter(|v| match (start, parse_time(&Some(v.started_at.clone()))) {
                 (Some(a), Some(b)) => (a - b).num_hours().abs() <= MATCH_HOURS,
                 _ => false,
+            })
+            // Everyone known on the Mythic side (the importer, matched members) sat in it.
+            .filter(|v| {
+                b.seats.iter().all(|s| match (&s.member_id, &s.user_id) {
+                    (None, None) => true,
+                    (m, u) => {
+                        let account = u.clone().or_else(|| m.as_ref().and_then(|m| member_user.get(m).cloned().flatten()));
+                        v.has(m.as_deref(), account.as_deref())
+                    }
+                })
             })
             .take(5)
             .cloned()
@@ -601,8 +661,11 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
 
 /// In-person games the person can see, to offer as the same game as one from Mythic.
 async fn visible_games(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Candidate>> {
-    Ok(sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT g.id, g.started_at, (SELECT COUNT(*) FROM game_seats s WHERE s.game_id = g.id)
+    Ok(sqlx::query_as::<_, (String, String, i64, String)>(
+        "SELECT g.id, g.started_at, (SELECT COUNT(*) FROM game_seats s WHERE s.game_id = g.id),
+                (SELECT json_group_array(json_array(s.member_id, s.user_id, COALESCE(u.display_name, s.guest_name, pm.guest_name, '')))
+                   FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members pm ON pm.id = s.member_id
+                  WHERE s.game_id = g.id)
            FROM games g
           WHERE g.mode = 'in_person' AND g.status = 'finished'
             AND (g.created_by = ?
@@ -618,7 +681,12 @@ async fn visible_games(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Candidat
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(id, started_at, seats)| Candidate { id, started_at, seats })
+    .map(|(id, started_at, seats, people)| {
+        let rows: Vec<(Option<String>, Option<String>, String)> = serde_json::from_str(&people).unwrap_or_default();
+        let players = rows.iter().map(|(_, _, n)| n.clone()).filter(|n| !n.is_empty()).collect();
+        let who = rows.into_iter().map(|(m, u, _)| (m, u)).collect();
+        Candidate { id, started_at, seats, players, who }
+    })
     .collect())
 }
 
@@ -748,13 +816,16 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                 // The game first: if its link and note then fail, the next import finds the game
                 // without a link and saves it again.
                 match crate::games::create_game(pool, owner, game).await {
-                    Ok(_) => sync_game(pool, owner, &p.mythic_id, &yama, &b.fingerprint, b.note.as_deref(), &b.tags).await,
+                    Ok(_) => sync_game(pool, owner, Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: None, note: b.note.as_deref(), tags: &b.tags }).await,
                     Err(e) => Err(e),
                 }
             }
             // Only Mythic's note changed, or a game matched to one logged in Yama: the game stays as
             // it is, and Mythic's note is kept privately.
-            "note" | "link" => sync_game(pool, owner, &p.mythic_id, &yama, &b.fingerprint, b.note.as_deref(), &b.tags).await,
+            "note" | "link" => {
+                let keep = if p.action == "note" { p.saved_yama.as_deref() } else { None };
+                sync_game(pool, owner, Sync { mythic: &p.mythic_id, yama: &yama, fingerprint: &b.fingerprint, keep_yama: keep, note: b.note.as_deref(), tags: &b.tags }).await
+            }
             _ => {
                 out.skipped += 1;
                 continue;
@@ -777,9 +848,25 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
 
 /// A game's link and Mythic's private note, together: the link's fingerprint never says a note
 /// was saved when it wasn't, so retrying an upload repairs an Apply cut short.
-async fn sync_game(pool: &SqlitePool, owner: &str, mythic: &str, yama: &str, fingerprint: &str, note: Option<&str>, tags: &[Value]) -> AppResult<()> {
+struct Sync<'a> {
+    mythic: &'a str,
+    yama: &'a str,
+    fingerprint: &'a str,
+    /// The Yama game's state to record: as it is now, unless the game wasn't written.
+    keep_yama: Option<&'a str>,
+    note: Option<&'a str>,
+    tags: &'a [Value],
+}
+
+async fn sync_game(pool: &SqlitePool, owner: &str, s: Sync<'_>) -> AppResult<()> {
+    let Sync { mythic, yama, fingerprint, keep_yama, note, tags } = s;
     let mut tx = pool.begin().await?;
-    link_in(&mut tx, owner, "game", mythic, yama, Some(fingerprint)).await?;
+    let now = match keep_yama {
+        Some(kept) => kept.to_string(),
+        None => yama_print(&mut *tx, yama).await?,
+    };
+    let print = format!("{fingerprint} {now}");
+    link_in(&mut tx, owner, "game", mythic, yama, Some(&print)).await?;
     save_note(&mut tx, owner, yama, note, tags).await?;
     tx.commit().await?;
     Ok(())

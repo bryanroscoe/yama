@@ -17,6 +17,7 @@ describe("Mythic Tools import", () => {
     expect(statusText(game())).toBe("New");
     expect(statusText(game({ status: "match", action: "skip" }))).toBe("Looks like a game already in Yama");
     expect(statusText(game({ status: "match", action: "link" }))).toBe("Matched to a game in Yama");
+    expect(statusText(game({ status: "conflict", action: "skip" }))).toBe("Changed in Mythic and in Yama, Yama's version stays");
     expect(statusText(game({ status: "invalid", action: "skip", reason: "it isn't finished in Mythic" }))).toBe("Can't import: it isn't finished in Mythic");
     expect(applyLabel([game(), game({ action: "skip" }), game({ action: "link" })])).toBe("Import 2 games");
     expect(applyLabel([game({ action: "skip" })])).toBe("Nothing to import");

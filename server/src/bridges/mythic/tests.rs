@@ -169,12 +169,20 @@ async fn mythic_notes_stay_with_the_importer() {
 #[tokio::test]
 async fn a_game_already_in_yama_is_offered_and_only_linked() {
     let (app, pool) = app().await;
-    let (_, token) = user(&pool, "bryan@example.com").await;
-    // Logged by hand that evening, three players.
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    // Someone else's game the same evening, three players but not Bryan: never offered.
+    let other = crate::util::new_id();
+    let (s, _) = send(&app, Method::POST, "/api/games", Some(&token), Some(json!({
+        "id": other, "started_at": "2026-10-04T19:00:00Z",
+        "seats": [{ "seat": 0, "guest_name": "X" }, { "seat": 1, "guest_name": "Y" }, { "seat": 2, "guest_name": "Z" }],
+        "finish": { "winner_seat": 0, "ended_at": "2026-10-04T19:00:00Z" }
+    }))).await;
+    assert_eq!(s, StatusCode::OK);
+    // Logged by hand that evening, Bryan and two others.
     let hand = crate::util::new_id();
     let (s, r) = send(&app, Method::POST, "/api/games", Some(&token), Some(json!({
         "id": hand, "started_at": "2026-10-04T20:00:00Z",
-        "seats": [{ "seat": 0, "guest_name": "A" }, { "seat": 1, "guest_name": "B" }, { "seat": 2, "guest_name": "C" }],
+        "seats": [{ "seat": 0, "user_id": bryan }, { "seat": 1, "guest_name": "B" }, { "seat": 2, "guest_name": "C" }],
         "finish": { "winner_seat": 0, "ended_at": "2026-10-04T20:00:00Z" }, "note": "Logged after the game"
     }))).await;
     assert_eq!(s, StatusCode::OK, "{r}");
@@ -183,14 +191,17 @@ async fn a_game_already_in_yama_is_offered_and_only_linked() {
     let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": file() }))).await;
     assert_eq!(p["games"][0]["status"], "match", "{p}");
     assert_eq!(p["games"][0]["action"], "skip");
-    assert_eq!(p["games"][0]["matches"][0]["id"], hand.as_str());
+    let offered = p["games"][0]["matches"].as_array().unwrap();
+    assert_eq!(offered.len(), 1, "{p}");
+    assert_eq!(offered[0]["id"], hand.as_str());
+    assert!(offered[0]["players"].as_array().unwrap().iter().any(|n| n == "bryan"), "{p}");
 
     let choice = json!({ "40": format!("link:{hand}") });
     // A game that isn't offered for it (another week) can't be chosen, however the choice came.
     let far = crate::util::new_id();
     let (s, _) = send(&app, Method::POST, "/api/games", Some(&token), Some(json!({
         "id": far, "started_at": "2026-10-11T20:00:00Z",
-        "seats": [{ "seat": 0, "guest_name": "A" }, { "seat": 1, "guest_name": "B" }, { "seat": 2, "guest_name": "C" }],
+        "seats": [{ "seat": 0, "user_id": bryan }, { "seat": 1, "guest_name": "B" }, { "seat": 2, "guest_name": "C" }],
         "finish": { "winner_seat": 0, "ended_at": "2026-10-11T20:00:00Z" }
     }))).await;
     assert_eq!(s, StatusCode::OK);
@@ -217,7 +228,7 @@ async fn a_game_already_in_yama_is_offered_and_only_linked() {
     // Nothing was written to the game logged by hand.
     let (n, note): (i64, Option<String>) =
         sqlx::query_as("SELECT (SELECT COUNT(*) FROM games), note FROM games WHERE id = ?").bind(&hand).fetch_one(&pool).await.unwrap();
-    assert_eq!((n, note.as_deref()), (2, Some("Logged after the game")));
+    assert_eq!((n, note.as_deref()), (3, Some("Logged after the game")));
     // Mythic's note changed since (file() has none): only the private note follows.
     let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": file() }))).await;
     assert_eq!((p["games"][0]["status"].as_str(), p["games"][0]["action"].as_str()), (Some("linked"), Some("note")));
@@ -283,6 +294,21 @@ async fn a_changed_mythic_note_never_rewrites_the_game() {
     assert_eq!(n["note"], "second");
     let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(file)).await;
     assert_eq!(p["games"][0]["status"], "unchanged");
+
+    // Now Mythic changes the game itself: Yama's edit is a conflict, kept unless the person
+    // chooses Mythic's version.
+    let changed = || json!([mythic_game(70, "2026-10-04T01:00:00Z", 77, Some("second"))]);
+    let (_, p) = send(&app, Method::POST, "/api/bridges/mythic/games/preview", Some(&token), Some(json!({ "export": { "games": changed() } }))).await;
+    assert_eq!((p["games"][0]["status"].as_str(), p["games"][0]["action"].as_str()), (Some("conflict"), Some("skip")), "{p}");
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token), Some(json!({ "export": { "games": changed() }, "me": "1" }))).await;
+    assert_eq!(a["skipped"], 1, "{a}");
+    let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(winner, Some(0));
+    let (_, a) = send(&app, Method::POST, "/api/bridges/mythic/games/apply", Some(&token),
+        Some(json!({ "export": { "games": changed() }, "me": "1", "choices": { "70": "update" } }))).await;
+    assert_eq!(a["updated"], 1, "{a}");
+    let winner: Option<i64> = sqlx::query_scalar("SELECT winner_seat FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(winner, Some(2));
 }
 
 #[test]

@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import { api, type Combo, type DeckCheck, type Estimated } from "../api";
-import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST } from "./deckCheck";
+import { powerEstimate, type PowerEstimate, type PowerFactor } from "@yama/core";
+import { useEffect, useMemo, useRef } from "react";
+import { api, type Combo, type DeckCheck, type DeckEntry, type Estimated } from "../api";
+import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
+import { statCards } from "./DeckStats";
 import { NameList } from "./OnlineSupport";
 import { Details, ErrorText } from "./ui";
 import "./decks.css";
@@ -57,12 +59,14 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
  * the cards and combos behind the estimate, and the local Game Changer count when there's no
  * estimate to show.
  */
-export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard, onDeclare }: {
+export function BracketPanel({ deckId, versionId, declared, gameChangers, cards, onCard, onDeclare }: {
   deckId: string;
   versionId: string | null;
   declared: number | null;
   /** From our own card data; null while the flags aren't loaded. */
   gameChangers: string[] | null;
+  /** The deck as loaded, for the power-level estimate's card-text factors. */
+  cards: DeckEntry[];
   onCard: (name: string) => void;
   onDeclare: () => void;
 }) {
@@ -89,6 +93,16 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
   const longer = r?.combos.filter((x) => !x.definitely_two_card && !x.arguably_two_card) ?? [];
   const status = checkStatus(c);
   const shown = r ? estimateValue(r.bracket_tag, r.bracket) : null;
+  const power = useMemo(
+    () => r && powerEstimate(statCards(cards), {
+      bracket: suggestedBracket(r.bracket_tag, r.bracket),
+      gameChangers: r.game_changers,
+      twoCardCombos: r.combos.filter((x) => x.definitely_two_card).map((x) => x.cards.join(" + ")),
+      massLandDenial: r.mld,
+      extraTurns: r.extra_turns,
+    }),
+    [r, cards],
+  );
 
   return (
     <section className="deck-panel" aria-labelledby="bracket-head">
@@ -125,6 +139,13 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
             <span className="value none">None yet</span>
           )}
         </div>
+        {power && (
+          <div className="bracket-side estimate">
+            <span className="label">Older power-level scale</span>
+            <span className="value">About {power.score.toFixed(1)} / 10</span>
+            <span className="sub">Unofficial Yama estimate</span>
+          </div>
+        )}
       </div>
 
       {status && <p className="note" role="status">{status}</p>}
@@ -134,6 +155,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
         {r && <p>{gameChangerFloor(r.game_changers.length)}</p>}
         {r && <p>Commander Spellbook counts your commander as always available, so it isn't counted as a combo piece. A listed combo doesn't establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.</p>}
       </Details>
+      {power && <PowerBreakdown power={power} onCard={onCard} />}
       {r && <button className="name-link small" onClick={onDeclare}>Choose or change your bracket</button>}
       <BracketGuide />
 
@@ -210,6 +232,45 @@ export function BracketGuide() {
       <p className="note">Sources, reviewed October 25, 2026: <a href="https://magic.wizards.com/en/formats/commander" target="_blank" rel="noreferrer">Wizards' bracket overview</a>, <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025" target="_blank" rel="noreferrer">October 2025 update</a> and <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026" target="_blank" rel="noreferrer">February 2026 update</a>.</p>
     </details>
   );
+}
+
+const signed = (n: number) => `+${n.toFixed(2)}`;
+
+/** How the power-level estimate adds up: the band from the suggestion, then each factor. */
+function PowerBreakdown({ power, onCard }: { power: PowerEstimate; onCard: (name: string) => void }) {
+  const [lo, hi] = power.band;
+  return (
+    <Details label="How the power estimate adds up">
+      <p>
+        Some playgroups still talk in the older 1 to 10 scale, so Yama translates the list into it. This is Yama's own heuristic, not an official scale, and it reads the card list, not how the deck plays. The starting suggestion of bracket {power.bracket} sets the range, {lo} to {hi}. Each factor below moves the estimate up within it, to a cap, so no single kind of card carries it.
+      </p>
+      <ul className="power-factors">
+        {power.factors.map((f) => (
+          <li key={f.key}>
+            <span className="power-factor-head">
+              <b>{f.label}</b>
+              <span className="num">{signed(f.points)}</span>
+            </span>
+            <span className="note">{f.rule}. {factorCount(f)}</span>
+            {f.cards.length > 0 && (
+              <span className="names">
+                {f.key === "combos" ? f.cards.join(", ") : <NameList names={f.cards} onCard={onCard} />}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p>{lo} plus these factors comes to {power.score.toFixed(1)}.</p>
+      {power.unknownCards.length > 0 && (
+        <p>Not in Yama's card data, so not counted: <NameList names={power.unknownCards} onCard={onCard} /></p>
+      )}
+    </Details>
+  );
+}
+
+function factorCount(f: PowerFactor): string {
+  if (f.key === "curve") return f.count ? `This deck: ${f.count.toFixed(2)}.` : "No nonland cards to average.";
+  return `This deck: ${f.count}, full credit at ${f.cap}.`;
 }
 
 const sameNames = (a: string[], b: string[] | null) =>

@@ -5,6 +5,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { usePower } from "../auth";
+import { POWER_NOTE } from "../components/PowerOnly";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -23,6 +25,7 @@ const BackArrow = () => (
 );
 
 export function WatchHome() {
+  const power = usePower();
   const games = useQuery({ queryKey: ["watch"], queryFn: () => api<WatchSummary[]>("/api/watch"), refetchInterval: 5000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const precons = useQuery({ queryKey: ["precons"], queryFn: () => api<PreconList>("/api/precons") });
@@ -39,7 +42,11 @@ export function WatchHome() {
       </div>
       {status.data && !status.data.enabled && <p className="dim">The rules engine isn't running on this server: {status.data.reason}</p>}
       <div className="ph-cols">
-        {status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} />}
+        {power ? (
+          status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} />
+        ) : (
+          <p className="empty power-only" role="note">{POWER_NOTE}</p>
+        )}
         <div className="ph-side">
           <section className="ph-games" aria-labelledby="wh-games-h">
             <h2 id="wh-games-h">Your watched games</h2>

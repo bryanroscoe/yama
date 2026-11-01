@@ -37,7 +37,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api, type DeckSummary } from "../api";
-import { useMe } from "../auth";
+import { useMe, usePower } from "../auth";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Crop, WinBar, winCeiling } from "../components/Crop";
 import { BackButton } from "../components/DeckTabs";
@@ -237,6 +237,7 @@ export function DeckPlan() {
 
 /** Each list's raw win rate with its interval, the 25% line, and the label every simulated number carries. */
 function VersionsPanel({ deck, sim, compact = false }: { deck: PlanDeck; sim: PlanSim; compact?: boolean }) {
+  const power = usePower();
   const max = winCeiling(sim.versions.map((v) => v.variant.wilson?.[1]));
   const level = sim.run.level ? `${Math.round(sim.run.level * 100)}%` : "90%";
   const stockAfter = sim.comparisons.find((c) => variantState(c.base, deck.key) === "stock" && variantState(c.variant, deck.key) === "after");
@@ -281,22 +282,25 @@ function VersionsPanel({ deck, sim, compact = false }: { deck: PlanDeck; sim: Pl
           : ""}{" "}
         {simShort(sim.run, sim.versions)}. Bars show the {level} interval; the line is 25%. Simulated games, not your table.
       </p>
-      <Link className="button" to={tryHref}>Try a change</Link>
+      {power && <Link className="button" to={tryHref}>Try a change</Link>}
     </section>
   );
 }
 
 function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | null; loading: boolean; error: unknown }) {
+  const power = usePower();
   if (loading) return <p className="dim">Loading your runs…</p>;
   if (error) return <ErrorText error={error} />;
   if (!sim) {
     return (
       <div className="stack">
         <p className="empty">No simulated runs for this plan yet.</p>
-        <p className="small dim">Paired runs from your planner's batches show here once they're imported. You can also try a change yourself in the lab.</p>
-        <div className="row">
-          <Link className="button" to={deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try"}>Try a change</Link>
-        </div>
+        <p className="small dim">Paired runs from your planner's batches show here once they're imported.{power && " You can also try a change yourself in the lab."}</p>
+        {power && (
+          <div className="row">
+            <Link className="button" to={deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try"}>Try a change</Link>
+          </div>
+        )}
       </div>
     );
   }

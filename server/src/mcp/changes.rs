@@ -828,6 +828,7 @@ fn engine_words(engine: &str, ai: &str, forge_ai: &str) -> String {
 }
 
 pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    user.require_power()?;
     let pool = &st.pool;
     let mode = opt_text(args, "mode", 20)?.unwrap_or_else(|| "change".into());
     let games = games_arg(user, args, None)?;
@@ -992,6 +993,7 @@ fn per_pod(mode: &str) -> usize {
 }
 
 pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    user.require_power()?;
     let id = text_arg(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     if matches!(run.mode.as_str(), "versus" | "tournament") {
@@ -1035,6 +1037,7 @@ async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Va
 }
 
 pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    user.require_power()?;
     let id = text_arg(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     let had = if run.mode == "tournament" {

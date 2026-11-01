@@ -221,7 +221,7 @@ async fn mcp_route(State(st): State<AppState>, headers: HeaderMap, body: axum::b
             )
         }
         "ping" => rpc_result(&id, json!({})),
-        "tools/list" => rpc_result(&id, json!({"tools": tools::list(&via)})),
+        "tools/list" => rpc_result(&id, json!({"tools": tools::list(&user, &via)})),
         "prompts/list" => rpc_result(&id, json!({"prompts": workflows::prompts()})),
         "prompts/get" => match workflows::prompt(&params) {
             Ok(result) => rpc_result(&id, result),
@@ -236,7 +236,7 @@ async fn mcp_route(State(st): State<AppState>, headers: HeaderMap, body: axum::b
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or_default().to_string();
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if !tools::offered(&name, &via) {
+            if !tools::offered(&name, &user, &via) {
                 rpc_error(&id, -32602, &format!("unknown tool \"{name}\""))
             } else {
                 let started = Instant::now();

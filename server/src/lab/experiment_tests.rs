@@ -91,7 +91,7 @@ fn idle(_: &str) -> bool {
 }
 
 fn user(id: &str, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false, power: true }
 }
 
 async fn add_user(pool: &SqlitePool, id: &str, admin: bool) {
@@ -272,6 +272,36 @@ async fn an_experiment_is_frozen_and_paired_when_created() {
         assert_eq!(others(&b), others(&v));
         assert_eq!((b.max_turns, b.max_actions, b.max_seconds, b.difficulty.as_str()), (120, 200_000, 600, "Easy"));
     }
+}
+
+#[tokio::test]
+async fn only_admins_and_power_users_start_repeat_or_extend_experiments() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota::default();
+    let fa = ForgeAccess::default();
+    let bryan = user("bryan", false);
+    let with_op = |op: &str| {
+        let mut r = swap_req(100);
+        r.op_id = Some(op.into());
+        r
+    };
+    let d = create(&pool, &bryan, with_op("op-1"), sim.as_ref()).await.unwrap();
+    let id = d.item.id.clone();
+    // The same account after its power-user grant is withdrawn: it still reads the run and a retry
+    // of the create that already happened answers with it, but it starts nothing new.
+    let plain = User { power: false, ..user("bryan", false) };
+    assert_eq!(create_with(&pool, &plain, with_op("op-1"), sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
+    let forbidden = |e: AppError| matches!(e, AppError::Forbidden(m) if m == crate::auth::POWER_ONLY);
+    assert!(forbidden(create_with(&pool, &plain, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert!(forbidden(again_with(&pool, &plain, &id, 100, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    // 100 games of a change run are 50 pods: asking from that count is new work, from any other
+    // it's a retry (or a stale page) and answers with the run.
+    assert!(forbidden(more_with(&pool, &plain, &id, 100, 50, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert_eq!(more_with(&pool, &plain, &id, 100, 0, sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
+    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.id, id);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id='bryan'").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]

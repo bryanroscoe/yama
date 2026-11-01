@@ -34,7 +34,7 @@ export interface UsageRow {
   /** Whose Claude the account would ask on: the server's subscription, its own key, the shared key, or none. */
   advisor_mode: "subscription" | "own_key" | "shared" | null;
   /** Why it can't ask, when it can't. */
-  advisor_reason?: "off" | "keys_off" | "needs_key" | null;
+  advisor_reason?: "off" | "keys_off" | "needs_key" | "power_only" | null;
   watch_running: number;
   limits: Limits;
 }
@@ -180,6 +180,8 @@ export const adminApi = {
   stopWatch: (id: string) => api(`/api/admin/watch/${encodeURIComponent(id)}/stop`, { method: "POST" }),
   invite: (id: string) => api(`/api/admin/users/${encodeURIComponent(id)}/invite`, { method: "POST" }),
   uninvite: (id: string) => api(`/api/admin/users/${encodeURIComponent(id)}/invite`, { method: "DELETE" }),
+  /** Make an account a power user (simulations, watched AI games, Ask Claude), or stop it being one. */
+  setPower: (id: string, on: boolean) => api(`/api/admin/users/${encodeURIComponent(id)}/power`, { method: on ? "POST" : "DELETE" }),
   deleteAccount: (id: string, confirmEmail: string) =>
     api<DeleteReport>(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE", json: { confirm_email: confirmEmail } }),
   views: () => api<ViewLogRow[]>("/api/admin/views"),

@@ -187,6 +187,24 @@ function GameLine({ g, choice, onChoose }: { g: MythicGameRow; choice: string | 
   const day = g.started_at ? new Date(g.started_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "No date";
   const seats = g.seats.map((s) => `${s.name}${s.commander ? ` (${s.commander})` : s.deck ? ` (${s.deck})` : ""}${s.won ? ", won" : ""}`).join("; ");
   const canChoose = g.status === "match";
+  if (g.status === "conflict") {
+    return (
+      <li className="stack" style={{ gap: "0.25rem" }}>
+        <span>
+          <b>{day}</b> <span className="dim">{statusText(g)}</span>
+        </span>
+        {seats && <span className="small">Mythic now: {seats}</span>}
+        {g.yama_id && <Link className="small" to={`/table/games/${g.yama_id}`}>Open the Yama version</Link>}
+        <label className="small">
+          <span className="visually-hidden">Which version to keep</span>
+          <select value={choice ?? "skip"} onChange={(e) => onChoose(e.target.value)}>
+            <option value="skip">Keep the Yama version</option>
+            <option value="update">Replace it with Mythic's version</option>
+          </select>
+        </label>
+      </li>
+    );
+  }
   return (
     <li className="stack" style={{ gap: "0.25rem" }}>
       <span>
@@ -201,7 +219,7 @@ function GameLine({ g, choice, onChoose }: { g: MythicGameRow; choice: string | 
             <option value="skip">Skip it for now</option>
             {g.matches.map((m) => (
               <option key={m.id} value={`link:${m.id}`}>
-                It's the game on {new Date(m.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} already in Yama ({m.seats} players)
+                It's the game on {new Date(m.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} already in Yama, with {m.players.join(", ") || `${m.seats} players`}
               </option>
             ))}
             <option value="import">Import it as its own game</option>
