@@ -190,8 +190,13 @@ const SEND = String.raw`
     const had = piles(deck).filter((c) => c.commander).map((c) => c.oracleid).sort().join();
     const want = commanders.map((c) => c.oracle_id).sort().join();
     if (had !== want && commanders[0] && commanders[0].printing) {
+      // The commander, then the partner (or none), as Mythic's deck form saves them.
       await call("PUT", "/deck/" + deck.deck.id + "/commander", { card_id: await cardId(commanders[0].printing), allow_color_change: true });
+      const partner = commanders[1] && commanders[1].printing ? await cardId(commanders[1].printing) : null;
+      await call("PUT", "/deck/" + deck.deck.id, { partner_card_id: partner });
       deck = await load(deck.deck.id);
+      const now = piles(deck).filter((c) => c.commander).map((c) => c.oracleid).sort().join();
+      if (now !== want) console.warn("Mythic kept other commanders; set them on mythic.tools. Yama will show the deck as changed.");
     }
   }
 

@@ -43,7 +43,7 @@ What Yama knows about Mythic Tools' private API, from exporting Bryan's own acco
 | Card by printing | `GET /card?set_code=&collector_number=&lang=en&finish=` | `{card:{cardid, name, …}}`: Mythic's card id, which a deck's commander needs. `GET /card/scryfall?scryfall_id=` answers the same. |
 | Make a deck | `POST /deck` | `{type:0, name, formatid:6, colors:"", commander_card_id, partner_card_id, rightplaymat_card_id, rightplaymat_face_index, privacy:{type: private, shared, unlisted or public, options:{share_stats, share_games}, circleIds:[]}}` → `{deckId, failedCards}`. The commander goes in the main list's Commander group by itself. |
 | Rename | `PUT /deck/{id}` | Takes just the fields that change, e.g. `{name}`. |
-| Commander | `PUT /deck/{id}/commander` | `{card_id, allow_color_change}`. |
+| Commander | `PUT /deck/{id}/commander` | `{card_id, allow_color_change}`. The send snippet sets a partner with `PUT /deck/{id}` `{partner_card_id}` (the field Mythic's deck form saves; not yet tried on a real deck), then checks the commanders Mythic reports and says so if they still differ. |
 | Add cards | `POST /user/lists/{listid}/cards` | `{cards:[{set_code, collector_number, lang, finish, quantity, condition, incollection:false, proxy:false}]}` → `{result:{added, failed_cards}}`. `listid` is the deck's main list. |
 | Take cards out | `POST /user/lists/{listid}/cards/remove` | `{cards:[{list_card_id, quantity}]}`; taking part of a pile leaves the rest under a new `list_card_id`. |
 | Delete | `DELETE /deck/{id}/permanently` | The deck stays readable with `deleted: true` and leaves the deck lists. |
