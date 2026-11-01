@@ -285,7 +285,8 @@ function draftFromPlayer(p: TableState["players"][number], decks: DeckSummary[] 
     handle: group?.members.find((m) => m.id === p.memberId)?.handle ?? undefined,
     deckId: deck?.id,
     deckVersionId: p.deckVersionId,
-    deckLabel: deck ? undefined : label,
+    // A deck you lent keeps its name on the seat, as setup gave it.
+    deckLabel: label,
     commanderName: p.commanderName ?? "",
     colorIdentity: p.colorIdentity,
     art: p.art,
@@ -319,8 +320,10 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
   const commander = state.setup.format === "commander";
   const save = async () => {
     setSaving(true);
-    // A commander typed but never picked from the list still gets its card's art and colors.
-    const d = now.deckId || now.deckLabel ? now : await resolveDraft(now as SeatDraft & CommanderDraft);
+    // A commander typed but never picked from the list still gets its card's art and colors; the
+    // same commanders as before are left as they are.
+    const sameCommanders = (now.commanderName || undefined) === p.commanderName && (now.partnerName || undefined) === p.partnerName;
+    const d = now.deckId || now.deckLabel || sameCommanders ? now : await resolveDraft(now as SeatDraft & CommanderDraft);
     const name = d.name.trim() || p.name;
     if (name !== p.name || d.memberId !== p.memberId || d.userId !== p.userId) {
       dispatch({ type: "player", seat, name, memberId: d.memberId, userId: d.userId, was: { name: p.name } });

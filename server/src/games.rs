@@ -367,17 +367,17 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
                 // to their member row: only while the game is going, and only for a seat whose
                 // change the table logged (a "player" event, stored or arriving now). Anything else
                 // is a different game under the same id.
-                let changed: Vec<&StoredSeat> = sent.iter().zip(&stored).filter(|(s, old)| s.who() != old.who()).map(|(s, _)| *s).collect();
+                let changed: Vec<(&StoredSeat, &StoredSeat)> = sent.iter().zip(&stored).filter(|(s, old)| s.who() != old.who()).map(|(s, old)| (*s, old)).collect();
                 if !changed.is_empty() {
                     let mut logged: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT actor_seat FROM game_events WHERE game_id = ? AND kind = 'player' AND actor_seat IS NOT NULL")
                         .bind(&g.id)
                         .fetch_all(&mut *tx)
                         .await?;
                     logged.extend(g.events.iter().filter(|e| e.kind == "player").filter_map(|e| e.actor_seat));
-                    if status != "in_progress" || changed.iter().any(|s| s.ai_kind.is_some() || !logged.contains(&s.seat)) {
+                    if status != "in_progress" || changed.iter().any(|(s, old)| s.ai_kind.is_some() || old.ai_kind.is_some() || !logged.contains(&s.seat)) {
                         return Err(AppError::Conflict("this game was already saved with different players".into()));
                     }
-                    for s in &changed {
+                    for (s, _) in &changed {
                         sqlx::query("UPDATE game_seats SET member_id = ?, user_id = ?, guest_name = ? WHERE game_id = ? AND seat = ?")
                             .bind(&s.member_id)
                             .bind(&s.user_id)
@@ -1140,10 +1140,10 @@ mod tests {
         assert_eq!(seat_names(&pool, id).await[1].as_deref(), Some("Samantha"));
         // A retry after that needs nothing more: the stored event still explains it.
         create_game(&pool, "me", renamed(json!([]))).await.unwrap();
-        // Once the game is over, its players are settled.
+        // Once the game is over, its players are settled, even a seat the log already renamed once.
         finish_as(&pool, id, "me", finish(json!({ "winner_seat": 0, "seats": [] }))).await.unwrap();
         let mut again = renamed(json!([]));
-        again.seats[2].guest_name = Some("Jo".into());
+        again.seats[1].guest_name = Some("Sammy".into());
         assert!(matches!(create_game(&pool, "me", again).await, Err(AppError::Conflict(_))));
     }
 

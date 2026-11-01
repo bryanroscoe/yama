@@ -78,7 +78,8 @@ export function describe(before: TableState, after: TableState, e: TableEvent): 
     case "player": {
       // A saved game's seats already carry the new name, so the old one comes from the event.
       const old = e.was?.name ?? name(e.seat);
-      return old === e.name ? `${e.name}'s seat is tied to their Yama player now.` : `${old}'s seat is ${e.name} now.`;
+      if (old !== e.name) return `${old}'s seat is ${e.name} now.`;
+      return e.memberId || e.userId ? `${e.name}'s seat is tied to their Yama player now.` : `${e.name} plays as a guest now.`;
     }
     case "finish": {
       const how = winConditionLabel(e.winCondition);
