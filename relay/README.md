@@ -13,14 +13,15 @@ repo's `npm test`); `src/index.ts` is the Worker and Durable Object around it.
 - The web app uses it when built with `VITE_RELAY_URL=wss://relay.yama.ing`; without it, the
   server's own relay (`server/src/table_rooms.rs`).
 - Logs: observability is off, so connection URLs (with host secrets) aren't stored.
-- Abuse guards (2026-11-01): 30 connections a minute per client address (`CONNECTS`, Workers
-  rate limiting, counted in the Worker before any Durable Object is touched), and `GUEST_JOIN`:
+- Abuse guards (2026-11-01): a Cloudflare rate limiting rule in front of the Worker (50
+  requests per 10 s per IP on relay.yama.ing, `waf-rule.py`), so a flood is blocked before it
+  counts against the Worker's 100,000 daily requests; 30 connections a minute per client address
+  and role inside the Worker (`CONNECTS`, Workers rate limiting, before any Durable Object is
+  touched; hosts and guests counted apart, since a table shares one Wi-Fi address); and `GUEST_JOIN`:
   set it to `off` (wrangler.toml and deploy, or the dashboard's Workers, yama-relay, Settings,
   Variables) to refuse every phone joining by code. Refused phones are told why (close codes
   4429 and 4403). If a deploy says the rate limiting binding isn't on this plan, remove the
-  `[[ratelimits]]` block: the Worker runs without it. A Cloudflare WAF rate limiting rule (one
-  is free: per IP, 10-second windows) on `relay.yama.ing/table/*` also stops a flood before it
-  counts against the Worker's daily requests; it's set in the dashboard, not here.
+  `[[ratelimits]]` block: the Worker runs without it.
 
 ## Work on it
 
@@ -41,7 +42,11 @@ Deployed by hand from clean `main` (it changes rarely), with the Cloudflare toke
 ```sh
 cd relay
 npm ci
-CLOUDFLARE_API_TOKEN="$(op read 'op://Bryan Code/cloudflare -admin api token/credential')" npx wrangler deploy
+export CLOUDFLARE_API_TOKEN="$(op read 'op://Bryan Code/cloudflare -admin api token/credential')"
+npx wrangler deploy
+# The flood guard in front of the Worker (once, and again if waf-rule.py changes). It stops if the
+# zone already has another rate limiting rule; the Free plan allows one.
+python3 -I waf-rule.py
 curl https://relay.yama.ing/health
 ```
 

@@ -17,9 +17,11 @@ import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
 interface Env {
   ROOMS: DurableObjectNamespace<TableRoom>;
   /**
-   * Connections per client address (Workers rate limiting, wrangler.toml), counted before a
-   * room is touched, so a flood can't spend the plan's Durable Object requests. Missing (a plan
-   * or a local run without it): no limit.
+   * Connections per client address and role (Workers rate limiting, wrangler.toml), counted
+   * before a room is touched, so a flood can't spend the plan's Durable Object requests. It can't
+   * spare the Worker's own daily requests (each one has counted by then): the zone's rate
+   * limiting rule in front of the Worker does that (relay/waf-rule.py). Missing (a plan or a
+   * local run without it): no limit.
    */
   CONNECTS?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** "off" refuses phones joining by code (guests): the switch if joining without an account is abused. */
@@ -67,8 +69,10 @@ export default {
     if (role === "guest" && env.GUEST_JOIN === "off") {
       return refuse(CLOSE_GUESTS_OFF, "Joining a table by its code is turned off right now.");
     }
+    // Per role: a table's phones usually share one Wi-Fi address, and guests coming and going
+    // mustn't use up the host phone's own allowance.
     const address = req.headers.get("CF-Connecting-IP");
-    if (env.CONNECTS && address && !(await env.CONNECTS.limit({ key: address })).success) {
+    if (env.CONNECTS && address && !(await env.CONNECTS.limit({ key: `${role}:${address}` })).success) {
       return refuse(CLOSE_TOO_MANY, "Too many connections from this network. Wait a minute.");
     }
     const room = env.ROOMS.get(env.ROOMS.idFromName(`${gameId}/${key}`));
