@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Navigate, NavLink, Outlet, Route, Routes, useMatch } from "react-router";
+import { NavLink, Outlet, Route, Routes, useMatch } from "react-router";
 import { chooseGuest, setGuestActive, useGuestChosen } from "./guest";
 import { selectSlot } from "./table/store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -154,15 +154,14 @@ export function App() {
       </main>
     );
   }
-  // A join link on Yama's own relay needs an account (the Cloudflare relay's links were let in
-  // above): sign in first, and the link opens once signed in.
-  if (guest && joining) return <Login />;
   if (guest) {
     return (
       <Routes>
         <Route path="/table/play" element={<TablePlay />} />
         <Route index element={<TableHome />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Anything else needs an account (a join link on Yama's own relay, an app asking to
+            connect, a deck): sign in, and the same address opens once signed in. */}
+        <Route path="*" element={<Login />} />
       </Routes>
     );
   }

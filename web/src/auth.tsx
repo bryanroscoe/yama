@@ -220,8 +220,8 @@ export function Login() {
         className="login-secondary"
         onClick={() => {
           chooseGuest(true);
-          // A join link on Yama's own relay needs an account; counting without one starts afresh.
-          if (location.pathname.startsWith("/table/join/")) navigate("/", { replace: true });
+          // Any other page here needs an account; counting without one starts at the Table page.
+          if (location.pathname !== "/") navigate("/", { replace: true });
         }}
       >
         Count life without an account
