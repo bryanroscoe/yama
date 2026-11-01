@@ -283,9 +283,16 @@ export function audit(opts) {
   const minGap = opts.minGap ?? 4;
   const alpha = (c) => {
     const m = /rgba?\(([^)]+)\)/.exec(c);
-    if (!m) return 0;
-    const parts = m[1].split(/[ ,/]+/).filter(Boolean);
-    return parts.length < 4 ? 1 : Number(parts[3]);
+    if (m) {
+      const parts = m[1].split(/[ ,/]+/).filter(Boolean);
+      return parts.length < 4 ? 1 : Number(parts[3]);
+    }
+    // color-mix() and friends compute to color(srgb r g b / a).
+    if (c.startsWith("color(")) {
+      const a = /\/\s*([\d.]+)\s*\)$/.exec(c);
+      return a ? Number(a[1]) : 1;
+    }
+    return 0;
   };
   const boxed = (el, s) => {
     if (/^(IMG|VIDEO|CANVAS|INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName)) return true;
@@ -307,22 +314,28 @@ export function audit(opts) {
   const items = [...boxes, ...texts.map((t) => ({ el: t.el, rect: t.rect, text: t.text, box: false }))];
   const near = new Map();
   items.forEach((it, idx) => {
-    for (let gx = Math.floor((it.rect.left - minGap) / cell); gx <= Math.floor((it.rect.right + minGap) / cell); gx++)
-      for (let gy = Math.floor((it.rect.top - minGap) / cell); gy <= Math.floor((it.rect.bottom + minGap) / cell); gy++) {
+    // Bucket only the on-screen part: a tall panel on a long page would fill thousands of cells.
+    const l = Math.max(it.rect.left, 0) - minGap;
+    const r = Math.min(it.rect.right, vw) + minGap;
+    const t = Math.max(it.rect.top, 0) - minGap;
+    const b = Math.min(it.rect.bottom, vh) + minGap;
+    for (let gx = Math.floor(l / cell); gx <= Math.floor(r / cell); gx++)
+      for (let gy = Math.floor(t / cell); gy <= Math.floor(b / cell); gy++) {
         const k = `${gx},${gy}`;
         if (!near.has(k)) near.set(k, []);
         near.get(k).push(idx);
       }
   });
-  // The fixed or sticky layer an element scrolls with (null: the page). A bottom tab bar passing
-  // over a form isn't a missing gap.
+  // The layer an element is drawn in: its nearest fixed, sticky or absolute ancestor (null: the
+  // page). A bottom tab bar passing over a form, or a dropdown's options over the content under
+  // it, isn't a missing gap.
   const layers = new Map();
   const layerOf = (el) => {
     if (layers.has(el)) return layers.get(el);
     let layer = null;
     for (let cur = el; cur && cur !== document.body; cur = cur.parentElement) {
       const p = styleOf(cur).position;
-      if (p === "fixed" || p === "sticky") {
+      if (p === "fixed" || p === "sticky" || (cur !== el && p === "absolute")) {
         layer = cur;
         break;
       }

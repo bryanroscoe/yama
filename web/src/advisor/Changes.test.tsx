@@ -95,5 +95,7 @@ describe("proposal text", () => {
     expect(html).not.toContain("Opus 1 Tymna");
     // One numbered line on its own stays prose.
     expect(renderToStaticMarkup(<ProposalText text={"Cards: 100\n2 changes since then."} />)).not.toContain("proposal-deck-list");
+    // Two or three sentences that open with numbers stay prose too.
+    expect(renderToStaticMarkup(<ProposalText text={"3 lands cut.\n2 ramp spells added.\n1 draw spell swapped."} />)).not.toContain("proposal-deck-list");
   });
 });

@@ -35,7 +35,7 @@ function useToReview(): number {
  *  proposals still waiting for an answer. */
 /** On a phone the sections run past the screen's edge: bring the chosen one into view and mark
  *  which ends have more (`data-more`), so the track fades there instead of cutting a word off. */
-function useScrollHint<T extends HTMLElement>() {
+function useScrollHint<T extends HTMLElement>(content: unknown) {
   const ref = useRef<T>(null);
   const { pathname } = useLocation();
   useEffect(() => {
@@ -60,13 +60,14 @@ function useScrollHint<T extends HTMLElement>() {
       el.removeEventListener("scroll", update);
       resize?.disconnect();
     };
-  }, [pathname]);
+  }, [pathname, content]);
   return ref;
 }
 
 export function DeckTabs() {
   const toReview = useToReview();
-  const track = useScrollHint<HTMLElement>();
+  // The Plans count arrives after load and widens the track: measure again when it does.
+  const track = useScrollHint<HTMLElement>(toReview);
   return (
     <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
       {DECK_SECTIONS.map((s) => (
@@ -108,16 +109,19 @@ export function BackButton({ to, label, text, className = "" }: { to: string; la
 export function SubNav({ label, pages, also }: { label: string; pages: { to: string; label: string; end?: boolean; also?: string }[]; also?: string }) {
   return (
     <nav className="area-subnav" aria-label={label}>
-      {pages.map((p) => (
-        <NavLink
-          key={p.to}
-          to={p.to}
-          end={p.end}
-          className={({ isActive }) => (isActive || (p.also && also?.startsWith(p.also)) ? "active" : "")}
-        >
-          {p.label}
-        </NavLink>
-      ))}
+      {pages.map((p) =>
+        // A page that belongs under another (Swap cards under Overview) marks it current for
+        // screen readers too, which NavLink only does for its own path.
+        p.also && also?.startsWith(p.also) ? (
+          <Link key={p.to} to={p.to} className="active" aria-current="page">
+            {p.label}
+          </Link>
+        ) : (
+          <NavLink key={p.to} to={p.to} end={p.end} className={({ isActive }) => (isActive ? "active" : "")}>
+            {p.label}
+          </NavLink>
+        ),
+      )}
     </nav>
   );
 }

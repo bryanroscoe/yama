@@ -10,6 +10,8 @@ function InlineText({ text }: { text: string }) {
 
 /** A deck list's line: "1 Sol Ring". */
 const DECK_LINE = /^\d+x?\s+\S/;
+/** A deck list's section line: "Commander", "Deck", "Sideboard:". */
+const DECK_SECTION = /^(commanders?|deck|main(board)?|sideboard|companion|maybeboard):?$/i;
 
 /** A pasted deck list, one card a line, would otherwise join into one run-on paragraph. */
 function keepDeckLines(text: string) {
@@ -17,8 +19,17 @@ function keepDeckLines(text: string) {
   // Inside a ``` fence the lines are kept as they are already.
   let fenced = false;
   const inFence = lines.map((l) => (/^\s*```/.test(l) ? ((fenced = !fenced), true) : fenced));
-  const deck = (i: number) => !inFence[i] && DECK_LINE.test(lines[i]?.trim() ?? "");
-  return lines.map((l, i) => (deck(i) && (deck(i - 1) || deck(i + 1)) ? `- ${l.trim()}` : l)).join("\n");
+  const deck = lines.map((l, i) => !inFence[i] && DECK_LINE.test(l.trim()));
+  // A deck list is a run under a section line ("Commander", "Deck") or a long run (five or
+  // more); two sentences that happen to open with numbers ("3 lands cut.") stay prose.
+  const listed = new Array<boolean>(lines.length).fill(false);
+  for (let i = 0; i < lines.length; ) {
+    let j = i;
+    while (j < lines.length && deck[j]) j++;
+    if (j > i && (j - i >= 5 || DECK_SECTION.test(lines[i - 1]?.trim() ?? ""))) listed.fill(true, i, j);
+    i = Math.max(j, i + 1);
+  }
+  return lines.map((l, i) => (listed[i] ? `- ${l.trim()}` : l)).join("\n");
 }
 
 /** Small, text-only Markdown vocabulary; external content is never interpreted as HTML. */
