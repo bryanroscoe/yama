@@ -264,7 +264,7 @@ export function verdictText(status: ExperimentStatus, s: Summary): string {
 /**
  * A run of three or more decks, as its card says it: whether one deck clearly wins most often,
  * how many others are within the margin of the leader, and the top few by win rate. Null when
- * it isn't such a run or no deck has a scored game yet.
+ * it isn't such a run or it has too few games to judge yet.
  */
 export function fieldResult(
   s: Summary | null | undefined,
@@ -281,10 +281,9 @@ export function fieldResult(
   const best = scored[0];
   if (!best) return null;
   const leaders = scored.slice(0, 3).map((e) => ({ label: e.label, win_rate: e.win_rate }));
-  // Too few games to judge (server `stats::MIN_PODS`): the server's own "Can't tell yet".
-  if (scored.length < v.entrants.length || v.games < 10) {
-    return { clear: false, text: s.verdict.text, leaders };
-  }
+  // Too few games to judge (server `stats::MIN_PODS`): left to the ordinary verdict wording,
+  // which also says when a cancelled run won't play more.
+  if (scored.length < v.entrants.length || v.games < 10) return null;
   // The server's test, in whole points: another deck is close when its upper bound reaches the leader's lower.
   const round = (x: number) => Math.round(x * 100);
   const lo = round(best.wilson[0]);
