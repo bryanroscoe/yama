@@ -514,12 +514,13 @@ pub fn mass_entry_url(cards: &[&str]) -> Option<String> {
 
 /// A card search on the store's TCGplayer Pro storefront, which has no cart link (`carts.ts`).
 pub fn pro_search_url(store: &Value, card: &str) -> Option<String> {
-    let home = s(store, "homepage")?.trim_end_matches('/');
-    let host = home.strip_prefix("https://")?;
-    if host.contains('/') || !host.ends_with(".tcgplayerpro.com") {
+    // The parsed host, as `carts.ts` reads `new URL(...).origin`: a path or query can't pose as one.
+    let u = url::Url::parse(s(store, "homepage")?).ok()?;
+    if u.scheme() != "https" || !u.host_str()?.ends_with(".tcgplayerpro.com") {
         return None;
     }
-    Some(format!("https://{host}/search/products?q={}&productLineName={}&sort=price-asc", urlencoding(front_face(card)), urlencoding("Magic: The Gathering")))
+    let base = u.origin().ascii_serialization();
+    Some(format!("{base}/search/products?q={}&productLineName={}&sort=price-asc", urlencoding(front_face(card)), urlencoding("Magic: The Gathering")))
 }
 
 /// `encodeURIComponent`.

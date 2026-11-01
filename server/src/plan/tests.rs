@@ -1564,3 +1564,32 @@ async fn a_rule_set_made_in_yama_is_dated_and_an_import_never_replaces_it() {
     assert_eq!(status, StatusCode::OK, "{r}");
     assert_eq!(bundle(&app, &token).await["settings"].as_array().unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn restoring_a_yama_backup_never_deletes_a_rule_set() {
+    let (app, _pool, _id, token) = setup().await;
+    // A plan made in Yama (a backup restored), then a rule set made since.
+    let mut backup = doc();
+    backup["meta"]["app"] = json!("yama");
+    import(&app, &token, &backup).await;
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let rule = json!({"max_usd": 2.0, "always_ok_usd": 0.5, "tiers": []});
+    let (status, r) = send(&app, Method::POST, "/api/plan/settings", Some(&token), Some(json!({"effective_from": today, "local_buy": rule}))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+
+    // A backup with no rule sets keeps them all.
+    backup["meta"]["generated_at"] = json!("2026-10-19T20:30:00Z");
+    backup["plan"]["settings"] = json!([]);
+    import(&app, &token, &backup).await;
+    let dates: Vec<String> = bundle(&app, &token).await["settings"].as_array().unwrap().iter().map(|s| s["effective_from"].as_str().unwrap().to_string()).collect();
+    assert_eq!(dates, ["2026-10-08", "2026-10-10", today.as_str()]);
+
+    // One with today's date replaces it, and says so.
+    backup["meta"]["generated_at"] = json!("2026-10-19T21:30:00Z");
+    backup["plan"]["settings"] = json!([{"effective_from": today, "note": "Restored", "rules": {"currency": "USD"}}]);
+    let r = import(&app, &token, &backup).await;
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("was replaced by the restored one")), "{r}");
+    let b = bundle(&app, &token).await;
+    assert_eq!(b["settings"].as_array().unwrap().len(), 3);
+    assert_eq!(b["settings"][2]["note"], "Restored");
+}

@@ -29,6 +29,8 @@ describe("lists to paste and links", () => {
     expect(proSearchUrl({ homepage: "https://patsgames.com" }, "Sol Ring")).toBeNull();
     expect(proSearchUrl({ homepage: "http://x.tcgplayerpro.com" }, "Sol Ring")).toBeNull();
     expect(proSearchUrl({ homepage: "https://evil.com/.tcgplayerpro.com" }, "Sol Ring")).toBeNull();
+    expect(proSearchUrl({ homepage: "https://evil.example?next=.tcgplayerpro.com" }, "Sol Ring")).toBeNull();
+    expect(proSearchUrl({ homepage: "https://evil.example#.tcgplayerpro.com" }, "Sol Ring")).toBeNull();
     expect(proSearchUrl({ homepage: null }, "Sol Ring")).toBeNull();
   });
 });

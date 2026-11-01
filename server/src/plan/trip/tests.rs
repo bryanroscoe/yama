@@ -192,5 +192,11 @@ fn preferences_read_the_old_name_and_order_the_stores() {
     assert_eq!(mass_entry_url(&["Sol Ring", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "+2 Mace", "Sol Ring"]).as_deref(),
         Some("https://www.tcgplayer.com/massentry?productline=Magic&c=2%20Sol%20Ring||1%20Fable%20of%20the%20Mirror-Breaker||1%20%2B2%20Mace"));
     assert_eq!(pro_search_url(&json!({"homepage": "https://evil.com/.tcgplayerpro.com"}), "Sol Ring"), None);
+    assert_eq!(pro_search_url(&json!({"homepage": "https://evil.example?next=.tcgplayerpro.com"}), "Sol Ring"), None);
+    assert_eq!(pro_search_url(&json!({"homepage": "https://evil.example#.tcgplayerpro.com"}), "Sol Ring"), None);
+    assert_eq!(
+        pro_search_url(&json!({"homepage": "https://mversetcg.tcgplayerpro.com/"}), "Sol Ring").as_deref(),
+        Some("https://mversetcg.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc")
+    );
     assert_eq!(pro_search_url(&json!({"homepage": "https://patsgames.com"}), "Sol Ring"), None);
 }

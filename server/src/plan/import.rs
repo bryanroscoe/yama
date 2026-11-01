@@ -582,10 +582,19 @@ impl Writer<'_> {
     /// takes over silently (docs/shopping-design.md, "Account-level rules").
     async fn settings(&self, conn: &mut SqliteConnection, plan: &Plan, report: &mut Report) -> AppResult<()> {
         if self.origin != "import" {
-            // A Yama backup being restored: as before 1 Nov 2026, its sets replace that origin's rows
-            // and any set on the same date.
-            sqlx::query("DELETE FROM plan_settings WHERE owner_id = ? AND origin = ?").bind(self.owner).bind(self.origin).execute(&mut *conn).await?;
+            // A Yama backup being restored: its sets replace the sets on the same dates (the report
+            // names each one that changes), and no set is deleted, so a backup without some
+            // dates never silently removes a rule set made since.
+            let existing: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT effective_from, rules FROM plan_settings WHERE owner_id = ?")
+                .bind(self.owner)
+                .fetch_all(&mut *conn)
+                .await?
+                .into_iter()
+                .collect();
             for s in &plan.settings {
+                if existing.get(&s.effective_from).is_some_and(|r| *r != json_text(&s.rules).unwrap_or_default()) {
+                    report.warnings.push(format!("The rule set from {} was replaced by the restored one", s.effective_from));
+                }
                 sqlx::query(
                     "INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)
                      ON CONFLICT(owner_id, effective_from) DO UPDATE SET rules = excluded.rules, note = excluded.note,
