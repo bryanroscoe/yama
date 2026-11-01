@@ -455,6 +455,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "mythic_game_notes", &[("owner_id", t(&b)), ("game_id", t(&g1))]).await;
     fill(&pool, "mythic_links", &[("owner_id", t(&v)), ("kind", t("game")), ("yama_id", t(&g1))]).await;
     fill(&pool, "mythic_links", &[("owner_id", t(&b)), ("kind", t("game")), ("yama_id", t(&g1))]).await;
+    fill(&pool, "mythic_links", &[("owner_id", t(&v)), ("kind", t("deck")), ("yama_id", t(&v_deck))]).await;
+    fill(&pool, "mythic_pushes", &[("owner_id", t(&v)), ("deck_id", t(&v_deck)), ("version_id", t(&v_version))]).await;
 
     // Plans.
     fill(&pool, "plan_meta", &[("owner_id", t(&v))]).await;

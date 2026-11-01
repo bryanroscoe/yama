@@ -34,6 +34,8 @@ function GuestGame({ gameId }: { gameId: string }) {
   const [connected, setConnected] = useState(false);
   /** Connection attempts that closed without ever opening: the link was refused. */
   const [refused, setRefused] = useState(0);
+  /** Why the relay turned this phone away (it closed with a reason), if it did. */
+  const [turnedAway, setTurnedAway] = useState<string | null>(null);
   const [seat, setSeat] = useState<number | null>(() => {
     const saved = localStorage.getItem(`yama.guest.${gameId}`);
     return saved === null ? null : Number(saved);
@@ -69,6 +71,9 @@ function GuestGame({ gameId }: { gameId: string }) {
         attempt = 0;
         setRefused(0);
         setConnected(true);
+        // Let in: any earlier refusal is over (a refusal opens and closes at once, so its reason
+        // is set again by the close that follows).
+        setTurnedAway(null);
       };
       ws.onmessage = (m) => {
         const msg = JSON.parse(m.data);
@@ -81,10 +86,21 @@ function GuestGame({ gameId }: { gameId: string }) {
           navigate(`/table/join/${next.gameId}${joinFragment(next.key, next.relay === "cf" ? "edge" : "server")}`, { replace: true });
         } else if (msg.type === "state") setSnapshot({ setup: msg.setup, log: msg.log });
       };
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         setConnected(false);
+        // The relay says why: joining by code is switched off (don't keep trying), or too many
+        // tries from this network (wait a minute).
+        if (e.code === 4403 || e.code === 4429) {
+          setTurnedAway(e.reason || "The table's relay turned this phone away.");
+          if (e.code === 4403) return;
+          if (!closed) timer = window.setTimeout(open, 60_000);
+          return;
+        }
+        if (opened) setTurnedAway(null);
         if (!opened) setRefused((r) => r + 1);
-        if (!closed) timer = window.setTimeout(open, Math.min(15_000, 1000 * 2 ** attempt++));
+        // Spread out (2 s up, with jitter): a table's phones share one Wi-Fi address, and the
+        // relay's rule in front allows only a few connections from it every 10 s, the host's too.
+        if (!closed) timer = window.setTimeout(open, Math.min(15_000, 2000 * 2 ** attempt++) * (0.75 + Math.random() / 2));
       };
     };
     open();
@@ -118,9 +134,13 @@ function GuestGame({ gameId }: { gameId: string }) {
       <main className="page">
         <h1>Joining the table</h1>
         <p className="dim">
-          {noLink
+          {turnedAway
+            ? turnedAway
+            : noLink
             ? key
-              ? "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
+              ? relay === "edge"
+                ? "Can't reach the table yet. If the host just started the game, or several phones on this Wi-Fi just joined, it connects in a few seconds; if not, ask them to show the code again."
+                : "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
               : "This link is missing its code. Scan the QR code on the host's phone again."
             : !connected
               ? "Connecting to Yama…"
@@ -269,7 +289,7 @@ function GuestGame({ gameId }: { gameId: string }) {
                 ? `Following ${host && host.seat !== me?.seat ? `${host.name}'s` : "the host's"} phone. Tap anyone to change their totals.`
                 : connected
                   ? "The host's phone is offline. Changes will wait until it's back."
-                  : "Reconnecting…"}
+                  : (turnedAway ?? "Reconnecting…")}
             </p>
           )}
           {credited.length > 0 && <span className="guest-credit">{artCredits(credited)}</span>}

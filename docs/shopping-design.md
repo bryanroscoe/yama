@@ -65,7 +65,7 @@ the shopping list.
 | What | Where | Status |
 |---|---|---|
 | Stores (name, kind, location, cart link template, note) | `plan_stores`, from the plan import (`data/planner/stores.json`); Yama-made stores in planner slice 6 | Exists |
-| **Store preferences** | `plan_store_prefs (owner_id, store_key, preference, note, updated_at)`, migration 0049. Keyed by store key, apart from `plan_stores`, so an import never overwrites them and a retired store keeps its preference when it returns. No row: "fine to go". | Built (slice 1) |
+| **Store preferences** | `plan_store_prefs (owner_id, store_key, preference, note, updated_at)`, migration 0050. Keyed by store key, apart from `plan_stores`, so an import never overwrites them and a retired store keeps its preference when it returns. No row: "fine to go". | Built (slice 1) |
 | Dated listings for plan cards | `plan_quotes` (`stock_check`: store, checked date, in stock, price, printing, cart variant, URL) | Exists |
 | Real-card wishlist | Research scenarios with `purpose: permanent_real_wishlist` (`research_reports`), one entry per card | Exists; the bundle now carries it as `wishlist` |
 | **Stock snapshots** | `store_snapshots (id, owner_id, store_key, source, query, fetched_at, status, raw_gz, item_count)` and `store_listings (snapshot_id, owner_id, card_name, oracle_id, set_code, number, finish, condition, language, price, qty, variant, url)`. One snapshot is one dated read of one store (a whole catalog, or the answers for a card list). Listings are never edited; a newer snapshot of the same store supersedes an older one, as `newestChecks` does for quotes. The raw response is kept gzipped (newest 10 per store) so a parse bug can be fixed without fetching again. | Slice 2 |

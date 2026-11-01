@@ -29,6 +29,8 @@ vi.mock("../api", () => ({
   }),
 }));
 vi.mock("../viewingFlag", () => ({ isViewing: () => false }));
+let guest = false;
+vi.mock("../guest", () => ({ isGuest: () => guest }));
 
 items.set("yama.me", JSON.stringify({ id: "me" }));
 const store = await import("./store");
@@ -83,5 +85,143 @@ describe("deleting table games", () => {
     items.set("yama.me", JSON.stringify({ id: "me" }));
     await store.sync();
     expect(calls).toContainEqual({ path: "/api/games/g-theirs", method: "DELETE" });
+  });
+});
+
+describe("games counted without an account", () => {
+  beforeEach(() => {
+    calls.length = 0;
+    failWith = null;
+    goneOnPost = false;
+  });
+
+  it("stay on the phone until whoever signs in saves them", async () => {
+    guest = true;
+    store.startGame(setup("guest-1"));
+    store.dispatch({ type: "life", seat: 0, delta: -3 });
+    await store.sync();
+    store.finishGame(0);
+    await store.sync();
+    expect(calls).toEqual([]);
+    expect(store.getGame()).toBeNull();
+    expect(JSON.parse(items.get("yama.table.guestGames")!).map((g: { setup: { id: string } }) => g.setup.id)).toEqual(["guest-1"]);
+    // Discarding one never asks Yama to delete anything.
+    store.startGame(setup("guest-2"));
+    store.discardGame();
+    await store.sync();
+    expect(calls).toEqual([]);
+    // Signed in, saved: it uploads with its finish.
+    guest = false;
+    store.saveGuestGames();
+    await store.sync();
+    expect(calls.map((c) => c.path)).toEqual(["/api/games", "/api/games/guest-1/finish"]);
+    expect(JSON.parse(items.get("yama.table.guestGames")!)).toEqual([]);
+  });
+
+  it("a game going when they sign in waits too, until saved", async () => {
+    guest = true;
+    store.startGame(setup("guest-3"));
+    guest = false;
+    await store.sync();
+    expect(calls).toEqual([]);
+    store.saveGuestGames();
+    await store.sync();
+    expect(calls.map((c) => c.path)).toContain("/api/games");
+    store.discardGame();
+    await store.sync();
+  });
+});
+
+describe("the game slot without an account", () => {
+  it("never mixes with an account's game, and joins it only when saved into an empty slot", async () => {
+    guest = false;
+    store.startGame(setup("account-1"));
+    // Signed out, counting without an account: the account's game isn't there.
+    guest = true;
+    store.selectSlot(true);
+    expect(store.getGame()).toBeNull();
+    store.startGame(setup("guest-9"));
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    // Signed in: the account's own game, untouched; the guest game waits, unsaved.
+    guest = false;
+    store.selectSlot(false);
+    expect(store.getGame()?.setup.id).toBe("account-1");
+    // Saving with another game going leaves it waiting.
+    store.saveGuestGames();
+    store.selectSlot(true);
+    expect(store.getGame()).toMatchObject({ setup: { id: "guest-9" }, guest: true });
+    expect(store.getGame()!.log).toHaveLength(1);
+    // Once the account's game is gone, saving brings it over as the account's own.
+    store.selectSlot(false);
+    store.discardGame();
+    store.saveGuestGames();
+    expect(store.getGame()?.setup.id).toBe("guest-9");
+    expect(store.getGame()!.guest).toBeUndefined();
+    // And the guest slot is empty again.
+    store.selectSlot(true);
+    expect(store.getGame()).toBeNull();
+    store.selectSlot(false);
+    store.discardGame();
+    await store.sync();
+  });
+});
+
+describe("whose games upload", () => {
+  it("uploads only the games of the account signed in here", async () => {
+    guest = false;
+    calls.length = 0;
+    // Saved by another account that signed out before it went up.
+    items.set("yama.me", JSON.stringify({ id: "someone-else" }));
+    guest = true;
+    store.startGame(setup("theirs-1"));
+    store.finishGame(0);
+    guest = false;
+    // Saved while offline: it waits in the outbox.
+    failWith = "offline";
+    store.saveGuestGames();
+    await store.sync();
+    failWith = null;
+    calls.length = 0;
+    // Now "me" signs in on the phone: their game isn't sent under "me".
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    await store.sync();
+    expect(calls.map((c) => c.path)).not.toContain("/api/games/theirs-1/finish");
+    // Back as them: it goes up.
+    items.set("yama.me", JSON.stringify({ id: "someone-else" }));
+    await store.sync();
+    expect(calls.map((c) => c.path)).toContain("/api/games/theirs-1/finish");
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+  });
+});
+
+describe("each account's game", () => {
+  it("is its own: another account signing in on the phone doesn't see it", async () => {
+    guest = false;
+    items.set("yama.me", JSON.stringify({ id: "alice" }));
+    store.selectSlot(false, "alice");
+    store.startGame(setup("alice-1"));
+    // Alice signs out, Bob signs in: no game of Alice's.
+    items.set("yama.me", JSON.stringify({ id: "bob" }));
+    store.selectSlot(false, "bob");
+    expect(store.getGame()).toBeNull();
+    // Alice again: hers, as she left it.
+    items.set("yama.me", JSON.stringify({ id: "alice" }));
+    store.selectSlot(false, "alice");
+    expect(store.getGame()?.setup.id).toBe("alice-1");
+    store.discardGame();
+    await store.sync();
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, null);
+  });
+
+  it("takes a game from the old shared key only if it's that account's", () => {
+    items.set("yama.table.current", JSON.stringify({ setup: setup("old-carol"), log: [], redo: [], syncedThrough: 0, owner: "carol" }));
+    store.selectSlot(false, "dave");
+    expect(store.getGame()).toBeNull();
+    store.selectSlot(false, "carol");
+    expect(store.getGame()?.setup.id).toBe("old-carol");
+    expect(items.get("yama.table.current")).toBeUndefined();
+    store.discardGame();
+    store.selectSlot(false, null);
   });
 });

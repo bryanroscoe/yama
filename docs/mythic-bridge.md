@@ -36,13 +36,25 @@ What Yama knows about Mythic Tools' private API, from exporting Bryan's own acco
 | Card by Mythic id | `GET /card/id?id=…` | Decks in games name cards by Mythic's own ids (`commander_card_id`, `partner_card_id`; not Scryfall's). The web app calls this to show one; the import snippet uses it for commander names. Response shape assumed to carry `name`; not yet checked by hand. |
 | Commander aggregate | `GET /deck/{id}/platform-meta` | `{platformMeta:{totalDecks, stats:{games,wins,draws,losses,rate}}}` for that deck's commander across Mythic. Keyed by deck, not commander. |
 
-## Writes the export side would use (untested)
+## Writes the deck send uses (tried 2026-11-01 on a private test deck, then deleted)
+
+| What | Request | Notes |
+|---|---|---|
+| Card by printing | `GET /card?set_code=&collector_number=&lang=en&finish=` | `{card:{cardid, name, …}}`: Mythic's card id, which a deck's commander needs. `GET /card/scryfall?scryfall_id=` answers the same. |
+| Make a deck | `POST /deck` | `{type:0, name, formatid:6, colors:"", commander_card_id, partner_card_id, rightplaymat_card_id, rightplaymat_face_index, privacy:{type: private, shared, unlisted or public, options:{share_stats, share_games}, circleIds:[]}}` → `{deckId, failedCards}`. The commander goes in the main list's Commander group by itself. |
+| Rename | `PUT /deck/{id}` | Takes just the fields that change, e.g. `{name}`. |
+| Commander | `PUT /deck/{id}/commander` | `{card_id, allow_color_change}`. The send snippet sets a partner with `PUT /deck/{id}` `{partner_card_id}` (the field Mythic's deck form saves; not yet tried on a real deck), then checks the commanders Mythic reports and says so if they still differ. |
+| Add cards | `POST /user/lists/{listid}/cards` | `{cards:[{set_code, collector_number, lang, finish, quantity, condition, incollection:false, proxy:false}]}` → `{result:{added, failed_cards}}`. `listid` is the deck's main list. |
+| Take cards out | `POST /user/lists/{listid}/cards/remove` | `{cards:[{list_card_id, quantity}]}`; taking part of a pile leaves the rest under a new `list_card_id`. |
+| Delete | `DELETE /deck/{id}/permanently` | The deck stays readable with `deleted: true` and leaves the deck lists. |
+
+## Other writes (untested)
 
 From the web client, not yet called: `POST /game` (create), `PUT /game/{id}/participation`, `POST /game/{id}/note`, `PUT /game/{id}/note`, `POST /game/{id}/tag`; `POST /deck`, `PUT /deck/{id}`, `PUT /deck/{id}/commander`; `POST /user/lists/{id}/cards`, `bulk-edit`, `bulk-move`, `bulk-remove`; deck import by Moxfield or Archidekt link. Games name other Mythic users, who may be asked to confirm their seat (`/user/pending-seats`). Try each on one test record first.
 
 ## In Yama
 
-The games import (server `server/src/bridges/mythic`, web `web/src/bridges/mythic`, behind `YAMA_MYTHIC_BRIDGE=1`) takes the file `web/src/bridges/mythic/snippet.ts` saves when pasted into the console on mythic.tools: `/auth/signin`, `/games` pages, `/game/{id}` for each, and `/card/id` for commander names, with events and pictures dropped.
+The import (server `server/src/bridges/mythic`, web `web/src/bridges/mythic`, behind `YAMA_MYTHIC_BRIDGE=1`) takes the file `web/src/bridges/mythic/snippet.ts` saves when pasted into the console on mythic.tools: `/auth/signin`, `/games` pages, `/game/{id}` for each, `/card/id` for commander names (`{card:{name}}`, checked 2026-11-01), with events and pictures dropped, then `/user/decks` and `/deck/{id}` for each deck's main list. A deck's list is `lists.main.grouped_cards`: groups by type (the commander's is `Commander`), each card with `oracleid`, `scryfallid`, `set_code`, `collector_number`, `finish`, `quantity` and `list_card_id`. The deck send snippet (same file) uses the writes above.
 
 ## Prototype
 
