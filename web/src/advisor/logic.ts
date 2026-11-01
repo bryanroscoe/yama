@@ -156,6 +156,8 @@ export function unavailableText(reason: string | null | undefined, canSaveKey: b
         : "Ask Claude isn't available to your account on this server.";
     case "keys_off":
       return "Ask Claude is only available to this server's owner.";
+    case "power_only":
+      return "Ask Claude is open to admins and power users for now.";
     default:
       return "Ask Claude isn't set up on this server.";
   }

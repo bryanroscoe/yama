@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
+import { usePower } from "../auth";
+import { POWER_NOTE } from "../components/PowerOnly";
 import { api } from "../api";
 import { Details, ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
@@ -50,6 +52,7 @@ export function headline(e: ExperimentItem): string {
 }
 
 export function RunsPage() {
+  const power = usePower();
   const qc = useQueryClient();
   const exps = useQuery({
     queryKey: ["lab", "experiments"],
@@ -69,22 +72,30 @@ export function RunsPage() {
       <LabHead
         title="My runs"
         action={
-          <span className="row" style={{ gap: 8 }}>
-            <Link className="button" to="/lab/compare">
-              Compare decks
-            </Link>
-            <Link className="button primary" to="/lab/try">
-              Try a change
-            </Link>
-          </span>
+          power ? (
+            <span className="row" style={{ gap: 8 }}>
+              <Link className="button" to="/lab/compare">
+                Compare decks
+              </Link>
+              <Link className="button primary" to="/lab/try">
+                Try a change
+              </Link>
+            </span>
+          ) : undefined
         }
       />
       <ErrorText error={exps.error ?? stop.error ?? remove.error} />
       {exps.data?.length === 0 && batch.length === 0 && (
-        <p className="empty">
-          No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
-          <Link to="/lab">Precons</Link>.
-        </p>
+        power ? (
+          <p className="empty">
+            No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
+            <Link to="/lab">Precons</Link>.
+          </p>
+        ) : (
+          <p className="empty">
+            No runs. {POWER_NOTE} See the <Link to="/lab">simulated precon rankings</Link>.
+          </p>
+        )
       )}
       {exps.data && exps.data.length > 0 && (
         <section className="lab-runs" aria-label="Your experiments">

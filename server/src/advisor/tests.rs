@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::config::{AdvisorConfig, Config};
-use crate::testutil::{config, send, state_with, user};
+use crate::testutil::{config, power_user, send, state_with, user};
 use axum::Router;
 use axum::http::{HeaderMap, Method, Request};
 use std::sync::Arc;
@@ -14,7 +14,7 @@ const KEY_SECRET: &str = "advisor-key-secret-0123456789abcdefgh";
 const KEY: &str = "sk-ant-api03-userkey-abcdefghijklmnopqrstuvwxyz0123";
 
 fn u(email: &str, admin: bool, limited: bool) -> User {
-    User { id: "id".into(), email: email.into(), display_name: "x".into(), is_admin: admin, limited }
+    User { id: "id".into(), email: email.into(), display_name: "x".into(), is_admin: admin, limited, power: true }
 }
 
 fn cfg(url: Option<&str>, emails: &[&str], key_secret: bool) -> AdvisorConfig {
@@ -50,6 +50,43 @@ fn only_a_listed_account_ever_gets_the_subscription() {
     assert_eq!(access(&no_keys, &u("owner@example.com", false, false), false, NO), Access::Ready(Mode::Subscription));
     // No sidecar address: off for everyone.
     assert_eq!(access(&cfg(None, &["owner@example.com"], true), &u("owner@example.com", true, false), true, GRANTED), Access::Off);
+}
+
+#[test]
+fn only_admins_and_power_users_may_ask() {
+    let c = cfg(Some("http://advisor"), &["owner@example.com"], true);
+    let plain = User { power: false, ..u("friend@example.com", false, false) };
+    // Not even a saved key, the shared key or a listed email gets past it.
+    for (has_key, shared) in [(false, NO), (true, NO), (false, GRANTED)] {
+        assert_eq!(access(&c, &plain, has_key, shared), Access::PowerOnly, "{has_key} {shared:?}");
+    }
+    assert_eq!(access(&c, &User { power: false, ..u("owner@example.com", false, false) }, false, NO), Access::PowerOnly);
+    assert_eq!(Access::PowerOnly.reason(), Some("power_only"));
+    // Off is still off.
+    assert_eq!(access(&cfg(None, &[], true), &plain, true, NO), Access::Off);
+}
+
+#[tokio::test]
+async fn ask_claude_is_refused_to_accounts_that_are_not_power_users() {
+    let (app, pool) = app_with(cfg(Some("http://advisor"), &["owner@example.com"], true)).await;
+    let (_, token) = user(&pool, "owner@example.com").await;
+    for (method, path, body) in [
+        (Method::GET, "/api/advisor/status", None),
+        (Method::PUT, "/api/advisor/key", Some(json!({"api_key": KEY}))),
+        (Method::PUT, "/api/advisor/settings", Some(json!({"model": "claude-haiku-5-5"}))),
+        (Method::GET, "/api/advisor/conversations", None),
+        (Method::GET, "/api/advisor/conversations/x", None),
+        (Method::POST, "/api/advisor/ask", Some(json!({"question": "Hi"}))),
+    ] {
+        let (status, answer) = send(&app, method.clone(), path, Some(&token), body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path}: {answer}");
+        assert_eq!(answer["error"], crate::auth::POWER_ONLY, "{method} {path}");
+    }
+    // They can still remove what they stored before.
+    let (status, _) = send(&app, Method::DELETE, "/api/advisor/conversations", Some(&token), None).await;
+    assert!(status.is_success(), "{status}");
+    let (status, _) = send(&app, Method::DELETE, "/api/advisor/key", Some(&token), None).await;
+    assert!(status.is_success(), "{status}");
 }
 
 #[test]
@@ -202,7 +239,7 @@ async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str, name: &str) {
 #[tokio::test]
 async fn status_says_why_it_is_unavailable_and_never_shows_a_key() {
     let (app, pool) = app_with(AdvisorConfig::default()).await;
-    let (_, token) = user(&pool, "friend@example.com").await;
+    let (_, token) = power_user(&pool, "friend@example.com").await;
     let (status, body) = send(&app, Method::GET, "/api/advisor/status", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!((body["available"].as_bool(), body["reason"].as_str()), (Some(false), Some("off")));
@@ -210,8 +247,8 @@ async fn status_says_why_it_is_unavailable_and_never_shows_a_key() {
     assert_eq!(status, StatusCode::CONFLICT, "a server without the advisor stores no keys");
 
     let (app, pool) = app_with(cfg(Some("http://127.0.0.1:9"), &["owner@example.com"], true)).await;
-    let (friend_id, friend) = user(&pool, "friend@example.com").await;
-    let (_, owner) = user(&pool, "owner@example.com").await;
+    let (friend_id, friend) = power_user(&pool, "friend@example.com").await;
+    let (_, owner) = power_user(&pool, "owner@example.com").await;
     let (_, body) = send(&app, Method::GET, "/api/advisor/status", Some(&owner), None).await;
     assert_eq!((body["available"].as_bool(), body["mode"].as_str()), (Some(true), Some("subscription")));
     let (_, body) = send(&app, Method::GET, "/api/advisor/status", Some(&friend), None).await;
@@ -243,7 +280,7 @@ async fn the_owner_asks_on_the_subscription_and_the_answer_is_saved() {
     let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
     let url = fake_sidecar(fake.clone()).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
-    let (owner_id, owner) = user(&pool, "owner@example.com").await;
+    let (owner_id, owner) = power_user(&pool, "owner@example.com").await;
     plan_deck(&pool, &owner_id, "tricky-terrain", "Tricky Terrain").await;
 
     let (status, body) = send_text(
@@ -297,8 +334,8 @@ async fn other_accounts_use_their_own_key_or_nothing() {
     let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
     let url = fake_sidecar(fake.clone()).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
-    let (_, friend) = user(&pool, "friend@example.com").await;
-    let (admin_id, admin) = user(&pool, "admin@example.com").await;
+    let (_, friend) = power_user(&pool, "friend@example.com").await;
+    let (admin_id, admin) = power_user(&pool, "admin@example.com").await;
     sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&admin_id).execute(&pool).await.unwrap();
 
     for token in [&friend, &admin] {
@@ -319,8 +356,8 @@ async fn conversations_and_contexts_are_private() {
     let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
     let url = fake_sidecar(fake.clone()).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
-    let (owner_id, owner) = user(&pool, "owner@example.com").await;
-    let (_, other) = user(&pool, "other@example.com").await;
+    let (owner_id, owner) = power_user(&pool, "owner@example.com").await;
+    let (_, other) = power_user(&pool, "other@example.com").await;
     plan_deck(&pool, &owner_id, "tricky-terrain", "Tricky Terrain").await;
     let (deck_id, _) = crate::testutil::deck(&pool, &owner_id, "Owner's deck").await;
     send(&app, Method::PUT, "/api/advisor/key", Some(&other), Some(json!({"api_key": KEY}))).await;
@@ -358,7 +395,7 @@ async fn a_daily_allowance_survives_deleting_and_a_refused_sidecar_leaves_no_tra
     let fake = Fake { lines: Arc::new(Mutex::new(answer_lines())), status: 200, ..Default::default() };
     let url = fake_sidecar(fake.clone()).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
-    let (stranger_id, stranger) = user(&pool, "stranger@example.com").await;
+    let (stranger_id, stranger) = power_user(&pool, "stranger@example.com").await;
     sqlx::query("UPDATE users SET google_sub = 'g-1' WHERE id = ?").bind(&stranger_id).execute(&pool).await.unwrap();
     send(&app, Method::PUT, "/api/advisor/key", Some(&stranger), Some(json!({"api_key": KEY}))).await;
     for _ in 0..DAILY_LIMITED {
@@ -380,7 +417,7 @@ async fn a_daily_allowance_survives_deleting_and_a_refused_sidecar_leaves_no_tra
     let busy = Fake { status: 503, ..Default::default() };
     let url = fake_sidecar(busy).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
-    let (_, owner) = user(&pool, "owner@example.com").await;
+    let (_, owner) = power_user(&pool, "owner@example.com").await;
     let (status, body) = send_text(&app, Method::POST, "/api/advisor/ask", &owner, json!({"question": "Hi"})).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(body.contains("busy now"));
@@ -394,7 +431,7 @@ async fn leaving_early_saves_what_arrived_as_stopped() {
     let fake = Fake { lines: Arc::new(Mutex::new(lines)), pause_ms: 20, status: 200, ..Default::default() };
     let url = fake_sidecar(fake).await;
     let (app, pool) = app_with(cfg(Some(&url), &["owner@example.com"], true)).await;
-    let (_, owner) = user(&pool, "owner@example.com").await;
+    let (_, owner) = power_user(&pool, "owner@example.com").await;
     let req = Request::builder()
         .method(Method::POST)
         .uri("/api/advisor/ask")
@@ -435,7 +472,7 @@ fn shared_answer(cost: f64) -> Vec<String> {
 
 /// An account that joined through open sign-up (Google, no invite): the smaller allowance.
 async fn google_user(pool: &SqlitePool, email: &str) -> (String, String) {
-    let (id, token) = user(pool, email).await;
+    let (id, token) = power_user(pool, email).await;
     sqlx::query("UPDATE users SET google_sub = ? WHERE id = ?").bind(format!("g-{email}")).bind(&id).execute(pool).await.unwrap();
     (id, token)
 }
@@ -557,7 +594,7 @@ async fn shared_questions_have_a_daily_cap_and_a_monthly_cap() {
     c.shared_monthly_usd = 1.0;
     let (app, pool) = app_with(c).await;
     let (_, owner) = bryan(&pool, "owner@example.com").await;
-    let (admin_id, admin) = user(&pool, "admin@example.com").await;
+    let (admin_id, admin) = power_user(&pool, "admin@example.com").await;
     sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&admin_id).execute(&pool).await.unwrap();
     let (matt_id, matt) = google_user(&pool, "matt@example.com").await;
     let (sam_id, sam) = google_user(&pool, "sam@example.com").await;
@@ -706,8 +743,8 @@ async fn view_as_never_asks_on_someone_elses_grant() {
 #[tokio::test]
 async fn the_command_line_grants_and_revokes_by_email() {
     let pool = crate::db::test_pool().await;
-    let (bryan_id, _) = user(&pool, "bryan@example.com").await;
-    let (matt_id, _) = user(&pool, "matt@example.com").await;
+    let (bryan_id, _) = power_user(&pool, "bryan@example.com").await;
+    let (matt_id, _) = power_user(&pool, "matt@example.com").await;
     let cfg = Config { admin_emails: vec!["bryan@example.com".into()], ..config() };
     let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let row = |pool: SqlitePool, id: String| async move {

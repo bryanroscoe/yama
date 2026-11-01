@@ -78,6 +78,10 @@ pub fn app(state: AppState) -> Router {
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 
+    // The Mythic Tools bridge, when it's switched on (YAMA_MYTHIC_BRIDGE=1).
+    if state.cfg.mythic_bridge {
+        router = router.merge(crate::bridges::mythic::router());
+    }
     // Serve the built web app, falling back to index.html for client-side routes.
     if let Some(dist) = &state.cfg.web_dist {
         let index = dist.join("index.html");

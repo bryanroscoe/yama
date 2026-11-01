@@ -11,6 +11,7 @@
 - Don't copy AGPL code (e.g. CollectorVision) into this repo while it's private.
 - The disk is nearly full. Keep Rust debug info low (already set in Cargo.toml), use `CARGO_BUILD_JOBS=4`, and delete large downloads after use.
 - Before committing: `cargo test`, `npm test`, `npm run typecheck`.
+- CI minutes are paid: keep PRs in draft until ready (drafts run no CI). On the final commit, `scripts/local-ci.sh` runs CI's checks and, only if all pass, records a `Local-CI` trailer so PR CI skips them (docs/ci.md). Never write the trailer by hand; the checks must actually pass. Push CI on main always runs in full.
 - To see the site (a polish pass, checking a UI change at every size), use `npm run polish` (docs/polish.md): screenshots of every page, press and size with layout and copy checks, read-only even on production.
 
 ## Code

@@ -12,6 +12,7 @@ import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { SharingSettings } from "../decks/SharingSettings";
+import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -44,6 +45,7 @@ export function GroupPage() {
         <Account />
       </div>
       <ExportGames group={group} />
+      <MythicImportEntry />
       <GroupActions />
     </main>
   );
@@ -414,7 +416,7 @@ function Account() {
         <OfflineCardsSetting />
         {!me.data?.viewing && <SharingSettings />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
-        {!me.data?.viewing && <AdvisorSettings />}
+        {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
         {me.data?.is_admin && (
           <div className="grp-you-row">
             <span className="grp-you-text">

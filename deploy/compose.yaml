@@ -16,6 +16,9 @@ services:
       # Yama's public address, for OAuth sign-in from Claude Code and claude.ai's connectors
       # (server/src/oauth): the issuer, endpoints and /mcp resource are built from it.
       YAMA_PUBLIC_URL: https://yama.ing
+      # The Mythic Tools import (server/src/bridges/mythic), on for everyone (Bryan, 2026-10-31:
+      # "productionize it on the site so people who use this site can import data from there").
+      YAMA_MYTHIC_BRIDGE: "1"
     volumes:
       - ./data:/data
     ports:

@@ -81,6 +81,11 @@ export interface User {
    * Missing from a user cached by an older build, which reads as false.
    */
   limited?: boolean;
+  /**
+   * An admin, or an account an admin made a power user: may start simulations and watched AI
+   * games and use Ask Claude. Missing from a user cached by an older build, which reads as false.
+   */
+  power?: boolean;
   /** Set while an admin views Yama as this person, read only (viewing.ts). */
   viewing?: import("./viewing").Viewing;
 }
@@ -93,6 +98,8 @@ export interface AccountInfo {
   is_admin: boolean;
   limited: boolean;
   invited: boolean;
+  /** Made a power user by an admin (admins are power users without it). */
+  power_user: boolean;
   google: boolean;
   password: boolean;
   disabled_at: string | null;

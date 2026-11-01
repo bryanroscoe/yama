@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { usePower } from "../auth";
 import { api, usd, priceSource } from "../api";
 import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
@@ -151,6 +152,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
 }
 
 function Actions({ precon }: { precon: PreconItem }) {
+  const power = usePower();
   const qc = useQueryClient();
   // One op id per visit: a retried tap makes one deck.
   const opId = useRef(crypto.randomUUID());
@@ -172,7 +174,7 @@ function Actions({ precon }: { precon: PreconItem }) {
             {make.isPending ? "Making the deck…" : "Make this a Yama deck"}
           </button>
         )}
-        <Link className="button" to={`/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>
+        {power && <Link className="button" to={`/lab/try?precon=${encodeURIComponent(precon.id)}`}>Try a change</Link>}
         <AskClaude context={{ kind: "precon", ref: precon.id }} about={precon.name} />
       </div>
       {make.data && (

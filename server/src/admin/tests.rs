@@ -25,6 +25,8 @@ fn admin_routes() -> Vec<(Method, &'static str, Option<Value>)> {
         (Method::DELETE, "/api/admin/users/someone", Some(json!({"confirm_email": "x@example.com"}))),
         (Method::POST, "/api/admin/users/someone/invite", None),
         (Method::DELETE, "/api/admin/users/someone/invite", None),
+        (Method::POST, "/api/admin/users/someone/power", None),
+        (Method::DELETE, "/api/admin/users/someone/power", None),
         (Method::GET, "/api/admin/usage", None),
         (Method::GET, "/api/admin/server", None),
         (Method::POST, "/api/admin/watch/some-game/stop", None),
@@ -187,6 +189,39 @@ async fn admins_invite_and_uninvite_an_account() {
     // Withdrawing an invite signs the person out, as it always has.
     assert_eq!(send(&app, Method::GET, "/api/me", Some(&pat_token), None).await.0, StatusCode::UNAUTHORIZED);
     assert_eq!(send(&app, Method::POST, "/api/admin/users/no-such-id/invite", Some(&token), None).await.0, StatusCode::NOT_FOUND);
+}
+
+// ── power users ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn admins_make_an_account_a_power_user_and_take_it_back() {
+    let (app, pool) = app().await;
+    let (bryan, token) = admin(&pool, "bryan@example.com").await;
+    let (pat, pat_token) = user(&pool, "pat@example.com").await;
+    let power = |me: &Value| me["power"].as_bool().unwrap();
+    let (_, me) = send(&app, Method::GET, "/api/me", Some(&pat_token), None).await;
+    assert!(!power(&me), "nobody is a power user until an admin says so: {me}");
+    let (_, me) = send(&app, Method::GET, "/api/me", Some(&token), None).await;
+    assert!(power(&me), "an admin always is: {me}");
+
+    let path = format!("/api/admin/users/{pat}/power");
+    assert_eq!(send(&app, Method::POST, &path, Some(&token), None).await.0, StatusCode::NO_CONTENT);
+    let (_, me) = send(&app, Method::GET, "/api/me", Some(&pat_token), None).await;
+    assert!(power(&me), "{me}");
+    let (_, list) = send(&app, Method::GET, "/api/admin/users", Some(&token), None).await;
+    let row = list.as_array().unwrap().iter().find(|a| a["id"] == pat.as_str()).unwrap();
+    assert_eq!(row["power_user"], true);
+    let (_, usage) = send(&app, Method::GET, "/api/admin/usage", Some(&token), None).await;
+    let row = usage["accounts"].as_array().unwrap().iter().find(|a| a["id"] == pat.as_str()).unwrap();
+    assert_eq!((row["power"].as_bool(), row["power_user"].as_bool()), (Some(true), Some(true)));
+
+    assert_eq!(send(&app, Method::DELETE, &path, Some(&token), None).await.0, StatusCode::NO_CONTENT);
+    let (_, me) = send(&app, Method::GET, "/api/me", Some(&pat_token), None).await;
+    assert!(!power(&me), "{me}");
+    // Admins are power users anyway, and an unknown account is not found.
+    let (status, _) = send(&app, Method::POST, &format!("/api/admin/users/{bryan}/power"), Some(&token), None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::POST, "/api/admin/users/no-such-id/power", Some(&token), None).await.0, StatusCode::NOT_FOUND);
 }
 
 // ── deleting an account ────────────────────────────────────────────────────
@@ -413,6 +448,13 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "game_seats", &[("game_id", t(&g6)), ("seat", V::I(1)), ("user_id", t(&v))]).await;
     let seats6 = json!([seat_json(0, &b, "bystander"), seat_json(1, &v, "victim")]).to_string();
     fill(&pool, "online_games", &[("game_id", t(&g6)), ("host_id", t(&b)), ("stage", t("over")), ("seats", t(seats6))]).await;
+    // The Mythic Tools bridge: the victim's links and its Mythic notes go, also on games that stay
+    // (its own g1, the bystander's g3); the bystander's own note and link on g1 stay.
+    fill(&pool, "mythic_game_notes", &[("owner_id", t(&v)), ("game_id", t(&g1))]).await;
+    fill(&pool, "mythic_game_notes", &[("owner_id", t(&v)), ("game_id", t(&g3))]).await;
+    fill(&pool, "mythic_game_notes", &[("owner_id", t(&b)), ("game_id", t(&g1))]).await;
+    fill(&pool, "mythic_links", &[("owner_id", t(&v)), ("kind", t("game")), ("yama_id", t(&g1))]).await;
+    fill(&pool, "mythic_links", &[("owner_id", t(&b)), ("kind", t("game")), ("yama_id", t(&g1))]).await;
 
     // Plans.
     fill(&pool, "plan_meta", &[("owner_id", t(&v))]).await;

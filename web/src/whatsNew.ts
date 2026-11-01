@@ -27,6 +27,25 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/", label: "Start a game" },
   },
   {
+    id: "2026-10-31-power-users",
+    date: "2026-10-31",
+    title: "Simulations and Ask Claude for power users",
+    items: [
+      "Starting simulations, watching AI games and Ask Claude are open to admins and power users for now, because they take a lot of the server. Ask the host if you'd like to be a power user.",
+      "Simulation results stay open to everyone: the Lab's precon rankings and your own earlier runs are where they were.",
+    ],
+    link: { to: "/lab", label: "Precon rankings" },
+  },
+  {
+    id: "2026-10-31-power-estimate",
+    date: "2026-10-31",
+    title: "An estimate on the older 1 to 10 power scale",
+    items: [
+      "A deck's Bracket panel now translates the list into the older power-level scale, for playgroups that still talk in it: the suggested bracket sets the range and cheap mana, draw, interaction, tutors, the curve, Game Changers and combos move it within it.",
+      "It's an unofficial Yama estimate from the card list, not how the deck plays. Open How the power estimate adds up to see every factor and the cards behind it.",
+    ],
+  },
+  {
     id: "2026-10-31-scan-closeups-switch",
     date: "2026-10-31",
     title: "Scan with a camera that stays put",
