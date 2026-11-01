@@ -1,0 +1,23 @@
+# Yama's shared-table relay. Deploy notes: relay/README.md.
+name = "yama-relay"
+main = "src/index.ts"
+# Bryan's Cloudflare account (the yama.ing zone).
+account_id = "cb1237c6aab19beb18e9545ac846f9eb"
+compatibility_date = "2026-10-01"
+
+# Only relay.yama.ing; no workers.dev address.
+workers_dev = false
+routes = [{ pattern = "relay.yama.ing", custom_domain = true }]
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "TableRoom"
+
+# SQLite-backed, the only kind on the Workers Free plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TableRoom"]
+
+# No request logs: connection URLs carry host secrets.
+[observability]
+enabled = false
