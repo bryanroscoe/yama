@@ -28,7 +28,8 @@ namespace_id = "1001"
 # apart (a table's phones share one Wi-Fi, and its guests mustn't cut off its host). The day's
 # allowance is 100,000 requests, incoming WebSocket messages count 20 to 1, and the WAF rule's
 # requests share it (waf-rule.py): 500 + 300 a minute is at most 57,600 a day, which with the
-# WAF rule's 34,600 keeps one address under the day. The host phone sends the game at most 5
+# WAF rule's 34,600 keeps one address under the day, as far as Cloudflare's approximate
+# counting holds (it's per location and can let some over): a brake, not a hard cap. The host phone sends the game at most 5
 # times a second however fast guests tap (share.tsx, SNAPSHOT_EVERY_MS), 300 a minute, so its
 # 500 leaves room; one over the minute's share is closed and reconnects.
 [[ratelimits]]
