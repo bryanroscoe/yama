@@ -25,10 +25,12 @@ interface Env {
    */
   CONNECTS?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /**
-   * Messages per client address across all its sockets and rooms (Workers rate limiting): one
-   * address keeping many sockets open can't add up past what the day's allowance can take.
+   * Messages per client address across all its sockets and rooms (Workers rate limiting), hosts
+   * and guests apart: one address keeping many sockets open can't add up past what the day's
+   * allowance can take, and a table's guests can't use up its host's share.
    */
-  MESSAGES?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  MESSAGES_HOST?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  MESSAGES_GUEST?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** "off" refuses phones joining by code (guests): the switch if joining without an account is abused. */
   GUEST_JOIN?: string;
 }
@@ -128,7 +130,8 @@ export class TableRoom extends DurableObject<Env> {
     // the room's message count unseen.
     if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
     const address = (ws.deserializeAttachment() as { address?: string } | null)?.address;
-    if (this.env.MESSAGES && address && !(await this.env.MESSAGES.limit({ key: `${this.io.roleOf(ws)}:${address}` })).success) {
+    const limiter = this.io.roleOf(ws) === "host" ? this.env.MESSAGES_HOST : this.env.MESSAGES_GUEST;
+    if (limiter && address && !(await limiter.limit({ key: address })).success) {
       return this.io.close(ws, CLOSE_TOO_MANY, "Too many messages from this network. Wait a minute.");
     }
     message(this.io, ws, msg);

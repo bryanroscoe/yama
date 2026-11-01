@@ -24,18 +24,27 @@ namespace_id = "1001"
   limit = 30
   period = 60
 
-# Messages per client address and role per minute across all its sockets and rooms (hosts and
-# guests apart, so a table's guests on one Wi-Fi can't cut off its host). The day's allowance is
-# 100,000 requests, incoming WebSocket messages count 20 to 1, and the WAF rule's requests share
-# it (waf-rule.py): 400 a minute for each role is at most 57,600 a day, which with the WAF rule's
-# 34,600 keeps one address under the day. A host resends the game on each change, a few a second
-# at a busy table; one over the minute's share is closed and reconnects.
+# Messages per client address per minute across all its sockets and rooms, hosts and guests
+# apart (a table's phones share one Wi-Fi, and its guests mustn't cut off its host). The day's
+# allowance is 100,000 requests, incoming WebSocket messages count 20 to 1, and the WAF rule's
+# requests share it (waf-rule.py): 500 + 300 a minute is at most 57,600 a day, which with the
+# WAF rule's 34,600 keeps one address under the day. The host phone sends the game at most 5
+# times a second however fast guests tap (share.tsx, SNAPSHOT_EVERY_MS), 300 a minute, so its
+# 500 leaves room; one over the minute's share is closed and reconnects.
 [[ratelimits]]
-name = "MESSAGES"
+name = "MESSAGES_HOST"
 namespace_id = "1002"
 
   [ratelimits.simple]
-  limit = 400
+  limit = 500
+  period = 60
+
+[[ratelimits]]
+name = "MESSAGES_GUEST"
+namespace_id = "1003"
+
+  [ratelimits.simple]
+  limit = 300
   period = 60
 
 [[durable_objects.bindings]]
