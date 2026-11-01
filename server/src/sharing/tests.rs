@@ -448,6 +448,12 @@ fn a_build_compares_with_another_build_card_by_card() {
     let mut noted = b4s.clone();
     noted[2]["pairing_note"] = json!("Swap with the land change.");
     assert_eq!(compare(&b4, &noted, &b3, &b3s, "B3")[2].notes, vec!["Both builds cut C for these.".to_string(), "Swap with the land change.".to_string()]);
+    // Many swaps replacing one card in both builds: each pairs once, in order, without a scan per pair.
+    let many = |prefix: &str| (0..2000).map(|i| json!({"card_in": format!("{prefix}{i}"), "card_out": "Plains", "why": ""})).collect::<Vec<_>>();
+    let many_list = |prefix: &str| format!("Commander\n1 Nalia\nDeck\n{}", (0..2000).map(|i| format!("1 {prefix}{i}")).collect::<Vec<_>>().join("\n"));
+    let rows = compare(&many_list("New "), &many("New "), &many_list("Old "), &many("Old "), "B3");
+    assert_eq!(rows.len(), 2000);
+    assert_eq!((rows[0].add.as_str(), rows[0].cut.as_str(), rows[1999].cut.as_str()), ("New 0", "Old 0", "Old 1999"));
     // The whole lists: builds that differ only past the page's list cap still differ.
     let long = |last: &str| format!("Commander\n1 Nalia\nDeck\n{}\n1 {last}", (0..300).map(|i| format!("1 Card {i}")).collect::<Vec<_>>().join("\n"));
     assert_eq!(compare(&long("Late A"), &[], &long("Late B"), &[], "B2"), vec![Change { add: "Late A".into(), n: 1, ..Default::default() }, Change { cut: "Late B".into(), n: 1, ..Default::default() }]);
@@ -553,7 +559,7 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     assert!(up.contains("One-mana exile.") && up.contains("Cut: Symmetrical.") && up.contains("Swap together with the land change."));
     assert!(up.contains(&format!("href=\"/r/{token}/party?build=b2\">")), "switching to the compared build drops the comparison");
     let down = page(&app, &format!("/r/{token}/party?build=b2&vs=b3")).await.2;
-    assert!(down.contains("Keeps the starting list&#39;s card; Bracket 3 · Upgraded swaps it for Swords to Plowshares.") && down.contains("Swords to Plowshares: One-mana exile."), "{down}");
+    assert!(down.contains("Keeps the starting list&#39;s card; Bracket 3 · Upgraded swaps it for Swords to Plowshares.") && down.contains("Swords to Plowshares: One-mana exile.") && down.contains("Swap together with the land change."), "{down}");
     assert!(down.contains(&format!("href=\"/r/{token}/party?build=b3\">")), "no build is compared with itself");
     for bad in ["vs=b3", "vs=b9"] {
         assert_eq!(page(&app, &format!("/r/{token}/party?build=b3&{bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");

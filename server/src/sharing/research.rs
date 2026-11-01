@@ -249,14 +249,18 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
             rows.push(Change { add: text(s, "card_in").into(), cut: text(s, "card_out").into(), n, why: text(s, "why").into(), notes });
         }
     }
-    // Both builds replace the same starting card, each with a different card. Indexed, so a long
-    // note costs one pass over each build's swaps.
+    // Both builds replace the same starting card, each with a different card. The other build's
+    // swaps wait by the card they replace, in order (a stack, so reversed); each is tried once
+    // and leaves, so this is one pass over each build's swaps however many replace one card.
     let mut replacing: HashMap<String, Vec<&Value>> = HashMap::new();
-    for t in vs_swaps.iter().filter(|t| !text(t, "card_out").is_empty()) {
+    for t in vs_swaps.iter().rev().filter(|t| !text(t, "card_out").is_empty()) {
         replacing.entry(same(text(t, "card_out"))).or_default().push(t);
     }
+    let left = |m: &HashMap<String, i64>, name: &str| m.get(&same(name)).copied().unwrap_or(0);
     for s in swaps {
-        for t in replacing.get(&same(text(s, "card_out"))).into_iter().flatten() {
+        let Some(waiting) = replacing.get_mut(&same(text(s, "card_out"))).filter(|_| !text(s, "card_out").is_empty()) else { continue };
+        while left(&adds, text(s, "card_in")) > 0 {
+            let Some(t) = waiting.pop() else { break };
             let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), qty(s).min(qty(t)));
             if n > 0 {
                 rows.push(Change {
@@ -278,7 +282,7 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
                 cut: text(t, "card_in").into(),
                 n,
                 why: format!("Keeps the starting list's card; {vs_label} swaps it for {}.", text(t, "card_in")),
-                notes: labelled(&format!("{}: ", text(t, "card_in")), text(t, "why")),
+                notes: [labelled(&format!("{}: ", text(t, "card_in")), text(t, "why")), labelled("", text(t, "pairing_note"))].concat(),
             });
         }
     }
