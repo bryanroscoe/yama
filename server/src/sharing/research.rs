@@ -231,8 +231,6 @@ pub(super) fn compare(list: &str, swaps: &[Value], vs_list: &str, vs_swaps: &[Va
         a.iter().map(|(k, n)| (k.clone(), n - b.get(k).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect()
     };
     let (mut adds, mut cuts) = (extra(&here, &there), extra(&there, &here));
-    let swaps = &swaps[..swaps.len().min(MAX_LINES)];
-    let vs_swaps = &vs_swaps[..vs_swaps.len().min(MAX_LINES)];
     let mut rows = Vec::new();
     // This build's own swap: its reason holds against either list.
     for s in swaps {
@@ -241,9 +239,14 @@ pub(super) fn compare(list: &str, swaps: &[Value], vs_list: &str, vs_swaps: &[Va
             rows.push(Change { add: text(s, "card_in").into(), cut: text(s, "card_out").into(), n, why: text(s, "why").into(), notes: labelled("Cut: ", text(s, "why_out")) });
         }
     }
-    // Both builds replace the same starting card, each with a different card.
+    // Both builds replace the same starting card, each with a different card. Indexed, so a long
+    // note costs one pass over each build's swaps.
+    let mut replacing: HashMap<&str, Vec<&Value>> = HashMap::new();
+    for t in vs_swaps.iter().filter(|t| !text(t, "card_out").is_empty()) {
+        replacing.entry(text(t, "card_out")).or_default().push(t);
+    }
     for s in swaps {
-        for t in vs_swaps.iter().filter(|t| !text(s, "card_out").is_empty() && text(t, "card_out") == text(s, "card_out")) {
+        for t in replacing.get(text(s, "card_out")).into_iter().flatten() {
             let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), qty(s).min(qty(t)));
             if n > 0 {
                 rows.push(Change {
@@ -528,7 +531,7 @@ pub(super) async fn deck(
     let vs_label = vs.map(|v| text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START);
     let changes = match vs {
         Some(v) => compare(text(b, "list"), &swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), vs_label),
-        None => from_start(&swaps[..swaps.len().min(MAX_LINES)]),
+        None => from_start(&swaps),
     };
     let copies = |add: bool| -> i64 { changes.iter().filter(|c| !(if add { &c.add } else { &c.cut }).is_empty()).map(|c| c.n).sum() };
     write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p>", copies(true), copies(false)).unwrap();
