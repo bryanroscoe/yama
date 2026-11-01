@@ -125,7 +125,19 @@ export class TableRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer) {
+  /**
+   * Messages are handled one after another, in the order they arrived: the rate limit check is a
+   * wait, and without the queue a later message could finish first and reach the host out of
+   * order (the host keeps events in the order it gets them).
+   */
+  private queue: Promise<void> = Promise.resolve();
+
+  webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer) {
+    this.queue = this.queue.then(() => this.handle(ws, msg)).catch(() => undefined);
+    return this.queue;
+  }
+
+  private async handle(ws: WebSocket, msg: string | ArrayBuffer) {
     // Phones send only text; anything else is closed rather than ignored, so it can't run up
     // the room's message count unseen.
     if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
