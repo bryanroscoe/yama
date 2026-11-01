@@ -99,6 +99,14 @@ pub async fn user(pool: &SqlitePool, email: &str) -> (String, String) {
     (id, token)
 }
 
+/// A power user (simulations, watched AI games, Ask Claude) with a live session. Returns (user
+/// id, bearer token).
+pub async fn power_user(pool: &SqlitePool, email: &str) -> (String, String) {
+    let (id, token) = user(pool, email).await;
+    sqlx::query("UPDATE users SET power_user = 1 WHERE id = ?").bind(&id).execute(pool).await.unwrap();
+    (id, token)
+}
+
 /// A deck with one version, owned by `owner`. Returns (deck id, version id).
 pub async fn deck(pool: &SqlitePool, owner: &str, name: &str) -> (String, String) {
     let cards = vec![crate::decks::DeckCard {

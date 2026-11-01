@@ -14,7 +14,7 @@ export interface AdvisorStatus {
   available: boolean;
   /** Whose Claude answers: the server's subscription (its owner only), your own key, or the shared key an admin granted you. */
   mode: "subscription" | "own_key" | "shared" | null;
-  reason: "off" | "keys_off" | "needs_key" | null;
+  reason: "off" | "keys_off" | "needs_key" | "power_only" | null;
   has_key: boolean;
   key_hint: string | null;
   can_save_key: boolean;

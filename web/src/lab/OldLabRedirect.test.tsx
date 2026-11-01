@@ -5,7 +5,8 @@ import { labPath } from "./OldLabRedirect";
 import { LabHead } from "./LabLayout";
 import { DECK_SECTIONS } from "../components/DeckTabs";
 
-vi.mock("../auth", () => ({ useMe: () => ({ data: { id: "owner" } }) }));
+const power = vi.hoisted(() => ({ on: true }));
+vi.mock("../auth", () => ({ useMe: () => ({ data: { id: "owner", power: power.on } }), usePower: () => power.on }));
 
 describe("the Lab is its own section", () => {
   it("maps old /decks/lab links to the same page under /lab", () => {
@@ -29,5 +30,17 @@ describe("the Lab is its own section", () => {
     expect(html).not.toContain("/decks/lab");
     expect(html).not.toContain("Decks sections");
     expect(html).not.toContain('href="/decks/plan"');
+  });
+
+  it("leaves the pages that start simulations out for anyone but admins and power users", () => {
+    power.on = false;
+    try {
+      const html = renderToStaticMarkup(<MemoryRouter initialEntries={["/lab/runs"]}><LabHead title="My runs" /></MemoryRouter>);
+      expect(html).toContain('href="/lab/runs"');
+      expect(html).not.toContain('href="/lab/try"');
+      expect(html).not.toContain('href="/lab/compare"');
+    } finally {
+      power.on = true;
+    }
   });
 });

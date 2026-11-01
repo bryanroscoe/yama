@@ -8,7 +8,7 @@ pub mod delete;
 #[cfg(test)]
 mod tests;
 
-use crate::auth::{CurrentUser, User, limited_sql};
+use crate::auth::{CurrentUser, User, limited_sql, power_sql};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use axum::extract::{FromRequestParts, Path, State};
@@ -29,6 +29,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/admin/lab-runs/{id}", delete_route(delete_lab_run).patch(rename_lab_run))
         .route("/api/admin/users/{id}", delete_route(delete_user))
         .route("/api/admin/users/{id}/invite", post(invite_user).delete(uninvite_user))
+        .route("/api/admin/users/{id}/power", post(grant_power).delete(revoke_power))
 }
 
 /// Extractor: the signed-in user, if an admin. Anyone else signed in gets "API route not found",
@@ -74,6 +75,27 @@ async fn uninvite_user(State(st): State<AppState>, AdminUser(_): AdminUser, Path
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Make an account a power user, or stop it being one (2026-10-31): only admins and power users may
+/// start simulations and watched AI games or ask Claude. Admins always are, so their flag isn't
+/// changed here. A run already waiting keeps its place; nothing new can be started once revoked.
+async fn set_power(st: &AppState, admin: &User, id: &str, on: bool) -> AppResult<StatusCode> {
+    let (email, is_admin) = account_email(st, id).await?;
+    if is_admin {
+        return Err(AppError::bad("an admin is always a power user"));
+    }
+    sqlx::query("UPDATE users SET power_user = ? WHERE id = ?").bind(on).bind(id).execute(&st.pool).await?;
+    tracing::info!(by = %admin.email, account = %email, power_user = on, "power user changed");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn grant_power(State(st): State<AppState>, AdminUser(admin): AdminUser, Path(id): Path<String>) -> AppResult<StatusCode> {
+    set_power(&st, &admin, &id, true).await
+}
+
+async fn revoke_power(State(st): State<AppState>, AdminUser(admin): AdminUser, Path(id): Path<String>) -> AppResult<StatusCode> {
+    set_power(&st, &admin, &id, false).await
+}
+
 #[derive(Deserialize)]
 struct DeleteBody {
     /// The account's email, typed by the admin to confirm.
@@ -111,6 +133,10 @@ struct UsageRow {
     display_name: String,
     is_admin: bool,
     limited: bool,
+    /// An admin or an account made a power user: may start simulations and ask Claude.
+    power: bool,
+    /// Made a power user in Admin, People (admins are power users without it).
+    power_user: bool,
     disabled: bool,
     decks: i64,
     collection_cards: i64,
@@ -174,7 +200,8 @@ struct UsageTotals {
 async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult<Json<Usage>> {
     let since = day_ago();
     let mut accounts: Vec<UsageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT u.id, u.email, u.display_name, u.is_admin, {limited} AS limited, u.disabled_at IS NOT NULL AS disabled,
+        "SELECT u.id, u.email, u.display_name, u.is_admin, {limited} AS limited, {power} AS power, u.power_user = 1 AS power_user,
+           u.disabled_at IS NOT NULL AS disabled,
            (SELECT COUNT(*) FROM decks d WHERE d.owner_id = u.id AND d.archived = 0) AS decks,
            (SELECT COALESCE(SUM(c.qty), 0) FROM collection_items c WHERE c.owner_id = u.id) AS collection_cards,
            (SELECT COUNT(*) FROM games g WHERE g.created_by = u.id) AS games_logged,
@@ -189,7 +216,8 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
            EXISTS (SELECT 1 FROM advisor_shared_access g WHERE g.user_id = u.id) AS advisor_shared,
            (SELECT g.daily_limit FROM advisor_shared_access g WHERE g.user_id = u.id) AS advisor_shared_limit
          FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500",
-        limited = limited_sql!()
+        limited = limited_sql!(),
+        power = power_sql!()
     )))
     .bind(&since)
     .fetch_all(&st.pool)
@@ -208,7 +236,7 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
     };
     let mut t = UsageTotals::default();
     for a in &mut accounts {
-        let user = User { id: a.id.clone(), email: a.email.clone(), display_name: a.display_name.clone(), is_admin: a.is_admin, limited: a.limited };
+        let user = User { id: a.id.clone(), email: a.email.clone(), display_name: a.display_name.clone(), is_admin: a.is_admin, limited: a.limited, power: a.power };
         a.watch_running = watching.get(&a.id).copied().unwrap_or(0);
         let shared = if a.advisor_shared {
             crate::advisor::SharedGrant::Granted { key_on_sidecar: shared_key }

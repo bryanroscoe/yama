@@ -51,7 +51,8 @@ pub const DISABLED: &str = "This account has been turned off. Ask the host if th
 
 /// SQL that is true for a `users u` row with the smaller allowance (`User::limited`): a Google
 /// account that isn't an admin, has no password from the command line, and isn't invited.
-/// Accounts made any other way (Cloudflare Access, dev login, `user add`) never are.
+/// Accounts made any other way (Cloudflare Access, dev login, `user add`) never are. Being a power
+/// user doesn't change the allowance; an invite does.
 macro_rules! limited_sql {
     () => {
         "(u.google_sub IS NOT NULL AND u.is_admin = 0 AND u.password_hash IS NULL \
@@ -60,10 +61,28 @@ macro_rules! limited_sql {
 }
 pub(crate) use limited_sql;
 
+/// SQL that is true for a `users u` row that may use the heavy and AI features (`User::power`):
+/// an admin, or an account an admin made a power user (migration 0046).
+macro_rules! power_sql {
+    () => {
+        "(u.is_admin = 1 OR u.power_user = 1)"
+    };
+}
+pub(crate) use power_sql;
+
+/// Why a request for a power-user feature was refused.
+pub const POWER_ONLY: &str = "Simulations and Ask Claude are open to admins and power users for now.";
+
 /// The columns of [`User`], read from `users u`.
 macro_rules! user_columns {
     () => {
-        concat!("u.id, u.email, u.display_name, u.is_admin, ", $crate::auth::limited_sql!(), " AS limited")
+        concat!(
+            "u.id, u.email, u.display_name, u.is_admin, ",
+            $crate::auth::limited_sql!(),
+            " AS limited, ",
+            $crate::auth::power_sql!(),
+            " AS power"
+        )
     };
 }
 pub(crate) use user_columns;
@@ -93,6 +112,17 @@ pub struct User {
     /// joined through open sign-up, or whose invite was withdrawn. Gets the smaller lab and play
     /// allowance, and can't use Yama while open sign-up is off.
     pub limited: bool,
+    /// An admin, or an account an admin made a power user: may start simulations and watched AI
+    /// games and use Ask Claude (2026-10-31). Everyone else keeps their own data and reads
+    /// simulation results, but can't start that work.
+    pub power: bool,
+}
+
+impl User {
+    /// Refuse a power-user feature (simulations, watched AI games, Ask Claude) to anyone else.
+    pub fn require_power(&self) -> AppResult<()> {
+        if self.power { Ok(()) } else { Err(AppError::Forbidden(POWER_ONLY.into())) }
+    }
 }
 
 /// A user and whether an admin has turned the account off.
@@ -164,6 +194,20 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Ok(CurrentUser(user));
         }
         access_user(parts, state).await?.map(CurrentUser).ok_or(AppError::Unauthorized)
+    }
+}
+
+/// Extractor: the signed-in user, when they may use the power-user features (simulations, watched
+/// AI games, Ask Claude). Anyone else signed in gets a 403 that says why; signed out is 401.
+pub struct PowerUser(pub User);
+
+impl FromRequestParts<AppState> for PowerUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let CurrentUser(user) = CurrentUser::from_request_parts(parts, state).await?;
+        user.require_power()?;
+        Ok(PowerUser(user))
     }
 }
 
@@ -790,6 +834,8 @@ struct AccountInfo {
     is_admin: bool,
     limited: bool,
     invited: bool,
+    /// Made a power user by an admin (admins are power users without it).
+    power_user: bool,
     google: bool,
     password: bool,
     disabled_at: Option<String>,
@@ -806,7 +852,7 @@ async fn admin_list_users(State(st): State<AppState>, AdminUser(_): AdminUser) -
         sqlx::query_as(concat!(
             "SELECT u.id, u.email, u.display_name, u.is_admin, ",
             limited_sql!(),
-            " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited,
+            " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited, u.power_user = 1 AS power_user,
                u.google_sub IS NOT NULL AS google, u.password_hash IS NOT NULL AS password, u.disabled_at, u.created_at,
                (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in, u.last_seen_at
              FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500"

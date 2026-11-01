@@ -3,6 +3,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
+import { usePower } from "../auth";
 import { api } from "../api";
 import { ArtPanel } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
@@ -29,6 +30,7 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
   compact?: boolean;
 }) {
   const navigate = useNavigate();
+  const power = usePower();
   const again = useMutation({
     mutationFn: () => api<{ id: string }>(`/api/watch/${id}/again`, { method: "POST" }),
     onSuccess: (r) => navigate(`/play/watch/${r.id}`),
@@ -50,10 +52,12 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
         </p>
         <p className="small dim">{status.actions.toLocaleString()} moves by the computer.</p>
         <ErrorText error={again.error} />
-        <div className="watch-end-buttons">
-          <button type="button" className="primary" onClick={() => again.mutate()} disabled={again.isPending}>Watch again</button>
-          <Link to="/play/watch" className="button outline">Set up another</Link>
-        </div>
+        {power && (
+          <div className="watch-end-buttons">
+            <button type="button" className="primary" onClick={() => again.mutate()} disabled={again.isPending}>Watch again</button>
+            <Link to="/play/watch" className="button outline">Set up another</Link>
+          </div>
+        )}
       </div>
     );
   }

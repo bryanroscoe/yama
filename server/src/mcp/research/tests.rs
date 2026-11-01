@@ -126,7 +126,7 @@ async fn full_list_creation_is_staged_atomic_and_cannot_repeat() {
         .await
         .unwrap()
         .remove(0);
-    assert!(!tools::offered("apply_change", &via));
+    assert!(!tools::offered("apply_change", &me, &via));
     let applied = crate::mcp::changes::apply(&st, &me, &change.id)
         .await
         .unwrap();
