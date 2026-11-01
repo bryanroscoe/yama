@@ -35,8 +35,8 @@ backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci-runner`.
 The `state` and `cache` directories belong to UID/GID 1001. `/ci-cache/cargo` holds registry
 and Git dependencies, `/ci-cache/target` holds one dev/test build profile, and `/ci-cache/npm`
-holds npm downloads. These are distinct from production/BuildKit caches. No Actions cache or
-artifact service is used. The completion hook removes the job checkout (including
+holds npm downloads. These are distinct from production/BuildKit caches. Saget jobs use no
+Actions cache or artifact service. The completion hook removes the job checkout (including
 `node_modules`, web build output and temporary Phase checkout) and job temporary files after
 post-actions. It retains the single warm compiler/dependency cache to avoid repeated cold builds.
 Check cache size after the first run and during maintenance; investigate growth beyond the
@@ -60,8 +60,14 @@ Newly scheduled jobs use the selected backend. Existing jobs finish on their
 assigned runner. GitHub-hosted private CI needs available account minutes/billing;
 changing the variable does not clear a billing block.
 
+Since 1 November 2026 yama routes to GitHub-hosted runners (`["ubuntu-24.04"]`);
+switch back to saget only when hosted jobs can't run (billing), and back again after.
 Hosted jobs install Node 22 and Rust 1.98.1, with eight GiB of swap on their
-one-use VM for the engine compiler. Saget uses its preinstalled tools and persistent
+one-use VM for the engine compiler. They restore npm downloads and the Rust build
+(dependencies and the pinned engine, keyed by `deploy/phase-rev`) from the Actions cache.
+Only push CI on main saves the Rust cache, so a PR reuses main's warm build and never
+evicts it. The engine checkout's files are dated to its commit first, because Cargo
+rebuilds a path dependency whose files look newer than its cached build. Saget uses its preinstalled tools and persistent
 cache, with no sudo or host swap changes. Tests and deployment authorization are
 identical on both backends. The local job budget includes time waiting for the
 shared compute slot; hosted job budgets retain their previous limits.
@@ -136,6 +142,15 @@ the successful push run is what authorizes deployment.
   `main`, runs CI again; the gate's step summary says which. Rebase or merge `main`, then run
   the script again to skip once more. `--no-amend` runs the checks without recording anything.
   The trailer is a statement that the checks passed: never write it by hand.
+- **Web-only PRs skip Rust.** When every changed file is under `web/` or `packages/` (or is
+  the root `package.json`/`package-lock.json`), the gate skips the Rust and Python job. Files
+  the server compiles in (`web/public/`, any `.css` or `.html`) still run it, as does any
+  failure to list the PR's files.
+- **Queued or slow CI: `scripts/ci/skip.sh <pr> "<what you ran>"`.** After running the
+  checks locally (at least what your change touches; `scripts/local-ci.sh` for all of them),
+  this labels the PR `skip-ci`, cancels its unfinished run, re-runs it so the gate skips the
+  jobs within seconds, and records what you ran on the PR. Report it as local evidence, not
+  GitHub CI.
 - **`skip-ci` label.** A PR labelled `skip-ci` skips both jobs at its next push, ready
   transition or re-run (labels are read when the gate runs; adding a label starts no run). Use it
   for documentation-only PRs. To get CI, remove the label and use **Re-run all jobs** (re-running
