@@ -375,7 +375,7 @@ async fn google_login(
         return Err(AppError::Forbidden("the Google sign-in had no email address".into()));
     }
     st.limits.sign_in_email.check(&email)?;
-    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref()).await?;
+    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref(), &address_key(address)).await?;
     start_session(&st, jar, user).await
 }
 
@@ -402,7 +402,7 @@ fn display_name(name: Option<&str>, email: &str) -> String {
 
 /// The account a verified Google sign-in (`sub`, lower-cased `email`) belongs to, made if need
 /// be, or why it can't come in. See the module notes for the rules.
-async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>) -> AppResult<User> {
+async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>, address: &str) -> AppResult<User> {
     let invited = is_invited(st, email).await?;
     let open = st.cfg.open_signup;
     let id = if let Some(acc) = account_by_google(&st.pool, sub).await? {
@@ -443,7 +443,23 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 if !open && !invited {
                     return Err(not_invited(email));
                 }
-                sqlx::query(
+                // Open sign-up makes accounts at a person's pace: a few per address a day, and a
+                // ceiling for everyone together, so scripted sign-ups stop. Invites aren't counted.
+                // One sign-up at a time from here to the count below (making accounts is rare), so
+                // sign-ups arriving together can't all pass the limits before any is counted.
+                let _gate = if invited { None } else { Some(st.limits.new_account_gate.lock().await) };
+                // Another sign-in for this same Google account may have made it while this one
+                // waited at the gate: then it's theirs to sign in to, with no limit to meet.
+                let made_meanwhile: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE google_sub = ?)").bind(sub).fetch_one(&st.pool).await?;
+                if !invited && !made_meanwhile {
+                    // Both must allow it, and it counts only once the account is really made
+                    // (below): a refusal from the ceiling for everyone, or two sign-ins racing to
+                    // make the same account, doesn't use up this address's own few.
+                    st.limits.new_accounts_address.allows(address)?;
+                    st.limits.new_accounts.allows("all")?;
+                }
+                let made = sqlx::query(
                     "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT DO NOTHING",
                 )
                 .bind(new_id())
@@ -453,7 +469,9 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 .bind(now())
                 .execute(&st.pool)
                 .await?;
-                if !invited {
+                if !invited && made.rows_affected() == 1 {
+                    st.limits.new_accounts_address.record(address);
+                    st.limits.new_accounts.record("all");
                     tracing::info!(%email, "new account through open sign-up");
                 }
                 // Two sign-ins at once: the second finds the first one's row.

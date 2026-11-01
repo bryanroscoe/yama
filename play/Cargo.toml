@@ -3,6 +3,8 @@ name = "yama-play"
 version = "0.1.0"
 edition = "2024"
 publish = false
+# tests/integration.rs gathers every integration test into one binary (see there).
+autotests = false
 description = "Online play for Yama: the phase-rs rules engine behind a small interface, plus an all-AI soak test."
 
 [dependencies]
@@ -23,3 +25,33 @@ mimalloc = "0.1"
 libc = "0.2"
 
 sha2 = "0.11.1"
+
+# These tools have no unit tests. Without `test = false`, `cargo test` builds and links a
+# second, test-harness copy of each against the whole engine, which costs CI minutes.
+[[bin]]
+name = "coverage"
+test = false
+
+[[bin]]
+name = "labtrace"
+test = false
+
+[[bin]]
+name = "loadbench"
+test = false
+
+[[bin]]
+name = "playbench"
+test = false
+
+[[bin]]
+name = "referee"
+test = false
+
+[[bin]]
+name = "soak"
+test = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

@@ -18,7 +18,7 @@
 //! These play whole games on phase's full card data (YAMA_ENGINE_CARD_DATA, else
 //! data/engine/card-data-cbd552b41f962f5b.json at the repo root), so they're ignored by default.
 //! Missing card data fails an explicitly requested run. Run them in release:
-//!   YAMA_ENGINE_CARD_DATA=... cargo test --release -p yama-play --test determinism -- --ignored --nocapture
+//!   YAMA_ENGINE_CARD_DATA=... cargo test --release -p yama-play --test integration -- --ignored --nocapture determinism::
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};

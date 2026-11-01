@@ -46,6 +46,10 @@ pub struct Config {
     /// Password sign-in for accounts given a password with `yama-server user add`. On unless
     /// YAMA_PASSWORD_LOGIN=0. Nothing ever makes a password account except that command.
     pub password_login: bool,
+    /// The life counter for people who haven't signed in (2026-11-01): card search for their
+    /// commanders, per address (`/api/guest/cards/search`). On unless YAMA_GUEST_MODE=0, which is
+    /// the switch to turn it off if it's abused; their phones then keep counting with typed names.
+    pub guest_mode: bool,
     /// Peers whose `CF-Connecting-IP` header is believed (YAMA_TRUSTED_PROXIES: addresses or
     /// CIDR ranges, comma-separated). Set it to the Cloudflare tunnel connector's Docker network;
     /// without it, per-address limits count the connector's address (see `limits.rs`).
@@ -312,6 +316,7 @@ impl Config {
             },
             open_signup: flag("YAMA_OPEN_SIGNUP"),
             password_login: !off("YAMA_PASSWORD_LOGIN"),
+            guest_mode: !off("YAMA_GUEST_MODE"),
             trusted_proxies,
             lab_quota,
             advisor,

@@ -1,7 +1,7 @@
 //! Frozen production failures and a successful control. These are gameplay acceptance tests:
 //! reproducing an error is a failure, even when the runner exits successfully or repeats it.
 //! Run with the pinned card data, in release, one test at a time:
-//!   YAMA_ENGINE_CARD_DATA=... cargo test --release -p yama-play --test lab_regressions -- --ignored --test-threads=1
+//!   YAMA_ENGINE_CARD_DATA=... cargo test --release -p yama-play --test integration -- --ignored --test-threads=1 lab_regressions::
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};

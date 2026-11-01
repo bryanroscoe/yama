@@ -9,6 +9,45 @@ compatibility_date = "2026-10-01"
 workers_dev = false
 routes = [{ pattern = "relay.yama.ing", custom_domain = true }]
 
+# Phones joining by code (guests): "off" refuses them, the switch if it's abused. Change it here
+# and deploy, or in the dashboard (Workers, yama-relay, Settings, Variables).
+[vars]
+GUEST_JOIN = "on"
+
+# Connections per client address per minute, per Cloudflare location, counted before any room
+# is touched. A table on one Wi-Fi is a few phones reconnecting now and then.
+[[ratelimits]]
+name = "CONNECTS"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Messages per client address per minute across all its sockets and rooms, hosts and guests
+# apart (a table's phones share one Wi-Fi, and its guests mustn't cut off its host). The day's
+# allowance is 100,000 requests, incoming WebSocket messages count 20 to 1, and the WAF rule's
+# requests share it (waf-rule.py): 500 + 300 a minute is at most 57,600 a day, which with the
+# WAF rule's 34,600 keeps one address under the day, as far as Cloudflare's approximate
+# counting holds (it's per location and can let some over): a brake, not a hard cap. The host phone sends the game at most 5
+# times a second however fast guests tap (share.tsx, SNAPSHOT_EVERY_MS), 300 a minute, so its
+# 500 leaves room; one over the minute's share is closed and reconnects.
+[[ratelimits]]
+name = "MESSAGES_HOST"
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 500
+  period = 60
+
+[[ratelimits]]
+name = "MESSAGES_GUEST"
+namespace_id = "1003"
+
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "TableRoom"

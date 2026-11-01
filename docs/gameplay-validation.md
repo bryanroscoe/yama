@@ -11,13 +11,13 @@ For game-related acceptance, explicitly run these targets with the pinned card d
 export CARGO_BUILD_JOBS=1
 export RUST_MIN_STACK=33554432
 export YAMA_ENGINE_CARD_DATA="$PWD/data/engine/card-data-cbd552b41f962f5b.json"
-cargo test --release -p yama-play --test determinism -- --ignored --nocapture --test-threads=1
-cargo test --workspace candidate_v0119 -- --ignored --nocapture --test-threads=1
+cargo test --release -p yama-play --test integration determinism:: -- --ignored --nocapture --test-threads=1
+cargo test -p yama-play --test integration lab_regressions_candidate:: -- --ignored --nocapture --test-threads=1
 ```
 
 The original `lab_regressions` fixtures and historical control (winner 3, turn 54, 2,072 actions)
 remain unchanged. They are seeded scenario inputs, not serialized action replays. The new
-`lab_regressions_candidate` target uses those exact decks, seats, seed, difficulty and limits
+`lab_regressions_candidate` module in the consolidated integration target uses those exact decks, seats, seed, difficulty and limits
 with `candidate-v0119.json` provenance and a full SHA-256 check of the loaded `cbd552b4` bytes.
 It requires normal error-free completion of all four failure scenarios. Its control expectation
 is independent; a changed result must be investigated before being accepted. Every candidate
