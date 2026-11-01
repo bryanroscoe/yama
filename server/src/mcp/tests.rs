@@ -90,7 +90,7 @@ async fn the_protocol_basics() {
     let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK);
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["overview", "deck", "plan_deck", "review_queue", "shopping_trip", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
+    for n in ["overview", "deck", "plan_deck", "review_queue", "shopping_trip", "shopping_settings", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
     let start = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "start_lab_run").unwrap();
@@ -408,4 +408,90 @@ async fn tournament_pasted_lists_are_frozen_without_creating_decks_or_starting_g
     for bad in [json!([{"label":"A"}]),json!([{"label":"","list":a}]),json!([{"label":"A","list":""}])] {
         assert!(call(&app, &token, "start_lab_run", json!({"mode":"tournament","entrant_lists":bad})).await.0);
     }
+}
+
+#[tokio::test]
+async fn shopping_rules_and_store_preferences_are_staged_then_applied() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    for (id, key, name, sort) in [("st1", "black-castle", "Black Castle Gamez", 1), ("st2", "pats", "Pat's Games", 2)] {
+        sqlx::query(
+            "INSERT INTO plan_stores (id, owner_id, key, name, kind, sort, origin, created_at, updated_at) VALUES (?, ?, ?, ?, 'local', ?, 'import', 'now', 'now')",
+        )
+        .bind(id)
+        .bind(&a)
+        .bind(key)
+        .bind(name)
+        .bind(sort)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, '2026-10-28', ?, 'Imported', 'import', 'now')")
+        .bind(&a)
+        .bind(json!({"currency": "USD", "ceiling_other_usd": 2.0, "max_over_market_pct": 100, "proxy_cost_usd": 0.3}).to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &mcp, "shopping_settings", json!({})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("the set from 2026-10-28 (from their plan import)"), "{text}");
+    assert!(text.contains("Sealed precons: no limit set."), "{text}");
+    assert!(text.contains("- Black Castle Gamez (key black-castle): fine to go, not placed in their order"), "{text}");
+
+    // Bryan's rule, with the sealed cap; parts left out would keep the rule in force.
+    let (err, text) = call(
+        &app,
+        &mcp,
+        "set_shopping_rules",
+        json!({"max_usd": 2, "always_ok_usd": 0.5, "tiers": [{"market_under": 1, "max_multiple": 2}, {"market_under": null, "max_multiple": 1.5}], "sealed_max_usd": 51}),
+    )
+    .await;
+    assert!(!err, "{text}");
+    assert!(text.contains("at most 1.5× market when market is $1.00 or more") && text.contains("at most $51.00 a deck"), "{text}");
+    let rules = change_id(&text);
+    let (err, text) = call(&app, &mcp, "set_shopping_rules", json!({"always_ok_usd": 5})).await;
+    assert!(err && text.contains("can't be above the most a card may cost"), "{text}");
+
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "black castle gamez", "preference": "favorite", "hassle": 1, "premium_usd": 0.25})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Black Castle Gamez: their favourite, to support"), "{text}");
+    let pref = change_id(&text);
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "Nowhere"})).await;
+    assert!(err && text.contains("Their stores: Black Castle Gamez (black-castle), Pat's Games (pats)"), "{text}");
+    let (err, _) = call(&app, &mcp, "set_store_preference", json!({"store": "pats", "hassle": 0})).await;
+    assert!(err);
+
+    let sets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_settings WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    let prefs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_store_prefs").fetch_one(&pool).await.unwrap();
+    assert_eq!((sets, prefs), (1, 0), "nothing changes before it's applied");
+
+    for id in [&rules, &pref] {
+        let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
+        assert!(!err, "{text}");
+    }
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let (origin, rules): (String, String) = sqlx::query_as("SELECT origin, rules FROM plan_settings WHERE owner_id = ? AND effective_from = ?")
+        .bind(&a)
+        .bind(&today)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let rules: Value = serde_json::from_str(&rules).unwrap();
+    assert_eq!(origin, "yama");
+    assert_eq!(rules["proxy_cost_usd"], 0.3, "a copy of the set in force");
+    assert_eq!(rules["sealed_max_usd"], 51.0);
+    assert_eq!(rules["local_buy"]["tiers"][1], json!({"market_under": null, "max_multiple": 1.5}));
+    let row: (String, Option<i64>, Option<f64>) = sqlx::query_as("SELECT preference, hassle, premium_usd FROM plan_store_prefs WHERE owner_id = ? AND store_key = 'black-castle'")
+        .bind(&a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row, ("favorite".into(), Some(1), Some(0.25)));
+
+    let (_, text) = call(&app, &mcp, "shopping_settings", json!({})).await;
+    assert!(text.contains(&format!("the set from {today} (made in Yama)")), "{text}");
+    assert!(text.contains("- Black Castle Gamez (key black-castle): their favourite, to support, up to $0.25 more a card here\n"), "{text}");
 }

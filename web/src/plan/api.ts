@@ -1,5 +1,5 @@
 // The planner's server calls. Types live in @yama/core/plan, next to the logic that reads them.
-import type { ImportReport, PlanBundle, StateName, StorePreference } from "@yama/core/plan";
+import type { ImportReport, LocalBuyRule, PlanBundle, StateName, StorePreference } from "@yama/core/plan";
 import { api } from "../api";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
@@ -68,6 +68,22 @@ export const listImports = () => api<ImportRecord[]>("/api/plan/imports");
 
 // ── store preferences (Trip) ───────────────────────────────────────────────
 
-/** Your own setting for one of your stores; null clears it (the store is "fine to go" again). */
-export const setStorePreference = (store: string, preference: StorePreference | null, note: string | null = null) =>
-  api<{ store: string; preference: StorePreference | null }>(`/api/plan/stores/${encodeURIComponent(store)}/preference`, { method: "PUT", json: { preference, note } });
+/** Your whole setting for one of your stores. Fine to go with nothing else set clears it. */
+export interface StorePrefBody {
+  preference: StorePreference;
+  note: string | null;
+  /** Your order of how easy it is to get to, from 1. */
+  hassle: number | null;
+  /** How much more a card may cost here and still come from it, USD. */
+  premium_usd: number | null;
+}
+
+export const setStorePreference = (store: string, body: StorePrefBody) =>
+  api<{ store: string; preference: StorePreference | null }>(`/api/plan/stores/${encodeURIComponent(store)}/preference`, { method: "PUT", json: body });
+
+/** Save your buy rule and sealed cap as a new rule set from `effective_from` (today). */
+export const saveShoppingRules = (body: { effective_from: string; local_buy: LocalBuyRule; sealed_max_usd: number | null; note: string | null }) =>
+  api<{ effective_from: string; origin: string }>("/api/plan/settings", { method: "POST", json: body });
+
+/** Remove a rule set made in Yama (imported sets belong to their export). */
+export const removeShoppingRules = (date: string) => api<{ removed: string }>(`/api/plan/settings/${encodeURIComponent(date)}`, { method: "DELETE" });

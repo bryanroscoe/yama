@@ -127,13 +127,84 @@ const TOOLS: &[Tool] = &[
         title: "Which stores to visit",
         description: "Plan a trip to their stores for the cards they want to buy: the fewest stores that cover the most \
                       cards under their local buy rule (the rule set in force that day), honoring their store preferences \
-                      (usual store, fine, maybe, won't go). Needed cards are planned buys with no order yet and proposals \
+                      (a favourite to support is on every trip it has a card for; fine; maybe; won't go) and their order of how easy stores are to get to. Needed cards are planned buys with no order yet and proposals \
                       they want; undecided proposals and their real-card wishlist only come along from stores already on \
-                      the trip. Gives each store's cards, listed total and cart link, the best choice with fewer stores, \
+                      the trip. Gives each store's cards, listed total and cart link (or card search links on a TCGplayer Pro store), the best choice with fewer stores, \
                       what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
                       purchases; a missing price is unknown, never $0.",
-        schema: || obj(&[("today", "string", "Optional YYYY-MM-DD the trip is for; picks the rule set. Default: today (UTC).")], &[]),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "today": {"type": "string", "description": "Optional YYYY-MM-DD the trip is for; picks the rule set. Default: today (UTC)."},
+                    "stores": {"type": "array", "items": {"type": "string"}, "description": "Optional store keys they're going to this time (see shopping_settings); the rest are left off. Default: every store they'll go to."},
+                },
+                "additionalProperties": false,
+            })
+        },
         does: Does::Read,
+    },
+    Tool {
+        name: "shopping_settings",
+        title: "Shopping rules and stores",
+        description: "Their shopping rules and stores: the local buy rule in force today (and the dated rule set it comes from, \
+                      made in Yama or imported), every dated rule set, the most they'll pay for a sealed precon, and each store's \
+                      level (favourite to support, fine, maybe, won't go), its place in their order of how easy stores are to get \
+                      to, and a favourite's premium. Use the store keys with shopping_trip and set_store_preference.",
+        schema: || obj(&[], &[]),
+        does: Does::Read,
+    },
+    Tool {
+        name: "set_shopping_rules",
+        title: "Change the buy rule",
+        description: staged!(
+            "Change their local buy rule and sealed precon limit. It becomes a new rule set from the day they apply it, \
+             so older checks keep the rules of their own day. Parts left out keep the rule in force. A listing qualifies at \
+             or under always_ok_usd whatever the market; otherwise at most max_usd and at most max_multiple times market for \
+             the first tier whose market_under is above the market (null: any market); with tiers, an unknown market \
+             qualifies only at or under always_ok_usd."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "max_usd": {"type": ["number", "null"], "description": "The most a card may cost; null: no limit."},
+                    "always_ok_usd": {"type": ["number", "null"], "description": "At or under this, fine whatever the market; null: none."},
+                    "tiers": {"type": "array", "description": "Market ranges, lowest first; only the last may have market_under null.",
+                              "items": {"type": "object", "properties": {"market_under": {"type": ["number", "null"]}, "max_multiple": {"type": "number"}},
+                                        "required": ["market_under", "max_multiple"], "additionalProperties": false}},
+                    "sealed_max_usd": {"type": ["number", "null"], "description": "The most for a sealed precon, per deck, before tax; null: no limit."},
+                    "note": {"type": "string", "description": "Why it changed."},
+                },
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "set_store_preference",
+        title: "Set how they feel about a store",
+        description: staged!(
+            "Set one of their stores' level: favorite (a store they want to support: on every trip it has a card for, and it \
+             gets a card when it's at most premium_usd above the cheapest), ok, maybe (only for cards no other store has) or \
+             never; its place in their order of how easy stores are to get to (hassle, 1 is the easiest); and a note. Parts \
+             left out stay as they are."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "store": {"type": "string", "description": "The store's key or name, from shopping_settings."},
+                    "preference": {"type": "string", "enum": ["favorite", "ok", "maybe", "never"]},
+                    "hassle": {"type": ["integer", "null"], "description": "Place in their order, 1 = easiest to get to; null clears it."},
+                    "premium_usd": {"type": ["number", "null"], "description": "How much more a card may cost at a favourite, $0 to $10; null clears it."},
+                    "note": {"type": "string"},
+                },
+                "required": ["store"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
     },
     Tool {
         name: "review_queue",
@@ -691,6 +762,8 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "add_to_collection" => changes::add_to_collection(st, user, via, args).await,
         "move_cards" => changes::move_cards(st, user, via, args).await,
         "set_condition" => changes::set_condition(st, user, via, args).await,
+        "set_shopping_rules" => changes::set_shopping_rules(st, user, via, args).await,
+        "set_store_preference" => changes::set_store_preference(st, user, via, args).await,
         "apply_change" => {
             let c = changes::apply(st, user, text_arg(args, "id")?).await?;
             match (c.status.as_str(), c.error) {
@@ -721,8 +794,20 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
                 Some(d) => return Err(AppError::bad(format!("today: \"{d}\" isn't a YYYY-MM-DD date"))),
                 None => chrono::Utc::now().format("%Y-%m-%d").to_string(),
             };
+            let going: Option<Vec<String>> = match args.get("stores").filter(|v| !v.is_null()) {
+                None => None,
+                Some(v) => Some(
+                    v.as_array()
+                        .and_then(|a| a.iter().map(|x| x.as_str().map(String::from)).collect::<Option<Vec<_>>>())
+                        .ok_or_else(|| AppError::bad("stores must be a list of store keys"))?,
+                ),
+            };
             let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
-            Ok(crate::plan::trip::text(&crate::plan::trip::plan(&bundle, &today)))
+            Ok(crate::plan::trip::text(&crate::plan::trip::plan(&bundle, &today, going.as_deref())))
+        }
+        "shopping_settings" => {
+            let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
+            Ok(crate::plan::shopping::settings_text(&bundle, &chrono::Utc::now().format("%Y-%m-%d").to_string()))
         }
         "find_cards" => {
             st.limits.search.check_user(user)?;

@@ -2,25 +2,33 @@ import { CardRef } from "../components/CardRef";
 import {
   boughtInfo,
   fmtDate,
+  hassleOrder,
   planTrip,
   PREFERENCE_TEXT,
   storePreference,
+  storePremium,
   usd,
   type PrintRow,
+  type SkipReason,
   type Store,
   type StorePreference,
+  type StorePref,
   type TripRow,
 } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
-import { setStorePreference } from "./api";
+import { setStorePreference, type StorePrefBody } from "./api";
 import { marketSentence } from "./marks";
+import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
 
-const CHOICES: StorePreference[] = ["default", "ok", "maybe", "never"];
+const CHOICES: StorePreference[] = ["favorite", "ok", "maybe", "never"];
+
+const SKIP_TEXT: Record<SkipReason, string> = { never: "you won't go", "not-local": "not local, and your rule says buy local", "left-out": "left off this trip" };
 
 /** Why a needed card isn't on the trip, in words. */
 function printReason(p: PrintRow): string {
@@ -30,6 +38,8 @@ function printReason(p: PrintRow): string {
       return `Only at ${p.stores.join(", ")}, where you won't go (${at}).`;
     case "not-local":
       return `Only at ${p.stores.join(", ")}, which isn't local, and your rule is to buy locally (${at}).`;
+    case "left-out":
+      return `Only at ${p.stores.join(", ")}, which you left off this trip (${at}).`;
     case "over-max":
       return `Over your limit (${at}). Print it; it stays on your real-card wishlist.`;
     case "over-market":
@@ -48,11 +58,30 @@ function printReason(p: PrintRow): string {
 /** `/decks/plan/trip`: which of your stores to visit, and what to print instead (docs/shopping-design.md). */
 export function Trip() {
   const { view, userId } = usePlanOutlet();
-  const trip = useMemo(
-    () => planTrip(view.b, { today: view.today, answers: view.answers, bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought) }),
-    [view],
-  );
+  const [params, setParams] = useSearchParams();
   const stores = view.b.stores.filter((s) => !s.retired && s.kind !== "printer");
+  // The stores you're going to this time (?stores=a,b); none given: every store you'll go to.
+  const going = params.get("stores")?.split(",").filter((k) => stores.some((s) => s.key === k)) ?? null;
+  const goingKey = going?.join(",") ?? "";
+  const trip = useMemo(
+    () => planTrip(view.b, { today: view.today, answers: view.answers, bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought), stores: goingKey ? goingKey.split(",") : null }),
+    [view, goingKey],
+  );
+  const willGo = stores.filter((s) => storePreference(view.b, s.key) !== "never");
+  const toggle = (key: string) => {
+    const now = new Set(going ?? willGo.map((s) => s.key));
+    if (now.has(key)) now.delete(key);
+    else now.add(key);
+    const next = willGo.map((s) => s.key).filter((k) => now.has(k));
+    setParams(
+      (p) => {
+        if (next.length === willGo.length) p.delete("stores");
+        else p.set("stores", next.join(","));
+        return p;
+      },
+      { replace: true },
+    );
+  };
   const nameOf = (key: string) => view.b.stores.find((s) => s.key === key)?.name ?? key;
 
   return (
@@ -70,6 +99,17 @@ export function Trip() {
           along from stores you're visiting anyway.
         </p>
       </div>
+
+      {willGo.length > 1 && (
+        <fieldset className="trip-going">
+          <legend className="small">Going this time</legend>
+          {willGo.map((s) => (
+            <label key={s.key} className="trip-going-store">
+              <input type="checkbox" checked={!going || going.includes(s.key)} onChange={() => toggle(s.key)} /> {s.short ?? s.name}
+            </label>
+          ))}
+        </fieldset>
+      )}
 
       <div className="plan-figures">
         <div className="plan-figure">
@@ -92,6 +132,12 @@ export function Trip() {
         )}
       </div>
 
+      {trip.stops.length > 1 && (
+        <p className="trip-copy">
+          <CopyButton text={trip.stops.map((st) => `${st.store.name}\n${st.paste}`).join("\n\n")} label="Copy every store's list" className="button outline" />
+        </p>
+      )}
+
       {trip.stops.length === 0 && <p className="empty">No store has a card you need under your rule. See below for what to print.</p>}
 
       <div className="buy-stores">
@@ -113,7 +159,27 @@ export function Trip() {
                 </a>
               )}
             </header>
-            {st.noCartLine > 0 && <p className="buy-store-note">{st.noCartLine === 1 ? "1 card has" : `${st.noCartLine} cards have`} no cart line: ask at the counter.</p>}
+            {st.cartUrl && <p className="buy-store-note">The cart link fills that store's cart with these cards; check it before you pay.</p>}
+            {st.noCartLine > 0 && !st.search.length && (
+              <p className="buy-store-note">{st.noCartLine === 1 ? "1 card has" : `${st.noCartLine} cards have`} no cart line: ask at the counter.</p>
+            )}
+            {st.search.length > 0 && (
+              <p className="buy-store-note">
+                This store's site has no cart link. Find each card there:{" "}
+                {st.search.map((x, n) => (
+                  <span key={x.card}>
+                    {n ? ", " : ""}
+                    <a href={x.url} target="_blank" rel="noreferrer">
+                      {x.card}
+                    </a>
+                  </span>
+                ))}
+                .
+              </p>
+            )}
+            <p className="trip-copy">
+              <CopyButton text={st.paste} label="Copy the list" className="button outline" />
+            </p>
             {st.rows.map((r) => (
               <TripItem key={r.want.id} r={r} view={view} />
             ))}
@@ -149,6 +215,14 @@ export function Trip() {
           <h2 id="trip-print" className="plan-section-head">
             Print, or check by hand <span className="num dim">{trip.print.length}</span>
           </h2>
+          <p className="trip-copy">
+            <CopyButton text={trip.printPaste} label="Copy the list" className="button outline" />
+            {trip.printMassEntry && (
+              <a className="button outline" href={trip.printMassEntry} target="_blank" rel="noreferrer" title="TCGplayer Mass Entry, prices online">
+                Compare on TCGplayer
+              </a>
+            )}
+          </p>
           {trip.print.map((p) => (
             <div key={p.want.id} className="buy-row">
               <Crop src={view.card(p.want.card)?.image_art_crop} />
@@ -234,42 +308,124 @@ function TripItem({ r, view }: { r: TripRow; view: PlanView }) {
   );
 }
 
+/** The whole setting for one store, as the route takes it. */
+function prefBody(p: StorePref | undefined, change: Partial<StorePrefBody>): StorePrefBody {
+  const preference = p?.preference === "default" ? "favorite" : (p?.preference ?? "ok");
+  return { preference, note: p?.note ?? null, hassle: p?.hassle ?? null, premium_usd: p?.premium_usd ?? null, ...change };
+}
+
 /** Your stores and how you feel about going to each. Yours alone: an import never changes them. */
-function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: PlanView; userId: string; skipped: { store: Store; cards: number }[] }) {
+function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: PlanView; userId: string; skipped: { store: Store; cards: number; why: SkipReason }[] }) {
   const qc = useQueryClient();
+  const prefs = view.b.store_prefs ?? {};
   const set = useMutation({
-    mutationFn: ({ key, preference }: { key: string; preference: StorePreference }) => setStorePreference(key, preference === "ok" ? null : preference),
+    mutationFn: async (changes: { key: string; body: StorePrefBody }[]) => {
+      for (const c of changes) await setStorePreference(c.key, c.body);
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["plan", userId] }),
   });
   if (!stores.length) return null;
+  const order = hassleOrder({ stores, store_prefs: prefs });
+  const sorted = [...stores].sort((x, y) => order.get(x.key)! - order.get(y.key)!);
+  // Moving a store swaps it with its neighbour; every store gets its place, so the order is all yours.
+  const move = (i: number, by: -1 | 1) => {
+    const next = [...sorted];
+    [next[i], next[i + by]] = [next[i + by]!, next[i]!];
+    set.mutate(next.map((s, n) => ({ key: s.key, body: prefBody(prefs[s.key], { hassle: n + 1 }) })).filter((c, n) => prefs[c.key]?.hassle !== n + 1));
+  };
   return (
     <section className="plan-section trip-prefs" aria-labelledby="trip-prefs">
       <h2 id="trip-prefs" className="plan-section-head">Your stores</h2>
-      <p className="dim small">The trip never sends you to a store you won't go to, and visits a "maybe" store only for cards no other store has.</p>
-      {stores.map((s) => {
-        const missed = skipped.find((x) => x.store.key === s.key)?.cards;
+      <p className="dim small">
+        Easiest to get to first. A favourite is on every trip it has a card for and gets a card whenever its price qualifies and is no more than your premium
+        above the cheapest. The trip never sends you to a store you won't go to, and visits a "maybe" store only for cards no other store has. Among stores
+        that cover the same cards, it picks the easier ones.
+      </p>
+      {sorted.map((s, i) => {
+        const missed = skipped.find((x) => x.store.key === s.key);
+        const pref = storePreference(view.b, s.key);
         return (
-          <label key={s.key} className="trip-pref">
-            <span>
-              <b>{s.name}</b>
+          <div key={s.key} className="trip-pref">
+            <span className="trip-pref-name">
+              <b>
+                {i + 1}. {s.name}
+              </b>
               {s.location ? <span className="dim">, {s.location}</span> : null}
-              {missed ? <span className="dim small"> Has {missed === 1 ? "1 card" : `${missed} cards`} you need.</span> : null}
+              {missed ? (
+                <span className="dim small">
+                  {" "}
+                  Has {missed.cards === 1 ? "1 card" : `${missed.cards} cards`} you need ({SKIP_TEXT[missed.why]}).
+                </span>
+              ) : null}
             </span>
-            <select
-              value={storePreference(view.b, s.key)}
-              disabled={set.isPending}
-              onChange={(e) => set.mutate({ key: s.key, preference: e.target.value as StorePreference })}
-            >
-              {CHOICES.map((c) => (
-                <option key={c} value={c}>
-                  {PREFERENCE_TEXT[c]}
-                </option>
-              ))}
-            </select>
-          </label>
+            <span className="trip-pref-controls">
+              <select
+                aria-label={`How you feel about ${s.name}`}
+                value={pref}
+                disabled={set.isPending}
+                onChange={(e) => set.mutate([{ key: s.key, body: prefBody(prefs[s.key], { preference: e.target.value as StorePreference }) }])}
+              >
+                {CHOICES.map((c) => (
+                  <option key={c} value={c}>
+                    {PREFERENCE_TEXT[c]}
+                  </option>
+                ))}
+              </select>
+              {pref === "favorite" && (
+                <Premium
+                  store={s}
+                  value={storePremium(view.b, s.key)}
+                  disabled={set.isPending}
+                  onSave={(v) => set.mutate([{ key: s.key, body: prefBody(prefs[s.key], { premium_usd: v }) }])}
+                />
+              )}
+              <button type="button" className="trip-move" aria-label={`${s.name} is easier to get to`} disabled={set.isPending || i === 0} onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button
+                type="button"
+                className="trip-move"
+                aria-label={`${s.name} is harder to get to`}
+                disabled={set.isPending || i === sorted.length - 1}
+                onClick={() => move(i, 1)}
+              >
+                ↓
+              </button>
+            </span>
+          </div>
         );
       })}
       {set.error && <ErrorText error={set.error} />}
     </section>
+  );
+}
+
+/** "Up to $0.25 more a card here": how much a favourite may cost above the cheapest and still get the card. */
+function Premium({ store, value, disabled, onSave }: { store: Store; value: number; disabled: boolean; onSave: (v: number | null) => void }) {
+  const [text, setText] = useState(value ? value.toFixed(2) : "");
+  const save = () => {
+    const v = text.trim() === "" ? null : Number(text);
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 10)) return setText(value ? value.toFixed(2) : "");
+    if ((v ?? 0) !== value) onSave(v || null);
+  };
+  return (
+    <label className="trip-premium small">
+      up to $
+      <input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        max={10}
+        step={0.05}
+        placeholder="0.00"
+        aria-label={`How much more a card may cost at ${store.name}`}
+        value={text}
+        disabled={disabled}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => e.key === "Enter" && save()}
+      />{" "}
+      more
+    </label>
   );
 }

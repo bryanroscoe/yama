@@ -1754,3 +1754,66 @@
 .trip-pref select {
   flex: none;
 }
+.trip-pref-name {
+  min-width: 0;
+}
+.trip-pref-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.trip-premium input {
+  width: 4.5em;
+  margin: 0 4px;
+}
+.trip-going {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.trip-going legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--dim);
+}
+.trip-going-store {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.trip-move {
+  min-width: var(--target);
+  padding: 0.5rem 0.75rem;
+}
+.rules-form input[type="number"] {
+  width: 5.5em;
+  margin: 0 4px;
+}
+.rules-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.rules-tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.rules-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.trip-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}

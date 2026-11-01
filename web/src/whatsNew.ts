@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-shopping-settings",
+    date: "2026-11-01",
+    title: "Your buy rule, your favourite store, and lists to paste",
+    items: [
+      "Plan settings has your buy rule: the most a card may cost, the price that's always fine, how far over market you'll go, and the most for a sealed precon. A change applies from today, so older checks keep the rules of their day, and a plan import won't replace it.",
+      "On the Trip page, mark a favourite store you want to support: it's on every trip it has a card for, and you can let it charge a little more. Put your stores in order of how easy they are to get to, and untick the ones you're not going to this time.",
+      "Each store has its list to copy and its cart link where the store has one. Stores on TCGplayer Pro get a search link for each card, and what's left has a TCGplayer Mass Entry link to compare online.",
+    ],
+    link: { to: "/decks/plan/trip", label: "Store trip" },
+  },
+  {
     id: "2026-11-01-store-trip",
     date: "2026-11-01",
     title: "Plan a trip to your stores",

@@ -266,13 +266,21 @@ export interface Store {
   retired_at: string | null;
 }
 
-/** How you feel about going to a store (yours, set in Yama; docs/shopping-design.md). */
-export type StorePreference = "default" | "ok" | "maybe" | "never";
+/**
+ * How you feel about going to a store (yours, set in Yama; docs/shopping-design.md): a favourite
+ * you want to support is on every trip it has a card for; "maybe" only for cards no other store has.
+ */
+export type StorePreference = "favorite" | "ok" | "maybe" | "never";
 
 export interface StorePref {
-  preference: StorePreference;
+  /** Bundles before migration 0050 say "default" for a favourite; `storePreference` reads both. */
+  preference: StorePreference | "default";
   note: string | null;
   updated_at: string;
+  /** Your order of how easy a store is to get to: 1 is the easiest. Null: after the ones you ordered. */
+  hassle?: number | null;
+  /** How much more a card may cost here and still come from this store, in USD; null or 0: only on a tie. */
+  premium_usd?: number | null;
 }
 
 /** A card on your real-card wishlist (a research scenario with purpose `permanent_real_wishlist`). */

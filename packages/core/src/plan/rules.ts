@@ -31,6 +31,8 @@ export interface Rules {
   needs_confirmation?: string[];
   /** Which local listings are worth buying, for the store trip (trip.ts `LocalBuyRule`). */
   local_buy?: { max_usd?: number | null; always_ok_usd?: number | null; tiers?: { market_under?: number | null; max_multiple: number }[] };
+  /** The most to pay for a sealed precon, per deck, before tax. */
+  sealed_max_usd?: number | null;
 }
 
 export interface RuleSet {

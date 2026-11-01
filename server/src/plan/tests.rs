@@ -1426,11 +1426,17 @@ async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
     assert_eq!(before["store_prefs"], json!({}));
     assert_eq!(before["wishlist"], json!([]));
 
-    // Only your own stores, and only the four preferences.
+    // Only your own stores, and only the four preferences and sensible settings.
     let (friend, friend_token) = user(&pool, "friend@example.com").await;
     assert_eq!(set_pref(&app, &token, "nowhere", json!({"preference": "never"})).await.0, StatusCode::NOT_FOUND);
     assert_eq!(set_pref(&app, &friend_token, "shop", json!({"preference": "never"})).await.0, StatusCode::NOT_FOUND);
     assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "sometimes"})).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "ok", "hassle": 0})).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "favorite", "premium_usd": 11})).await.0, StatusCode::BAD_REQUEST);
+    // The name before migration 0050 still means a favourite.
+    let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "default", "hassle": 2, "premium_usd": 0.25})).await;
+    assert_eq!((status, r["preference"].as_str()), (StatusCode::OK, Some("favorite")), "{r}");
+    assert_eq!(bundle(&app, &token).await["store_prefs"]["shop"]["premium_usd"], 0.25);
     let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "never", "note": "  Too far  "})).await;
     assert_eq!(status, StatusCode::OK, "{r}");
 
@@ -1459,7 +1465,7 @@ async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
     assert_eq!(bundle(&app, &friend_token).await["store_prefs"], json!({}), "preferences are per user");
 
     // You won't go there, so the wanted card is left to print, and the store is named.
-    let t = super::trip::plan(&b, "2026-11-01");
+    let t = super::trip::plan(&b, "2026-11-01", None);
     assert!(t.stops.is_empty());
     assert_eq!(t.print.len(), 1);
     assert_eq!((t.print[0].want.card.as_str(), t.print[0].reason), ("Proposal Card", "never-store"));
@@ -1469,9 +1475,81 @@ async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
     assert_eq!(set_pref(&app, &token, "shop", json!({"preference": null})).await.0, StatusCode::OK);
     let b = bundle(&app, &token).await;
     assert_eq!(b["store_prefs"], json!({}));
-    let t = super::trip::plan(&b, "2026-11-01");
+    let t = super::trip::plan(&b, "2026-11-01", None);
     assert_eq!(t.stops.len(), 1);
     assert_eq!(t.stops[0].rows[0].want.card, "Proposal Card");
     assert_eq!(t.total, Some(0.75));
     assert!(super::trip::text(&t).contains("1. Example Games (fine to go): 1 card, $0.75"));
+}
+
+#[tokio::test]
+async fn a_rule_set_made_in_yama_is_dated_and_an_import_never_replaces_it() {
+    let (app, pool, id, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let (friend, friend_token) = user(&pool, "friend@example.com").await;
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let tomorrow = (chrono::Utc::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    let rule = json!({"max_usd": 2.0, "always_ok_usd": 0.5, "tiers": [{"market_under": 1.0, "max_multiple": 2.0}, {"market_under": null, "max_multiple": 1.5}]});
+    let post = |token: String, body: Value| {
+        let app = app.clone();
+        async move { send(&app, Method::POST, "/api/plan/settings", Some(&token), Some(body)).await }
+    };
+
+    // Only today (a day either side for time zones), and only a rule that makes sense.
+    let (status, _) = post(token.clone(), json!({"effective_from": "2026-10-01", "local_buy": rule})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut odd = rule.clone();
+    odd["always_ok_usd"] = json!(3.0);
+    let (status, r) = post(token.clone(), json!({"effective_from": today, "local_buy": odd})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(r["error"].as_str().unwrap().contains("can't be above"), "{r}");
+
+    let before = revision(&pool, &id).await;
+    let (status, r) = post(token.clone(), json!({"effective_from": today, "local_buy": rule, "sealed_max_usd": 51, "note": "New rule"})).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert!(revision(&pool, &id).await > before, "the bundle is fetched again");
+    let b = bundle(&app, &token).await;
+    let sets = b["settings"].as_array().unwrap();
+    assert_eq!(sets.len(), 3);
+    let made = sets.iter().find(|s| s["effective_from"] == today.as_str()).unwrap();
+    assert_eq!(made["origin"], "yama");
+    assert_eq!(made["note"], "New rule");
+    assert_eq!(made["rules"]["ceiling_other_usd"], 3.0, "a copy of the set in force, older checks keep theirs");
+    assert_eq!(made["rules"]["sealed_max_usd"], 51.0);
+    assert_eq!(made["rules"]["local_buy"]["max_usd"], 2.0);
+    assert_eq!(bundle(&app, &friend_token).await["settings"], json!([]), "rules are per user");
+    let _ = friend;
+
+    // A later import keeps it: the same date isn't applied, and a later imported set warns.
+    let mut d = doc();
+    d["plan"]["settings"].as_array_mut().unwrap().push(json!({"effective_from": today, "note": "Imported today", "rules": {"currency": "USD"}}));
+    d["plan"]["settings"].as_array_mut().unwrap().push(json!({"effective_from": tomorrow, "note": "Imported tomorrow", "rules": {"currency": "USD"}}));
+    let r = import(&app, &token, &d).await;
+    let warnings: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(warnings.iter().any(|w| w.starts_with(&format!("Kept the rule set from {today} made in Yama"))), "{warnings:?}");
+    assert!(warnings.iter().any(|w| w.starts_with(&format!("The imported rule set from {tomorrow} applies from that date"))), "{warnings:?}");
+    assert_eq!(r["counts"]["settings"], 3);
+    let b = bundle(&app, &token).await;
+    let made = b["settings"].as_array().unwrap().iter().find(|s| s["effective_from"] == today.as_str()).unwrap();
+    assert_eq!((made["origin"].as_str(), made["note"].as_str()), (Some("yama"), Some("New rule")));
+    // The same import again: nothing new to warn about after the Yama set.
+    let mut again = d.clone();
+    again["meta"]["generated_at"] = json!("2026-10-19T21:30:00Z");
+    again["plan"]["stores"][0]["note"] = json!("Changed");
+    let r = import(&app, &token, &again).await;
+    let warnings: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(!warnings.iter().any(|w| w.contains("applies from that date")), "{warnings:?}");
+
+    // Undo: only the newest set, and only one made in Yama.
+    let del = |date: &str| {
+        let (app, token, path) = (app.clone(), token.clone(), format!("/api/plan/settings/{date}"));
+        async move { send(&app, Method::DELETE, &path, Some(&token), None).await }
+    };
+    assert_eq!(del(&tomorrow).await.0, StatusCode::CONFLICT, "imported");
+    assert_eq!(del(&today).await.0, StatusCode::CONFLICT, "not the newest");
+    assert_eq!(del("2026-01-01").await.0, StatusCode::NOT_FOUND);
+    import(&app, &token, &doc()).await;
+    let (status, r) = del(&today).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(bundle(&app, &token).await["settings"].as_array().unwrap().len(), 2);
 }

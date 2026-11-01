@@ -37,26 +37,42 @@ describe("the local buy rule", () => {
 });
 
 describe("the trip", () => {
-  test.each(fixture.cases)("matches the fixture the Rust port also checks ($today)", (c) => {
-    expect(tripSummary(planTrip(bundle, { today: c.today }))).toEqual(c.expect);
+  test.each(fixture.cases)("matches the fixture the Rust port also checks ($today, $stores)", (c) => {
+    const stores = "stores" in c ? (c.stores as string[]) : null;
+    expect(tripSummary(planTrip(bundle, { today: c.today, stores }))).toEqual(c.expect);
   });
 
-  test("a store without a preference is fine to go; a never store is skipped but counted", () => {
-    expect(storePreference(bundle, "pats")).toBe("default");
-    expect(storePreference(bundle, "black-castle")).toBe("ok");
+  test("preferences: none is fine to go, the old name for a favourite still reads, a never store is skipped but counted", () => {
+    expect(storePreference(bundle, "black-castle")).toBe("favorite");
+    expect(storePreference(bundle, "pats")).toBe("ok");
     expect(storePreference({}, "pats")).toBe("ok");
+    expect(storePreference({ store_prefs: { pats: { preference: "default", note: null, updated_at: "" } } }, "pats")).toBe("favorite");
     const t = planTrip(bundle, { today: "2026-11-01" });
     expect(t.stops.map((s) => s.store.key)).not.toContain("alpha-strike");
     expect(t.print.find((p) => p.want.card === "Strike It Rich")?.stores).toEqual(["Alpha Strike Games"]);
+  });
+
+  test("the favourite gets a tie, and a card within its premium; ease decides between equal stores", () => {
+    const t = planTrip(bundle, { today: "2026-11-01" });
+    const bc = t.stops[0]!;
+    expect(bc.store.key).toBe("black-castle");
+    // Fellwar Stone is $0.50 at Pat's and Black Castle; Sol Ring is $1.50 there, $1.25 at Mothership.
+    expect(bc.rows.map((r) => [r.want.card, r.offer.price])).toEqual([["Fellwar Stone", 0.5], ["Sol Ring", 1.5]]);
+    // Swords is $1.00 at Pat's and Mothership: Mothership is easier to get to.
+    expect(t.stops.map((s) => s.store.key)).toEqual(["black-castle", "mothership", "multiverse-hobbies"]);
+    const noPremium = { ...bundle, store_prefs: { ...bundle.store_prefs, "black-castle": { ...bundle.store_prefs!["black-castle"]!, premium_usd: null } } };
+    const plain = planTrip(noPremium, { today: "2026-11-01" });
+    expect(plain.stops.find((s) => s.store.key === "mothership")!.rows.map((r) => r.want.card)).toContain("Sol Ring");
+    const easierPats = { ...bundle, store_prefs: { ...bundle.store_prefs, pats: { ...bundle.store_prefs!.pats!, hassle: 2 }, mothership: { ...bundle.store_prefs!.mothership!, hassle: 3 } } };
+    expect(planTrip(easierPats, { today: "2026-11-01" }).stops.map((s) => s.store.key)).toEqual(["black-castle", "pats", "multiverse-hobbies"]);
   });
 
   test("a maybe store is visited only for cards no other store has", () => {
     const t = planTrip(bundle, { today: "2026-11-01" });
     const multiverse = t.stops.find((s) => s.store.key === "multiverse-hobbies")!;
     expect(multiverse.rows.map((r) => r.want.card)).toEqual(["Exotic Orchard"]);
-    // Without that card, it isn't worth the trip.
     const fewer = { ...bundle, swaps: bundle.swaps.filter((s) => s.in !== "Exotic Orchard") };
-    expect(planTrip(fewer, { today: "2026-11-01" }).stops.map((s) => s.store.key)).toEqual(["pats", "mothership"]);
+    expect(planTrip(fewer, { today: "2026-11-01" }).stops.map((s) => s.store.key)).toEqual(["black-castle", "mothership"]);
   });
 
   test("a maybe store doesn't win by bundling cards the other stores have", () => {
@@ -64,24 +80,38 @@ describe("the trip", () => {
     const fewer = { ...bundle, swaps: bundle.swaps.filter((s) => s.in !== "Exotic Orchard") };
     const plain = planTrip(fewer, { today: "2026-11-01" });
     const bundled = planTrip({ ...fewer, quotes: [...fewer.quotes, at("Sol Ring", 1.25), at("Fellwar Stone", 0.5), at("Swords to Plowshares", 1)] }, { today: "2026-11-01" });
-    expect(bundled.stops.map((s) => s.store.key)).toEqual(["pats", "mothership"]);
+    expect(bundled.stops.map((s) => s.store.key)).toEqual(["black-castle", "mothership"]);
     expect(bundled.alternatives).toEqual(plain.alternatives);
   });
 
   test("a store left out only by the buy-local rule says so, not that you won't go", () => {
     const settings = bundle.settings.map((s) => ({ ...s, rules: { ...s.rules, buy_local_only: true } }));
     const stores = bundle.stores.map((s) => (s.key === "mothership" ? { ...s, kind: "online" as const } : s));
-    const t = planTrip({ ...bundle, settings, stores }, { today: "2026-11-01" });
+    const quotes = bundle.quotes.filter((q) => !(q.card === "Sol Ring" && q.store === "black-castle"));
+    const t = planTrip({ ...bundle, settings, stores, quotes }, { today: "2026-11-01" });
     expect(t.print.find((p) => p.want.card === "Sol Ring")).toMatchObject({ reason: "not-local", stores: ["Mothership Books and Games"] });
+    expect(t.skipped.find((x) => x.store.key === "mothership")?.why).toBe("not-local");
   });
 
-  test("your chosen cut, carts, and totals that never count a missing price as $0", () => {
-    const t = planTrip(bundle, { today: "2026-11-01" });
-    const pats = t.stops[0]!;
+  test("a store left off this trip is named, not used", () => {
+    const t = planTrip(bundle, { today: "2026-11-01", stores: ["black-castle", "pats"] });
+    expect(t.going).toEqual(["black-castle", "pats"]);
+    expect(t.stops.map((s) => s.store.key)).toEqual(["black-castle", "pats"]);
+    expect(t.print.find((p) => p.want.card === "Exotic Orchard")).toMatchObject({ reason: "left-out", stores: ["Multiverse Hobbies"] });
+    expect(t.skipped.map((s) => [s.store.key, s.why])).toEqual([["mothership", "left-out"], ["alpha-strike", "never"], ["multiverse-hobbies", "left-out"]]);
+  });
+
+  test("carts, lists to paste, and totals that never count a missing price as $0", () => {
+    const t = planTrip(bundle, { today: "2026-11-01", stores: ["black-castle", "pats", "multiverse-hobbies"] });
+    const pats = t.stops.find((s) => s.store.key === "pats")!;
     expect(pats.rows.find((r) => r.want.card === "Swords to Plowshares")?.want.replaces).toBe("Swift Cut");
-    expect(pats.cartUrl).toBe("https://patsgames.com/cart/v-fell:1,v-swords:1");
+    expect(pats.paste).toBe("1 Swords to Plowshares");
+    expect(t.stops[0]!.search.map((x) => x.card)).toEqual(["Fellwar Stone", "Sol Ring"]);
     expect(t.stops.find((s) => s.store.key === "multiverse-hobbies")?.cartUrl).toBeNull();
     expect(t.stops.find((s) => s.store.key === "multiverse-hobbies")?.noCartLine).toBe(1);
+    expect(t.printPaste.split("\n")).toContain("1 Mana Vault");
+    const all = planTrip(bundle, { today: "2026-11-01", stores: ["mothership"] });
+    expect(all.stops[0]!.cartUrl).toBe("https://mothershipatx.com/cart/v-sol:1");
     const none = planTrip({ ...bundle, quotes: [] }, { today: "2026-11-01" });
     expect(none.total).toBeNull();
     expect(none.stops).toEqual([]);
