@@ -618,8 +618,10 @@ fn saved(id: &str, revision: i64, hash: &str, changed: bool) -> Value {
 }
 
 /// Saves `document` as a new note only: `None` when `owner` already has one with its id, which
-/// stays as it was. The insert itself decides, so two saves at once can't both take an id.
-pub(crate) async fn save_new(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult<Option<Value>> {
+/// stays as it was. The insert itself decides, so two saves at once can't both take an id. With
+/// `op`, a note already saved by that operation (`copied_from.op`) is the answer instead: a
+/// retried copy returns the first one.
+pub(crate) async fn save_new(pool: &SqlitePool, owner: &str, document: &Value, op: Option<&str>) -> AppResult<Option<Value>> {
     targets(document)?;
     let id = document["id"].as_str().unwrap();
     let encoded = serde_json::to_string(document).map_err(anyhow::Error::from)?;
@@ -627,6 +629,16 @@ pub(crate) async fn save_new(pool: &SqlitePool, owner: &str, document: &Value) -
     // Write lock first: two copies at once then wait in turn (busy timeout) rather than one
     // failing when its read snapshot goes stale at the insert.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    if let Some(op) = op {
+        let done: Option<(String, i64, String)> = sqlx::query_as("SELECT id, revision, content_hash FROM research_reports WHERE owner_id=? AND json_extract(document, '$.copied_from.op')=?")
+            .bind(owner)
+            .bind(op)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some((id, revision, hash)) = done {
+            return Ok(Some(saved(&id, revision, &hash, false)));
+        }
+    }
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM research_reports WHERE owner_id=?").bind(owner).fetch_one(&mut *tx).await?;
     if count >= 20 {
         return Err(AppError::bad("Keep at most 20 research reports per account."));
@@ -873,19 +885,22 @@ pub async fn shared(pool: &SqlitePool, token: &str) -> AppResult<(Option<String>
 /// Copies a shared note into `owner`'s notes: only what its page shows (`public_view`), never
 /// the sharer's answers or evidence. A copy never replaces a note of theirs: when the id is
 /// taken it is saved as `<id>-copy`, `<id>-copy-2` and so on. Returns `save`'s answer.
-pub async fn copy_shared(pool: &SqlitePool, owner: &str, token: &str) -> AppResult<Value> {
+pub async fn copy_shared(pool: &SqlitePool, owner: &str, token: &str, op: Option<&str>) -> AppResult<Value> {
+    if op.is_some_and(|o| !key_ok(o) || o.len() > 64) {
+        return Err(AppError::bad("Invalid copy operation id."));
+    }
     let (handle, mut doc, _) = shared(pool, token).await?;
     let taken: HashSet<String> = sqlx::query_scalar::<_, String>("SELECT id FROM research_reports WHERE owner_id = ?").bind(owner).fetch_all(pool).await?.into_iter().collect();
     // Room for the suffix within key_ok's 160 bytes; ids are ASCII.
     let base: String = doc["id"].as_str().unwrap_or("note").chars().take(140).collect();
     doc["schema"] = json!("yama-research/1");
-    doc["copied_from"] = json!({"link": format!("/r/{token}"), "by": handle});
+    doc["copied_from"] = json!({"link": format!("/r/{token}"), "by": handle, "op": op});
     // `taken` skips the ids already there; one taken since (another copy at the same moment) is
     // refused by the insert, and the next id is tried. An account holds at most 20 notes.
     let ids = std::iter::once(base.clone()).chain((1..).map(|n| if n == 1 { format!("{base}-copy") } else { format!("{base}-copy-{n}") }));
     for id in ids.filter(|id| !taken.contains(id)).take(25) {
         doc["id"] = json!(id);
-        if let Some(saved) = save_new(pool, owner, &doc).await? {
+        if let Some(saved) = save_new(pool, owner, &doc, op).await? {
             return Ok(saved);
         }
     }
@@ -895,10 +910,13 @@ pub async fn copy_shared(pool: &SqlitePool, owner: &str, token: &str) -> AppResu
 #[derive(Deserialize)]
 struct CopyRequest {
     token: String,
+    /// One id per Save-a-copy action, so a retry returns the copy it already made.
+    #[serde(default)]
+    op: Option<String>,
 }
 
 async fn copy_route(State(st): State<AppState>, CurrentUser(u): CurrentUser, Json(r): Json<CopyRequest>) -> AppResult<Json<Value>> {
-    Ok(Json(copy_shared(&st.pool, &u.id, &r.token).await?))
+    Ok(Json(copy_shared(&st.pool, &u.id, &r.token, r.op.as_deref()).await?))
 }
 
 /// A profile's public notes: (token, title, deck count, saved at), newest first.

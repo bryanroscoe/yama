@@ -438,18 +438,18 @@ fn count_cards(n: i64) -> String {
 /// The totals as pills, and how they're worked out.
 fn shopping_totals(t: &Totals, as_of: Option<&str>) -> String {
     let mut s = format!(
-        "<div class=\"share-status\"><span class=\"pill\">{}</span><span class=\"pill\">{} to buy locally: {}</span><span class=\"pill\">{} to print: {}</span><span class=\"pill\">Worth {}</span><span class=\"pill\">Costs {}</span></div>",
+        "<div class=\"share-status\"><span class=\"pill\">{}</span><span class=\"pill\">{} to buy locally: about {}</span><span class=\"pill\">{} to print: about {}</span><span class=\"pill\">{}</span><span class=\"pill\">{}</span></div>",
         count_cards(t.cards),
         t.buy,
         usd(Some(t.buy_cost)),
         t.print,
         usd(Some(t.print_cost)),
-        usd(t.worth()),
-        usd(t.cost()),
+        t.worth().map_or("Worth unknown".into(), |w| format!("Worth {}", usd(Some(w)))),
+        t.cost().map_or("Cost unknown".into(), |c| format!("About {} to get", usd(Some(c)))),
     );
     write!(
         s,
-        "<p class=\"dim share-shop-how\">Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{}. A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less. Worth is what the cards sell for; cost is the buys plus the prints.",
+        "<p class=\"dim share-shop-how\">Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{}. A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less. This is general advice from market prices, not the sharer's own plan. Worth is what the cards sell for. The cost is an estimate: buys at market price (a store's own price will differ) plus prints.",
         as_of.map(|d| format!(", as of {}", when(d))).unwrap_or_default(),
         usd(Some(BUY_UP_TO)),
         usd(Some(PRINT_EACH)),
@@ -476,7 +476,7 @@ fn shopping_table(items: &[ToGet], decks: bool) -> String {
     if decks {
         s.push_str("<th scope=\"col\">Decks</th>");
     }
-    s.push_str("<th scope=\"col\">Get it</th><th scope=\"col\" class=\"num\">Market</th><th scope=\"col\" class=\"num\">Cost</th></tr></thead><tbody>");
+    s.push_str("<th scope=\"col\">Get it</th><th scope=\"col\" class=\"num\">Market</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     for t in sorted {
         let count = if t.n > 1 { format!("{} × ", t.n) } else { String::new() };
         write!(s, "<tr><td>{count}{}</td>", card_ref(&t.name, &t.image)).unwrap();
@@ -646,7 +646,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
         s.push_str("</ul></nav>");
     }
     s.push_str(&shopping_totals(&total, as_of(&items)));
-    s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Cost</th></tr></thead><tbody>");
+    s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     let row = |t: &Totals| {
         format!(
             "<td class=\"num\">{}</td><td class=\"num\">{} · {}</td><td class=\"num\">{} · {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",

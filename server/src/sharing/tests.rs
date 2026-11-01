@@ -645,7 +645,7 @@ async fn a_shared_note_can_be_copied_without_its_private_parts() {
     // The insert decides: a note that appeared since the ids were read is refused, not replaced.
     let mut late = note();
     late["title"] = json!("Replaced?");
-    assert!(crate::deck_research::save_new(&pool, &bryan, &late).await.unwrap().is_none());
+    assert!(crate::deck_research::save_new(&pool, &bryan, &late, None).await.unwrap().is_none());
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await.1["document"]["title"], "Precon upgrade notes");
     // Copies at the same moment each get their own note.
     let (a, b) = tokio::join!(
@@ -654,6 +654,12 @@ async fn a_shared_note_can_be_copied_without_its_private_parts() {
     );
     assert_eq!((a.0, b.0), (StatusCode::OK, StatusCode::OK), "{} {}", a.1, b.1);
     assert_ne!(a.1["id"], b.1["id"]);
+    // One Save-a-copy action retried (a lost answer, a reload) gets the copy it already made.
+    let once = json!({"token": token, "op": "op-123"});
+    let first = send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(once.clone())).await.1;
+    let again = send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(once)).await.1;
+    assert_eq!((first["id"].clone(), again["changed"].clone()), (again["id"].clone(), json!(false)), "{first} {again}");
+    assert_eq!(send(&app, Method::POST, "/api/research/copy", Some(&ft), Some(json!({"token": token, "op": "bad op!"}))).await.0, StatusCode::BAD_REQUEST);
     // Its pages offer the copy.
     let link = format!("href=\"/decks/research?copy={token}\"");
     assert!(page(&app, &format!("/r/{token}")).await.2.contains(&link));
@@ -681,10 +687,10 @@ async fn shared_notes_price_the_cards_to_get() {
     let deck = page(&app, &format!("/r/{token}/party")).await.2;
     for shown in [
         "3 cards to add to the starting list",
-        "1 to buy locally: $0.50",
-        "1 to print: $0.30",
+        "1 to buy locally: about $0.50",
+        "1 to print: about $0.30",
         "Worth $4.75",
-        "Costs $0.80",
+        "About $0.80 to get",
         "as of 30 Oct 2026",
         "1 card without a market price in Yama is out of the money totals.",
         "<td>Buy locally</td><td class=\"num\">$0.50</td>",
@@ -696,16 +702,16 @@ async fn shared_notes_price_the_cards_to_get() {
     // The note page: per deck, overall, and every card with the decks it goes in.
     let (status, _, body) = page(&app, &format!("/r/{token}")).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("3 cards to add across 1 deck<") && body.contains("Costs $0.80") && body.contains("<td class=\"dim\">Party Time</td>"), "{body}");
+    assert!(body.contains("3 cards to add across 1 deck<") && body.contains("About $0.80 to get") && body.contains("<td class=\"dim\">Party Time</td>"), "{body}");
     assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
     // One build across the decks; one no deck has is not found.
     let (status, _, b3) = page(&app, &format!("/r/{token}?build=b3")).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(b3.contains("Costs $0.80"));
+    assert!(b3.contains("About $0.80 to get"));
     assert_eq!(page(&app, &format!("/r/{token}?build=b9")).await.0, StatusCode::NOT_FOUND);
     // Nothing priced: worth and cost are unknown, never $0.
     doc["decks"][0]["builds"][0]["swaps"] = json!([{"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains"}]);
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
     let unpriced = page(&app, &format!("/r/{token}/party")).await.2;
-    assert!(unpriced.contains("Worth No price") && unpriced.contains("Costs No price") && !unpriced.contains("Worth $0.00"), "{unpriced}");
+    assert!(unpriced.contains("Worth unknown") && unpriced.contains("Cost unknown") && !unpriced.contains("Worth $0.00"), "{unpriced}");
 }
