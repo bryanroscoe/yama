@@ -89,3 +89,17 @@ fn a_maybe_store_doesnt_bundle_and_a_non_local_store_is_named_as_such() {
     assert_eq!((sol.reason, sol.stores.clone()), ("not-local", vec!["Mothership Books and Games".to_string()]));
     assert!(text(&t).contains("only at Mothership Books and Games, which isn't local"));
 }
+
+#[test]
+fn unknown_stock_is_not_a_reason_to_go() {
+    let f: Value = serde_json::from_str(FIXTURE).unwrap();
+    let mut b = f["bundle"].clone();
+    for q in b["quotes"].as_array_mut().unwrap() {
+        if q["card"] == "Exotic Orchard" {
+            q["in_stock"] = Value::Null;
+        }
+    }
+    let t = plan(&b, "2026-11-01");
+    assert!(t.stops.iter().all(|x| s(x.store, "key") != Some("multiverse-hobbies")));
+    assert_eq!(t.print.iter().find(|p| p.want.card == "Exotic Orchard").unwrap().reason, "unknown-stock");
+}

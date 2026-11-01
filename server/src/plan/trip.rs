@@ -542,11 +542,11 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
     }
     let mut checked = BTreeSet::new();
     let mut offers_of: HashMap<String, Vec<Offer>> = HashMap::new();
-    let mut seen_of: HashMap<String, (usize, bool)> = HashMap::new();
+    let mut seen_of: HashMap<String, (usize, bool, bool)> = HashMap::new();
     for w in &wants {
         let quotes = by_card.get(&norm(&w.card)).cloned().unwrap_or_default();
         let latest = newest_checks(&quotes);
-        let (mut checks, mut unpriced) = (0, false);
+        let (mut checks, mut unpriced, mut unknown) = (0, false, false);
         let mut offers = Vec::new();
         for q in latest {
             let Some(st) = s(q, "store").and_then(|k| store(k)) else { continue };
@@ -558,6 +558,11 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
                 checked.insert(c.to_string());
             }
             if q["in_stock"] == false {
+                continue;
+            }
+            // A check that didn't say whether it's in stock isn't a reason to go: ask the store.
+            if q["in_stock"] != true {
+                unknown = true;
                 continue;
             }
             let Some(price) = q.get("price").and_then(num) else {
@@ -581,7 +586,7 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
                 .then(x.key().cmp(y.key()))
         });
         offers_of.insert(w.id.clone(), offers);
-        seen_of.insert(w.id.clone(), (checks, unpriced));
+        seen_of.insert(w.id.clone(), (checks, unpriced, unknown));
     }
 
     let needed: Vec<&Want> = wants.iter().filter(|w| w.needed).collect();
@@ -691,7 +696,7 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         }
         let banned: Vec<&Offer> = offers.iter().filter(|o| o.verdict == Verdict::Ok && !eligible(o.store)).collect();
         let first = |v: Verdict| offers.iter().find(|o| o.verdict == v && eligible(o.store)).cloned();
-        let (checks, unpriced) = seen_of[&w.id];
+        let (checks, unpriced, unknown) = seen_of[&w.id];
         // Off the trip because the rule says buy local (the store is fine otherwise), or because they won't go.
         let not_local: Vec<&Offer> = banned.iter().copied().filter(|o| o.preference != "never").collect();
         let reason = if not_local.is_empty() { "never-store" } else { "not-local" };
@@ -709,6 +714,8 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             PrintRow { want: w.clone(), reason: o.verdict.reason(), offer: Some(o), stores: vec![] }
         } else if unpriced {
             PrintRow { want: w.clone(), reason: "no-price", offer: None, stores: vec![] }
+        } else if unknown {
+            PrintRow { want: w.clone(), reason: "unknown-stock", offer: None, stores: vec![] }
         } else {
             PrintRow { want: w.clone(), reason: if checks > 0 { "not-stocked" } else { "no-check" }, offer: None, stores: vec![] }
         };
@@ -937,6 +944,7 @@ pub fn text(t: &Trip) -> String {
                 "over-market" => format!("above the rule for its market ({at}; {})", market_words(&p.offer.as_ref().and_then(|o| o.market.clone()))),
                 "no-market" => format!("no market price to judge it by ({at})"),
                 "no-price" => "in stock with no listed price: ask the store".into(),
+                "unknown-stock" => "listed, but the check didn't say whether it's in stock: ask the store".into(),
                 "not-stocked" => "not in stock at the last check".into(),
                 _ => "no store check recorded".into(),
             };

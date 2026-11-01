@@ -38,6 +38,8 @@ function printReason(p: PrintRow): string {
       return `No market price to judge it by (${at}).`;
     case "no-price":
       return "In stock with no listed price. Ask the store.";
+    case "unknown-stock":
+      return "Listed, but the check didn't say whether it's in stock. Ask the store.";
     case "not-stocked":
       return "Not in stock at the last check.";
     default:

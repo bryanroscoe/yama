@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import fixture from "./fixtures/trip.json";
-import { judge, localBuyRule, planTrip, ruleText, storePreference, tripSummary, type LocalBuyRule, type TripData } from "./trip";
+import { foilListing, judge, localBuyRule, planTrip, ruleText, storePreference, tripSummary, type LocalBuyRule, type TripData } from "./trip";
 import type { RuleSet } from "./rules";
 
 const bundle = fixture.bundle as unknown as TripData;
@@ -73,6 +73,17 @@ describe("the trip", () => {
     const stores = bundle.stores.map((s) => (s.key === "mothership" ? { ...s, kind: "online" as const } : s));
     const t = planTrip({ ...bundle, settings, stores }, { today: "2026-11-01" });
     expect(t.print.find((p) => p.want.card === "Sol Ring")).toMatchObject({ reason: "not-local", stores: ["Mothership Books and Games"] });
+  });
+
+  test("a foil listing never qualifies, whatever else it says; unknown stock isn't a reason to go", () => {
+    expect(foilListing("Borderless Foil")).toBe(true);
+    expect(foilListing("Near Mint Non-Foil")).toBe(false);
+    expect(foilListing("Etched Foil")).toBe(true);
+    expect(foilListing(null)).toBe(false);
+    const quotes = bundle.quotes.map((q) => (q.card === "Exotic Orchard" ? { ...q, in_stock: null } : q));
+    const t = planTrip({ ...bundle, quotes }, { today: "2026-11-01" });
+    expect(t.stops.map((s) => s.store.key)).not.toContain("multiverse-hobbies");
+    expect(t.print.find((p) => p.want.card === "Exotic Orchard")?.reason).toBe("unknown-stock");
   });
 
   test("your chosen cut, carts, and totals that never count a missing price as $0", () => {
