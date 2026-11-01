@@ -227,7 +227,12 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                         .bind(item_id)
                         .execute(&mut **tx)
                         .await?;
-                    add_copies(tx, owner, &printing, n, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
+                    let to = add_copies(tx, owner, &printing, n, &copy, container.as_deref(), price, item.purchase_currency.as_deref()).await?;
+                    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE collection_items SET note = {MERGE_NOTE} WHERE id = ?2")))
+                        .bind(&note)
+                        .bind(&to)
+                        .execute(&mut **tx)
+                        .await?;
                     return Ok(true);
                 }
             }
@@ -255,18 +260,17 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
                 Some(twin) => {
                     // The price paid comes over with its currency, when the twin has none. Both
                     // rows' notes are kept (once, if they're the same).
-                    sqlx::query(
-                        "UPDATE collection_items SET qty = qty + ?1, updated_at = ?2,
-                            purchase_currency = CASE WHEN purchase_price IS NULL THEN ?3 ELSE purchase_currency END,
-                            purchase_price = COALESCE(purchase_price, ?4),
-                            note = CASE WHEN ?5 IS NULL OR note = ?5 THEN note WHEN note IS NULL THEN ?5 ELSE note || char(10) || ?5 END
-                         WHERE id = ?6",
-                    )
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "UPDATE collection_items SET qty = qty + ?2, updated_at = ?3,
+                            purchase_currency = CASE WHEN purchase_price IS NULL THEN ?4 ELSE purchase_currency END,
+                            purchase_price = COALESCE(purchase_price, ?5), note = {MERGE_NOTE}
+                         WHERE id = ?6"
+                    )))
+                        .bind(&note)
                         .bind(item.qty)
                         .bind(now())
                         .bind(&item.purchase_currency)
                         .bind(price)
-                        .bind(&note)
                         .bind(&twin)
                         .execute(&mut **tx)
                         .await?;
@@ -316,6 +320,9 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
     }
     Ok(true)
 }
+
+/// A row's note after copies with note `?1` join it: both kept, one per line (a shared note once).
+const MERGE_NOTE: &str = "CASE WHEN ?1 IS NULL OR note = ?1 THEN note WHEN note IS NULL THEN ?1 ELSE note || char(10) || ?1 END";
 
 /// A row's printing may change only to another printing of the same card that's in our card
 /// data. (A row whose printing isn't in our data yet may take any known printing.)
@@ -1126,12 +1133,15 @@ mod tests {
         sqlx::query("DELETE FROM collection_items WHERE id = 't'").execute(&pool).await.unwrap();
         sqlx::query("UPDATE collection_items SET qty = 3").execute(&pool).await.unwrap();
 
-        // One copy moves, with its price and currency.
+        // One copy moves, with its price, currency and note.
+        sqlx::query("UPDATE collection_items SET note = 'signed by a friend'").execute(&pool).await.unwrap();
         let mut tx = pool.begin().await.unwrap();
         apply_op(&mut tx, &owner, &split("b", 1)).await.unwrap();
         tx.commit().await.unwrap();
         let eur = Some("EUR".to_string());
         assert_eq!(rows(&pool).await, vec![("ltr".into(), 2, Some(4.0), eur.clone()), ("ltr-x".into(), 1, Some(4.0), eur.clone())]);
+        let notes: Vec<Option<String>> = sqlx::query_scalar("SELECT note FROM collection_items ORDER BY scryfall_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(notes, vec![Some("signed by a friend".into()); 2]);
 
         // The rest go as a whole row (merging), then a split of a row that's gone adds nothing.
         let mut tx = pool.begin().await.unwrap();
