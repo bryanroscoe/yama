@@ -436,7 +436,7 @@ fn count_cards(n: i64) -> String {
 }
 
 /// The totals as pills, and how they're worked out.
-fn shopping_totals(t: &Totals, as_of: Option<&str>) -> String {
+fn shopping_totals(t: &Totals, as_of: Option<String>) -> String {
     let mut s = format!(
         "<div class=\"share-status\"><span class=\"pill\">{}</span><span class=\"pill\">{} to buy locally: about {}</span><span class=\"pill\">{} to print: about {}</span><span class=\"pill\">{}</span><span class=\"pill\">{}</span></div>",
         count_cards(t.cards),
@@ -450,7 +450,7 @@ fn shopping_totals(t: &Totals, as_of: Option<&str>) -> String {
     write!(
         s,
         "<p class=\"dim share-shop-how\">Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{}. A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less. This is general advice from market prices, not the sharer's own plan. Worth is what the cards sell for. The cost is an estimate: buys at market price (a store's own price will differ) plus prints.",
-        as_of.map(|d| format!(", as of {}", when(d))).unwrap_or_default(),
+        as_of.unwrap_or_default(),
         usd(Some(BUY_UP_TO)),
         usd(Some(PRINT_EACH)),
     )
@@ -494,9 +494,11 @@ fn shopping_table(items: &[ToGet], decks: bool) -> String {
     s
 }
 
-/// The oldest price date among the cards, so the page never claims fresher prices than it has.
-fn as_of(items: &[ToGet]) -> Option<&str> {
-    items.iter().filter_map(|t| t.price.as_ref().map(|p| p.1.as_str())).min()
+/// When the prices are from: one date, or the range when cards' prices are from different days.
+fn as_of(items: &[ToGet]) -> Option<String> {
+    let dates: Vec<&str> = items.iter().filter_map(|t| t.price.as_ref().map(|p| p.1.as_str())).collect();
+    let (first, last) = (dates.iter().min()?, dates.iter().max()?);
+    Some(if first == last { format!(", as of {}", when(first)) } else { format!(", from {} to {}", when(first), when(last)) })
 }
 
 /// Signed-in or not, Yama opens the copy; signing in comes first when needed.
