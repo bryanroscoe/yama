@@ -23,7 +23,8 @@ import { DeckPage, DecksPage } from "./pages/Decks";
 import { ImportPage } from "./decks/ImportPage";
 import { DeckScanPage } from "./decks/DeckScanPage";
 import { GroupPage } from "./pages/Group";
-import { LabLayout } from "./lab/LabLayout";
+import { LabHead, LabLayout } from "./lab/LabLayout";
+import { PowerOnly } from "./components/PowerOnly";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { PreconDetailPage } from "./lab/PreconDetail";
 import { PreconsPage } from "./lab/Precons";
@@ -160,8 +161,8 @@ export function App() {
         <Route path="lab" element={<LabLayout />}>
           <Route index element={<PreconsPage />} />
           <Route path="p/:id" element={<PreconDetailPage />} />
-          <Route path="try" element={<TryPage />} />
-          <Route path="compare" element={<ComparePage />} />
+          <Route path="try" element={<PowerOnly head={<LabHead title="Try a change" />}><TryPage /></PowerOnly>} />
+          <Route path="compare" element={<PowerOnly head={<LabHead title="Compare decks" />}><ComparePage /></PowerOnly>} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/batch/:id" element={<BatchPage />} />
           <Route path="runs/:id" element={<RunPage />} />

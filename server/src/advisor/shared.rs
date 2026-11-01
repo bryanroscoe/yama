@@ -149,6 +149,8 @@ struct GrantRow {
     is_admin: bool,
     #[serde(skip)]
     limited: bool,
+    /// An admin or power user: only they can ask, whatever they're granted.
+    power: bool,
     #[serde(skip)]
     has_key: bool,
     granted_by_name: Option<String>,
@@ -188,14 +190,15 @@ async fn overview(st: &AppState) -> AppResult<Overview> {
     let cfg = &st.cfg.advisor;
     let start = month_start(Utc::now());
     let mut grants: Vec<GrantRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT g.user_id, u.email, u.display_name, u.is_admin, {limited} AS limited,
+        "SELECT g.user_id, u.email, u.display_name, u.is_admin, {limited} AS limited, {power} AS power,
                 EXISTS (SELECT 1 FROM advisor_keys k WHERE k.user_id = u.id) AS has_key,
                 b.display_name AS granted_by_name, g.granted_at, g.daily_limit, u.disabled_at IS NOT NULL AS disabled,
                 (SELECT COALESCE(SUM(a.cost_usd), 0.0) FROM advisor_usage a WHERE a.owner_id = g.user_id AND a.mode = 'shared' AND a.created_at >= ?1) AS spent_this_month,
                 (SELECT COUNT(*) FROM advisor_usage a WHERE a.owner_id = g.user_id AND a.mode = 'shared' AND a.created_at >= ?1) AS questions_this_month
            FROM advisor_shared_access g JOIN users u ON u.id = g.user_id LEFT JOIN users b ON b.id = g.granted_by
           ORDER BY u.display_name, u.email",
-        limited = crate::auth::limited_sql!()
+        limited = crate::auth::limited_sql!(),
+        power = crate::auth::power_sql!()
     )))
     .bind(stamp(start))
     .fetch_all(&st.pool)
@@ -203,7 +206,7 @@ async fn overview(st: &AppState) -> AppResult<Overview> {
     let health = if cfg.enabled() { super::sidecar_health(st).await } else { None };
     let key_on_sidecar = health.map(|h| h.shared == Some(true));
     for g in &mut grants {
-        let user = User { id: g.user_id.clone(), email: g.email.clone(), display_name: g.display_name.clone(), is_admin: g.is_admin, limited: g.limited };
+        let user = User { id: g.user_id.clone(), email: g.email.clone(), display_name: g.display_name.clone(), is_admin: g.is_admin, limited: g.limited, power: g.power };
         g.mode = match access(cfg, &user, g.has_key, SharedGrant::Granted { key_on_sidecar: key_on_sidecar != Some(false) }) {
             Access::Ready(m) => Some(m),
             _ => None,

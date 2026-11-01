@@ -12,6 +12,9 @@
 //! created (cards, and the opponents' cards too), so a later edit to a deck or a re-imported
 //! precon catalog never changes an experiment part way through.
 //!
+//! Who: only admins and power users (`User::power`, 2026-10-31) may start, repeat or extend an
+//! experiment; everyone else still reads their own earlier runs.
+//!
 //! Isolation: every query binds the owner; another user's experiment is "not found". Limits for
 //! anyone but an admin: 100, 200 or 400 games, Easy or Medium, and one experiment playing plus two
 //! waiting. An account that joined without an invite (`User::limited`) gets less: 100 games, one
@@ -1273,6 +1276,7 @@ pub async fn create_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
+    user.require_power()?;
     let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
         return Ok(d);
@@ -1769,6 +1773,7 @@ pub async fn again_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
+    user.require_power()?;
     let op_id = op_id.map(str::trim).filter(|s| !s.is_empty());
     if let Some(d) = by_op_id(pool, user, op_id).await? {
         return Ok(d);
@@ -1902,6 +1907,7 @@ pub async fn more_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
+    user.require_power()?;
     let remote: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lab_execution_runs WHERE experiment_id=? AND owner_id=? AND comparison=0)")
         .bind(id).bind(&user.id).fetch_one(pool).await?;
     if remote {
@@ -2872,6 +2878,7 @@ pub struct EngineSupport {
 /// The card support of the lists a run would test, per engine, before it is made. The lists are
 /// read with the owner's checks, as a run would read them.
 async fn engines_check_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<EngineSupport>> {
+    user.require_power()?;
     let sim = st.lab.simulator()?;
     let req: EnginesCheck = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     if req.names.len() > MAX_CHECK_NAMES || req.lists.len() > MAX_CHECK_LISTS {

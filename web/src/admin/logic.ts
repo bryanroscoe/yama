@@ -91,6 +91,7 @@ export function advisorLine(a: UsageRow): string {
   if (a.advisor_mode === "shared") return "Asks Claude on the shared key.";
   if (a.advisor_shared && a.advisor_reason === "needs_key") return "Has the shared key, but the advisor doesn't hold one yet.";
   if (a.advisor_reason === "off") return "Ask Claude is off on this server.";
+  if (a.advisor_reason === "power_only") return "Can't ask Claude: not a power user.";
   if (a.advisor_reason === "keys_off") return "Can't ask Claude: this server doesn't store people's own keys.";
   return "Can't ask Claude yet: no API key of its own.";
 }

@@ -8,7 +8,7 @@ import { opTime } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { useMe } from "../auth";
+import { useMe, usePower } from "../auth";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, changesKey, conversation, conversations, deleteConversation, stagedChanges, type AdvisorStatus, type StagedChange } from "./api";
@@ -32,15 +32,18 @@ interface Props {
 
 const statusKey = ["advisor", "status"] as const;
 
+/** The advisor's status, asked only for admins and power users (nobody else may use it). */
 export function useAdvisorStatus(enabled = true) {
-  return useQuery({ queryKey: statusKey, queryFn: advisorStatus, enabled, staleTime: 60_000 });
+  const power = usePower();
+  return useQuery({ queryKey: statusKey, queryFn: advisorStatus, enabled: enabled && power, staleTime: 60_000 });
 }
 
 /** The button and its sheet. */
 export function AskClaude({ context, about, ideasFor, className = "" }: Props) {
   const [open, setOpen] = useState(false);
   const status = useAdvisorStatus();
-  // Nothing to offer on a server without the advisor (or before the status is known).
+  // Nothing to offer on a server without the advisor, to anyone but admins and power users, or
+  // before the status is known.
   if (!status.data || status.data.reason === "off") return null;
   return (
     <>

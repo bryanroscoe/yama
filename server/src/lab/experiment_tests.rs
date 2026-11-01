@@ -91,7 +91,7 @@ fn idle(_: &str) -> bool {
 }
 
 fn user(id: &str, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false, power: true }
 }
 
 async fn add_user(pool: &SqlitePool, id: &str, admin: bool) {
@@ -272,6 +272,27 @@ async fn an_experiment_is_frozen_and_paired_when_created() {
         assert_eq!(others(&b), others(&v));
         assert_eq!((b.max_turns, b.max_actions, b.max_seconds, b.difficulty.as_str()), (120, 200_000, 600, "Easy"));
     }
+}
+
+#[tokio::test]
+async fn only_admins_and_power_users_start_repeat_or_extend_experiments() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota::default();
+    let fa = ForgeAccess::default();
+    let bryan = user("bryan", false);
+    let d = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    let id = d.item.id.clone();
+    // The same account after its power-user grant is withdrawn: it still reads the run, but starts
+    // nothing new, also through an op id it already used.
+    let plain = User { power: false, ..user("bryan", false) };
+    let forbidden = |e: AppError| matches!(e, AppError::Forbidden(m) if m == crate::auth::POWER_ONLY);
+    assert!(forbidden(create_with(&pool, &plain, swap_req(100), sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert!(forbidden(again_with(&pool, &plain, &id, 100, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert!(forbidden(more_with(&pool, &plain, &id, 100, 0, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.id, id);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id='bryan'").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]

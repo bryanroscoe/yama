@@ -1,5 +1,5 @@
 use super::{Question, QuestionToken};
-use crate::testutil::{app, deck, send, user};
+use crate::testutil::{app, deck, power_user, send, user};
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
@@ -63,9 +63,28 @@ async fn only_an_mcp_key_or_a_question_token_gets_in() {
 }
 
 #[tokio::test]
+async fn only_power_users_get_the_tools_that_start_simulations() {
+    let (app, pool) = app().await;
+    let (_, session) = user(&pool, "friend@example.com").await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    for n in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+        assert!(!names.contains(&n), "{n} offered to an account that isn't a power user");
+        let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": n, "arguments": {}})))).await;
+        assert_eq!(status, StatusCode::OK, "{r}");
+        assert!(r["error"]["message"].as_str().unwrap().contains("unknown tool"), "{r}");
+    }
+    // Their own data and runs stay readable.
+    for n in ["overview", "lab_runs", "lab_run", "cancel_lab_run", "precon"] {
+        assert!(names.contains(&n), "{n} missing from {names:?}");
+    }
+}
+
+#[tokio::test]
 async fn the_protocol_basics() {
     let (app, pool) = app().await;
-    let (_, session) = user(&pool, "bryan@example.com").await;
+    let (_, session) = power_user(&pool, "bryan@example.com").await;
     let mcp = key(&app, &session, Some("mcp")).await;
 
     let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
@@ -372,7 +391,7 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
 #[tokio::test]
 async fn tournament_pasted_lists_are_frozen_without_creating_decks_or_starting_games() {
     let (app, pool) = app().await;
-    let (owner, session) = user(&pool, "commander-test@example.com").await;
+    let (owner, session) = power_user(&pool, "commander-test@example.com").await;
     let token = key(&app, &session, Some("mcp")).await;
     let a = "Commander\n1 Commander A\nDeck\n99 Island\n";
     let b = "Commander\n1 Commander B\nDeck\n99 Island\n";

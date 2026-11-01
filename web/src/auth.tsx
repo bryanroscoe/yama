@@ -37,6 +37,14 @@ export function useMe() {
 }
 
 /**
+ * Whether the signed-in account may start simulations and watched AI games and use Ask Claude:
+ * an admin or a power user. The server refuses everyone else; this only hides what they can't use.
+ */
+export function usePower(): boolean {
+  return useMe().data?.power === true;
+}
+
+/**
  * Sign out. Plan data and unsent taps leave the device first (web/src/plan/signout.ts has the
  * order), so neither a failed logout request (no connection) nor the Cloudflare Access redirect
  * can leave them behind. Resolves false if the person chose to keep unsent answers; throws when

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName, listText } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { usePower } from "../auth";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
@@ -200,6 +201,7 @@ function fieldFrom(e: ExperimentItem): FieldChoice | undefined {
 }
 
 export function RunPage() {
+  const power = usePower();
   const { id } = useParams();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -286,7 +288,7 @@ export function RunPage() {
         )
       )}
 
-      {e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
+      {power && e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
 
       <section>
         <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
@@ -303,14 +305,14 @@ export function RunPage() {
       )}
 
       <section>
-        {!live && <Again e={e} />}
+        {!live && power && <Again e={e} />}
         <div className="row">
           {live && (
             <button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
               Cancel the rest
             </button>
           )}
-          {modeOf(e) === "change" || modeOf(e) === "solo" ? (
+          {!power ? null : modeOf(e) === "change" || modeOf(e) === "solo" ? (
             <button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
           ) : (
             <button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>

@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-31-power-users",
+    date: "2026-10-31",
+    title: "Simulations and Ask Claude for power users",
+    items: [
+      "Starting simulations, watching AI games and Ask Claude are open to admins and power users for now, because they take a lot of the server. Ask the host if you'd like to be a power user.",
+      "Simulation results stay open to everyone: the Lab's precon rankings and your own earlier runs are where they were.",
+    ],
+    link: { to: "/lab", label: "Precon rankings" },
+  },
+  {
     id: "2026-10-31-scan-closeups-switch",
     date: "2026-10-31",
     title: "Scan with a camera that stays put",
