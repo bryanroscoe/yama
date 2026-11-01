@@ -411,9 +411,13 @@ describe("fieldResult", () => {
 });
 
 describe("deckName", () => {
-  const precons = [{ id: "quantum-quandrix", name: "Quantum Quandrix" }];
+  const precons = [
+    { id: "quantum-quandrix", name: "Quantum Quandrix" },
+    { id: "counterpunch", name: "Counterpunch" },
+  ];
   it("names a precon played under one of its commanders", () => {
     expect(deckName("quantum-quandrix / Esix, Fractal Bloom", precons)).toBe("Quantum Quandrix (Esix)");
+    expect(deckName("counterpunch / Ishai, Ojutai Dragonspeaker", precons)).toBe("Counterpunch (Ishai)");
   });
   it("leaves other names as typed", () => {
     expect(deckName("unknown-precon / Esix, Fractal Bloom", precons)).toBe("unknown-precon / Esix, Fractal Bloom");

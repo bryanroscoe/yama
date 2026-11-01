@@ -267,7 +267,7 @@ export function verdictText(status: ExperimentStatus, s: Summary): string {
  * id is a known precon. Any other name is shown as typed.
  */
 export function deckName(label: string, precons: { id: string; name: string }[]): string {
-  const m = /^([a-z0-9]+(?:-[a-z0-9]+)+) \/ (.+)$/.exec(label);
+  const m = /^([a-z0-9]+(?:-[a-z0-9]+)*) \/ (.+)$/.exec(label);
   const precon = m && precons.find((p) => p.id === m[1]);
   return precon ? `${precon.name} (${m[2]!.split(",")[0]!.trim()})` : label;
 }
