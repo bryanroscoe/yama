@@ -311,6 +311,12 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     setFormat(f);
     setLife(FORMATS.find((x) => x.key === f)!.life);
   };
+  // A saved playgroup that's no longer one of yours (you left it, or it's gone): play as friends,
+  // its members becoming names, rather than send an id the server refuses.
+  useEffect(() => {
+    if (groupId && groups.data && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups.data, groupId]);
   const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
   const shuffle = () => setSeats((s) => shuffled(s));
   const layoutKey = useLayoutChoice(seats.length);
