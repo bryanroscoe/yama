@@ -125,9 +125,24 @@ export function join<S>(io: RoomIo<S>, s: S): void {
   if (!io.memory.latest) for (const h of hosts) io.send(h, JSON.stringify({ type: "resend" }));
 }
 
+/**
+ * Count one message against its connection's budget as it arrives, every message, even ones
+ * dropped later as malformed; false (and the socket closed) when it has none left. Done before a
+ * message waits for anything, so a burst can't pile up behind a wait first.
+ */
+export function admit<S>(io: RoomIo<S>, s: S): boolean {
+  if (spendMessage(io, s)) return true;
+  io.close(s, CLOSE_TOO_MANY_MESSAGES, "too many messages");
+  return false;
+}
+
+/** A message from a socket: admitted against its budget, then handled. */
 export function message<S>(io: RoomIo<S>, s: S, text: string): void {
-  // Every message counts, even ones dropped below as malformed.
-  if (!spendMessage(io, s)) return io.close(s, CLOSE_TOO_MANY_MESSAGES, "too many messages");
+  if (admit(io, s)) handle(io, s, text);
+}
+
+/** A message already admitted (`admit`). */
+export function handle<S>(io: RoomIo<S>, s: S, text: string): void {
   if (io.roleOf(s) === "host") {
     if (text.length > MAX_SNAPSHOT) return io.close(s, 1009, "snapshot too large");
     const msg = parse(text);

@@ -13,7 +13,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { RELAY_TOKEN, relayShareKey } from "../../packages/core/src/relayKey";
 import { addressKey } from "./address";
-import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
+import { admit, handle, hasRoom, join, leave, type Role, type RoomIo } from "./room";
 
 interface Env {
   ROOMS: DurableObjectNamespace<TableRoom>;
@@ -135,20 +135,24 @@ export class TableRoom extends DurableObject<Env> {
   private queue: Promise<void> = Promise.resolve();
 
   webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer) {
-    this.queue = this.queue.then(() => this.handle(ws, msg)).catch(() => undefined);
-    return this.queue;
-  }
-
-  private async handle(ws: WebSocket, msg: string | ArrayBuffer) {
     // Phones send only text; anything else is closed rather than ignored, so it can't run up
     // the room's message count unseen.
     if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
+    // The connection's budget is spent now, before any wait, so a burst is cut off as it comes.
+    if (!admit(this.io, ws)) return;
+    this.queue = this.queue.then(() => this.forward(ws, msg)).catch(() => undefined);
+    return this.queue;
+  }
+
+  private async forward(ws: WebSocket, msg: string) {
+    // Closed meanwhile (over a budget, or gone): what it queued goes nowhere.
+    if (ws.readyState !== WebSocket.OPEN) return;
     const address = (ws.deserializeAttachment() as { address?: string } | null)?.address;
     const limiter = this.io.roleOf(ws) === "host" ? this.env.MESSAGES_HOST : this.env.MESSAGES_GUEST;
     if (limiter && address && !(await limiter.limit({ key: address })).success) {
       return this.io.close(ws, CLOSE_TOO_MANY, "Too many messages from this network. Wait a minute.");
     }
-    message(this.io, ws, msg);
+    if (ws.readyState === WebSocket.OPEN) handle(this.io, ws, msg);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
