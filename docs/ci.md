@@ -5,7 +5,7 @@ dispatch. There are no path filters: documentation and workflow changes also rec
 Draft PRs skip every job. Ready PRs skip the web and Rust jobs when their head commit passed
 the same checks locally on its exact tree and contains `main`, or when they carry the
 `skip-ci` label; see [Skip CI on a PR](#skip-ci-on-a-pr).
-Superseded runs for the same event type and PR/ref are cancelled. Manual diagnostic CI uses
+A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
