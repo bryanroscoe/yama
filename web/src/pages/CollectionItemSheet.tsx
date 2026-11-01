@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { api, ApiError, usd, type CollectionItem, type Container, type Printing } from "../api";
+import { api, ApiError, shortDate, usd, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
-import { printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
+import { finishFor, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 
 // The scanner pulls in OCR; load it only when someone rescans.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));
@@ -175,6 +175,9 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
               <ul className="coll-printings">
                 {printings.data?.map((p) => {
                   const current = p.scryfall_id === item.scryfall_id;
+                  // The finish this printing would be saved in, and its price on its own date.
+                  const finish = finishFor(item, p);
+                  const day = shortDate(p.price_date);
                   return (
                     <li key={p.scryfall_id}>
                       <button className="coll-printing-choice" aria-current={current} disabled={busy} onClick={() => reprint(p)}>
@@ -182,16 +185,26 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
                         <span className="coll-printing-text">
                           <span>{printingLabel(p)}</span>
                           <span className="small dim">
-                            {[p.released_at?.slice(0, 4), p.artist ? `art by ${p.artist}` : null, current ? "the one you have" : null].filter(Boolean).join(", ")}
+                            {[
+                              p.released_at?.slice(0, 4),
+                              p.artist ? `art by ${p.artist}` : null,
+                              finish !== item.finish ? `only ${finish}` : null,
+                              current ? "the one you have" : null,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
                           </span>
                         </span>
-                        <span className="num small">{usd(priceOf(p, item.finish))}</span>
+                        <span className="coll-printing-price small">
+                          <span className="num">{usd(priceOf(p, finish))}</span>
+                          {day && priceOf(p, finish) != null && <span className="dim">{day}</span>}
+                        </span>
                       </button>
                     </li>
                   );
                 })}
               </ul>
-              {printings.data && <p className="small dim">Prices for the {item.finish} finish, TCGplayer market via Scryfall, where known.</p>}
+              {printings.data && <p className="small dim">Prices per copy in the finish it would be saved in: TCGplayer market via Scryfall on the date shown, not a store quote.</p>}
             </>
           )}
         </section>
