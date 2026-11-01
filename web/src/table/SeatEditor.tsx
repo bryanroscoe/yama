@@ -201,7 +201,22 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
   const lists = mainDeck ? [mainDeck, ...(decks ?? []).filter((d) => d.parent_id === mainDeck.id)] : [];
   // One of the deck's listed commanders, when they can't all lead it together.
   const chooseCommander = (name: string) => {
-    const picked = { commanderName: name, partnerName: undefined, partnerArt: undefined, partnerArtist: undefined, partnerIdentity: undefined, art: undefined, artist: undefined };
+    // Nothing of the commander it replaces carries over (its colors, what it pairs with): until
+    // the card answers, the seat has only the name, and starting looks it up (resolveDraft).
+    const picked = {
+      commanderName: name,
+      colorIdentity: "",
+      ownIdentity: undefined,
+      pairs: undefined,
+      pairsWith: undefined,
+      pairScope: undefined,
+      partnerName: undefined,
+      partnerArt: undefined,
+      partnerArtist: undefined,
+      partnerIdentity: undefined,
+      art: undefined,
+      artist: undefined,
+    };
     onChange(picked);
     void cardNamed(name).then((c) => c && onChange((now) => (now.commanderName === name && !now.partnerName ? { ...draftFromCard(c), commanderChoices: now.commanderChoices } : null)));
   };
@@ -321,7 +336,8 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
     // A commander typed but never picked from the list still gets its card's art and colors; the
     // same commanders as before are left as they are.
     const sameCommanders = (now.commanderName || undefined) === p.commanderName && (now.partnerName || undefined) === p.partnerName;
-    const d = now.deckId || now.deckLabel || sameCommanders ? now : await resolveDraft(now as SeatDraft & CommanderDraft);
+    // (resolveDraft looks up only a name with no art or colors, so a deck's own picture stays.)
+    const d = sameCommanders ? now : await resolveDraft(now as SeatDraft & CommanderDraft);
     const name = d.name.trim() || p.name;
     if (name !== p.name || d.memberId !== p.memberId || d.userId !== p.userId) {
       dispatch({ type: "player", seat, name, memberId: d.memberId, userId: d.userId, was: { name: p.name } });

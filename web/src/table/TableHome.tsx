@@ -315,7 +315,9 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const start = async () => {
     setStarting(true);
     // Commanders typed but never picked from the list still get their cards' art and colors.
-    const ready = format === "commander" ? await Promise.all(seats.map((s) => (s.deckId ? s : resolveDraft(s as SeatDraft & CommanderDraft)))) : seats;
+    // A deck's seat too, when its commander was picked from the deck's list and hasn't answered
+    // yet (resolveDraft looks up only a name with no art or colors).
+    const ready = format === "commander" ? await Promise.all(seats.map((s) => resolveDraft(s as SeatDraft & CommanderDraft))) : seats;
     const seatsNow = ready as SeatDraft[];
     // Only a Commander game names commanders and Commander decks; a 20-life game left with a
     // seat's last commander would count toward that commander's and deck's results.
