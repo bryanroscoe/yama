@@ -81,6 +81,14 @@ def rust_needed(files):
 PASSED_ARTIFACT = 'ci-passed-tree-'
 CI_WORKFLOW = '.github/workflows/ci.yml'
 REQUIRED_JOBS = ('Web checks', 'Rust and Python tests')
+# Only main's push CI saves the Rust and npm caches PRs restore, so a push that changes
+# their keys tests (and saves) in full.
+CACHE_KEYS = ('Cargo.lock', 'package-lock.json', 'deploy/phase-rev')
+
+
+def changes_cache_key(files):
+    return any(path in CACHE_KEYS or path.endswith('Cargo.toml')
+               or path.split('/')[-1].startswith('rust-toolchain') for path in files)
 
 
 def passed_run(run, jobs, repo):
@@ -94,7 +102,13 @@ def passed_run(run, jobs, repo):
 
 def decide_push(repo, sha):
     """Return (skip, reason) for a push to main."""
-    tree = api(f'/repos/{repo}/git/commits/{sha}')['tree']['sha']
+    commit = api(f'/repos/{repo}/git/commits/{sha}')
+    tree = commit['tree']['sha']
+    parent = commit['parents'][0]['sha']
+    files = [entry['filename'] for entry in api(f'/repos/{repo}/compare/{parent}...{sha}').get('files', [])]
+    if not files or len(files) >= 300 or changes_cache_key(files):
+        return False, ('This push changes the Rust or npm cache key (or its file list is unreadable), '
+                       'so main tests in full and saves fresh caches.')
     artifacts = api(f'/repos/{repo}/actions/artifacts?per_page=30&name={PASSED_ARTIFACT}{tree}')
     for artifact in artifacts.get('artifacts', []):
         if artifact.get('expired') or artifact.get('name') != PASSED_ARTIFACT + tree:

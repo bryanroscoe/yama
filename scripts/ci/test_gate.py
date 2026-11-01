@@ -104,7 +104,8 @@ class PushReuse(unittest.TestCase):
     def test_push_reuses_only_a_passed_run_on_the_same_tree(self):
         calls = []
         responses = {
-            '/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}},
+            '/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
+            f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'web/src/App.tsx'}]},
             f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}': {'artifacts': [
                 {'name': f'ci-passed-tree-{OTHER}', 'expired': True, 'workflow_run': {'id': 1}},
                 {'name': f'ci-passed-tree-{OTHER}', 'expired': False, 'workflow_run': {'id': 2}},
@@ -129,7 +130,8 @@ class PushReuse(unittest.TestCase):
         self.assertNotIn('/repos/o/r/actions/runs/1', calls)
 
     def test_push_without_a_passed_tree_runs(self):
-        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}},
+        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
+                     f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'server/src/main.rs'}]},
                      f'/repos/o/r/actions/artifacts?per_page=30&name=ci-passed-tree-{OTHER}':
                          {'artifacts': []}}
         original, gate.api = gate.api, responses.__getitem__
@@ -137,6 +139,26 @@ class PushReuse(unittest.TestCase):
             self.assertFalse(gate.decide_push('o/r', TREE)[0])
         finally:
             gate.api = original
+
+
+class CacheKeys(unittest.TestCase):
+    def test_cache_key_changes_force_a_full_main_run(self):
+        for path in ('Cargo.lock', 'play/Cargo.toml', 'deploy/phase-rev', 'package-lock.json',
+                     'rust-toolchain.toml'):
+            with self.subTest(path=path):
+                self.assertTrue(gate.changes_cache_key(['web/src/a.ts', path]))
+        self.assertFalse(gate.changes_cache_key(['server/src/main.rs', 'web/package.json']))
+
+    def test_push_changing_a_cache_key_runs_without_looking_for_artifacts(self):
+        responses = {'/repos/o/r/git/commits/' + TREE: {'tree': {'sha': OTHER}, 'parents': [{'sha': 'p'}]},
+                     f'/repos/o/r/compare/p...{TREE}': {'files': [{'filename': 'deploy/phase-rev'}]}}
+        original, gate.api = gate.api, responses.__getitem__
+        try:
+            skip, reason = gate.decide_push('o/r', TREE)
+        finally:
+            gate.api = original
+        self.assertFalse(skip)
+        self.assertIn('cache key', reason)
 
 
 class Workflow(unittest.TestCase):

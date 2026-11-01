@@ -36,7 +36,7 @@ limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci
 The `state` and `cache` directories belong to UID/GID 1001. `/ci-cache/cargo` holds registry
 and Git dependencies, `/ci-cache/target` holds one dev/test build profile, and `/ci-cache/npm`
 holds npm downloads. These are distinct from production/BuildKit caches. Saget jobs use no
-Actions cache or artifact service. The completion hook removes the job checkout (including
+Actions cache; a passing PR Rust job uploads only the tiny passed-tree artifact. The completion hook removes the job checkout (including
 `node_modules`, web build output and temporary Phase checkout) and job temporary files after
 post-actions. It retains the single warm compiler/dependency cache to avoid repeated cold builds.
 Check cache size after the first run and during maintenance; investigate growth beyond the
@@ -190,7 +190,10 @@ deploy proceeds. The gate's summary links the run it reused.
 
 The trees match when nothing reached main between the PR's last CI run and its merge (a merge
 commit of an up-to-date PR, or a squash with nothing new on main). Otherwise, or when the PR
-skipped CI on local checks or skipped the Rust job, main tests in full. Artifacts are kept for
+skipped CI on local checks or skipped the Rust job, main tests in full. Main also tests in
+full when the push changes what keys the Rust cache (`Cargo.lock`, a `Cargo.toml`,
+`deploy/phase-rev`, `rust-toolchain*`) or `package-lock.json`, because only main's push CI saves
+the caches every PR restores. Artifacts are kept for
 14 days. Any error reading GitHub runs the jobs.
 
 What a local pass doesn't cover: it usually runs on macOS, not CI's Linux (case-insensitive

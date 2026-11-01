@@ -32,10 +32,11 @@ def main():
     directory = Path(sys.argv[1]) / 'cargo-timings'
     count = int(sys.argv[2]) if len(sys.argv) > 2 else 25
     report = directory / 'cargo-timing.html'
-    if report.is_file():
-        print(table(units(report.read_text(encoding='utf-8')), count))
-    else:
-        print(f'No timing report at {report}.')
+    try:
+        print(table(units(report.read_text(encoding='utf-8')), count) if report.is_file()
+              else f'No timing report at {report}.')
+    except (OSError, ValueError) as error:  # A report is a convenience; never fail CI on it.
+        print(f'Could not read the timing report: {error}')
     shutil.rmtree(directory, ignore_errors=True)
     return 0
 
