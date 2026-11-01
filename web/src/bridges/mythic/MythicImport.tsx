@@ -5,6 +5,7 @@ import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
 import { Details, ErrorText } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
+import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
 import "./mythic.css";
 
@@ -86,21 +87,21 @@ export function MythicImportPage() {
       ) : (
         <>
           <p>
-            Bring the games your playgroup logged in Mythic Tools into Yama. Mythic has no export for games, so you save them on mythic.tools in your own browser and upload the file here; Yama never sees your Mythic sign-in. Mythic's app can change without notice, so this may stop working.
+            Bring the games your playgroup logged in Mythic Tools, and your Mythic decks, into Yama. Mythic has no export for games, so you save them on mythic.tools in your own browser and upload the file here; Yama never sees your Mythic sign-in. Mythic's app can change without notice, so this may stop working.
           </p>
 
           <section className="stack" aria-labelledby="mythic-save">
-            <h2 id="mythic-save">1. Save your games on Mythic Tools</h2>
+            <h2 id="mythic-save">1. Save your games and decks on Mythic Tools</h2>
             <ol>
               <li>Open <a href="https://mythic.tools" target="_blank" rel="noreferrer">mythic.tools</a> in this browser on a computer and sign in.</li>
               <li>Open the browser's console there: Ctrl+Shift+J, or Cmd+Option+J on a Mac.</li>
-              <li>Paste the snippet and press Enter. It reads your games and saves a mythic-games file. It doesn't change anything in Mythic.</li>
+              <li>Paste the snippet and press Enter. It reads your games and decks and saves a mythic-games file. It doesn't change anything in Mythic.</li>
             </ol>
             <div className="row">
               <button onClick={() => void copy()}>{copied ? "Copied" : "Copy the snippet"}</button>
             </div>
             <Details label="What the snippet does">
-              <p>It reads Mythic's web settings and your sign-in from the mythic.tools page, asks Mythic for each of your games and the names of the commanders in them, and saves them as a file. Nothing is sent anywhere else.</p>
+              <p>It reads Mythic's web settings and your sign-in from the mythic.tools page, asks Mythic for each of your games and the names of the commanders in them, and for your decks with their lists, and saves them as a file. Nothing is sent anywhere else.</p>
               <pre className="mythic-snippet small">{MYTHIC_SNIPPET}</pre>
             </Details>
           </section>
@@ -180,6 +181,7 @@ export function MythicImportPage() {
               )}
             </section>
           )}
+          {file && <MythicDecks file={file} />}
         </>
       )}
     </main>

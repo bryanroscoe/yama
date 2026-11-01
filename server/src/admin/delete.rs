@@ -64,6 +64,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("mythic_game_notes", "owner_id"),
     ("mythic_imports", "owner_id"),
     ("mythic_links", "owner_id"),
+    ("mythic_pushes", "owner_id"),
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
     ("online_games", "host_id"),
@@ -156,6 +157,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("mythic_game_notes", "owner_id"),
     ("mythic_links", "owner_id"),
     ("mythic_imports", "owner_id"),
+    ("mythic_pushes", "owner_id"),
     ("decks", "owner_id"),
 ];
 

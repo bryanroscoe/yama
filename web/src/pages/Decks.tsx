@@ -30,6 +30,7 @@ import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
@@ -211,6 +212,7 @@ export function DeckPage() {
   const [exporting, setExporting] = useState(false);
   const [history, setHistory] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [mythic, setMythic] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
@@ -236,6 +238,7 @@ export function DeckPage() {
     setExporting(false);
     setHistory(false);
     setSharing(false);
+    setMythic(false);
     setConfiguring(false);
     setOpen(null);
   }, [id]);
@@ -307,6 +310,7 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
       <button className="on-art" onClick={() => setSharing(true)}>Share</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
+      <MythicSendButton className="on-art" onClick={() => setMythic(true)} />
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
       <Link className="button on-art" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>[2] / [3] / [4] and swap cards</Link>
@@ -424,6 +428,7 @@ export function DeckPage() {
               <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
               <button className="outline" onClick={() => setSharing(true)}>Share</button>
               <button className="outline" onClick={() => setExporting(true)}>Export</button>
+              <MythicSendButton className="outline" onClick={() => setMythic(true)} />
               <button className="outline" onClick={() => setHistory(true)}>History</button>
               <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
               <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
@@ -444,6 +449,7 @@ export function DeckPage() {
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
+        {mythic && <MythicSend deck={d} onClose={() => setMythic(false)} />}
         {configuring && <NewConfiguration deck={d} onClose={() => setConfiguring(false)} />}
         {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
         {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}

@@ -443,3 +443,160 @@ async fn a_game_mythic_saved_twice_is_imported_once() {
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id IN (?, ?)").bind(derived_id(&bryan, "70")).bind(derived_id(&bryan, "71")).fetch_one(&pool).await.unwrap();
     assert_eq!(n, 2);
 }
+
+// ── decks ──────────────────────────────────────────────────────────────────────────────────
+
+async fn card(pool: &SqlitePool, oid: &str, name: &str) {
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, color_identity, legalities, updated_at) VALUES (?,?,'Creature','', '{\"commander\":\"legal\"}', 'now')")
+        .bind(oid)
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?,?)").bind(name).bind(oid).execute(pool).await.unwrap();
+}
+
+fn mcard(name: &str, oracle: Option<&str>, qty: i64, commander: bool) -> Value {
+    json!({ "name": name, "oracle_id": oracle, "quantity": qty, "commander": commander, "set_code": "ltc", "collector_number": "1", "finish": "foil" })
+}
+
+fn deck_file(decks: Vec<Value>) -> Value {
+    json!({ "me": { "id": 1 }, "games": [], "decks": decks })
+}
+
+fn rows(p: &Value) -> Vec<(String, String, String)> {
+    p["decks"].as_array().unwrap().iter().map(|d| (d["mythic_id"].as_str().unwrap().into(), d["status"].as_str().unwrap().into(), d["action"].as_str().unwrap().into())).collect()
+}
+
+fn row(id: &str, status: &str, action: &str) -> (String, String, String) {
+    (id.into(), status.into(), action.into())
+}
+
+#[tokio::test]
+async fn mythic_decks_are_linked_imported_and_updated_both_ways() {
+    let (app, pool) = app().await;
+    let (bryan, token) = user(&pool, "bryan@example.com").await;
+    for (oid, name) in [("o-eowyn", "Éowyn, Shieldmaiden"), ("o-sol", "Sol Ring"), ("o-forest", "Forest"), ("o-signet", "Arcane Signet")] {
+        card(&pool, oid, name).await;
+    }
+    let dc = |oid: &str, name: &str, qty: i64, board: &str| json!({ "oracle_id": oid, "name": name, "qty": qty, "board": board });
+    let (s, made) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Éowyn humans",
+        "cards": [dc("o-eowyn", "Éowyn, Shieldmaiden", 1, "commander"), dc("o-sol", "Sol Ring", 1, "main")] }))).await;
+    assert_eq!(s, StatusCode::OK, "{made}");
+    let eowyn = made["id"].as_str().unwrap().to_string();
+
+    let file = |forests: i64, eowyn_extra: bool| {
+        let mut eowyn_cards = vec![mcard("Éowyn, Shieldmaiden", Some("o-eowyn"), 1, true), mcard("Sol Ring", Some("o-sol"), 1, false)];
+        if eowyn_extra {
+            eowyn_cards.push(mcard("Forest", Some("o-forest"), 1, false));
+        }
+        deck_file(vec![
+            json!({ "id": 500, "name": "Eowyn", "formatid": 6, "cards": eowyn_cards }),
+            // No oracle id: found by name.
+            json!({ "id": 501, "name": "Ramp", "formatid": 6, "cards": [mcard("Arcane Signet", None, 1, true), mcard("Forest", Some("o-forest"), forests, false)] }),
+            json!({ "id": 502, "name": "Modern", "formatid": 1, "cards": [mcard("Sol Ring", Some("o-sol"), 1, false)] }),
+        ])
+    };
+    let preview = |body: Value| {
+        let (app, token) = (app.clone(), token.clone());
+        async move {
+            let (s, p) = send(&app, Method::POST, "/api/bridges/mythic/decks/preview", Some(&token), Some(body)).await;
+            assert_eq!(s, StatusCode::OK, "{p}");
+            p
+        }
+    };
+    let apply = |body: Value| {
+        let (app, token) = (app.clone(), token.clone());
+        async move {
+            let (s, a) = send(&app, Method::POST, "/api/bridges/mythic/decks/apply", Some(&token), Some(body)).await;
+            assert_eq!(s, StatusCode::OK, "{a}");
+            a
+        }
+    };
+
+    // The deck with the same commander is offered and linked; the new one imported; Modern isn't.
+    let p = preview(json!({ "export": file(3, false) })).await;
+    assert_eq!(rows(&p), [row("500", "match", "link"), row("501", "new", "import"), row("502", "invalid", "skip")], "{p}");
+    assert_eq!(p["decks"][0]["yama_id"], eowyn.as_str());
+    let a = apply(json!({ "export": file(3, false) })).await;
+    assert_eq!((a["linked"].as_i64(), a["created"].as_i64(), a["skipped"].as_i64()), (Some(1), Some(1), Some(1)), "{a}");
+    let (ramp, folder): (String, Option<String>) =
+        sqlx::query_as("SELECT id, folder FROM decks WHERE owner_id = ? AND name = 'Ramp'").bind(&bryan).fetch_one(&pool).await.unwrap();
+    assert_eq!(folder.as_deref(), Some("Mythic Tools"));
+    let print: String = sqlx::query_scalar("SELECT set_code FROM deck_prints WHERE deck_id = ? AND oracle_id = 'o-forest'").bind(&ramp).fetch_one(&pool).await.unwrap();
+    assert_eq!(print, "ltc");
+    let p = preview(json!({ "export": file(3, false) })).await;
+    assert_eq!(rows(&p), [row("500", "unchanged", "skip"), row("501", "unchanged", "skip"), row("502", "invalid", "skip")], "{p}");
+
+    // Mythic's list changed: a new Yama version.
+    let p = preview(json!({ "export": file(4, false) })).await;
+    assert_eq!(rows(&p)[1], row("501", "update", "update"), "{p}");
+    let a = apply(json!({ "export": file(4, false) })).await;
+    assert_eq!(a["updated"], 1, "{a}");
+    let qty: i64 = sqlx::query_scalar(
+        "SELECT j.value ->> 'qty' FROM decks d JOIN deck_versions v ON v.id = d.current_version_id, json_each(v.cards) j
+          WHERE d.id = ? AND j.value ->> 'oracle_id' = 'o-forest'",
+    )
+    .bind(&ramp)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(qty, 4);
+
+    // Changed in Yama only: left for the deck page to send.
+    let (s, r) = send(&app, Method::PUT, &format!("/api/decks/{eowyn}"), Some(&token), Some(json!({
+        "cards": [dc("o-eowyn", "Éowyn, Shieldmaiden", 1, "commander"), dc("o-sol", "Sol Ring", 1, "main"), dc("o-signet", "Arcane Signet", 1, "main")] }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let p = preview(json!({ "export": file(4, false) })).await;
+    assert_eq!(rows(&p)[0], row("500", "yama_changed", "skip"), "{p}");
+    // Changed on both sides: nothing happens until the person picks; keeping Yama's settles it.
+    let p = preview(json!({ "export": file(4, true) })).await;
+    assert_eq!(rows(&p)[0], row("500", "conflict", "skip"), "{p}");
+    let a = apply(json!({ "export": file(4, true), "choices": { "500": "keep" } })).await;
+    assert_eq!(a["kept"], 1, "{a}");
+    let p = preview(json!({ "export": file(4, true) })).await;
+    assert_eq!(rows(&p)[0], row("500", "yama_changed", "skip"), "{p}");
+
+    // Sending it: a one-time code, then the snippet's answer links the Mythic deck it made.
+    let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&eowyn).fetch_one(&pool).await.unwrap();
+    let (s, r) = send(&app, Method::POST, &format!("/api/bridges/mythic/decks/{eowyn}/send"), Some(&token), Some(json!({ "version_id": "old" }))).await;
+    assert_eq!(s, StatusCode::CONFLICT, "{r}");
+    let (s, r) = send(&app, Method::POST, &format!("/api/bridges/mythic/decks/{eowyn}/send"), Some(&token), Some(json!({ "version_id": version }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["mythic_id"], "500");
+    let code = r["code"].as_str().unwrap().to_string();
+    let (_, other_token) = user(&pool, "other@example.com").await;
+    for (who, path) in [(&other_token, format!("/api/bridges/mythic/decks/{eowyn}")), (&other_token, format!("/api/bridges/mythic/decks/{eowyn}/send"))] {
+        let method = if path.ends_with("/send") { Method::POST } else { Method::GET };
+        let (s, _) = send(&app, method, &path, Some(who), Some(json!({ "version_id": version }))).await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+    }
+    let (s, _) = send(&app, Method::POST, "/api/bridges/mythic/decks/sent", Some(&other_token), Some(json!({ "code": code, "mythic_id": 900 }))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, r) = send(&app, Method::POST, "/api/bridges/mythic/decks/sent", Some(&token), Some(json!({ "code": code, "mythic_id": 900 }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["deck_id"], eowyn.as_str());
+    let (s, _) = send(&app, Method::POST, "/api/bridges/mythic/decks/sent", Some(&token), Some(json!({ "code": code, "mythic_id": 901 }))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "a code is used once");
+    let (_, st) = send(&app, Method::GET, &format!("/api/bridges/mythic/decks/{eowyn}"), Some(&token), None).await;
+    assert_eq!((st["mythic_id"].as_str(), st["same"].as_bool()), (Some("900"), Some(true)), "{st}");
+    // Its newest Mythic deck replaced the old link.
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM mythic_links WHERE owner_id = ? AND kind = 'deck' AND yama_id = ?").bind(&bryan).bind(&eowyn).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 1);
+
+    let (s, _) = send(&app, Method::DELETE, &format!("/api/bridges/mythic/decks/{eowyn}"), Some(&token), None).await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, st) = send(&app, Method::GET, &format!("/api/bridges/mythic/decks/{eowyn}"), Some(&token), None).await;
+    assert!(st["mythic_id"].is_null(), "{st}");
+}
+
+#[test]
+fn a_list_prints_the_same_however_its_rows_are_split() {
+    use crate::decks::{Board, DeckCard};
+    let c = |oid: &str, qty: i64, board: Board| DeckCard { oracle_id: oid.into(), name: oid.into(), qty, board };
+    let a = decks::list_print(&[c("a", 1, Board::Commander), c("b", 2, Board::Main), c("s", 1, Board::Side)]);
+    let b = decks::list_print(&[c("b", 1, Board::Main), c("a", 1, Board::Commander), c("b", 1, Board::Main)]);
+    assert_eq!(a, b);
+    // The value the send snippet computes in the browser for the same list.
+    assert_eq!(a, crate::util::sha256_hex("c:a:1\nm:b:2"));
+}

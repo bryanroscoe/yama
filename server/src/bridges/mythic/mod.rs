@@ -14,8 +14,10 @@
 //! - **Mythic's notes and tags stay private**: in the bridge's own owner-only table, not in
 //!   `games.note`, which everyone seated can read.
 //!
-//! Removing the bridge: this folder, migration 0047, its line in routes.rs, the flag in config.rs
-//! and testutil.rs, its two tables in admin/delete.rs, and web/src/bridges/mythic.
+//! Decks go both ways (decks.rs).
+//!
+//! Removing the bridge: this folder, migrations 0047 and 0049, its line in routes.rs, the flag in config.rs
+//! and testutil.rs, its three tables in admin/delete.rs, and web/src/bridges/mythic.
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -32,6 +34,7 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod decks;
 #[cfg(test)]
 mod tests;
 
@@ -50,6 +53,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/bridges/mythic/games/preview", post(preview).layer(DefaultBodyLimit::max(MAX_BYTES)))
         .route("/api/bridges/mythic/games/apply", post(apply).layer(DefaultBodyLimit::max(MAX_BYTES)))
         .route("/api/bridges/mythic/games/{id}/note", get(note))
+        .merge(decks::router())
 }
 
 /// The bridge's routes exist only when it's switched on, so the web app asks this to show it.
@@ -799,10 +803,10 @@ async fn link(pool: &SqlitePool, owner: &str, kind: &str, mythic: &str, yama: &s
 }
 
 async fn link_in(tx: &mut sqlx::SqliteConnection, owner: &str, kind: &str, mythic: &str, yama: &str, changed: Option<&str>) -> AppResult<()> {
-    // A Yama record is linked to one Mythic record. A player's newest match wins; a game already
-    // linked to another Mythic game is refused by the unique index (another import, at the same
-    // time, may have just linked it), never taken from it.
-    if kind == "player" {
+    // A Yama record is linked to one Mythic record. A player's or deck's newest match wins; a game
+    // already linked to another Mythic game is refused by the unique index (another import, at
+    // the same time, may have just linked it), never taken from it.
+    if kind == "player" || kind == "deck" {
         sqlx::query("DELETE FROM mythic_links WHERE owner_id = ? AND kind = ? AND yama_id = ? AND mythic_id != ?")
             .bind(owner)
             .bind(kind)
