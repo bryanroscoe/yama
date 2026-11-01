@@ -187,6 +187,9 @@ pub fn rule_text(rule: &LocalBuyRule) -> String {
             low = *u;
         }
     }
+    if let Some(top) = rule.tiers.last().and_then(|t| t.0) {
+        parts.push(format!("nothing qualifies when market is {} or more", usd(Some(top))));
+    }
     if !rule.tiers.is_empty() {
         parts.push(match rule.always_ok_usd {
             Some(a) => format!("an unknown market qualifies only at {} or less", usd(Some(a))),
@@ -227,7 +230,8 @@ pub fn judge(rule: Option<&LocalBuyRule>, price: f64, market: Option<f64>) -> Ve
         return Verdict::Ok;
     }
     let Some(market) = market else { return Verdict::NoMarket };
-    let tier = rule.tiers.iter().find(|(u, _)| u.is_none_or(|u| market < u)).unwrap_or(rule.tiers.last().unwrap());
+    // Above every range the rule names: it doesn't qualify.
+    let Some(tier) = rule.tiers.iter().find(|(u, _)| u.is_none_or(|u| market < u)) else { return Verdict::OverMarket };
     if price <= tier.1 * market + EPS { Verdict::Ok } else { Verdict::OverMarket }
 }
 
@@ -463,6 +467,7 @@ fn recorded_market(quotes: &[&Value]) -> Option<Market> {
     let q = quotes
         .iter()
         .filter(|q| s(q, "kind") == Some("market_benchmark") && q.get("price").and_then(num).is_some())
+        .filter(|q| s(q, "currency").is_none_or(|c| c.eq_ignore_ascii_case("USD")))
         .max_by(|a, b| s(a, "checked").cmp(&s(b, "checked")))?;
     Some(Market { usd: q.get("price").and_then(num)?, date: s(q, "checked").map(String::from), kind: "recorded", printing: s(q, "printing").map(String::from) })
 }
@@ -619,8 +624,17 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             .then(sort_of(x).cmp(&sort_of(y)))
             .then(key_of(x).cmp(&key_of(y)))
     });
-    pool.truncate(MAX_SEARCH);
-    pool.sort_by(|x, y| sort_of(x).cmp(&sort_of(y)).then(key_of(x).cmp(&key_of(y))));
+    // Past the search limit, a store that is the only one with a needed card is on every trip.
+    let mut only_at: HashSet<String> = HashSet::new();
+    for w in &needed {
+        let at: HashSet<&str> = offers_of[&w.id].iter().filter(|o| usable(w, o) && eligible(o.store)).map(|o| o.key()).collect();
+        if at.len() == 1 {
+            only_at.extend(at.into_iter().map(String::from));
+        }
+    }
+    let forced: Vec<&Value> = pool.split_off(MAX_SEARCH.min(pool.len())).into_iter().filter(|x| only_at.contains(&key_of(x))).collect();
+    let by_order = |x: &&Value, y: &&Value| sort_of(x).cmp(&sort_of(y)).then(key_of(x).cmp(&key_of(y)));
+    pool.sort_by(by_order);
 
     // (keys, covered, maybes, others, total), the best of each size.
     type Choice = (Vec<String>, usize, usize, usize, f64);
@@ -638,8 +652,11 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         }
     };
     let mut best: HashMap<usize, Choice> = HashMap::new();
-    for mask in 1u32..(1u32 << pool.len()) {
-        let keys: Vec<String> = pool.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, x)| key_of(x)).collect();
+    for mask in (if forced.is_empty() { 1u32 } else { 0 })..(1u32 << pool.len()) {
+        let mut picked: Vec<&Value> = pool.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, x)| *x).collect();
+        picked.extend(forced.iter().copied());
+        picked.sort_by(by_order);
+        let keys: Vec<String> = picked.iter().map(|x| key_of(x)).collect();
         let set: HashSet<String> = keys.iter().cloned().collect();
         let (mut covered, mut total) = (0, 0.0);
         for w in &needed {

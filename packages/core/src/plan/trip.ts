@@ -75,6 +75,8 @@ export function ruleText(rule: LocalBuyRule): string {
     parts.push(`at most ${times(t.max_multiple)} market${range ? ` ${range}` : ""}`);
     if (t.market_under != null) low = t.market_under;
   }
+  const top = rule.tiers[rule.tiers.length - 1]?.market_under;
+  if (top != null) parts.push(`nothing qualifies when market is ${usd(top)} or more`);
   if (rule.tiers.length) parts.push(rule.always_ok_usd != null ? `an unknown market qualifies only at ${usd(rule.always_ok_usd)} or less` : "an unknown market doesn't qualify");
   return parts.length ? `Buy locally: ${parts.join("; ")}.` : "Every listed price counts.";
 }
@@ -88,7 +90,8 @@ export function judge(rule: LocalBuyRule | null, price: number, market: number |
   if (rule.always_ok_usd != null && price <= rule.always_ok_usd + EPS) return "ok";
   if (!rule.tiers.length) return "ok";
   if (market == null) return "no-market";
-  const tier = rule.tiers.find((t) => t.market_under == null || market < t.market_under) ?? rule.tiers[rule.tiers.length - 1]!;
+  const tier = rule.tiers.find((t) => t.market_under == null || market < t.market_under);
+  if (!tier) return "over-market"; // above every range the rule names
   return price <= tier.max_multiple * market + EPS ? "ok" : "over-market";
 }
 
@@ -301,7 +304,7 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const seenOf = new Map<string, { checks: number; unpriced: Quote | null; unknown: boolean }>();
   for (const w of wants) {
     const quotes = quotesByCard.get(norm(w.card)) ?? [];
-    const recorded = quotes.filter((q) => q.kind === "market_benchmark");
+    const recorded = quotes.filter((q) => q.kind === "market_benchmark" && (q.currency == null || q.currency.toUpperCase() === "USD"));
     const latest = newestChecks(quotes);
     let unpriced: Quote | null = null;
     let unknown = false;
@@ -348,11 +351,17 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   for (const w of needed) for (const o of offersOf.get(w.id) ?? []) if (usable(w, o) && eligible(o.store)) {
     coverage.set(o.store.key, (coverage.get(o.store.key) ?? new Set()).add(w.id));
   }
-  const pool = [...coverage.keys()]
+  const ranked = [...coverage.keys()]
     .map((k) => stores.get(k)!)
-    .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || x.sort - y.sort || cmp(x.key, y.key))
-    .slice(0, MAX_SEARCH)
-    .sort((x, y) => x.sort - y.sort || cmp(x.key, y.key));
+    .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || x.sort - y.sort || cmp(x.key, y.key));
+  const pool = ranked.slice(0, MAX_SEARCH).sort((x, y) => x.sort - y.sort || cmp(x.key, y.key));
+  // Past the search limit, a store that is the only one with a needed card is on every trip.
+  const onlyAt = new Set<string>();
+  for (const w of needed) {
+    const at = new Set((offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && eligible(o.store)).map((o) => o.store.key));
+    if (at.size === 1) onlyAt.add([...at][0]!);
+  }
+  const forced = ranked.slice(MAX_SEARCH).filter((s) => onlyAt.has(s.key));
 
   // Every subset: cards covered, then fewer "maybe" stores, then fewer stores that aren't your usual
   // one, then the lower total, then store order. The best of each size is an alternative.
@@ -360,8 +369,8 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const best = new Map<number, Choice>();
   const better = (a: Choice, c: Choice) =>
     a.covered !== c.covered ? a.covered > c.covered : a.maybes !== c.maybes ? a.maybes < c.maybes : a.others !== c.others ? a.others < c.others : Math.abs(a.total - c.total) > EPS ? a.total < c.total : a.keys.join("|") < c.keys.join("|");
-  for (let mask = 1; mask < 1 << pool.length; mask++) {
-    const keys = pool.filter((_, i) => mask & (1 << i)).map((s) => s.key);
+  for (let mask = forced.length ? 0 : 1; mask < 1 << pool.length; mask++) {
+    const keys = [...pool.filter((_, i) => mask & (1 << i)), ...forced].sort((x, y) => x.sort - y.sort || cmp(x.key, y.key)).map((s) => s.key);
     const set = new Set(keys);
     let covered = 0;
     let total = 0;

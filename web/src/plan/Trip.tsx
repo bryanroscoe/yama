@@ -13,6 +13,7 @@ import {
 } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
 import { setStorePreference } from "./api";
@@ -56,6 +57,10 @@ export function Trip() {
   );
   const stores = view.b.stores.filter((s) => !s.retired && s.kind !== "printer");
   const nameOf = (key: string) => view.b.stores.find((s) => s.key === key)?.name ?? key;
+  // Every art crop on the page, credited at the bottom.
+  const shownArtists = [...trip.stops.flatMap((st) => [...st.rows, ...st.along].map((r) => r.want.card)), ...trip.print.map((p) => p.want.card)].map(
+    (c) => view.card(c)?.artist,
+  );
 
   return (
     <>
@@ -205,6 +210,7 @@ export function Trip() {
           ))}
         </section>
       )}
+      {shownArtists.some(Boolean) && <p className="small dim art-credits">{artCredits(shownArtists)}</p>}
     </>
   );
 }

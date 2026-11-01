@@ -20,6 +20,14 @@ describe("the local buy rule", () => {
     expect(judge(null, 40, 1)).toBe("ok"); // no rule: every listed price counts
   });
 
+  test("a market above every range doesn't qualify, and the rule says so", () => {
+    const under1: LocalBuyRule = { max_usd: 5, always_ok_usd: 0.25, tiers: [{ market_under: 1, max_multiple: 2 }] };
+    expect(judge(under1, 1.5, 0.9)).toBe("ok");
+    expect(judge(under1, 1.5, 2)).toBe("over-market");
+    expect(judge(under1, 0.25, 2)).toBe("ok");
+    expect(ruleText(under1)).toContain("nothing qualifies when market is $1.00 or more");
+  });
+
   test("says what it is", () => {
     expect(ruleText(BRYAN)).toBe(
       "Buy locally: at most $2.00; $0.50 or less whatever the market; at most 2× market when market is under $1.00; at most 1.5× market when market is $1.00 or more; an unknown market qualifies only at $0.50 or less.",
@@ -66,6 +74,21 @@ describe("the trip", () => {
     const bundled = planTrip({ ...fewer, quotes: [...fewer.quotes, at("Sol Ring", 1.25), at("Fellwar Stone", 0.5), at("Swords to Plowshares", 1)] }, { today: "2026-11-01" });
     expect(bundled.stops.map((s) => s.store.key)).toEqual(["pats", "mothership"]);
     expect(bundled.alternatives).toEqual(plain.alternatives);
+  });
+
+  test("past the search limit, a store that alone has a needed card still makes the trip", () => {
+    const pats = bundle.stores.find((s) => s.key === "pats")!;
+    const q = (card: string, store: string, price: number) => ({ ...bundle.quotes.find((x) => x.card === "Exotic Orchard")!, card, store, price, variant: null });
+    const many = Array.from({ length: 13 }, (_, i) => ({ ...pats, key: `s${i}`, name: `Store ${i}`, sort: 20 + i }));
+    const stores = [...bundle.stores, ...many, { ...pats, key: "zz", name: "Far Store", sort: 99 }];
+    const quotes = [
+      ...bundle.quotes.filter((x) => x.card !== "Exotic Orchard"),
+      ...many.flatMap((s) => [q("Fellwar Stone", s.key, 0.5), q("Swords to Plowshares", s.key, 1)]),
+      q("Exotic Orchard", "zz", 0.75),
+    ];
+    const t = planTrip({ ...bundle, stores, quotes }, { today: "2026-11-01" });
+    expect(t.stops.map((s) => s.store.key)).toContain("zz");
+    expect(t.print.map((p) => p.want.card)).not.toContain("Exotic Orchard");
   });
 
   test("a store left out only by the buy-local rule says so, not that you won't go", () => {
