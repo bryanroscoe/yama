@@ -98,7 +98,9 @@ function GuestGame({ gameId }: { gameId: string }) {
         }
         if (opened) setTurnedAway(null);
         if (!opened) setRefused((r) => r + 1);
-        if (!closed) timer = window.setTimeout(open, Math.min(15_000, 1000 * 2 ** attempt++));
+        // Spread out (2 s up, with jitter): a table's phones share one Wi-Fi address, and the
+        // relay's rule in front allows only a few connections from it every 10 s, the host's too.
+        if (!closed) timer = window.setTimeout(open, Math.min(15_000, 2000 * 2 ** attempt++) * (0.75 + Math.random() / 2));
       };
     };
     open();

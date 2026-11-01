@@ -25,6 +25,10 @@ DESCRIPTION = "yama relay: connections per address"
 # are budgeted together: at most 4 per 10 s is about 34,600 a day, plus at most 57,600 for
 # messages, about 92,000 from one address held at both limits all day. A table is a few phones
 # connecting once and reconnecting now and then with backoff; one briefly over waits 10 s.
+# The Free plan's one rule counts by IP only and can match only the path, which is the same for a
+# host and its guests (the role is in the query), so a table's phones share this allowance, host
+# included: guests spread their reconnects (GuestTable.tsx), and a host blocked for a moment gets
+# in on its next try. Giving the host its own share here needs a paid plan.
 REQUESTS_PER_10S = 4
 API = "https://api.cloudflare.com/client/v4"
 
