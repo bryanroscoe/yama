@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useMatch } from "react-router";
 import { setGuestActive, useGuestChosen } from "./guest";
+import { selectSlot } from "./table/store";
 import { AdminLayout } from "./admin/AdminLayout";
 import { LabRunsPage } from "./admin/LabRuns";
 import { PeoplePage } from "./admin/People";
@@ -120,7 +121,12 @@ export function App() {
     );
   }
   if (me.isPending) return null;
-  if (me.error) {
+  // Nobody signed in: the life counter on its own if they chose it (even with Yama's server
+  // unreachable, since it needs nothing from it), else the sign-in page.
+  const guest = !me.data && guestChosen;
+  setGuestActive(guest);
+  selectSlot(guest);
+  if (me.error && !guest) {
     return (
       <main className="login">
         <div className="login-inner">
@@ -133,9 +139,6 @@ export function App() {
       </main>
     );
   }
-  // Nobody signed in: the life counter on its own if they chose it, else the sign-in page.
-  const guest = !me.data && guestChosen;
-  setGuestActive(guest);
   if (guest) {
     return (
       <Routes>

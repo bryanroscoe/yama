@@ -131,3 +131,32 @@ describe("games counted without an account", () => {
     await store.sync();
   });
 });
+
+describe("the game slot without an account", () => {
+  it("never shows an account's game, and brings its own along at sign-in only into an empty slot", async () => {
+    guest = false;
+    store.startGame(setup("account-1"));
+    // Signed out, counting without an account: the account's game isn't there.
+    guest = true;
+    store.selectSlot(true);
+    expect(store.getGame()).toBeNull();
+    store.startGame(setup("guest-9"));
+    // Back to the account: its own game, untouched; the guest game waits for guest mode.
+    guest = false;
+    store.selectSlot(false);
+    expect(store.getGame()?.setup.id).toBe("account-1");
+    guest = true;
+    store.selectSlot(true);
+    expect(store.getGame()?.setup.id).toBe("guest-9");
+    // An account with no game going takes the guest game along, still unsaved.
+    guest = false;
+    store.selectSlot(false);
+    store.discardGame();
+    store.selectSlot(true);
+    expect(store.getGame()?.setup.id).toBe("guest-9");
+    store.selectSlot(false);
+    expect(store.getGame()).toMatchObject({ setup: { id: "guest-9" }, guest: true });
+    store.discardGame();
+    await store.sync();
+  });
+});
