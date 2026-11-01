@@ -571,8 +571,9 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             Some("import") => (p.status, p.action) = (if p.matches.is_empty() { "new" } else { "match" }, "create"),
             Some(c) if c.starts_with("link:") => {
                 let target = &c["link:".len()..];
-                if !visible.iter().any(|v| v.id == target) {
-                    return Err(AppError::NotFound("game to match"));
+                // Only a game still offered for it: same players' count, close in time, not matched.
+                if !p.matches.iter().any(|m| m.id == target) {
+                    return Err(AppError::Conflict("that Yama game isn't a match for this Mythic game any more; preview again".into()));
                 }
                 if linked_yama.contains(target) || !chosen.insert(target.to_string()) {
                     return Err(AppError::Conflict("that Yama game is already matched to another Mythic game".into()));
@@ -664,6 +665,12 @@ struct GameError {
 
 async fn link(pool: &SqlitePool, owner: &str, kind: &str, mythic: &str, yama: &str, changed: Option<&str>) -> AppResult<()> {
     let mut tx = pool.begin().await?;
+    link_in(&mut tx, owner, kind, mythic, yama, changed).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn link_in(tx: &mut sqlx::SqliteConnection, owner: &str, kind: &str, mythic: &str, yama: &str, changed: Option<&str>) -> AppResult<()> {
     // A Yama record is linked to one Mythic record. A player's newest match wins; a game already
     // linked to another Mythic game is refused by the unique index (another import, at the same
     // time, may have just linked it), never taken from it.
@@ -694,7 +701,6 @@ async fn link(pool: &SqlitePool, owner: &str, kind: &str, mythic: &str, yama: &s
         }
         other => other?,
     };
-    tx.commit().await?;
     Ok(())
 }
 
@@ -739,19 +745,16 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
                     finish: Some(b.finish),
                     note: Some(NOTE.into()),
                 };
+                // The game first: if its link and note then fail, the next import finds the game
+                // without a link and saves it again.
                 match crate::games::create_game(pool, owner, game).await {
-                    Ok(_) => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
+                    Ok(_) => sync_game(pool, owner, &p.mythic_id, &yama, &b.fingerprint, b.note.as_deref(), &b.tags).await,
                     Err(e) => Err(e),
                 }
             }
-            // Only Mythic's note changed: the game stays as it is.
-            "note" => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
-            // The game stays as it was logged in Yama; only Mythic's note is kept, privately, once
-            // the link has held.
-            "link" => match link(pool, owner, "game", &p.mythic_id, &yama, Some(&b.fingerprint)).await {
-                Ok(()) => save_note(pool, owner, &yama, b.note.as_deref(), &b.tags).await,
-                Err(e) => Err(e),
-            },
+            // Only Mythic's note changed, or a game matched to one logged in Yama: the game stays as
+            // it is, and Mythic's note is kept privately.
+            "note" | "link" => sync_game(pool, owner, &p.mythic_id, &yama, &b.fingerprint, b.note.as_deref(), &b.tags).await,
             _ => {
                 out.skipped += 1;
                 continue;
@@ -759,9 +762,6 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
         };
         match result {
             Ok(()) => {
-                if p.action != "link" {
-                    link(pool, owner, "game", &p.mythic_id, &yama, Some(&b.fingerprint)).await?;
-                }
                 match p.action {
                     "create" => out.created += 1,
                     "update" => out.updated += 1,
@@ -775,10 +775,20 @@ async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(
     Ok(Json(out))
 }
 
+/// A game's link and Mythic's private note, together: the link's fingerprint never says a note
+/// was saved when it wasn't, so retrying an upload repairs an Apply cut short.
+async fn sync_game(pool: &SqlitePool, owner: &str, mythic: &str, yama: &str, fingerprint: &str, note: Option<&str>, tags: &[Value]) -> AppResult<()> {
+    let mut tx = pool.begin().await?;
+    link_in(&mut tx, owner, "game", mythic, yama, Some(fingerprint)).await?;
+    save_note(&mut tx, owner, yama, note, tags).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Mythic's note and tags for a game, kept for the importer alone.
-async fn save_note(pool: &SqlitePool, owner: &str, game: &str, note: Option<&str>, tags: &[Value]) -> AppResult<()> {
+async fn save_note(conn: &mut sqlx::SqliteConnection, owner: &str, game: &str, note: Option<&str>, tags: &[Value]) -> AppResult<()> {
     if note.is_none() && tags.is_empty() {
-        sqlx::query("DELETE FROM mythic_game_notes WHERE owner_id = ? AND game_id = ?").bind(owner).bind(game).execute(pool).await?;
+        sqlx::query("DELETE FROM mythic_game_notes WHERE owner_id = ? AND game_id = ?").bind(owner).bind(game).execute(&mut *conn).await?;
     } else {
         sqlx::query(
             "INSERT INTO mythic_game_notes (owner_id, game_id, note, tags) VALUES (?,?,?,?)
@@ -788,7 +798,7 @@ async fn save_note(pool: &SqlitePool, owner: &str, game: &str, note: Option<&str
         .bind(game)
         .bind(note)
         .bind(serde_json::to_string(tags).unwrap_or_else(|_| "[]".into()))
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(())
