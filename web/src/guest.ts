@@ -3,6 +3,10 @@
 // them (table/store.ts). Sharing the table with other phones needs an account. Card search for
 // the commander fields uses Yama's guest search, limited per address and off with
 // YAMA_GUEST_MODE=0; without it, typed names still count.
+//
+// Since 2026-11-01 nobody has to choose this: signed out, Yama opens with its usual nav, the
+// life counter and card search work, and pages that keep someone's own data ask them to sign in
+// (components/RequireAccount.tsx). The choice below is left for when the server doesn't answer.
 
 import { useSyncExternalStore } from "react";
 
@@ -15,7 +19,7 @@ const emit = () => {
   for (const l of listeners) l();
 };
 
-/** Someone picked "Use without an account" on this device (until they sign in). */
+/** Someone picked "Count life without an account" when Yama's server didn't answer (until they sign in). */
 export function useGuestChosen(): boolean {
   return useSyncExternalStore(
     (l) => {

@@ -5,8 +5,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link, useLocation } from "react-router";
 import { api, priceSource, shortDate, usd, type Card, type CollectionItem, type Printing } from "../api";
+import { signInPath } from "../auth";
 import { cardDetailQuery } from "../cardDetail";
+import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
 import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
@@ -77,10 +80,14 @@ function Sparkline({ scryfallId, finish, fallbackDate }: { scryfallId: string; f
 /**
  * The card's details. `onBack` draws the back button over the art ("Search results" on the card
  * page, a close button in a sheet). `readOnly` (plan pages) hides the buttons that add copies.
+ * Signed out, the card's details come from the search result (`hit`): printings, prices and
+ * copies need an account.
  */
-export function CardView({ oracleId, onBack, backLabel, readOnly = false, close = false }: { oracleId: string; onBack: () => void; backLabel: string; readOnly?: boolean; close?: boolean }) {
-  const detail = useQuery(cardDetailQuery(oracleId));
-  const card = detail.data?.card;
+export function CardView({ oracleId, onBack, backLabel, readOnly = false, close = false, hit }: { oracleId: string; onBack: () => void; backLabel: string; readOnly?: boolean; close?: boolean; hit?: Card }) {
+  const guest = isGuest();
+  const { pathname, search } = useLocation();
+  const detail = useQuery({ ...cardDetailQuery(oracleId), enabled: !guest });
+  const card = detail.data?.card ?? (guest ? hit : undefined);
   const [flipped, setFlipped] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
   const [allPrintings, setAllPrintings] = useState(false);
@@ -90,7 +97,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const owned = useQuery({
     queryKey: ["collection", "card", oracleId],
     queryFn: () => api<CollectionItem[]>(`/api/collection?q=${encodeURIComponent(card!.name.split(" // ")[0]!)}`),
-    enabled: !!card,
+    enabled: !!card && !guest,
     select: (items) => items.filter((i) => i.oracle_id === oracleId && i.qty > 0),
   });
   const add = useMutation({
@@ -118,13 +125,19 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
             <span className="cp-back-text">{backLabel}</span>
           </button>
           <ErrorText error={detail.error} />
-          {detail.isPending && <p className="dim">Loading the card…</p>}
+          {guest ? (
+            <p className="dim">
+              <Link to={signInPath(pathname + search)}>Sign in</Link> to open a card from a link, or search for it.
+            </p>
+          ) : (
+            detail.isPending && <p className="dim">Loading the card…</p>
+          )}
         </div>
       </div>
     );
   }
 
-  const printings = detail.data!.printings;
+  const printings = detail.data?.printings ?? [];
   const low = cheapest(printings);
   const mine = owned.data ?? [];
   const copies = mine.reduce((a, i) => a + i.qty, 0);
@@ -186,6 +199,11 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               {card.game_changer === true && <span className="tag gc" title="On the Commander Game Changers list, per Scryfall">Game Changer</span>}
             </div>
 
+            {guest ? (
+              <p className="cp-signin">
+                <Link to={signInPath(pathname + search)}>Sign in</Link> for every printing with its market price, price history and the copies you own.
+              </p>
+            ) : (
             <div className="cp-facts">
               <div className="cp-fact">
                 <span className="cp-fact-label">You own</span>
@@ -216,7 +234,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               </div>
             </div>
 
-            {!readOnly && defaultPrinting && addDefault && (
+            )}
+
+            {!readOnly && !guest && defaultPrinting && addDefault && (
               <div className="cp-actions">
                 <button className="primary" onClick={() => add.mutate({ p: defaultPrinting, finish: addDefault })} disabled={add.isPending}>
                   Add to collection
@@ -229,7 +249,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
             {added && <p className="small" role="status" style={{ margin: 0 }}>{added}</p>}
             <ErrorText error={add.error} />
 
-            {detail.data!.rulings !== undefined && <Rulings rulings={detail.data!.rulings} />}
+            {detail.data?.rulings !== undefined && <Rulings rulings={detail.data.rulings} />}
 
             {printings.length > 0 && (
               <section className="cp-printings" aria-labelledby={`pr-${oracleId}`}>
