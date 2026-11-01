@@ -1,28 +1,27 @@
-import { deckStats, MANA, type CurveBucket, type DeckStats as Stats } from "@yama/core";
+import { deckStats, MANA, type CurveBucket, type DeckStats as Stats, type StatCard } from "@yama/core";
 import { useMemo, useState } from "react";
 import type { DeckEntry } from "../api";
 import { Details } from "./ui";
 import "./decks.css";
 
+/** The deck page's cards in the shape packages/core's counting rules read. */
+export function statCards(cards: DeckEntry[]): StatCard[] {
+  return cards.map((e) => ({
+    name: e.name,
+    qty: e.qty,
+    board: e.board,
+    cmc: e.card?.cmc ?? null,
+    typeLine: e.card?.type_line ?? null,
+    manaCost: e.card?.mana_cost ?? null,
+    producedMana: e.produced_mana,
+    oracleText: e.card?.oracle_text ?? null,
+  }));
+}
+
 /** Deck stats, worked out on the device from the deck as loaded: curve, averages, lands, and
  *  colored pips against the lands that make each color. */
 export function DeckStatsPanel({ cards }: { cards: DeckEntry[] }) {
-  const s = useMemo(
-    () =>
-      deckStats(
-        cards.map((e) => ({
-          name: e.name,
-          qty: e.qty,
-          board: e.board,
-          cmc: e.card?.cmc ?? null,
-          typeLine: e.card?.type_line ?? null,
-          manaCost: e.card?.mana_cost ?? null,
-          producedMana: e.produced_mana,
-          oracleText: e.card?.oracle_text ?? null,
-        })),
-      ),
-    [cards],
-  );
+  const s = useMemo(() => deckStats(statCards(cards)), [cards]);
   if (s.cards === 0) return null;
   const creatures = s.curve.reduce((n, b) => n + b.creatures, 0);
   return (

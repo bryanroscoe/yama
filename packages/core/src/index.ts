@@ -5,3 +5,4 @@ export * from "./goldfish";
 export * from "./deckStats";
 export * from "./deckExport";
 export * from "./decklist";
+export * from "./powerLevel";
