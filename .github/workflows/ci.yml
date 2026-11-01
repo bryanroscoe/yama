@@ -19,22 +19,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Ready PRs only: skips the web and Rust jobs when the head commit records local
-  # checks on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label,
-  # and skips the Rust job alone when only web files changed.
-  # Pushes to main and manual runs never consult it; push CI is the release gate.
+  # Ready PRs: skips the web and Rust jobs when the head commit records local checks
+  # on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label, and skips
+  # the Rust job alone when only web files changed.
+  # Pushes to main: skips both jobs only when a PR run already passed both on the very
+  # same tree (the passed-tree artifact below), so a merge isn't tested twice.
+  # Manual runs never consult it.
   gate:
     name: Local CI gate
     if: >-
-      github.event_name == 'pull_request' &&
-      !github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' &&
+       !github.event.pull_request.draft &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     # Same backend as the other jobs, so a hosted billing block can't stop it on saget.
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
     # A gate failure never fails CI: the web and Rust jobs then simply run.
     continue-on-error: true
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
@@ -47,19 +51,20 @@ jobs:
         run: |
           test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
           python3 /run/saget-ci/slot.py --step
-      # main's gate decides, never the copy in the PR under test.
+      # main's gate decides, never the copy in the PR under test (a push is main itself).
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
           sparse-checkout: scripts/ci/gate.py
           sparse-checkout-cone-mode: false
-      - name: Decide whether local checks cover this PR
+      - name: Decide which checks this change still needs
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python3 scripts/ci/gate.py
 
@@ -70,10 +75,10 @@ jobs:
     # explicit skip from the gate, a draft or a fork PR does not.
     if: >-
       !cancelled() &&
+      needs.gate.outputs.skip != 'true' &&
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        needs.gate.outputs.skip != 'true'))
+        github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
     steps:
@@ -106,10 +111,10 @@ jobs:
     needs: gate
     if: >-
       !cancelled() &&
+      needs.gate.outputs.skip != 'true' &&
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        needs.gate.outputs.skip != 'true' &&
         needs.gate.outputs.rust != 'false'))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
@@ -208,7 +213,10 @@ jobs:
           vmstat -w 30 &
           ci_monitor_pid=$!
           trap 'kill "$ci_monitor_pid" 2>/dev/null || true' EXIT
-          /usr/bin/time -v cargo test --locked
+          /usr/bin/time -v cargo test --locked --timings
+      - name: Show where Rust build time went
+        if: always()
+        run: python3 scripts/ci/build_timings.py "${CARGO_TARGET_DIR:-target}"
       - name: Report runner resources
         if: always()
         run: |
@@ -237,3 +245,22 @@ jobs:
         run: python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
       - name: Test list validation with Python optimization enabled
         run: python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
+      # Every check above passed on this tree (a PR tests its merge with main). Name an
+      # artifact after the tree so main's push CI can skip re-testing an identical merge;
+      # the gate there also confirms this run's web job passed.
+      - name: Note the tree these checks passed on
+        if: github.event_name == 'pull_request'
+        id: tested
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          printf 'tree %s\ncommit %s\nrun %s\n' "$tree" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-passed.txt"
+      - name: Publish the passed tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-passed-tree-${{ steps.tested.outputs.tree }}
+          path: ${{ runner.temp }}/ci-passed.txt
+          retention-days: 14
+          # Re-running all jobs reuses the run ID; replace the earlier attempt's artifact.
+          overwrite: true
