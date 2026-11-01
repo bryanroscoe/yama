@@ -473,6 +473,11 @@ async fn research_notes_are_private_until_shared_and_show_only_the_guide() {
     for hidden in ["my private review note", "secret price ceiling", "Secret Store", "Hidden Hobby Shop", "Secret shopping list", "secret binder", "Installed secretly", "3.5"] {
         assert!(!body.contains(hidden) && !deck.contains(hidden), "{hidden}");
     }
+    // A cut card isn't in the build's list; its row still gets its image for the preview.
+    card(&pool, "o-stick", "Stick Together", "Sorcery", "p-stick", "afc", "1").await;
+    sqlx::query("UPDATE cards SET image_normal = 'https://cards.scryfall.io/normal/stick.jpg' WHERE oracle_id = 'o-stick'").execute(&pool).await.unwrap();
+    let with_cut = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(with_cut.contains("data-card-name=\"Stick Together\" data-card-image=\"https://cards.scryfall.io/normal/stick.jpg\""), "cut card's image");
     let (status, _, file) = page(&app, &format!("/r/{token}/party/b3-names.txt")).await;
     assert_eq!(status, StatusCode::OK);
     assert!(file.starts_with("Commander\n1 Nalia de'Arnise\n"), "{file}");

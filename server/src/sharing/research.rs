@@ -58,22 +58,22 @@ async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(Stri
 /// a note can hold far longer text, and a public page mustn't do work in proportion to it.
 const MAX_LINES: usize = 300;
 
-/// A build's plain-text list as cards the shared list views can show, and whether it was cut
-/// at `MAX_LINES`. Every name is looked up in one query.
-async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, bool)> {
-    let mut lines = crate::decks::parse_list(list, true);
-    let cut = lines.len() > MAX_LINES;
-    lines.truncate(MAX_LINES);
+/// A looked-up card: (name asked for, type line, mana value, layout, image).
+type Found = (String, Option<String>, f64, Option<String>, Option<String>);
+
+fn front(name: &str) -> &str {
+    name.split(" // ").next().unwrap_or(name)
+}
+
+/// Each name's card (and its front face's, for double-faced names) in one query, keyed by the
+/// name asked for. Real cards before tokens of the same name, Commander-legal ones first.
+async fn lookup<'a>(pool: &SqlitePool, names: impl Iterator<Item = &'a str>) -> AppResult<HashMap<String, Found>> {
     // Names as written: SQLite's lower() and NOCASE fold ASCII only, so Rust's Unicode
     // lowercasing ("Éowyn" → "éowyn") would never match. card_names' NOCASE covers ASCII case.
-    let front = |n: &str| n.split(" // ").next().unwrap_or(n).to_string();
-    let mut names: Vec<String> = lines.iter().flat_map(|l| [l.name.clone(), front(&l.name)]).collect();
+    let mut names: Vec<&str> = names.flat_map(|n| [n, front(n)]).collect();
     names.sort();
     names.dedup();
-    type Row = (String, Option<String>, f64, Option<String>, Option<String>);
-    // Keyed by the name asked for. Real cards before tokens of the same name, Commander-legal
-    // ones first; the first row per name wins.
-    let rows: Vec<Row> = sqlx::query_as(
+    let rows: Vec<Found> = sqlx::query_as(
         "SELECT j.value, c.type_line, c.cmc, c.layout, c.image_normal
          FROM json_each(?) j JOIN card_names n ON n.name = j.value JOIN cards c ON c.oracle_id = n.oracle_id
          ORDER BY c.type_line LIKE 'Token%', json_extract(c.legalities, '$.commander') IS NOT 'legal'",
@@ -81,15 +81,28 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
     .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
     .fetch_all(pool)
     .await?;
-    let mut found: HashMap<String, Row> = HashMap::new();
+    let mut found = HashMap::new();
     for row in rows {
         found.entry(row.0.clone()).or_insert(row);
     }
+    Ok(found)
+}
+
+fn found<'a>(found: &'a HashMap<String, Found>, name: &str) -> Option<&'a Found> {
+    found.get(name).or_else(|| found.get(front(name)))
+}
+
+/// A build's plain-text list as cards the shared list views can show, and whether it was cut
+/// at `MAX_LINES`. Every name is looked up in one query.
+async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, bool)> {
+    let mut lines = crate::decks::parse_list(list, true);
+    let cut = lines.len() > MAX_LINES;
+    lines.truncate(MAX_LINES);
+    let rows = lookup(pool, lines.iter().map(|l| l.name.as_str())).await?;
     let out = lines
         .into_iter()
         .map(|line| {
-            let row = found.get(&line.name).or_else(|| found.get(&front(&line.name)));
-            let (type_line, cmc, layout, image) = match row {
+            let (type_line, cmc, layout, image) = match found(&rows, &line.name) {
                 Some((_, t, cmc, layout, image)) => (t.clone(), *cmc, layout.clone(), scryfall_image(image.clone())),
                 None => (None, 0.0, None, None),
             };
@@ -368,11 +381,14 @@ pub(super) async fn deck(
         body.push_str("<p class=\"dim\">This build is the starting list.</p>");
     } else {
         body.push_str("<table class=\"share-collection share-swaps\"><thead><tr><th scope=\"col\">Add</th><th scope=\"col\">Cut</th><th scope=\"col\">Why</th></tr></thead><tbody>");
+        // Cut cards aren't in the build's list, so both sides are looked up for their images.
+        let swapped = swaps.iter().take(MAX_LINES).flat_map(|s| [text(s, "card_in"), text(s, "card_out")]).filter(|n| !n.is_empty());
+        let images = lookup(&st.pool, swapped).await?;
         let link = |name: &str, n: i64| {
             if name.is_empty() {
                 "<span class=\"dim\">Nothing</span>".to_string()
             } else {
-                let image = cards.iter().find(|c| c.name == name).and_then(|c| c.image.clone()).unwrap_or_default();
+                let image = found(&images, name).and_then(|f| scryfall_image(f.4.clone())).unwrap_or_default();
                 let count = if n > 1 { format!("{n} × ") } else { String::new() };
                 format!("{count}<a class=\"public-card-ref\" data-card-name=\"{0}\" data-card-image=\"{1}\" href=\"{2}\">{0}</a>", e(name), e(&image), e(&scryfall(name)))
             }
