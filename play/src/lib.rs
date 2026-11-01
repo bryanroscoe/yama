@@ -1978,6 +1978,12 @@ impl Match {
     /// for the decisions it offers that way): the engine turns it into the action it stands for,
     /// which is applied and logged as in [`Match::submit`].
     pub fn submit_interaction(&mut self, seat: u8, submission: InteractionSubmission) -> Result<(), ActionRejection> {
+        self.submit_interaction_action(seat, submission).map(|_| ())
+    }
+
+    /// Apply an opaque answer and return the accepted action for host bookkeeping,
+    /// including account preferences. Resolve the capability only once.
+    pub fn submit_interaction_action(&mut self, seat: u8, submission: InteractionSubmission) -> Result<GameAction, ActionRejection> {
         let owner = PlayerId(seat);
         // The engine authenticates the capability's precise owner, including
         // off-prompt consent revocations; priority alone is not its authority.
@@ -1988,9 +1994,9 @@ impl Match {
         let preference = applied.action.is_actor_scoped_preference();
         self.state = next;
         self.board_controls(seat, &applied.action);
-        self.log.push_action(owner, applied.action);
+        self.log.push_action(owner, applied.action.clone());
         self.board_accepted(seat, &applied.result, preference, passed);
-        Ok(())
+        Ok(applied.action)
     }
 
     /// Whether `action` passes priority over `seat`'s own spell (or an empty stack), which ends

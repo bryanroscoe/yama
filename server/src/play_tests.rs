@@ -330,6 +330,76 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
 }
 
 #[tokio::test]
+async fn phase_board_preferences_carry_to_the_next_game_without_overwriting_other_settings() {
+    async fn action(live: &LiveGame, seat: u8, value: serde_json::Value) -> Result<(), yama_play::board::Rejection> {
+        let (reply, result) = oneshot::channel();
+        let action = serde_json::from_value(value.clone()).unwrap_or_else(|e| panic!("{value}: {e}"));
+        live.cmds.send(Cmd::Board { seat, mv: board::Move::Action(action), reply }).unwrap();
+        result.await.unwrap()
+    }
+    let pool = crate::db::test_pool().await;
+    let (ana, _) = crate::testutil::user(&pool, "board-prefs-ana@example.com").await;
+    let (ben, _) = crate::testutil::user(&pool, "board-prefs-ben@example.com").await;
+    let account = PlayPrefs {
+        stops: Some(Stops { own: ["End".into()].into(), others: Default::default() }),
+        full_control: false,
+        tap_mana: PayMode::Manual,
+    };
+    save_prefs(&pool, &ana, &account).await.unwrap();
+    let mut seats = vec![seat(0, "Ana"), seat(1, "Ben")];
+    seats[0].user_id = Some(ana.clone());
+    seats[1].user_id = Some(ben.clone());
+    let hub = ready_hub(None);
+    let m = engine().new_match_first(5, vec![deck(&[("Island", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
+    // A recovered game can differ from account defaults. Reasserting its current
+    // setting must still save the explicit choice, without copying its other fields.
+    let recovered = PlayPrefs { stops: None, full_control: true, tap_mana: PayMode::Auto };
+    hub.spawn_game("board-prefs-first".into(), m, seats.clone(), HashMap::from([(0, recovered)]), pool.clone());
+    let live = hub.live("board-prefs-first").unwrap();
+    action(&live, 0, serde_json::json!({"type":"SetPriorityPassingMode","data":{"mode":"FullControl"}})).await.unwrap();
+    let mut expected = PlayPrefs { full_control: true, ..account };
+    assert_eq!(load_prefs(&pool, &ana).await.unwrap(), Some(expected.clone()));
+    assert_eq!(load_prefs(&pool, &ben).await.unwrap(), None, "another seat's defaults stay private");
+
+    action(&live, 0, serde_json::json!({"type":"SetPhaseStops","data":{"stops":[
+        {"phase":"Upkeep","scope":"OwnTurn"}, {"phase":"End","scope":"OpponentsTurns"}
+    ]}})).await.unwrap();
+    expected.stops = Some(Stops { own: ["Upkeep".into()].into(), others: ["End".into()].into() });
+    assert_eq!(load_prefs(&pool, &ana).await.unwrap(), Some(expected.clone()));
+    // Another game's account change must survive a stop-only change here.
+    expected.full_control = false;
+    save_prefs(&pool, &ana, &expected).await.unwrap();
+    action(&live, 0, serde_json::json!({"type":"SetPhaseStops","data":{"stops":[]}})).await.unwrap();
+    expected.stops = None;
+    assert_eq!(load_prefs(&pool, &ana).await.unwrap(), Some(expected.clone()));
+    action(&live, 0, serde_json::json!({"type":"MulliganDecision","data":{"choice":{"type":"Keep"}}})).await.unwrap();
+    assert_eq!(load_prefs(&pool, &ana).await.unwrap(), Some(expected.clone()), "ordinary moves don't write defaults");
+    assert!(action(&live, 0, serde_json::json!({"type":"Concede","data":{"player_id":0}})).await.is_err());
+    assert_eq!(load_prefs(&pool, &ana).await.unwrap(), Some(expected.clone()), "refused moves don't write defaults");
+
+    // First-time preferences create only this seat's account row.
+    action(&live, 1, serde_json::json!({"type":"SetPhaseStops","data":{"stops":["Draw"]}})).await.unwrap();
+    let ben_prefs = load_prefs(&pool, &ben).await.unwrap().unwrap();
+    assert!(!ben_prefs.full_control);
+    assert_eq!(ben_prefs.tap_mana, PayMode::Ask);
+    assert_eq!(ben_prefs.stops, Some(Stops { own: ["Draw".into()].into(), others: ["Draw".into()].into() }));
+    action(&live, 1, serde_json::json!({"type":"SetPriorityPassingMode","data":{"mode":"FullControl"}})).await.unwrap();
+    action(&live, 1, serde_json::json!({"type":"SetPriorityPassingMode","data":{"mode":"Standard"}})).await.unwrap();
+    assert_eq!(load_prefs(&pool, &ben).await.unwrap(), Some(ben_prefs));
+    hub.stop("board-prefs-first");
+
+    let saved = seat_prefs(&pool, &seats).await;
+    let m = engine().new_match_first(6, vec![deck(&[("Island", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
+    hub.spawn_game("board-prefs-next".into(), m, seats, saved, pool.clone());
+    let next = hub.live("board-prefs-next").unwrap();
+    let controls = board(&next, 0).await.turns.unwrap();
+    assert_eq!(controls.full_control, expected.full_control);
+    assert_eq!(controls.stops, expected.stops);
+    assert_eq!(controls.tap_mana, expected.tap_mana);
+    hub.stop("board-prefs-next");
+}
+
+#[tokio::test]
 async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};

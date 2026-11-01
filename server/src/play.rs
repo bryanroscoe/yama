@@ -491,8 +491,16 @@ fn run_game(
             }
             Cmd::Board { seat, mv, reply } => {
                 let result = board::apply(&mut m, seat, mv);
+                if let Ok(Some(preference)) = &result
+                    && let Some(user) = seats.iter().find(|s| s.seat == seat && s.kind == "human").and_then(|s| s.user_id.as_deref())
+                    && let Err(e) = rt.block_on(preference.save(pool, user))
+                {
+                    // The engine already accepted the action. Keep its game-local
+                    // effect rather than presenting it as a refused move to retry.
+                    tracing::error!(game_id, seat, error = %e, "saving play settings failed");
+                }
                 let ok = result.is_ok();
-                let _ = reply.send(result);
+                let _ = reply.send(result.map(|_| ()));
                 if ok {
                     m.auto_pass(&humans);
                     publish(&mut m);

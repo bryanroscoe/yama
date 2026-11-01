@@ -49,11 +49,49 @@ pub(super) enum Move {
     Interaction(InteractionSubmission),
 }
 
-pub(super) fn apply(m: &mut Match, seat: u8, mv: Move) -> Result<(), Rejection> {
-    match mv {
-        Move::Action(action) => m.submit(seat, action),
-        Move::Interaction(submission) => m.submit_interaction(seat, submission),
+/// Only standing controls belong to the account; yields and holds remain game-local.
+pub(super) enum Preference {
+    FullControl(bool),
+    Stops(Option<Stops>),
+}
+
+impl Preference {
+    pub(super) async fn save(&self, pool: &SqlitePool, user: &str) -> sqlx::Result<()> {
+        // Atomic, field-specific updates preserve settings changed in another game.
+        // For a new row, SQLite supplies the other controls' usual defaults.
+        match self {
+            Self::FullControl(on) => {
+                sqlx::query(
+                    "INSERT INTO play_prefs (user_id, full_control, updated_at) VALUES (?, ?, ?)
+                     ON CONFLICT(user_id) DO UPDATE SET full_control = excluded.full_control, updated_at = excluded.updated_at",
+                ).bind(user).bind(i64::from(*on)).bind(now()).execute(pool).await?;
+            }
+            Self::Stops(stops) => {
+                let stops = stops.as_ref().map(|s| serde_json::to_string(s).expect("stops are serializable"));
+                sqlx::query(
+                    "INSERT INTO play_prefs (user_id, stops, updated_at) VALUES (?, ?, ?)
+                     ON CONFLICT(user_id) DO UPDATE SET stops = excluded.stops, updated_at = excluded.updated_at",
+                ).bind(user).bind(stops).bind(now()).execute(pool).await?;
+            }
+        }
+        Ok(())
     }
+}
+
+pub(super) fn apply(m: &mut Match, seat: u8, mv: Move) -> Result<Option<Preference>, Rejection> {
+    let action = match mv {
+        Move::Action(action) => {
+            m.submit(seat, action.clone())?;
+            action
+        }
+        Move::Interaction(submission) => m.submit_interaction_action(seat, submission)?,
+    };
+    let controls = m.controls(seat);
+    Ok(match action {
+        GameAction::SetPriorityPassingMode { .. } => Some(Preference::FullControl(controls.full_control)),
+        GameAction::SetPhaseStops { .. } => Some(Preference::Stops(controls.stops)),
+        _ => None,
+    })
 }
 
 fn viewer_id(viewer: Option<u8>) -> PlayerId {

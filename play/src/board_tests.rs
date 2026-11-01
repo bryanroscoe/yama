@@ -253,7 +253,7 @@ fn a_turn_controller_can_submit_an_opaque_interaction_for_the_controlled_player(
     assert!(m.submit_interaction(0, submission.clone()).is_err(), "the controlled player cannot use the controller's capability");
     assert_eq!(serde_json::to_value(m.engine_state()).unwrap(), before);
     assert_eq!(m.actions_logged(), logged);
-    m.submit_interaction(1, submission).unwrap();
+    assert!(matches!(m.submit_interaction_action(1, submission).unwrap(), GameAction::PlayLand { .. }));
     let land = &m.state.objects[&object_id];
     assert_eq!((land.zone, land.controller), (Zone::Battlefield, PlayerId(0)));
     assert_eq!(m.actions_logged(), logged + 1);

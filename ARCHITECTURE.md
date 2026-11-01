@@ -24,7 +24,10 @@ Local Cargo builds verify the sibling Phase checkout is clean and its HEAD equal
 before stamping that identity. Git-less committed-source builds must explicitly supply the
 exported Phase revision; the production exporter supplies the exact published source. Both
 original-board connection defaults and game-thread startup preserve replay-restored controls;
-explicit player preference changes remain authoritative.
+explicit player preference changes remain authoritative. Accepted Phase-board Full control
+and stop changes also update that seat's account defaults for later games. Each write changes
+only the chosen field, preserving mana settings and concurrent changes to other controls;
+temporary passing, holds and game-specific yields are not account defaults.
 
 The production image builds the pinned client and both WASM roots under `/board/` and
 serves authenticated, viewer-filtered games over Yama's board socket. It includes source
