@@ -422,14 +422,15 @@ static BUILT: Mutex<Option<(Instant, String, Arc<Built>)>> = Mutex::new(None);
 static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Cheap evidence of a change to anything [`build`] reads: the catalog rows, the published
-/// snapshot, sealed prices and new price snapshots (rowids only grow).
+/// snapshot, sealed prices, new price snapshots (rowids only grow) and card data imports (names, art).
 async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || imported_at || ':' || length(cards) || ':' || IFNULL(length(engine_support), 0)
                     || ':' || IFNULL(length(playgroup), 0) || ':' || name || ':' || IFNULL(set_name, '') || ':' || IFNULL(released, '') || ':' || color_identity AS k FROM precons ORDER BY id))
              || '#' || IFNULL((SELECT publication_id FROM precon_publication_head WHERE singleton = 1), '')
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT precon_id || ':' || product_id || ':' || IFNULL(usd, '') || ':' || price_date AS k FROM sealed_deck_prices ORDER BY precon_id))
-             || '#' || (SELECT IFNULL(max(rowid), 0) FROM price_snapshots)",
+             || '#' || (SELECT IFNULL(max(rowid), 0) FROM price_snapshots)
+             || '#' || (SELECT IFNULL(max(finished_at), '') FROM import_runs)",
     )
     .fetch_one(pool)
     .await?;

@@ -137,7 +137,7 @@ fn figure(f: Option<&Figure>) -> String {
     }
 }
 
-fn precon_links(c: &Commander) -> String {
+fn precon_links(c: &Commander, ranks: &HashMap<String, usize>) -> String {
     if c.precons.is_empty() {
         return "<span class=\"dim\">None</span>".into();
     }
@@ -148,7 +148,7 @@ fn precon_links(c: &Commander) -> String {
                 "<a href=\"/precons/{}\">{}</a>{}",
                 e(&p.id),
                 e(&p.name),
-                p.rank.map(|r| format!("<small>Precon rank #{r}</small>")).unwrap_or_default()
+                ranks.get(&p.id).map(|r| format!("<small>Precon rank #{r}</small>")).unwrap_or_default()
             )
         })
         .collect::<Vec<_>>()
@@ -219,6 +219,7 @@ pub(super) async fn index(
 ) -> AppResult<Response> {
     crate::public_precons::limit(&st, address)?;
     let r = ranking(&st.pool).await?;
+    let (ranks, _) = crate::public_precons::v2::ranks(&st.pool).await;
     let rows = filters.apply(&r.commanders)?;
     let games: u64 = r.sources.iter().map(|s| s.games).sum();
     let mut body = format!(
@@ -324,7 +325,7 @@ pub(super) async fn index(
             for s in &r.sources {
                 write!(body, "<td data-label=\"{}\">{}</td>", e(&s.name), figure(c.sources.iter().find(|f| f.source == s.name))).unwrap();
             }
-            write!(body, "<td data-label=\"Precon\">{}</td></tr>", precon_links(c)).unwrap();
+            write!(body, "<td data-label=\"Precon\">{}</td></tr>", precon_links(c, &ranks)).unwrap();
         }
         body.push_str("</tbody></table></div>");
         write!(body, "<nav class=\"pagination\" aria-label=\"Commander pages\"><span>Page {current} of {pages}</span><div>").unwrap();

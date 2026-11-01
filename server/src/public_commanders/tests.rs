@@ -36,12 +36,22 @@ fn a_source_score_round_trips_and_combining_adds_certainty() {
     let prior = prior_var(0.3, PRIOR);
     assert!(prior_var(0.3, 400.0) < prior, "a stronger prior is narrower");
     let one = combine(&[(e, prior)]).unwrap();
-    assert_eq!(one, e);
-    // Two sources that agree: same centre, less spread, without counting the prior twice.
+    assert!(close(one.mu, e.mu, 1e-9) && close(one.var, e.var, 1e-12), "one source passes through");
+    // Two sources that agree: the product of posteriors over one prior, so the prior counts once.
     let both = combine(&[(e, prior), (e, prior)]).unwrap();
-    assert!(close(both.mu, e.mu, 1e-9));
+    let precision = 2.0 / e.var - 1.0 / prior;
+    assert!(close(both.mu, 2.0 * e.mu / e.var / precision, 1e-9));
+    assert!(close(both.var, 1.0 / precision, 1e-12));
     assert!(both.var < e.var);
-    assert!(both.var > e.var / 2.0, "the shared prior is divided out once");
+    // The order of the sources never changes the result, even with different priors.
+    let a = (from_counts(400, 1000, None, 0.25).unwrap(), prior_var(0.25, PRIOR));
+    let b = (from_counts(500, 1000, None, 0.367).unwrap(), prior_var(0.367, PRIOR));
+    let ab = combine(&[a, b]).unwrap();
+    let ba = combine(&[b, a]).unwrap();
+    assert!(close(ab.mu, ba.mu, 1e-12) && close(ab.var, ba.var, 1e-15));
+    // A bound that underflows can't make a NaN score.
+    assert!(from_score(50.0, 5e-324, 75.0).is_none());
+    assert!(combine(&[(Estimate { mu: f64::NAN, var: 1.0 }, prior)]).is_none());
     // Disagreeing sources land between them, nearer the surer one.
     let sure = Estimate { mu: 0.4, var: 0.001 };
     let unsure = Estimate { mu: -0.4, var: 0.1 };

@@ -15,8 +15,8 @@
 //!
 //! Each source is measured against its own average commander (pod sizes and players differ between
 //! apps), as relative log-odds with a Beta(100) prior. The sources' estimates for the same commander
-//! are then multiplied together (their precisions add), dividing out the prior they share once so
-//! it isn't counted twice. The score shows the result on a 0–100 scale: 50 is the average commander
+//! are then multiplied together (their precisions add); each source's own prior is taken back out
+//! and one common prior put in, so no prior counts twice and the sources' order doesn't matter. The score shows the result on a 0–100 scale: 50 is the average commander
 //! and 80 about double its odds of winning. ARCHITECTURE.md, "Public commander ranking".
 mod html;
 #[cfg(test)]
@@ -104,27 +104,41 @@ pub fn from_score(score: f64, lo: f64, hi: f64) -> Option<Estimate> {
     }
     let back = |s: f64| SCALE * logit(s / 100.0);
     let sd = (back(hi) - back(lo)) / (2.0 * Z95);
-    Some(Estimate { mu: back(score), var: sd * sd })
+    let e = Estimate { mu: back(score), var: sd * sd };
+    // Extreme figures (a bound that underflows to 0) would give an infinite or zero spread.
+    (e.mu.is_finite() && e.var.is_finite() && e.var > 0.0).then_some(e)
 }
 
-/// Multiply the sources' posteriors and divide out all but one copy of their shared prior.
-/// `parts` pairs each estimate with its prior variance.
+/// Multiply the sources' posteriors, take each source's own prior back out and put one common
+/// prior in: the average of their prior variances, so the order of the sources never matters.
+/// `parts` pairs each estimate with its prior variance (infinite when unknown: nothing removed).
+/// Every prior is centred on the source's average, 0 here, so it adds precision but no weight.
 pub fn combine(parts: &[(Estimate, f64)]) -> Option<Estimate> {
-    parts.first()?;
+    let known: Vec<f64> = parts.iter().map(|(_, p)| *p).filter(|p| p.is_finite() && *p > 0.0).collect();
     let mut precision = 0.0;
     let mut weighted = 0.0;
     let mut floor: f64 = 0.0;
-    for (i, (e, prior)) in parts.iter().enumerate() {
+    for (e, prior) in parts {
+        if !(e.mu.is_finite() && e.var.is_finite() && e.var > 0.0) {
+            return None;
+        }
         precision += 1.0 / e.var;
         weighted += e.mu / e.var;
         floor = floor.max(1.0 / e.var);
-        if i > 0 && prior.is_finite() && *prior > 0.0 {
+        if prior.is_finite() && *prior > 0.0 {
             precision -= 1.0 / prior;
         }
     }
+    if parts.is_empty() {
+        return None;
+    }
+    if !known.is_empty() {
+        precision += known.len() as f64 / known.iter().sum::<f64>();
+    }
     // The data never makes a combination less certain than its surest source.
     let precision = precision.max(floor);
-    Some(Estimate { mu: weighted / precision, var: 1.0 / precision })
+    let e = Estimate { mu: weighted / precision, var: 1.0 / precision };
+    (e.mu.is_finite() && e.var.is_finite() && e.var > 0.0).then_some(e)
 }
 
 /// The 0–100 score of a relative log-odds value.
@@ -155,11 +169,12 @@ pub struct Figure {
     prior_var: f64,
 }
 
+/// A catalog precon the commander leads. Its rank is looked up when the page is shown, from
+/// rating v2's own cache, so it never lags behind the precon pages.
 #[derive(Debug, Clone, Serialize)]
 pub struct PreconLink {
     pub id: String,
     pub name: String,
-    pub rank: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -309,22 +324,28 @@ async fn resolve(pool: &SqlitePool, parsed: &[Parsed]) -> AppResult<(HashMap<Str
     .await?
     .into_iter()
     .collect();
-    let names: Vec<String> = parsed
+    let names: Vec<&str> = parsed
         .iter()
         .filter(|p| p.oracle_ids.is_empty() && p.scryfall_id.as_ref().is_none_or(|s| !by_printing.contains_key(s)))
-        .map(|p| p.name.to_lowercase())
+        .map(|p| p.name.as_str())
         .filter(|n| !n.is_empty())
         .collect();
+    // card_names compares without ASCII case; both sides are then folded the same way in Rust
+    // (SQLite's lower() leaves "É" alone, Rust's doesn't).
+    let mut candidates: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for (name, oracle) in sqlx::query_as::<_, (String, String)>("SELECT name, oracle_id FROM card_names WHERE name IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?
+    {
+        candidates.entry(name.to_lowercase()).or_default().insert(oracle);
+    }
     // A name shared by several cards is ambiguous: leave it out rather than guess.
-    let by_name: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
-        "SELECT lower(name), min(oracle_id) FROM card_names WHERE lower(name) IN (SELECT value FROM json_each(?))
-         GROUP BY lower(name) HAVING count(DISTINCT oracle_id) = 1",
-    )
-    .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .collect();
+    let by_name = candidates
+        .into_iter()
+        .filter(|(_, ids)| ids.len() == 1)
+        .filter_map(|(name, ids)| ids.into_iter().next().map(|id| (name, id)))
+        .collect();
     Ok((by_printing, by_name))
 }
 
@@ -349,10 +370,9 @@ async fn cards(pool: &SqlitePool, ids: &BTreeSet<String>) -> AppResult<HashMap<S
         .collect())
 }
 
-/// Catalog precons by their commanders' Oracle ids, with the public precon rank.
+/// Catalog precons by their commanders' Oracle ids.
 async fn precons(pool: &SqlitePool) -> AppResult<Vec<(BTreeSet<String>, PreconLink)>> {
     let rows: Vec<(String, String, String)> = sqlx::query_as("SELECT id, name, cards FROM precons ORDER BY id").fetch_all(pool).await?;
-    let (ranks, _) = crate::public_precons::v2::ranks(pool).await;
     Ok(rows
         .into_iter()
         .filter_map(|(id, name, cards)| {
@@ -362,10 +382,7 @@ async fn precons(pool: &SqlitePool) -> AppResult<Vec<(BTreeSet<String>, PreconLi
                 .filter(|c| c["board"] == "commander")
                 .filter_map(|c| c["oracle_id"].as_str().map(str::to_string))
                 .collect();
-            (!commanders.is_empty()).then(|| {
-                let rank = ranks.get(&id).copied();
-                (commanders, PreconLink { id, name, rank })
-            })
+            (!commanders.is_empty()).then_some((commanders, PreconLink { id, name }))
         })
         .collect())
 }
@@ -583,7 +600,8 @@ async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT owner_id || ':' || source_name || ':' || enabled_at AS k FROM commander_evidence_sources ORDER BY k))
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || IFNULL(current_revision_id, '') AS k FROM evidence_datasets
                     WHERE owner_id IN (SELECT owner_id FROM commander_evidence_sources) ORDER BY k))
-             || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)",
+             || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)
+             || '#' || (SELECT IFNULL(max(finished_at), '') FROM import_runs)",
     )
     .fetch_one(pool)
     .await?;
