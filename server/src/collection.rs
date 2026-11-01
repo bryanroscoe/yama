@@ -253,11 +253,14 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
             .await?;
             match twin {
                 Some(twin) => {
-                    // The price paid comes over with its currency, when the twin has none.
+                    // The price paid comes over with its currency, when the twin has none. Both
+                    // rows' notes are kept (once, if they're the same).
                     sqlx::query(
-                        "UPDATE collection_items SET qty = qty + ?, updated_at = ?,
-                            purchase_currency = CASE WHEN purchase_price IS NULL THEN ? ELSE purchase_currency END,
-                            purchase_price = COALESCE(purchase_price, ?), note = COALESCE(note, ?) WHERE id = ?",
+                        "UPDATE collection_items SET qty = qty + ?1, updated_at = ?2,
+                            purchase_currency = CASE WHEN purchase_price IS NULL THEN ?3 ELSE purchase_currency END,
+                            purchase_price = COALESCE(purchase_price, ?4),
+                            note = CASE WHEN ?5 IS NULL OR note = ?5 THEN note WHEN note IS NULL THEN ?5 ELSE note || char(10) || ?5 END
+                         WHERE id = ?6",
                     )
                         .bind(item.qty)
                         .bind(now())
@@ -1050,10 +1053,15 @@ mod tests {
         // Back again, onto a row that already holds that printing: they merge.
         let mut tx = pool.begin().await.unwrap();
         apply_op(&mut tx, &owner, &add("e", "ltr", 1)).await.unwrap();
+        // Both rows' notes survive the merge.
+        sqlx::query("UPDATE collection_items SET note = CASE scryfall_id WHEN 'ltr' THEN 'mine' ELSE 'from a trade' END")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
         apply_op(&mut tx, &owner, &reprint("f", &id, "ltr")).await.unwrap();
         tx.commit().await.unwrap();
-        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT scryfall_id, qty FROM collection_items").fetch_all(&pool).await.unwrap();
-        assert_eq!(rows, vec![("ltr".into(), 3)]);
+        let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as("SELECT scryfall_id, qty, note FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("ltr".into(), 3, Some("mine\nfrom a trade".into()))]);
     }
 
     #[tokio::test]
