@@ -262,3 +262,5 @@ jobs:
           name: ci-passed-tree-${{ steps.tested.outputs.tree }}
           path: ${{ runner.temp }}/ci-passed.txt
           retention-days: 14
+          # Re-running all jobs reuses the run ID; replace the earlier attempt's artifact.
+          overwrite: true

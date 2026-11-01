@@ -205,6 +205,7 @@ class Workflow(unittest.TestCase):
         publish = rust.index('Publish the passed tree')
         self.assertGreater(publish, rust.index('Test list validation with Python optimization'))
         self.assertIn('name: ci-passed-tree-${{ steps.tested.outputs.tree }}', rust)
+        self.assertIn('overwrite: true', rust)  # a re-run uploads the same name again
         self.assertEqual(rust.count("if: github.event_name == 'pull_request'"), 2)
 
 
