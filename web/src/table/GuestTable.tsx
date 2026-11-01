@@ -71,6 +71,9 @@ function GuestGame({ gameId }: { gameId: string }) {
         attempt = 0;
         setRefused(0);
         setConnected(true);
+        // Let in: any earlier refusal is over (a refusal opens and closes at once, so its reason
+        // is set again by the close that follows).
+        setTurnedAway(null);
       };
       ws.onmessage = (m) => {
         const msg = JSON.parse(m.data);
@@ -282,7 +285,7 @@ function GuestGame({ gameId }: { gameId: string }) {
                 ? `Following ${host && host.seat !== me?.seat ? `${host.name}'s` : "the host's"} phone. Tap anyone to change their totals.`
                 : connected
                   ? "The host's phone is offline. Changes will wait until it's back."
-                  : "Reconnecting…"}
+                  : (turnedAway ?? "Reconnecting…")}
             </p>
           )}
           {credited.length > 0 && <span className="guest-credit">{artCredits(credited)}</span>}
