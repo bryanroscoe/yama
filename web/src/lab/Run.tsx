@@ -737,7 +737,7 @@ function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engi
                             ? `Even: each finished higher in ${m.a_ahead}`
                             : `${hi} finished higher than ${lo} in ${hiN} of ${untied}`}
                         {m.ties ? `, level in ${m.ties}` : ""}
-                        {untied > 0 && untied < FEW_GAMES ? <span className="dim">, too few games to tell</span> : share != null && ci && m.a_ahead !== m.b_ahead ? <span className="dim"> ({pct(share)}, {level} interval {pctRange(ci[0], ci[1])})</span> : null}
+                        {untied < FEW_GAMES ? <span className="dim">, too few games to tell</span> : share != null && ci && m.a_ahead !== m.b_ahead ? <span className="dim"> ({pct(share)}, {level} interval {pctRange(ci[0], ci[1])})</span> : null}
                       </td>
                       <td>
                         <Link to={deckPath(e.id, ids[m.a] ?? "", engine, ids[m.b] ?? "")}>See the games</Link>
