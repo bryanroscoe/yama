@@ -498,7 +498,8 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     const off = offers.filter((o) => o.verdict === "ok" && !eligible(o.store));
     const why = (["left-out", "not-local", "never"] as const).find((r) => off.some((o) => skipWhy(o.store) === r));
     const banned = why ? off.filter((o) => skipWhy(o.store) === why) : [];
-    const firstOf = (v: Verdict) => offers.find((o) => o.verdict === v && eligible(o.store)) ?? null;
+    // A price that fails the rule says so wherever it's listed: the store doesn't change the reason.
+    const firstOf = (v: Verdict) => offers.find((o) => o.verdict === v) ?? null;
     const seen = seenOf.get(w.id)!;
     if (why) print.push({ want: w, reason: why === "never" ? "never-store" : why, offer: banned[0]!, stores: [...new Set(banned.map((o) => o.store.name))] });
     else if (firstOf("over-max") || firstOf("over-market") || firstOf("no-market")) {

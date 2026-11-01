@@ -10,7 +10,7 @@ import { Trip } from "./Trip";
 const outlet = vi.hoisted(() => ({ value: null as unknown }));
 vi.mock("./PlanLayout", () => ({ usePlanOutlet: () => outlet.value, PlansHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
-function page(today: string) {
+function page(today: string, search = "") {
   const b = {
     rev: "1", revision: 1, head: null, notes: [], game_changers: null, library: null, orders: [], unresolved: [], cards: {},
     inputs: { pending_pull: 0, pulled_through: 0, pulled_at: null, outcomes: [], ideas: [] },
@@ -19,7 +19,7 @@ function page(today: string) {
   outlet.value = { view: { ...planView(b), today }, userId: "owner" };
   return renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={["/decks/plan/trip"]}>
+      <MemoryRouter initialEntries={[`/decks/plan/trip${search}`]}>
         <Trip />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -58,5 +58,14 @@ describe("the Trip page", () => {
     expect(html.indexOf("1. Black Castle Gamez</b><span class=\"dim\">")).toBeLessThan(html.indexOf("3. Pat&#x27;s Games</b>"));
     expect(html).toContain("Going this time");
     expect(html).toContain("$200 and up");
+  });
+
+  it("plans only the stores going this time, each its own parameter", () => {
+    const only = page("2026-11-01", "?going=1&store=black-castle");
+    expect(only).toContain("1. Black Castle Gamez");
+    expect(only).not.toContain('aria-label="Mothership Books and Games"');
+    expect(only).toContain("Over your limit ($90.00 at Pat&#x27;s Games).");
+    expect(only).toContain("which you left off this trip");
+    expect(page("2026-11-01", "?going=1")).toContain("No store has a card you need under your rule.");
   });
 });

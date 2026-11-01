@@ -129,7 +129,7 @@ is a port of `planTrip` over the same bundle JSON. Both are checked against one 
 
 **Choosing stores** (store preferences v2, 1 Nov 2026). A store is a candidate when he'll go to it
 (not "won't go"), it is local when his rule set says `buy_local_only`, it is ticked under "Going
-this time" (all are, until he unticks one; `?stores=` on the page, `stores` on `shopping_trip`),
+this time" (all are, until he unticks one; `?going=1&store=...` on the page, `stores` on `shopping_trip`),
 and it has a qualifying copy of a needed card.
 
 - **A favourite with a qualifying needed card is on every trip.** "Use them as much as possible."

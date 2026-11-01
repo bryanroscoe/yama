@@ -783,7 +783,8 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
             Some("not-local") => "not-local",
             _ => "never-store",
         };
-        let first = |v: Verdict| offers.iter().find(|o| o.verdict == v && eligible(o.store)).cloned();
+        // A price that fails the rule says so wherever it's listed (`trip.ts`).
+        let first = |v: Verdict| offers.iter().find(|o| o.verdict == v).cloned();
         let (checks, unpriced, unknown) = seen_of[&w.id].clone();
         let row = if let Some(o) = banned.first() {
             let mut names: Vec<String> = Vec::new();

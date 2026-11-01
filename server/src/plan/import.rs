@@ -585,14 +585,17 @@ impl Writer<'_> {
             // A Yama backup being restored: its sets replace the sets on the same dates (the report
             // names each one that changes), and no set is deleted, so a backup without some
             // dates never silently removes a rule set made since.
-            let existing: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT effective_from, rules FROM plan_settings WHERE owner_id = ?")
-                .bind(self.owner)
-                .fetch_all(&mut *conn)
-                .await?
-                .into_iter()
-                .collect();
+            let existing: HashMap<String, (String, Option<String>, String)> =
+                sqlx::query_as::<_, (String, String, Option<String>, String)>("SELECT effective_from, rules, note, origin FROM plan_settings WHERE owner_id = ?")
+                    .bind(self.owner)
+                    .fetch_all(&mut *conn)
+                    .await?
+                    .into_iter()
+                    .map(|(d, r, n, o)| (d, (r, n, o)))
+                    .collect();
             for s in &plan.settings {
-                if existing.get(&s.effective_from).is_some_and(|r| *r != json_text(&s.rules).unwrap_or_default()) {
+                let incoming = (json_text(&s.rules)?, s.note.clone(), self.origin.to_string());
+                if existing.get(&s.effective_from).is_some_and(|e| *e != incoming) {
                     report.warnings.push(format!("The rule set from {} was replaced by the restored one", s.effective_from));
                 }
                 sqlx::query(

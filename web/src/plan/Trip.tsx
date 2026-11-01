@@ -63,16 +63,17 @@ export function Trip() {
   const { view, userId } = usePlanOutlet();
   const [params, setParams] = useSearchParams();
   const stores = view.b.stores.filter((s) => !s.retired && s.kind !== "printer");
-  // The stores you're going to this time (?stores=a,b; "?stores=" is none); no parameter: every store you'll go to.
-  const going = params.has("stores") ? (params.get("stores") ?? "").split(",").filter((k) => stores.some((s) => s.key === k)) : null;
-  const goingKey = going ? going.join(",") : null;
+  // The stores you're going to this time (?going=1&store=a&store=b; none listed is none, since a
+  // key may hold any character); no "going": every store you'll go to.
+  const going = params.has("going") ? params.getAll("store").filter((k) => stores.some((s) => s.key === k)) : null;
+  const goingKey = going ? JSON.stringify(going) : null;
   const trip = useMemo(
     () =>
       planTrip(view.b, {
         today: view.today,
         answers: view.answers,
         bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought),
-        stores: goingKey == null ? null : goingKey.split(",").filter(Boolean),
+        stores: goingKey == null ? null : (JSON.parse(goingKey) as string[]),
       }),
     [view, goingKey],
   );
@@ -84,8 +85,12 @@ export function Trip() {
     const next = willGo.map((s) => s.key).filter((k) => now.has(k));
     setParams(
       (p) => {
-        if (next.length === willGo.length) p.delete("stores");
-        else p.set("stores", next.join(","));
+        p.delete("going");
+        p.delete("store");
+        if (next.length < willGo.length) {
+          p.set("going", "1");
+          for (const k of next) p.append("store", k);
+        }
         return p;
       },
       { replace: true },
