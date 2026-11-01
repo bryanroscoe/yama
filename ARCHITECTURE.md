@@ -1086,6 +1086,19 @@ Lab Compare includes a tournament mode: one owner-private experiment freezes 4â€
 
 The existing multiplayer summary now supports a varying field: each deck's denominator includes only games it played, pairwise finish-ahead statistics only shared scored games, and all participants contribute. Pair updates visit the six pairs actually at a four-player table instead of every possible field pair for every game. Rankings show win shares and intervals, not official brackets or real-table forecasts; a sparse pair is not an inferred duel result. Large matchup tables are filterable and paginated. Tournament progress updates after every result; full summaries refresh every 25 games, at either engineâ€™s completion, and on cancellation, so large fields do not reparse their entire history after every game.
 
+### Store trips (2026-11-01)
+
+Bryan asked for the shopping work in commander-decks to move into Yama. Design and slices:
+[docs/shopping-design.md](docs/shopping-design.md). Slice 1: each person's store preferences
+(`plan_store_prefs`, migration 0049: usual store, fine, maybe, won't go; set on the Trip page,
+never by an import), the real-card wishlist (research scenarios with `purpose:
+permanent_real_wishlist`) and preferences in the plan bundle, and the trip (`packages/core`
+`planTrip`, page `/decks/plan/trip`): the fewest stores that cover the most planned and wanted buys
+under the person's dated `local_buy` rule, with what comes along, what to print and why, and the
+wishlist by price tier. Claude's `shopping_trip` tool runs a Rust port (`server/src/plan/trip.rs`)
+checked against the same fixture. Listings are still the plan's dated `plan_quotes`; store
+snapshots fetched by the server come in slice 2.
+
 ### Deck market values (2026-10-27)
 
 Saved deck lists and the precon catalog show a singles replacement estimate alongside the existing cost to finish. `server/src/deck_prices.rs` uses the planner's cheapest eligible nonfoil paper-printing policy, with snapshots within three days of each card's newest snapshot. Commander and main quantities count, including basics; sideboards do not. This estimates the card list independent of ownership and proxies, not the resale value of the user's actual printings. Totals include priced copies only, are null when none are priced, count missing copies explicitly, and carry the oldest and newest contributing dates and TCGplayer/Scryfall provenance.

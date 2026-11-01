@@ -476,6 +476,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "plan_inputs", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_reviews", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_marks", &[("owner_id", t(&v))]).await;
+    fill(&pool, "plan_store_prefs", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_meta", &[("owner_id", t(&b))]).await;
 
     // Keys, watches, the lab and the advisor.

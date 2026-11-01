@@ -266,6 +266,25 @@ export interface Store {
   retired_at: string | null;
 }
 
+/** How you feel about going to a store (yours, set in Yama; docs/shopping-design.md). */
+export type StorePreference = "default" | "ok" | "maybe" | "never";
+
+export interface StorePref {
+  preference: StorePreference;
+  note: string | null;
+  updated_at: string;
+}
+
+/** A card on your real-card wishlist (a research scenario with purpose `permanent_real_wishlist`). */
+export interface WishItem {
+  card: string;
+  reason: string | null;
+  detail: string | null;
+  url: string | null;
+  report: string;
+  scenario: string;
+}
+
 export interface Review {
   decision: Decision | null;
   note: string | null;
@@ -415,6 +434,10 @@ export interface PlanBundle {
   market_by_printing: Record<string, { usd: number | null; usd_foil: number | null; date: string | null; set: string; num: string; source: string }>;
   printing_ids: Record<string, string>;
   prices_as_of: string | null;
+  /** Your store preferences by store key; a store without one is "ok". Missing from older bundles. */
+  store_prefs?: Record<string, StorePref>;
+  /** Your real-card wishlist, from research. Missing from older bundles. */
+  wishlist?: WishItem[];
 }
 
 export interface RowCounts {
