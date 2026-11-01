@@ -32,7 +32,9 @@ export function useMe() {
         throw e;
       }
     },
-    staleTime: Infinity,
+    // Checked again after five minutes (on the next mount or focus), so a power-user grant or its
+    // withdrawal reaches an open app without a reload; the cached account shows meanwhile.
+    staleTime: 5 * 60_000,
   });
 }
 

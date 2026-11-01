@@ -1276,11 +1276,12 @@ pub async fn create_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
-    user.require_power()?;
     let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    // A retry of a create that already happened answers with it, even after the grant is gone.
     if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
         return Ok(d);
     }
+    user.require_power()?;
     let mode = Mode::parse(req.mode.as_deref())?;
     let engines = engines_for(&req, fa)?;
     check_games(user, req.games)?;
@@ -1773,11 +1774,11 @@ pub async fn again_with(
     quota: &LabQuota,
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
-    user.require_power()?;
     let op_id = op_id.map(str::trim).filter(|s| !s.is_empty());
     if let Some(d) = by_op_id(pool, user, op_id).await? {
         return Ok(d);
     }
+    user.require_power()?;
     let (old_name, text): (String, String) = sqlx::query_as("SELECT name, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(&user.id)
