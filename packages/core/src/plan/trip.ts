@@ -157,14 +157,14 @@ export interface TripStop {
   noCartLine: number;
 }
 
-export type PrintReason = "never-store" | "over-max" | "over-market" | "no-market" | "no-price" | "not-stocked" | "no-check";
+export type PrintReason = "never-store" | "not-local" | "over-max" | "over-market" | "no-market" | "no-price" | "not-stocked" | "no-check";
 
 export interface PrintRow {
   want: Want;
   reason: PrintReason;
   /** The cheapest listing that explains the reason, when there is one. */
   offer: TripOffer | null;
-  /** For "never-store": the stores you won't go to that have it under your rule. */
+  /** For "never-store" and "not-local": the stores off the trip that have it under your rule. */
   stores: string[];
 }
 
@@ -321,12 +321,18 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   }
 
   const eligible = (s: Store) => storePreference(b, s.key) !== "never" && (!localOnly || s.kind === "local");
-  const okAt = (w: Want, keys: Set<string>) => (offersOf.get(w.id) ?? []).filter((o) => o.verdict === "ok" && keys.has(o.store.key));
   const needed = wants.filter((w) => w.needed);
+  // A "maybe" store is only for needed cards no other store you'll go to has under your rule: for
+  // the rest it neither decides the stores nor takes the card.
+  const elsewhereToo = new Set(
+    needed.filter((w) => (offersOf.get(w.id) ?? []).some((o) => o.verdict === "ok" && eligible(o.store) && o.preference !== "maybe")).map((w) => w.id),
+  );
+  const usable = (w: Want, o: TripOffer) => o.verdict === "ok" && !(o.preference === "maybe" && elsewhereToo.has(w.id));
+  const okAt = (w: Want, keys: Set<string>) => (offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && keys.has(o.store.key));
 
   // Stores worth searching: eligible ones with a qualifying copy of a needed card.
   const coverage = new Map<string, Set<string>>();
-  for (const w of needed) for (const o of offersOf.get(w.id) ?? []) if (o.verdict === "ok" && eligible(o.store)) {
+  for (const w of needed) for (const o of offersOf.get(w.id) ?? []) if (usable(w, o) && eligible(o.store)) {
     coverage.set(o.store.key, (coverage.get(o.store.key) ?? new Set()).add(w.id));
   }
   const pool = [...coverage.keys()]
@@ -390,7 +396,10 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     const banned = offers.filter((o) => o.verdict === "ok" && !eligible(o.store));
     const firstOf = (v: Verdict) => offers.find((o) => o.verdict === v && eligible(o.store)) ?? null;
     const seen = seenOf.get(w.id)!;
-    if (banned.length) print.push({ want: w, reason: "never-store", offer: banned[0]!, stores: [...new Set(banned.map((o) => o.store.name))] });
+    // Off the trip because the rule says buy local (the store is fine otherwise), or because you won't go.
+    const notLocal = banned.filter((o) => o.preference !== "never");
+    const off = notLocal.length ? notLocal : banned;
+    if (off.length) print.push({ want: w, reason: notLocal.length ? "not-local" : "never-store", offer: off[0]!, stores: [...new Set(off.map((o) => o.store.name))] });
     else if (firstOf("over-market") || firstOf("no-market") || firstOf("over-max")) {
       const o = (firstOf("over-market") ?? firstOf("no-market") ?? firstOf("over-max"))!;
       print.push({ want: w, reason: o.verdict as PrintReason, offer: o, stores: [] });

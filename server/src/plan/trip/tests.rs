@@ -57,3 +57,35 @@ fn the_words_name_stores_reasons_and_never_a_zero_total() {
     assert!(t.contains("0 covered by 0 stores, no price before tax."), "{t}");
     assert!(!t.contains("$0.00"), "{t}");
 }
+
+#[test]
+fn a_maybe_store_doesnt_bundle_and_a_non_local_store_is_named_as_such() {
+    let f: Value = serde_json::from_str(FIXTURE).unwrap();
+    let mut b = f["bundle"].clone();
+    b["swaps"].as_array_mut().unwrap().retain(|s| s["in"] != "Exotic Orchard");
+    let orchard = b["quotes"].as_array().unwrap().iter().find(|q| q["card"] == "Exotic Orchard").unwrap().clone();
+    for (card, price) in [("Sol Ring", 1.25), ("Fellwar Stone", 0.5), ("Swords to Plowshares", 1.0)] {
+        let mut q = orchard.clone();
+        q["card"] = json!(card);
+        q["price"] = json!(price);
+        q["variant"] = Value::Null;
+        b["quotes"].as_array_mut().unwrap().push(q);
+    }
+    let t = plan(&b, "2026-11-01");
+    let keys: Vec<&str> = t.stops.iter().map(|x| s(x.store, "key").unwrap()).collect();
+    assert_eq!(keys, ["pats", "mothership"]);
+
+    let mut b = f["bundle"].clone();
+    for set in b["settings"].as_array_mut().unwrap() {
+        set["rules"]["buy_local_only"] = json!(true);
+    }
+    for st in b["stores"].as_array_mut().unwrap() {
+        if st["key"] == "mothership" {
+            st["kind"] = json!("online");
+        }
+    }
+    let t = plan(&b, "2026-11-01");
+    let sol = t.print.iter().find(|p| p.want.card == "Sol Ring").unwrap();
+    assert_eq!((sol.reason, sol.stores.clone()), ("not-local", vec!["Mothership Books and Games".to_string()]));
+    assert!(text(&t).contains("only at Mothership Books and Games, which isn't local"));
+}

@@ -59,6 +59,22 @@ describe("the trip", () => {
     expect(planTrip(fewer, { today: "2026-11-01" }).stops.map((s) => s.store.key)).toEqual(["pats", "mothership"]);
   });
 
+  test("a maybe store doesn't win by bundling cards the other stores have", () => {
+    const at = (card: string, price: number) => ({ ...bundle.quotes.find((q) => q.card === "Exotic Orchard")!, card, price, variant: null });
+    const fewer = { ...bundle, swaps: bundle.swaps.filter((s) => s.in !== "Exotic Orchard") };
+    const plain = planTrip(fewer, { today: "2026-11-01" });
+    const bundled = planTrip({ ...fewer, quotes: [...fewer.quotes, at("Sol Ring", 1.25), at("Fellwar Stone", 0.5), at("Swords to Plowshares", 1)] }, { today: "2026-11-01" });
+    expect(bundled.stops.map((s) => s.store.key)).toEqual(["pats", "mothership"]);
+    expect(bundled.alternatives).toEqual(plain.alternatives);
+  });
+
+  test("a store left out only by the buy-local rule says so, not that you won't go", () => {
+    const settings = bundle.settings.map((s) => ({ ...s, rules: { ...s.rules, buy_local_only: true } }));
+    const stores = bundle.stores.map((s) => (s.key === "mothership" ? { ...s, kind: "online" as const } : s));
+    const t = planTrip({ ...bundle, settings, stores }, { today: "2026-11-01" });
+    expect(t.print.find((p) => p.want.card === "Sol Ring")).toMatchObject({ reason: "not-local", stores: ["Mothership Books and Games"] });
+  });
+
   test("your chosen cut, carts, and totals that never count a missing price as $0", () => {
     const t = planTrip(bundle, { today: "2026-11-01" });
     const pats = t.stops[0]!;

@@ -584,13 +584,21 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         seen_of.insert(w.id.clone(), (checks, unpriced));
     }
 
-    let ok_at = |w: &Want, keys: &HashSet<String>| -> Option<Offer<'a>> {
-        offers_of[&w.id].iter().find(|o| o.verdict == Verdict::Ok && keys.contains(o.key())).cloned()
-    };
     let needed: Vec<&Want> = wants.iter().filter(|w| w.needed).collect();
+    // A "maybe" store is only for needed cards no other store they'll go to has under the rule
+    // (`trip.ts` `usable`).
+    let elsewhere_too: HashSet<String> = needed
+        .iter()
+        .filter(|w| offers_of[&w.id].iter().any(|o| o.verdict == Verdict::Ok && eligible(o.store) && o.preference != "maybe"))
+        .map(|w| w.id.clone())
+        .collect();
+    let usable = |w: &Want, o: &Offer| o.verdict == Verdict::Ok && !(o.preference == "maybe" && elsewhere_too.contains(&w.id));
+    let ok_at = |w: &Want, keys: &HashSet<String>| -> Option<Offer<'a>> {
+        offers_of[&w.id].iter().find(|o| usable(w, o) && keys.contains(o.key())).cloned()
+    };
     let mut coverage: HashMap<String, HashSet<&str>> = HashMap::new();
     for w in &needed {
-        for o in offers_of[&w.id].iter().filter(|o| o.verdict == Verdict::Ok && eligible(o.store)) {
+        for o in offers_of[&w.id].iter().filter(|o| usable(w, o) && eligible(o.store)) {
             coverage.entry(o.key().to_string()).or_default().insert(&w.id);
         }
     }
@@ -684,6 +692,10 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         let banned: Vec<&Offer> = offers.iter().filter(|o| o.verdict == Verdict::Ok && !eligible(o.store)).collect();
         let first = |v: Verdict| offers.iter().find(|o| o.verdict == v && eligible(o.store)).cloned();
         let (checks, unpriced) = seen_of[&w.id];
+        // Off the trip because the rule says buy local (the store is fine otherwise), or because they won't go.
+        let not_local: Vec<&Offer> = banned.iter().copied().filter(|o| o.preference != "never").collect();
+        let reason = if not_local.is_empty() { "never-store" } else { "not-local" };
+        let banned = if not_local.is_empty() { banned } else { not_local };
         let row = if let Some(o) = banned.first() {
             let mut names: Vec<String> = Vec::new();
             for x in &banned {
@@ -692,7 +704,7 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
                     names.push(n);
                 }
             }
-            PrintRow { want: w.clone(), reason: "never-store", offer: Some((*o).clone()), stores: names }
+            PrintRow { want: w.clone(), reason, offer: Some((*o).clone()), stores: names }
         } else if let Some(o) = first(Verdict::OverMarket).or_else(|| first(Verdict::NoMarket)).or_else(|| first(Verdict::OverMax)) {
             PrintRow { want: w.clone(), reason: o.verdict.reason(), offer: Some(o), stores: vec![] }
         } else if unpriced {
@@ -920,6 +932,7 @@ pub fn text(t: &Trip) -> String {
             let at = p.offer.as_ref().map(|o| format!("{} at {}", usd(Some(o.price)), store_name(o.store))).unwrap_or_default();
             let why = match p.reason {
                 "never-store" => format!("only at {}, where they won't go ({at})", p.stores.join(", ")),
+                "not-local" => format!("only at {}, which isn't local, and their rule is to buy locally ({at})", p.stores.join(", ")),
                 "over-max" => format!("over the rule's limit ({at}): print it, and keep it on the real-card wishlist"),
                 "over-market" => format!("above the rule for its market ({at}; {})", market_words(&p.offer.as_ref().and_then(|o| o.market.clone()))),
                 "no-market" => format!("no market price to judge it by ({at})"),

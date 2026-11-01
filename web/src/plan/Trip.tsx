@@ -28,6 +28,8 @@ function printReason(p: PrintRow): string {
   switch (p.reason) {
     case "never-store":
       return `Only at ${p.stores.join(", ")}, where you won't go (${at}).`;
+    case "not-local":
+      return `Only at ${p.stores.join(", ")}, which isn't local, and your rule is to buy locally (${at}).`;
     case "over-max":
       return `Over your limit (${at}). Print it; it stays on your real-card wishlist.`;
     case "over-market":
