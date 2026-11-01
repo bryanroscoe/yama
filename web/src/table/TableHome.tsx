@@ -11,7 +11,7 @@ import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applySeatPatch, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
-import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
 import { chooseGuest, isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
@@ -156,23 +156,26 @@ function GuestBanner() {
 /** Signed in on a phone that counted games without an account: save them to this account? */
 function SaveGuestGames() {
   const games = useGuestGames();
+  const waiting = useWaitingGuestGame();
   const { game } = useTable();
-  const going = !!game?.guest;
-  if (!games.length && !going) return null;
-  const what = [games.length ? `${games.length} finished ${games.length === 1 ? "game" : "games"}` : null, going ? "the game going now" : null].filter(Boolean).join(" and ");
+  if (!games.length && !waiting) return null;
+  // The game going without an account comes along only if this device has no other game going.
+  const canBring = !!waiting && !game;
+  const what = [games.length ? `${games.length} finished ${games.length === 1 ? "game" : "games"}` : null, canBring ? "the game going" : null].filter(Boolean).join(" and ");
   return (
     <aside className="guest-banner" aria-label="Games counted without an account">
       <p>
-        <b>Save {what} to your account?</b>
-        <span className="dim"> They were counted on this phone before you signed in. Nothing goes to Yama unless you say so.</span>
+        <b>{what ? `Save ${what} to your account?` : "A game from before you signed in is waiting."}</b>
+        <span className="dim">
+          {" "}They were counted on this phone without an account. Nothing goes to Yama unless you say so.
+          {waiting && !canBring ? " The one still going comes over once you finish or discard the game going now." : ""}
+        </span>
       </p>
       <div className="row">
-        <button className="primary" onClick={saveGuestGames}>Save them</button>
-        {games.length > 0 && (
-          <button className="quiet" onClick={() => confirm(`Throw away ${games.length === 1 ? "this finished game" : `these ${games.length} finished games`}? They were never saved to Yama.`) && dropGuestGames()}>
-            Throw away
-          </button>
-        )}
+        {what && <button className="primary" onClick={saveGuestGames}>Save them</button>}
+        <button className="quiet" onClick={() => confirm("Throw away the games counted without an account? They were never saved to Yama.") && dropGuestGames()}>
+          Throw away
+        </button>
       </div>
     </aside>
   );

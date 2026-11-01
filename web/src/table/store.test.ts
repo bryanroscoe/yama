@@ -133,7 +133,7 @@ describe("games counted without an account", () => {
 });
 
 describe("the game slot without an account", () => {
-  it("never shows an account's game, and brings its own along at sign-in only into an empty slot", async () => {
+  it("never mixes with an account's game, and joins it only when saved into an empty slot", async () => {
     guest = false;
     store.startGame(setup("account-1"));
     // Signed out, counting without an account: the account's game isn't there.
@@ -141,28 +141,26 @@ describe("the game slot without an account", () => {
     store.selectSlot(true);
     expect(store.getGame()).toBeNull();
     store.startGame(setup("guest-9"));
-    // Back to the account: its own game, untouched; the guest game waits for guest mode.
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    // Signed in: the account's own game, untouched; the guest game waits, unsaved.
     guest = false;
     store.selectSlot(false);
     expect(store.getGame()?.setup.id).toBe("account-1");
-    guest = true;
-    store.selectSlot(true);
-    expect(store.getGame()?.setup.id).toBe("guest-9");
-    // An account with no game going takes the guest game along, still unsaved.
-    guest = false;
-    store.selectSlot(false);
-    store.discardGame();
-    store.selectSlot(true);
-    expect(store.getGame()?.setup.id).toBe("guest-9");
-    store.selectSlot(false);
-    expect(store.getGame()).toMatchObject({ setup: { id: "guest-9" }, guest: true });
-    // Signed out again without saving it: it's back with the counter, taps and all.
-    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    // Saving with another game going leaves it waiting.
+    store.saveGuestGames();
     store.selectSlot(true);
     expect(store.getGame()).toMatchObject({ setup: { id: "guest-9" }, guest: true });
     expect(store.getGame()!.log).toHaveLength(1);
+    // Once the account's game is gone, saving brings it over as the account's own.
     store.selectSlot(false);
+    store.discardGame();
+    store.saveGuestGames();
     expect(store.getGame()?.setup.id).toBe("guest-9");
+    expect(store.getGame()!.guest).toBeUndefined();
+    // And the guest slot is empty again.
+    store.selectSlot(true);
+    expect(store.getGame()).toBeNull();
+    store.selectSlot(false);
     store.discardGame();
     await store.sync();
   });
