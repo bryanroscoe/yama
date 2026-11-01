@@ -33,6 +33,9 @@ pub struct Filters {
     pub g: String,
     #[serde(default)]
     pub s: String,
+    /// A source's name to list only the commanders it covers, or "all" for those every source has.
+    #[serde(default)]
+    pub src: String,
     #[serde(default)]
     pub page: usize,
 }
@@ -42,9 +45,11 @@ impl Filters {
         self.g.parse().unwrap_or(DEFAULT_MIN_GAMES)
     }
 
-    /// The commanders to list, in order. Each keeps its rank by score among those shown.
-    fn apply<'a>(&self, all: &'a [Commander]) -> AppResult<Vec<(usize, &'a Commander)>> {
-        if self.q.len() > 200 || self.c.len() > 5 || self.m.len() > 20 || self.g.len() > 6 || self.s.len() > 20 {
+    /// The commanders to list, in order, each with its rank by score among every commander with
+    /// at least the chosen number of games. Colors, sources and a search narrow the list but keep
+    /// those ranks.
+    fn apply<'a>(&self, all: &'a [Commander], sources: &[Source]) -> AppResult<Vec<(usize, &'a Commander)>> {
+        if self.q.len() > 200 || self.c.len() > 5 || self.m.len() > 20 || self.g.len() > 6 || self.s.len() > 20 || self.src.len() > 240 {
             return Err(AppError::bad("Commander filters are too long"));
         }
         let colors = self.c.to_ascii_uppercase();
@@ -54,12 +59,22 @@ impl Filters {
         if !self.g.is_empty() && !MIN_GAMES.iter().any(|(v, _)| *v == self.g) {
             return Err(AppError::bad("Choose one of the listed game counts"));
         }
+        if !(self.src.is_empty() || self.src == "all" || sources.iter().any(|s| s.name == self.src)) {
+            return Err(AppError::bad("Choose one of the listed sources"));
+        }
         let q = self.q.trim().to_lowercase();
         let min = self.min_games();
-        let shown: Vec<&Commander> = all
+        let mut rows: Vec<(usize, &Commander)> = all
             .iter()
             .filter(|c| c.games >= min)
-            .filter(|c| {
+            .enumerate()
+            .map(|(i, c)| (i + 1, c))
+            .filter(|(_, c)| match self.src.as_str() {
+                "" => true,
+                "all" => c.sources.len() == sources.len(),
+                name => c.sources.iter().any(|f| f.source == name),
+            })
+            .filter(|(_, c)| {
                 let id = &c.color_identity;
                 colors.is_empty()
                     || if colors == "C" {
@@ -72,12 +87,6 @@ impl Filters {
                         }
                     }
             })
-            .collect();
-        // Rank by score among the commanders the floor and colors leave; a search keeps the ranks.
-        let mut rows: Vec<(usize, &Commander)> = shown
-            .into_iter()
-            .enumerate()
-            .map(|(i, c)| (i + 1, c))
             .filter(|(_, c)| q.is_empty() || c.name.to_lowercase().contains(&q))
             .collect();
         match self.s.as_str() {
@@ -91,7 +100,7 @@ impl Filters {
 
     fn query(&self, page: usize) -> String {
         let mut q = url::form_urlencoded::Serializer::new(String::new());
-        for (key, value) in [("q", &self.q), ("c", &self.c), ("m", &self.m), ("g", &self.g), ("s", &self.s)] {
+        for (key, value) in [("q", &self.q), ("c", &self.c), ("m", &self.m), ("g", &self.g), ("s", &self.s), ("src", &self.src)] {
             if !value.is_empty() {
                 q.append_pair(key, value);
             }
@@ -118,23 +127,45 @@ fn interval(c: &Commander) -> String {
     )
 }
 
-fn figure(f: Option<&Figure>) -> String {
+/// What one source says, in its own terms. `alone` adds the source's own score when another
+/// source shares the commander, so the two can be compared.
+fn figure(f: Option<&Figure>, alone: bool) -> String {
     let Some(f) = f else {
-        return "<span class=\"dim\">No games</span>".into();
+        return "<span class=\"dim\">Not covered</span>".into();
     };
-    match f.win_rate {
+    let mut out = match f.win_rate {
         Some(rate) => format!(
-            "<span class=\"result-value\">{:.1}%</span><small>won of {} games</small><small>Score {:.0} alone</small>",
+            "<span class=\"result-value\">{:.1}%</span><small>won, of {} games</small>",
             rate * 100.0,
-            count(f.games as i64),
-            f.score
+            count(f.games as i64)
         ),
         None => format!(
-            "<span class=\"result-value\">{:.0}</span><small>score from {} games</small>",
+            "<span class=\"result-value\">{:.0}</span><small>its score, from {} games</small>",
             f.score,
             count(f.games as i64)
         ),
+    };
+    if let Some(d) = f.decks {
+        let noun = if f.win_rate.is_some() { "players" } else { "decks" };
+        write!(out, "<small>{} {noun}</small>", count(d as i64)).unwrap();
     }
+    if alone && f.win_rate.is_some() {
+        write!(out, "<small>Scores {:.0} on its own</small>", f.score).unwrap();
+    }
+    out
+}
+
+/// How much the score rests on: the games behind it and which sources they come from.
+fn evidence_cell(c: &Commander, sources: &[Source]) -> String {
+    let from = if c.sources.len() > 1 && c.sources.len() == sources.len() {
+        "Both sources".to_string()
+    } else {
+        format!("{} only", c.sources.iter().map(|f| e(&f.source)).collect::<Vec<_>>().join(" and "))
+    };
+    format!(
+        "<span class=\"result-value\">{}</span><small>game records</small><small>{from}</small>",
+        count(c.games as i64)
+    )
 }
 
 fn precon_links(c: &Commander, ranks: &HashMap<String, usize>) -> String {
@@ -157,9 +188,9 @@ fn precon_links(c: &Commander, ranks: &HashMap<String, usize>) -> String {
 
 fn evidence_words(level: &str) -> &'static str {
     match level {
-        "moderate" => "Moderate evidence",
-        "low" => "Little evidence",
-        _ => "Very little evidence",
+        "moderate" => "Moderate confidence",
+        "low" => "Low confidence",
+        _ => "Very low confidence",
     }
 }
 
@@ -189,6 +220,20 @@ fn method(r: &Ranking) -> String {
             a.correlation
         )
         .unwrap();
+    }
+    if r.sources.len() > 1 {
+        for s in &r.sources {
+            if s.commanders < r.commanders.len() {
+                write!(
+                    out,
+                    "<p>{} covers {} of the {} commanders; the others are scored from the other source alone and show “Not covered” in its column.</p>",
+                    e(&s.name),
+                    count(s.commanders as i64),
+                    count(r.commanders.len() as i64)
+                )
+                .unwrap();
+            }
+        }
     }
     out.push_str("<h3>Sources</h3><ul>");
     for s in &r.sources {
@@ -220,7 +265,7 @@ pub(super) async fn index(
     crate::public_precons::limit(&st, address)?;
     let r = ranking(&st.pool).await?;
     let (ranks, _) = crate::public_precons::v2::ranks(&st.pool).await;
-    let rows = filters.apply(&r.commanders)?;
+    let rows = filters.apply(&r.commanders, &r.sources)?;
     let games: u64 = r.sources.iter().map(|s| s.games).sum();
     let mut body = format!(
         "<section class=\"public-hero\"><div class=\"hero-copy\"><p class=\"eyebrow\">Commanders</p><h1>Which commanders<br>win the most?</h1><p class=\"lede\">Real games logged by players, combined into one score per commander.</p><p class=\"dim\">{} commanders from {} game records, one per commander per game. Free to explore.</p></div>",
@@ -235,7 +280,7 @@ pub(super) async fn index(
         }
         write!(
             body,
-            "<div class=\"featured-copy\"><span class=\"source-chip\">Top score {:.0}</span><h2>{}</h2><p>{} games, {}</p><small class=\"feature-credit\">{}</small></div></div>",
+            "<div class=\"featured-copy\"><span class=\"source-chip\">Top score {:.0}</span><h2>{}</h2><p>{} game records, {}</p><small class=\"feature-credit\">{}</small></div></div>",
             top.score,
             e(&top.name),
             count(top.games as i64),
@@ -247,8 +292,10 @@ pub(super) async fn index(
         body.push_str("<div class=\"hero-note\"><h2>No real-game sources yet.</h2><p>Commander scores appear here once a real-game source is enabled.</p></div>");
     }
     body.push_str("</section><div class=\"source-strip\">");
+    // Each source shows what it covers and lists just those commanders.
     for s in &r.sources {
-        write!(body, "<span class=\"source-chip\">{}</span>", e(&s.name)).unwrap();
+        let href = Filters { src: s.name.clone(), g: "0".into(), ..Filters::default() }.query(1);
+        write!(body, "<a class=\"source-chip\" href=\"{href}\">{}, {} commanders</a>", e(&s.name), count(s.commanders as i64)).unwrap();
     }
     write!(
         body,
@@ -270,6 +317,13 @@ pub(super) async fn index(
     let floor = if filters.g.is_empty() { DEFAULT_MIN_GAMES.to_string() } else { filters.g.clone() };
     for (value, label) in MIN_GAMES {
         write!(body, "<option value=\"{value}\"{}>{label}</option>", selected(value, &floor)).unwrap();
+    }
+    body.push_str("</select></label><label><span class=\"sr-only\">Sources</span><select name=\"src\"><option value=\"\">Any source</option>");
+    if r.sources.len() > 1 {
+        write!(body, "<option value=\"all\"{}>In every source</option>", selected("all", &filters.src)).unwrap();
+    }
+    for s in &r.sources {
+        write!(body, "<option value=\"{}\"{}>In {}</option>", e(&s.name), selected(&s.name, &filters.src), e(&s.name)).unwrap();
     }
     body.push_str("</select></label><button type=\"submit\" class=\"primary\">Apply</button><details class=\"more-filters\"");
     if !filters.c.is_empty() {
@@ -293,11 +347,12 @@ pub(super) async fn index(
     if rows.is_empty() {
         body.push_str("<div class=\"empty-state\"><h2>No matching commanders</h2><p>Try fewer games, a different color or <a href=\"/commanders\">clear the filters</a>.</p></div>");
     } else {
-        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table\"><caption class=\"sr-only\">Commander ranking from real games</caption><thead><tr><th scope=\"col\">Commander</th><th scope=\"col\">Score</th>");
+        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table commander-table\"><caption class=\"sr-only\">Commander ranking from real games</caption><thead><tr><th scope=\"col\">Commander</th><th scope=\"col\">Score<small>0–100, 50 is average</small></th><th scope=\"col\">Evidence<small>Games behind the score</small></th>");
         for s in &r.sources {
-            write!(body, "<th scope=\"col\">{}</th>", e(&s.name)).unwrap();
+            let note = if s.baseline.is_some() { "Win rate in its games" } else { "Its own 0–100 score" };
+            write!(body, "<th scope=\"col\">{}<small>{note}</small></th>", e(&s.name)).unwrap();
         }
-        body.push_str("<th scope=\"col\">Precon</th></tr></thead><tbody>");
+        body.push_str("<th scope=\"col\">Precon<small>Its precon rank</small></th></tr></thead><tbody>");
         for (rank, c) in rows.iter().skip((current - 1) * PER_PAGE).take(PER_PAGE) {
             let thumb = c
                 .art
@@ -311,19 +366,19 @@ pub(super) async fn index(
                 .unwrap_or_default();
             write!(
                 body,
-                "<tr><th scope=\"row\"><span class=\"deck-link\">{thumb}<span><strong>{}</strong><small>{} games</small><span class=\"deck-meta\">{}</span></span></span><small class=\"thumb-credit\">{credit}</small></th><td class=\"meta-cell\" data-label=\"Score\"><span class=\"meta-rank\">#{rank}</span><span class=\"result-value\">{:.0}</span>{}<small>{:.0}–{:.0}, {}</small></td>",
+                "<tr><th scope=\"row\"><span class=\"deck-link\">{thumb}<span><strong>{}</strong><span class=\"deck-meta\">{}</span></span></span><small class=\"thumb-credit\">{credit}</small></th><td class=\"meta-cell\" data-label=\"Score\"><span class=\"result-value\">{:.0}</span><small>Rank #{rank}</small>{}<small>Likely {:.0}–{:.0}</small><small>{}</small></td><td data-label=\"Evidence\">{}</td>",
                 e(&c.name),
-                count(c.games as i64),
                 identity(&c.color_identity),
                 c.score,
                 interval(c),
                 c.lo,
                 c.hi,
-                evidence_words(c.evidence).to_lowercase()
+                evidence_words(c.evidence),
+                evidence_cell(c, &r.sources)
             )
             .unwrap();
             for s in &r.sources {
-                write!(body, "<td data-label=\"{}\">{}</td>", e(&s.name), figure(c.sources.iter().find(|f| f.source == s.name))).unwrap();
+                write!(body, "<td data-label=\"{}\">{}</td>", e(&s.name), figure(c.sources.iter().find(|f| f.source == s.name), c.sources.len() > 1)).unwrap();
             }
             write!(body, "<td data-label=\"Precon\">{}</td></tr>", precon_links(c, &ranks)).unwrap();
         }

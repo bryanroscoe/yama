@@ -222,6 +222,17 @@ async fn the_public_page_lists_commanders_without_signing_in() {
     assert!(!html.contains("Partner A</strong>"));
     let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders?g=0&c=U")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
     assert!(html.contains("Weak Commander") && !html.contains("Strong Commander</strong>"));
+    // A source's chip lists only what it covers, keeping each commander's overall rank.
+    let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders?g=0&src=Mythic+Tools")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("Mythic Only</strong>") && !html.contains("Weak Commander</strong>"));
+    assert!(html.contains("href=\"/commanders?g=0&amp;src=Mythic+Tools&amp;page=1\""), "the chip links to the filter");
+    let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders?g=0&src=all")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("Strong Commander</strong>") && !html.contains("Mythic Only</strong>") && html.contains("Both sources"));
+    let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders?g=0&q=weak")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("Not covered"), "a source without the commander says so rather than showing no games");
+    assert!(!html.contains("Rank #1<"), "a search keeps the overall rank");
+    let res = app.clone().oneshot(get("/commanders?src=Nowhere")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let res = app.clone().oneshot(get("/commanders?c=X")).await.unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let res = app.clone().oneshot(get("/commanders?g=7")).await.unwrap();
