@@ -110,31 +110,27 @@ function setCurrent(next: LocalGame | null) {
 }
 
 /**
- * Show the game without an account (guest) or the account's (App calls it as the mode changes).
- * Signing in on a phone whose account has no game going brings the guest game along, still
- * marked as counted without an account, so the save question covers it.
+ * Show the game without an account (guest) or the account's (App calls it as the mode changes,
+ * while it renders). The two never mix: a game counted without an account stays in its own slot
+ * until whoever signs in says to save it (saveGuestGames), so nothing an account does reaches it.
  */
 export function selectSlot(guest: boolean) {
   const want = guest ? "guest" : "account";
   if (slot === want) return;
-  // A game counted without an account and not yet saved goes back to the guest slot when the
-  // account leaves (it came along at sign-in), with every tap made since.
-  if (guest && current?.guest) {
-    localStorage.setItem(GUEST_CURRENT, JSON.stringify(current));
-    localStorage.setItem(CURRENT, "null");
-  }
   slot = want;
-  let next = read<LocalGame | null>(currentKey(), null);
-  if (!guest && !next) {
-    const waiting = read<LocalGame | null>(GUEST_CURRENT, null);
-    if (waiting) {
-      next = { ...waiting, guest: true };
-      localStorage.removeItem(GUEST_CURRENT);
-    }
-  }
-  current = next;
-  derived = next ? replay(next.setup, next.log) : null;
-  emit();
+  current = read<LocalGame | null>(currentKey(), null);
+  derived = current ? replay(current.setup, current.log) : null;
+  waitingGuest = slot === "account" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
+  // The pages below App read the new game as they render; anything already showing hears about
+  // it once the render is over.
+  queueMicrotask(emit);
+}
+
+/** The game going without an account, as the signed-in account sees it: waiting to be saved. */
+// The device starts on the account's slot, so whatever waits in the guest slot is known from the start.
+let waitingGuest: LocalGame | null = read<LocalGame | null>(GUEST_CURRENT, null);
+export function useWaitingGuestGame() {
+  return useSyncExternalStore(subscribe, () => waitingGuest);
 }
 
 const subscribe = (l: Listener) => {
@@ -157,21 +153,38 @@ export function useGuestGames() {
   return useSyncExternalStore(subscribe, () => guestGames);
 }
 
-/** Put the games counted here without an account on the signed-in account, and upload them. */
+/**
+ * Put the games counted here without an account on the signed-in account, and upload them. The
+ * one still going comes along only into an empty slot (it becomes this device's game); with
+ * another game going it waits, and the question stays until that one is done.
+ */
 export function saveGuestGames() {
   outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => g)];
   guestGames = [];
+  // A game marked as counted without an account in the account's own slot (left by an older
+  // version) is saved where it is.
   if (current?.guest) {
     const { guest: _, ...g } = current;
     current = g;
+  }
+  if (slot === "account" && waitingGuest && !current) {
+    const { guest: _, ...g } = waitingGuest;
+    current = g;
+    derived = replay(g.setup, g.log);
+    waitingGuest = null;
+    localStorage.removeItem(GUEST_CURRENT);
   }
   emit();
   void sync();
 }
 
-/** Throw away the finished games counted here without an account; the one going stays. */
+/** Throw away the games counted here without an account, the one going included. */
 export function dropGuestGames() {
   guestGames = [];
+  if (slot === "account" && waitingGuest) {
+    waitingGuest = null;
+    localStorage.removeItem(GUEST_CURRENT);
+  }
   emit();
 }
 
