@@ -128,7 +128,7 @@ export class TableRoom extends DurableObject<Env> {
     // the room's message count unseen.
     if (typeof msg !== "string") return this.io.close(ws, 1003, "text messages only");
     const address = (ws.deserializeAttachment() as { address?: string } | null)?.address;
-    if (this.env.MESSAGES && address && !(await this.env.MESSAGES.limit({ key: address })).success) {
+    if (this.env.MESSAGES && address && !(await this.env.MESSAGES.limit({ key: `${this.io.roleOf(ws)}:${address}` })).success) {
       return this.io.close(ws, CLOSE_TOO_MANY, "Too many messages from this network. Wait a minute.");
     }
     message(this.io, ws, msg);

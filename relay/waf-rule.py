@@ -21,10 +21,11 @@ ZONE = "yama.ing"
 HOST = "relay.yama.ing"
 DESCRIPTION = "yama relay: connections per address"
 # Requests per IP per 10 s at one Cloudflare location. The Free plan's 100,000 requests a day are
-# 1.16 a second; at most 8 per 10 s, one address held just under the line all day makes about
-# 69,000, so it can't use the day up on its own. A table is a few phones connecting once (six on
-# one Wi-Fi fit) and reconnecting now and then with backoff; one briefly over waits 10 s and retries.
-REQUESTS_PER_10S = 8
+# shared with the WebSocket messages the Worker's MESSAGES limit allows (wrangler.toml), so the two
+# are budgeted together: at most 4 per 10 s is about 34,600 a day, plus at most 57,600 for
+# messages, about 92,000 from one address held at both limits all day. A table is a few phones
+# connecting once and reconnecting now and then with backoff; one briefly over waits 10 s.
+REQUESTS_PER_10S = 4
 API = "https://api.cloudflare.com/client/v4"
 
 
