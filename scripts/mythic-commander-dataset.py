@@ -20,12 +20,15 @@ from pathlib import Path
 
 def main(deliver: Path, out: Path) -> None:
     scores = deliver / "commander_scores.csv"
-    summary = json.loads((deliver / "analysis_summary.json").read_text())
+    summary_file = deliver / "analysis_summary.json"
+    summary = json.loads(summary_file.read_text())
     baseline = float(summary["baseline"])
     prior = float(summary["prior"])
     if not (0 < baseline < 1 and prior > 0):
         sys.exit("analysis_summary.json has no usable baseline and prior")
     digest = hashlib.sha256(scores.read_bytes()).hexdigest()
+    # The baseline and prior come from the summary, so a revision names both files it used.
+    summary_digest = hashlib.sha256(summary_file.read_bytes()).hexdigest()
     records = []
     with scores.open(newline="") as f:
         for row in csv.DictReader(f):
@@ -40,7 +43,7 @@ def main(deliver: Path, out: Path) -> None:
                 "id": f"mythic:commander:{key}",
                 "kind": "commander",
                 "entity": f"mythic:commander:{key}",
-                "sources": [digest],
+                "sources": [digest, summary_digest],
                 "data": {
                     "name": row["commander"],
                     "oracle_ids": ids,
@@ -81,6 +84,15 @@ def main(deliver: Path, out: Path) -> None:
             "captured_at": None,
             "flags": [],
             "transformation": "commander_scores.csv from the clean-room deliver/ hand-off; derived scores and counts only",
+            "original_response_sha256": None,
+        }, {
+            "sha256": summary_digest,
+            "url": None,
+            "retrieved_at": "2026-10-31T14:38:25Z",
+            "source_as_of": None,
+            "captured_at": None,
+            "flags": [],
+            "transformation": "analysis_summary.json from the same hand-off: cohort baseline and prior strength",
             "original_response_sha256": None,
         }],
         "records": records,

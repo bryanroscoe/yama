@@ -33,7 +33,8 @@ fn a_source_score_round_trips_and_combining_adds_certainty() {
     assert!(from_score(50.0, 60.0, 70.0).is_none());
     assert!(from_score(0.0, 0.0, 10.0).is_none());
 
-    let prior = prior_var(0.3);
+    let prior = prior_var(0.3, PRIOR);
+    assert!(prior_var(0.3, 400.0) < prior, "a stronger prior is narrower");
     let one = combine(&[(e, prior)]).unwrap();
     assert_eq!(one, e);
     // Two sources that agree: same centre, less spread, without counting the prior twice.

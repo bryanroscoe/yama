@@ -76,9 +76,9 @@ fn logistic(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
 
-/// The prior's variance in relative log-odds for a source whose average commander wins `p0`.
-pub fn prior_var(p0: f64) -> f64 {
-    1.0 / (PRIOR * p0) + 1.0 / (PRIOR * (1.0 - p0))
+/// The variance in relative log-odds of a prior worth `strength` games at a source's average `p0`.
+pub fn prior_var(p0: f64, strength: f64) -> f64 {
+    1.0 / (strength * p0) + 1.0 / (strength * (1.0 - p0))
 }
 
 /// Posterior from raw wins and games against the source's average `p0`.
@@ -242,7 +242,7 @@ async fn enabled(pool: &SqlitePool) -> AppResult<Vec<Enabled>> {
 /// One parsed commander record, before identities are resolved.
 enum Shape {
     Counts { wins: u64, games: u64, pilots: Option<u64> },
-    Score { score: f64, lo: f64, hi: f64, games: u64, decks: Option<u64>, baseline: Option<f64> },
+    Score { score: f64, lo: f64, hi: f64, games: u64, decks: Option<u64>, baseline: Option<f64>, prior: Option<f64> },
 }
 struct Parsed {
     oracle_ids: Vec<String>,
@@ -281,6 +281,7 @@ fn parse(data: &Value) -> Option<Parsed> {
             games: u64_of(&data["games"]).unwrap_or(0),
             decks: u64_of(&data["decks"]),
             baseline: f64_of(&data["baseline"]).filter(|p| *p > 0.0 && *p < 1.0),
+            prior: f64_of(&data["prior_strength"]).filter(|s| *s > 0.0),
         }
     } else {
         return None;
@@ -496,17 +497,18 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
                         decks: pilots,
                         score: estimate.map(|e| score(e.mu)).unwrap_or(50.0),
                         estimate,
-                        prior_var: prior_var(p0),
+                        prior_var: prior_var(p0, PRIOR),
                     }
                 }
-                Shape::Score { score: s, lo, hi, games, decks, baseline } => Figure {
+                Shape::Score { score: s, lo, hi, games, decks, baseline, prior } => Figure {
                     source: source.name.clone(),
                     games,
                     win_rate: None,
                     decks,
                     score: s,
                     estimate: from_score(s, lo, hi),
-                    prior_var: baseline.map(prior_var).unwrap_or(f64::INFINITY),
+                    // The prior the source's own score used; without both figures nothing is divided out.
+                    prior_var: baseline.zip(prior).map(|(p0, s)| prior_var(p0, s)).unwrap_or(f64::INFINITY),
                 },
             };
             if figure.estimate.is_some() {
