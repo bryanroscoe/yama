@@ -759,9 +759,17 @@ pub async fn precon_list(pool: &SqlitePool) -> AppResult<PreconList> {
         .fetch_all(pool)
         .await?;
     let mut precons: Vec<PreconItem> = rows.into_iter().map(|r| r.item(&ratings)).collect();
-    let prices = crate::deck_prices::prices(pool).await?;
     let mut sealed = crate::deck_prices::sealed(pool).await?;
     let lists: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT id, cards FROM precons").fetch_all(pool).await?.into_iter().collect();
+    // Price only the cards these lists hold, not every card Yama knows.
+    let ids: std::collections::BTreeSet<String> = lists
+        .values()
+        .filter_map(|cards| serde_json::from_str::<Vec<PreconCard>>(cards).ok())
+        .flatten()
+        .filter_map(|c| c.oracle_id)
+        .collect();
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let prices = crate::deck_prices::prices_for(pool, &ids).await?;
     let mut evidence = crate::precon_evidence::load(pool, chrono::Utc::now()).await?.by_precon;
     for p in &mut precons {
         // The list carries each precon's summary; its page has the full history.
@@ -888,7 +896,8 @@ pub async fn precon_detail_with(pool: &SqlitePool, id: &str, evidence: &crate::p
     };
     let lab_id = row.lab_id.clone();
     let mut precon = row.item(&ratings);
-    let market_prices = crate::deck_prices::prices(pool).await?;
+    let ids: Vec<String> = serde_json::from_str::<Vec<PreconCard>>(&cards_json).map_err(anyhow::Error::from)?.into_iter().filter_map(|c| c.oracle_id).collect();
+    let market_prices = crate::deck_prices::prices_for(pool, &ids.iter().map(String::as_str).collect::<Vec<_>>()).await?;
     precon.singles_value = crate::deck_prices::singles(&serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?, &market_prices);
     precon.sealed_price = crate::deck_prices::sealed(pool).await?.remove(id);
     precon.evidence = evidence.by_precon.get(id).cloned();
