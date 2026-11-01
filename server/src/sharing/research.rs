@@ -352,8 +352,13 @@ impl Totals {
             }
         }
     }
-    fn cost(&self) -> f64 {
-        self.buy_cost + self.print_cost
+    /// Market worth, unknown (never $0) when no card has a price.
+    fn worth(&self) -> Option<f64> {
+        (self.buy + self.print > 0).then_some(self.worth)
+    }
+    /// Buys plus prints, unknown (never $0) when no card has a price.
+    fn cost(&self) -> Option<f64> {
+        (self.buy + self.print > 0).then_some(self.buy_cost + self.print_cost)
     }
 }
 
@@ -421,8 +426,8 @@ fn shopping_totals(t: &Totals, as_of: Option<&str>) -> String {
         usd(Some(t.buy_cost)),
         t.print,
         usd(Some(t.print_cost)),
-        usd(Some(t.worth)),
-        usd(Some(t.cost())),
+        usd(t.worth()),
+        usd(t.cost()),
     );
     write!(
         s,
@@ -632,8 +637,8 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
             usd(Some(t.buy_cost)),
             t.print,
             usd(Some(t.print_cost)),
-            usd(Some(t.worth)),
-            usd(Some(t.cost()))
+            usd(t.worth()),
+            usd(t.cost())
         )
     };
     for (d, b, adds) in &per_deck {

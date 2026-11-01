@@ -684,4 +684,9 @@ async fn shared_notes_price_the_cards_to_get() {
     assert_eq!(status, StatusCode::OK);
     assert!(b3.contains("Costs $0.80"));
     assert_eq!(page(&app, &format!("/r/{token}?build=b9")).await.0, StatusCode::NOT_FOUND);
+    // Nothing priced: worth and cost are unknown, never $0.
+    doc["decks"][0]["builds"][0]["swaps"] = json!([{"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains"}]);
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+    let unpriced = page(&app, &format!("/r/{token}/party")).await.2;
+    assert!(unpriced.contains("Worth No price") && unpriced.contains("Costs No price") && !unpriced.contains("Worth $0.00"), "{unpriced}");
 }
