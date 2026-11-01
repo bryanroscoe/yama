@@ -13,6 +13,8 @@ import {
   caveat,
   deltaBound,
   durationText,
+  engineFamily,
+  fieldResult,
   fmtDate,
   hasResults,
   pct,
@@ -29,7 +31,6 @@ import {
 } from "./logic";
 import { IntervalChart, SimLine } from "./parts";
 import { RunWarnings, usePrecons } from "./Precons";
-import { experimentLabel } from "./Run";
 import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
 
@@ -37,18 +38,43 @@ import { stateLabel } from "./paired";
 export function headline(e: ExperimentItem): string {
   const p = e.progress;
   const s = e.summary && hasResults(e.summary) ? e.summary : null;
+  const field = fieldResult(s, e.status !== "queued" && e.status !== "running");
   switch (e.status) {
     case "queued":
       return p.eta_seconds != null ? `Waiting, done in ${durationText(p.eta_seconds)}` : "Waiting for its turn";
     case "running":
-      return `${p.done} of ${p.total} games${p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}${s ? `. So far: ${s.verdict.text}` : ""}`;
+      return `${p.done} of ${p.total} games${p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}${s ? `. So far: ${field?.text ?? s.verdict.text}` : ""}`;
     case "failed":
       return `Failed: ${e.error ?? "no reason recorded"}`;
     case "cancelled":
-      return `Cancelled after ${p.done} of ${p.total} games${s ? `. ${verdictText(e.status, s)}` : ""}`;
+      return `Cancelled after ${p.done} of ${p.total} games${s ? `. ${field?.text ?? verdictText(e.status, s)}` : ""}`;
     default:
-      return s?.verdict.text ?? "Done";
+      return field?.text ?? s?.verdict.text ?? "Done";
   }
+}
+
+/** Under a run's name: who it plays against (when anyone), how many games, and when it started. */
+function runSubtitle(e: ExperimentItem): string {
+  const f = e.field;
+  const mode = e.mode ?? "change";
+  const games = `${e.label.games.toLocaleString("en-GB")} games, started ${fmtDate(e.label.started_at ?? e.label.created_at)}`;
+  if (mode === "versus" || mode === "tournament") {
+    return f && f.kind !== "none" ? `Empty seats from ${f.every_pod ? f.label : f.label.replace(/^./, (c) => c.toLowerCase())}, ${games}` : games;
+  }
+  return `${f?.label ?? "An unrecorded field"}, ${games}`;
+}
+
+/** A run's simulation line on its card: engines by name, not by build (the run's page has every build). */
+function cardSimLabel(e: ExperimentItem): string {
+  const l = e.label;
+  return simLabel({
+    engine: engineFamily(l.engine),
+    difficulty: l.difficulty,
+    games: e.progress.done,
+    planned: l.games,
+    pod: l.pod,
+    date: l.finished_at ?? l.started_at ?? l.created_at,
+  });
 }
 
 export function RunsPage() {
@@ -102,11 +128,16 @@ export function RunsPage() {
           {exps.data.map((e) => {
             const live = e.status === "queued" || e.status === "running";
             const s = e.summary && hasResults(e.summary) ? e.summary : null;
+            const field = fieldResult(s, !live);
             const tag = live
               ? { text: e.status === "running" ? "Running" : "Waiting", tone: "" }
               : e.status === "failed"
                 ? { text: "Failed", tone: "bad" }
-                : s
+                : field
+                  ? field.clear
+                    ? { text: "Clear winner", tone: "good" }
+                    : { text: "No clear winner", tone: "quiet" }
+                  : s
                   ? verdictTag(s.verdict.kind, e.mode ?? "change")
                   : { text: e.status === "cancelled" ? "Cancelled" : "Done", tone: "quiet" };
             return (
@@ -115,9 +146,7 @@ export function RunsPage() {
                   {e.base?.art ? <img className="crop crop-sm" src={e.base.art.url} alt="" loading="lazy" /> : <span className="crop crop-sm" aria-hidden="true" />}
                   <span className="lab-runcard-title">
                     <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
-                    <span>
-                      {e.field?.label ?? "An unrecorded field"}, {e.label.games} games, started {fmtDate(e.label.started_at ?? e.label.created_at)}
-                    </span>
+                    <span>{runSubtitle(e)}</span>
                   </span>
                   <span className={`pill ${tag.tone}`}>{tag.text}</span>
                 </div>
@@ -127,8 +156,17 @@ export function RunsPage() {
                   </span>
                 )}
                 <span className="lab-runcard-result">{headline(e)}</span>
-                {s && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
-                <span className="lab-note">{experimentLabel(e)}.</span>
+                {field && field.leaders.length > 1 && (s?.versus?.entrants.length ?? 0) > 3 && (
+                  <ol className="lab-runcard-leaders" aria-label="Most wins">
+                    {field.leaders.map((l) => (
+                      <li key={l.label}>
+                        <span>{l.label}</span> <span>{pct(l.win_rate)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {s && !field && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
+                <span className="lab-note">{cardSimLabel(e)}.</span>
                 <span className="lab-runcard-actions">
                   <Link className="button" to={`/lab/runs/${e.id}`}>
                     Open
