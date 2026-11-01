@@ -189,7 +189,7 @@ fn only_whitelisted_answers_parse() {
 #[tokio::test(flavor = "multi_thread")]
 async fn act_is_checked_against_the_seats_own_decision() {
     let pool = crate::db::test_pool().await;
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, unavailable: Mutex::new(HashMap::new()) });
     // Two people. Seat 0's cards (Island, Opt, Preordain) appear nowhere in seat 1's deck.
     let mine = deck(&[("Island", 50), ("Opt", 25), ("Preordain", 24)]);
     let theirs = deck(&[("Mountain", 60), ("Blaze", 39)]);
@@ -297,7 +297,7 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     assert_eq!(load_prefs(&pool, &user).await.unwrap(), Some(PlayPrefs::default()));
 
     // A live game starts with each seat's saved settings, and its board says what they are.
-    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    let hub = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, unavailable: Mutex::new(HashMap::new()) });
     let m = engine().new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
     let saved = HashMap::from([(0u8, PlayPrefs { stops: None, full_control: true, tap_mana: PayMode::Auto })]);
     hub.spawn_game("game-turns-1".into(), m, vec![seat(0, "Ana"), seat(1, "Ben")], saved, pool.clone());
@@ -325,7 +325,7 @@ async fn turn_controls_are_saved_per_account_and_apply_to_live_games() {
     // The auto-tap preview answers, even when there's nothing to preview (no priority yet).
     let (tx, rx) = oneshot::channel();
     live.cmds.send(Cmd::Preview { seat: 0, object: 1, reply: tx }).unwrap();
-    assert_eq!(rx.await.unwrap(), Vec::<u64>::new());
+    assert_eq!(rx.await.unwrap().unwrap(), Vec::<u64>::new());
     let _ = live.cmds.send(Cmd::Stop);
 }
 
@@ -334,7 +334,7 @@ async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, unavailable: Mutex::new(HashMap::new()) });
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
     let (host, host_token) = user(&pool, "ana@example.com").await;
@@ -476,6 +476,7 @@ async fn remembered_answers_are_saved_with_the_game() {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("UPDATE games SET engine_version=? WHERE id='g'").bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
     persist(&pool, "g", &m).await.unwrap();
     let (saved,): (Option<String>,) = sqlx::query_as("SELECT answers FROM online_games WHERE game_id = 'g'").fetch_one(&pool).await.unwrap();
     let back: Vec<yama_play::YamaAnswer> = serde_json::from_str(&saved.unwrap()).unwrap();
@@ -492,7 +493,7 @@ async fn online_games_start_with_loop_detection_and_save_it() {
     use crate::testutil::{send as request, user};
     use axum::http::{Method, StatusCode};
     let mut st = crate::testutil::state().await;
-    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()) });
+    st.play = Arc::new(PlayHub { engine: Mutex::new(EngineState::Ready(Arc::new(engine()))), live: Mutex::new(HashMap::new()), historical: None, unavailable: Mutex::new(HashMap::new()) });
     let hub = st.play.clone();
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
@@ -516,4 +517,667 @@ async fn online_games_start_with_loop_detection_and_save_it() {
     let resumed = engine().resume(&replay.to_string(), &[(1, Difficulty::Easy)]).unwrap();
     assert_eq!(resumed.loops(), yama_play::LoopDetectionMode::Interactive);
     hub.stop(&id);
+}
+
+async fn saved_game(pool: &SqlitePool, id: &str, host: &str, identity: Option<&str>, stage: &str, replay: &str) {
+    let mut seats = vec![seat(0, "Ana"), seat(1, "Ben")];
+    seats[0].user_id = Some(host.into());
+    seats[1].user_id = None;
+    sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES (?,'online',?,'commander',?,40,'original',?)")
+        .bind(id).bind(host).bind(if stage=="over" {"finished"} else {"in_progress"}).bind(identity).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,log,answers,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,NULL,NULL,0,'original','original')")
+        .bind(id).bind(id).bind(host).bind(stage).bind(serde_json::to_string(&seats).unwrap()).bind(replay).execute(pool).await.unwrap();
+}
+async fn saved_bytes(pool: &SqlitePool, id: &str) -> String {
+    sqlx::query_scalar("SELECT json_object('engine',g.engine_version,'status',g.status,'replay',o.replay,'log',o.log,'answers',o.answers,'seats',o.seats,'revision',o.revision,'stage',o.stage,'updated',o.updated_at) FROM games g JOIN online_games o ON o.game_id=g.id WHERE g.id=?")
+        .bind(id).fetch_one(pool).await.unwrap()
+}
+fn ready_hub(historical: Option<history::Config>) -> Arc<PlayHub> {
+    Arc::new(PlayHub {
+        engine: Mutex::new(EngineState::Ready(Arc::new(engine()))),
+        live: Mutex::new(HashMap::new()),
+        historical,
+        unavailable: Mutex::new(HashMap::new()),
+    })
+}
+
+#[tokio::test]
+async fn recovery_checks_identity_before_replay_and_preserves_live_and_completed_storage() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "owner@example.com").await;
+    let (_, stranger) = user(&pool, "stranger@example.com").await;
+    let cases = [
+        ("missing-live", None, "live"),
+        ("unknown-live", Some("unregistered-engine"), "live"),
+        ("old-live", Some(history::IDENTITY), "live"),
+        ("unknown-over", Some("unregistered-engine"), "over"),
+        ("missing-over", None, "over"),
+        ("old-over", Some(history::IDENTITY), "over"),
+    ];
+    for (id, version, stage) in cases {
+        saved_game(&pool, id, &host, version, stage, "NOT JSON: must never be parsed").await;
+    }
+    let before: Vec<_> = futures_util::future::join_all(cases.iter().map(|(id, _, _)| saved_bytes(&pool, id))).await;
+    hub.resume_live(&pool).await;
+    assert_eq!(hub.live_count(), 0);
+    let app = crate::routes::app(st);
+    for (i, (id, _, _)) in cases.iter().enumerate() {
+        let (code, body) = request(&app, Method::GET, &format!("/api/play/{id}/view"), Some(&token), None).await;
+        assert_eq!(code, StatusCode::CONFLICT, "{body}");
+        assert!(body.to_string().contains("runtime"), "{body}");
+        let (code, _) = request(&app, Method::GET, &format!("/api/play/{id}/view"), Some(&stranger), None).await;
+        assert_eq!(code, StatusCode::NOT_FOUND);
+        let (code, detail) = request(&app, Method::GET, &format!("/api/play/{id}"), Some(&token), None).await;
+        assert_eq!(code, StatusCode::OK);
+        assert!(detail["runtime_error"].is_string());
+        assert_eq!(saved_bytes(&pool, id).await, before[i]);
+    }
+    let (_, status) = request(&app, Method::GET, "/api/play/status", Some(&token), None).await;
+    assert_eq!(status["unavailable_games"].as_array().unwrap().len(), cases.len());
+    let (_, status) = request(&app, Method::GET, "/api/play/status", Some(&stranger), None).await;
+    assert_eq!(status["unavailable_games"], serde_json::json!([]));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM online_game_originals").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 0, "rejection must not even create an archive row");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn matching_runtime_recovers_live_and_completed_and_fences_later_writes() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "owner@example.com").await;
+    let mut m = engine().new_match_first(19, vec![deck(&[("Island", 99)]), deck(&[("Mountain", 99)])], &[], Some(0)).unwrap();
+    let original = m.replay_json();
+    saved_game(&pool, "matching-live", &host, Some(yama_play::ENGINE_VERSION), "live", &original).await;
+    m.concede(0).unwrap();
+    saved_game(&pool, "matching-over", &host, Some(yama_play::ENGINE_VERSION), "over", &m.replay_json()).await;
+    hub.resume_live(&pool).await;
+    let live = hub.live("matching-live").expect("matching runtime recovers");
+    assert!(!board(&live, 0).await.over);
+    let app = crate::routes::app(st);
+    let before = saved_bytes(&pool, "matching-over").await;
+    let (code, body) = request(&app, Method::GET, "/api/play/matching-over/view", Some(&token), None).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(body["view"]["over"], true);
+    assert_eq!(saved_bytes(&pool, "matching-over").await, before);
+    hub.stop("matching-live");
+    persist(&pool, "matching-live", &m).await.unwrap();
+    let archived: String =
+        sqlx::query_scalar("SELECT replay FROM online_game_originals WHERE game_id='matching-live'").fetch_one(&pool).await.unwrap();
+    assert_eq!(archived, original);
+    sqlx::query("UPDATE games SET engine_version='unknown' WHERE id='matching-live'").execute(&pool).await.unwrap();
+    let before = saved_bytes(&pool, "matching-live").await;
+    assert!(persist(&pool, "matching-live", &m).await.is_err());
+    assert_eq!(saved_bytes(&pool, "matching-live").await, before);
+    let archived_again: String =
+        sqlx::query_scalar("SELECT replay FROM online_game_originals WHERE game_id='matching-live'").fetch_one(&pool).await.unwrap();
+    assert_eq!(archived_again, original);
+    // Account deletion removes the online record even when shared game statistics remain.
+    sqlx::query("DELETE FROM online_games WHERE game_id='matching-live'").execute(&pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM online_game_originals").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 0, "private originals follow online-record removal for account deletion");
+}
+
+#[test]
+fn loaded_content_must_match_even_when_the_filename_claims_the_right_hash() {
+    use sha2::{Digest, Sha256};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("card-data-cbd552b41f962f5b.json");
+    let fixture = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../play/tests/fixtures/act-cards.json")).unwrap();
+    std::fs::write(&path, &fixture).unwrap();
+    let hash = Sha256::digest(&fixture).iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    assert!(Engine::load_verified(&path, &hash).is_ok());
+    let error = Engine::load_verified(&path, yama_play::CARD_DATA_SHA256).err().unwrap().to_string();
+    assert!(error.contains("content mismatch"));
+    std::fs::write(&path, "not JSON").unwrap();
+    assert!(Engine::load_verified(&path, &hash).err().unwrap().to_string().contains("content mismatch"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires separately built pinned historical runtime and verified full historical data"]
+async fn historical_runtime_continues_live_games_and_rebuilds_final_boards_privately() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    let config = history::Config::new(
+        std::env::var_os("YAMA_HISTORICAL_RUNTIME").expect("set historical binary").into(),
+        std::env::var_os("YAMA_HISTORICAL_CARD_DATA").expect("set verified historical data").into(),
+    );
+    let output = std::process::Command::new(&config.binary).arg("--fixture").arg(&config.data).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let fixture: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(Some(config.clone()));
+    *st.play.engine.lock().unwrap() = EngineState::Failed("current runtime deliberately unavailable in historical routing test".into());
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "historical-owner@example.com").await;
+    let (spectator, spectator_token) = user(&pool, "spectator@example.com").await;
+    let (_, stranger) = user(&pool, "stranger@example.com").await;
+    sqlx::query("INSERT INTO playgroups(id,name,owner_id,join_code,created_at) VALUES ('group','Group',?,'GROUP','now')")
+        .bind(&host)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO playgroup_members(id,playgroup_id,user_id,created_at) VALUES ('member','group',?,'now')")
+        .bind(&spectator)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for stage in ["live", "over"] {
+        saved_game(
+            &pool,
+            &format!("historical-{stage}"),
+            &host,
+            Some(history::IDENTITY),
+            stage,
+            fixture[stage]["replay"].as_str().unwrap(),
+        )
+        .await;
+        sqlx::query("UPDATE online_games SET log=?,answers=? WHERE game_id=?")
+            .bind(fixture[stage]["log"].to_string())
+            .bind(fixture[stage]["answers"].to_string())
+            .bind(format!("historical-{stage}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let mut historical_seats = vec![seat(0, "Ana"), seat(1, "Ben")];
+    historical_seats[0].user_id = Some(host.clone());
+    historical_seats[1].user_id = None;
+    historical_seats[1].kind = "ai".into();
+    historical_seats[1].difficulty = Some("Easy".into());
+    sqlx::query("UPDATE online_games SET seats=? WHERE game_id LIKE 'historical-%'")
+        .bind(serde_json::to_string(&historical_seats).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE games SET playgroup_id='group' WHERE id LIKE 'historical-%'").execute(&pool).await.unwrap();
+    let live_original = fixture["live"]["replay"].as_str().unwrap().to_owned();
+    let over_before = saved_bytes(&pool, "historical-over").await;
+    hub.resume_live(&pool).await;
+    let live = hub.live("historical-live").expect("historical game must actually resume");
+    let app = crate::routes::app(st);
+    for stage in ["live", "over"] {
+        let (code, owner) = request(&app, Method::GET, &format!("/api/play/historical-{stage}/view"), Some(&token), None).await;
+        assert_eq!(code, StatusCode::OK, "{owner}");
+        let (code, public) = request(&app, Method::GET, &format!("/api/play/historical-{stage}/view"), Some(&spectator_token), None).await;
+        assert_eq!(code, StatusCode::OK, "{public}");
+        assert!(public["you"].is_null());
+        let expected = |viewer: serde_json::Value| {
+            fixture[stage]["views"].as_array().unwrap().iter().find(|pair| pair[0] == viewer).unwrap()[1].clone()
+        };
+        assert_eq!(owner["view"], expected(serde_json::json!(0)), "correct historical participant board");
+        assert_eq!(public["view"], expected(serde_json::Value::Null), "correct historical spectator board");
+        let (code, _) = request(&app, Method::GET, &format!("/api/play/historical-{stage}/view"), Some(&stranger), None).await;
+        assert_eq!(code, StatusCode::NOT_FOUND);
+    }
+    assert_eq!(saved_bytes(&pool, "historical-over").await, over_before, "final-board reads do not migrate storage");
+    // Wrong actor and stale revision are refused by the historical adapter, not the new engine.
+    let before = saved_bytes(&pool, "historical-live").await;
+    assert!(send(&live, |reply| Cmd::Choose { seat: 0, revision: u64::MAX, index: 0, reply }).await.is_err());
+    assert_eq!(saved_bytes(&pool, "historical-live").await, before);
+    assert!(
+        send(&live, |reply| Cmd::Choose { seat: 1, revision: fixture["live"]["revision"].as_u64().unwrap(), index: 0, reply })
+            .await
+            .is_err()
+    );
+    assert_eq!(saved_bytes(&pool, "historical-live").await, before);
+    // Continue a real historical decision, then reconstruct its persisted replay with the
+    // pinned adapter. Concession alone would not witness normal continuation.
+    let decision = fixture["live"]["views"].as_array().unwrap().iter().find(|pair| pair[0] == 0).unwrap()[1]["decision"].clone();
+    let index = decision["options"].as_array().unwrap().iter().find(|o| o["kind"] == "keep").unwrap_or(&decision["options"][0])["index"]
+        .as_u64()
+        .unwrap() as usize;
+    let revision = decision["revision"].as_u64().unwrap();
+    send(&live, |reply| Cmd::Choose { seat: 0, revision, index, reply }).await.expect("historical human decision continues");
+    // A read-only queued preview is a barrier after the historical AI batch settles.
+    let (preview_tx, preview_rx) = oneshot::channel();
+    live.cmds.send(Cmd::Preview { seat: 0, object: 0, reply: preview_tx }).unwrap();
+    preview_rx.await.unwrap().unwrap();
+
+    let (replay, log, answers): (String, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT replay,log,answers FROM online_games WHERE game_id='historical-live'").fetch_one(&pool).await.unwrap();
+    assert_ne!(replay, live_original, "the original runtime appended the accepted action");
+    let mut golden = history::Worker::start(&config).unwrap();
+    let sibling = history::Worker::start(&config).unwrap();
+    assert_eq!(golden.process_id(), sibling.process_id(), "sessions share one historical database process");
+    drop(sibling); // Closing another session must not terminate the shared runtime.
+    let saved_seats = historical_seats.clone();
+    golden.open(&config, replay, log, answers, &saved_seats).expect("accepted continuation restarts on its own runtime");
+    let expected = golden.call(serde_json::json!({"op":"view","viewer":0})).unwrap();
+    let (code, continued) = request(&app, Method::GET, "/api/play/historical-live/view", Some(&token), None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(continued["view"], expected["view"]);
+    drop(golden);
+    live.cmds.send(Cmd::Concede { seat: 0 }).unwrap();
+    for _ in 0..200 {
+        let stage: String =
+            sqlx::query_scalar("SELECT stage FROM online_games WHERE game_id='historical-live'").fetch_one(&pool).await.unwrap();
+        if stage == "over" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let (stage,version,original):(String,String,String)=sqlx::query_as("SELECT o.stage,g.engine_version,a.replay FROM online_games o JOIN games g ON g.id=o.game_id JOIN online_game_originals a ON a.game_id=g.id WHERE g.id='historical-live'").fetch_one(&pool).await.unwrap();
+    assert_eq!(stage, "over");
+    assert_eq!(version, history::IDENTITY);
+    assert_eq!(original, live_original);
+    let (code, body) = request(&app, Method::GET, "/api/play/historical-live/view", Some(&token), None).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(body["view"]["over"], true);
+    // Same executable, wrong bytes: reject before replay parsing, with no database change.
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir.path().join("card-data-1e5608e61683de41.json");
+    std::fs::write(&bad, "not JSON").unwrap();
+    let bad_config = history::Config::new(config.binary, bad);
+    let bad_hub = ready_hub(Some(bad_config));
+    saved_game(&pool, "wrong-content", &host, Some(history::IDENTITY), "live", "invalid replay must not be parsed").await;
+    let before = saved_bytes(&pool, "wrong-content").await;
+    bad_hub.resume_live(&pool).await;
+    assert!(bad_hub.live("wrong-content").is_none());
+    assert_eq!(saved_bytes(&pool, "wrong-content").await, before);
+}
+
+#[tokio::test]
+async fn unavailable_runtime_socket_handshake_is_private_and_meaningful() {
+    use crate::testutil::user;
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let (host, token) = user(&st.pool, "socket-owner@example.com").await;
+    let (_, stranger) = user(&st.pool, "socket-stranger@example.com").await;
+    saved_game(&st.pool, "socket-old", &host, Some(history::IDENTITY), "live", "invalid").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = crate::routes::app(st);
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    for (token, expected) in [(token, 409), (stranger, 404)] {
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/api/play/socket-old/ws"))
+            .bearer_auth(token)
+            .header("Connection", "upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), expected);
+        if expected == 409 {
+            assert!(response.text().await.unwrap().contains("runtime"));
+        }
+    }
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn wrong_historical_executable_identity_is_unavailable_without_parsing_or_saving() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let binary = dir.path().join("wrong-runtime");
+    let data = dir.path().join("cards.json");
+    std::fs::write(&binary, "#!/bin/sh\nprintf '%s\\n' '{\"hello\":{\"identity\":\"wrong\"}}'\n").unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(&data, "invalid data must not be parsed before hello").unwrap();
+    let config = history::Config::new(binary, data);
+    use sha2::{Digest, Sha256};
+    std::fs::write(&config.digest, format!("{}  {}\n", Sha256::digest(std::fs::read(&config.binary).unwrap()).iter().map(|byte| format!("{byte:02x}")).collect::<String>(), config.binary.display())).unwrap();
+    assert!(history::Worker::start(&config).err().unwrap().to_string().contains("provenance mismatch"));
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(Some(config));
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let (host, token) = user(&pool, "wrong-runtime@example.com").await;
+    for stage in ["live", "over"] {
+        saved_game(&pool, stage, &host, Some(history::IDENTITY), stage, "invalid replay").await;
+    }
+    let before_live = saved_bytes(&pool, "live").await;
+    let before_over = saved_bytes(&pool, "over").await;
+    hub.resume_live(&pool).await;
+    assert_eq!(hub.live_count(), 0);
+    let app = crate::routes::app(st);
+    for stage in ["live", "over"] {
+        let (code, body) = request(&app, Method::GET, &format!("/api/play/{stage}/view"), Some(&token), None).await;
+        assert_eq!(code, StatusCode::CONFLICT, "{body}");
+    }
+    assert_eq!(saved_bytes(&pool, "live").await, before_live);
+    assert_eq!(saved_bytes(&pool, "over").await, before_over);
+}
+
+#[tokio::test]
+async fn current_loader_rejects_wrong_content_before_live_recovery_without_storage_mutation() {
+    let pool = crate::db::test_pool().await;
+    let (host, _) = crate::testutil::user(&pool, "content-owner@example.com").await;
+    saved_game(&pool, "wrong-current-data", &host, Some(yama_play::ENGINE_VERSION), "live", "invalid replay").await;
+    let before = saved_bytes(&pool, "wrong-current-data").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("card-data-cbd552b41f962f5b.json");
+    std::fs::write(&path, "invalid data").unwrap();
+    let hub = PlayHub::start(Some(path), pool.clone());
+    for _ in 0..200 {
+        if hub.engine_status().0 == "failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(hub.engine_status().0, "failed");
+    assert!(hub.engine_status().2.unwrap().contains("content mismatch"));
+    assert_eq!(hub.live_count(), 0);
+    assert_eq!(saved_bytes(&pool, "wrong-current-data").await, before);
+}
+
+#[tokio::test]
+async fn historical_gameplay_fault_keeps_filtered_board_and_concede_available() {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let (owner, _) = crate::testutil::user(&pool, "paused-history@example.com").await;
+    saved_game(
+        &pool,
+        "paused",
+        &owner,
+        Some(history::IDENTITY),
+        "live",
+        "original",
+    )
+    .await;
+    let initial = serde_json::json!({"views":[[null,{"players":[]}],[0,{"players":[],"private":"owner-only"}]],
+        "replay":"original","log":[],"answers":[],"revision":0,"over":false,"winner":null,"turn":1,"first":0});
+    let mut finished = initial.clone();
+    finished["over"] = serde_json::json!(true);
+    finished["winner"] = serde_json::json!(1);
+    finished["replay"] = serde_json::json!("conceded");
+    let hello = serde_json::json!({"hello":serde_json::from_str::<serde_json::Value>(include_str!("../../runtime/historical.json")).unwrap(),
+        "source":serde_json::from_str::<serde_json::Value>(include_str!("../../runtime/historical-source.json")).unwrap()});
+    let body = format!(
+        "#!/bin/sh\nprintf '%s\\n' '{hello}'\nwhile IFS= read -r request; do\ncase \"$request\" in\n*batch*) printf '%s\\n' '{}' ;;\n*preview*) printf '%s\\n' '{{\"sources\":[]}}' ;;\n*concede*) printf '%s\\n' '{}' ;;\n*close*) printf '%s\\n' '{{\"closed\":true}}' ;;\n*) printf '%s\\n' '{}' ;;\nesac\ndone\n",
+        serde_json::json!({"state":initial,"moved":0,"settled":true,"fault":"synthetic AI error"}),
+        serde_json::json!({"state":finished,"advance":false}),
+        serde_json::json!({"state":initial})
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let binary = dir.path().join("worker");
+    std::fs::write(&binary, body).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let config = history::Config::new(binary, dir.path().join("data"));
+    std::fs::write(
+        &config.digest,
+        format!(
+            "{}\n",
+            Sha256::digest(std::fs::read(&config.binary).unwrap()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+        ),
+    )
+    .unwrap();
+    let mut worker = history::Worker::start(&config).unwrap();
+    let seats = vec![seat(0, "Ana"), seat(1, "Ben")];
+    let saved = worker
+        .open(&config, "original".into(), None, None, &seats)
+        .unwrap();
+    let hub = ready_hub(Some(config));
+    hub.spawn_historical("paused".into(), worker, saved, HashMap::new(), pool.clone());
+    let live = hub.live("paused").unwrap();
+    // Preview is queued after the first AI batch and proves the fault retained its receiver.
+    let (reply, response) = oneshot::channel();
+    live.cmds
+        .send(Cmd::Preview {
+            seat: 0,
+            object: 0,
+            reply,
+        })
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), response)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+        Vec::<u64>::new()
+    );
+    let snapshot = live.views.borrow().clone();
+    assert_eq!(snapshot.historical_views[&Some(0)]["private"], "owner-only");
+    assert!(snapshot.historical_views[&None]["private"].is_null());
+    assert!(hub.live("paused").is_some());
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT replay FROM online_games WHERE game_id='paused'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        "original"
+    );
+    live.cmds.send(Cmd::Concede { seat: 0 }).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let replay: String =
+                sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id='paused'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            if replay == "conceded" {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let original: String =
+        sqlx::query_scalar("SELECT replay FROM online_game_originals WHERE game_id='paused'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(original, "original");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn historical_queue_saturation_preserves_other_live_sessions_and_retryable_recovery() {
+    use crate::testutil::{send as request, user};
+    use axum::http::{Method, StatusCode};
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let release = dir.path().join("release");
+    let audit = dir.path().join("requests");
+    let initial = serde_json::json!({"views":[[null,{"players":[]}],[0,{"players":[],"private":"owner-only"}]],
+        "replay":"original","log":[],"answers":[],"revision":0,"over":false,"winner":null,"turn":1,"first":0});
+    let mut finished = initial.clone();
+    finished["over"] = serde_json::json!(true);
+    finished["winner"] = serde_json::json!(1);
+    finished["replay"] = serde_json::json!("conceded");
+    let hello = serde_json::json!({"hello":serde_json::from_str::<serde_json::Value>(include_str!("../../runtime/historical.json")).unwrap(),
+        "source":serde_json::from_str::<serde_json::Value>(include_str!("../../runtime/historical-source.json")).unwrap()});
+    let body = format!(
+        "#!/bin/sh\nprintf '%s\\n' '{hello}'\nwhile IFS= read -r request; do\nprintf '%s\\n' \"$request\" >> '{audit}'\ncase \"$request\" in\n*hold*) : > '{started}'; while [ ! -e '{release}' ]; do /bin/sleep 0.01; done; printf '%s\\n' '{{\"held\":true}}' ;;\n*queued*) printf '%s\\n' '{{\"queued\":true}}' ;;\n*batch*) printf '%s\\n' '{batch}' ;;\n*preview*) printf '%s\\n' '{{\"sources\":[]}}' ;;\n*view*) printf '%s\\n' '{{\"view\":{{\"players\":[],\"private\":\"owner-only\"}}}}' ;;\n*concede*) printf '%s\\n' '{finished}' ;;\n*close*) printf '%s\\n' '{{\"closed\":true}}' ;;\n*) printf '%s\\n' '{opened}' ;;\nesac\ndone\n",
+        audit=audit.display(), started=started.display(), release=release.display(),
+        batch=serde_json::json!({"state":initial,"moved":0,"settled":true,"fault":"paused synthetic AI"}),
+        finished=serde_json::json!({"state":finished,"advance":false}), opened=serde_json::json!({"state":initial})
+    );
+    let binary = dir.path().join("worker");
+    std::fs::write(&binary, body).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut config = history::Config::new(binary, dir.path().join("data"));
+    config.test_deadlines(Duration::from_secs(5), Duration::from_secs(3));
+    std::fs::write(&config.data, "synthetic worker does not load cards").unwrap();
+    std::fs::write(&config.digest, format!("{}\n", Sha256::digest(std::fs::read(&config.binary).unwrap()).iter().map(|b| format!("{b:02x}")).collect::<String>())).unwrap();
+    let mut st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let (owner, token) = user(&pool, "saturation-owner@example.com").await;
+    let (_, stranger) = user(&pool, "saturation-stranger@example.com").await;
+    saved_game(&pool, "busy-live", &owner, Some(history::IDENTITY), "live", "original").await;
+    saved_game(&pool, "busy-over", &owner, Some(history::IDENTITY), "over", "original").await;
+    let live_before = saved_bytes(&pool, "busy-live").await;
+    let over_before = saved_bytes(&pool, "busy-over").await;
+    // A restart pass competes for this same process without sharing the already
+    // active hub's rows. It must retry overload rather than cache unavailability.
+    let recovery_pool = crate::db::test_pool().await;
+    let (recover_owner, _) = user(&recovery_pool, "recovery-owner@example.com").await;
+    saved_game(&recovery_pool, "busy-recover", &recover_owner, Some(history::IDENTITY), "live", "original").await;
+    let recovery_before = saved_bytes(&recovery_pool, "busy-recover").await;
+    let recovery_hub = ready_hub(Some(config.clone()));
+    st.play = ready_hub(Some(config.clone()));
+    let hub = st.play.clone();
+    let mut live_worker = history::Worker::start(&config).unwrap();
+    let seats = vec![seat(0, "Ana"), seat(1, "Ben")];
+    let saved = live_worker.open(&config, "original".into(), None, None, &seats).unwrap();
+    let pid = live_worker.process_id();
+    let mut disposable = history::Worker::start(&config).unwrap();
+    disposable.open(&config, "original".into(), None, None, &seats).unwrap();
+    let closing_session = disposable.test_session();
+    let mut blocker = history::Worker::start(&config).unwrap();
+    let blocked = std::thread::spawn(move || blocker.call(serde_json::json!({"op":"hold"})));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !started.exists() { tokio::time::sleep(Duration::from_millis(5)).await; }
+    }).await.unwrap();
+    let observer = history::Worker::start(&config).unwrap();
+    let backlog = observer.test_backlog();
+    assert_eq!(backlog.len(), 64, "reach the real production queue capacity");
+    // Its first AI batch meets the full queue; the live loop must retain the receiver.
+    hub.spawn_historical("busy-live".into(), live_worker, saved, HashMap::new(), pool.clone());
+    let live = hub.live("busy-live").unwrap();
+    // Drop owes a real close, but its reserved lane must not kill the full shared process.
+    drop(disposable);
+    let mut failed_open = history::Worker::start(&config).unwrap();
+    let failed_session = failed_open.test_session();
+    assert!(failed_open.open(&config, "original".into(), None, None, &seats).err().unwrap().is::<history::Busy>());
+    drop(failed_open);
+    let app = crate::routes::app(st);
+    let (code, body) = request(&app, Method::GET, "/api/play/busy-over/view", Some(&token), None).await;
+    assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.to_string().contains("retry"));
+    assert!(!hub.unavailable.lock().unwrap().contains_key("busy-over"));
+    let (code, _) = request(&app, Method::GET, "/api/play/busy-over/view", Some(&stranger), None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    let (tx, rx) = oneshot::channel();
+    live.cmds.send(Cmd::Preview { seat:0, object:0, reply:tx }).unwrap();
+    assert!(rx.await.unwrap().unwrap_err().contains("busy"));
+    live.cmds.send(Cmd::Concede { seat:0 }).unwrap(); // fire-and-forget must survive overload too
+    assert!(hub.live("busy-live").is_some());
+    assert_eq!(live.views.borrow().historical_views[&Some(0)]["private"], "owner-only");
+    assert!(live.views.borrow().historical_views[&None]["private"].is_null());
+    assert_eq!(saved_bytes(&pool, "busy-live").await, live_before);
+    assert_eq!(saved_bytes(&pool, "busy-over").await, over_before);
+    assert_eq!(history::Worker::start(&config).unwrap().process_id(), pid);
+    let recovery = recovery_hub.resume_live(&recovery_pool);
+    tokio::pin!(recovery);
+    assert!(tokio::time::timeout(Duration::from_millis(150), &mut recovery).await.is_err(),
+        "a saturated restart must wait for retry, not finish by stranding the save");
+    assert!(recovery_hub.live("busy-recover").is_none());
+    assert!(recovery_hub.unavailable.lock().unwrap().is_empty());
+    assert_eq!(saved_bytes(&recovery_pool, "busy-recover").await, recovery_before);
+    std::fs::write(&release, "release healthy I/O").unwrap();
+    assert!(blocked.join().unwrap().is_ok());
+    // Keep the full backlog admitted: disposal must run ahead of it, not wait for capacity.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let log = std::fs::read_to_string(&audit).unwrap();
+            if log.contains(&format!("\"session\":\"{closing_session}\"")) && log.lines().any(|l| l.contains("close") && l.contains(&closing_session)) { break; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await.unwrap();
+    let log = std::fs::read_to_string(&audit).unwrap();
+    let close = log.lines().position(|l| l.contains("close") && l.contains(&closing_session)).unwrap();
+    if let Some(queued) = log.lines().position(|l| l.contains("queued")) { assert!(close < queued); }
+    assert!(!log.contains(&failed_session), "a rejected open must not execute or enqueue a close");
+    drop(backlog);
+    tokio::time::timeout(Duration::from_secs(2), &mut recovery).await.unwrap();
+    assert!(recovery_hub.live("busy-recover").is_some());
+    assert!(recovery_hub.unavailable.lock().unwrap().is_empty());
+    assert_eq!(saved_bytes(&recovery_pool, "busy-recover").await, recovery_before);
+    let (code, body) = request(&app, Method::GET, "/api/play/busy-over/view", Some(&token), None).await;
+    assert_eq!(code, StatusCode::OK, "{body}");
+    assert_eq!(body["view"]["private"], "owner-only");
+    assert_eq!(saved_bytes(&pool, "busy-over").await, over_before);
+    assert_eq!(history::Worker::start(&config).unwrap().process_id(), pid);
+    // The concede queued during saturation is retried, not silently discarded.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let replay: String = sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id='busy-live'").fetch_one(&pool).await.unwrap();
+            if replay == "conceded" { break; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await.unwrap();
+    recovery_hub.live("busy-recover").unwrap().cmds.send(Cmd::Stop).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn historical_deferred_settings_preserve_pending_ai_work() {
+    use crate::testutil::user;
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let release = dir.path().join("release");
+    let audit = dir.path().join("requests");
+    let initial = serde_json::json!({"views":[[null,{"players":[]}]],
+        "replay":"original","log":[],"answers":[],"revision":0,"over":false,"winner":null,"turn":1,"first":0});
+    let mut progressed = initial.clone();
+    progressed["replay"] = serde_json::json!("after-ai");
+    progressed["revision"] = serde_json::json!(1);
+    let hello = serde_json::json!({"hello":serde_json::from_str::<serde_json::Value>(include_str!("../../runtime/historical.json")).unwrap(),
+        "source":serde_json::from_str::<serde_json::Value>(include_str!("../../runtime/historical-source.json")).unwrap()});
+    let binary = dir.path().join("worker");
+    let body = format!(
+        "#!/bin/sh\nprintf '%s\\n' '{hello}'\nwhile IFS= read -r request; do\nprintf '%s\\n' \"$request\" >> '{audit}'\ncase \"$request\" in\n*block_queue*) : > '{started}'; while [ ! -e '{release}' ]; do /bin/sleep 0.01; done; printf '%s\\n' '{{\"held\":true}}' ;;\n*queued*) printf '%s\\n' '{{\"queued\":true}}' ;;\n*batch*) printf '%s\\n' '{batch}' ;;\n*preview*) printf '%s\\n' '{{\"sources\":[]}}' ;;\n*close*) printf '%s\\n' '{{\"closed\":true}}' ;;\n*) printf '%s\\n' '{unchanged}' ;;\nesac\ndone\n",
+        audit=audit.display(), started=started.display(), release=release.display(),
+        batch=serde_json::json!({"state":progressed,"moved":1,"settled":true,"fault":null}),
+        unchanged=serde_json::json!({"state":initial,"advance":false}),
+    );
+    std::fs::write(&binary, body).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut config = history::Config::new(binary, dir.path().join("data"));
+    config.test_deadlines(Duration::from_secs(5), Duration::from_secs(3));
+    std::fs::write(&config.data, "synthetic worker does not load cards").unwrap();
+    std::fs::write(&config.digest, format!("{}\n", Sha256::digest(std::fs::read(&config.binary).unwrap()).iter().map(|b| format!("{b:02x}")).collect::<String>())).unwrap();
+    let pool = crate::db::test_pool().await;
+    let (owner, _) = user(&pool, "pending-ai@example.com").await;
+    saved_game(&pool, "pending-ai", &owner, Some(history::IDENTITY), "live", "original").await;
+    let hub = ready_hub(Some(config.clone()));
+    let mut worker = history::Worker::start(&config).unwrap();
+    let mut ai = seat(1, "AI");
+    ai.kind = "ai".into();
+    let saved = worker.open(&config, "original".into(), None, None, &[seat(0, "Ana"), ai]).unwrap();
+    let mut blocker = history::Worker::start(&config).unwrap();
+    let blocked = std::thread::spawn(move || blocker.call(serde_json::json!({"op":"block_queue"})));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !started.exists() { tokio::time::sleep(Duration::from_millis(5)).await; }
+    }).await.unwrap();
+    let observer = history::Worker::start(&config).unwrap();
+    let backlog = observer.test_backlog();
+    assert_eq!(backlog.len(), 64);
+    hub.spawn_historical("pending-ai".into(), worker, saved, HashMap::new(), pool.clone());
+    let live = hub.live("pending-ai").unwrap();
+    live.cmds.send(Cmd::Hold { seat:0, on:false }).unwrap();
+    // The preview is a receiver barrier: the batch and settings request have
+    // already met Busy, and the settings command is retained for later admission.
+    let (tx, rx) = oneshot::channel();
+    live.cmds.send(Cmd::Preview { seat:0, object:0, reply:tx }).unwrap();
+    assert!(rx.await.unwrap().unwrap_err().contains("busy"));
+    std::fs::write(&release, "release healthy I/O").unwrap();
+    assert!(blocked.join().unwrap().is_ok());
+    drop(backlog);
+    // No further player command may be needed to restart the outstanding batch.
+    let advanced = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let replay: String = sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id='pending-ai'").fetch_one(&pool).await.unwrap();
+            if replay == "after-ai" { break; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await;
+    live.cmds.send(Cmd::Stop).unwrap();
+    assert!(advanced.is_ok(), "deferred settings erased the pending AI batch retry");
+    let log = std::fs::read_to_string(&audit).unwrap();
+    let settings = log.lines().position(|line| line.contains("\"type\":\"hold\"")).unwrap();
+    let batch = log.lines().position(|line| line.contains("\"op\":\"batch\"")).unwrap();
+    assert!(settings < batch, "the settings command must be admitted before AI resumes");
 }

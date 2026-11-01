@@ -87,16 +87,13 @@ Image IDs are immutable; refresh tools/OS packages through reviewed profile
 changes. If CI is compromised, stop this worker and rotate its registration and
 read-only Phase key before rebuilding its state/cache.
 
-Rust CI checks out Yama and the private `bryanroscoe/yama-phase` side by side, at the exact
+Rust CI checks out Yama and the public `bryanroscoe/yama-phase` side by side, at the exact
 40-character revision in `deploy/phase-rev`. It uses the real Cargo manifests and lockfile;
 no local cache path substitutions are used on GitHub. The expected engine repository is
-checked before checkout. A missing key or invalid pin fails the job explicitly.
+checked before checkout. An invalid pin fails the job explicitly.
 
-The repository secret `YAMA_PHASE_DEPLOY_KEY` holds a dedicated SSH private key whose public
-key is installed as a **read-only deploy key on yama-phase**. It grants no account-wide or
-write access. Both checkouts disable credential persistence. To rotate it, install a new
-read-only deploy key on yama-phase, replace the Actions secret on Yama, verify a CI run, then
-remove the old deploy key. Never put private key material in the repository or logs. Both jobs
+Phase has been public since 31 October 2026, so its checkout no longer needs the legacy
+`YAMA_PHASE_DEPLOY_KEY` secret. Both checkouts disable credential persistence. Both jobs
 refuse fork PRs before scheduling on the persistent runner. Copy reviewed fork work into a
 trusted branch in this private repository before running CI; skipped fork jobs are not passing
 acceptance evidence.

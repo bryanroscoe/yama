@@ -6,11 +6,13 @@ publish = false
 description = "Online play for Yama: the phase-rs rules engine behind a small interface, plus an all-AI soak test."
 
 [dependencies]
-# Private bryanroscoe/yama-phase checkout; deploy/phase-repo and deploy/phase-rev pin releases.
+# Public bryanroscoe/yama-phase checkout; deploy/phase-repo and deploy/phase-rev pin releases.
 # See docs/engine-integration.md and docs/engine-recovery-2026-10-25.md.
 engine = { path = "../../yama-phase/crates/engine", package = "phase-engine" }
 phase-ai = { path = "../../yama-phase/crates/phase-ai" }
 phase-llm = { path = "../../yama-phase/crates/phase-llm" }
+# phase-server's protocol and per-seat filter, for phase's own board on Yama games (src/board.rs).
+server-core = { path = "../../yama-phase/crates/server-core" }
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,3 +21,5 @@ anyhow = "1"
 mimalloc = "0.1"
 # The lab runner's per-thread CPU clock (clock_gettime); already in the graph.
 libc = "0.2"
+
+sha2 = "0.11.1"

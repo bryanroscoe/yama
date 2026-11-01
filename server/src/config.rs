@@ -8,6 +8,8 @@ pub struct Config {
     pub bind: String,
     /// Built web app to serve at `/`. Optional: in development Vite serves the UI.
     pub web_dist: Option<PathBuf>,
+    /// phase's own board (its web client, built with PHASE_BASE_PATH=/board/), served at /board/.
+    pub board_dist: Option<PathBuf>,
     /// OAuth client IDs whose Google ID tokens we accept (web, iOS, Android).
     pub google_client_ids: Vec<String>,
     /// Always allowed to sign in, and allowed to invite others.
@@ -238,7 +240,7 @@ impl Config {
         std::fs::create_dir_all(&data_dir).with_context(|| format!("creating {}", data_dir.display()))?;
         let engine_card_data = std::env::var("YAMA_ENGINE_CARD_DATA")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| data_dir.join("engine/card-data-1e5608e61683de41.json"));
+            .unwrap_or_else(|_| data_dir.join("engine/card-data-cbd552b41f962f5b.json"));
         let bind = std::env::var("YAMA_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
         // Dev login lets anyone in as anyone, so it only works on a server only this machine can reach.
         let loopback = bind.parse::<std::net::SocketAddr>().is_ok_and(|a| a.ip().is_loopback());
@@ -285,6 +287,7 @@ impl Config {
                 .unwrap_or_else(|_| format!("sqlite://{}/yama.db", data_dir.display())),
             bind,
             web_dist: std::env::var("YAMA_WEB_DIST").ok().map(PathBuf::from),
+            board_dist: std::env::var("YAMA_BOARD_DIST").ok().map(PathBuf::from).filter(|d| board_matches_engine(d)),
             // Client IDs are case-sensitive; don't lowercase them.
             google_client_ids: std::env::var("YAMA_GOOGLE_CLIENT_IDS")
                 .unwrap_or_default()
@@ -316,6 +319,43 @@ impl Config {
             public_url,
             oauth_redirect_hosts,
         })
+    }
+}
+
+/// A cached board from an earlier engine revision must not be offered to players.
+fn board_matches_engine(dir: &std::path::Path) -> bool {
+    if !dir.join("index.html").is_file() {
+        return false;
+    }
+    let revision = std::fs::read(dir.join("yama-board.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let matches = revision.as_ref().and_then(|v| v.get("phase_revision")).and_then(|v| v.as_str())
+        == Some(include_str!("../../deploy/phase-rev").trim());
+    if !matches {
+        tracing::warn!(path = %dir.display(), "ignoring Phase board built for a different or unknown engine revision");
+    }
+    matches
+}
+
+#[cfg(test)]
+mod board_tests {
+    use super::*;
+
+    #[test]
+    fn a_board_needs_the_servers_exact_engine_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "board").unwrap();
+        assert!(!board_matches_engine(dir.path()));
+        let marker = dir.path().join("yama-board.json");
+        std::fs::write(&marker, "broken").unwrap();
+        assert!(!board_matches_engine(dir.path()));
+        std::fs::write(&marker, r#"{"phase_revision":"old"}"#).unwrap();
+        assert!(!board_matches_engine(dir.path()));
+        std::fs::write(&marker, serde_json::to_vec(&serde_json::json!({
+            "phase_revision": include_str!("../../deploy/phase-rev").trim(),
+        })).unwrap()).unwrap();
+        assert!(board_matches_engine(dir.path()));
     }
 }
 

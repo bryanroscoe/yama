@@ -8,6 +8,7 @@ import base64
 from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -186,12 +187,10 @@ def phase_checkout(repo):
         raise Refused('Engine pin must be a full SHA')
     if not phase.exists():
         run(['git', 'init', '--initial-branch=main', phase])
-    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_SSH_COMMAND=(
-        'ssh -i ' + str(BASE / 'phase_ed25519') + ' -o IdentitiesOnly=yes'
-        ' -o StrictHostKeyChecking=yes -o UserKnownHostsFile=' + str(BASE / 'github_known_hosts')))
+    env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
     # Rebasing the fork's main keeps the previous line under an archive/* tag; a pin on
     # either is published, so the deployed engine stays releasable until Yama bumps it.
-    run(['git', '-C', phase, 'fetch', '--no-tags', '--prune', 'git@github.com:bryanroscoe/yama-phase.git',
+    run(['git', '-C', phase, 'fetch', '--no-tags', '--prune', 'https://github.com/bryanroscoe/yama-phase.git',
          '+refs/heads/main:refs/remotes/origin/main',
          '+refs/tags/archive/*:refs/remotes/origin/archive/*'], env=env)
     archives = run(['git', '-C', phase, 'for-each-ref', '--format=%(refname)',
@@ -335,6 +334,202 @@ def healthy(images):
         return False
 
 
+def preflight_engine_data(source, service, image):
+    """Verify the effective Compose data paths before touching running services.
+
+    Only bind-mounted files can be verified here. An unsupported mount layout
+    fails closed instead of letting HTTP health hide an unavailable engine.
+    """
+    # The separately installed gate must still release the old main while the
+    # upgrade PR is pending. Never skip preflight for a historical-runtime build.
+    if not (source / 'deploy/engine-data.json').exists() and not (source / 'runtime/historical.json').exists():
+        return
+    manifest = json.loads((source / 'deploy/engine-data.json').read_text())
+    historical = json.loads((source / 'runtime/historical.json').read_text())
+    settings = service.get('environment', {})
+    data_dir = settings.get('YAMA_DATA_DIR', '/data')
+    current = settings.get('YAMA_ENGINE_CARD_DATA', str(Path(data_dir) / manifest['current_file']))
+    previous = settings.get('YAMA_HISTORICAL_CARD_DATA',
+                            str(Path(current).with_name(manifest['historical_file'])))
+    verified = []
+    for label, configured, expected in (
+            ('current', current, manifest['current_sha256']),
+            ('historical', previous, historical['card_sha256'])):
+        if not re.fullmatch(r'[0-9a-f]{64}', expected):
+            raise Refused('Invalid ' + label + ' engine data hash in release manifest')
+        path = Path(configured)
+        if not path.is_absolute() or '..' in path.parts:
+            raise Refused('Engine data preflight requires absolute container paths')
+        mounts = [m for m in service.get('volumes', [])
+                  if path == Path(m['target']) or Path(m['target']) in path.parents]
+        # A nested mount shadows its parent, including a named volume or tmpfs.
+        mounts.sort(key=lambda m: len(Path(m['target']).parts), reverse=True)
+        if not mounts or mounts[0].get('type') != 'bind':
+            raise Refused('Engine data preflight requires a bind mount for ' + label + ' data')
+        for temporary in service.get('tmpfs', []):
+            target = Path(temporary.split(':', 1)[0])
+            if path == target or target in path.parents:
+                raise Refused('Engine data path is shadowed by tmpfs')
+        mount = mounts[0]
+        host_path = Path(mount['source']) / path.relative_to(mount['target'])
+        # Container symlinks need container-relative resolution. Do not follow
+        # them on the host, where an absolute link could name different bytes.
+        boundary = Path(mount['source'])
+        if boundary.is_symlink() or any(p.is_symlink() for p in (host_path, *host_path.parents)):
+            raise Refused('Engine data preflight does not accept symlink paths')
+        digest = hashlib.sha256()
+        try:
+            if not host_path.is_file():
+                raise Refused('Missing or non-regular ' + label + ' engine data; stage the pinned artifact before release')
+            with host_path.open('rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(block)
+        except OSError:
+            raise Refused('Missing or unreadable ' + label + ' engine data; stage the pinned artifact before release') from None
+        if digest.hexdigest() != expected:
+            raise Refused('Wrong ' + label + ' engine data bytes; running production was preserved')
+        verified.append((str(path), str(host_path), expected))
+    verify_engine_image(service, image, verified)
+
+
+def verify_engine_image(service, image, artifacts):
+    """Probe only the candidate image and two read-only files, without DB/secrets."""
+    binary = '/usr/local/bin/historical-runtime'
+    binding = '/usr/local/share/yama/historical-runtime.sha256'
+    if service.get('environment', {}).get('YAMA_HISTORICAL_RUNTIME', binary) != binary:
+        raise Refused('Historical runtime override needs independently verified packaging')
+    if service.get('environment', {}).get('YAMA_HISTORICAL_RUNTIME_DIGEST', binding) != binding:
+        raise Refused('Historical runtime digest override needs independently verified packaging')
+    overlays = [Path(m['target']) for m in service.get('volumes', [])]
+    overlays += [Path(m.split(':', 1)[0]) for m in service.get('tmpfs', [])]
+    if any(Path(p) == target or target in Path(p).parents
+           for target in overlays for p in (binary, binding)):
+        raise Refused('Server mounts shadow the packaged historical runtime or its digest')
+    # Numeric container IDs must refer to the same filesystem IDs checked below.
+    # Remapped/rootless configurations need a different, namespace-aware probe.
+    security = json.loads(run(['docker', 'info', '--format', '{{json .SecurityOptions}}']))
+    namespace = service.get('userns_mode')
+    if namespace not in (None, 'host') or any('rootless' in opt or ('userns' in opt and namespace != 'host') for opt in security):
+        raise Refused('Engine directory preflight requires an unremapped runtime identity')
+    validate_engine_directories(service, artifacts)
+    name = 'yama-engine-preflight-' + secrets.token_hex(12)
+    args = ['docker', 'run', '--rm', '--name', name, '--network', 'none',
+            '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+            '--user', service.get('user', '99:100'), '--pids-limit', '64', '--memory', '2g',
+            '--cpus', '1', '--entrypoint', '/bin/sh']
+    if namespace == 'host':
+        args += ['--userns', 'host']
+    for group in service.get('group_add', []):
+        args += ['--group-add', str(group)]
+    for container_path, host_path, _ in artifacts:
+        if any(c in container_path + host_path for c in (',', '\n', '\r')):
+            raise Refused('Engine data paths cannot contain Docker mount delimiters')
+        if container_path in (binary, binding):
+            raise Refused('Engine data path overlaps the packaged runtime')
+        args += ['--mount', 'type=bind,source=' + host_path + ',target=' + container_path + ',readonly']
+    # Values are positional shell arguments, never interpolated shell source.
+    # The image owns the digest binding; server mounts cannot replace it.
+    script = '''set -eu
+actual="$(sha256sum -- "$1")"
+test "${actual%% *}" = "$2"
+read -r expected ignored < /usr/local/share/yama/historical-runtime.sha256
+actual="$(sha256sum -- "$3")"
+test "${actual%% *}" = "$expected"
+exec "$3" --verify-data "$4"
+'''
+    args += [image, '-c', script, 'engine-preflight', artifacts[0][0], artifacts[0][2], binary, artifacts[1][0]]
+    try:
+        run(args, timeout=180)
+    finally:
+        # A timed-out Docker client does not guarantee its container stopped.
+        # Remove only our uniquely named probe, also when --rm already removed it.
+        subprocess.run(['docker', 'rm', '--force', name], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30, check=False)
+
+
+def validate_engine_directories(service, artifacts):
+    """Check directory metadata omitted by the isolated per-file mounts.
+
+    Check only container-visible directories: host ancestors above a bind root
+    are irrelevant. ACLs and named IDs require a richer probe and fail closed.
+    File read access is still checked by the real candidate process.
+    """
+    identity = str(service.get('user', '99:100'))
+    extra = [str(g) for g in service.get('group_add', [])]
+    if not re.fullmatch(r'[0-9]+:[0-9]+', identity) or any(not re.fullmatch(r'[0-9]+', g) for g in extra):
+        raise Refused('Engine directory preflight requires numeric runtime UID and groups')
+    uid, gid = map(int, identity.split(':'))
+    groups = {gid, *(int(g) for g in extra)}
+    if not hasattr(os, 'listxattr'):
+        raise Refused('Engine directory preflight requires Linux extended-attribute support')
+    checked = set()
+    for container_path, _, _ in artifacts:
+        for directory in Path(container_path).parents:
+            mounts = [m for m in service.get('volumes', [])
+                      if directory == Path(m['target']) or Path(m['target']) in directory.parents]
+            if not mounts:
+                continue  # Image-owned directories are traversed by the image probe.
+            mount = max(mounts, key=lambda m: len(Path(m['target']).parts))
+            if mount.get('type') != 'bind':
+                raise Refused('Cannot verify engine directory access through a non-bind mount')
+            path = Path(mount['source']) / directory.relative_to(mount['target'])
+            if path in checked:
+                continue
+            checked.add(path)
+            if path.is_symlink() or not path.is_dir():
+                raise Refused('Engine directory must be a real directory')
+            if 'system.posix_acl_access' in os.listxattr(path):
+                raise Refused('Engine directory ACL requires a namespace-aware access probe')
+            metadata = path.stat()
+            execute = 0o100 if metadata.st_uid == uid else 0o010 if metadata.st_gid in groups else 0o001
+            if not metadata.st_mode & execute:
+                raise Refused('Runtime user cannot traverse the engine data directory; production was preserved')
+
+
+def historical_build_context(source, scratch, repo, phase):
+    # Install this host before merging the runtime change. Existing main has no
+    # historical worker, and continues to build through the previous context.
+    if not (source / 'runtime/historical.json').exists():
+        return []
+    run(['python3', source / 'runtime/build-historical.py', scratch / 'historical',
+         '--prepare-only', '--yama-repo', repo, '--phase-repo', phase])
+    return ['--build-context', 'historical-source=' + str(scratch / 'historical')]
+
+
+def verify_board_image(source, service, image):
+    """Read only the exact image's board, with no host data, credentials or network."""
+    if not (source / 'deploy/build-board-client.sh').is_file():
+        return
+    board = Path('/app/board')
+    if service.get('environment', {}).get('YAMA_BOARD_DIST', str(board)) != str(board):
+        raise Refused('Board directory override would bypass the packaged client')
+    overlays = [Path(os.path.normpath(m['target'])) for m in service.get('volumes', [])]
+    overlays += [Path(os.path.normpath(m.split(':', 1)[0])) for m in service.get('tmpfs', [])]
+    if any(target == board or target in board.parents or board in target.parents for target in overlays):
+        raise Refused('Server mounts shadow the packaged board')
+    pin = (source / 'deploy/phase-rev').read_text().strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', pin):
+        raise Refused('Board preflight requires the full Phase pin')
+    name = 'yama-board-preflight-' + secrets.token_hex(12)
+    args = ['docker', 'run', '--rm', '--name', name, '--network', 'none', '--read-only',
+            '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+            '--user', service.get('user', '99:100'), '--pids-limit', '32', '--memory', '128m',
+            '--cpus', '1', '--entrypoint', '/bin/sh']
+    if service.get('userns_mode') == 'host':
+        args += ['--userns', 'host']
+    script = '''set -eu
+test -r /app/board/index.html
+test -s /app/board/index.html
+expected=$(printf '{"phase_revision":"%s"}' "$1")
+test "$(cat /app/board/yama-board.json)" = "$expected"
+'''
+    try:
+        run([*args, image, '-c', script, 'board-preflight', pin], timeout=60)
+    finally:
+        subprocess.run(['docker', 'rm', '--force', name], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30, check=False)
+
+
 def activate(source, revision, images, record, record_path, token):
     # Pin runtime image IDs, so unchanged sidecars keep the same Compose config
     # across main commits and are not restarted just because a tag changed.
@@ -344,6 +539,8 @@ def activate(source, revision, images, record, record_path, token):
     for service, image in zip(SERVICES, images):
         if resolved['services'][service]['image'] != image:
             raise Refused('Server override changes the release image for ' + service)
+    preflight_engine_data(source, resolved['services']['yama'], images[0])
+    verify_board_image(source, resolved['services']['yama'], images[0])
     # Bootstrap ran under the host lock; activation never rewrites env files.
     for name in ('yama.env', 'advisor.env', 'forge.env'):
         if not (APP / name).is_file():
@@ -459,10 +656,23 @@ def release(revision, token, check_only=False):
                 scratch = Path(scratch)
                 source = scratch / 'yama'
                 export(repo, revision, source)
-                export(phase, phase_rev, scratch / 'yama-phase', 'Cargo.toml', 'crates')
+                if (source / 'deploy/build-board-client.sh').is_file():
+                    # The board and native runtime come from the same published pin.
+                    # Include build configuration/protocol records; omit Git and generated data.
+                    export(phase, phase_rev, scratch / 'yama-phase',
+                           'Cargo.toml', 'Cargo.lock', '.cargo', 'crates', 'client', 'scripts',
+                           'protocol', 'data-files.json', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE')
+                else:
+                    # Installing this reviewed entrypoint before the upgrade must
+                    # still support the previous main's native-only image.
+                    export(phase, phase_rev, scratch / 'yama-phase', 'Cargo.toml', 'crates')
+                # Export the historical Yama adapter AND its Phase source; old JSON alone
+                # cannot preserve replay behavior. A missing artifact fails before build/deploy.
+                historical_context = historical_build_context(source, scratch, repo, phase)
                 forge_src = run(['git', '-C', repo, 'rev-parse', '--short=7', revision + ':forge-worker'])
                 builds_args = (
                     ['--build-context', 'phase=' + str(scratch / 'yama-phase'),
+                     *historical_context,
                      '--build-arg', 'YAMA_GIT_SHA=' + revision, '--build-arg', 'YAMA_GIT_DIRTY=0'],
                     [], ['--build-arg', 'FORGE_WORKER_GIT_SHA=' + forge_src],
                 )

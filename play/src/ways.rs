@@ -491,20 +491,26 @@ pub(crate) fn offer_action(candidates: &[GameAction], cast: bool, payment: PayMo
     })
 }
 
+/// The object a cost is paid for and the words for why: " to cast X", " to activate X",
+/// " to turn X face up" (CR 702.37e), or nothing for a cost paid as an effect resolves.
+pub(crate) fn cost_for(vs: &GameState, resume: &CostResume) -> (Option<ObjectId>, String) {
+    let (id, verb) = match resume {
+        CostResume::Spell { spell } | CostResume::SpellCost { spell, .. } if spell.activation_ability_index.is_some() => (spell.object_id, "activate"),
+        CostResume::Spell { spell } | CostResume::SpellCost { spell, .. } => (spell.object_id, "cast"),
+        CostResume::ManaAbility { mana_ability } => (mana_ability.source_id, "activate"),
+        CostResume::TurnFaceUp { source, .. } => {
+            return (Some(source.object_id), format!(" to turn {} face up", Match::name_in(vs, &source.object_id)));
+        }
+        CostResume::Resolution => return (None, String::new()),
+    };
+    (Some(id), format!(" to {verb} {}", Match::name_in(vs, &id)))
+}
+
 /// Removing counters as a cost (CR 118.3, 122.1): from one permanent (a pick), or from among
 /// several (a split that must add up to the cost). `None` for anything else.
 pub(crate) fn counter_cost(vs: &GameState, kind: &PayCostKind, choices: &[ObjectId], n: usize, resume: &CostResume) -> Option<Pending> {
     let PayCostKind::RemoveCounter { counter_type, count, selection } = kind else { return None };
-    let source = match resume {
-        CostResume::Spell { spell } | CostResume::SpellCost { spell, .. } => Some((spell.object_id, spell.activation_ability_index.is_some())),
-        CostResume::ManaAbility { mana_ability } => Some((mana_ability.source_id, true)),
-        CostResume::Resolution => None,
-    };
-    let why = match source {
-        Some((id, false)) => format!(" to cast {}", Match::name_in(vs, &id)),
-        Some((id, true)) => format!(" to activate {}", Match::name_in(vs, &id)),
-        None => String::new(),
-    };
+    let (source, why) = cost_for(vs, resume);
     let what = match counter_type {
         CounterMatch::Any => a_or(*count as usize, "counter", "counters"),
         CounterMatch::OfType(t) => a_or(*count as usize, &format!("{} counter", counter_words(t)), &format!("{} counters", counter_words(t))),
@@ -515,7 +521,7 @@ pub(crate) fn counter_cost(vs: &GameState, kind: &PayCostKind, choices: &[Object
             for o in &mut options {
                 o.counters = counters_on(vs, &ObjectId(o.id.parse().unwrap_or(0)));
             }
-            Some(Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("Remove {what} from a permanent{why}"), options).range(n, n, false).from(vs, source.map(|s| s.0)))
+            Some(Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("Remove {what} from a permanent{why}"), options).range(n, n, false).from(vs, source))
         }
         CounterCostSelection::AmongObjects => {
             // Each permanent's counters of the kind asked for (or of every kind), capped by how
@@ -549,7 +555,7 @@ pub(crate) fn counter_cost(vs: &GameState, kind: &PayCostKind, choices: &[Object
                     options.push(c);
                 }
             }
-            let mut p = Pending::new(Kind::Split, Answer::RemoveCounterCost, "counter_cost", format!("Remove {what} from among your permanents{why}"), options).from(vs, source.map(|s| s.0));
+            let mut p = Pending::new(Kind::Split, Answer::RemoveCounterCost, "counter_cost", format!("Remove {what} from among your permanents{why}"), options).from(vs, source);
             p.min = 0;
             p.max = *count as usize;
             p.total = Some(*count);

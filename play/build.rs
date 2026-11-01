@@ -5,8 +5,12 @@
 //!   <sha>-dirty-<hash>     uncommitted changes; <hash> is 8 hex digits of an FNV-1a hash of the
 //!                          sources that make the binary (play/src, play/build.rs, play/Cargo.toml,
 //!                          server sources/resources/migrations/build.rs/Cargo.toml, Cargo.toml,
-//!                          Cargo.lock), so dirty builds reflect changes to execution policy too
+//!                          Cargo.lock and embedded runtime manifests), so dirty builds reflect
+//!                          changes to execution policy and runtime bindings too
 //!   unknown-<hash>         no git and no YAMA_LAB_GIT_SHA
+//!
+//! The historical export uses a distinct Cargo package name so its Git-less build-script
+//! output cannot replace this package's runner stamp in the shared target directory.
 //!
 //! A Docker build context has no .git: deployment passes YAMA_LAB_GIT_SHA (full SHA) and
 //! YAMA_LAB_GIT_DIRTY (0 or 1) as build args instead, and the hash is computed here from the same
@@ -16,7 +20,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock", "../server/src", "../server/resources", "../server/migrations", "../server/build.rs", "../server/Cargo.toml"] {
+    let pin = std::fs::read_to_string(manifest_dir().join("../deploy/phase-rev")).expect("deployment Phase pin");
+    let pin = pin.trim();
+    assert!(pin.len() == 40 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()), "invalid deployment Phase pin");
+    println!("cargo:rustc-env=YAMA_PLAY_PHASE_REV={pin}");
+    for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock", "../server/src", "../server/resources", "../server/migrations", "../server/build.rs", "../server/Cargo.toml", "../runtime/historical.json", "../runtime/historical-source.json", "../deploy/phase-rev"] {
         println!("cargo:rerun-if-changed={p}");
     }
     for v in ["YAMA_LAB_RUNNER", "YAMA_LAB_GIT_SHA", "YAMA_LAB_GIT_DIRTY"] {
@@ -64,7 +72,7 @@ fn detect() -> String {
             }
         }
     }
-    match git(&["status", "--porcelain", "--", ".", "../server", "../Cargo.toml", "../Cargo.lock"]) {
+    match git(&["status", "--porcelain", "--", ".", "../server", "../Cargo.toml", "../Cargo.lock", "../runtime/historical.json", "../runtime/historical-source.json", "../deploy/phase-rev"]) {
         Some(s) if s.is_empty() => sha,
         _ => format!("{sha}-dirty-{hash}"),
     }
@@ -88,6 +96,9 @@ fn source_hash() -> String {
         ("Cargo.lock", dir.join("../Cargo.lock")),
         ("server/build.rs", dir.join("../server/build.rs")),
         ("server/Cargo.toml", dir.join("../server/Cargo.toml")),
+        ("runtime/historical.json", dir.join("../runtime/historical.json")),
+        ("runtime/historical-source.json", dir.join("../runtime/historical-source.json")),
+        ("deploy/phase-rev", dir.join("../deploy/phase-rev")),
     ] {
         if path.is_file() {
             files.push((rel.to_string(), path));

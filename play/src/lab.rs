@@ -52,7 +52,7 @@ use engine::types::player::PlayerId;
 use engine::types::replay::ReplayHeader;
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{ACCEPTED_DIFFICULTY_LABELS, AiConfig, AiDifficulty, Platform, create_config_for_players};
-use phase_ai::search::PreparedAiDecision;
+use phase_ai::search::choose_action_with_issued_contract;
 use phase_ai::session::AiSession;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -61,17 +61,13 @@ use serde::{Deserialize, Serialize};
 use crate::pilot::{LlmRequest, LlmSeatStats, LlmTransport, Pilot};
 use crate::{DeckLine, Engine, SeatDeck};
 
-/// The engine label every result line carries. Since 22 Oct 2026 the fork carries
-/// patches/phase/0002-0008: the AI fixes ("+aifix": Omo's counters, man-lands, land
-/// copies), the free-for-all tempo changes ("+tempo") and the two-player endgame
-/// change ("+endgame"). Since 24 Oct 2026 it also carries 0010-0011, two fixes for AI
-/// decisions that could run without end ("+stallfix"), and 0012-0030, rules fixes for cards in
-/// Bryan's decks found by the card tests ("+cardfix": Jace, Adeline, Resonating Lute, Study Hall,
-/// Spark Double, Zaffai and more; docs/card-coverage.md). Results under an earlier label are
-/// another engine and must not be pooled with these. The 25 Oct recovery batch adds
-/// independently implemented rules/parser fixes and performance work ("+recovery1");
-/// see docs/engine-recovery-2026-10-25.md.
-pub const ENGINE: &str = "phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1";
+/// The engine label every result line carries. Through 28 Oct 2026 the fork was phase v0.113.0
+/// plus Yama's fixes ("phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1": AI,
+/// stall, card and recovery fixes; docs/engine-recovery-2026-10-25.md). Since 29 Oct 2026 it is
+/// upstream phase v0.119.0 with Yama's commits rebased on top (bryanroscoe/yama-phase at
+/// deploy/phase-rev, "+yama-dd276b0f"). Results under an earlier label are another engine and
+/// must not be pooled with these.
+pub const ENGINE: &str = "phase-rs v0.119.0+yama-dd276b0f";
 /// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
 /// ([`GameOptions::loops`]), so they're never pooled with the usual results.
 pub const LOOPS_SUFFIX: &str = "+loops";
@@ -1006,12 +1002,12 @@ fn play(
         match eligible_ai_decision(&state, &seats) {
             Some((owner, actor)) => {
                 // Same choose/verify/apply boundary as phase's run_ai_action and the play crate.
-                let decision = PreparedAiDecision::new(&state, owner);
+                let contract = AiDecisionContract::issue(&state, owner);
                 let mut asked = None;
                 let ask = !std::mem::take(&mut skip_llm_once);
                 if let (true, Some(setup), Some((seat, idx))) = (ask, llm, llm_seats.get_mut(&actor)) {
                     let stats = &mut p.llm[*idx];
-                    match ask_llm(db, setup, seat, stats, &mut p.llm_wait, &state, decision.contract(), &history, &job.game) {
+                    match ask_llm(db, setup, seat, stats, &mut p.llm_wait, &state, &contract, &history, &job.game) {
                         Asked::Chosen(a) => asked = Some(a),
                         Asked::Fallback => {}
                         Asked::Abort(e) => return Ending::Error(e),
@@ -1025,17 +1021,16 @@ fn play(
                 // through to "a worse decision, never a stopped game"; a few prompts don't yet.
                 // Live Yama games stop here instead. Games that never hit this are unchanged.
                 let from_llm = asked.is_some();
-                let chosen = asked.or_else(|| decision.choose_action_with_session(&configs[&actor], &mut rng, &session)).or_else(|| {
-                    let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], decision.contract());
+                let chosen = asked.or_else(|| choose_action_with_issued_contract(&state, &configs[&actor], &mut rng, &session, &contract)).or_else(|| {
+                    let fallback = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if fallback.is_some() {
                         p.fallbacks += 1;
                         if p.fallback_first.is_none() {
-                            p.fallback_first = Some(format!("seat {} at {}: {}", actor.0, where_in(&state), no_action_detail(&state, decision.contract())));
+                            p.fallback_first = Some(format!("seat {} at {}: {}", actor.0, where_in(&state), no_action_detail(&state, &contract)));
                         }
                     }
                     fallback
                 });
-                let contract = decision.into_contract();
                 let Some(action) = chosen else {
                     return Ending::Error(format!(
                         "AI for seat {} found no action ({}; {})",
@@ -1424,7 +1419,7 @@ mod tests {
         r.eliminations = vec![Elimination { seat: 1, turn: 3 }];
         let line = r.to_line();
         let expected = format!(
-            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
+            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.119.0+yama-dd276b0f","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
         );
         assert_eq!(line, expected);
         assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);

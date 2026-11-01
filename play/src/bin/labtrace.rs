@@ -28,6 +28,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use engine::ai_support::AiDecisionContract;
 use engine::database::CardDatabase;
 use engine::game::combat::AttackTarget;
 use engine::game::deck_loading::{DeckList, PlayerDeckList};
@@ -45,7 +46,7 @@ use engine::types::replay::ReplayHeader;
 use engine::types::zones::Zone;
 use phase_ai::auto_play::eligible_ai_decision;
 use phase_ai::config::{AiConfig, AiDifficulty, Platform, create_config_for_players};
-use phase_ai::search::PreparedAiDecision;
+use phase_ai::search::choose_action_with_issued_contract;
 use phase_ai::session::AiSession;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -362,15 +363,14 @@ fn run() -> i32 {
         }
         match eligible_ai_decision(&state, &seats) {
             Some((owner, actor)) => {
-                let decision = PreparedAiDecision::new(&state, owner);
-                let chosen = decision.choose_action_with_session(&configs[&actor], &mut rng, &session).or_else(|| {
-                    let f = phase_ai::search::fallback_action(&state, &configs[&actor], decision.contract());
+                let contract = AiDecisionContract::issue(&state, owner);
+                let chosen = choose_action_with_issued_contract(&state, &configs[&actor], &mut rng, &session, &contract).or_else(|| {
+                    let f = phase_ai::search::fallback_action(&state, &configs[&actor], &contract);
                     if f.is_some() {
                         println!("  [fallback_action used for seat {}]", actor.0);
                     }
                     f
                 });
-                let contract = decision.into_contract();
                 let Some(action) = chosen else { break format!("AI for seat {} found no action", actor.0) };
                 let is_pass = matches!(action, GameAction::PassPriority);
                 let lbl = if is_pass { String::new() } else { label(&state, &action) };

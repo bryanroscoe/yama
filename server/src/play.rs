@@ -26,7 +26,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{broadcast, oneshot, watch};
+mod board;
+mod board_data;
+
 use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, PayMode, SeatDeck, Setup, Stops, View};
 
 pub fn router() -> Router<AppState> {
@@ -38,8 +41,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/play/{id}/start", post(start))
         .route("/api/play/{id}/rematch", post(rematch))
         .route("/api/play/{id}/ws", get(connect))
+        .route("/api/play/{id}/board", get(board::connect))
         .route("/api/play/{id}/view", get(final_view))
         .route("/api/decks/{id}/online-support", get(online_support))
+        .merge(board_data::router())
 }
 
 // ── engine and live games ──────────────────────────────────────────────────
@@ -51,9 +56,14 @@ enum EngineState {
     Failed(String),
 }
 
+#[path = "play_history.rs"]
+mod history;
+
 pub struct PlayHub {
     engine: Mutex<EngineState>,
     live: Mutex<HashMap<String, LiveGame>>,
+    historical: Option<history::Config>,
+    unavailable: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Clone)]
@@ -66,30 +76,76 @@ struct LiveGame {
 #[derive(Default)]
 struct Snapshot {
     views: HashMap<Option<u8>, View>,
+    historical_views: HashMap<Option<u8>, serde_json::Value>,
 }
 
 enum Cmd {
-    Choose { seat: u8, revision: u64, index: usize, reply: oneshot::Sender<Result<(), String>> },
+    Choose {
+        seat: u8,
+        revision: u64,
+        index: usize,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     /// Any legal set of attackers (the option list only holds the engine's sample).
-    Attack { seat: u8, revision: u64, attacks: Vec<(u64, AttackAt)>, reply: oneshot::Sender<Result<(), String>> },
+    Attack {
+        seat: u8,
+        revision: u64,
+        attacks: Vec<(u64, AttackAt)>,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     /// Any legal set of blocks, as (blocker, attacker) pairs.
-    Block { seat: u8, revision: u64, blocks: Vec<(u64, u64)>, reply: oneshot::Sender<Result<(), String>> },
+    Block {
+        seat: u8,
+        revision: u64,
+        blocks: Vec<(u64, u64)>,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     /// A full answer to the seat's decision (cards picked, trigger order, X...; `yama_play::act`).
-    Act { seat: u8, revision: u64, action: Act, reply: oneshot::Sender<Result<(), String>> },
-    Concede { seat: u8 },
+    Act {
+        seat: u8,
+        revision: u64,
+        action: Act,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+    Concede {
+        seat: u8,
+    },
     /// The seat's saved settings (`play_prefs`): its stops and full control.
-    Prefs { seat: u8, prefs: PlayPrefs },
+    Prefs {
+        seat: u8,
+        prefs: PlayPrefs,
+    },
     /// Older boards: full control alone, not saved.
-    FullControl { seat: u8, on: bool },
+    FullControl {
+        seat: u8,
+        on: bool,
+    },
     /// Older boards: the seat's own stops alone, not saved.
-    Stops { seat: u8, stops: Option<Stops> },
+    Stops {
+        seat: u8,
+        stops: Option<Stops>,
+    },
     /// A way to pass (GPriority's menu), or `None` to stop one. Passes now if it's the seat's
     /// priority on the board it chose from.
-    Passing { seat: u8, revision: u64, mode: Option<PassMode>, reply: oneshot::Sender<Result<(), String>> },
+    Passing {
+        seat: u8,
+        revision: u64,
+        mode: Option<PassMode>,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     /// "Hold priority" with your own spell on the stack (GButtons).
-    Hold { seat: u8, on: bool },
+    Hold {
+        seat: u8,
+        on: bool,
+    },
     /// The sources paying automatically would tap to cast `object` (GCast's "Will tap").
-    Preview { seat: u8, object: u64, reply: oneshot::Sender<Vec<u64>> },
+    Preview { seat: u8, object: u64, reply: oneshot::Sender<Result<Vec<u64>, String>> },
+    /// A move from phase's board (board.rs): an engine action or interaction answer.
+    Board { seat: u8, mv: board::Move, reply: oneshot::Sender<Result<(), yama_play::board::Rejection>> },
+    /// The game thread captures the initial frame and subscribes to later updates atomically.
+    BoardOpen { viewer: Option<u8>, reply: oneshot::Sender<Result<board::Opened, yama_play::board::Rejection>> },
+    /// One of a viewer's boards closed.
+    BoardClosed { viewer: Option<u8> },
     /// End the game thread now without saving (an account in it is being deleted).
     Stop,
 }
@@ -103,8 +159,10 @@ impl PlayHub {
         let hub = Arc::new(Self {
             engine: Mutex::new(EngineState::Loading),
             live: Mutex::new(HashMap::new()),
+            historical: card_data.as_deref().map(history::Config::discover),
+            unavailable: Mutex::new(HashMap::new()),
         });
-        let Some(path) = card_data.filter(|p| p.exists()) else {
+        let Some(path) = card_data else {
             *hub.engine.lock().unwrap() =
                 EngineState::Disabled("the engine's card data isn't installed (see docs/engine-integration.md)".into());
             return hub;
@@ -116,17 +174,17 @@ impl PlayHub {
             .stack_size(STACK)
             .spawn(move || {
                 let started = std::time::Instant::now();
-                match Engine::load(&path) {
+                match Engine::load_verified(&path, yama_play::CARD_DATA_SHA256) {
                     Ok(engine) => {
                         tracing::info!(cards = engine.card_count(), secs = started.elapsed().as_secs_f32(), "rules engine ready");
                         *h.engine.lock().unwrap() = EngineState::Ready(Arc::new(engine));
-                        rt.block_on(h.resume_live(&pool));
                     }
                     Err(e) => {
                         tracing::error!(error = %format!("{e:#}"), "rules engine failed to load");
                         *h.engine.lock().unwrap() = EngineState::Failed(format!("{e:#}"));
                     }
                 }
+                rt.block_on(h.resume_live(&pool));
             })
             .expect("engine loader thread");
         hub
@@ -152,14 +210,51 @@ impl PlayHub {
 
     /// Restart every game that was live when the server stopped, by replaying its log.
     async fn resume_live(self: &Arc<Self>, pool: &SqlitePool) {
-        let rows: Vec<(String, String, Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT game_id, seats, replay, log, answers FROM online_games WHERE stage = 'live'")
-                .fetch_all(pool)
-                .await
-                .unwrap_or_default();
-        for (game_id, seats, replay, log, answers) in rows {
+        let mut rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT o.game_id, o.seats, o.replay, o.log, o.answers, g.engine_version FROM online_games o LEFT JOIN games g ON g.id=o.game_id WHERE o.stage = 'live'")
+                .fetch_all(pool).await.unwrap_or_default();
+        // Current games recover before any historical subprocess is contacted. A failed
+        // historical startup is deadline-bound and cached for the remaining historical rows.
+        rows.sort_by_key(|row| row.5.as_deref() == Some(history::IDENTITY));
+        for (game_id, seats, replay, log, answers, identity) in rows {
+            // No replay or remembered-action parsing before the saved identity is routed.
+            if let Some(error) = self.runtime_error(identity.as_deref()) {
+                self.unavailable.lock().unwrap().insert(game_id, error);
+                continue;
+            }
             let (Ok(seats), Some(replay)) = (serde_json::from_str::<Vec<SeatCfg>>(&seats), replay) else { continue };
-            let Ok(engine) = self.engine() else { return };
+            if identity.as_deref() == Some(history::IDENTITY) {
+                let config = self.historical.as_ref().unwrap();
+                let resumed = loop {
+                    let attempt = (|| -> anyhow::Result<_> {
+                        let mut worker = history::Worker::start(config)?;
+                        let saved = worker.open(config, replay.clone(), log.clone(), answers.clone(), &seats)?;
+                        Ok((worker, saved))
+                    })();
+                    if attempt.as_ref().is_err_and(|e| e.is::<history::Busy>()) {
+                        // Overload owns no replay execution and must not permanently strand
+                        // recovery. Current games have already recovered before this pass.
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        continue;
+                    }
+                    break attempt;
+                };
+                match resumed {
+                    Ok((worker, saved)) => {
+                        let prefs = seat_prefs(pool, &seats).await;
+                        self.spawn_historical(game_id, worker, saved, prefs, pool.clone());
+                    }
+                    Err(e) => {
+                        tracing::error!(game_id,error=%e,"historical recovery unavailable");
+                        self.unavailable.lock().unwrap().insert(
+                            game_id,
+                            "The historical runtime could not recover this game. Its original records are preserved.".into(),
+                        );
+                    }
+                }
+                continue;
+            }
+            let Ok(engine) = self.engine() else { continue };
             let prefs = seat_prefs(pool, &seats).await;
             match engine.resume(&replay, &ai_seats(&seats)) {
                 Ok(mut m) => {
@@ -173,15 +268,39 @@ impl PlayHub {
                     self.spawn_game(game_id.clone(), m, seats, prefs, pool.clone());
                     tracing::info!(game_id, "resumed online game");
                 }
-                Err(e) => tracing::error!(game_id, error = %format!("{e:#}"), "couldn't resume online game"),
+                Err(e) => {
+                    tracing::error!(game_id, error = %format!("{e:#}"), "couldn't resume online game");
+                    self.unavailable.lock().unwrap().insert(
+                        game_id,
+                        "This game could not be recovered with its matching runtime. Its original records are preserved.".into(),
+                    );
+                }
             }
         }
+    }
+
+    /// Exact identities only. An unknown/absent identity never means "use current".
+    fn runtime_error(&self, identity: Option<&str>) -> Option<String> {
+        match identity {
+            Some(yama_play::ENGINE_VERSION) => self.engine().err().map(|e|e.to_string()),
+            Some(history::IDENTITY) if self.historical.as_ref().is_some_and(|c|c.available()) => None,
+            Some(history::IDENTITY) => Some("This game requires the preserved v0.113 runtime and card data, which are not installed. Its records are unchanged.".into()),
+            _ => Some("This game's saved runtime identity is unknown or unavailable. Its records are unchanged; a verified matching runtime is required.".into()),
+        }
+    }
+
+    fn game_error(&self, r: &Row) -> Option<String> {
+        if r.stage == "lobby" {
+            return None;
+        }
+        self.unavailable.lock().unwrap().get(&r.game_id).cloned().or_else(|| self.runtime_error(r.engine_version.as_deref()))
     }
 
     /// Run a live game on its own thread. `prefs` are the seated people's saved turn controls.
     fn spawn_game(self: &Arc<Self>, game_id: String, m: Match, seats: Vec<SeatCfg>, prefs: HashMap<u8, PlayPrefs>, pool: SqlitePool) {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
         let (view_tx, view_rx) = watch::channel(Arc::new(Snapshot::default()));
+        let (board_tx, _) = broadcast::channel(16);
         self.live.lock().unwrap().insert(game_id.clone(), LiveGame { cmds: cmd_tx, views: view_rx });
         let hub = self.clone();
         let rt = tokio::runtime::Handle::current();
@@ -189,7 +308,7 @@ impl PlayHub {
             .name(format!("game-{}", &game_id[..8]))
             .stack_size(STACK)
             .spawn(move || {
-                run_game(&game_id, m, &seats, &prefs, cmd_rx, view_tx, &pool, &rt);
+                run_game(&game_id, m, &seats, &prefs, cmd_rx, view_tx, board_tx, &pool, &rt);
                 hub.live.lock().unwrap().remove(&game_id);
             })
             .expect("game thread");
@@ -230,10 +349,19 @@ fn run_game(
     prefs: &HashMap<u8, PlayPrefs>,
     cmds: std::sync::mpsc::Receiver<Cmd>,
     views: watch::Sender<Arc<Snapshot>>,
+    board_updates: broadcast::Sender<Arc<board::Updates>>,
     pool: &SqlitePool,
     rt: &tokio::runtime::Handle,
 ) {
-    let publish = |m: &Match| {
+    // Viewers with phase's board open, and how many boards each (board.rs).
+    let boards: std::cell::RefCell<HashMap<Option<u8>, usize>> = Default::default();
+    let publish = |m: &mut Match| {
+        // Phase's animations and logs need every publication, including a command's
+        // update followed immediately by the end-of-loop update. A watch channel
+        // intentionally coalesces these, so only the original board uses it.
+        let tail = m.take_board_tail();
+        let updates = boards.borrow().keys().map(|viewer| (*viewer, board::frames(game_id, m, *viewer, &tail))).collect();
+        let _ = board_updates.send(Arc::new(updates));
         let _ = views.send(Arc::new(snapshot(m, seats)));
     };
     let save = |m: &Match| {
@@ -260,16 +388,16 @@ fn run_game(
     };
 
     m.set_names(seats.iter().map(|s| s.name.clone()).collect());
-    // Everyone's saved stops and full control apply from the first priority.
+    // Restore game-local controls before the first priority; account settings
+    // are defaults only where the saved game has no value.
     for (seat, p) in prefs {
         if humans.contains(seat) {
-            m.set_prefs(*seat, p.stops.clone(), p.full_control);
-            m.set_tap_mana(*seat, p.tap_mana);
+            m.initialize_prefs(*seat, p.stops.clone(), p.full_control, p.tap_mana);
         }
     }
-    publish(&m);
+    publish(&mut m);
     ai_turns(&mut m);
-    publish(&m);
+    publish(&mut m);
     while !m.is_over() {
         let Ok(cmd) = cmds.recv() else { return };
         // A person's move: any refusal goes back to them and leaves the game as it was.
@@ -304,7 +432,7 @@ fn run_game(
             }
             Cmd::Concede { seat } => {
                 if m.concede(seat).is_ok() {
-                    publish(&m);
+                    publish(&mut m);
                     save(&m);
                     ai_turns(&mut m);
                 }
@@ -334,7 +462,7 @@ fn run_game(
                 let _ = reply.send(result.map_err(|e| e.to_string()));
                 if ok && mode.is_some() {
                     m.auto_pass(&humans);
-                    publish(&m);
+                    publish(&mut m);
                     save(&m);
                     ai_turns(&mut m);
                 }
@@ -345,12 +473,52 @@ fn run_game(
             }
             // Only reads the game: nothing to publish or save.
             Cmd::Preview { seat, object, reply } => {
-                let _ = reply.send(m.auto_tap_preview(seat, object));
+                let _ = reply.send(Ok(m.auto_tap_preview(seat, object)));
+                continue;
+            }
+            Cmd::Board { seat, mv, reply } => {
+                let result = board::apply(&mut m, seat, mv);
+                let ok = result.is_ok();
+                let _ = reply.send(result);
+                if ok {
+                    m.auto_pass(&humans);
+                    publish(&mut m);
+                    save(&m);
+                    ai_turns(&mut m);
+                }
+            }
+            Cmd::BoardOpen { viewer, reply } => {
+                let first = match board::started(game_id, &mut m, viewer) {
+                    Ok(first) => first,
+                    Err(rejection) => {
+                        let _ = reply.send(Err(rejection));
+                        continue;
+                    }
+                };
+                *boards.borrow_mut().entry(viewer).or_default() += 1;
+                let opened = board::Opened { first, updates: board_updates.subscribe() };
+                if reply.send(Ok(opened)).is_err() {
+                    let mut b = boards.borrow_mut();
+                    if let Some(n) = b.get_mut(&viewer) {
+                        *n -= 1;
+                        if *n == 0 { b.remove(&viewer); }
+                    }
+                }
+                continue;
+            }
+            Cmd::BoardClosed { viewer } => {
+                let mut b = boards.borrow_mut();
+                if let Some(n) = b.get_mut(&viewer) {
+                    *n -= 1;
+                    if *n == 0 {
+                        b.remove(&viewer);
+                    }
+                }
                 continue;
             }
             Cmd::Stop => return,
         }
-        publish(&m);
+        publish(&mut m);
     }
     save(&m);
 }
@@ -391,7 +559,7 @@ fn ai_batch(m: &mut Match, humans: &[u8]) -> Batch {
     }
 }
 
-/// Every view a game publishes after a change: a spectator's and each person's.
+/// The latest original-board view for a spectator and each person.
 fn snapshot(m: &Match, seats: &[SeatCfg]) -> Snapshot {
     let mut snap = Snapshot::default();
     snap.views.insert(None, m.view(None));
@@ -405,19 +573,17 @@ fn snapshot(m: &Match, seats: &[SeatCfg]) -> Snapshot {
 
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<()> {
     let stage = if m.is_over() { "over" } else { "live" };
-    sqlx::query("UPDATE online_games SET replay = ?, log = ?, answers = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ?")
+    let mut tx = pool.begin().await?;
+    history::archive_original(&mut tx, game_id, yama_play::ENGINE_VERSION).await?;
+    let changed=sqlx::query("UPDATE online_games SET replay = ?, log = ?, answers = ?, revision = ?, stage = ?, updated_at = ? WHERE game_id = ? AND EXISTS (SELECT 1 FROM games WHERE id=? AND engine_version=?)")
         .bind(m.replay_json())
         .bind(serde_json::to_string(m.log_lines())?)
         .bind((!m.remembered().is_empty()).then(|| serde_json::to_string(m.remembered())).transpose()?)
-        .bind(m.revision as i64)
-        .bind(stage)
-        .bind(now())
-        .bind(game_id)
-        .execute(pool)
-        .await?;
+        .bind(m.revision as i64).bind(stage).bind(now()).bind(game_id).bind(game_id).bind(yama_play::ENGINE_VERSION)
+        .execute(&mut *tx).await?.rows_affected();
+    anyhow::ensure!(changed == 1, "saved game identity changed; refusing current-runtime write");
     if m.is_over() {
         let view = m.view(None);
-        let mut tx = pool.begin().await?;
         sqlx::query("UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ? WHERE id = ?")
             .bind(m.winner().map(i64::from))
             .bind(i64::from(m.turn()))
@@ -434,8 +600,8 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<
                 .execute(&mut *tx)
                 .await?;
         }
-        tx.commit().await?;
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -571,6 +737,9 @@ struct OnlineGame {
     /// The rematch the host started from this game, for the people in it (game detail only).
     #[serde(skip_serializing_if = "Option::is_none")]
     rematch: Option<Rematch>,
+    runtime_error: Option<String>,
+    /// The live game uses the exact runtime supported by the installed Phase board.
+    phase_board: bool,
 }
 
 /// A rematch lobby: its id, the code to join it, and the deck you played here, to join with.
@@ -596,11 +765,13 @@ struct Row {
     started_at: Option<String>,
     ended_at: Option<String>,
     rematch_id: Option<String>,
+    engine_version: Option<String>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
-const ROW_SELECT: &str = "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
-     g.started_at, g.ended_at, o.rematch_id
+const ROW_SELECT: &str =
+    "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
+     g.started_at, g.ended_at, o.rematch_id, g.engine_version
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -647,13 +818,22 @@ async fn load_row(pool: &SqlitePool, id: &str) -> AppResult<Row> {
 struct Status {
     enabled: bool,
     reason: Option<String>,
+    /// The matching current-runtime Phase client is installed.
+    board: bool,
+    unavailable_games: Vec<serde_json::Value>,
 }
 
-async fn status(State(st): State<AppState>, _u: CurrentUser) -> Json<Status> {
-    match st.play.engine() {
-        Ok(_) => Json(Status { enabled: true, reason: None }),
-        Err(e) => Json(Status { enabled: false, reason: Some(e.to_string()) }),
-    }
+async fn status(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Status>> {
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ROW_SELECT} WHERE o.host_id=? OR o.seats LIKE ?")))
+        .bind(&user.id)
+        .bind(format!("%\"user_id\":\"{}\"%", user.id))
+        .fetch_all(&st.pool)
+        .await?;
+    let unavailable_games =
+        rows.iter().filter_map(|r| st.play.game_error(r).map(|reason| serde_json::json!({"id":r.game_id,"reason":reason}))).collect();
+    let reason = st.play.engine().err().map(|e| e.to_string());
+    let board = reason.is_none() && st.cfg.board_dist.is_some();
+    Ok(Json(Status { enabled: reason.is_none(), reason, board, unavailable_games }))
 }
 
 async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<OnlineGame>>> {
@@ -667,7 +847,16 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> App
     let estimates = seat_estimates(&st.pool, &rows.iter().collect::<Vec<_>>()).await?;
     let all_seats: Vec<SeatCfg> = rows.iter().flat_map(|r| r.seats()).collect();
     let arts = commander_arts(&st.pool, all_seats.iter()).await?;
-    Ok(Json(rows.iter().map(|r| summarize(r, &user.id, HashMap::new(), &estimates, &arts)).collect()))
+    Ok(Json(
+        rows.iter()
+            .map(|r| {
+                let mut game = summarize(r, &user.id, HashMap::new(), &estimates, &arts);
+                game.runtime_error = st.play.game_error(r);
+                game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
+                game
+            })
+            .collect(),
+    ))
 }
 
 fn summarize(
@@ -696,6 +885,8 @@ fn summarize(
         started_at: (r.stage != "lobby").then(|| r.started_at.clone()).flatten(),
         ended_at: if r.stage == "over" { r.ended_at.clone() } else { None },
         rematch: None,
+        runtime_error: None,
+        phase_board: false,
     }
 }
 
@@ -725,6 +916,8 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     let estimates = seat_estimates(&st.pool, &[&r]).await?;
     let arts = commander_arts(&st.pool, r.seats().iter()).await?;
     let mut game = summarize(&r, &user.id, missing, &estimates, &arts);
+    game.runtime_error = st.play.game_error(&r);
+    game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
     game.rematch = rematch_for(&st.pool, &r, &user.id).await?;
     Ok(Json(game))
 }
@@ -762,7 +955,11 @@ struct OnlineSupport {
 
 /// How much of a deck's current version the rules engine can play: cards it doesn't know (left
 /// out of games) and cards with abilities it hasn't implemented.
-async fn online_support(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<OnlineSupport>> {
+async fn online_support(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<OnlineSupport>> {
     let version: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ? AND owner_id = ?")
         .bind(&id)
         .bind(&user.id)
@@ -1024,7 +1221,11 @@ struct JoinRequest {
     deck_id: String,
 }
 
-async fn join(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<JoinRequest>) -> AppResult<Json<serde_json::Value>> {
+async fn join(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Json(body): Json<JoinRequest>,
+) -> AppResult<Json<serde_json::Value>> {
     st.limits.join_codes.check_user(&user)?;
     let id: String = sqlx::query_scalar("SELECT game_id FROM online_games WHERE code = ?")
         .bind(body.code.trim().to_uppercase())
@@ -1165,12 +1366,24 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientMessage {
-    Choose { revision: u64, index: usize },
-    Attack { revision: u64, attacks: Vec<(u64, AttackAt)> },
-    Block { revision: u64, blocks: Vec<(u64, u64)> },
+    Choose {
+        revision: u64,
+        index: usize,
+    },
+    Attack {
+        revision: u64,
+        attacks: Vec<(u64, AttackAt)>,
+    },
+    Block {
+        revision: u64,
+        blocks: Vec<(u64, u64)>,
+    },
     /// A full answer to your decision. Only the kinds `Act` spells can be sent; anything else
     /// (a debug action, a made-up kind) doesn't parse and is dropped.
-    Act { revision: u64, action: Act },
+    Act {
+        revision: u64,
+        action: Act,
+    },
     Concede,
     /// Your stops (`null` for the usual ones) and full control, saved to your account and applied
     /// to this game; and "Tap mana for me", which older boards leave out (the saved one stays).
@@ -1181,22 +1394,42 @@ enum ClientMessage {
         tap_mana: Option<PayMode>,
     },
     /// Older boards: full control for this game only.
-    FullControl { on: bool },
+    FullControl {
+        on: bool,
+    },
     /// Older boards: your own stops by step for this game only; `null` for the usual ones.
-    Stops { stops: Option<Stops> },
+    Stops {
+        stops: Option<Stops>,
+    },
     /// A way to pass (`until`, `turn`, `end`, `mine`), or `null` to stop one.
-    Pass { revision: u64, mode: Option<PassMode> },
+    Pass {
+        revision: u64,
+        mode: Option<PassMode>,
+    },
     /// Hold priority while your own spell is on the stack, or stop holding it.
-    Hold { on: bool },
+    Hold {
+        on: bool,
+    },
     /// Which sources paying automatically would tap to cast `object` (GCast's "Will tap"), while
     /// you drag or point at it. Answered with a `preview` message; asked at most every 100 ms.
-    Preview { revision: u64, object: u64 },
+    Preview {
+        revision: u64,
+        object: u64,
+    },
 }
 
-async fn connect(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, ws: WebSocketUpgrade) -> AppResult<Response> {
+async fn connect(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> AppResult<Response> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     let seats = r.seats();
     let you = seats.iter().find(|s| s.user_id.as_deref() == Some(user.id.as_str())).map(|s| s.seat);
+    if let Some(error) = st.play.game_error(&r) {
+        return Err(AppError::Conflict(error));
+    }
     let live = st.play.live(&id).ok_or_else(|| AppError::Conflict("that game isn't running".into()))?;
     Ok(ws.on_upgrade(move |socket| watch_game(socket, st.pool.clone(), live, you, seats, user.id)))
 }
@@ -1294,7 +1527,11 @@ pub(crate) fn dress_pending(view: &mut View, cards: &BTreeMap<String, CardMeta>)
 
 /// Look up card details by name, remembering answers (including "unknown") for this connection.
 /// Sorted by name, so the message comes out the same every time.
-pub(crate) async fn card_meta(pool: &SqlitePool, names: &[String], cache: &mut HashMap<String, Option<CardMeta>>) -> BTreeMap<String, CardMeta> {
+pub(crate) async fn card_meta(
+    pool: &SqlitePool,
+    names: &[String],
+    cache: &mut HashMap<String, Option<CardMeta>>,
+) -> BTreeMap<String, CardMeta> {
     for name in names {
         if cache.contains_key(name) {
             continue;
@@ -1329,7 +1566,13 @@ struct ViewMessage<'a> {
 /// through this connection's cache), and the deciding seat's decision dressed with them. Written
 /// straight to text: building it as a JSON value first, and copying the whole view to dress a
 /// decision most views don't have, cost more than the rest of the message (docs/play-performance.md).
-async fn view_message(pool: &SqlitePool, view: &View, you: Option<u8>, infos: &serde_json::Value, cache: &mut HashMap<String, Option<CardMeta>>) -> String {
+async fn view_message(
+    pool: &SqlitePool,
+    view: &View,
+    you: Option<u8>,
+    infos: &serde_json::Value,
+    cache: &mut HashMap<String, Option<CardMeta>>,
+) -> String {
     let cards = card_meta(pool, &view_names(view), cache).await;
     let dressed;
     let view = if view.decision.as_ref().is_some_and(|d| d.pending.is_some()) {
@@ -1450,8 +1693,10 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
                     if cmds.send(Cmd::Preview { seat, object, reply: tx }).is_err() {
                         break;
                     }
-                    if let Ok(sources) = rx.await {
-                        let _ = note_tx.send(serde_json::json!({ "type": "preview", "revision": revision, "object": object, "sources": sources }));
+                    match rx.await {
+                        Ok(Ok(sources)) => { let _ = note_tx.send(serde_json::json!({ "type": "preview", "revision": revision, "object": object, "sources": sources })); }
+                        Ok(Err(error)) => { let _ = note_tx.send(serde_json::json!({ "type": "error", "message": error })); }
+                        Err(_) => {}
                     }
                 }
                 ClientMessage::FullControl { on } => {
@@ -1482,8 +1727,13 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
         }
         first = false;
         let snap = views.borrow_and_update().clone();
-        let Some(view) = snap.views.get(&you).or_else(|| snap.views.get(&None)) else { continue };
-        let msg = view_message(&pool, view, you, &infos, &mut meta_cache).await;
+        let msg = if let Some(view) = snap.views.get(&you).or_else(|| snap.views.get(&None)) {
+            view_message(&pool, view, you, &infos, &mut meta_cache).await
+        } else if let Some(view) = snap.historical_views.get(&you).or_else(|| snap.historical_views.get(&None)) {
+            history::view_message(&pool, view.clone(), you, &infos, &mut meta_cache).await.to_string()
+        } else {
+            continue;
+        };
         if sink.send(Message::Text(msg.into())).await.is_err() {
             break;
         }
@@ -1561,18 +1811,57 @@ async fn seat_prefs(pool: &SqlitePool, seats: &[SeatCfg]) -> HashMap<u8, PlayPre
 
 /// The board as it stands, over HTTP: for finished games (rebuilt from the replay log) and
 /// anyone who can't hold a socket open. Same payload as a socket message.
-async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+async fn final_view(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
+    if let Some(error) = st.play.game_error(&r) {
+        return Err(AppError::Conflict(error));
+    }
     let seats = r.seats();
     let you = seats.iter().find(|s| s.user_id.as_deref() == Some(user.id.as_str())).map(|s| s.seat);
+    if let Some(live) = st.play.live(&id) {
+        let snap = live.views.borrow().clone();
+        if let Some(view) = snap.historical_views.get(&you).or_else(|| snap.historical_views.get(&None)) {
+            let arts = commander_arts(&st.pool, seats.iter()).await?;
+            let infos = serde_json::to_value(seat_infos(&seats, &HashMap::new(), &arts)).map_err(anyhow::Error::from)?;
+            return Ok(Json(history::view_message(&st.pool, view.clone(), you, &infos, &mut HashMap::new()).await));
+        }
+    }
     let view = if let Some(live) = st.play.live(&id) {
         let snap = live.views.borrow().clone();
         snap.views.get(&you).or_else(|| snap.views.get(&None)).cloned().ok_or(AppError::NotFound("view"))?
     } else {
         let (replay, log): (Option<String>, Option<String>) =
             sqlx::query_as("SELECT replay, log FROM online_games WHERE game_id = ?").bind(&id).fetch_one(&st.pool).await?;
-        let lines: Vec<yama_play::LogLine> = log.and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
         let replay = replay.ok_or(AppError::NotFound("game record"))?;
+        if r.engine_version.as_deref() == Some(history::IDENTITY) {
+            let config = st.play.historical.clone().unwrap();
+            let child_seats = seats.clone();
+            let view = tokio::task::spawn_blocking(move || -> anyhow::Result<serde_json::Value> {
+                let mut worker = history::Worker::start(&config)?;
+                worker.open(&config, replay, log, None, &child_seats)?;
+                let v = worker.call(serde_json::json!({"op":"view","viewer":you}))?;
+                Ok(v["view"].clone())
+            })
+            .await
+            .map_err(anyhow::Error::from)?
+            .map_err(|e| {
+                if e.is::<history::Busy>() { return AppError::Unavailable(e.to_string()); }
+                tracing::error!(game_id=%id,error=%e,"historical final board unavailable");
+                let reason =
+                    "The verified historical runtime or its data is unavailable for this final board. The game record is unchanged."
+                        .to_string();
+                st.play.unavailable.lock().unwrap().insert(id.clone(), reason.clone());
+                AppError::Conflict(reason)
+            })?;
+            let arts = commander_arts(&st.pool, seats.iter()).await?;
+            let infos = serde_json::to_value(seat_infos(&seats, &HashMap::new(), &arts)).map_err(anyhow::Error::from)?;
+            return Ok(Json(history::view_message(&st.pool, view, you, &infos, &mut HashMap::new()).await));
+        }
+        let lines: Vec<yama_play::LogLine> = log.and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
         let engine = st.play.engine()?;
         let names: Vec<String> = seats.iter().map(|s| s.name.clone()).collect();
         let ai = ai_seats(&seats);
@@ -1599,7 +1888,9 @@ async fn final_view(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
     let mut view = view;
     dress_pending(&mut view, &cards);
     let arts = commander_arts(&st.pool, seats.iter()).await?;
-    Ok(Json(serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats, &HashMap::new(), &arts), "cards": cards, "view": view })))
+    Ok(Json(
+        serde_json::json!({ "type": "view", "you": you, "seats": seat_infos(&seats, &HashMap::new(), &arts), "cards": cards, "view": view }),
+    ))
 }
 
 #[cfg(test)]
