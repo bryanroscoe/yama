@@ -20,6 +20,8 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path as FilePath;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub const NOTICE: &str = include_str!("../../web/public/site-notice.html");
 const METHOD: &str = "stock-precons-v1";
@@ -108,14 +110,14 @@ struct Snapshot {
     comparisons: Vec<Snapshot>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Simulation {
     pub publication_id: String,
     pub engine: String,
     pub rating: Rating,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct RealGames {
     pub win_rate_4p: f64,
     pub games: i64,
@@ -126,7 +128,7 @@ pub struct RealGames {
     pub url: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Precon {
     pub upgradeability: crate::upgradeability::Assessment,
     pub id: String,
@@ -402,10 +404,90 @@ async fn snapshot(pool: &SqlitePool) -> AppResult<Option<Snapshot>> {
     .transpose()
 }
 
+/// The catalog before rating v2 and the default order, which are cheap and keep their own freshness.
+/// Building it prices every stock list, which is most of a page's time, so it is kept for
+/// [`FRESH`] while its inputs stay the same.
+#[derive(Clone)]
+struct Built {
+    publication: Option<Publication>,
+    comparisons: Vec<Publication>,
+    meta_cohort: usize,
+    precons: Vec<Precon>,
+}
+
+/// Prices change daily; nothing else here changes without changing the fingerprint.
+const FRESH: Duration = Duration::from_secs(600);
+static BUILT: Mutex<Option<(Instant, String, Arc<Built>)>> = Mutex::new(None);
+/// One rebuild at a time: requests arriving during it wait for its result rather than repeat it.
+static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Cheap evidence of a change to anything [`build`] reads: the catalog rows, the published
+/// snapshot, sealed prices and new price snapshots (rowids only grow).
+async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
+    let inputs: String = sqlx::query_scalar(
+        "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || imported_at || ':' || length(cards) || ':' || IFNULL(length(engine_support), 0)
+                    || ':' || IFNULL(length(playgroup), 0) || ':' || name || ':' || IFNULL(set_name, '') || ':' || IFNULL(released, '') || ':' || color_identity AS k FROM precons ORDER BY id))
+             || '#' || IFNULL((SELECT publication_id FROM precon_publication_head WHERE singleton = 1), '')
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT precon_id || ':' || product_id || ':' || IFNULL(usd, '') || ':' || price_date AS k FROM sealed_deck_prices ORDER BY precon_id))
+             || '#' || (SELECT IFNULL(max(rowid), 0) FROM price_snapshots)",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(format!("{}#{inputs}", pool.connect_options().get_filename().display()))
+}
+
+fn fresh(key: &str) -> Option<Arc<Built>> {
+    BUILT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|(at, k, _)| k == key && at.elapsed() < FRESH)
+        .map(|(_, _, b)| b.clone())
+}
+
+async fn built(pool: &SqlitePool) -> AppResult<Arc<Built>> {
+    // Test databases are all in memory under one name, so the fingerprint can't tell them apart.
+    if cfg!(test) {
+        return Ok(Arc::new(build(pool).await?));
+    }
+    let key = fingerprint(pool).await?;
+    if let Some(b) = fresh(&key) {
+        return Ok(b);
+    }
+    let _rebuilding = REBUILD.lock().await;
+    if let Some(b) = fresh(&key) {
+        return Ok(b);
+    }
+    let b = Arc::new(build(pool).await?);
+    *BUILT.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, b.clone()));
+    Ok(b)
+}
+
 pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
+    let Built { publication, comparisons, meta_cohort, mut precons } = (*built(pool).await?).clone();
+    let rating_v2 = v2::assign(pool, &mut precons).await?;
+    Filters::default().apply(&mut precons)?;
+    Ok(Catalog {
+        publication,
+        comparisons,
+        meta_cohort,
+        rating_v2,
+        precons,
+    })
+}
+
+async fn build(pool: &SqlitePool) -> AppResult<Built> {
     let snapshot = snapshot(pool).await?;
     let catalog: Vec<CatalogRow> = sqlx::query_as("SELECT p.id, p.name, p.set_code, p.set_name, p.released, p.color_identity, p.cards, p.source, p.imported_at, p.engine_support, p.playgroup, c.image_art_crop AS art_url, c.artist AS art_artist, c.name AS art_card FROM precons p LEFT JOIN cards c ON c.oracle_id = json_extract(p.cards, '$[0].oracle_id') ORDER BY p.id").fetch_all(pool).await?;
-    let prices = crate::deck_prices::prices(pool).await?;
+    // Price only the cards these lists hold, not every card Yama knows.
+    let ids: BTreeSet<String> = catalog
+        .iter()
+        .filter_map(|p| serde_json::from_str::<Vec<crate::lab::PreconCard>>(&p.cards).ok())
+        .flatten()
+        .filter_map(|c| c.oracle_id)
+        .collect();
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let prices = crate::deck_prices::prices_for(pool, &ids).await?;
     let mut sealed = crate::deck_prices::sealed(pool).await?;
     let mut rows = Vec::new();
     for p in catalog {
@@ -554,13 +636,10 @@ pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
         .map(|s| 1 + s.comparisons.len())
         .unwrap_or(0);
     let meta_cohort = consensus::assign(&mut rows, source_count);
-    let rating_v2 = v2::assign(pool, &mut rows).await?;
-    Filters::default().apply(&mut rows)?;
-    Ok(Catalog {
+    Ok(Built {
         publication: snapshot.map(|s| s.publication),
         comparisons,
         meta_cohort,
-        rating_v2,
         precons: rows,
     })
 }
