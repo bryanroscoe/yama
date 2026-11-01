@@ -96,9 +96,9 @@ cargo build --release -p yama-play --bins
 ./target/release/soak data/engine/card-data-1e5608e61683de41.json 80 1-20   # 20 full games, loop detection as online
 ./target/release/playbench data/engine/card-data-1e5608e61683de41.json --games 2   # AI, engine and view times
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
-  cargo test --release -p yama-play --test determinism -- --ignored          # same games twice, and resumed
+  cargo test --release -p yama-play --test integration -- --ignored determinism:: # same games twice, and resumed
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
-  cargo test --release -p yama-play --test lab_regressions -- --ignored --test-threads=1 # frozen live failures and a successful control
+  cargo test --release -p yama-play --test integration -- --ignored --test-threads=1 lab_regressions:: # frozen live failures and a successful control
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
