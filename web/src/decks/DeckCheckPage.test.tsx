@@ -8,7 +8,7 @@ import { DeckCheckPage } from "./DeckCheckPage";
 const entry = (name: string, board: "commander" | "main", qty = 1, owned = 1) =>
   ({ oracle_id: name, name, qty, board, owned, proxies: 0, locations: owned ? { "Prismari box": owned } : {} }) as unknown as DeckView["cards"][number];
 
-function page(saved?: object, research?: object[]) {
+function page(saved?: object, research?: object[], { decksFail = false } = {}) {
   const mem = new Map<string, string>();
   if (saved) mem.set("yama.deckCheck.d1", JSON.stringify(saved));
   vi.stubGlobal("localStorage", { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) });
@@ -16,10 +16,12 @@ function page(saved?: object, research?: object[]) {
     id: "d1", name: "Prismari Artistry", version_id: "v2", parent_id: null, configuration: null, configurations: [],
     cards: [entry("Rootha, Mastering the Moment", "commander"), entry("Sol Ring", "main"), entry("Ancient Tomb", "main"), entry("Island", "main", 2)],
   } as unknown as DeckView;
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  // A failed query stays failed on render (no refetch on mount), as after a real failure.
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: !decksFail } } });
   client.setQueryData(["me"], { id: "u1" });
   client.setQueryData(["deck", "d1"], deck);
-  client.setQueryData(["decks"], [{ id: "d1", name: "Prismari Artistry", parent_id: null, configuration: null, bracket: 4, updated_at: "2026-10-31T00:00:00Z" }]);
+  if (decksFail) client.getQueryCache().build(client, { queryKey: ["decks"] }).setState({ status: "error", fetchStatus: "idle", error: new Error("Server unavailable") });
+  else client.setQueryData(["decks"], [{ id: "d1", name: "Prismari Artistry", parent_id: null, configuration: null, bracket: 4, updated_at: "2026-10-31T00:00:00Z" }]);
   client.setQueryData(["research", "u1", "list"], research ?? []);
   client.setQueryData(["deck-versions", "d1", "v2"], [{ id: "v2", note: "Installed", created_at: "2026-10-31T10:00:00Z" }, { id: "v1", note: "Stock", created_at: "2026-10-20T10:00:00Z" }]);
   client.setQueryData(["plan", "u1"], {
@@ -101,5 +103,11 @@ describe("Check this deck", () => {
     const html = page({ v: 1, deckId: "d1", commanders: [], target: "research:gone:x:y", cards: [card("k0", "Sol Ring", 1)] });
     expect(html).toContain("isn&#x27;t there any more");
     expect(html).toContain("deck-check-verdict is-good");
+  });
+
+  it("says the saved target couldn't be loaded, not that it's gone, when the deck list fails", () => {
+    const html = page({ v: 1, deckId: "d1", commanders: [], target: "research:gone:x:y", cards: [card("k0", "Sol Ring", 1)] }, undefined, { decksFail: true });
+    expect(html).toContain("couldn&#x27;t be loaded");
+    expect(html).not.toContain("isn&#x27;t there any more");
   });
 });

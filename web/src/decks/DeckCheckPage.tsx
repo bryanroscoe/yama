@@ -203,10 +203,12 @@ function useTargetOptions(deck: DeckView | undefined) {
       pool: swapPool(family, plan.bundle),
       loadingMore: plan.pending || decks.isPending || index.isPending || versions.isPending || notes.some((r) => r.isPending),
       // Research or History not loading leaves the other choices; say so, don't block.
-      error: plan.error || index.error || versions.error || notes.find((r) => r.error)?.error || null,
+      // The deck catalogue failing too: a saved configuration or build then can't be found, which
+      // isn't the same as it being gone.
+      error: plan.error || decks.error || index.error || versions.error || notes.find((r) => r.error)?.error || null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deck, plan.bundle, plan.pending, plan.error, decks.data, decks.isPending, index.isPending, index.error, versions.data, versions.isPending, versions.error, notesKey]);
+  }, [deck, plan.bundle, plan.pending, plan.error, decks.data, decks.isPending, decks.error, index.isPending, index.error, versions.data, versions.isPending, versions.error, notesKey]);
 }
 
 /** The chosen list's cards. The deck's own list is already loaded; another saved list or a
