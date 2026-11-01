@@ -252,25 +252,39 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
     // Both builds replace the same starting card, each with a different card. The other build's
     // swaps wait by the card they replace, in order (a stack, so reversed); each is tried once
     // and leaves, so this is one pass over each build's swaps however many replace one card.
-    let mut replacing: HashMap<String, Vec<&Value>> = HashMap::new();
+    // Each swap pairs no more copies than its own, on either side.
+    let mut replacing: HashMap<String, Vec<(&Value, i64)>> = HashMap::new();
     for t in vs_swaps.iter().rev().filter(|t| !text(t, "card_out").is_empty()) {
-        replacing.entry(same(text(t, "card_out"))).or_default().push(t);
+        replacing.entry(same(text(t, "card_out"))).or_default().push((t, qty(t)));
     }
-    let left = |m: &HashMap<String, i64>, name: &str| m.get(&same(name)).copied().unwrap_or(0);
     for s in swaps {
         let Some(waiting) = replacing.get_mut(&same(text(s, "card_out"))).filter(|_| !text(s, "card_out").is_empty()) else { continue };
-        while left(&adds, text(s, "card_in")) > 0 {
-            let Some(t) = waiting.pop() else { break };
-            let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), qty(s).min(qty(t)));
-            if n > 0 {
-                rows.push(Change {
-                    add: text(s, "card_in").into(),
-                    cut: text(t, "card_in").into(),
-                    n,
-                    why: text(s, "why").into(),
-                    notes: [vec![format!("Both builds cut {} for these.", text(s, "card_out"))], labelled("", text(s, "pairing_note"))].concat(),
-                });
+        let mut mine = qty(s);
+        // Each turn pairs copies, or ends this swap, or retires a waiting one whose card is
+        // accounted for (it can't pair later either).
+        while mine > 0 {
+            let Some((t, theirs)) = waiting.last_mut() else { break };
+            let n = take(&mut adds, text(s, "card_in"), &mut cuts, text(t, "card_in"), mine.min(*theirs));
+            if n == 0 {
+                if adds.get(&same(text(s, "card_in"))).copied().unwrap_or(0) == 0 {
+                    break;
+                }
+                waiting.pop();
+                continue;
             }
+            let t = *t;
+            mine -= n;
+            *theirs -= n;
+            if *theirs == 0 {
+                waiting.pop();
+            }
+            rows.push(Change {
+                add: text(s, "card_in").into(),
+                cut: text(t, "card_in").into(),
+                n,
+                why: text(s, "why").into(),
+                notes: [vec![format!("Both builds cut {} for these.", text(s, "card_out"))], labelled("", text(s, "pairing_note"))].concat(),
+            });
         }
     }
     // The other build swapped a starting card out; this one keeps it.
