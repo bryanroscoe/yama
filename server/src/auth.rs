@@ -446,14 +446,13 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 // Open sign-up makes accounts at a person's pace: a few per address a day, and a
                 // ceiling for everyone together, so scripted sign-ups stop. Invites aren't counted.
                 if !invited {
-                    // Both must allow it before either counts, so a refusal from the ceiling for
-                    // everyone doesn't use up this address's own few.
+                    // Both must allow it, and it counts only once the account is really made
+                    // (below): a refusal from the ceiling for everyone, or two sign-ins racing to
+                    // make the same account, doesn't use up this address's own few.
                     st.limits.new_accounts_address.allows(address)?;
                     st.limits.new_accounts.allows("all")?;
-                    st.limits.new_accounts_address.check(address)?;
-                    st.limits.new_accounts.check("all")?;
                 }
-                sqlx::query(
+                let made = sqlx::query(
                     "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT DO NOTHING",
                 )
                 .bind(new_id())
@@ -463,7 +462,9 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 .bind(now())
                 .execute(&st.pool)
                 .await?;
-                if !invited {
+                if !invited && made.rows_affected() == 1 {
+                    st.limits.new_accounts_address.record(address);
+                    st.limits.new_accounts.record("all");
                     tracing::info!(%email, "new account through open sign-up");
                 }
                 // Two sign-ins at once: the second finds the first one's row.
