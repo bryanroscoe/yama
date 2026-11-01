@@ -82,6 +82,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/yama/target,sharing=locked \
     YAMA_GIT_SHA=$YAMA_GIT_SHA YAMA_GIT_DIRTY=$YAMA_GIT_DIRTY \
     YAMA_LAB_GIT_SHA=$YAMA_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_GIT_DIRTY \
+    YAMA_PHASE_SOURCE_REV="$(cat deploy/phase-rev)" \
     CARGO_BUILD_JOBS=4 cargo build --release -p yama-server \
  && cp target/release/yama-server /usr/local/bin/yama-server
 

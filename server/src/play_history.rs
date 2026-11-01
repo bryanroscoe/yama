@@ -520,7 +520,7 @@ fn request(cmd: Cmd) -> Option<(Value, Option<oneshot::Sender<Result<(), String>
         Cmd::Act { seat, revision, action, reply } => (json!({"type":"act","seat":seat,"revision":revision,"action":action}), Some(reply)),
         Cmd::Passing { seat, revision, mode, reply } => (json!({"type":"pass","seat":seat,"revision":revision,"mode":mode}), Some(reply)),
         Cmd::Concede { seat } => (json!({"type":"concede","seat":seat}), None),
-        Cmd::Prefs { seat, prefs } => {
+        Cmd::Prefs { seat, prefs } | Cmd::AccountPrefs { seat, prefs } => {
             (json!({"type":"prefs","seat":seat,"stops":prefs.stops,"full_control":prefs.full_control,"tap_mana":prefs.tap_mana}), None)
         }
         Cmd::FullControl { seat, on } => (json!({"type":"full_control","seat":seat,"on":on}), None),

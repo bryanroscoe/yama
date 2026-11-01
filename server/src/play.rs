@@ -115,6 +115,11 @@ enum Cmd {
         seat: u8,
         prefs: PlayPrefs,
     },
+    /// Account defaults on connection; replay-restored game controls take precedence.
+    AccountPrefs {
+        seat: u8,
+        prefs: PlayPrefs,
+    },
     /// Older boards: full control alone, not saved.
     FullControl {
         seat: u8,
@@ -444,6 +449,14 @@ fn run_game(
                 m.set_prefs(seat, prefs.stops, prefs.full_control);
                 m.set_tap_mana(seat, prefs.tap_mana);
                 if was && !prefs.full_control {
+                    ai_turns(&mut m);
+                }
+                save(&m);
+            }
+            Cmd::AccountPrefs { seat, prefs } => {
+                let was = m.controls(seat).full_control;
+                m.initialize_prefs(seat, prefs.stops, prefs.full_control, prefs.tap_mana);
+                if was && !m.controls(seat).full_control {
                     ai_turns(&mut m);
                 }
                 save(&m);
@@ -1588,13 +1601,13 @@ async fn view_message(
 
 async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Option<u8>, seats: Vec<SeatCfg>, user: String) {
     let (mut sink, mut stream) = socket.split();
-    // Your saved turn controls apply to this game whenever you connect (another game or device
-    // may have changed them). The board learns whether any are saved, to bring older settings
-    // kept on the device over once.
+    // Account settings fill defaults on connection, preserving controls recovered
+    // from this game's replay. Explicit preference messages remain authoritative.
+    // The board learns whether any account settings exist to import older device settings once.
     if let Some(seat) = you {
         let saved = load_prefs(&pool, &user).await.ok().flatten();
         if let Some(prefs) = saved.clone() {
-            let _ = live.cmds.send(Cmd::Prefs { seat, prefs });
+            let _ = live.cmds.send(Cmd::AccountPrefs { seat, prefs });
         }
         let msg = serde_json::json!({ "type": "prefs", "saved": saved.is_some() }).to_string();
         if sink.send(Message::Text(msg.into())).await.is_err() {

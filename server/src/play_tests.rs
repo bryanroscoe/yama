@@ -819,6 +819,55 @@ async fn unavailable_runtime_socket_handshake_is_private_and_meaningful() {
 }
 
 #[tokio::test]
+async fn original_board_reconnect_preserves_restored_controls_and_explicit_changes() {
+    use tokio::io::AsyncReadExt;
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let (host, token) = crate::testutil::user(&st.pool, "reconnect-owner@example.com").await;
+    let e = engine();
+    let mut original = e.new_match_first(5, vec![deck(&[("Island", 99)]), deck(&[("Forest", 99)])], &[], Some(0)).unwrap();
+    let saved_stops = Stops { own: ["Upkeep".into()].into(), others: ["End".into()].into() };
+    original.set_prefs(0, Some(saved_stops.clone()), true);
+    original.set_tap_mana(0, PayMode::Auto);
+    let replay = original.replay_json();
+    saved_game(&st.pool, "reconnect-controls", &host, Some(yama_play::ENGINE_VERSION), "live", &replay).await;
+    save_prefs(&st.pool, &host, &PlayPrefs::default()).await.unwrap();
+    st.play.resume_live(&st.pool).await;
+    let live = st.play.live("reconnect-controls").unwrap();
+    let hub = st.play.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, crate::routes::app(st)).await.unwrap() });
+
+    for connection in 0..3 {
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/api/play/reconnect-controls/ws"))
+            .bearer_auth(&token)
+            .header("Connection", "upgrade").header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::SWITCHING_PROTOCOLS);
+        let mut socket = response.upgrade().await.unwrap();
+        // The first frame is sent only after watch_game admits connection-time
+        // account defaults. A refused move then fences the game-thread queue.
+        tokio::time::timeout(Duration::from_secs(5), socket.read_exact(&mut [0u8; 2])).await.unwrap().unwrap();
+        assert!(send(&live, |reply| Cmd::Choose { seat: 0, revision: u64::MAX, index: 0, reply }).await.is_err());
+        let controls = board(&live, 0).await.turns.unwrap();
+        assert_eq!(controls.full_control, connection < 2);
+        assert_eq!(controls.tap_mana, if connection < 2 { PayMode::Auto } else { PayMode::Manual });
+        assert_eq!(controls.stops, if connection < 2 { Some(saved_stops.clone()) } else { None });
+        drop(socket);
+        if connection == 1 {
+            live.cmds.send(Cmd::Prefs { seat: 0, prefs: PlayPrefs { stops: None, full_control: false, tap_mana: PayMode::Manual } }).unwrap();
+        }
+    }
+    hub.stop("reconnect-controls");
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn wrong_historical_executable_identity_is_unavailable_without_parsing_or_saving() {
     use crate::testutil::{send as request, user};
     use axum::http::{Method, StatusCode};

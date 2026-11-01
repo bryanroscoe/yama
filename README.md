@@ -6,7 +6,8 @@ Yet Another Magic App: a free Magic: The Gathering app with a public precon refe
 
 The engine is maintained in the public MIT/Apache-licensed [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
 Clone it beside this repository as `../yama-phase`; releases fetch `deploy/phase-repo` and export
-the exact published commit in `deploy/phase-rev`. See [engine integration](docs/engine-integration.md).
+the exact published commit in `deploy/phase-rev`. Local Cargo builds require that sibling to be clean
+and checked out at the pin. See [engine integration](docs/engine-integration.md).
 
 Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images come from [Scryfall](https://scryfall.com); images load from Scryfall at runtime and are never stored or re-hosted here.
 

@@ -20,6 +20,12 @@ history rewrite preserved upstream commits and source trees; historical source n
 `7f211371581f169f82a8b66d2525b321631587c4` while retaining the saved game's original engine
 identity and immutable data hash.
 
+Local Cargo builds verify the sibling Phase checkout is clean and its HEAD equals the pin
+before stamping that identity. Git-less committed-source builds must explicitly supply the
+exported Phase revision; the production exporter supplies the exact published source. Both
+original-board connection defaults and game-thread startup preserve replay-restored controls;
+explicit player preference changes remain authoritative.
+
 The production image builds the pinned client and both WASM roots under `/board/` and
 serves authenticated, viewer-filtered games over Yama's board socket. It includes source
 and font licenses, text icons, runtime Scryfall image metadata, and an exact pin marker.

@@ -22,12 +22,13 @@ use std::process::Command;
 fn main() {
     let pin = std::fs::read_to_string(manifest_dir().join("../deploy/phase-rev")).expect("deployment Phase pin");
     let pin = pin.trim();
-    assert!(pin.len() == 40 && pin.bytes().all(|byte| byte.is_ascii_hexdigit()), "invalid deployment Phase pin");
+    assert!(pin.len() == 40 && pin.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)), "invalid deployment Phase pin");
+    verify_phase_source(pin);
     println!("cargo:rustc-env=YAMA_PLAY_PHASE_REV={pin}");
     for p in ["build.rs", "src", "Cargo.toml", "../Cargo.toml", "../Cargo.lock", "../server/src", "../server/resources", "../server/migrations", "../server/build.rs", "../server/Cargo.toml", "../runtime/historical.json", "../runtime/historical-source.json", "../deploy/phase-rev"] {
         println!("cargo:rerun-if-changed={p}");
     }
-    for v in ["YAMA_LAB_RUNNER", "YAMA_LAB_GIT_SHA", "YAMA_LAB_GIT_DIRTY"] {
+    for v in ["YAMA_LAB_RUNNER", "YAMA_LAB_GIT_SHA", "YAMA_LAB_GIT_DIRTY", "YAMA_PHASE_SOURCE_REV"] {
         println!("cargo:rerun-if-env-changed={v}");
     }
     let runner = match std::env::var("YAMA_LAB_RUNNER") {
@@ -35,6 +36,38 @@ fn main() {
         _ => detect(),
     };
     println!("cargo:rustc-env=YAMA_LAB_RUNNER={runner}");
+}
+
+fn verify_phase_source(pin: &str) {
+    let phase = manifest_dir().join("../../yama-phase");
+    for name in ["Cargo.toml", "Cargo.lock", ".cargo", "crates", ".git"] {
+        let path = phase.join(name);
+        if path.exists() && (name != ".git" || path.is_file()) { println!("cargo:rerun-if-changed={}", path.display()); }
+    }
+    if !phase.join(".git").exists() {
+        // A committed-source export has no Git metadata. Its build system must
+        // explicitly attest the revision it exported, rather than infer it from
+        // the runtime label. Production exports come from the verified pin.
+        assert_eq!(std::env::var("YAMA_PHASE_SOURCE_REV").ok().as_deref(), Some(pin),
+            "Git-less Phase source needs YAMA_PHASE_SOURCE_REV matching deploy/phase-rev");
+        return;
+    }
+    let read = |args: &[&str]| {
+        let output = Command::new("git").args(args).current_dir(&phase).output().expect("inspect Phase source");
+        assert!(output.status.success(), "cannot verify Phase source checkout");
+        String::from_utf8(output.stdout).expect("Phase Git output").trim().to_string()
+    };
+    assert_eq!(read(&["rev-parse", "HEAD"]), pin,
+        "Phase checkout must match deploy/phase-rev before building");
+    assert!(read(&["status", "--porcelain", "--untracked-files=all"]).is_empty(),
+        "Phase source must be a clean pinned checkout before building");
+    let mut paths = vec!["HEAD".to_string(), "index".to_string(), "packed-refs".to_string()];
+    let reference = read(&["rev-parse", "--symbolic-full-name", "HEAD"]);
+    if reference != "HEAD" { paths.push(reference); }
+    for name in paths {
+        let path = phase.join(read(&["rev-parse", "--git-path", &name]));
+        if path.exists() { println!("cargo:rerun-if-changed={}", path.display()); }
+    }
 }
 
 fn manifest_dir() -> PathBuf {
