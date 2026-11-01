@@ -1,7 +1,10 @@
 # GitHub test CI
 
-`.github/workflows/ci.yml` runs on pull requests into `main`, pushes to `main`, and manual
+`.github/workflows/ci.yml` runs on ready pull requests into `main`, pushes to `main`, and manual
 dispatch. There are no path filters: documentation and workflow changes also receive checks.
+Draft PRs skip every job. Ready PRs skip the web and Rust jobs when their head commit passed
+the same checks locally on its exact tree and contains `main`, or when they carry the
+`skip-ci` label; see [Skip CI on a PR](#skip-ci-on-a-pr).
 Superseded runs for the same event type and PR/ref are cancelled. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
@@ -98,7 +101,8 @@ refuse fork PRs before scheduling on the persistent runner. Copy reviewed fork w
 trusted branch in this private repository before running CI; skipped fork jobs are not passing
 acceptance evidence.
 
-Before merge, inspect the checks on the actual PR head and require both jobs to pass. Keep
+Before merge, inspect the checks on the actual PR head and require both jobs to pass, or a
+**Local CI gate** summary saying they were skipped for that head commit. Keep
 local validation, GitHub CI, source review, merge and deployment as distinct evidence. This
 private repository's current GitHub plan does not support protected-branch required checks;
 the completion workflow enforces this gate without changing the plan or visibility.
@@ -109,3 +113,51 @@ full-game correctness or cross-machine performance from those passing checks; fo
 [lab worker workflow](lab-workers.md) runs leased simulations and remains separate from CI.
 
 On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
+
+## Skip CI on a PR
+
+GitHub-hosted minutes are paid, so PR CI runs only when it adds something. Push CI on `main`
+and manual runs are never skipped: they ignore trailers and labels, always run both jobs, and
+the successful push run is what authorizes deployment.
+
+- **Drafts run no jobs.** Open work-in-progress PRs as drafts (`gh pr create --draft`). The
+  workflow still starts for each push, but every job is skipped, so it uses no runner time.
+  Marking the PR ready (`gh pr ready`) runs CI; later pushes run it as usual. Converting it
+  back to draft (`gh pr ready --undo`) cancels CI still in progress.
+- **Local checks.** On a clean worktree with Rust 1.98.1 and `../yama-phase` at the published
+  commit in `deploy/phase-rev` (checked with `deploy/check-phase.sh`), run `scripts/local-ci.sh`.
+  It runs every CI check (`npm ci`, `npm test`, `npm run typecheck`, `npm run build`,
+  `cargo test --locked` and the Python suites). Only if all pass does it amend HEAD's message
+  with `Local-CI: passed tree=<HEAD's tree> on <os>/<arch> node<major>`; the content doesn't
+  change. Push the commit (with `--force-with-lease` if it was already pushed). The **Local CI
+  gate** job then skips the web and Rust jobs when the trailer, in the head commit's last
+  paragraph, names that commit's own tree and the branch already contains `main`, so the merge
+  CI would test is that same tree. A later commit without its own trailer, or a branch behind
+  `main`, runs CI again; the gate's step summary says which. Rebase or merge `main`, then run
+  the script again to skip once more. `--no-amend` runs the checks without recording anything.
+  The trailer is a statement that the checks passed: never write it by hand.
+- **`skip-ci` label.** A PR labelled `skip-ci` skips both jobs at its next push, ready
+  transition or re-run (labels are read when the gate runs; adding a label starts no run). Use it
+  for documentation-only PRs. To get CI, remove the label and use **Re-run all jobs** (re-running
+  only failed jobs doesn't start skipped ones).
+- **`[skip ci]` in a commit message** keeps GitHub's built-in behaviour: no CI run starts at all.
+  Don't let it reach `main`: a push whose head commit (or a squash merge body) contains it
+  starts no CI, so nothing is deployed until a later push to main passes CI. That fails safe,
+  but delays the release.
+
+To force full CI on a PR that would skip, run it manually:
+`gh workflow run CI --ref <branch>`. The run tests that branch's head and appears on the commit.
+
+What a local pass doesn't cover: it usually runs on macOS, not CI's Linux (case-insensitive
+paths, BSD tools), may use a Node major other than 22 (recorded in the trailer), and can see
+gitignored local files such as `.env` or `data/`. Push CI on main still runs on Linux, so such a
+difference shows up after merge as a failed push CI, which blocks deployment until fixed. Prefer
+full PR CI for changes that touch the build, toolchain or platform-specific code.
+
+A skipped job is not passing evidence by itself. Report it as local validation (the trailer
+names the tree, machine and Node major) and keep GitHub CI, source review, merge and
+deployment distinct. The gate fails safe: if it can't read the PR it runs CI, and its own
+failure never fails the workflow. It checks out only `scripts/ci/gate.py` from `main` (so a PR
+can't change the rule that judges it), needs only `contents: read` and `pull-requests: read`,
+uses no secrets and doesn't check out the engine. It runs on the same backend as the other jobs
+(`CI_LINUX_RUNNER`), waiting for a saget slot like them.
