@@ -75,10 +75,15 @@ def main() -> None:
         listed = "\n".join(f"  - {r.get('description') or r.get('id')}: {r.get('expression')}" for r in others)
         sys.exit(f"the zone already has other rate limiting rules (the Free plan allows one):\n{listed}\nRe-run with --replace to drop them.")
     body = {"rules": [rule()]}
+    # No rate limiting rules on the zone yet: its ruleset for the phase has to be created first
+    # (Cloudflare answers 404 for the entry point); after that it's updated in place.
+    first = current.get("status") == 404
+    if first:
+        body = {"name": "default", "kind": "zone", "phase": "http_ratelimit", **body}
     if dry:
-        print(json.dumps(body, indent=2))
+        print(("POST /rulesets" if first else "PUT entrypoint") + "\n" + json.dumps(body, indent=2))
         return
-    result = call("PUT", phase, token, body)
+    result = call("POST", f"/zones/{zone_id}/rulesets", token, body) if first else call("PUT", phase, token, body)
     if not result.get("success"):
         sys.exit(f"Cloudflare refused the rule: {json.dumps(result.get('errors'))}")
     print(f"rate limiting rule set on {HOST}: {REQUESTS_PER_10S} requests per 10 s per IP, then blocked for 10 s")
