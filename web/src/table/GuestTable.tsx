@@ -138,7 +138,9 @@ function GuestGame({ gameId }: { gameId: string }) {
             ? turnedAway
             : noLink
             ? key
-              ? "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
+              ? relay === "edge"
+                ? "Can't reach the table yet. If the host just started the game, or several phones on this Wi-Fi just joined, it connects in a few seconds; if not, ask them to show the code again."
+                : "This table isn't being shared yet. If the host just started the game it connects in a moment; if not, ask them to show the code again."
               : "This link is missing its code. Scan the QR code on the host's phone again."
             : !connected
               ? "Connecting to Yama…"

@@ -12,6 +12,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { RELAY_TOKEN, relayShareKey } from "../../packages/core/src/relayKey";
+import { addressKey } from "./address";
 import { hasRoom, join, leave, message, type Role, type RoomIo } from "./room";
 
 interface Env {
@@ -78,7 +79,8 @@ export default {
     }
     // Per role: a table's phones usually share one Wi-Fi address, and guests coming and going
     // mustn't use up the host phone's own allowance.
-    const address = req.headers.get("CF-Connecting-IP");
+    const ip = req.headers.get("CF-Connecting-IP");
+    const address = ip ? addressKey(ip) : null;
     if (env.CONNECTS && address && !(await env.CONNECTS.limit({ key: `${role}:${address}` })).success) {
       return refuse(CLOSE_TOO_MANY, "Too many connections from this network. Wait a minute.");
     }

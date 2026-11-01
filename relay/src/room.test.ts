@@ -228,3 +228,13 @@ describe("table room", () => {
     expect(host.got).toEqual([]);
   });
 });
+
+describe("addressKey", () => {
+  it("counts IPv4 as is and IPv6 by its /64", async () => {
+    const { addressKey } = await import("./address");
+    expect(addressKey("203.0.113.9")).toBe("203.0.113.9");
+    expect(addressKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")).toBe("2001:db8:1:2::/64");
+    expect(addressKey("2001:DB8:1:2::1")).toBe("2001:db8:1:2::/64");
+    expect(addressKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+  });
+});

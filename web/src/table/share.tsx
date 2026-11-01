@@ -206,7 +206,10 @@ function open(gameId: string, attempt = 0) {
     // Keep trying while we're still sharing this game; the table works offline meanwhile.
     if (status.gameId === gameId) {
       const next = opened ? 0 : attempt + 1;
-      retry = window.setTimeout(() => open(gameId, next), Math.min(15_000, 1000 * 2 ** next));
+      // Too many from this network (the relay closes with 4429): wait out the minute rather than
+      // knocking again and using up the table's shared allowance. Otherwise back off, spread out.
+      const wait = e.code === 4429 ? 60_000 : Math.min(15_000, 1000 * 2 ** next) * (0.75 + Math.random() / 2);
+      retry = window.setTimeout(() => open(gameId, next), wait);
     }
   };
 }

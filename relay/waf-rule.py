@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 
 ZONE = "yama.ing"
-HOST = "relay.yama.ing"
+HOST = "relay.yama.ing"  # for messages; the rule matches the relay's paths (see rule())
 DESCRIPTION = "yama relay: connections per address"
 # Requests per IP per 10 s at one Cloudflare location. The Free plan's 100,000 requests a day are
 # shared with the WebSocket messages the Worker's MESSAGES limit allows (wrangler.toml), so the two
@@ -50,7 +50,12 @@ def call(method: str, path: str, token: str, body: object | None = None) -> dict
 def rule() -> dict:
     return {
         "description": DESCRIPTION,
-        "expression": f'(http.host eq "{HOST}")',
+        # The Free plan's rule can match only the path (and verified bots), not the host. The
+        # relay's paths are its own: the app's pages under /table/ never end in /ws, and Yama's
+        # own relay is under /api/. Other paths on relay.yama.ing still reach the Worker uncounted
+        # here (it answers 404 at once); moving the Worker to a route on /table/* and /health only
+        # would close that.
+        "expression": '(http.request.uri.path wildcard "/table/*/ws" or http.request.uri.path eq "/health")',
         "action": "block",
         "ratelimit": {
             "characteristics": ["cf.colo.id", "ip.src"],

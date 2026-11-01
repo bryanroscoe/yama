@@ -48,12 +48,13 @@ export const MAX_EVENT = 8 * 1024;
 /** Guests in one room: a table of up to eight, each maybe on two devices, plus spares. */
 export const MAX_GUESTS = 24;
 /**
- * Taps from all of a room's guests together: a burst of 40, then 12 a second (holding a button
- * repeats about 7 a second). Each tap makes the host send the whole game again; taps over it are
+ * Taps from all of a room's guests together: a burst of 40, then 5 a second (holding a button
+ * repeats about 7 a second for a moment, then about 2). Each tap makes the host send the whole game again; taps over it are
  * dropped. Room-wide, so reconnecting doesn't buy a fresh allowance.
  */
 export const TAP_BURST = 40;
-export const TAPS_PER_SECOND = 12;
+/** Within a table's guest message share (300 a minute per address, wrangler.toml). */
+export const TAPS_PER_SECOND = 5;
 /**
  * Snapshots are stored at most this often (each is a storage write, and the free plan has a
  * daily allowance); guests get every one as it comes. One still unsaved is written when the host
