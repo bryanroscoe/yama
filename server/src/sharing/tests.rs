@@ -460,6 +460,10 @@ fn a_build_compares_with_another_build_card_by_card() {
     let other = format!("Commander\n1 Nalia\nDeck\n1 Mountain\n1 Island\n8 Forest");
     let rows = compare(&plains, &two("Plains", "Plains"), &other, &two("Mountain", "Island"), "B3");
     assert_eq!(rows.iter().map(|r| (r.cut.as_str(), r.why.as_str(), r.n)).collect::<Vec<_>>(), vec![("Mountain", "First.", 1), ("Island", "Second.", 1)]);
+    // A swap that only adds a card keeps its pairing note when nothing pairs with it.
+    let add_only = vec![json!({"id": "x", "card_in": "Extra", "why": "More.", "pairing_note": "Cut a land for it."})];
+    let rows = compare(&list(&["Extra"], 10), &add_only, &list(&[], 10), &[], "B2");
+    assert_eq!(rows, vec![Change { add: "Extra".into(), n: 1, why: "More.".into(), notes: vec!["Cut a land for it.".into()], ..Default::default() }]);
     // The whole lists: builds that differ only past the page's list cap still differ.
     let long = |last: &str| format!("Commander\n1 Nalia\nDeck\n{}\n1 {last}", (0..300).map(|i| format!("1 Card {i}")).collect::<Vec<_>>().join("\n"));
     assert_eq!(compare(&long("Late A"), &[], &long("Late B"), &[], "B2"), vec![Change { add: "Late A".into(), n: 1, ..Default::default() }, Change { cut: "Late B".into(), n: 1, ..Default::default() }]);

@@ -312,23 +312,23 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
     for name in &order {
         let n = adds.get(&same(name)).copied().unwrap_or(0);
         if n > 0 {
-            let why = match (ins.get(&same(name)), vs_outs.get(&same(name))) {
-                (Some(s), _) => text(s, "why").to_string(),
-                (None, Some(_)) => format!("Keeps the starting list's card; {vs_label} cuts it."),
-                _ => String::new(),
+            let (why, notes) = match (ins.get(&same(name)), vs_outs.get(&same(name))) {
+                (Some(s), _) => (text(s, "why").to_string(), labelled("", text(s, "pairing_note"))),
+                (None, Some(t)) => (format!("Keeps the starting list's card; {vs_label} cuts it."), labelled("", text(t, "pairing_note"))),
+                _ => Default::default(),
             };
-            rows.push(Change { add: name.clone(), n, why, ..Default::default() });
+            rows.push(Change { add: name.clone(), n, why, notes, ..Default::default() });
         }
     }
     for name in &vs_order {
         let n = cuts.get(&same(name)).copied().unwrap_or(0);
         if n > 0 {
-            let why = match (outs.get(&same(name)), vs_ins.get(&same(name))) {
-                (Some(s), _) => text(s, "why_out").to_string(),
-                (None, Some(t)) => format!("Only in {vs_label}: {}", text(t, "why")),
-                _ => String::new(),
+            let (why, notes) = match (outs.get(&same(name)), vs_ins.get(&same(name))) {
+                (Some(s), _) => (text(s, "why_out").to_string(), labelled("", text(s, "pairing_note"))),
+                (None, Some(t)) => (format!("Only in {vs_label}: {}", text(t, "why")), labelled("", text(t, "pairing_note"))),
+                _ => Default::default(),
             };
-            rows.push(Change { cut: name.clone(), n, why, ..Default::default() });
+            rows.push(Change { cut: name.clone(), n, why, notes, ..Default::default() });
         }
     }
     rows
