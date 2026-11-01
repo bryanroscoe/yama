@@ -1,7 +1,7 @@
 // One table game: who played what, how it ended, and everything that happened, turn by turn. A
 // game still going can be followed live from another device, or carried on here.
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { formatLabel, winConditionLabel, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
 import { Link, useNavigate, useParams } from "react-router";
@@ -14,7 +14,7 @@ import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
-import { resumeGame, useOutbox, useTable } from "./store";
+import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
 import { LogGame } from "./TableHome";
 import { isViewing } from "../viewingFlag";
 import "./home.css";
@@ -105,6 +105,16 @@ export function GameDetailPage() {
     onSuccess: () => navigate("/table/play"),
   });
 
+  const qc = useQueryClient();
+  const remove = useMutation({
+    mutationFn: () => deleteGame(id),
+    // Offline, it's gone from this device now and from Yama once the connection is back.
+    onSuccess: () => {
+      for (const key of ["games", "stats", "deck-results", "game"]) void qc.invalidateQueries({ queryKey: [key] });
+      navigate("/", { replace: true });
+    },
+  });
+
   if (game.isLoading) return <main className="page"><p className="dim">Loading the game…</p></main>;
   if (!g) {
     return (
@@ -127,6 +137,8 @@ export function GameDetailPage() {
     if (last && last.turn === l.turn) last.lines.push(l);
     else turns.push({ turn: l.turn, lines: [l] });
   }
+  // A table that never passed the turn has one long "turn": no headings for it.
+  const counted = log.some((l) => l.event.type === "pass_turn");
   const how = winConditionLabel(g.win_condition);
   const title = going ? "Still going" : winner ? `${seatName(winner)} won` : g.status === "finished" ? "A draw" : "Game";
   const facts = [
@@ -228,7 +240,7 @@ export function GameDetailPage() {
           <ol className="gd-turns">
             {turns.map((t, i) => (
               <li key={`${t.turn}:${i}`}>
-                <h3>Turn {t.turn}</h3>
+                {counted && <h3>Turn {t.turn}</h3>}
                 <ul>
                   {t.lines.map((l) => (
                     <li key={l.seq}>
@@ -242,6 +254,20 @@ export function GameDetailPage() {
           </ol>
         )}
       </section>
+
+      {g.can_delete && !isViewing() && (
+        <section className="gd-delete" aria-label="Delete this game">
+          <button
+            className="outline bad"
+            disabled={remove.isPending}
+            onClick={() => confirm("Delete this game from Yama? It comes out of the history and stats for everyone who played. This can't be undone.") && remove.mutate()}
+          >
+            {remove.isPending ? "Deleting…" : "Delete this game"}
+          </button>
+          <p className="small dim">Only you can, since you recorded it. Use it for a test game or one entered by mistake.</p>
+          <ErrorText error={remove.error} />
+        </section>
+      )}
     </main>
   );
 }

@@ -14,6 +14,19 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-10-31-table-layouts-join",
+    date: "2026-10-31",
+    title: "Life counter: panel layouts, join from the start, dice",
+    items: [
+      "New game asks how the panels sit (two a side, one each side, everyone facing the screen, and more for each player count) and whether everyone keeps their own phone. With everyone's phones on, the join code fills the screen as the game opens; a green dot on the middle button shows the table is shared.",
+      "Save and play again starts a rematch with the same seats, and phones that joined follow it without scanning again.",
+      "Delete a game you recorded from the bottom of its page, for a test game or one entered by mistake. Discarding a game in progress now removes it from Yama too, instead of leaving it in Recent games as still going.",
+      "Turns are only counted if you start passing the turn from the menu, so a game nobody counted doesn't go in the stats as one turn long.",
+      "Dice (d4 to d20 or any size, up to three at once), a coin, a random player, and Shuffle the seats at setup. Storm, treasure and the city's blessing join the counters; tap a player's total on their sheet to type a new one. Partner commanders share their panel's art, and a landscape screen turns the whole layout to fit.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
     id: "2026-10-31-power-users",
     date: "2026-10-31",
     title: "Simulations and Ask Claude for power users",

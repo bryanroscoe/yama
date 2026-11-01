@@ -224,11 +224,65 @@ describe("finish", () => {
     expect(body.seats).toEqual([
       { seat: 0, final_life: 40, eliminated_turn: null, eliminated_by_seat: null, fun: 4 },
       { seat: 1, final_life: 40, eliminated_turn: null, eliminated_by_seat: null, fun: null },
-      // An out-of-range rating is dropped, not clamped.
-      { seat: 2, final_life: 40, eliminated_turn: 1, eliminated_by_seat: 1, fun: null },
+      // An out-of-range rating is dropped, not clamped. Nobody passed the turn, so no turn is sent.
+      { seat: 2, final_life: 40, eliminated_turn: null, eliminated_by_seat: 1, fun: null },
     ]);
+    expect(body.turns).toBeNull();
     // Same log, same body: retries are harmless.
     expect(toServerFinish(setup, log)).toEqual(body);
+  });
+
+  it("sends turns only from a table that passed the turn", () => {
+    let log = record([], { type: "pass_turn" }, t0);
+    for (let i = 1; i < 5; i++) log = record(log, { type: "pass_turn" }, later(i * 100));
+    log = record(log, { type: "eliminate", seat: 2, bySeat: 1 }, later(600));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(700));
+    const body = toServerFinish(setup, log)!;
+    expect(body.turns).toBe(2);
+    expect(body.seats[2]).toMatchObject({ eliminated_turn: 2 });
+  });
+
+  it("an elimination before the table counted turns has no turn, even once counting starts", () => {
+    let log = record([], { type: "eliminate", seat: 2, bySeat: 1 }, t0);
+    log = record(log, { type: "pass_turn" }, later(100));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(200));
+    const body = toServerFinish(setup, log)!;
+    // A knockout before the first pass means counting started late: no total either.
+    expect(body.turns).toBeNull();
+    expect(body.seats[2]).toMatchObject({ eliminated_turn: null, eliminated_by_seat: 1 });
+  });
+
+  it("sends no elimination turns at all if one knockout came before turns were counted", () => {
+    let log = record([], { type: "eliminate", seat: 2, bySeat: 1 }, t0);
+    for (let i = 1; i <= 3; i++) log = record(log, { type: "pass_turn" }, later(i * 100));
+    log = record(log, { type: "eliminate", seat: 0, bySeat: 1 }, later(500));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(600));
+    const body = toServerFinish(setup, log)!;
+    expect(body.turns).toBeNull();
+    expect(body.seats.map((s) => s.eliminated_turn)).toEqual([null, null, null]);
+    expect(body.seats.map((s) => s.eliminated_by_seat)).toEqual([1, null, 1]);
+  });
+
+  it("sends no turn count when counting started partway through", () => {
+    // Two players' totals moved before anyone passed: it wasn't the first turn any more.
+    let log = record([], { type: "life", seat: 0, delta: -2 }, t0);
+    log = record(log, { type: "life", seat: 1, delta: -5 }, later(3000));
+    log = record(log, { type: "pass_turn" }, later(6000));
+    log = record(log, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(9000));
+    expect(toServerFinish(setup, log)!.turns).toBeNull();
+    // Only the starting player paid life (a shock land), then passed: counted from the start.
+    let ok = record([], { type: "life", seat: 0, delta: -2 }, t0);
+    ok = record(ok, { type: "pass_turn" }, later(3000));
+    ok = record(ok, { type: "finish", winnerSeat: 1, endedAt: "2026-10-18T21:00:00Z" }, later(6000));
+    expect(toServerFinish(setup, ok)!.turns).toBe(1);
+  });
+
+  it("keeps the city's blessing at one, and other counters at zero or more", () => {
+    let s = initialState(setup);
+    s = apply(s, { type: "counter", seat: 0, counter: "blessing", delta: 1 });
+    s = apply(s, { type: "counter", seat: 0, counter: "blessing", delta: 1 });
+    s = apply(s, { type: "counter", seat: 0, counter: "storm", delta: -2 });
+    expect(s.players[0]!.counters).toEqual({ blessing: 1, storm: 0 });
   });
 
   it("a draw sends no win condition, and an unfinished log sends nothing", () => {

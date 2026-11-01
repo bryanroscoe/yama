@@ -297,6 +297,15 @@ pub(crate) async fn check_game(pool: &SqlitePool, user: &str, g: &NewGame) -> Ap
 /// `create_game` after its checks, in the caller's transaction, so a caller can store more in
 /// the same commit (the Mythic Tools bridge's link and note). Call `check_game` first.
 pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, g: NewGame) -> AppResult<serde_json::Value> {
+    // A game deleted on purpose stays deleted, even if another device still has it.
+    let deleted: Option<String> = sqlx::query_scalar("SELECT id FROM deleted_games WHERE id = ? AND deleted_by = ?")
+        .bind(&g.id)
+        .bind(user)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if deleted.is_some() {
+        return Err(AppError::Gone("game"));
+    }
     let mut seats = Vec::with_capacity(g.seats.len());
     for s in &g.seats {
         seats.push(resolve_seat(&mut *tx, user, g.playgroup_id.as_deref(), s).await?);
@@ -578,6 +587,8 @@ struct GameDetail {
     events: Vec<Event>,
     /// This account started this in-person game, so it can carry on with it on another device.
     can_continue: bool,
+    /// This account recorded this in-person game, so it may delete it (`DELETE /api/games/:id`).
+    can_delete: bool,
     /// A game this account logged after it was played: Log a game can open it again, and saving
     /// it again stores what the form says now (`create_game`).
     can_edit: bool,
@@ -626,17 +637,36 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             }
         }
     }
-    Ok(Json(GameDetail { game, events, can_continue, can_edit, your_decks }))
+    Ok(Json(GameDetail { game, events, can_continue, can_delete: mine, can_edit, your_decks }))
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
+    let mut tx = st.pool.begin().await?;
     let n = sqlx::query("DELETE FROM games WHERE id = ? AND created_by = ? AND mode = 'in_person'")
         .bind(&id)
         .bind(&user.id)
-        .execute(&st.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
-    if n == 0 { Err(AppError::NotFound("game")) } else { Ok(()) }
+    if n == 0 {
+        // Someone else's game, or an online one: not yours to delete, and nothing is recorded.
+        let exists: Option<String> = sqlx::query_scalar("SELECT id FROM games WHERE id = ?").bind(&id).fetch_optional(&mut *tx).await?;
+        if exists.is_some() {
+            return Err(AppError::NotFound("game"));
+        }
+        // Never uploaded: still remember the id, so another tab or device that has the game
+        // can't upload it after this. Ids are random UUIDs made by the device that started it.
+    }
+    // Remembered by id, so a device that still has the game can't upload it again.
+    // Only for this account: someone else who knows the id can't block the real game.
+    sqlx::query("INSERT OR IGNORE INTO deleted_games (id, deleted_by, deleted_at) VALUES (?, ?, ?)")
+        .bind(&id)
+        .bind(&user.id)
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 #[cfg(test)]

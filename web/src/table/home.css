@@ -106,42 +106,7 @@
   background: #000;
   outline: 1px solid var(--line);
   outline-offset: 4px;
-  display: grid;
-  gap: 4px;
 }
-.sketch-cell {
-  position: relative;
-  overflow: hidden;
-  border-radius: 10px;
-  background: var(--raised);
-}
-.sketch-cell img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.sketch-n {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 26px;
-  line-height: 1;
-  color: var(--dim);
-}
-.sketch-n > span {
-  display: block;
-}
-.sketch-cell.has-art .sketch-n {
-  background: rgb(0 0 0 / 0.35);
-  color: var(--on-art);
-}
-
 /* A seat card: the commander art with the name on it, the fields below, the credit last. */
 fieldset.seat.seat-card2 {
   padding: 0;
@@ -771,4 +736,28 @@ a.rg-row:focus-visible {
     width: 88px;
     height: 64px;
   }
+}
+
+/* Setup on a phone: the layout picker sits under the choices, the shuffle under the seats. */
+.new-game2 .ng-layout {
+  margin-top: 4px;
+}
+.new-game2 .ng-shuffle {
+  align-self: flex-start;
+}
+.new-game2 .ng-phone .ng-layout .field-label {
+  text-align: center;
+}
+
+/* Deleting a game you recorded: last on its page, away from everything else. */
+.gd-delete {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.gd-delete p {
+  margin: 0;
 }
