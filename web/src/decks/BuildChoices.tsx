@@ -15,9 +15,9 @@ export function BuildChoicesPage() {
   const [params, setParams] = useSearchParams();
   const userId = useMe().data?.id;
   const index = useQuery({ queryKey: ["research", userId, "list"], queryFn: reports, enabled: !!userId });
-  const notes = useQueries({ queries: (index.data ?? []).map((r) => ({ queryKey: ["research", userId, r.id], queryFn: () => report(r.id), enabled: !!userId })) });
+  const notes = useQueries({ queries: (index.data ?? []).map((r) => ({ queryKey: ["research", userId, r.id], queryFn: ({ signal }) => report(r.id, signal), enabled: !!userId })) });
   const plan = usePlan(userId);
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const bundles = notes.flatMap((r) => r.data ? [r.data] : []);
   const families = buildFamilies(bundles, plan.bundle, decks.data ?? []);
   const key = params.get("deck");
@@ -55,7 +55,7 @@ function sourceAfterLabel(c: BuildChoice) {
   return c.source.startsWith(`${name}: `) ? c.source.slice(name.length + 2) : c.source;
 }
 function useChoiceList(choice?: BuildChoice) {
-  const saved = useQuery({ queryKey: ["deck", choice?.savedDeck], queryFn: () => api<DeckView>(`/api/decks/${encodeURIComponent(choice!.savedDeck!)}`), enabled: !!choice?.savedDeck });
+  const saved = useQuery({ queryKey: ["deck", choice?.savedDeck], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${encodeURIComponent(choice!.savedDeck!)}`, { signal }), enabled: !!choice?.savedDeck });
   // Never use a historical research baseline as today's sleeved deck.
   const text = choice?.list ?? (saved.data ? slotsText(saved.data.cards.flatMap((c) => c.board === "main" || c.board === "commander" ? [{ name: c.name, qty: c.qty, board: c.board }] : [])) : undefined);
   return { text, error: saved.error, version: saved.data?.version_id };

@@ -25,7 +25,7 @@ export function NameList({ names, onCard }: { names: string[]; onCard?: (name: s
 export function useOnlineSupport(deckId: string | undefined, versionId?: string | null) {
   return useQuery({
     queryKey: ["online-support", deckId, versionId ?? null],
-    queryFn: () => api<Support>(`/api/decks/${deckId}/online-support`),
+    queryFn: ({ signal }) => api<Support>(`/api/decks/${deckId}/online-support`, { signal }),
     enabled: !!deckId,
     staleTime: 5 * 60_000,
     // The engine loads its card data for a while after the server starts; ask again then.

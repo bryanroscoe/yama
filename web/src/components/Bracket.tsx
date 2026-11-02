@@ -49,7 +49,7 @@ export function BracketChips({ declared, estimate }: { declared: number | null |
 export function useDeckCheck(deckId: string, versionId: string | null) {
   return useQuery({
     queryKey: ["deck-check", deckId, versionId],
-    queryFn: () => api<DeckCheck>(`/api/decks/${deckId}/check`),
+    queryFn: ({ signal }) => api<DeckCheck>(`/api/decks/${deckId}/check`, { signal }),
     refetchInterval: (q) => pollAfter(q.state.data),
   });
 }

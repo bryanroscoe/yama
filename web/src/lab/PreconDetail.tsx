@@ -33,9 +33,9 @@ export function PreconDetailPage() {
 }
 
 function PreconDetailBody({ id }: { id: string | undefined }) {
-  const detail = useQuery({ queryKey: ["lab", "precon", id], queryFn: () => api<PreconDetail>(`/api/precons/${id}`) });
+  const detail = useQuery({ queryKey: ["lab", "precon", id], queryFn: ({ signal }) => api<PreconDetail>(`/api/precons/${id}`, { signal }) });
   const list = usePrecons();
-  const v2 = useQuery({ queryKey: ["lab", "rating-v2"], queryFn: () => api<RatingV2>("/api/precons/rating-v2"), staleTime: 5 * 60_000 });
+  const v2 = useQuery({ queryKey: ["lab", "rating-v2"], queryFn: ({ signal }) => api<RatingV2>("/api/precons/rating-v2", { signal }), staleTime: 5 * 60_000 });
   const [open, setOpen] = useState<string | null>(null);
 
   if (detail.error) {

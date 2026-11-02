@@ -13,7 +13,7 @@ const BOARD: Record<string, string> = { commander: " (commander)", side: " (side
 
 /** Every saved version of a deck, and what changed between any two of them. */
 export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: string; currentVersionId: string | null; onClose: () => void }) {
-  const versions = useQuery({ queryKey: ["deck-versions", deckId, currentVersionId], queryFn: () => api<DeckVersionRow[]>(`/api/decks/${deckId}/versions`) });
+  const versions = useQuery({ queryKey: ["deck-versions", deckId, currentVersionId], queryFn: ({ signal }) => api<DeckVersionRow[]>(`/api/decks/${deckId}/versions`, { signal }) });
   // Restoring saves the old list as a new version, so the one it replaces stays here too.
   const qc = useQueryClient();
   // One op id per version asked for: a retry of that version reuses it, another gets its own.
@@ -94,7 +94,7 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
 }
 
 function useVersion(deckId: string, id: string) {
-  return useQuery({ queryKey: ["deck-version", deckId, id], queryFn: () => api<DeckVersion>(`/api/decks/${deckId}/versions/${id}`), staleTime: Infinity });
+  return useQuery({ queryKey: ["deck-version", deckId, id], queryFn: ({ signal }) => api<DeckVersion>(`/api/decks/${deckId}/versions/${id}`, { signal }), staleTime: Infinity });
 }
 
 function Diff({ deckId, from, to }: { deckId: string; from: string; to: string }) {

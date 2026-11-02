@@ -121,7 +121,7 @@ export function DeckChooser({
   title?: string;
   initial?: Source;
 }) {
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const precons = usePrecons();
   const { lists: planLists } = usePlanLists();
   const [source, setSource] = useState<Source>(initial);
@@ -335,7 +335,7 @@ export function FieldPicker({
   excludeDecks?: string[];
   heading?: ReactNode;
 }) {
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const { rated, selfAnchor, same, anchorId, run, count } = useAnchor(value, anchor);
   const set = (patch: Partial<FieldState>) => onChange({ ...value, ...patch });
   const mine = (decks.data ?? []).filter((d) => !excludeDecks.includes(d.id));
@@ -410,7 +410,7 @@ export function Choice({ on, pick, title, children }: { on: boolean; pick: () =>
 
 /** Game counts this account may run (the server says), and the lab's pace. */
 export function usePace() {
-  return useQuery({ queryKey: ["lab", "pace"], queryFn: () => api<Pace>("/api/lab/pace"), refetchInterval: 60_000 });
+  return useQuery({ queryKey: ["lab", "pace"], queryFn: ({ signal }) => api<Pace>("/api/lab/pace", { signal }), refetchInterval: 60_000 });
 }
 
 export function GamesPicker({ choices, games, setGames, pace, note, id, label = "Games", estimateGames }: { choices: number[]; games: number; setGames: (g: number) => void; pace: Pace | undefined; note: ReactNode; id: string; label?: string; estimateGames?: number }) {

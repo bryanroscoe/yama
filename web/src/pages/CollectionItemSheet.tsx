@@ -50,7 +50,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   // Every printing of this card, newest first: the picker's list, and the check on a rescan.
   const printings = useQuery({
     queryKey: ["printings-of", item.scryfall_id],
-    queryFn: () => api<{ printings: Printing[] }>(`/api/scan/printings?id=${encodeURIComponent(item.scryfall_id)}`).then((r) => r.printings),
+    queryFn: ({ signal }) => api<{ printings: Printing[] }>(`/api/scan/printings?id=${encodeURIComponent(item.scryfall_id)}`, { signal }).then((r) => r.printings),
     enabled: picking || rescanning,
     staleTime: 60 * 60 * 1000,
   });

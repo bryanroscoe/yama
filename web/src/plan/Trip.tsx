@@ -453,7 +453,7 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
   const [priority, setPriority] = useState<ShoppingWant["priority"]>("need");
   const [deckId, setDeckId] = useState("");
   const [why, setWhy] = useState("");
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const gaps = useQuery({ queryKey: ["deck-gaps", userId, deckId], queryFn: () => deckGaps(deckId), enabled: !!deckId });
   const done = () => void qc.invalidateQueries({ queryKey: ["plan", userId] });
   const add = useMutation({ mutationFn: addWant, onSuccess: () => setName(""), onSettled: done });

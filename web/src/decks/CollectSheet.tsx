@@ -17,7 +17,7 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
   const [result, setResult] = useState<CollectPreview | null>(null);
   const preview = useQuery({
     queryKey: ["deck-collect", deckId, same],
-    queryFn: () => api<CollectPreview>(`/api/decks/${deckId}/collect?same=${same}`),
+    queryFn: ({ signal }) => api<CollectPreview>(`/api/decks/${deckId}/collect?same=${same}`, { signal }),
     enabled: !result,
   });
   const add = useMutation({

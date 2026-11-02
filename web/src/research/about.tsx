@@ -33,7 +33,7 @@ export function changedSince(decks: DeckSummary[], name: string, savedAt: string
 
 /** "Your Riders of Rohan deck changed after this note was saved", when it did. */
 export function DeckChanged({ name, savedAt }: { name: string; savedAt: string }) {
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const d = decks.data ? changedSince(decks.data, name, savedAt) : null;
   if (!d) return null;
   return (

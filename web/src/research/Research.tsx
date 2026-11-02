@@ -229,7 +229,7 @@ export function ResearchPage() {
   const { reportId, deckKey } = useParams();
   const userId = useMe().data?.id;
   const listing = useQuery({ queryKey: ["research", userId, "list"], queryFn: reports, enabled: !reportId });
-  const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: () => report(reportId!), enabled: !!reportId });
+  const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: ({ signal }) => report(reportId!, signal), enabled: !!reportId });
   const [params, setParams] = useSearchParams();
   const b = data.data;const deck = b?.document.decks.find((d) => d.key === deckKey);
   const preferred = b?.reviews.find((r) => r.target === `deck:${deckKey}`)?.decision;

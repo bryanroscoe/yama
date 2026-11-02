@@ -51,9 +51,9 @@ export function CardsPage() {
   const guest = isGuest();
   const results = useQuery({
     queryKey: ["search", q, order, page, guest],
-    queryFn: async (): Promise<{ total: number; page: number; page_size: number; cards: Hit[]; offline?: boolean }> => {
+    queryFn: async ({ signal }): Promise<{ total: number; page: number; page_size: number; cards: Hit[]; offline?: boolean }> => {
       try {
-        return await api<SearchResult>(`/api/${guest ? "guest/" : ""}cards/search?q=${encodeURIComponent(q)}&order=${order}&page=${page}`);
+        return await api<SearchResult>(`/api/${guest ? "guest/" : ""}cards/search?q=${encodeURIComponent(q)}&order=${order}&page=${page}`, { signal });
       } catch (e) {
         if (isNetworkError(e)) return offlineSearch(q, order, page);
         throw e;

@@ -24,7 +24,7 @@ export function PeoplePage() {
   const [q, setQ] = useState("");
   const [deleting, setDeleting] = useState<AccountInfo | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const accounts = useQuery({ queryKey: ["admin-users"], queryFn: () => api<AccountInfo[]>("/api/admin/users") });
+  const accounts = useQuery({ queryKey: ["admin-users"], queryFn: ({ signal }) => api<AccountInfo[]>("/api/admin/users", { signal }) });
   const shared = useQuery({ queryKey: ["admin-shared"], queryFn: adminApi.sharedOverview });
   const sharing = shared.data?.enabled === true;
   const refresh = () => {
@@ -133,7 +133,7 @@ export function PeoplePage() {
 function WhoCanSignIn({ open }: { open: boolean }) {
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
-  const invites = useQuery({ queryKey: ["invites"], queryFn: () => api<{ email: string; created_at: string }[]>("/api/invites") });
+  const invites = useQuery({ queryKey: ["invites"], queryFn: ({ signal }) => api<{ email: string; created_at: string }[]>("/api/invites", { signal }) });
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["invites"] });
     void qc.invalidateQueries({ queryKey: ["admin-users"] });

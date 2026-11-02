@@ -72,7 +72,7 @@ export function SwapInSheet({ deckKey, deckName, onClose }: { deckKey: string; d
   const [result, setResult] = useState<SwapInPreview | null>(null);
   const preview = useQuery({
     queryKey: ["plan-swap-in", deckKey],
-    queryFn: () => api<SwapInPreview>(`/api/plan/decks/${encodeURIComponent(deckKey)}/swap-in`),
+    queryFn: ({ signal }) => api<SwapInPreview>(`/api/plan/decks/${encodeURIComponent(deckKey)}/swap-in`, { signal }),
     enabled: !result,
   });
   const apply = useMutation({

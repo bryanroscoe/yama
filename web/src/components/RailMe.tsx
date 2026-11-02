@@ -32,7 +32,7 @@ function useSyncLine(): { text: string; waiting: boolean } {
 /** The foot of the laptop rail: your commander's art (or your initials) and the sync status. */
 export function RailMe() {
   const me = useMe();
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !!me.data });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: !!me.data });
   const sync = useSyncLine();
   const { pathname, search } = useLocation();
   if (!me.data) {

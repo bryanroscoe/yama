@@ -86,4 +86,4 @@ export function gamesEach(versions: PlanVersion[]): string {
 }
 
 /** The runs list the lab pages already ask for, shared through the query cache. */
-export const useRuns = (enabled = true) => useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs"), enabled, staleTime: 60_000 });
+export const useRuns = (enabled = true) => useQuery({ queryKey: ["lab", "runs"], queryFn: ({ signal }) => api<RunListItem[]>("/api/lab/runs", { signal }), enabled, staleTime: 60_000 });

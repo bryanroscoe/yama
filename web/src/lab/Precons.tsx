@@ -38,7 +38,7 @@ import {
 import { stateLabel, useRuns, variantState } from "./paired";
 import { SimLine } from "./parts";
 
-export const usePrecons = () => useQuery({ queryKey: ["lab", "precons"], queryFn: () => api<PreconList>("/api/precons"), staleTime: 5 * 60_000 });
+export const usePrecons = () => useQuery({ queryKey: ["lab", "precons"], queryFn: ({ signal }) => api<PreconList>("/api/precons", { signal }), staleTime: 5 * 60_000 });
 
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "upgradeability", label: "Upgradeability" },
@@ -108,7 +108,7 @@ function useMyLists(): MyList[] {
   const plan = usePlan(userId);
   const mine = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired" && r.paired);
   const details = useQueries({
-    queries: mine.map((r) => ({ queryKey: ["lab", "run", r.id], queryFn: () => api<RunDetail>(`/api/lab/runs/${r.id}`), staleTime: 5 * 60_000 })),
+    queries: mine.map((r) => ({ queryKey: ["lab", "run", r.id], queryFn: ({ signal }) => api<RunDetail>(`/api/lab/runs/${r.id}`, { signal }), staleTime: 5 * 60_000 })),
   });
   return useMemo(() => {
     const out: MyList[] = [];

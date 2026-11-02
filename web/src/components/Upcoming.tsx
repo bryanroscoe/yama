@@ -29,7 +29,7 @@ export function useCalendar() {
   const today = localToday();
   return useQuery({
     queryKey: ["calendar", today],
-    queryFn: () => api<CalendarView>(`/api/calendar?today=${today}`),
+    queryFn: ({ signal }) => api<CalendarView>(`/api/calendar?today=${today}`, { signal }),
     staleTime: 10 * 60_000,
     retry: (n, e) => !isNetworkError(e) && n < 2,
   });
@@ -45,7 +45,7 @@ function checked(run: CalendarRun): string | null {
 export function ReleaseCalendar() {
   const calendar = useCalendar();
   const groups = calendar.data ? watchedPrecons(calendar.data.upcoming) : [];
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: groups.length > 0 });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: groups.length > 0 });
   if (calendar.error && isNetworkError(calendar.error)) return null;
   if (calendar.error) return <ErrorText error={calendar.error} />;
   if (!calendar.data) return null;
