@@ -722,9 +722,16 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
 }
 
 pub async fn import_default(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
-    // Price days are written in order: the replay of the old table first, if it hasn't run.
-    let _writer = crate::prices::PRICE_WRITER.lock().await;
-    crate::prices::backfill::backfill_if_needed(pool).await.map_err(|e| anyhow::anyhow!("replaying the old price table: {e}"))?;
+    // Price days are written in order, by one writer: the replay of the old table first, if it
+    // has days the history doesn't.
+    let writer = crate::prices::Writer::acquire(pool).await?;
+    let result = import_default_writing(pool, path, meta, &writer).await;
+    writer.release().await;
+    result
+}
+
+async fn import_default_writing(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>, writer: &crate::prices::Writer) -> anyhow::Result<usize> {
+    crate::prices::backfill::backfill_if_needed(pool, writer).await.context("replaying the old price table")?;
     let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "default_cards", meta).await?;
     // Prices belong to the day Scryfall generated the file, not the day we imported it.
@@ -737,7 +744,7 @@ pub async fn import_default(pool: &SqlitePool, path: &Path, meta: Option<&BulkIt
     if !history {
         tracing::warn!(price_date, newest = newest.map(crate::prices::date_of), "Scryfall's file is older than the newest prices; its prices go only to the old table");
     }
-    let file = HistoryFile { day, date: &price_date, run: &run, updated_at: meta.map(|m| m.updated_at.clone()), write: history };
+    let file = HistoryFile { day, date: &price_date, run: &run, updated_at: meta.map(|m| m.updated_at.clone()), writer: history.then_some(writer) };
     let result = import_default_inner(pool, path, &file).await;
     finish_timed(pool, &run, "default_cards", job, &result).await?;
     let count = result?;
@@ -753,8 +760,8 @@ struct HistoryFile<'a> {
     date: &'a str,
     run: &'a str,
     updated_at: Option<String>,
-    /// False for a file older than the newest observed day.
-    write: bool,
+    /// None for a file older than the newest observed day.
+    writer: Option<&'a crate::prices::Writer>,
 }
 
 /// While `price_snapshots` is still written, check the day's history against it and keep the
@@ -763,7 +770,7 @@ async fn verify_day(pool: &SqlitePool, date: &str) {
     match crate::prices::backfill::verify(pool, Some(date)).await {
         Ok(v) => {
             let text = serde_json::to_string(&v).unwrap_or_default();
-            if v.mismatches > 0 || v.stale > 0 {
+            if !v.clean() {
                 tracing::error!(date, %text, "price history doesn't match price_snapshots for this day");
             }
             let stored = sqlx::query("INSERT INTO price_meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
@@ -869,16 +876,16 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
         if priced {
             sqlx::query("INSERT OR IGNORE INTO price_dates (date) VALUES (?)").bind(price_date).execute(&mut *tx).await?;
         }
-        if file.write {
-            crate::prices::write::record_batch(&mut tx, file.day, price_date, file.run, &history).await?;
+        if file.writer.is_some() {
+            crate::prices::write::stage(&mut tx, file.run, &history).await?;
         }
         tx.commit().await?;
     }
     if count == 0 {
         bail!("no printings found in {}", path.display());
     }
-    // Printings that had a price but weren't in the file lose it, then the day counts as read.
-    if file.write {
+    // The whole file at once: its prices, and those of printings it left out gone.
+    if let Some(writer) = file.writer {
         let observation = crate::prices::write::Observation {
             file: file.run.to_string(),
             file_updated_at: file.updated_at.clone(),
@@ -886,7 +893,18 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
             printings: count as i64,
         };
         let mut tx = pool.begin().await?;
-        crate::prices::write::finish_day(&mut tx, file.day, price_date, &observation).await?;
+        // In the old table too, a second file for the day replaces the first: a printing it
+        // doesn't price has no row that day, as if only this file had been read.
+        sqlx::query(
+            "DELETE FROM price_snapshots WHERE date = ?1 AND scryfall_id NOT IN (
+               SELECT st.scryfall_id FROM price_stage st WHERE st.file = ?2 AND (st.usd IS NOT NULL OR st.usd_foil IS NOT NULL
+                  OR st.usd_etched IS NOT NULL OR st.eur IS NOT NULL OR st.eur_foil IS NOT NULL OR st.tix IS NOT NULL))",
+        )
+        .bind(price_date)
+        .bind(file.run)
+        .execute(&mut *tx)
+        .await?;
+        crate::prices::write::publish(&mut tx, writer, file.day, price_date, &observation).await?;
         tx.commit().await?;
     }
     Ok(count)
@@ -1047,6 +1065,28 @@ mod tests {
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM price_point").fetch_one(&pool).await.unwrap(), points);
         let days: Vec<i64> = sqlx::query_scalar("SELECT day FROM price_observation ORDER BY day").fetch_all(&pool).await.unwrap();
         assert_eq!(days, vec![crate::prices::day_of("2026-11-01").unwrap()]);
+    }
+
+    #[tokio::test]
+    async fn a_second_file_for_the_day_replaces_the_first_in_both_tables() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bulk.json");
+        let at = |time: &str| BulkItem { kind: "default_cards".into(), jsonl_download_uri: None, download_uri: None, updated_at: format!("2026-11-01T{time}Z"), compressed_size: None, size: None };
+        std::fs::write(&path, SAMPLE).unwrap();
+        import_default(&pool, &path, Some(&at("09:05:00"))).await.unwrap();
+        // The evening's file has no price for Sol Ring.
+        std::fs::write(&path, SAMPLE.replace("\"usd\":\"1.50\"", "\"usd\":null").replace("\"eur\":\"1.20\"", "\"eur\":null")).unwrap();
+        import_default(&pool, &path, Some(&at("21:06:00"))).await.unwrap();
+        let old: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM price_snapshots WHERE date = '2026-11-01'").fetch_one(&pool).await.unwrap();
+        assert_eq!(old, 0, "the morning's price isn't left in the old table");
+        let latest: (String, Option<f64>, Option<f64>) = sqlx::query_as("SELECT date, usd, eur FROM price_latest WHERE scryfall_id = 'p1'").fetch_one(&pool).await.unwrap();
+        assert_eq!(latest, ("2026-11-01".into(), None, None));
+        // Nor in the history: with no price before the day, it has no row at all.
+        let points: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM price_point").fetch_one(&pool).await.unwrap();
+        assert_eq!(points, 0);
+        let check = crate::prices::backfill::verify(&pool, Some("2026-11-01")).await.unwrap();
+        assert_eq!((check.rows, check.mismatches, check.stale), (0, 0, 0));
     }
 
     #[tokio::test]

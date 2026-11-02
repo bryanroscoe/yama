@@ -32,8 +32,8 @@ INSERT INTO price_series (id, feed, provider, kind, finish, currency, label) VAL
     (6, 'scryfall', 'cardmarket', 'market', 'etched', 'EUR', 'Cardmarket via Scryfall'),
     (7, 'scryfall', 'cardhoarder', 'market', 'nonfoil', 'TIX', 'Cardhoarder (MTGO tickets) via Scryfall');
 
--- One row per feed per day Yama read it, written last. Without one, that day is unknown (a gap),
--- not "no price".
+-- One row per feed per day Yama read it, written with the file's prices. Without one, that day
+-- is unknown (a gap), not "no price".
 CREATE TABLE price_observation (
     feed            TEXT NOT NULL,
     day             INTEGER NOT NULL,  -- days since 1970-01-01: the UTC date of the source file
@@ -63,4 +63,14 @@ CREATE TABLE price_latest (
     date        TEXT NOT NULL,
     file        TEXT,
     usd REAL, usd_foil REAL, usd_etched REAL, eur REAL, eur_foil REAL, eur_etched REAL, tix REAL
+) WITHOUT ROWID;
+
+-- A file's printings as the import reads them, in cents, until the whole file is published in
+-- one transaction (server/src/prices/write.rs). A reader sees a file whole or not at all; rows
+-- left by a run that stopped part way are cleared by the next writer.
+CREATE TABLE price_stage (
+    file        TEXT NOT NULL,
+    scryfall_id TEXT NOT NULL,
+    usd INTEGER, usd_foil INTEGER, usd_etched INTEGER, eur INTEGER, eur_foil INTEGER, eur_etched INTEGER, tix INTEGER,
+    PRIMARY KEY (file, scryfall_id)
 ) WITHOUT ROWID;

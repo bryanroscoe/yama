@@ -156,9 +156,10 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
             tracing::info!("open sign-up: anyone with a verified Google account can make an account");
         }
     }
-    // The price history from the old daily table, once, before anything reads the latest prices
-    // (prices/backfill.rs; about a minute, the first start after migration 0060 only).
-    crate::prices::backfill::run_before_serving(&pool).await;
+    // The old daily table's newer days into the price history before anything reads the latest
+    // prices (prices/backfill.rs; under a minute, the first start after migration 0060). A
+    // failure stops the start.
+    crate::prices::backfill::run_before_serving(&pool).await?;
     // The public rankings and the Lab's precon list, built before the server listens so no
     // request waits for one (derived.rs), then kept up to date.
     crate::derived::prewarm(&pool).await;

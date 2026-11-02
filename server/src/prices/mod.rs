@@ -9,8 +9,9 @@
 //! - Missing stays missing: a printing that drops out of the file, or loses a price, gets a NULL
 //!   row and a NULL latest price, dated with the file that showed it (the old table showed its
 //!   last price as current).
-//! - Days are written in order, never into the past ([`PRICE_WRITER`]), except the one replay of
-//!   the old table into a feed with nothing observed yet ([`backfill`]).
+//! - A file is published whole, in one transaction, or not at all ([`write`]).
+//! - Days are written in order, never into the past, by one writer at a time across processes
+//!   ([`Writer`]), except the replay of the old table's newer days ([`backfill`]).
 //! - `price_snapshots` is still written beside these until a later migration drops it, so a
 //!   rollback finds every day there; each import checks its day against it ([`backfill::verify`]).
 
@@ -20,7 +21,8 @@ pub mod write;
 #[cfg(test)]
 mod tests;
 
-use sqlx::SqliteExecutor;
+use sqlx::{SqliteConnection, SqliteExecutor, SqlitePool};
+use std::time::Duration;
 
 /// Scryfall's daily file, the one feed so far.
 pub const SCRYFALL: &str = "scryfall";
@@ -29,9 +31,92 @@ pub const SCRYFALL: &str = "scryfall";
 /// with the `price_latest` column each fills.
 pub const SCRYFALL_SERIES: [(i64, &str); 7] = [(1, "usd"), (2, "usd_foil"), (3, "usd_etched"), (4, "eur"), (5, "eur_foil"), (6, "eur_etched"), (7, "tix")];
 
-/// One price writer at a time (the import and the replay of the old table), so days are written
-/// in order.
-pub static PRICE_WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// This process's price writer; [`Writer`] holds it with the lease.
+static PRICE_WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Seconds a writer's lease lasts unless renewed; the holder renews it every [`RENEW`].
+const LEASE_SECS: i64 = 60;
+const RENEW: Duration = Duration::from_secs(20);
+/// How long a writer waits for another process to finish.
+const WAIT: Duration = Duration::from_secs(20 * 60);
+
+/// The one price writer, so days are written in order: this process's lock, then a lease in
+/// `price_meta` that a writer in another process (`yama-server import-cards` or `prices backfill`
+/// beside the server) waits for. A writer that stops without releasing it holds it for a minute
+/// at most. [`write::publish`] checks the lease in its transaction, so a writer that lost it
+/// publishes nothing.
+pub struct Writer {
+    id: String,
+    pool: SqlitePool,
+    heartbeat: tokio::task::JoinHandle<()>,
+    _local: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl Writer {
+    pub async fn acquire(pool: &SqlitePool) -> anyhow::Result<Writer> {
+        let local = PRICE_WRITER.lock().await;
+        let id = crate::util::new_id();
+        let deadline = tokio::time::Instant::now() + WAIT;
+        while !take_lease(pool, &id).await? {
+            anyhow::ensure!(tokio::time::Instant::now() < deadline, "another process has held the price writer for {} minutes", WAIT.as_secs() / 60);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        let heartbeat = tokio::spawn({
+            let (pool, id) = (pool.clone(), id.clone());
+            async move {
+                loop {
+                    tokio::time::sleep(RENEW).await;
+                    match take_lease(&pool, &id).await {
+                        Ok(true) => {}
+                        Ok(false) => return tracing::error!("another process took the price writer's lease"),
+                        Err(e) => tracing::warn!(error = %e, "couldn't renew the price writer's lease"),
+                    }
+                }
+            }
+        });
+        let writer = Writer { id, pool: pool.clone(), heartbeat, _local: local };
+        // What a writer that stopped part way staged is abandoned.
+        sqlx::query("DELETE FROM price_stage").execute(pool).await?;
+        Ok(writer)
+    }
+
+    /// Inside a write transaction: an error unless the lease is still this writer's.
+    pub async fn fence(&self, conn: &mut SqliteConnection) -> anyhow::Result<()> {
+        let holder: Option<String> = sqlx::query_scalar("SELECT value ->> 'id' FROM price_meta WHERE key = 'writer'").fetch_optional(&mut *conn).await?.flatten();
+        anyhow::ensure!(holder.as_deref() == Some(self.id.as_str()), "another process took the price writer's lease; nothing was published");
+        Ok(())
+    }
+
+    pub async fn release(self) {
+        self.heartbeat.abort();
+        let released = sqlx::query("DELETE FROM price_meta WHERE key = 'writer' AND value ->> 'id' = ?").bind(&self.id).execute(&self.pool).await;
+        if let Err(e) = released {
+            tracing::warn!(error = %e, "couldn't release the price writer's lease; it lapses in a minute");
+        }
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        self.heartbeat.abort();
+    }
+}
+
+/// Take or renew the lease: free, lapsed, or already this writer's.
+async fn take_lease(pool: &SqlitePool, id: &str) -> sqlx::Result<bool> {
+    let now = chrono::Utc::now().timestamp();
+    let done = sqlx::query(
+        "INSERT INTO price_meta (key, value) VALUES ('writer', json_object('id', ?1, 'until', ?2))
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value
+          WHERE price_meta.value ->> 'id' = ?1 OR price_meta.value ->> 'until' < ?3",
+    )
+    .bind(id)
+    .bind(now + LEASE_SECS)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
 
 fn epoch() -> chrono::NaiveDate {
     chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("epoch")

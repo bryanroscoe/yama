@@ -1,4 +1,4 @@
-use super::write::{Observation, ScryfallRow, finish_day, record_batch};
+use super::write::{Observation, ScryfallRow, publish, stage};
 use super::*;
 use sqlx::SqlitePool;
 
@@ -35,18 +35,33 @@ fn usd(c: i64) -> Cents {
     v
 }
 
-/// Write one file: its printings, then the sweep and the observation.
-async fn file(pool: &SqlitePool, date: &str, rows: &[(&str, Cents)]) {
-    let day = day_of(date).unwrap();
-    let rows: Vec<ScryfallRow> = rows.iter().map(|(id, cents)| ScryfallRow { scryfall_id: id.to_string(), cents: *cents }).collect();
-    // Each call is a separate file, as two downloads for the same day are.
+/// Stage a file's printings two to a transaction, as the import stages each batch. Returns the
+/// file.
+async fn stage_file(pool: &SqlitePool, rows: &[(&str, Cents)]) -> String {
+    // Each file is a separate one, as two downloads for the same day are.
     let file = crate::util::new_id();
-    let mut tx = pool.begin().await.unwrap();
-    record_batch(&mut tx, day, date, &file, &rows).await.unwrap();
-    tx.commit().await.unwrap();
-    let mut tx = pool.begin().await.unwrap();
-    finish_day(&mut tx, day, date, &Observation { file, file_updated_at: None, import_run: None, printings: rows.len() as i64 }).await.unwrap();
-    tx.commit().await.unwrap();
+    let rows: Vec<ScryfallRow> = rows.iter().map(|(id, cents)| ScryfallRow { scryfall_id: id.to_string(), cents: *cents }).collect();
+    for batch in rows.chunks(2) {
+        let mut tx = pool.begin().await.unwrap();
+        stage(&mut tx, &file, batch).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    file
+}
+
+async fn publish_file(pool: &SqlitePool, writer: &Writer, date: &str, rows: &[(&str, Cents)]) -> anyhow::Result<()> {
+    let file = stage_file(pool, rows).await;
+    let mut tx = pool.begin().await?;
+    publish(&mut tx, writer, day_of(date).unwrap(), date, &Observation { file, file_updated_at: None, import_run: None, printings: rows.len() as i64 }).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Write one file: stage its printings, then publish it.
+async fn file(pool: &SqlitePool, date: &str, rows: &[(&str, Cents)]) {
+    let writer = Writer::acquire(pool).await.unwrap();
+    publish_file(pool, &writer, date, rows).await.unwrap();
+    writer.release().await;
 }
 
 async fn points(pool: &SqlitePool) -> i64 {
@@ -226,6 +241,26 @@ async fn old_row(pool: &SqlitePool, id: &str, date: &str, usd: Option<f64>, foil
         .execute(pool)
         .await
         .unwrap();
+    sqlx::query("INSERT OR IGNORE INTO price_dates (date) VALUES (?)").bind(date).execute(pool).await.unwrap();
+}
+
+/// An import of the day's file that finished, or one that stopped part way.
+async fn import_run(pool: &SqlitePool, date: &str, finished: bool) {
+    sqlx::query("INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at) VALUES (?, 'default_cards', ?, ?, ?)")
+        .bind(crate::util::new_id())
+        .bind(format!("{date}T09:05:00Z"))
+        .bind(format!("{date}T13:05:00Z"))
+        .bind(finished.then(|| format!("{date}T13:07:00Z")))
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn replay(pool: &SqlitePool) -> backfill::Replayed {
+    let writer = Writer::acquire(pool).await.unwrap();
+    let replayed = backfill::backfill_if_needed(pool, &writer).await.unwrap();
+    writer.release().await;
+    replayed
 }
 
 #[tokio::test]
@@ -241,11 +276,12 @@ async fn the_old_table_replays_once_and_matches_it_exactly() {
         if back {
             old_row(&pool, "back", date, None, Some(0.3)).await;
         }
+        import_run(&pool, date, true).await;
     }
-    let _writer = PRICE_WRITER.lock().await;
-    assert_eq!(backfill::backfill_if_needed(&pool).await.unwrap(), 3);
+    assert_eq!(replay(&pool).await, backfill::Replayed { days: 3, skipped: vec![] });
     let v = backfill::verify(&pool, None).await.unwrap();
-    assert_eq!((v.rows, v.mismatches, v.stale), (6, 0, 0));
+    assert_eq!((v.days, v.rows, v.mismatches, v.stale, v.unobserved_days), (3, 6, 0, 0, 0));
+    assert!(v.clean());
     // gone on the 19th and the 20th, back on the 19th: no old row, and no price in the history.
     assert_eq!(v.pairs, 3);
     // The stale price the old table showed as current is gone, dated with the newest file that
@@ -257,7 +293,7 @@ async fn the_old_table_replays_once_and_matches_it_exactly() {
     assert!(stored.contains("\"mismatches\":0"), "{stored}");
     // Again: nothing to do.
     let before = points(&pool).await;
-    assert_eq!(backfill::backfill_if_needed(&pool).await.unwrap(), 0);
+    assert_eq!(replay(&pool).await, backfill::Replayed::default());
     assert_eq!(points(&pool).await, before);
     // A newer day afterwards, by the import's writer, and checked against the old table too.
     old_row(&pool, "keep", "2026-10-21", Some(2.0), Some(9.99)).await;
@@ -307,4 +343,86 @@ async fn reading_a_day_changes_the_public_catalogs_fingerprint() {
     let before = crate::public_precons::fingerprint(&pool).await.unwrap();
     file(&pool, "2026-10-30", &[("a", usd(100))]).await;
     assert_ne!(crate::public_precons::fingerprint(&pool).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn a_file_that_stops_part_way_changes_nothing() {
+    let pool = crate::db::test_pool().await;
+    file(&pool, "2026-10-30", &[("a", usd(100)), ("b", usd(200)), ("c", usd(300))]).await;
+    let before = points(&pool).await;
+    // A second file for the same day, staged in part, then the import stops.
+    stage_file(&pool, &[("a", usd(900)), ("b", NONE)]).await;
+    assert_eq!(as_of(&pool, "a", 1, "2026-10-30").await, Some(100));
+    assert_eq!(as_of(&pool, "c", 1, "2026-10-30").await, Some(300), "c isn't swept as left out");
+    assert_eq!(latest(&pool, "b").await, Some(("2026-10-30".into(), Some(2.0), None)));
+    assert_eq!(points(&pool).await, before);
+    // The next writer clears what it staged.
+    let writer = Writer::acquire(&pool).await.unwrap();
+    let staged: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM price_stage").fetch_one(&pool).await.unwrap();
+    assert_eq!(staged, 0);
+    // A writer whose lease another process took publishes nothing.
+    sqlx::query("UPDATE price_meta SET value = json_object('id', 'elsewhere', 'until', 0) WHERE key = 'writer'").execute(&pool).await.unwrap();
+    let err = publish_file(&pool, &writer, "2026-10-31", &[("a", usd(500))]).await.unwrap_err();
+    assert!(err.to_string().contains("lease"), "{err}");
+    assert_eq!(latest_date(&pool).await.unwrap().as_deref(), Some("2026-10-30"));
+    assert_eq!(points(&pool).await, before);
+    writer.release().await;
+}
+
+#[tokio::test]
+async fn a_second_writer_waits_for_the_lease() {
+    let pool = crate::db::test_pool().await;
+    // Another process holds it, renewed a moment ago.
+    let until = chrono::Utc::now().timestamp() + 3;
+    sqlx::query("INSERT INTO price_meta (key, value) VALUES ('writer', json_object('id', 'elsewhere', 'until', ?))").bind(until).execute(&pool).await.unwrap();
+    let started = std::time::Instant::now();
+    let writer = Writer::acquire(&pool).await.unwrap();
+    assert!(started.elapsed() >= std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+    let holder: String = sqlx::query_scalar("SELECT value ->> 'id' FROM price_meta WHERE key = 'writer'").fetch_one(&pool).await.unwrap();
+    assert_ne!(holder, "elsewhere");
+    writer.release().await;
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM price_meta WHERE key = 'writer'").fetch_one(&pool).await.unwrap();
+    assert_eq!(left, 0);
+}
+
+#[tokio::test]
+async fn the_replay_leaves_out_a_day_no_import_finished() {
+    let pool = crate::db::test_pool().await;
+    for (date, finished) in [("2026-10-27", true), ("2026-10-28", false), ("2026-10-29", true)] {
+        old_row(&pool, "a", date, Some(1.0), None).await;
+        import_run(&pool, date, finished).await;
+    }
+    // 28 Oct's import stopped part way, so its rows may be part of a file.
+    assert_eq!(replay(&pool).await, backfill::Replayed { days: 2, skipped: vec!["2026-10-28".into()] });
+    let observed: Vec<i64> = sqlx::query_scalar("SELECT day FROM price_observation ORDER BY day").fetch_all(&pool).await.unwrap();
+    assert_eq!(observed, [day_of("2026-10-27").unwrap(), day_of("2026-10-29").unwrap()]);
+    // The check counts it as missing from the history.
+    let v = backfill::verify(&pool, None).await.unwrap();
+    assert_eq!((v.days, v.rows, v.mismatches, v.unobserved_days, v.unobserved_rows), (2, 2, 0, 1, 1));
+    assert!(!v.clean());
+    // A day not observed, or not a date, isn't checked as if it matched.
+    assert!(backfill::verify(&pool, Some("2026-10-28")).await.is_err());
+    assert!(backfill::verify(&pool, Some("28 Oct")).await.is_err());
+    assert!(backfill::verify(&pool, Some("2026-10-29T00:00")).await.is_err());
+    assert!(backfill::verify(&pool, Some("2026-10-29")).await.unwrap().clean());
+}
+
+#[tokio::test]
+async fn an_empty_check_is_not_a_clean_one() {
+    let pool = crate::db::test_pool().await;
+    let v = backfill::verify(&pool, None).await.unwrap();
+    assert_eq!(v.rows, 0);
+    assert!(!v.clean());
+}
+
+#[tokio::test]
+async fn the_replay_refuses_a_price_that_isnt_whole_cents() {
+    let pool = crate::db::test_pool().await;
+    old_row(&pool, "a", "2026-10-27", Some(1.234), None).await;
+    import_run(&pool, "2026-10-27", true).await;
+    let writer = Writer::acquire(&pool).await.unwrap();
+    let err = backfill::backfill_if_needed(&pool, &writer).await.unwrap_err();
+    writer.release().await;
+    assert!(err.to_string().contains("whole number of cents"), "{err}");
+    assert_eq!(latest_date(&pool).await.unwrap(), None);
 }

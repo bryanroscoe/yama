@@ -112,7 +112,10 @@ function priceHistory(p: ServerInfo["prices"]): ReactNode {
   const days = `${p.days.toLocaleString("en-US")} ${p.days === 1 ? "day" : "days"}, newest ${p.newest_day}`;
   if (!check) return days;
   const bad = check.mismatches + check.stale;
-  return bad ? <span className="admin-bad">{`${days}; ${bad.toLocaleString("en-US")} values differ from the old table`}</span> : `${days}; matches the old table`;
+  const missing = check.unobserved_days ?? 0;
+  if (bad) return <span className="admin-bad">{`${days}; ${bad.toLocaleString("en-US")} values differ from the old table`}</span>;
+  if (missing) return <span className="admin-bad">{`${days}; ${missing.toLocaleString("en-US")} ${missing === 1 ? "day" : "days"} of the old table missing`}</span>;
+  return `${days}; matches the old table`;
 }
 
 /** Rows shown before "Show all". */

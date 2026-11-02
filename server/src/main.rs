@@ -164,10 +164,13 @@ USAGE:
   yama-server advisor shared                 Who has it, and this month's spend
   yama-server backup FILE                    Write a consistent copy of the database (prices and
                                              their history included)
-  yama-server prices backfill                Replay the old daily price table into the price
-                                             history now (the server does it once at start)
+  yama-server prices backfill                Replay the old daily price table's newer days
+                                             into the price history now (the server does it
+                                             at start), then check it as verify does
   yama-server prices verify [DATE]           Check the price history against the old daily
-                                             table, every day or one (YYYY-MM-DD); read only
+                                             table, every day or one observed day
+                                             (YYYY-MM-DD); read only. Fails on a difference
+                                             or a day of the old table it doesn't have
 
 Configuration comes from the environment; see .env.example.";
 
@@ -335,17 +338,20 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("prices") => match args.get(1).map(String::as_str) {
             Some("backfill") => {
-                let _writer = prices::PRICE_WRITER.lock().await;
-                let days = prices::backfill::backfill_if_needed(&pool).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-                println!("replayed {days} days");
-                println!("{}", serde_json::to_string(&prices::backfill::verify(&pool, None).await.map_err(|e| anyhow::anyhow!("{e}"))?)?);
+                let writer = prices::Writer::acquire(&pool).await?;
+                let replayed = prices::backfill::backfill_if_needed(&pool, &writer).await;
+                writer.release().await;
+                println!("{}", serde_json::to_string(&replayed?)?);
+                let v = prices::backfill::verify(&pool, None).await?;
+                println!("{}", serde_json::to_string(&v)?);
+                anyhow::ensure!(v.clean(), "the price history doesn't match the old table, or misses some of its days");
                 Ok(())
             }
             Some("verify") => {
                 let date = args.get(2).map(String::as_str);
-                let v = prices::backfill::verify(&pool, date).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                let v = prices::backfill::verify(&pool, date).await?;
                 println!("{}", serde_json::to_string(&v)?);
-                anyhow::ensure!(v.mismatches == 0 && v.stale == 0, "the price history doesn't match the old table");
+                anyhow::ensure!(v.clean(), "the price history doesn't match the old table, or misses some of its days");
                 Ok(())
             }
             _ => anyhow::bail!("usage: yama-server prices backfill | prices verify [DATE]"),

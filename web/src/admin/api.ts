@@ -154,6 +154,8 @@ export interface PriceCheck {
   mismatches: number;
   pairs: number;
   stale: number;
+  /** Days of the old table the history doesn't have (the whole check only). */
+  unobserved_days?: number;
 }
 
 /** One account's grant of the shared API key (server/src/advisor/shared.rs). */

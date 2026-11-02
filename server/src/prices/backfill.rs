@@ -1,84 +1,85 @@
-//! The one replay of `price_snapshots` into the history, through the same writer the import uses,
+//! The replay of `price_snapshots` into the history, through the same writer the import uses,
 //! and the check that the two agree.
 
-use super::write::{self, Observation, ScryfallRow};
-use super::{PRICE_WRITER, SCRYFALL, date_of, day_of, newest_observation};
-use crate::error::{AppError, AppResult};
+use super::write::{self, Observation};
+use super::{SCRYFALL, Writer, date_of, day_of, newest_observation};
+use anyhow::Context;
 use serde::Serialize;
 use sqlx::SqlitePool;
 
-/// Printings per transaction.
-const BATCH: i64 = 500;
+/// The old table's price columns, by series. It never kept Cardmarket's etched price.
+const OLD_COLUMNS: [(i64, &str); 6] = [(1, "usd"), (2, "usd_foil"), (3, "usd_etched"), (4, "eur"), (5, "eur_foil"), (7, "tix")];
 
-/// A stored price as whole cents. The old table's values all came from Scryfall's two-decimal
-/// text, so anything else is refused, never rounded.
-fn cents(x: Option<f64>) -> AppResult<Option<i64>> {
-    let Some(x) = x else { return Ok(None) };
-    let c = (x * 100.0).round();
-    if (x * 100.0 - c).abs() > 1e-6 || c < 0.0 {
-        return Err(AppError::Other(anyhow::anyhow!("price_snapshots holds {x}, not a whole number of cents; the replay stopped")));
-    }
-    Ok(Some(c as i64))
+/// What a replay did.
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+pub struct Replayed {
+    pub days: usize,
+    /// Days the old table has with no import that finished: possibly part of a file, so left
+    /// unobserved (a gap).
+    pub skipped: Vec<String>,
 }
 
-/// Replay every day of `price_snapshots` newer than the history's newest observed day, oldest
-/// first, 500 printings a transaction, then check the result ([`verify`]) and record it in
-/// `price_meta`. Days already observed are skipped, so it's safe to run again, and a stop part way
-/// resumes at the first unobserved day. The caller holds [`PRICE_WRITER`]. Returns the days replayed.
-pub async fn backfill_if_needed(pool: &SqlitePool) -> AppResult<usize> {
+/// Replay each day of the old table newer than the history's newest observed day, oldest first,
+/// each published whole in one transaction, then check the result ([`verify`]) and record it in
+/// `price_meta`. Only a day an import finished is replayed. Days already observed are skipped, so
+/// it's safe to run again, and a stop part way resumes at the first unobserved day.
+pub async fn backfill_if_needed(pool: &SqlitePool, writer: &Writer) -> anyhow::Result<Replayed> {
     let newest = newest_observation(pool, SCRYFALL).await?;
     let after = newest.map(date_of).unwrap_or_default();
-    let dates: Vec<String> = sqlx::query_scalar("SELECT DISTINCT date FROM price_snapshots WHERE date > ? ORDER BY date").bind(&after).fetch_all(pool).await?;
+    // Each date the old table has (0057, written with its prices), without scanning it.
+    let dates: Vec<String> = sqlx::query_scalar("SELECT date FROM price_dates WHERE date > ? ORDER BY date").bind(&after).fetch_all(pool).await?;
     if dates.is_empty() {
-        return Ok(0);
+        return Ok(Replayed::default());
     }
     let job = crate::perf::Job::start("price history replay", std::time::Duration::from_secs(300));
-    let result = replay(pool, &dates).await;
+    let result = replay(pool, writer, &dates).await;
     job.finish(&result, format!("{} days", dates.len()));
-    result?;
-    let report = verify(pool, None).await?;
-    let text = serde_json::to_string(&report).map_err(anyhow::Error::from)?;
-    sqlx::query("INSERT INTO price_meta (key, value) VALUES ('backfill', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").bind(&text).execute(pool).await?;
-    if report.mismatches > 0 || report.stale > 0 {
-        tracing::error!(days = dates.len(), %text, "price history replay doesn't match price_snapshots");
-    } else {
-        tracing::info!(days = dates.len(), %text, "price history replayed from price_snapshots and verified");
+    let replayed = result?;
+    if !replayed.skipped.is_empty() {
+        tracing::warn!(skipped = ?replayed.skipped, "old price days with no finished import weren't replayed; the history has a gap there");
     }
-    Ok(dates.len())
+    if replayed.days == 0 {
+        return Ok(replayed);
+    }
+    let report = verify(pool, None).await?;
+    let text = serde_json::to_string(&report)?;
+    sqlx::query("INSERT INTO price_meta (key, value) VALUES ('backfill', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").bind(&text).execute(pool).await?;
+    if report.clean() {
+        tracing::info!(days = replayed.days, %text, "price history replayed from price_snapshots and verified");
+    } else {
+        tracing::error!(days = replayed.days, %text, "price history replay doesn't match price_snapshots");
+    }
+    Ok(replayed)
 }
 
-async fn replay(pool: &SqlitePool, dates: &[String]) -> AppResult<()> {
+/// A whole number of cents, as an integer, from one of the old table's columns.
+fn cents(column: &str) -> String {
+    format!("CAST(round({column} * 100) AS INTEGER)")
+}
+
+async fn replay(pool: &SqlitePool, writer: &Writer, dates: &[String]) -> anyhow::Result<Replayed> {
+    // The old table's values all came from Scryfall's two-decimal text, so anything else is
+    // refused, never rounded.
+    let odd = OLD_COLUMNS
+        .iter()
+        .map(|(_, c)| format!("({c} < 0 OR abs({c} * 100 - round({c} * 100)) > 1e-6)"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let stage = format!(
+        "INSERT INTO price_stage (file, scryfall_id, usd, usd_foil, usd_etched, eur, eur_foil, eur_etched, tix)
+         SELECT ?, scryfall_id, {}, {}, {}, {}, {}, NULL, {} FROM price_snapshots WHERE date = ?",
+        cents("usd"),
+        cents("usd_foil"),
+        cents("usd_etched"),
+        cents("eur"),
+        cents("eur_foil"),
+        cents("tix")
+    );
+    let mut out = Replayed::default();
     for date in dates {
-        let day = day_of(date).ok_or_else(|| AppError::Other(anyhow::anyhow!("price_snapshots has a date that isn't one: {date:?}")))?;
-        let file = format!("price_snapshots {date}");
-        let mut last = String::new();
-        let mut printings = 0;
-        loop {
-            type Row = (String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>);
-            let rows: Vec<Row> = sqlx::query_as(
-                "SELECT scryfall_id, usd, usd_foil, usd_etched, eur, eur_foil, tix FROM price_snapshots
-                  WHERE scryfall_id > ? AND date = ? ORDER BY scryfall_id LIMIT ?",
-            )
-            .bind(&last)
-            .bind(date)
-            .bind(BATCH)
-            .fetch_all(pool)
-            .await?;
-            let Some(end) = rows.last() else { break };
-            last = end.0.clone();
-            printings += rows.len() as i64;
-            let batch = rows
-                .into_iter()
-                .map(|(id, usd, usd_foil, usd_etched, eur, eur_foil, tix)| {
-                    // The old table never kept Cardmarket's etched price.
-                    Ok(ScryfallRow { scryfall_id: id, cents: [cents(usd)?, cents(usd_foil)?, cents(usd_etched)?, cents(eur)?, cents(eur_foil)?, None, cents(tix)?] })
-                })
-                .collect::<AppResult<Vec<_>>>()?;
-            let mut tx = pool.begin().await?;
-            write::record_batch(&mut tx, day, date, &file, &batch).await?;
-            tx.commit().await?;
-        }
-        // The import run that wrote this day, when import_runs still has it.
+        let day = day_of(date).filter(|d| date_of(*d) == *date).with_context(|| format!("price_dates has {date:?}, not a date"))?;
+        // The import that finished this day's file. One that failed or stopped may have written
+        // part of a file.
         let run: Option<(String, Option<String>)> = sqlx::query_as(
             "SELECT id, source_updated_at FROM import_runs WHERE kind = 'default_cards' AND error IS NULL AND finished_at IS NOT NULL
                AND substr(COALESCE(source_updated_at, started_at), 1, 10) = ? ORDER BY started_at DESC LIMIT 1",
@@ -86,29 +87,46 @@ async fn replay(pool: &SqlitePool, dates: &[String]) -> AppResult<()> {
         .bind(date)
         .fetch_optional(pool)
         .await?;
-        let (import_run, file_updated_at) = run.map_or((None, None), |(id, at)| (Some(id), at));
+        let Some((import_run, file_updated_at)) = run else {
+            out.skipped.push(date.clone());
+            continue;
+        };
+        let bad: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT scryfall_id FROM price_snapshots WHERE date = ? AND ({odd}) LIMIT 1")))
+            .bind(date)
+            .fetch_optional(pool)
+            .await?;
+        if let Some(id) = bad {
+            anyhow::bail!("price_snapshots has a price for {id} on {date} that isn't a whole number of cents; the replay stopped");
+        }
+        let file = format!("price_snapshots {date}");
         let mut tx = pool.begin().await?;
-        write::finish_day(&mut tx, day, date, &Observation { file, file_updated_at, import_run, printings }).await?;
+        let printings = sqlx::query(sqlx::AssertSqlSafe(stage.clone())).bind(&file).bind(date).execute(&mut *tx).await?.rows_affected();
+        write::publish(&mut tx, writer, day, date, &Observation { file, file_updated_at, import_run: Some(import_run), printings: printings as i64 }).await?;
         tx.commit().await?;
+        out.days += 1;
     }
-    Ok(())
+    Ok(out)
 }
 
-/// Replay the old table before the server listens, so no request reads the latest prices while
-/// they're part replayed. A failure is logged and the server starts anyway: the next start or
-/// import tries again.
-pub async fn run_before_serving(pool: &SqlitePool) {
-    let _writer = PRICE_WRITER.lock().await;
-    match backfill_if_needed(pool).await {
-        Ok(0) => {}
-        Ok(days) => tracing::info!(days, "price history replayed before serving"),
-        Err(e) => tracing::error!(error = %e, "replaying price_snapshots into the price history failed; the next start or import tries again"),
+/// Replay the old table before the server listens, so no request reads latest prices that are
+/// days behind it. A failure stops the start rather than serve them; deploy/README.md has the
+/// rollback.
+pub async fn run_before_serving(pool: &SqlitePool) -> anyhow::Result<()> {
+    let writer = Writer::acquire(pool).await?;
+    let result = backfill_if_needed(pool, &writer).await;
+    writer.release().await;
+    let replayed = result.context("replaying price_snapshots into the price history")?;
+    if replayed.days > 0 {
+        tracing::info!(days = replayed.days, "price history replayed before serving");
     }
+    Ok(())
 }
 
 /// How the history compares with `price_snapshots`, on every observed day or one.
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]
 pub struct Verified {
+    /// Observed days compared.
+    pub days: i64,
     /// Old rows compared, six values each.
     pub rows: i64,
     /// Old rows whose values the history doesn't give back as of their day.
@@ -117,6 +135,17 @@ pub struct Verified {
     pub pairs: i64,
     /// Those that read as a price in the history: a stale price carried forward.
     pub stale: i64,
+    /// Days the old table has that the history never observed, and their rows (the whole
+    /// check only).
+    pub unobserved_days: i64,
+    pub unobserved_rows: i64,
+}
+
+impl Verified {
+    /// Something compared, all of it the same, and no day of the old table missing.
+    pub fn clean(&self) -> bool {
+        self.rows > 0 && self.mismatches == 0 && self.stale == 0 && self.unobserved_days == 0
+    }
 }
 
 /// The value of `series` for printing `k.id` as of day `d.day`.
@@ -125,22 +154,31 @@ fn as_of(series: i64) -> String {
 }
 
 /// Check the history against `price_snapshots` (read only): every old row's six values come back
-/// as of its day, and no observed day without an old row reads as a price. `date`: just that day.
-pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> AppResult<Verified> {
-    let column = [(1, "usd"), (2, "usd_foil"), (3, "usd_etched"), (4, "eur"), (5, "eur_foil"), (7, "tix")];
-    let differs = column
+/// as of its day, no observed day without an old row reads as a price, and every day of the old
+/// table was observed. `date`: just that day, which must be an observed one.
+pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> anyhow::Result<Verified> {
+    let day = match date {
+        None => None,
+        Some(date) => {
+            let day = day_of(date).filter(|d| date_of(*d) == date).with_context(|| format!("{date:?} isn't a date (YYYY-MM-DD)"))?;
+            let observed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM price_observation WHERE feed = ? AND day = ?)").bind(SCRYFALL).bind(day).fetch_one(pool).await?;
+            anyhow::ensure!(observed, "the price history has no file for {date}");
+            Some(day)
+        }
+    };
+    let days = "(SELECT day, date(day * 86400, 'unixepoch') AS date FROM price_observation WHERE feed = 'scryfall' AND (?1 IS NULL OR day = ?1))";
+    let compared: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {days}"))).bind(day).fetch_one(pool).await?;
+    let differs = OLD_COLUMNS
         .iter()
-        .map(|(series, col)| format!("{} IS NOT CAST(round(ps.{col} * 100) AS INTEGER)", as_of(*series)))
+        .map(|(series, col)| format!("{} IS NOT {}", as_of(*series), cents(&format!("ps.{col}"))))
         .collect::<Vec<_>>()
         .join(" OR ");
-    let days = "(SELECT day, date(day * 86400, 'unixepoch') AS date FROM price_observation WHERE feed = 'scryfall' AND (?1 IS NULL OR day = ?2))";
     let (rows, mismatches): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*), IFNULL(SUM(bad), 0) FROM (
            SELECT ({differs}) AS bad FROM price_snapshots ps JOIN {days} d ON d.date = ps.date
              LEFT JOIN price_printing k ON k.scryfall_id = ps.scryfall_id)"
     )))
-    .bind(date)
-    .bind(date.and_then(day_of))
+    .bind(day)
     .fetch_one(pool)
     .await?;
     let priced = super::SCRYFALL_SERIES.iter().map(|(series, _)| format!("{} IS NOT NULL", as_of(*series))).collect::<Vec<_>>().join(" OR ");
@@ -149,9 +187,18 @@ pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> AppResult<Verified
           WHERE NOT EXISTS (SELECT 1 FROM price_snapshots ps WHERE ps.scryfall_id = k.scryfall_id AND ps.date = d.date)
             AND EXISTS (SELECT 1 FROM price_point pp WHERE pp.printing = k.id AND pp.day <= d.day)"
     )))
-    .bind(date)
-    .bind(date.and_then(day_of))
+    .bind(day)
     .fetch_one(pool)
     .await?;
-    Ok(Verified { rows, mismatches, pairs, stale })
+    let (unobserved_days, unobserved_rows): (i64, i64) = if day.is_some() {
+        (0, 0)
+    } else {
+        sqlx::query_as(
+            "SELECT COUNT(DISTINCT date), COUNT(*) FROM price_snapshots
+              WHERE date NOT IN (SELECT date(day * 86400, 'unixepoch') FROM price_observation WHERE feed = 'scryfall')",
+        )
+        .fetch_one(pool)
+        .await?
+    };
+    Ok(Verified { days: compared, rows, mismatches, pairs, stale, unobserved_days, unobserved_rows })
 }
