@@ -1,5 +1,6 @@
 """Production release failure/authorization tests; no real GitHub, Docker or SSH."""
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -57,6 +58,24 @@ class HostGate(unittest.TestCase):
                          'status': 'completed', 'conclusion': 'success',
                          'path': '.github/workflows/ci.yml',
                          'head_repository': {'full_name': host.REPO}}
+        # Activation tests below isolate backup/restart behavior. Real artifact
+        # path/content verification is exercised by EngineDataPreflight.
+        preflight = patch.object(host, 'preflight_engine_data')
+        self.preflight = preflight.start()
+        self.addCleanup(preflight.stop)
+
+    def test_failed_engine_preflight_preserves_service_and_storage(self):
+        self.preflight.side_effect = host.Refused('Missing current engine data')
+        source = self.activation_fixture()
+        with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
+             patch.object(host, 'run') as run, patch.object(host, 'existing_images') as images:
+            with self.assertRaisesRegex(host.Refused, 'Missing current engine data'):
+                host.activate(source, SHA, ['id'] * 3, {}, self.base / 'record.json', 'token')
+            run.assert_not_called()
+            images.assert_not_called()
+            self.assertEqual(compose.call_count, 1)
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'old compose\n')
+        self.assertFalse((self.base / 'previous.json').exists())
 
     def responses(self, run=None, revision=SHA):
         return [{'object': {'sha': revision}}, {'workflow_runs': [run or self.good_run]}]
@@ -512,7 +531,7 @@ class HostGate(unittest.TestCase):
         unpublished = commit('never pushed')
         env = dict(os.environ, GIT_CONFIG_COUNT='1',
                    GIT_CONFIG_KEY_0='url.' + str(remote) + '.insteadOf',
-                   GIT_CONFIG_VALUE_0='git@github.com:bryanroscoe/yama-phase.git')
+                   GIT_CONFIG_VALUE_0='https://github.com/bryanroscoe/yama-phase.git')
         with patch.dict(os.environ, env):
             for revision in (on_main, archived, withdrawn):
                 (repo / 'deploy/phase-rev').write_text(revision + '\n')
@@ -730,6 +749,288 @@ with host.release_lock():
              patch.object(host, 'release', side_effect=host.Refused('CI pending')), patch.object(host, 'log') as log:
             self.assertEqual(host.main(), 1)
             log.assert_called_once_with('Release refused: CI pending')
+
+
+class EngineDataPreflight(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='yama-engine-preflight-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.source = self.root / 'source'
+        (self.source / 'deploy').mkdir(parents=True)
+        (self.source / 'runtime').mkdir()
+        self.data = self.root / 'data'
+        (self.data / 'engine').mkdir(parents=True)
+        self.current = self.data / 'engine/current.json'
+        self.previous = self.data / 'engine/old.json'
+        self.current.write_bytes(b'candidate bytes')
+        self.previous.write_bytes(b'historical bytes')
+        self.manifest = {'current_file': 'engine/current.json',
+                         'current_sha256': hashlib.sha256(self.current.read_bytes()).hexdigest(),
+                         'historical_file': 'old.json'}
+        (self.source / 'deploy/engine-data.json').write_text(json.dumps(self.manifest))
+        (self.source / 'runtime/historical.json').write_text(json.dumps({
+            'card_sha256': hashlib.sha256(self.previous.read_bytes()).hexdigest()}))
+        verifier = patch.object(host, 'verify_engine_image')
+        self.verifier = verifier.start()
+        self.addCleanup(verifier.stop)
+        self.service = {'environment': {}, 'volumes': [
+            {'type': 'bind', 'source': str(self.data), 'target': '/data'}]}
+
+    def test_both_exact_artifacts_pass(self):
+        host.preflight_engine_data(self.source, self.service, 'candidate')
+        self.verifier.assert_called_once()
+        self.assertEqual(self.verifier.call_args.args[1], 'candidate')
+        self.assertEqual([a[1] for a in self.verifier.call_args.args[2]], [str(self.current), str(self.previous)])
+
+    def test_updated_host_supports_old_main_before_upgrade_merge(self):
+        old = self.root / 'old-main'
+        old.mkdir()
+        with patch.object(host, 'run') as run:
+            self.assertEqual(host.historical_build_context(old, self.root, self.root, self.root), [])
+            host.preflight_engine_data(old, self.service, 'candidate')
+            run.assert_not_called()
+
+    def test_runtime_build_exports_pinned_sources_and_requires_preflight_manifest(self):
+        with patch.object(host, 'run') as run:
+            context = host.historical_build_context(self.source, self.root, self.root / 'repo', self.root / 'phase')
+            self.assertEqual(context, ['--build-context', 'historical-source=' + str(self.root / 'historical')])
+            self.assertIn('--prepare-only', run.call_args.args[0])
+        (self.source / 'deploy/engine-data.json').unlink()
+        with self.assertRaises(FileNotFoundError):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+
+    def test_missing_or_changed_current_or_historical_data_is_refused(self):
+        for file in (self.current, self.previous):
+            original = file.read_bytes()
+            file.unlink()
+            with self.assertRaisesRegex(host.Refused, 'Missing'):
+                host.preflight_engine_data(self.source, self.service, 'candidate')
+            file.write_bytes(b'other bytes, correct filename')
+            with self.assertRaisesRegex(host.Refused, 'Wrong'):
+                host.preflight_engine_data(self.source, self.service, 'candidate')
+            file.write_bytes(original)
+
+    def test_configured_paths_and_custom_data_mount_are_used(self):
+        self.service['volumes'][0]['target'] = '/cards'
+        self.service['environment'] = {'YAMA_DATA_DIR': '/cards'}
+        host.preflight_engine_data(self.source, self.service, 'candidate')
+        self.service['environment'].update(YAMA_ENGINE_CARD_DATA='/cards/renamed.json',
+                                          YAMA_HISTORICAL_CARD_DATA='/cards/engine/old.json')
+        self.current.rename(self.data / 'renamed.json')
+        host.preflight_engine_data(self.source, self.service, 'candidate')
+
+    def test_stale_explicit_override_fails_even_when_new_default_exists(self):
+        self.service['environment']['YAMA_ENGINE_CARD_DATA'] = '/data/engine/old.json'
+        with self.assertRaisesRegex(host.Refused, 'Wrong current'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+
+    def test_nested_mount_shadows_parent(self):
+        empty = self.root / 'empty'
+        empty.mkdir()
+        self.service['volumes'].append({'type': 'bind', 'source': str(empty), 'target': '/data/engine'})
+        with self.assertRaisesRegex(host.Refused, 'Missing'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+        self.service['volumes'][-1] = {'type': 'volume', 'source': 'opaque', 'target': '/data/engine'}
+        with self.assertRaisesRegex(host.Refused, 'bind mount'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+
+    def test_tmpfs_relative_paths_and_symlinks_fail_closed(self):
+        self.service['tmpfs'] = ['/data/engine:size=64m']
+        with self.assertRaisesRegex(host.Refused, 'tmpfs'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+        del self.service['tmpfs']
+        self.service['environment']['YAMA_ENGINE_CARD_DATA'] = 'relative.json'
+        with self.assertRaisesRegex(host.Refused, 'absolute'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+        del self.service['environment']['YAMA_ENGINE_CARD_DATA']
+        self.current.unlink()
+        self.current.symlink_to(self.previous)
+        with self.assertRaisesRegex(host.Refused, 'symlink'):
+            host.preflight_engine_data(self.source, self.service, 'candidate')
+
+    def test_release_manifest_matches_runtime_defaults_and_content_identity(self):
+        repo = Path(__file__).resolve().parents[1]
+        manifest = json.loads((repo / 'deploy/engine-data.json').read_text())
+        library = (repo / 'play/src/lib.rs').read_text()
+        configured = (repo / 'server/src/config.rs').read_text()
+        history = (repo / 'server/src/play_history.rs').read_text()
+        expected = re.search(r'pub const CARD_DATA_SHA256: &str = "([0-9a-f]{64})";', library)[1]
+        self.assertEqual(manifest['current_sha256'], expected)
+        self.assertIn('data_dir.join("' + manifest['current_file'] + '")', configured)
+        self.assertIn('with_file_name("' + manifest['historical_file'] + '")', history)
+
+
+class EngineImagePreflight(unittest.TestCase):
+    def setUp(self):
+        self.artifacts = [('/data/current.json', '/host/data/current.json', 'a' * 64),
+                          ('/data/old.json', '/host/data/old.json', 'b' * 64)]
+        self.service = {'user': '123:456', 'environment': {'PRIVATE': 'do-not-pass'},
+                        'volumes': [{'type': 'bind', 'source': '/host/data', 'target': '/data'}]}
+        directories = patch.object(host, 'validate_engine_directories')
+        directories.start()
+        self.addCleanup(directories.stop)
+
+    def test_candidate_probe_uses_runtime_user_and_only_readonly_artifacts(self):
+        self.service['group_add'] = ['789']
+        with patch.object(host, 'run', return_value='[]') as run, patch.object(host.subprocess, 'run') as cleanup:
+            host.verify_engine_image(self.service, 'sha256:candidate', self.artifacts)
+        args = run.call_args.args[0]
+        self.assertEqual(args[args.index('--user') + 1], '123:456')
+        self.assertEqual(args[args.index('--group-add') + 1], '789')
+        self.assertEqual(args[args.index('--network') + 1], 'none')
+        self.assertIn('--read-only', args)
+        mounts = [args[i + 1] for i, value in enumerate(args) if value == '--mount']
+        self.assertEqual(len(mounts), 2)
+        self.assertTrue(all(m.endswith(',readonly') for m in mounts))
+        self.assertNotIn('do-not-pass', str(args))
+        self.assertNotIn('--env-file', args)
+        self.assertIn('sha256:candidate', args)
+        self.assertIn('--verify-data', args[args.index('-c') + 1])
+        self.assertEqual(cleanup.call_args.args[0][-1], args[args.index('--name') + 1])
+
+    def test_probe_timeout_removes_only_its_container_and_fails_release(self):
+        with patch.object(host, 'run', side_effect=['[]', host.Refused('timed out')]), \
+             patch.object(host.subprocess, 'run') as cleanup:
+            with self.assertRaisesRegex(host.Refused, 'timed out'):
+                host.verify_engine_image(self.service, 'candidate', self.artifacts)
+        self.assertEqual(cleanup.call_args.args[0][:3], ['docker', 'rm', '--force'])
+        self.assertTrue(cleanup.call_args.args[0][3].startswith('yama-engine-preflight-'))
+        self.assertEqual(cleanup.call_args.kwargs['timeout'], 30)
+
+    def test_runtime_or_digest_overlays_and_unverified_executable_overrides_are_refused(self):
+        for path in ('/usr/local/bin', '/usr/local/share/yama/historical-runtime.sha256'):
+            service = {**self.service, 'volumes': [{'type': 'bind', 'source': '/other', 'target': path}]}
+            with self.assertRaisesRegex(host.Refused, 'shadow'):
+                host.verify_engine_image(service, 'candidate', self.artifacts)
+        for key in ('YAMA_HISTORICAL_RUNTIME', 'YAMA_HISTORICAL_RUNTIME_DIGEST'):
+            service = {**self.service, 'environment': {key: '/data/custom-worker'}}
+            with self.assertRaisesRegex(host.Refused, 'override'):
+                host.verify_engine_image(service, 'candidate', self.artifacts)
+
+    def test_remapped_identity_requires_a_namespace_aware_probe(self):
+        with patch.object(host, 'run', return_value='["name=userns"]') as run:
+            with self.assertRaisesRegex(host.Refused, 'unremapped'):
+                host.verify_engine_image(self.service, 'candidate', self.artifacts)
+            self.assertEqual(run.call_count, 1)
+
+
+class BoardImagePreflight(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='yama-board-image-')
+        self.addCleanup(temporary.cleanup)
+        self.source = Path(temporary.name)
+        (self.source / 'deploy').mkdir()
+        (self.source / 'deploy/build-board-client.sh').write_text('fixture')
+        (self.source / 'deploy/phase-rev').write_text(SHA + '\n')
+        self.service = {'user': '123:456', 'environment': {'PRIVATE': 'do-not-pass'}, 'volumes': []}
+
+    def test_exact_image_marker_is_checked_without_credentials_mounts_or_network(self):
+        with patch.object(host, 'run') as run, patch.object(host.subprocess, 'run') as cleanup:
+            host.verify_board_image(self.source, self.service, 'sha256:board-image')
+        args = run.call_args.args[0]
+        self.assertEqual(args[-1], SHA)
+        self.assertEqual(args[args.index('--user') + 1], '123:456')
+        self.assertEqual(args[args.index('--network') + 1], 'none')
+        self.assertIn('--read-only', args)
+        self.assertNotIn('--mount', args)
+        self.assertNotIn('--env-file', args)
+        self.assertNotIn('do-not-pass', str(args))
+        self.assertIn('phase_revision', args[-3])
+        self.assertEqual(cleanup.call_args.args[0][-1], args[args.index('--name') + 1])
+
+    def test_board_overrides_and_parent_child_mounts_are_refused_before_docker(self):
+        for path in ('/app', '/app/board', '/app/board/assets', '/app/../app/board'):
+            with self.subTest(path=path), patch.object(host, 'run') as run:
+                with self.assertRaisesRegex(host.Refused, 'shadow'):
+                    host.verify_board_image(self.source, {**self.service, 'volumes': [{'target': path}]}, 'image')
+                run.assert_not_called()
+        with patch.object(host, 'run') as run:
+            with self.assertRaisesRegex(host.Refused, 'override'):
+                host.verify_board_image(self.source, {**self.service, 'environment': {'YAMA_BOARD_DIST': '/other'}}, 'image')
+            run.assert_not_called()
+
+    def test_failed_board_probe_fails_release_and_cleans_only_its_container(self):
+        with patch.object(host, 'run', side_effect=host.Refused('bad board')), patch.object(host.subprocess, 'run') as cleanup:
+            with self.assertRaisesRegex(host.Refused, 'bad board'):
+                host.verify_board_image(self.source, self.service, 'image')
+        self.assertTrue(cleanup.call_args.args[0][-1].startswith('yama-board-preflight-'))
+
+    def test_probe_shell_accepts_only_the_exact_generated_marker(self):
+        with patch.object(host, 'run') as run, patch.object(host.subprocess, 'run'):
+            host.verify_board_image(self.source, self.service, 'image')
+        board = self.source / 'board'
+        board.mkdir()
+        (board / 'index.html').write_text('<html>board</html>')
+        script = run.call_args.args[0][-3].replace('/app/board', str(board))
+        marker = board / 'yama-board.json'
+        for body, passed in ((json.dumps({'phase_revision': SHA}, separators=(',', ':')) + '\n', True),
+                             (json.dumps({'phase_revision': OTHER}), False),
+                             ('junk {"phase_revision":"' + SHA + '"}', False)):
+            marker.write_text(body)
+            result = subprocess.run(['/bin/sh', '-c', script, 'fixture', SHA], capture_output=True)
+            self.assertEqual(result.returncode == 0, passed, body)
+
+    def test_previous_main_remains_supported_before_board_integration(self):
+        (self.source / 'deploy/build-board-client.sh').unlink()
+        with patch.object(host, 'run') as run:
+            host.verify_board_image(self.source, self.service, 'old-image')
+        run.assert_not_called()
+
+
+class EngineDirectoryPermissions(unittest.TestCase):
+    def setUp(self):
+        # macOS Python lacks Linux xattrs; real mode/owner/group checks run here.
+        # ACL rejection is checked separately with an explicit Linux ACL result.
+        xattrs = patch.object(host.os, 'listxattr', return_value=[], create=True)
+        self.xattrs = xattrs.start()
+        self.addCleanup(xattrs.stop)
+        temporary = tempfile.TemporaryDirectory(prefix='yama-dir-access-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.data = self.root / 'data'
+        self.directory = self.data / 'engine'
+        self.directory.mkdir(parents=True)
+        self.data.chmod(0o755)
+        self.file = self.directory / 'cards.json'
+        self.file.write_text('readable file')
+        self.file.chmod(0o644)
+        self.service = {'user': f'{os.getuid() + 1}:{os.getgid() + 1}', 'volumes': [
+            {'type': 'bind', 'source': str(self.data), 'target': '/data'}]}
+        self.artifacts = [('/data/engine/cards.json', str(self.file), 'a' * 64)]
+
+    def test_readable_file_below_private_directory_is_refused(self):
+        self.directory.chmod(0o700)
+        self.assertTrue(self.file.stat().st_mode & 0o004)
+        with self.assertRaisesRegex(host.Refused, 'cannot traverse'):
+            host.validate_engine_directories(self.service, self.artifacts)
+        self.directory.chmod(0o755)
+        host.validate_engine_directories(self.service, self.artifacts)
+
+    def test_owner_and_supplementary_group_permissions_are_honored(self):
+        self.directory.chmod(0o710)
+        with self.assertRaisesRegex(host.Refused, 'cannot traverse'):
+            host.validate_engine_directories(self.service, self.artifacts)
+        self.service['group_add'] = [str(os.getgid())]
+        host.validate_engine_directories(self.service, self.artifacts)
+        self.service['group_add'] = []
+        self.service['user'] = f'{os.getuid()}:{os.getgid() + 1}'
+        host.validate_engine_directories(self.service, self.artifacts)
+
+    def test_nested_mount_checks_visible_parents_but_not_hidden_host_ancestors(self):
+        other = self.root / 'private-parent/other-engine'
+        other.mkdir(parents=True)
+        other.parent.chmod(0o700)
+        other.chmod(0o755)
+        self.service['volumes'].append({'type': 'bind', 'source': str(other), 'target': '/data/engine'})
+        host.validate_engine_directories(self.service, self.artifacts)
+        self.data.chmod(0o700)
+        with self.assertRaisesRegex(host.Refused, 'cannot traverse'):
+            host.validate_engine_directories(self.service, self.artifacts)
+    def test_acl_cannot_be_inferred_from_mode_bits(self):
+        self.xattrs.return_value = ['system.posix_acl_access']
+        with self.assertRaisesRegex(host.Refused, 'ACL'):
+            host.validate_engine_directories(self.service, self.artifacts)
 
 
 if __name__ == '__main__':

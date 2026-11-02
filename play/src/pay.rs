@@ -234,7 +234,7 @@ pub fn mana_key(action: &GameAction) -> Option<(u64, String)> {
     Some(match action {
         GameAction::TapLandForMana { selection } => (selection.source.object_id.0, format!("tap:{}", selection_key(selection))),
         GameAction::ActivateManaSource { selection } => (selection.source.object_id.0, format!("source:{}", selection_key(selection))),
-        GameAction::ActivateAbility { source_id, ability_index } => (source_id.0, format!("ability:{ability_index}")),
+        GameAction::ActivateAbility { source_id, ability_index, .. } => (source_id.0, format!("ability:{ability_index}")),
         GameAction::TapForConvoke { object_id, mana_type } => (object_id.0, format!("convoke:{}", mana_code(*mana_type))),
         _ => return None,
     })
@@ -276,7 +276,7 @@ fn ability_selections<'a>(all: &'a [ManaSourceSelection], source: ObjectId, inde
 pub(crate) fn action_penalty(state: &GameState, me: PlayerId, action: &GameAction) -> Option<Penalty> {
     match action {
         GameAction::TapLandForMana { selection } | GameAction::ActivateManaSource { selection } => penalty_of(selection.penalty),
-        GameAction::ActivateAbility { source_id, ability_index } => {
+        GameAction::ActivateAbility { source_id, ability_index, .. } => {
             let all = engine::game::mana_sources::activatable_mana_source_selections(state, me);
             ability_selections(&all, *source_id, *ability_index).find_map(|s| penalty_of(s.penalty))
         }
@@ -293,7 +293,7 @@ fn choice(vs: &GameState, all: &[ManaSourceSelection], action: &GameAction, key:
             let kind = if matches!(action, GameAction::TapLandForMana { .. }) { "tap" } else { "source" };
             ManaChoice { key, kind, mana, text, penalty: penalty_of(selection.penalty) }
         }
-        GameAction::ActivateAbility { source_id, ability_index } => {
+        GameAction::ActivateAbility { source_id, ability_index, .. } => {
             let rows: Vec<&ManaSourceSelection> = ability_selections(all, *source_id, *ability_index).collect();
             let mut mana: Vec<&'static str> = Vec::new();
             for r in &rows {
@@ -516,7 +516,7 @@ mod tests {
     fn convoke_and_ability_keys_read_from_the_action() {
         let a = GameAction::TapForConvoke { object_id: ObjectId(7), mana_type: ManaType::Red };
         assert_eq!(mana_key(&a), Some((7, "convoke:R".into())));
-        let b = GameAction::ActivateAbility { source_id: ObjectId(9), ability_index: 1 };
+        let b = GameAction::ActivateAbility { source_id: ObjectId(9), ability_index: 1, payment_mode: CastPaymentMode::Auto };
         assert_eq!(mana_key(&b), Some((9, "ability:1".into())));
         assert_eq!(mana_key(&GameAction::PassPriority), None);
         let list = vec![GameAction::PassPriority, a.clone(), b.clone()];

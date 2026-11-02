@@ -894,6 +894,7 @@ fn step_action(
                     GameAction::ActivateAbility {
                         source_id: id,
                         ability_index,
+                        payment_mode: CastPaymentMode::Auto,
                     },
                     id,
                     targets,

@@ -678,6 +678,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "draft-core"
+version = "0.119.0"
+dependencies = [
+ "phase-engine",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -764,7 +776,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1525,6 +1537,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
+name = "lobby-broker"
+version = "0.119.0"
+dependencies = [
+ "phase-engine",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1819,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "phase-ai"
-version = "0.113.0"
+version = "0.119.0"
 dependencies = [
  "mimalloc",
  "phase-engine",
@@ -1835,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "phase-engine"
-version = "0.113.0"
+version = "0.119.0"
 dependencies = [
  "im",
  "indexmap",
@@ -1859,7 +1881,7 @@ dependencies = [
 
 [[package]]
 name = "phase-llm"
-version = "0.113.0"
+version = "0.119.0"
 dependencies = [
  "phase-ai",
  "phase-engine",
@@ -2036,7 +2058,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2289,7 +2311,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2346,7 +2368,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2402,6 +2424,15 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "seat-reducer"
+version = "0.119.0"
+dependencies = [
+ "phase-ai",
+ "phase-engine",
+ "serde",
+]
 
 [[package]]
 name = "sec1"
@@ -2529,6 +2560,23 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "server-core"
+version = "0.119.0"
+dependencies = [
+ "draft-core",
+ "lobby-broker",
+ "phase-ai",
+ "phase-engine",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "seat-reducer",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2979,7 +3027,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3581,7 +3629,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3759,6 +3807,8 @@ dependencies = [
  "rand 0.9.5",
  "serde",
  "serde_json",
+ "server-core",
+ "sha2 0.11.1",
 ]
 
 [[package]]

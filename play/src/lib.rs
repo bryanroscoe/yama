@@ -19,7 +19,10 @@ use engine::database::CardDatabase;
 use engine::game::coverage::{card_face_gaps, card_face_has_unimplemented_parts};
 use engine::types::card::PrintedCardRef;
 use engine::game::deck_loading::{DeckList, PlayerDeckList};
-use engine::game::engine::{apply_interaction, apply_verified_ai_priority_pass, verified_ai_stack_pass_player};
+use engine::game::engine::{apply_interaction, apply_interaction_with_rejection, apply_verified_ai_priority_pass, verified_ai_stack_pass_player};
+use engine::game::interaction::{bind_interaction_authority, submit_interaction_with_rejection};
+use engine::types::action_rejection::{ActionRejection, ActionRejectionCode};
+use engine::types::interaction::{InteractionSessionId, InteractionSubmission};
 use engine::game::filter_state_for_viewer;
 use engine::game::replay::{ReplayPlayer, reconstruct_initial_state};
 use engine::types::format::FormatConfig;
@@ -51,6 +54,7 @@ use serde::{Deserialize, Serialize};
 pub use phase_ai::config::AiDifficulty as Difficulty;
 
 pub mod act;
+pub mod board;
 pub mod feed;
 pub mod lab;
 pub mod library;
@@ -69,9 +73,11 @@ pub use remember::YamaAnswer;
 pub use together::TogetherView;
 pub use turns::{Controls, PassMode, ResolveAllView, TurnsView};
 
-/// Engine build plus the card data it was built against. Stored with every game, because a
-/// replay only reproduces under the same pair.
-pub const ENGINE_VERSION: &str = "phase-v0.113.0+a3bc47c9-yama/cards-1e5608e6";
+/// Full identity of the data bytes parsed by the online runtime.
+pub const CARD_DATA_SHA256: &str = "cbd552b41f962f5b80839d35196cfc9621df2406ef3886ca23db8e2f743be505";
+
+/// Engine/data identity stored with every game; a replay requires this exact runtime.
+pub const ENGINE_VERSION: &str = concat!("phase-v0.119.0+", env!("YAMA_PLAY_PHASE_REV"), "-yama/cards-cbd552b4");
 
 /// How many lines of game log each view carries.
 const LOG_LINES: usize = 60;
@@ -158,7 +164,20 @@ impl Engine {
         // Deserializing a complete string avoids serde_json's per-byte reader overhead.
         // Keep the full corpus: cards can discover names and types outside the deck lists.
         let json = std::fs::read_to_string(card_data).map_err(|e| anyhow::anyhow!("loading {}: {e}", card_data.display()))?;
-        let db = CardDatabase::from_json_str(&json).map_err(|e| anyhow::anyhow!("loading {}: {e}", card_data.display()))?;
+        Self::from_card_json(&json)
+    }
+
+    /// Verify the bytes actually parsed, not their filename (also avoids a check/use race).
+    pub fn load_verified(card_data: &Path, expected: &str) -> anyhow::Result<Self> {
+        use sha2::{Digest, Sha256};
+        let json = std::fs::read_to_string(card_data)?;
+        let actual = Sha256::digest(json.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        anyhow::ensure!(actual == expected, "card data content mismatch: expected {expected}, got {actual}");
+        Self::from_card_json(&json)
+    }
+
+    fn from_card_json(json: &str) -> anyhow::Result<Self> {
+        let db = CardDatabase::from_json_str(json).map_err(|e| anyhow::anyhow!("loading card data: {e}"))?;
         Ok(Self { db: Arc::new(db) })
     }
 
@@ -308,6 +327,11 @@ impl Engine {
     /// Rebuild a live game from its saved replay log (after a server restart).
     pub fn resume(&self, replay_json: &str, ai: &[(u8, AiDifficulty)]) -> anyhow::Result<Match> {
         let log: ReplayLog = serde_json::from_str(replay_json).context("reading replay log")?;
+        let metadata: ReplayMetadata = serde_json::from_str(replay_json).context("reading saved turn controls")?;
+        if let Some(saved) = &metadata.yama_turn_controls {
+            anyhow::ensure!(saved.version == 1, "unsupported turn-controls version {}", saved.version);
+            anyhow::ensure!(saved.seats.keys().all(|seat| *seat < log.header.player_count), "saved turn controls name an invalid seat");
+        }
         let mut m = self.start(log.header.clone(), ai)?;
         let mut player = ReplayPlayer::load(log.clone(), Some(&self.db)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let n = player.len();
@@ -349,6 +373,7 @@ impl Engine {
             })
             .collect();
         m.log = log;
+        m.restore_turn_controls(metadata.yama_turn_controls);
         m.remark(None);
         m.auto_watch = m.watch_automatic_answers();
         Ok(m)
@@ -379,6 +404,7 @@ impl Engine {
             costs: Costs::default(),
             marks: HashMap::new(),
             controls: HashMap::new(),
+            restored_prefs: HashMap::new(),
             conceded: BTreeSet::new(),
             auto_watch: Vec::new(),
             kept: HashMap::new(),
@@ -386,12 +412,43 @@ impl Engine {
             facing: None,
             remembered: Vec::new(),
             remembered_tried: None,
+            board_tail: board::Tail::default(),
+            board_ready: false,
         };
         m.turn_began = (m.state.turn_number, 0);
         m.moved_on = (progress_mark(&m.state), 0);
         m.remark(None);
         Ok(m)
     }
+}
+
+/// Adapter state stays alongside the engine log, which remains directly readable
+/// by Phase's replayer. Empty headless games keep the original log shape.
+#[derive(Serialize, Deserialize)]
+struct SavedTurnControls {
+    version: u8,
+    seats: BTreeMap<u8, Controls>,
+}
+
+#[derive(Deserialize)]
+struct ReplayMetadata {
+    #[serde(default)]
+    yama_turn_controls: Option<SavedTurnControls>,
+}
+
+#[derive(Serialize)]
+struct SavedReplay<'a> {
+    #[serde(flatten)]
+    log: &'a ReplayLog,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    yama_turn_controls: Option<SavedTurnControls>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct RestoredPrefs {
+    full_control: bool,
+    stops: bool,
+    tap_mana: bool,
 }
 
 /// A live game.
@@ -414,6 +471,8 @@ pub struct Match {
     marks: HashMap<u8, Mark>,
     /// Each person's turn controls (turns.rs): stops, full control, a pass mode, holding priority.
     controls: HashMap<u8, Controls>,
+    /// Which saved values must win over account defaults at game-thread startup.
+    restored_prefs: HashMap<u8, RestoredPrefs>,
     /// Seats that conceded (CR 104.3a), as opposed to losing; read back from the replay log.
     conceded: BTreeSet<u8>,
     /// Remembered answers the engine is about to give for people (turns.rs, `AutoWatch`).
@@ -444,6 +503,11 @@ pub struct Match {
     stall_limit: usize,
     /// CPU time spent in Yama's bookkeeping after each action ([`Match::take_costs`]).
     costs: Costs,
+    /// The engine's events and log entries since phase's board last took them (board.rs).
+    board_tail: board::Tail,
+    /// Whether this live instance has initialized Phase's interaction namespace.
+    /// It is prepared only when the Phase board opens, and starts false on resume.
+    board_ready: bool,
 }
 
 /// CPU time Yama's bookkeeping took after accepted actions, since the last
@@ -766,6 +830,19 @@ impl std::fmt::Display for ChoiceError {
 }
 
 impl Match {
+    /// Prepare Phase's opaque capabilities before its first frame. A namespace
+    /// belongs to this live instance, remains stable across connections, and is
+    /// fresh after replay restoration. Headless games keep their original state.
+    pub fn prepare_board(&mut self) -> Result<(), ActionRejection> {
+        if !self.board_ready {
+            let session = InteractionSessionId(format!("yama-board-{:032x}", rand::random::<u128>()));
+            bind_interaction_authority(&mut self.state, session)
+                .map_err(|_| ActionRejection::new(ActionRejectionCode::InteractionUnavailable))?;
+            self.board_ready = true;
+        }
+        Ok(())
+    }
+
     /// Display names by seat, for option labels.
     pub fn set_names(&mut self, names: Vec<String>) {
         self.names = names;
@@ -1273,7 +1350,7 @@ impl Match {
                 Self::name_in(vs, object_id),
                 targets.iter().map(|t| Self::name_in(vs, t)).collect::<Vec<_>>().join(", ")
             ),
-            GameAction::ActivateAbility { source_id, ability_index } => Self::ability_label(vs, source_id, *ability_index),
+            GameAction::ActivateAbility { source_id, ability_index, .. } => Self::ability_label(vs, source_id, *ability_index),
             GameAction::MulliganDecision { choice: MulliganChoice::Keep } => "Keep this hand".into(),
             GameAction::MulliganDecision { choice: MulliganChoice::Mulligan } => "Mulligan".into(),
             GameAction::DeclareAttackers { attacks, .. } if attacks.is_empty() => "Don't attack".into(),
@@ -1511,6 +1588,16 @@ impl Match {
         Some((window, contract))
     }
 
+    /// Account defaults apply only to values not recovered from this saved game.
+    pub fn initialize_prefs(&mut self, seat: u8, stops: Option<Stops>, full_control: bool, tap_mana: PayMode) {
+        let restored = self.restored_prefs.get(&seat).copied().unwrap_or_default();
+        let c = self.controls.entry(seat).or_default();
+        if !restored.stops { c.stops = stops; }
+        if !restored.full_control { c.full_control = full_control; }
+        if !restored.tap_mana { c.tap_mana = tap_mana; }
+        if !restored.full_control { self.sync_passing_mode(seat); }
+    }
+
     /// `seat`'s saved settings: their stops (`None` for the usual ones) and full control.
     pub fn set_prefs(&mut self, seat: u8, stops: Option<Stops>, full_control: bool) {
         let c = self.controls.entry(seat).or_default();
@@ -1672,6 +1759,9 @@ impl Match {
         let busy = Busy::start();
         self.feed.record(&result.events, &self.state, &self.conceded);
         self.costs.feed += busy.elapsed();
+        if self.board_ready {
+            self.board_tail.push(&self.state, &result.events, &result.log_entries);
+        }
         self.note_automatic_answers(result);
         self.facing = together::facing_after(&self.state, self.facing.take());
         self.note_turn(self.log.actions.len());
@@ -1837,6 +1927,133 @@ impl Match {
         }
     }
 
+    /// A move from phase's own board (board.rs): any action the engine accepts from `seat` now.
+    /// It's applied to a copy first, so a refused one leaves the game exactly as it was, and it's
+    /// logged like every other move. A seat's own settings
+    /// ([`GameAction::is_actor_scoped_preference`]) can be sent whoever is deciding.
+    pub fn submit(&mut self, seat: u8, action: GameAction) -> Result<(), ActionRejection> {
+        board::screen(&action).map_err(|_| ActionRejection::new(ActionRejectionCode::ActionNotAllowed))?;
+        let actor = PlayerId(seat);
+        let preference = action.is_actor_scoped_preference();
+        // The connection identifies the submitter; only trusted engine state
+        // authorizes semantic owners (CR 723). A consent revocation names an
+        // off-prompt owner, so validate its frozen authority through the engine.
+        let owners: Vec<_> = if preference {
+            vec![actor]
+        } else if let GameAction::RevokeResolveAllConsent { epoch, representative } = &action {
+            (engine::game::turn_control::resolve_all_granted_submitter(&self.state, *epoch, *representative) == Some(actor))
+                .then_some(*representative).into_iter().collect()
+        } else {
+            self.state.waiting_for.acting_players().into_iter()
+                .filter(|owner| engine::game::turn_control::authorized_submitter_for_player(&self.state, *owner) == actor)
+                .collect()
+        };
+        let passed = self.passes_over_own(actor, &action);
+        let mut accepted = None;
+        let mut rejection = ActionRejection::new(ActionRejectionCode::NotYourPriority);
+        for owner in owners {
+            let mut next = self.state.clone();
+            match apply_interaction_with_rejection(&mut next, actor, owner, action.clone()) {
+                Ok(result) => {
+                    // If the raw payload fits multiple slots, only an opaque
+                    // interaction ID can name the intended decision. Never
+                    // commit the first successful interpretation arbitrarily.
+                    if accepted.is_some() {
+                        return Err(ActionRejection::new(ActionRejectionCode::InvalidAction));
+                    }
+                    accepted = Some((next, result));
+                }
+                Err(error) => rejection = error,
+            }
+        }
+        let (next, result) = accepted.ok_or(rejection)?;
+        self.state = next;
+        self.board_controls(seat, &action);
+        self.log.push_action(actor, action);
+        self.board_accepted(seat, &result, preference, passed);
+        Ok(())
+    }
+
+    /// An answer from phase's board in the engine's interaction protocol (`InteractionSubmission`,
+    /// for the decisions it offers that way): the engine turns it into the action it stands for,
+    /// which is applied and logged as in [`Match::submit`].
+    pub fn submit_interaction(&mut self, seat: u8, submission: InteractionSubmission) -> Result<(), ActionRejection> {
+        self.submit_interaction_action(seat, submission).map(|_| ())
+    }
+
+    /// Apply an opaque answer and return the accepted action for host bookkeeping,
+    /// including account preferences. Resolve the capability only once.
+    pub fn submit_interaction_action(&mut self, seat: u8, submission: InteractionSubmission) -> Result<GameAction, ActionRejection> {
+        let owner = PlayerId(seat);
+        // The engine authenticates the capability's precise owner, including
+        // off-prompt consent revocations; priority alone is not its authority.
+        let mut next = self.state.clone();
+        let applied = submit_interaction_with_rejection(&mut next, owner, submission)?;
+        board::screen(&applied.action).map_err(|_| ActionRejection::new(ActionRejectionCode::ActionNotAllowed))?;
+        let passed = self.passes_over_own(owner, &applied.action);
+        let preference = applied.action.is_actor_scoped_preference();
+        self.state = next;
+        self.board_controls(seat, &applied.action);
+        self.log.push_action(owner, applied.action.clone());
+        self.board_accepted(seat, &applied.result, preference, passed);
+        Ok(applied.action)
+    }
+
+    /// Whether `action` passes priority over `seat`'s own spell (or an empty stack), which ends
+    /// holding priority; passing over someone else's response doesn't.
+    fn passes_over_own(&self, owner: PlayerId, action: &GameAction) -> bool {
+        matches!(action, GameAction::PassPriority)
+            && matches!(self.state.waiting_for, WaitingFor::Priority { .. })
+            && self.state.stack.last().is_none_or(|top| top.controller == owner)
+    }
+
+    /// Bridge accepted Phase preferences into the sole human auto-pass layer.
+    /// Do not send another engine action: the preference was already applied and
+    /// is logged exactly once by the caller, including for opaque submissions.
+    fn board_controls(&mut self, seat: u8, action: &GameAction) {
+        use engine::types::phase::PhaseStopScope;
+        match action {
+            GameAction::SetPriorityPassingMode { mode } => {
+                let c = self.controls.entry(seat).or_default();
+                c.full_control = *mode == PriorityPassingMode::FullControl;
+                // The newly chosen mode replaces transient modes from Yama's board.
+                c.hold = false;
+                c.passing = None;
+            }
+            GameAction::SetPhaseStops { stops } => {
+                let mut mapped = Stops::default();
+                for stop in stops {
+                    let phase = format!("{:?}", stop.phase);
+                    if matches!(stop.scope, PhaseStopScope::AllTurns | PhaseStopScope::OwnTurn) {
+                        mapped.own.insert(phase.clone());
+                    }
+                    if matches!(stop.scope, PhaseStopScope::AllTurns | PhaseStopScope::OpponentsTurns) {
+                        mapped.others.insert(phase);
+                    }
+                }
+                self.controls.entry(seat).or_default().stops = (!stops.is_empty()).then_some(mapped);
+            }
+            _ => {}
+        }
+    }
+
+    fn board_accepted(&mut self, seat: u8, result: &ActionResult, preference: bool, passed: bool) {
+        self.accepted(result, (!preference).then_some(seat));
+        if passed && self.controls.get(&seat).is_some_and(|c| c.hold) {
+            self.set_hold(seat, false);
+        }
+    }
+
+    /// The engine's events and log entries since the last call, for phase's board (board.rs).
+    pub fn take_board_tail(&mut self) -> board::Tail {
+        std::mem::take(&mut self.board_tail)
+    }
+
+    /// The players' names as the game knows them.
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
     /// The bookkeeping costs since the last call, for benchmarks.
     #[doc(hidden)]
     pub fn take_costs(&mut self) -> Costs {
@@ -1879,9 +2096,45 @@ impl Match {
         self.log.actions.len()
     }
 
-    /// The replay log (header + every accepted action), for persistence.
+    fn restore_turn_controls(&mut self, saved: Option<SavedTurnControls>) {
+        if let Some(saved) = saved {
+            for (seat, controls) in saved.seats {
+                if !self.conceded.contains(&seat) {
+                    self.controls.insert(seat, controls);
+                    self.restored_prefs.insert(seat, RestoredPrefs { full_control: true, stops: true, tap_mana: true });
+                }
+            }
+        } else {
+            // Old saves have no adapter snapshot. Recover the actor-scoped
+            // preferences that their existing engine actions actually recorded,
+            // including explicit Standard mode and empty (cleared) stops.
+            let preferences: Vec<_> = self.log.actions.iter().filter_map(|recorded| {
+                matches!(recorded.action, GameAction::SetPriorityPassingMode { .. } | GameAction::SetPhaseStops { .. })
+                    .then(|| (recorded.actor.0, recorded.action.clone()))
+            }).collect();
+            for (seat, action) in preferences {
+                if usize::from(seat) >= self.player_count() || self.conceded.contains(&seat) { continue; }
+                self.board_controls(seat, &action);
+                let restored = self.restored_prefs.entry(seat).or_default();
+                match action {
+                    GameAction::SetPriorityPassingMode { .. } => restored.full_control = true,
+                    GameAction::SetPhaseStops { .. } => restored.stops = true,
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    /// The engine log plus versioned adapter controls, for private persistence.
     pub fn replay_json(&self) -> String {
-        serde_json::to_string(&self.log).expect("replay log serializes")
+        let saved = SavedReplay {
+            log: &self.log,
+            yama_turn_controls: (!self.controls.is_empty()).then(|| SavedTurnControls {
+                version: 1,
+                seats: self.controls.iter().map(|(seat, controls)| (*seat, controls.clone())).collect(),
+            }),
+        };
+        serde_json::to_string(&saved).expect("replay log and turn controls serialize")
     }
 
     /// The board as `viewer` may see it (`None` = spectator).
@@ -2484,6 +2737,9 @@ pub struct StackTarget {
 
 #[cfg(test)]
 mod view_tests;
+
+#[cfg(test)]
+mod board_tests;
 
 #[cfg(test)]
 mod feed_tests;

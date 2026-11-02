@@ -9,6 +9,50 @@ Status: proposal written 2026-10-17; building started 2026-10-18. See README.md 
 
 **Changed 2026-10-18:** the database is SQLite (WAL mode), not Postgres. At friend-group scale one file next to one server process is simpler to run and back up (e.g. Litestream to object storage), and this machine has no Docker. The schema avoids Postgres-only features, so moving later is a migration, not a rewrite.
 
+## Phase board release integration (1 November 2026)
+
+The release composes the reviewed Phase board with the accepted engine fixes merged as
+`1847875ae46e7f896cd9656dc0524a0177c70938` in the public fork. `deploy/phase-rev` is the
+single full source pin for the native runtime, browser WASM/client and runtime identity;
+its final value must be a published, reviewed merge. Earlier dated pins and acceptance
+records below are historical evidence rather than current release claims. The public
+history rewrite preserved upstream commits and source trees; historical source now uses
+`7f211371581f169f82a8b66d2525b321631587c4` while retaining the saved game's original engine
+identity and immutable data hash.
+
+Local Cargo builds verify the sibling Phase checkout is clean and its HEAD equals the pin
+before stamping that identity. Git-less committed-source builds must explicitly supply the
+exported Phase revision; the production exporter supplies the exact published source.
+Both board interfaces load account defaults for player connections while preserving controls
+restored from the game's replay. Phase spectator attachment does not initialize a player's
+controls. Explicit player preference changes remain authoritative. Accepted Phase-board Full control
+and stop changes also update that seat's account defaults for later games. Each write changes
+only the chosen field, preserving mana settings and concurrent changes to other controls;
+temporary passing, holds and game-specific yields are not account defaults.
+
+The production image builds the pinned client and both WASM roots under `/board/` and
+serves authenticated, viewer-filtered games over Yama's board socket. It includes source
+and font licenses, text icons, runtime Scryfall image metadata, and an exact pin marker.
+Audio and board backgrounds remain available; preview recordings are excluded. The shared
+client bundle helper serves both the isolated local builder and the production image.
+The Phase entrypoint is offered only in same-origin web builds; remote-API/Capacitor
+builds use the existing board until an authenticated hosted-board handoff is available.
+The separately installed host entrypoint must be reviewed and installed before merging
+this release: it exports the full public Phase inputs and validates the actual candidate
+board marker and mounts before activation, alongside both engine-data/runtime probes.
+
+Hosted card illustrations keep their original pixels and opacity. Crops require the artist
+for that exact printing and face; unresolved credits show a text fallback. Separate readable
+washes over art remain allowed. External account avatars keep their own identity. Hosted
+mode retains card motion, uses glyphs where a crop credit cannot fit, and avoids image-tinting
+canvas effects. This is a board integration, not interactive Forge support: player engine
+choice, ongoing engine switching and native arbitrary-point restoration remain specified
+but unimplemented in [the checkpoint contract](docs/game-engines-and-checkpoints.md).
+
+Source checks, native candidate acceptance, exact-image packaging/preflight, host installation,
+main CI and live play/reconnect checks are separate release gates. A merged Phase PR or
+component browser fixture alone proves neither Yama deployment nor live match behavior.
+
 ## 1. What we're building
 
 | Area | Features | Matches Mythic Tools | Beyond Mythic Tools |
@@ -87,6 +131,32 @@ an accepted benchmark result. The [27 October measurement](docs/phase-performanc
 records a preserving AI decision-preparation change, its one-case speedup and memory cost,
 and the remaining gameplay failures and capped case.
 
+**Saved-runtime compatibility (30 October 2026):** every recovery and final-board request
+routes by the exact saved `games.engine_version` before parsing its replay. The current runtime
+verifies the full SHA-256 of the bytes it parses. The v0.113 `a3bc47c9/cards-1e5608e6`
+identity runs in an isolated historical process built from the frozen Yama adapter
+`5fe8fed9c6fb4d6d818c94a7ad104275be36309e`, Phase
+`8aff83ece446e16ecc12ad05066a0d62bc223cbd`, and verified `1e5608e6` data.
+One process shares one verified database across server-keyed sessions (avoiding a roughly
+0.7 GiB database copy per game); commands are serialized, matches and views remain per game.
+The process retains that adapter's replay, human choices, AI, per-seat filtering,
+turn controls, and final boards; it receives no database handle or account credentials.
+The server authenticates and selects the viewer before routing; browsers cannot call the worker. Unknown identities
+are explicitly unavailable with no saved-game mutation, and are never guessed from a filename
+or replay syntax. The first saved record before continuation is retained in
+`online_game_originals`, cascaded on game/account deletion; later writes are fenced by identity.
+Historical boards stay in their original JSON wire schema, avoiding reinterpretation of old
+engine actions by new types. Historical recovery restores logged controls before applying account defaults;
+new continuations carry a versioned transport sidecar so temporary holds, standing preferences,
+scoped stops and payment settings survive separately. Legacy Full modes are retained conservatively
+because old logs did not distinguish a hold from a standing preference. Completed-board transport
+failures return retryable unavailability and allow a fresh verified child on the next read; permanent
+provenance/data/replay failures remain fail-closed. No uncertain action is automatically retried. A child-process/provenance/data failure pauses recovery and
+preserves records. Runtime packaging and executable validation are in
+[historical runtime](runtime/README.md). Shipping requires the historical binary and
+its verified card data, not merely the existence of Git history. Guard-only rejection is not
+compatibility for a known supported historical identity.
+
 The [simulator investigation](docs/simulator-performance-2026-10-27.md) separates database
 loading, game elapsed time and whole-process CPU/wall time. `Engine::load` reads the complete
 export into a temporary string and uses Phase's existing string deserializer; this avoids
@@ -96,7 +166,7 @@ per-game children and their resource ceilings remain the execution model. Forge 
 is measured offline with `tools/bench_forge.py`; no production JVM defaults or seeded batch
 semantics are changed by this investigation.
 
-Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client. The current local pin and validation are recorded in [the recovery report](docs/engine-recovery-2026-10-25.md).
+Build on **[phase-rs](https://github.com/phase-rs/phase)** (MIT or Apache-2.0). It's a Rust engine that compiles to WASM, with a React client. The current pin, its card data and the switch to it are recorded in [engine integration](docs/engine-integration.md); earlier validation is in [the recovery report](docs/engine-recovery-2026-10-25.md).
 
 - The initial 17 October coverage snapshot reported support for 30,494 of 32,950 Commander cards (92.5%); current per-deck classifications are in [card coverage](docs/card-coverage.md).
 - It has replays as seed plus action log, reconnect, spectators, and both heuristic and LLM AI seats.
@@ -136,8 +206,8 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
-**Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for PRs into
-main and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
+**Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for same-repository
+PRs into every base branch (including stacked feature PRs) and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
 event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
 `saget-yama-ci` and `saget-yama-ci-2` containers after hosted jobs hit an account billing block.
 Each runs one job at a time, capped at four CPUs/12 GiB within the eight-CPU/20-GiB pool, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
@@ -355,8 +425,8 @@ Companion comes before Play because it's smaller and we'd use it every game nigh
 
 ### How online play ended up working
 
-- **Engine:** Phase v0.113.0 plus Yama's work in the private `bryanroscoe/yama-phase` repository (`../yama-phase` locally), wrapped by `play/` (`Engine`, `Match`). The fork preserves the stable build, AI, stall, layer dependency, card and recovery fixes formerly exported as patches. Deploys fetch `deploy/phase-repo` and build the exact published commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A preserving optimization or test-only checkpoint may retain the preceding runtime version when the relevant inputs and replay behavior are unchanged. Simulation results carry their engine, card-data and runner identities, so different builds are not silently pooled. `soak` checks replay determinism. Historical measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
-- **Board:** we didn't fork phase's 1,400-file client. Since 2026-10-19 it follows the Night table artboards (design/screens/PlayBoard and PlayBoardPhone): opponents in turn order on their commander art, a turn strip with the stop ladder, square art tiles (a tapped tile turns its art, never its name), the hand fan and a right rail with the stack and one big button whose label says what it will do. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. The server sends each card's full-size image and rules text with every view, so any card can be read at full size (hover preview on desktop, a card sheet on phones). Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
+- **Engine:** upstream Phase v0.119.0+ (main `df87a7c`) with Yama's commits rebased on top (fork main `dd276b0`, re-pinned 30 Oct 2026; card data `cbd552b4`), in the private `bryanroscoe/yama-phase` repository (`../yama-phase` locally), wrapped by `play/` (`Engine`, `Match`). The fork carries the stable build, AI, stall, layer dependency, card and recovery fixes once kept as `patches/phase` (retired); the earlier v0.113.0-based fork is tagged `archive/pre-sync-20261028`, and the stacks it replaced since are `archive/pre-sync-20261030` (`ebb64e3`, 29 Oct) and `archive/pre-sync-20261030-2` (`b7520eb`). Deploys fetch `deploy/phase-repo` and build the exact published commit in `deploy/phase-rev`; production changes move the card export and replay version with that pin. A preserving optimization or test-only checkpoint may retain the preceding runtime version when the relevant inputs and replay behavior are unchanged. Simulation results carry their engine, card-data and runner identities, so different builds are not silently pooled. `soak` checks replay determinism. Historical measurements and remaining gaps are in [the recovery report](docs/engine-recovery-2026-10-25.md).
+- **Board:** until 2026-10-29 we didn't fork phase's 1,400-file client (now superseded: see "phase's own board" below). Since 2026-10-19 it follows the Night table artboards (design/screens/PlayBoard and PlayBoardPhone): opponents in turn order on their commander art, a turn strip with the stop ladder, square art tiles (a tapped tile turns its art, never its name), the hand fan and a right rail with the stack and one big button whose label says what it will do. Each decision is the engine's own option list (`AiDecisionContract`), the same list the AI chooses from, shown as plain-language buttons. Tapping a card filters the list to options for that card. The server sends each card's full-size image and rules text with every view, so any card can be read at full size (hover preview on desktop, a card sheet on phones). Every option is legal by construction, every engine decision type works from day one, and the UI can grow special cases (drag to attack, mana payment) later.
 - **Smart stops:** the server passes for a person unless:
   - it's their main phase,
   - someone else's spell or ability is on top of the stack and they could answer it (land abilities alone don't count),
@@ -684,6 +754,39 @@ Bryan (2026-10-31), planning a semi-public release on Google Play: the simulatio
 - **Web:** `/api/me` carries `power`; `usePower()` hides every Ask Claude button and the advisor settings, the Lab's Try a change and Compare decks pages (direct links show a note, `components/PowerOnly.tsx`), Again/More games/Edit on a run, Try a change on precon and plan pages, and the Watch AIs play setup and Watch again.
 
 **Distribution plan:** Google Play only (no Apple account), as a Capacitor app with the web build bundled in it, so native features (camera control and ML Kit text recognition for the scanner, native Google sign-in) are available and the app isn't a bare website wrapper. Release through Play's closed testing track first: that is the semi-public release (friends opt in by email or Google Group; nobody else can find it), then open testing or production if it goes well. Bryan has a personal Play Console account, made before the closed-test rule; Play requires 12 testers opted in for 14 days only from personal accounts created after 13 Nov 2023, and the Console dashboard shows the requirement if it applies. Steps and what's still open are in [docs/mobile.md](docs/mobile.md).
+
+### phase's own board (2026-10-29)
+
+Bryan (2026-10-29): "I want to copy and paste as much of the stuff as we can from their web presentation of playing against AI" (phase is MIT or Apache-2.0). This replaces the 2026-10-19 decision not to fork phase's client (the **Board** entry under "How online play ended up working"). Decided with Bryan the same day: Yama's server speaks phase's own protocol, so phase's board runs over its WebSocket adapter; phase's look is copied first and moved toward Night table later.
+
+- **What runs where.** The game stays on Yama's game thread, with Yama's AI seats, the passes Yama makes for people, the replay log, saves, stats and loop handling. phase's web client, built from the pinned fork revision, is served at `/board/` (`YAMA_BOARD_DIST`); its game page is the whole presentation: battlefield, hand, stack, targeting arrows, combat, mana payment, every decision modal, log, HUD, animations.
+- **The protocol** (`play/src/board.rs`, `server/src/play/board.rs`, `/api/play/{id}/board`): the board opens a socket, Yama sends `ServerHello` (plain JSON text: no gzip envelope, heartbeat contract or command correlation offered), and the board resumes with `Reconnect`. Each viewer gets phase-server's `GameStarted` and then a `StateUpdate` after every change, built with phase-server's own functions on the game thread (the engine needs its 32 MiB stack), only for viewers with a board open. A board's `Action` or `Interaction` is applied to a copy of the game first (`Match::submit`, `Match::submit_interaction`) and logged as an ordinary action, then Yama passes for people and lets the AI move as after any other move; a refusal comes back as `ActionRejected`. Mana-payment and interaction previews answer "not available" for now.
+- **Hidden information.** Every frame is filtered for its viewer with `server_core::filter_state_for_player` (every library and every other hand are "Hidden Card"), events with `filter_events_for_player` immediately after each accepted action, and only the deciding seat gets legal actions, costs and per-card actions; log entries marked as naming hidden cards are left out for everyone (phase-server sends them as they are). `play/src/board_tests.rs` checks a frame never names another seat's hand or library cards.
+- **Event visibility over time.** Once the first Phase board opens, each accepted action captures event projections for every seat and the spectator using that action's post-state. Publications batch those already-filtered buffers; later turn-control or reveal changes never re-filter earlier events. Each viewer's buffer is bounded to 2,000 events, only public log entries are retained, and absent viewer projections produce no events. Games that have never opened a Phase board do not pay this projection cost or retain prior animations.
+- **Ordered delivery.** Phase sockets use a bounded broadcast feed of 16 publications, with a bounded 16-frame socket outbox. The game thread captures the initial frame and subscribes to future publications together, preserving animations and public log entries when the original board's latest-state watch coalesces updates. A socket that falls behind the retained feed is closed with code 1013 and reconnects for a fresh state; it never silently continues across a history gap. Incoming frames and messages are limited to 1 MiB.
+- **Runtime compatibility.** Game metadata exposes `phase_board` only for live games on the exact matching current runtime when the bundle is installed. Older preserved runtimes keep their original board and wire schema. The Phase socket rejects other identities before forwarding commands, and historical workers do not forward current Phase commands.
+- **Who connects.** As for `/api/play/{id}/ws`: the signed-in account by cookie, the board being on the same origin. A socket may mutate a game only after attaching as the same seat authenticated by its cookie. Spectator attachments remain read-only even for seated accounts, and unattached sockets cannot submit moves or concessions; the reconnect token phase keeps is only a label. Raw submissions use the engine's canonical authorized owners, including controlled turns and frozen consent-revocation authority. Each candidate owner is validated on a copy; exactly one must accept the action. Ambiguous raw payloads require the existing opaque interaction ID, whose authorization and owner are validated by the engine without a narrower priority precheck. Debug and sandbox actions are refused (`board::screen`), as are phase's oversized payloads (`guard_game_action_payload`). Raw engine concessions are also refused: the dedicated concession message uses `Match::concede`, including its controls cleanup, public announcement and replay bookkeeping.
+- **Opening it.** "Phase board" beside Settings on Yama's board (when `/api/play/status` says `board`) writes phase's resume session (`phase-ws-session` in localStorage, `web/src/play/phaseBoard.ts`) and opens `/board/game/{id}?mode=online`. Yama's service worker leaves `/board/` alone; phase's has its own scope there.
+- **Priority preferences.** Accepted Phase Full control and scoped phase-stop actions also update the same actor's Yama turn controls before automatic passing. AllTurns, OwnTurn and OpponentsTurns retain their scope; clearing stops restores the usual smart stops. Selecting a priority mode replaces transient pass/hold modes from the original board. Raw and opaque submissions share this bridge, with one logged engine action per preference.
+- **Saved turn controls.** Private replay saves carry version 1 `yama_turn_controls` alongside the unchanged engine log: per-seat full control, scoped stops, temporary pass/hold state and payment preference. Resume restores these without applying or logging another engine action. Older logs recover the priority-mode and phase-stop preferences their actions recorded, including explicit Standard mode and cleared stops. Game-thread startup fills only values absent from the save with account defaults; later explicit preference changes still apply. Unknown control versions and invalid seats are refused. Headless saves without controls retain the original engine-log shape.
+- **Attachment preferences.** Yama's `GameStarted` envelope adds `gameplay_preferences` outside Phase's unchanged wire payload. The client adopts the host's standing full-control, stop and priority settings before installing the initial snapshot, without submitting bootstrap preference actions. Each accepted reconnect refreshes these settings even on the same adapter and game lifecycle; queued preference actions and late completions from the preceding attachment are discarded. A temporary hold remains distinct from standing Full control; changing stops does not clear a hold or pass mode. Later player changes use the ordinary accepted-action bridge. Spectator envelopes carry null and never synchronize device preferences; ordinary Phase servers omit the extension and retain local initialization. The client and server ship under the same verified fork pin.
+- **Interaction authority.** The first Phase opening prepares a random server-owned namespace on the game thread before `GameStarted` and the update subscription are captured. It remains stable across connections to that live instance. A restored match prepares a fresh namespace after replay restoration, so abandoned capabilities are rejected. Preparation records no game action; headless initialization and replay inputs stay unchanged. A preparation failure returns an error without attaching a follower or publishing an unbound frame.
+- **The fork's client patch:** serving under a base path (`PHASE_BASE_PATH=/board/`: Vite's `base`, the router's basename, and every root-absolute asset path through `import.meta.env.BASE_URL`), a commit on the fork (`bryanroscoe/yama-phase`) like the engine's, so `deploy/phase-rev` pins the client and the engine together.
+- **Assets.** No card images or mana symbols are bundled. Mana images load from Scryfall; other font icons use Phase's text fallbacks. Bryan approved inclusion of Phase's audio and battlefield backgrounds on 2026-10-30; this records his inclusion decision, not new licensing evidence. Card-animation preview videos stay excluded. Packaging checks out the exact pin in a disposable clone, builds its bindings and dependencies there, and includes upstream licenses. The supplied checkout's tracked, untracked and ignored files remain untouched; an optional compiler cache must live outside it. Vite clears only a fresh staging directory. Publication rejects destinations containing either source checkout, all paths within Phase, and Yama source paths; only `board-dist` and `web/board-dist` are permitted within Yama. A nonempty destination must match its generated `.yama-board-files.json` inventory, including file hashes and directories; unmanaged or modified output is preserved. Publication rechecks ownership after building and retains the prior bundle until replacement succeeds. Default disposable Rust output uses supported cleanup before the staging clone is removed; a cleanup or publication refusal preserves any scratch needed for inspection.
+- **Still to do:** the deployment image's board build, hosted-play validation and artist credits wherever Phase shows an art crop before readiness; then the gzip envelope, previews, watching, offline play against the AI in the browser (phase's WASM adapter), phase's settings and offline preparation, the Night table retheme, and retiring Yama's own board. The authenticated engine and Scryfall data endpoints for previews already exist.
+
+### Engine choice and direct restoration (2026-10-30)
+
+Bryan requested both Forge and Phase for interactive games, beginning with engine
+selection at creation, plus resuming either engine at any recorded point without
+replaying earlier actions. Switching an ongoing game is also a goal. Keep board
+presentation separate from engine selection. Saved points contain complete private
+native state and root immutable continuations; cross-engine switching requires
+validated semantic export/import, including pending work. Existing seed/action
+reconstruction does not satisfy direct restoration. The implementation contract,
+privacy/consent rules and acceptance cases are in
+[game engines and saved points](docs/game-engines-and-checkpoints.md). These are
+new requirements; the Phase board integration does not implement them.
 
 ### Admin area (2026-10-22)
 
@@ -1167,3 +1270,62 @@ Builds reads the existing `usePlan(userId)` cache, including its abort/sign-out 
 owner-specific offline copy. It does not keep a second plan query outside the plan-clearing
 prefixes. Research index/detail queries use the same owner-specific keys as Research, so
 imports and review changes invalidate both surfaces consistently.
+
+
+### PR 29 historical runtime supervision and provenance follow-up (30 October 2026)
+
+Historical sessions share a process with serialized pipe I/O and a 64-request queue.
+A full queue is typed retryable Busy. Admitted work gets a 60-second queue wait; expiry
+atomically cancels it before any retry response. Actual I/O has a separate 60-second deadline
+from dispatch, supervised independently of pipes. Successfully opened sessions have a reserved
+FIFO close lane ahead of ordinary traffic; failed opens owe no close, and saturation never kills
+unrelated sessions. Each active operation/close is bounded and new traffic cannot starve cleanup.
+Process termination/reaping uses a separate handle; no request lock or destructor blocks it. Current saved games
+recover first. Historical transport/provenance startup failures are cached for the recovery pass; Busy is retried. Completed-view Busy returns HTTP503 without caching failure. Live Busy preserves filtered boards and command receivers; reply-bearing commands get an explicit retry and fire-and-forget concede is retained for admission. A gameplay AI
+fault retains its filtered board and safe commands such as concede; transport and provenance
+failures invalidate the affected runtime sessions without guessing a replacement runtime.
+
+The historical package now binds actual exported source bytes to reviewed
+`runtime/historical-source.json`, verifies them before a locked build, and independently
+records the built executable's SHA256. Server startup validates that artifact before reading
+its greeting or any replay. The image also provides `--verify-data` for isolated host preflight;
+this reads only verified historical data, never games or SQLite. See runtime/README.md for the
+CLI and artifact contract. No local mock test is evidence of an actual candidate image probe.
+
+
+The three candidate engine failures have fixes on the existing private Phase feature
+branch, based on `dd276b0`: speculative mana payment must use the shared mana reducers inside
+the enclosing announcement, and post-resolution priority must select a surviving seat while
+preserving the departed active player's turn (CR 800.4j). The reduced tests exercise actual
+Adventure faces, targeted casting with filter lands, and Valgavoth after active-player departure.
+The `announcement_triggers.rs:336` assertion remains enabled. No parser grammar change or adapter
+fallback is part of these fixes. Three pre-existing production lints and seven test-only stable-Clippy lints receive equivalent
+expression-only corrections in a separate commit; the trace witness explicitly forbids the
+removed nested filter-mana boundary while retaining positive trace checks. These acceptance
+fixes do not change `deploy/phase-rev`. This board branch pins `bc89c35` from Phase PR #13;
+the acceptance fixes still require their own private-fork review, merge and published pin.
+Feature-branch validation alone does not establish deployment readiness. Exported patches
+are provenance, not an alternative release input. The parent owns acceptance-fix integration
+and independent review.
+
+The exact mana probe also completes the subtype-only intrinsic fallback through
+`collect_completed_mana_frame_events`, the same authority as manual payment taps.
+Its returned prompt remains authoritative; unsupported choices still fail closed.
+Indexed abilities and color-choice continuations already own their completed frames
+and receive no second delayed-bonus scan. A prepared-state branch witness distinguishes
+this legacy source shape from normal layer-synthesized indexed abilities, with
+no-bonus and double-bonus controls. This adds no parser, protocol or card-data schema.
+
+Local acceptance on the private Phase feature head now passes all five original candidate
+scenarios and the strict 20-seed debug soak, including replay/snapshot checks and zero refused
+answers. A small current-adapter correction accepts a one-slot retarget keep only when that
+exact answer is engine-issued; it does not alter the frozen historical adapter. The original
+control tuples and fixtures remain intact. See [head-bound acceptance evidence](docs/engine-acceptance-fixes-2026-10-30.md).
+The full Phase library-test compile remains blocked by the local memory guard, and an actual
+Docker image/probe remains unverified. These are not waived by the passing focused checks.
+
+The frozen adapter has a distinct Cargo package identity (`yama-play-historical`) while
+retaining its original Rust library name. This prevents its Git-less build-script output from
+aliasing the current package in the single shared target. Candidate acceptance rejects missing
+or mismatched compiled Yama revision provenance before simulation. Historical rules/replay
+source and both control expectations remain unchanged.

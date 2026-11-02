@@ -455,7 +455,7 @@ fn payment_answers_round_trip_through_the_engines_actions() {
     use engine::types::game_state::ShardChoice;
     let tap = GameAction::TapForConvoke { object_id: ObjectId(4), mana_type: engine::types::mana::ManaType::Green };
     assert_eq!(Act::from_action(&tap), Some(Act::TapMana { source: 4, choice: Some("convoke:G".into()) }));
-    let ab = GameAction::ActivateAbility { source_id: ObjectId(5), ability_index: 0 };
+    let ab = GameAction::ActivateAbility { source_id: ObjectId(5), ability_index: 0, payment_mode: engine::types::game_state::CastPaymentMode::Auto };
     assert_eq!(Act::from_action(&ab), None, "an ability at priority is an ordinary option");
     assert_eq!(Act::from_payment_action(&ab), Some(Act::TapMana { source: 5, choice: Some("ability:0".into()) }));
     let phy = GameAction::SubmitPhyrexianChoices { choices: vec![ShardChoice::PayLife, ShardChoice::PayMana] };

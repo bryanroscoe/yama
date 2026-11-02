@@ -44,7 +44,9 @@ async function apiResponse(path: string, init: RequestInit & { json?: unknown } 
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: "include" });
+  // Hosted web uses its same-origin cookie; remote/native builds authenticate
+  // with the bearer token above and use the server's cookie-free app CORS policy.
+  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: API_BASE ? "omit" : "include" });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     let data: Record<string, unknown> | undefined;

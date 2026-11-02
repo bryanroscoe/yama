@@ -279,10 +279,13 @@ fn into_hand(m: &mut Match, e: &Engine, name: &str, seat: u8) -> ObjectId {
 /// Seat 0 casts Lightning Bolt at its own Grizzly Bears, then `second` at the Bolt; both seats
 /// are people and pass otherwise. Stops at the first decision `stop` accepts.
 fn bolt_then(second: &str, stop: impl Fn(&Match) -> bool) -> (Match, Vec<ObjectId>) {
-    let e = engine();
-    let (mut m, ids) = board(&e, &[("Grizzly Bears", 0), ("Mountain", 0), ("Mountain", 0), ("Mountain", 0), ("Mountain", 0), ("Mountain", 0), ("Typhoid Rats", 1)], Phase::PreCombatMain);
-    into_hand(&mut m, &e, "Lightning Bolt", 0);
-    into_hand(&mut m, &e, second, 0);
+    bolt_then_with_engine(&engine(), second, stop)
+}
+
+fn bolt_then_with_engine(e: &Engine, second: &str, stop: impl Fn(&Match) -> bool) -> (Match, Vec<ObjectId>) {
+    let (mut m, ids) = board(e, &[("Grizzly Bears", 0), ("Mountain", 0), ("Mountain", 0), ("Mountain", 0), ("Mountain", 0), ("Mountain", 0), ("Typhoid Rats", 1)], Phase::PreCombatMain);
+    into_hand(&mut m, e, "Lightning Bolt", 0);
+    into_hand(&mut m, e, second, 0);
     m.state.waiting_for = WaitingFor::Priority { player: PlayerId(0) };
     m.remark(None);
     let bears = ids[0].0;
@@ -292,6 +295,10 @@ fn bolt_then(second: &str, stop: impl Fn(&Match) -> bool) -> (Match, Vec<ObjectI
         }
         let seat = m.waiting_on()[0];
         let d = m.decision(seat).unwrap();
+        if d.pending.as_ref().is_some_and(|p| p.answer == Answer::DecideOptionalEffect) {
+            m.act(seat, d.revision, &Act::DecideOptionalEffect { accept: true }).unwrap();
+            continue;
+        }
         let bolt_cast = m.state.stack.iter().any(|s| m.state.objects.get(&s.source_id).is_some_and(|o| o.name == "Lightning Bolt"));
         let pick = if let Some(p) = d.pending.as_ref().filter(|p| p.purpose == "target") {
             // The Bolt at the Bears; the second spell at the Bolt.
@@ -402,6 +409,36 @@ fn a_spells_target_is_changed_with_act() {
 }
 
 #[test]
+fn retarget_keep_uses_only_the_engine_issued_keep_answer() {
+    use engine::ai_support::AiDecisionContract;
+    use engine::types::actions::GameAction;
+    // Reuse committed card bytes without rewriting either fixture. Deflecting Swat's
+    // "choose new targets" permits keeping targets (CR 115.7d); Bolt Bend's
+    // "change the target" has a different engine-issued response set (CR 115.7a).
+    let mut cards: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/combat-cards.json")).unwrap();
+    let deck: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/deck-cards.json")).unwrap();
+    cards["deflecting swat"] = deck["deflecting swat"].clone();
+    let e = Engine { db: std::sync::Arc::new(engine::database::CardDatabase::from_json_str(&cards.to_string()).unwrap()) };
+    let (mut m, ids) = bolt_then_with_engine(&e, "Deflecting Swat", |m| pending_for(m, "retarget").is_some());
+    let action = GameAction::RetargetSpell { new_targets: vec![None] };
+    let contract = AiDecisionContract::issue(&m.state, PlayerId(0));
+    assert!(contract.contains_action(&m.state, &action), "the production engine must issue this keep");
+    let revision = m.revision;
+    m.act(0, revision, &Act::RetargetSpell { new_targets: vec![None] }).unwrap();
+    assert!(pending_for(&m, "retarget").is_none());
+    let v = m.view(Some(0));
+    let bolt = v.stack.iter().find(|s| s.name == "Lightning Bolt").unwrap();
+    assert_eq!(bolt.targets[0].target, Some(TargetView::Object { id: ids[0].0 }));
+
+    let (mut required, _) = bolt_then("Bolt Bend", |m| pending_for(m, "retarget").is_some());
+    let contract = AiDecisionContract::issue(&required.state, PlayerId(0));
+    assert!(!contract.contains_action(&required.state, &action));
+    let before = serde_json::to_value(&required.state).unwrap();
+    assert!(required.act(0, required.revision, &Act::RetargetSpell { new_targets: vec![None] }).is_err());
+    assert_eq!(serde_json::to_value(&required.state).unwrap(), before);
+}
+
+#[test]
 fn a_choice_of_targets_from_an_effect_is_a_pick() {
     // phase asks this when an accepted "you may sacrifice or tap" picks its object (CR 601.2c);
     // the pending ability here is the Bolt's, which is all the prompt needs.
@@ -414,4 +451,30 @@ fn a_choice_of_targets_from_an_effect_is_a_pick() {
     assert_eq!(p.options.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["Grizzly Bears", "Typhoid Rats"]);
     assert!(p.admits(&Act::SelectCards { cards: vec![ids[6].0] }).is_ok());
     assert!(p.admits(&Act::SelectCards { cards: vec![ids[0].0, ids[6].0] }).is_err());
+}
+
+#[test]
+fn candidate_combat_tax_pays_with_untapped_sources_and_finishes_declaration() {
+    let e = engine();
+    let (mut m, ids) = attacking(&e, &[("Grizzly Bears", 0), ("Raging Goblin", 0), ("Propaganda", 1)]);
+    let mut lands = vec![];
+    for _ in 0..5 {
+        let face = e.database().get_face_by_name("Mountain").unwrap();
+        let id = create_object_from_card_face(&mut m.state, face, PlayerId(0));
+        onto_battlefield(&mut m, id, 0);
+        lands.push(id);
+    }
+    // One source was tapped earlier in the turn; the four remaining sources pay the tax once.
+    m.state.objects.get_mut(&lands[0]).unwrap().tapped = true;
+    let revision = m.decision(0).unwrap().revision;
+    m.declare_attackers(0, revision, &[(ids[0].0, AttackAt::Player { seat: 1 }), (ids[1].0, AttackAt::Player { seat: 1 })]).unwrap();
+    let d = m.decision(0).unwrap();
+    assert_eq!(d.pending.as_ref().unwrap().answer, Answer::PayCombatTax);
+    m.act(0, d.revision, &Act::PayCombatTax { accept: true }).expect("no already-tapped-source failure");
+    assert!(!matches!(m.state.waiting_for, WaitingFor::CombatTaxPayment { .. }));
+    assert!(lands.iter().all(|id| m.state.objects[id].tapped));
+    let v = m.view(Some(0));
+    for attacker in &ids[..2] {
+        assert!(v.battlefield.iter().find(|c| c.id == attacker.0).unwrap().attacking);
+    }
 }
