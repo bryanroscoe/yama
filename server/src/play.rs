@@ -1309,44 +1309,31 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         return Err(AppError::Conflict("every seat needs a player and a deck".into()));
     }
     let engine = st.play.engine()?;
-    // Claim the lobby before building anything, so a double tap or a racing request can't
-    // start two engines for one game. The seats must still be the ones we read.
+    let mut decks = Vec::new();
+    for s in &seats {
+        let cards = load_version_cards(&st.pool, s.deck_version_id.as_deref().unwrap()).await?;
+        decks.push(resolve(&engine, &cards).0);
+    }
+    let prefs = seat_prefs(&st.pool, &seats).await;
+    // Claim and save the initial game in one transaction. Other requests keep seeing
+    // the lobby until its identity and replay exist; failures roll the claim back.
+    // Only the request that still owns these seats constructs a match.
+    let mut tx = st.pool.begin().await?;
     let claimed = sqlx::query("UPDATE online_games SET stage = 'live', updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
         .bind(now())
         .bind(id)
         .bind(&r.seats)
-        .execute(&st.pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
     if claimed == 0 {
         return Ok(()); // someone else started it, or the seats just changed
     }
-    let release = || async {
-        let _ = sqlx::query("UPDATE online_games SET stage = 'lobby' WHERE game_id = ?").bind(id).execute(&st.pool).await;
-    };
-    let mut decks = Vec::new();
-    for s in &seats {
-        match load_version_cards(&st.pool, s.deck_version_id.as_deref().unwrap()).await {
-            Ok(cards) => decks.push(resolve(&engine, &cards).0),
-            Err(e) => {
-                release().await;
-                return Err(e);
-            }
-        }
-    }
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
     let ai = ai_seats(&seats);
     // Loops follow the rules (CR 732): the setting is saved in the replay log's header, so the
     // game resumes and replays with it.
-    let m = match engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS }) {
-        Ok(m) => m,
-        Err(e) => {
-            release().await;
-            return Err(AppError::Other(e));
-        }
-    };
-
-    let mut tx = st.pool.begin().await?;
+    let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
     sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ? WHERE id = ?")
         .bind(yama_play::ENGINE_VERSION)
         .bind(seed as i64) // u64 stored bit-for-bit
@@ -1376,10 +1363,18 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         .bind(id)
         .execute(&mut *tx)
         .await?;
-    tx.commit().await?;
-    let prefs = seat_prefs(&st.pool, &seats).await;
-    st.play.spawn_game(id.to_string(), m, seats, prefs, st.pool.clone());
-    Ok(())
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let game_id = id.to_string();
+    // Once SQLite is asked to commit, publishing the live game must finish even if
+    // the HTTP request disconnects. Dropping this join handle does not abort its task.
+    tokio::spawn(async move {
+        tx.commit().await?;
+        hub.spawn_game(game_id, m, seats, prefs, pool);
+        Ok::<(), AppError>(())
+    })
+    .await
+    .map_err(|error| AppError::Other(error.into()))?
 }
 
 // ── WebSocket ──────────────────────────────────────────────────────────────
