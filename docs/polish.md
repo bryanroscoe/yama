@@ -21,7 +21,11 @@ On each page it takes:
 # Production, as Bryan (mints a 3-hour session over SSH: `yama-server user session`)
 npm run polish -- shoot --base https://yama.saget.org --as bryanroscoe@gmail.com
 
-# Local, with dev login (YAMA_DEV_LOGIN=1, server on localhost)
+# Local, on a copy of production's data, one command (copies the data if needed, builds and starts
+# the server and Vite with background and outbound jobs off, shoots, stops them)
+npm run local -- --shots                  # every page; or: --shots /decks /cards -- --viewports mobile
+
+# Local, with dev login (YAMA_DEV_LOGIN=1, server on localhost) when the app is already running
 npm run polish -- shoot --base http://localhost:5173 --as you@example.com
 
 # A few pages, one size, fast
