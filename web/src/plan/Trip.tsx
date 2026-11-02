@@ -638,7 +638,7 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
       </p>
       {it.precon && (
         <p className="small">
-          Sealed market {it.market?.usd != null ? `${usd(it.market.usd)}, ${fmtDate(it.market.price_date)} (${it.market.source})` : "unknown"}. Singles inside{" "}
+          Sealed market {it.market ? `${it.market.usd != null ? usd(it.market.usd) : "unknown"}, ${fmtDate(it.market.price_date)} (${it.market.source})` : "unknown"}. Singles inside{" "}
           {it.singles?.usd != null ? usd(it.singles.usd) : "unknown"}
           {it.singles
             ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""}${

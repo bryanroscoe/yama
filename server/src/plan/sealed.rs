@@ -36,7 +36,13 @@ fn today() -> String {
 /// release when a name was reused). Returns its id.
 pub async fn precon_for(pool: &SqlitePool, name: &str) -> AppResult<Option<String>> {
     let n = name.trim();
-    let n = n.strip_suffix(" Commander Deck").or_else(|| n.strip_suffix(" commander deck")).unwrap_or(n).trim();
+    // " Commander Deck" in any case.
+    const SUFFIX: &str = " commander deck";
+    let n = n
+        .len()
+        .checked_sub(SUFFIX.len())
+        .filter(|k| n.get(*k..).is_some_and(|t| t.eq_ignore_ascii_case(SUFFIX)))
+        .map_or(n, |k| n[..k].trim());
     Ok(sqlx::query_scalar("SELECT id FROM precons WHERE name = ? COLLATE NOCASE ORDER BY released DESC, id LIMIT 1").bind(n).fetch_optional(pool).await?)
 }
 
@@ -232,28 +238,10 @@ fn yes() -> bool {
 /// `POST /api/plan/sealed/{want}/quotes`: a store's dated price for a sealed product on your list.
 pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(want): Path<String>, Json(b): Json<QuoteBody>) -> AppResult<Json<Value>> {
     let pool = &st.pool;
-    let found: Option<String> = sqlx::query_scalar("SELECT id FROM shopping_wants WHERE id = ? AND owner_id = ? AND kind = 'sealed' AND retired_at IS NULL").bind(&want).bind(&user.id).fetch_optional(pool).await?;
-    if found.is_none() {
-        return Err(AppError::NotFound("sealed product on your list"));
-    }
-    let store: Option<String> = sqlx::query_scalar("SELECT key FROM plan_stores WHERE owner_id = ? AND key = ? AND kind != 'printer' AND retired_at IS NULL").bind(&user.id).bind(&b.store).fetch_optional(pool).await?;
-    if store.is_none() {
-        return Err(AppError::bad(format!("No store with key \"{}\"", b.store)));
-    }
-    if b.price.is_some_and(|p| !(p.is_finite() && (0.0..=100000.0).contains(&p))) {
-        return Err(AppError::bad("price: $0 to $100,000, or null when the store didn't say"));
-    }
+    // The request as sent: a retry of a saved price is answered from its id before anything else
+    // (the store or product may have gone since), and a new one is checked after.
     let checked = b.checked_on.clone();
-    // Not after the device's today, which may be a day ahead of the server's.
-    let latest = (Utc::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
-    if !super::model::is_date(&checked) || checked > latest {
-        return Err(AppError::bad("checked_on: a YYYY-MM-DD date, not in the future"));
-    }
     let note = b.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
-    if note.is_some_and(|n| n.chars().count() > 500) {
-        return Err(AppError::bad("note: at most 500 characters"));
-    }
-    // What this price says, to compare with an id sent before.
     let payload = json!([want, b.store, b.price, b.in_stock, checked, note]).to_string();
     // The id check, the insert and the pruning under one lock, so identical retries at once save once.
     static SAVE: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -279,6 +267,26 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
         (None, Some(_)) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
         (None, None) => i.to_string(),
     };
+    // A new price: for a sealed product on the list now, at one of their stores now.
+    let found: Option<String> = sqlx::query_scalar("SELECT id FROM shopping_wants WHERE id = ? AND owner_id = ? AND kind = 'sealed' AND retired_at IS NULL").bind(&want).bind(&user.id).fetch_optional(pool).await?;
+    if found.is_none() {
+        return Err(AppError::NotFound("sealed product on your list"));
+    }
+    let store: Option<String> = sqlx::query_scalar("SELECT key FROM plan_stores WHERE owner_id = ? AND key = ? AND kind != 'printer' AND retired_at IS NULL").bind(&user.id).bind(&b.store).fetch_optional(pool).await?;
+    if store.is_none() {
+        return Err(AppError::bad(format!("No store with key \"{}\"", b.store)));
+    }
+    if b.price.is_some_and(|p| !(p.is_finite() && (0.0..=100000.0).contains(&p))) {
+        return Err(AppError::bad("price: $0 to $100,000, or null when the store didn't say"));
+    }
+    // Not after the device's today, which may be a day ahead of the server's.
+    let latest = (Utc::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    if !super::model::is_date(&checked) || checked > latest {
+        return Err(AppError::bad("checked_on: a YYYY-MM-DD date, not in the future"));
+    }
+    if note.is_some_and(|n| n.chars().count() > 500) {
+        return Err(AppError::bad("note: at most 500 characters"));
+    }
     // The id's record, the price and the pruning are one write: a failed save leaves no record.
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, payload, created_at) VALUES (?, ?, ?, ?)").bind(&id).bind(&user.id).bind(&payload).bind(now()).execute(&mut *tx).await?;
@@ -540,6 +548,12 @@ mod tests {
         // The same id with another price is refused, not silently dropped.
         let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 43.0, "id": "retry-0001"}))).await;
         assert_eq!(s.as_u16(), 409);
+        // A retry of a saved price is answered from its id even after its store is retired.
+        sqlx::query("UPDATE plan_stores SET retired_at = 'now' WHERE owner_id = ? AND key = 'pats'").bind(&owner).execute(&pool).await.unwrap();
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
+        assert!(s.is_success());
+        sqlx::query("UPDATE plan_stores SET retired_at = NULL WHERE owner_id = ? AND key = 'pats'").bind(&owner).execute(&pool).await.unwrap();
+        assert_eq!(precon_for(&pool, "Federation Fleet COMMANDER deck").await.unwrap().as_deref(), Some("federation-fleet"));
         // A late retry of a price the history has since pruned still saves nothing.
         sqlx::query("DELETE FROM sealed_quotes WHERE id = 'retry-0001'").execute(&pool).await.unwrap();
         let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
