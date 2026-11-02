@@ -205,6 +205,10 @@ fn titles_and_variants_parse() {
     let nameless = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"price": 1.0, "condition": "Near Mint"}]}]});
     let no_condition = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "price": 1.0}]}]});
     assert_eq!(yestcg_store(&no_condition, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a condition is unknown");
+    let blank = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "condition": " ", "price": 1.0}]}]});
+    assert_eq!(yestcg_store(&blank, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a blank condition is unknown");
+    let l = shopify_product(&json!({"title": "Sol Ring [C21 - 263]", "variants": [{"id": 5, "title": "", "public_title": "Near Mint / Japanese / Foil", "price": 100, "available": true}]}), "Sol Ring", "https://x", "h");
+    assert_eq!((l[0].finish, l[0].language.as_deref()), (Some("foil"), Some("Japanese")), "a blank title falls back to public_title");
     let negative = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "condition": "Near Mint", "price": -2.0}]}]});
     assert_eq!(yestcg_store(&negative, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a negative price is unknown");
     assert_eq!(yestcg_store(&nameless, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a name is unknown");

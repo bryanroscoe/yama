@@ -306,7 +306,7 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
         .unwrap_or(&empty)
         .iter()
         .map(|v| {
-            let vt = v["title"].as_str().or_else(|| v["public_title"].as_str()).unwrap_or_default();
+            let vt = [&v["title"], &v["public_title"]].into_iter().filter_map(Value::as_str).find(|t| !t.trim().is_empty()).unwrap_or_default();
             let (condition, language, mut finish) = variant_parts(vt);
             let language = language.or_else(|| title_language(title));
             if finish == "nonfoil" && let Some(f) = title_finish {
@@ -388,7 +388,7 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     // isn't a number, or with a bad quantity.
     // A quantity, when given, must be a whole number of copies: a bad one isn't "any number".
     let qty_ok = |q: &Value| q.is_null() || q.as_u64().is_some_and(|n| n <= 100_000);
-    if !hits.iter().all(|h| text_ok(&h["name"]) && h["condition"].is_string() && price_ok(&h["price"]) && qty_ok(&h["qty"])) {
+    if !hits.iter().all(|h| text_ok(&h["name"]) && text_ok(&h["condition"]) && price_ok(&h["price"]) && qty_ok(&h["qty"])) {
         return Some(None);
     }
     let listings = hits
@@ -637,7 +637,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                     // A title, and every variant's availability and price (a sum of money), or the product is unreadable.
                     Ok(body)
                         if text_ok(&body["title"])
-                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (x["title"].is_string() || x["public_title"].is_string()) && x["price"].is_number() && price_ok(&x["price"]))) =>
+                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (text_ok(&x["title"]) || text_ok(&x["public_title"])) && x["price"].is_number() && price_ok(&x["price"]))) =>
                     {
                         found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
                     }
