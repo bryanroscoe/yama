@@ -2191,6 +2191,10 @@ pub struct Progress {
     /// whole minutes for admins, rounded up to ROUGH_SECONDS for anyone else (see `Pace`); null
     /// until a few games have finished, and once it's over.
     pub eta_seconds: Option<i64>,
+    /// This experiment's unfinished Phase games, including deferred retries.
+    pub phase_pending: i64,
+    /// Pending Phase games already retried after a machine timeout or hang.
+    pub phase_retries: i64,
     /// Games earlier experiments (anyone's) still have to play before this one's turn (FIFO).
     /// Admins only: for anyone else it is null, because it would show other users' queues.
     pub games_ahead: Option<i64>,
@@ -2297,20 +2301,24 @@ struct ExpRow {
     engines: Option<String>,
     forge_total: i64,
     forge_done: i64,
+    phase_pending: i64,
+    phase_retries: i64,
 }
 
 const EXP_COLUMNS: &str = "e.id, e.name, e.status, e.games_total, e.games_done, e.engine, e.card_data, e.runner, e.difficulty, e.summary, \
     e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display, json_extract(e.spec, '$.pod') AS pod, \
     e.summary_forge, json_extract(e.spec, '$.engines') AS engines, \
     (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge') AS forge_total, \
-    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge' AND g.result IS NOT NULL) AS forge_done";
+    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge' AND g.result IS NOT NULL) AS forge_done, \
+    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id=e.id AND g.engine='phase' AND g.result IS NULL) AS phase_pending, \
+    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id=e.id AND g.engine='phase' AND g.result IS NULL AND g.retried=1) AS phase_retries";
 
 /// The lab's queue as `viewer` may see it: its recent pace and, per unfinished experiment, the
 /// games ahead of it and its own.
 struct Queue {
     /// Games per second over the last finished games, when recent.
     rate: Option<f64>,
-    ahead: HashMap<String, (i64, i64)>,
+    ahead: HashMap<String, (i64, i64, bool)>,
     /// Whether the viewer may see games_ahead (it counts other users' games).
     admin: bool,
 }
@@ -2318,8 +2326,9 @@ struct Queue {
 async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
     let admin: bool = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?").bind(viewer).fetch_optional(pool).await?.unwrap_or(false);
     let (rate, _) = recent_rate(pool).await?;
-    let pending: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT e.id, (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.result IS NULL AND g.engine = 'phase')
+    let pending: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT e.id, (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.result IS NULL AND g.engine = 'phase'),
+         (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id=e.id AND g.result IS NULL AND g.engine='phase' AND g.retried=1)
          FROM lab_experiments e WHERE e.status IN ('queued','running')
          AND NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=e.id AND r.comparison=0)
          ORDER BY e.created_at, e.rowid",
@@ -2328,10 +2337,12 @@ async fn queue(pool: &SqlitePool, viewer: &str) -> AppResult<Queue> {
     .await?;
     let mut ahead = HashMap::new();
     let mut before = 0;
+    let mut retries_ahead = false;
     // The pace and the ETA are phase's: a run's Forge games are counted apart (`forge_games`).
-    for (id, own) in pending.into_iter().filter(|(_, own)| *own > 0) {
-        ahead.insert(id, (before, own));
+    for (id, own, retries) in pending.into_iter().filter(|(_, own, _)| *own > 0) {
+        ahead.insert(id, (before, own, retries_ahead));
         before += own;
+        retries_ahead |= retries > 0;
     }
     Ok(Queue { rate, ahead, admin })
 }
@@ -2379,8 +2390,9 @@ impl ExpRow {
     fn item(self, q: &Queue) -> ExperimentItem {
         let display: Option<Display> = self.display.as_deref().and_then(|d| serde_json::from_str(d).ok());
         let (games_ahead, eta) = match q.ahead.get(&self.id) {
-            Some((before, own)) => {
-                let eta = q.rate.map(|r| round_up((before + own) as f64 / r, time_step(q.admin)));
+            Some((before, own, retries_ahead)) => {
+                // Fast first attempts do not predict the tail of deferred machine failures.
+                let eta = if *retries_ahead || (self.phase_pending > 0 && self.phase_pending == self.phase_retries) { None } else { q.rate.map(|r| round_up((before + own) as f64 / r, time_step(q.admin))) };
                 (q.admin.then_some(*before), eta)
             }
             None => (None, None),
@@ -2419,7 +2431,7 @@ impl ExpRow {
                 finished_at: self.finished_at,
                 updated_at: self.updated_at,
             },
-            progress: Progress { done: self.games_done, total: self.games_total, eta_seconds: eta, games_ahead },
+            progress: Progress { done: self.games_done, total: self.games_total, eta_seconds: eta, games_ahead, phase_pending: self.phase_pending, phase_retries: self.phase_retries },
             summary,
             engines,
             summary_forge,
