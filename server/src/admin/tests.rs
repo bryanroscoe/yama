@@ -653,6 +653,12 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "advisor_messages", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
     fill(&pool, "advisor_usage", &[("owner_id", t(&v))]).await;
     fill(&pool, "assistant_changes", &[("owner_id", t(&v)), ("conversation_id", t(&conversation))]).await;
+    // The operator audit belongs to its recorder; deleting one account spares other logs.
+    for owner in [&v, &b] {
+        fill(&pool, "history_corrections", &[
+            ("owner_id", t(owner)), ("request", t("{}")), ("changes", t("[]")), ("subjects", t("[]")),
+        ]).await;
+    }
     // Research documents, answers and idempotency receipts are private account data too.
     for owner in [&v,&b] {
         fill(&pool,"evidence_datasets",&[("owner_id",t(owner))]).await;

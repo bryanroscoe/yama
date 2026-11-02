@@ -23,6 +23,61 @@ const setup: TableSetup = {
 const log = (events: TableEvent[]): LoggedEvent[] => events.map((event, i) => ({ seq: i + 1, at: `2026-10-29T19:0${i}:00Z`, event }));
 
 describe("table history", () => {
+  it("reconciles a corrected terminal result without changing the stored events", () => {
+    const detail = {
+      id: "g9", status: "finished", winner_seat: 0, win_condition: "combat",
+      started_at: "2026-10-29T19:00:00Z", format: "commander", starting_life: 40, playgroup_id: null,
+      seats: [{ seat: 0, guest_name: "Bryan" }, { seat: 1, guest_name: "Sam" }],
+      events: [
+        { seq: 1, payload: { type: "life", seat: 1, delta: -3 } },
+        { seq: 2, payload: { type: "finish", winnerSeat: 0, endedAt: "2026-10-29T20:00:00Z", winCondition: "combo" } },
+      ],
+    } as unknown as GameDetail;
+    const original = JSON.stringify(detail.events);
+    const shown = () => {
+      const { setup, log } = setupFromServer(detail);
+      return history(setup, log).map((l) => l.text);
+    };
+    expect(shown()).toEqual(["Sam lost 3 life, now 37.", "Bryan won (combat)."]);
+    detail.win_condition = null;
+    expect(shown().at(-1)).toBe("Bryan won.");
+    detail.win_condition = "combat";
+    detail.winner_seat = null;
+    expect(shown().at(-1)).toBe("The game ended in a draw.");
+    expect(JSON.stringify(detail.events)).toBe(original);
+    detail.status = "in_progress";
+    expect(shown().at(-1)).toBe("Bryan won (combo).");
+  });
+
+  it("reconciles only each seat's final player event and preserves earlier history", () => {
+    const detail = {
+      id: "g9", status: "finished", winner_seat: 1, win_condition: "combat",
+      started_at: "2026-10-29T19:00:00Z", format: "commander", starting_life: 40, playgroup_id: "pg",
+      seats: [{ seat: 0, guest_name: "Bryan" }, { seat: 1, display_name: "Chelsey", member_id: "m-chelsey", user_id: "chelsey" }],
+      events: [
+        { seq: 1, payload: { type: "life", seat: 1, delta: -3 } },
+        { seq: 2, payload: { type: "player", seat: 1, name: "Jo", memberId: "m-jo", was: { name: "Sam" } } },
+        { seq: 3, payload: { type: "life", seat: 1, delta: -2 } },
+        { seq: 4, payload: { type: "player", seat: 1, name: "Guest 1", userId: "obsolete", was: { name: "Jo" } } },
+        { seq: 5, payload: { type: "finish", winnerSeat: 1, endedAt: "2026-10-29T20:00:00Z" } },
+      ],
+    } as unknown as GameDetail;
+    const original = JSON.stringify(detail.events);
+    const result = setupFromServer(detail);
+    expect(history(result.setup, result.log).map((l) => l.text)).toEqual([
+      "Sam lost 3 life, now 37.", "Sam's seat is Jo now.", "Jo lost 2 life, now 35.",
+      "Jo's seat is Chelsey now.", "Chelsey won (combat).",
+    ]);
+    expect(replay(result.setup, result.log).players[1]).toMatchObject({ name: "Chelsey", memberId: "m-chelsey", userId: "chelsey" });
+    expect(JSON.stringify(detail.events)).toBe(original);
+    detail.seats[1] = { ...detail.seats[1]!, display_name: "Guest", user_id: null, member_id: null };
+    const guest = setupFromServer(detail);
+    expect(replay(guest.setup, guest.log).players[1]).toMatchObject({ name: "Guest", userId: undefined, memberId: undefined });
+    detail.status = "in_progress";
+    const live = setupFromServer(detail);
+    expect(replay(live.setup, live.log).players[1]).toMatchObject({ name: "Guest 1", userId: "obsolete" });
+  });
+
   it("a saved game's history names whoever sat there at the time", () => {
     const detail = {
       id: "g9", started_at: "2026-10-29T19:00:00Z", format: "commander", starting_life: 40, playgroup_id: null,

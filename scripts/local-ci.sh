@@ -83,6 +83,7 @@ python3 -m unittest discover -s scripts/research -p 'test_*.py'
 python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
 python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+python3 -m unittest discover -s scripts/history -p 'test_*.py'
 python3 scripts/test_sync_main.py
 python3 scripts/test_dev_local.py
 
