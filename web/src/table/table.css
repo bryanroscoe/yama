@@ -1785,7 +1785,7 @@
     first-ring 900ms 160ms ease-out both;
 }
 /* Pick at random: a light runs round the tiles and slows onto the player the draw chose, which
-   bumps once; then their art pops in with a ring spreading out from it. */
+   bumps once; then their art pops in, full strength, with a ring spreading out from it. */
 .tm-winner.lit,
 .tm-winner.lit:hover {
   background: var(--text);
@@ -1799,10 +1799,10 @@
     scale: 1.06;
   }
 }
+/* Scale only: the dot is often the commander's art, and card images never fade. */
 @keyframes first-reveal {
   from {
-    scale: 0.5;
-    opacity: 0;
+    scale: 0.4;
   }
 }
 @keyframes first-ring {
