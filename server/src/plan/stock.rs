@@ -457,6 +457,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
         let mut handles: Vec<(String, String)> = Vec::new();
         let mut ok = false;
         let mut missed = false;
+        let mut saturated = false;
         let mut queries = vec![format!("\"{front}\"")];
         let mut i = 0;
         while i < queries.len() {
@@ -476,9 +477,12 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                             handles.push(h);
                         }
                     }
-                    // Suggest stops at 10 products; ask again for those in stock only.
+                    // Suggest stops at 10 products; ask again for those in stock only. If that's
+                    // full too, some in-stock printings may be missing.
                     if i == 0 && n >= 10 {
                         queries.push(format!("title:\"{front}\" available:true"));
+                    } else if n >= 10 {
+                        saturated = true;
                     }
                 }
                 Err(e) => {
@@ -508,8 +512,12 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                 }
             }
         }
-        if product_failed && !out.listings.iter().any(|l| l.card == *card) {
+        let found_any = out.listings.iter().any(|l| l.card == *card);
+        if (product_failed || saturated) && !found_any {
             out.failed.push(card.clone());
+        } else if saturated {
+            // The copies found are real; a cheaper printing may be among those not shown.
+            out.errors.push(format!("{card}: more than 10 printings in stock; Yama read the first 10"));
         }
     }
     out

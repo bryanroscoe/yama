@@ -1645,12 +1645,15 @@ pub async fn add_wish(st: &AppState, user: &User, via: &Via, args: &Value) -> Ap
     };
     // A deck by name: one of their Yama decks when it matches, else a label (a deck not in Yama yet).
     if let Some(d) = opt_text(args, "deck", 200)? {
-        let found: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND archived = 0 AND (id = ? OR name = ? COLLATE NOCASE) ORDER BY parent_id IS NOT NULL LIMIT 1")
-            .bind(&user.id)
-            .bind(&d)
-            .bind(&d)
-            .fetch_optional(&st.pool)
-            .await?;
+        let by_id: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND archived = 0 AND id = ?").bind(&user.id).bind(&d).fetch_optional(&st.pool).await?;
+        // Two decks with the name is refused (with their ids), so the wish never lands on the wrong one.
+        let found = match by_id {
+            Some(id) => Some(id),
+            None => crate::decks::find_by_name(&st.pool, &user.id, &d).await.map_err(|e| match e {
+                AppError::Conflict(m) => AppError::bad(format!("{m} Or give the deck's id. Nothing was staged.")),
+                other => other,
+            })?.map(|(id, _)| id),
+        };
         match found {
             Some(id) => w.deck_id = Some(id),
             None => w.deck_name = Some(d),

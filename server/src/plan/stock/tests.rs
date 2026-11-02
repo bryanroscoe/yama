@@ -19,6 +19,8 @@ fn suggest(card: &str) -> Value {
             {"title": "Fellwar Stone [DRK - 103]", "handle": "fellwar-stone-drk", "available": false},
         ]}}}),
         // Ten products, none the card itself: the in-stock search that follows fails in the mock.
+        // Full both times: the in-stock search is saturated too, and none of these is the card.
+        "\"Lots\"" | "title:\"Lots\" available:true" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Lots More {i}"), "handle": format!("lots-{i}")})).collect::<Vec<_>>()}}}),
         "\"Many\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Many Things {i}"), "handle": format!("many-{i}")})).collect::<Vec<_>>()}}}),
         _ => json!({"resources": {"results": {"products": []}}}),
     }
@@ -180,7 +182,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let base = mock().await;
     let (_app, pool) = app().await;
     let (owner, _) = user(&pool, "bryan@example.com").await;
-    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many"].map(String::from).to_vec();
+    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots"].map(String::from).to_vec();
     let refs: Vec<&str> = cards.iter().map(String::as_str).collect();
     snapshot(&pool, &owner, "s-pats", "pats", "shopify", Some(&refs)).await;
     snapshot(&pool, &owner, "s-bc", "black-castle", "tcgplayer_pro", None).await;
@@ -197,7 +199,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let by = |s: &str| snaps.iter().find(|x| x["id"] == s).unwrap().clone();
     // Pat's: Fail Me couldn't be read, so it's partial; only available variants are kept.
     assert_eq!(by("s-pats")["status"], "partial", "{snaps:?}");
-    assert_eq!(by("s-pats")["failed"], 2, "Fail Me, and Many, whose in-stock search failed");
+    assert_eq!(by("s-pats")["failed"], 3, "Fail Me; Many, whose in-stock search failed; Lots, whose in-stock search was full too");
     assert_eq!(by("s-pats")["listings"], 4, "three available Sol Ring variants and the etched one");
     assert!(by("s-pats")["raw"] == true);
     assert_eq!(by("s-bc")["status"], "ok");
@@ -223,6 +225,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     assert_eq!((fellwar.len(), &fellwar[0]["in_stock"]), (1, &json!(false)));
     assert!(at("pats", "Fail Me").is_empty());
     assert!(at("pats", "Many").is_empty(), "a failed follow-up search leaves the card unknown");
+    assert!(at("pats", "Lots").is_empty(), "a full follow-up search with no copy found leaves the card unknown");
     // Black Castle's catalog: Exotic Orchard "from" its lowest price, Fellwar Stone not in the catalog.
     let orchard = at("black-castle", "Exotic Orchard");
     assert_eq!((orchard[0]["price"].as_f64(), orchard[0]["in_stock"].as_bool()), (Some(0.5), Some(true)));

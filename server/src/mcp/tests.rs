@@ -589,6 +589,11 @@ async fn add_wish_is_staged_then_on_the_shopping_list() {
     let (err, text) = call(&app, &mcp, "add_wish", json!({"name": "sol ring", "deck": "Kraum & Tymna (cEDH)", "why": "One of the four local buys"})).await;
     assert!(!err, "{text}");
     assert!(text.contains("Add Sol Ring to their shopping list") && text.contains("not a Yama deck; kept as a label"), "{text}");
+    // Two decks with one name: refused, so the wish can't land on the wrong one.
+    deck(&pool, &a, "Twins").await;
+    deck(&pool, &a, "Twins").await;
+    let (err, text) = call(&app, &mcp, "add_wish", json!({"name": "Sol Ring", "deck": "twins"})).await;
+    assert!(err && text.contains("2 decks are called") && text.contains("Nothing was staged"), "{text}");
     let (err, text) = call(&app, &mcp, "add_wish", json!({"name": "Not A Card"})).await;
     assert!(err && text.contains("doesn't know a card"), "{text}");
     let (_, text) = call(&app, &mcp, "shopping_list", json!({})).await;
