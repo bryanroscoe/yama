@@ -33,7 +33,8 @@ pub struct Filters {
     pub g: String,
     #[serde(default)]
     pub s: String,
-    /// A source's name to list only the commanders it covers, or "all" for those every source has.
+    /// `s:` and a source's name to list only the commanders it covers, or `all` for those every
+    /// source has. The prefix keeps a source called "all" apart from that option.
     #[serde(default)]
     pub src: String,
     #[serde(default)]
@@ -59,7 +60,8 @@ impl Filters {
         if !self.g.is_empty() && !MIN_GAMES.iter().any(|(v, _)| *v == self.g) {
             return Err(AppError::bad("Choose one of the listed game counts"));
         }
-        if !(self.src.is_empty() || self.src == "all" || sources.iter().any(|s| s.name == self.src)) {
+        let named = self.src.strip_prefix("s:");
+        if !(self.src.is_empty() || self.src == "all" || named.is_some_and(|n| sources.iter().any(|s| s.name == n))) {
             return Err(AppError::bad("Choose one of the listed sources"));
         }
         let q = self.q.trim().to_lowercase();
@@ -69,10 +71,11 @@ impl Filters {
             .filter(|c| c.games >= min)
             .enumerate()
             .map(|(i, c)| (i + 1, c))
-            .filter(|(_, c)| match self.src.as_str() {
-                "" => true,
-                "all" => c.sources.len() == sources.len(),
-                name => c.sources.iter().any(|f| f.source == name),
+            .filter(|(_, c)| match (self.src.as_str(), named) {
+                ("", _) => true,
+                ("all", _) => c.sources.len() == sources.len(),
+                (_, Some(name)) => c.sources.iter().any(|f| f.source == name),
+                _ => false,
             })
             .filter(|(_, c)| {
                 let id = &c.color_identity;
@@ -226,7 +229,7 @@ fn method(r: &Ranking) -> String {
             if s.commanders < r.commanders.len() {
                 write!(
                     out,
-                    "<p>{} covers {} of the {} commanders; the others are scored from the other source alone and show “Not covered” in its column.</p>",
+                    "<p>{} covers {} of the {} commanders; the others are scored from the remaining sources alone and show “Not covered” in its column.</p>",
                     e(&s.name),
                     count(s.commanders as i64),
                     count(r.commanders.len() as i64)
@@ -302,7 +305,7 @@ pub(super) async fn index(
     body.push_str("</section><div class=\"source-strip\">");
     // Each source shows what it covers and lists just those commanders.
     for s in &r.sources {
-        let href = Filters { src: s.name.clone(), g: "0".into(), ..Filters::default() }.query(1);
+        let href = Filters { src: format!("s:{}", s.name), g: "0".into(), ..Filters::default() }.query(1);
         write!(body, "<a class=\"source-chip\" href=\"{href}\">{}, {} commanders</a>", e(&s.name), count(s.commanders as i64)).unwrap();
     }
     write!(
@@ -331,7 +334,8 @@ pub(super) async fn index(
         write!(body, "<option value=\"all\"{}>In every source</option>", selected("all", &filters.src)).unwrap();
     }
     for s in &r.sources {
-        write!(body, "<option value=\"{}\"{}>In {}</option>", e(&s.name), selected(&s.name, &filters.src), e(&s.name)).unwrap();
+        let value = format!("s:{}", s.name);
+        write!(body, "<option value=\"{}\"{}>In {}</option>", e(&value), selected(&value, &filters.src), e(&s.name)).unwrap();
     }
     body.push_str("</select></label><button type=\"submit\" class=\"primary\">Apply</button><details class=\"more-filters\"");
     if !filters.c.is_empty() {
