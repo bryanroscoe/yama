@@ -496,6 +496,10 @@ fn shared() -> &'static std::sync::Mutex<HashMap<String, Shared>> {
     SHARED.get_or_init(Default::default)
 }
 
+fn shared_key(method: &str, url: &str, body: Option<&Value>) -> String {
+    format!("{method} {url}\n{}", body.map(Value::to_string).unwrap_or_default())
+}
+
 fn shared_get(key: &str) -> Option<(std::sync::Arc<String>, String)> {
     let mut map = shared().lock().expect("shared answers");
     match map.get(key) {
@@ -560,23 +564,42 @@ impl Fetcher {
 
     /// GET or POST with a browser's headers, retrying 429 (as long as the store asks, up to
     /// [`MAX_ASKED`]) and 5xx twice. Records every answer; one fetched in the last
-    /// [`SHARED_TTL`] by any check is reused.
+    /// [`SHARED_TTL`] by any check is reused. A fresh answer that reads as JSON is shared with
+    /// other checks; a connector that then finds it isn't what it expected takes it back
+    /// ([`Fetcher::forget`]).
     async fn send(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw) -> Result<Value, String> {
-        let text = self.fetch(kind, method, url, body, raw, "application/json").await?;
-        serde_json::from_str(&text).map_err(|_| format!("{url}: the answer wasn't JSON"))
+        let (text, fresh) = self.fetch(kind, method, url, body, raw, "application/json").await?;
+        let value = serde_json::from_str(&text).map_err(|_| format!("{url}: the answer wasn't JSON"))?;
+        if fresh {
+            shared_put(shared_key(method, url, body), &text);
+        }
+        Ok(value)
     }
 
-    /// A page's text (a storefront's search page).
+    /// A page's text (a storefront's search page). Shared only when its reader found what it
+    /// looks for ([`Fetcher::share_page`]): a challenge page and an empty one look alike.
     async fn page(&mut self, kind: Kind, url: &str, raw: &mut Raw) -> Result<String, String> {
-        self.fetch(kind, "GET", url, None, raw, "text/html").await
+        Ok(self.fetch(kind, "GET", url, None, raw, "text/html").await?.0)
     }
 
-    async fn fetch(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw, accept: &str) -> Result<String, String> {
+    fn share_page(&self, url: &str, html: &str) {
+        let key = shared_key("GET", url, None);
+        if shared_get(&key).is_none() {
+            shared_put(key, html);
+        }
+    }
+
+    /// An answer that turned out unreadable isn't served to other checks.
+    fn forget(&self, method: &str, url: &str, body: Option<&Value>) {
+        shared().lock().expect("shared answers").remove(&shared_key(method, url, body));
+    }
+
+    /// The answer's text, and whether it was fetched now (not another check's).
+    async fn fetch(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw, accept: &str) -> Result<(String, bool), String> {
         let host = host_of(url).ok_or("bad url")?;
-        let key = format!("{method} {url}\n{}", body.map(Value::to_string).unwrap_or_default());
-        if let Some((text, at)) = shared_get(&key) {
+        if let Some((text, at)) = shared_get(&shared_key(method, url, body)) {
             raw.add_shared(method, url, &at, &text);
-            return Ok(text.to_string());
+            return Ok((text.to_string(), false));
         }
         let pause = if self.pause.is_zero() { Duration::ZERO } else { kind.pause().max(self.pause) };
         let mut last = String::new();
@@ -622,8 +645,7 @@ impl Fetcher {
                 Ok((status, _, text)) => {
                     raw.add(method, url, status, &text);
                     if (200..300).contains(&status) {
-                        shared_put(key, &text);
-                        return Ok(text);
+                        return Ok((text, true));
                     }
                     last = format!("{url}: HTTP {status}");
                     if status == 429 && asked > MAX_ASKED {
@@ -694,6 +716,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
             Ok(body) => match shopify_suggest(&body, card) {
                 Some((n, found)) => (n, found.into_iter().map(|h| h.0).collect()),
                 None => {
+                    f.forget("GET", u.as_str(), None);
                     out.errors.push(format!("{}: an answer without a product list", u.as_str()));
                     out.failed.push(card.clone());
                     continue;
@@ -718,6 +741,9 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                 match f.page(Kind::Shopify, p.as_str(), raw).await {
                     Ok(html) => {
                         let on_page = search_page_handles(&html, card);
+                        if !on_page.is_empty() {
+                            f.share_page(p.as_str(), &html);
+                        }
                         if on_page.iter().all(|h| paged.contains(h)) {
                             done = true;
                             break;
@@ -754,6 +780,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                         found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
                     }
                     Ok(_) => {
+                        f.forget("GET", &format!("{base}/products/{handle}.js"), None);
                         out.errors.push(format!("{base}/products/{handle}.js: an answer without readable variants"));
                         incomplete = true;
                         break;
@@ -788,6 +815,7 @@ async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
         match f.send(Kind::Pro, "POST", &format!("{base}/api/catalog/search"), Some(&body), raw).await {
             Ok(answer) => {
                 let Some((total, listings)) = pro_catalog(&answer, base) else {
+                    f.forget("POST", &format!("{base}/api/catalog/search"), Some(&body));
                     out.errors.push(format!("{base}/api/catalog/search: an answer without the catalog"));
                     break;
                 };
@@ -797,6 +825,7 @@ async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
                 let ids: Vec<i64> = answer["products"]["items"].as_array().into_iter().flatten().filter_map(|p| p["id"].as_i64()).collect();
                 let repeats = ids.len() as i64 != n || ids.iter().any(|id| !seen.insert(*id));
                 if out.total.is_some_and(|t| t != total) || n > total - from || repeats {
+                    f.forget("POST", &format!("{base}/api/catalog/search"), Some(&body));
                     out.errors.push(format!("{base}/api/catalog/search: the pages don't add up to one catalog"));
                     break;
                 }
@@ -830,6 +859,10 @@ async fn fetch_yestcg(f: &mut Fetcher, base: &str, cards: &[String], hosts: &[St
         u.query_pairs_mut().append_pair("q", front).append_pair("market", "austin").append_pair("game", "mtg");
         match f.send(Kind::YesTcg, "GET", u.as_str(), None, raw).await {
             Ok(body) => {
+                // An answer that names none of its stores isn't one to share.
+                if hosts.iter().all(|h| yestcg_store(&body, h, card).is_none()) {
+                    f.forget("GET", u.as_str(), None);
+                }
                 for h in hosts {
                     let found = out.get_mut(h).expect("host");
                     match yestcg_store(&body, h, card) {

@@ -515,14 +515,26 @@ async fn store_answers_are_shared_between_checks_and_retry_after_is_honoured() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let hits = std::sync::Arc::new(AtomicUsize::new(0));
     let counter = hits.clone();
+    let challenges = std::sync::Arc::new(AtomicUsize::new(0));
+    let challenged = challenges.clone();
     let app = Router::new()
         .route(
-            "/page",
+            "/data",
             get(move || {
                 let counter = counter.clone();
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    "listings"
+                    Json(json!({"products": []}))
+                }
+            }),
+        )
+        .route(
+            "/challenge",
+            get(move || {
+                let challenged = challenged.clone();
+                async move {
+                    challenged.fetch_add(1, Ordering::SeqCst);
+                    "<html>Just a moment...</html>"
                 }
             }),
         )
@@ -533,10 +545,22 @@ async fn store_answers_are_shared_between_checks_and_retry_after_is_honoured() {
     let http = crate::routes::http_client();
     // Two people's checks: one request, and the second records the answer as shared.
     let (mut raw_a, mut raw_b) = (Raw::default(), Raw::default());
-    assert_eq!(Fetcher::new(http.clone(), None).page(Kind::Shopify, &format!("{base}/page"), &mut raw_a).await.unwrap(), "listings");
-    assert_eq!(Fetcher::new(http.clone(), None).page(Kind::Shopify, &format!("{base}/page"), &mut raw_b).await.unwrap(), "listings");
+    let url = format!("{base}/data");
+    assert_eq!(Fetcher::new(http.clone(), None).send(Kind::Shopify, "GET", &url, None, &mut raw_a).await.unwrap(), json!({"products": []}));
+    assert_eq!(Fetcher::new(http.clone(), None).send(Kind::Shopify, "GET", &url, None, &mut raw_b).await.unwrap(), json!({"products": []}));
     assert_eq!(hits.load(Ordering::SeqCst), 1);
     assert_eq!(raw_b.items[0]["shared"], true);
+    // A 200 that isn't the JSON asked for (a bot challenge) is never shared: each check asks.
+    let url = format!("{base}/challenge");
+    for _ in 0..2 {
+        assert!(Fetcher::new(http.clone(), None).send(Kind::Shopify, "GET", &url, None, &mut raw_a).await.is_err());
+    }
+    assert_eq!(challenges.load(Ordering::SeqCst), 2);
+    // Nor is a search page with nothing on it, which looks just like one.
+    let mut f = Fetcher::new(http.clone(), None);
+    f.page(Kind::Shopify, &url, &mut raw_a).await.unwrap();
+    f.page(Kind::Shopify, &url, &mut raw_a).await.unwrap();
+    assert_eq!(challenges.load(Ordering::SeqCst), 4);
     // A store that asks for ten minutes isn't waited out inside a check.
     let started = Instant::now();
     let err = Fetcher::new(http, None).page(Kind::Shopify, &format!("{base}/busy"), &mut raw_a).await.unwrap_err();

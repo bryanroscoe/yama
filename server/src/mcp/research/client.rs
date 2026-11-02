@@ -492,7 +492,9 @@ impl Research {
             source: key.clone(),
             cached: false,
         };
-        if cacheable {
+        // Only an answer that reads as its provider's kind is kept: a maintenance page or a cut-off
+        // body that came with a 200 would otherwise be served to everyone until its time ran out.
+        if cacheable && readable(provider, &url, &doc) {
             self.keep(&key, &doc, provider.ttl(&url)).await;
         }
         drop(flight);
@@ -509,6 +511,21 @@ impl Research {
     pub fn with_store(mut self, pool: SqlitePool) -> Self {
         self.store = Some(pool);
         self
+    }
+}
+
+/// Whether an answer is what its provider sends: JSON, or for the rules, a page that names an
+/// edition's text and a text that indexes as the rules.
+fn readable(provider: Provider, url: &Url, doc: &Document) -> bool {
+    match provider {
+        Provider::Rules => doc.text().is_ok_and(|text| {
+            if url.path().ends_with(".txt") {
+                super::rules::parse(text).entries.len() >= 100
+            } else {
+                super::rules::discover(text).is_ok()
+            }
+        }),
+        _ => serde_json::from_slice::<serde::de::IgnoredAny>(&doc.bytes).is_ok(),
     }
 }
 
@@ -558,6 +575,19 @@ mod tests {
         // A 429 holds everybody off.
         research.hold_off(Provider::Scryfall, Duration::from_secs(30));
         assert!(research.reserve(Provider::Scryfall, Some(MAX_WAIT)).is_err());
+    }
+
+    #[test]
+    fn only_an_answer_that_reads_as_its_providers_is_kept() {
+        let research = Research::default();
+        let at = |p: Provider, path: &str| research.url(p, path, &[]);
+        let doc = |text: &str| Document { bytes: Arc::new(text.as_bytes().to_vec()), provider: Provider::Scryfall, fetched_at: "now".into(), source: "x".into(), cached: false };
+        assert!(readable(Provider::Scryfall, &at(Provider::Scryfall, "/cards/search"), &doc(r#"{"data":[]}"#)));
+        assert!(!readable(Provider::Scryfall, &at(Provider::Scryfall, "/cards/search"), &doc("<html>down for maintenance</html>")));
+        assert!(!readable(Provider::Edhrec, &at(Provider::Edhrec, "/pages/x.json"), &doc(r#"{"cut": "of"#)));
+        assert!(!readable(Provider::Rules, &at(Provider::Rules, "/en/rules"), &doc("<html>no link here</html>")));
+        assert!(readable(Provider::Rules, &at(Provider::Rules, "/en/rules"), &doc(r#"<a href="https://media.wizards.com/2026/MagicCompRules 20260925.txt">"#)));
+        assert!(!readable(Provider::Rules, &Url::parse("https://media.wizards.com/2026/MagicCompRules.txt").unwrap(), &doc("Magic\n100.1. Too short.")));
     }
 
     #[test]

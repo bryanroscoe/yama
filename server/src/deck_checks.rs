@@ -87,13 +87,14 @@ pub fn list_hash(cards: &[DeckCard]) -> String {
 }
 
 /// Queue a check of a new version with its `cards`, or give it the answer for the same list
-/// from the last [`REUSE_DAYS`] days. Does nothing if it's already queued or checked.
+/// from the last [`REUSE_DAYS`] days (with no try of its own, so it doesn't count toward the
+/// owner's [`PER_OWNER_HOUR`]). Does nothing if it's already queued or checked.
 pub async fn queue(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard]) -> sqlx::Result<()> {
     let hash = list_hash(cards);
     let reused = sqlx::query(
         "INSERT INTO deck_version_checks (version_id, source, requested_at, checked_at, bracket_tag, game_changers, mld, extra_turns,
             combos, unrecognized, last_attempt_at, list_hash)
-         SELECT ?1, source, checked_at, checked_at, bracket_tag, game_changers, mld, extra_turns, combos, unrecognized, checked_at, list_hash
+         SELECT ?1, source, checked_at, checked_at, bracket_tag, game_changers, mld, extra_turns, combos, unrecognized, NULL, list_hash
            FROM deck_version_checks WHERE source = ?2 AND list_hash = ?3 AND checked_at >= ?4 ORDER BY checked_at DESC LIMIT 1
          ON CONFLICT DO NOTHING",
     )
@@ -1154,6 +1155,9 @@ mod tests {
         let shown = view(&pool, Some(&v2), true).await.unwrap();
         assert!(!shown.pending && shown.result.is_some());
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Idle));
+        // No request was made, so it doesn't count toward the owner's hourly checks.
+        let tried: Option<String> = sqlx::query_scalar("SELECT last_attempt_at FROM deck_version_checks WHERE version_id = ?").bind(&v2).fetch_one(&pool).await.unwrap();
+        assert_eq!(tried, None);
 
         // An answer too old isn't reused at save: the same list in another account is queued.
         sqlx::query("UPDATE deck_version_checks SET requested_at = '2025-01-01T00:00:00.000Z', checked_at = '2025-01-01T00:00:00.000Z'")
