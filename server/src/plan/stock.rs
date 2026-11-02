@@ -511,7 +511,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
         for (handle, _) in &handles {
             match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
                 // Every variant must say whether it's available and its price, or the product is unreadable.
-                Ok(body) if body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && x["price"].is_number())) => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
+                Ok(body) if body["title"].is_string() && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && x["price"].is_number())) => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
                 Ok(_) => {
                     out.errors.push(format!("{base}/products/{handle}.js: an answer without readable variants"));
                     product_failed = true;
@@ -678,14 +678,19 @@ async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l:
     Ok(())
 }
 
-/// Keep the newest `KEEP` snapshots of a store, and raw responses for the newest `RAW_KEEP`.
+/// Keep the newest `KEEP` snapshots of a store, and raw responses for the newest `RAW_KEEP`. Rows
+/// from the last 24 hours always stay, since the daily cap counts them.
 async fn prune(tx: &mut sqlx::SqliteConnection, owner: &str, store: &str) -> AppResult<()> {
+    let day = (Utc::now() - Days::hours(24)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let old: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM store_snapshots WHERE owner_id = ? AND store_key = ? AND status != 'running' ORDER BY requested_at DESC, id DESC LIMIT -1 OFFSET ?",
+        "SELECT id FROM (SELECT id, requested_at FROM store_snapshots WHERE owner_id = ? AND store_key = ? AND status != 'running'
+                         ORDER BY requested_at DESC, id DESC LIMIT -1 OFFSET ?)
+         WHERE requested_at < ?",
     )
     .bind(owner)
     .bind(store)
     .bind(KEEP)
+    .bind(&day)
     .fetch_all(&mut *tx)
     .await?;
     for id in old {

@@ -576,6 +576,11 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
     assert!(text.contains("- Sol Ring: $0.90, Sol Ring [C21 - 263]; the listing didn't say whether it's in stock, so ask the store"), "{text}");
 
     // A store Yama can't read is refused at once; a readable one is only staged.
+    // With no stores named, one they'll go to must be readable: Pat's is, unless they won't go.
+    sqlx::query("INSERT INTO plan_store_prefs (owner_id, store_key, preference, updated_at) VALUES (?, 'pats', 'never', 'now')").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"cards": ["Sol Ring"]})).await;
+    assert!(err && text.contains("can't read any of their stores"), "{text}");
+    sqlx::query("DELETE FROM plan_store_prefs WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["card gurus"], "cards": ["Sol Ring"]})).await;
     assert!(err && text.contains("can't read Card Gurus's stock") && text.contains("Nothing was staged"), "{text}");
     let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["pats"], "cards": ["Sol Ring"]})).await;

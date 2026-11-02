@@ -1597,6 +1597,13 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
     let checkable = stock::checkable(&st.pool, &user.id).await?;
     let readable = |key: &str| checkable.iter().any(|c| c.0 == key && (c.2.is_some() || (yestcg && c.3.is_some())));
     let named: Vec<&(String, String)> = stores.iter().collect();
+    // With no stores named, at least one store they'll go to must be readable.
+    if named.is_empty() && !checkable.iter().any(|c| c.4 != "never" && readable(&c.0)) {
+        return Err(AppError::bad(format!(
+            "Yama can't read any of their stores' stock{}. It reads Shopify stores on its list (Pat's Games, Mothership) and TCGplayer Pro storefronts. Nothing was staged.",
+            if yestcg { "" } else { " (try yestcg: true)" }
+        )));
+    }
     if let Some((_, name)) = named.iter().find(|(k, _)| !readable(k)) {
         return Err(AppError::bad(format!(
             "Yama can't read {name}'s stock{}. It reads Shopify stores on its list (Pat's Games, Mothership) and TCGplayer Pro storefronts; YesTCG covers some others. Nothing was staged.",

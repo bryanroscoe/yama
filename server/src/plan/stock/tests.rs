@@ -22,6 +22,7 @@ fn suggest(card: &str) -> Value {
         // Full both times: the in-stock search is saturated too, and none of these is the card.
         "\"Lots\"" | "title:\"Lots\" available:true" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Lots More {i}"), "handle": format!("lots-{i}")})).collect::<Vec<_>>()}}}),
         "\"Odd\"" => json!({"resources": {"results": {"products": [{"title": "Odd [ODD - 1]", "handle": "odd-1"}]}}}),
+        "\"Untitled\"" => json!({"resources": {"results": {"products": [{"title": "Untitled [U - 1]", "handle": "untitled-1"}]}}}),
         "\"Many\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Many Things {i}"), "handle": format!("many-{i}")})).collect::<Vec<_>>()}}}),
         _ => json!({"resources": {"results": {"products": []}}}),
     }
@@ -39,6 +40,7 @@ fn product(handle: &str) -> Option<Value> {
             {"id": 121, "title": "Near Mint / English", "price": 250, "available": true},
         ]}),
         // Variants without availability: unreadable, so the card is unknown.
+        "untitled-1.js" => json!({"variants": [{"id": 2, "title": "Near Mint", "price": 100, "available": true}]}),
         "odd-1.js" => json!({"title": "Odd [ODD - 1]", "variants": [{"id": 1, "title": "Near Mint", "price": 100}]}),
         "fellwar-stone-drk.js" => json!({"title": "Fellwar Stone [DRK - 103]", "variants": [
             {"id": 131, "title": "Damaged / English / Normal", "price": 975, "available": false},
@@ -185,7 +187,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let base = mock().await;
     let (_app, pool) = app().await;
     let (owner, _) = user(&pool, "bryan@example.com").await;
-    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots", "Odd"].map(String::from).to_vec();
+    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots", "Odd", "Untitled"].map(String::from).to_vec();
     let refs: Vec<&str> = cards.iter().map(String::as_str).collect();
     snapshot(&pool, &owner, "s-pats", "pats", "shopify", Some(&refs)).await;
     snapshot(&pool, &owner, "s-bc", "black-castle", "tcgplayer_pro", None).await;
@@ -202,7 +204,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let by = |s: &str| snaps.iter().find(|x| x["id"] == s).unwrap().clone();
     // Pat's: Fail Me couldn't be read, so it's partial; only available variants are kept.
     assert_eq!(by("s-pats")["status"], "partial", "{snaps:?}");
-    assert_eq!(by("s-pats")["failed"], 4, "Fail Me; Many, whose in-stock search failed; Lots, whose in-stock search was full too; Odd, unreadable variants");
+    assert_eq!(by("s-pats")["failed"], 5, "Fail Me; Many, whose in-stock search failed; Lots, whose in-stock search was full too; Odd, unreadable variants; Untitled, no title");
     assert_eq!(by("s-pats")["listings"], 4, "three available Sol Ring variants and the etched one");
     assert!(by("s-pats")["raw"] == true);
     assert_eq!(by("s-bc")["status"], "ok");
@@ -371,4 +373,26 @@ async fn a_staged_check_applied_again_reads_nothing() {
     assert_eq!(again["snapshots"][0]["id"], "s-done");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ?").bind(&owner).fetch_one(&st.pool).await.unwrap();
     assert_eq!(n, 1, "nothing new was started");
+}
+
+#[tokio::test]
+async fn pruning_keeps_the_days_reads_so_the_cap_holds() {
+    let st = crate::testutil::state().await;
+    let (owner, _) = user(&st.pool, "bryan@example.com").await;
+    store_row(&st.pool, &owner, "pats", "Pat's Games", "https://patsgames.com", 1).await;
+    for i in 0..(DAILY_SNAPSHOTS + 3) {
+        let id = format!("p{i:02}");
+        snapshot(&st.pool, &owner, &id, "pats", "shopify", Some(&["Sol Ring"])).await;
+        sqlx::query("UPDATE store_snapshots SET status = 'ok', fetched_at = requested_at WHERE id = ?").bind(&id).execute(&st.pool).await.unwrap();
+    }
+    // An old one past the newest 20 goes; today's all stay.
+    snapshot(&st.pool, &owner, "old", "pats", "shopify", Some(&["Sol Ring"])).await;
+    sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2026-01-01T00:00:00Z', fetched_at = '2026-01-01T00:00:00Z' WHERE id = 'old'").execute(&st.pool).await.unwrap();
+    let mut tx = st.pool.begin().await.unwrap();
+    prune(&mut tx, &owner, "pats").await.unwrap();
+    tx.commit().await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ?").bind(&owner).fetch_one(&st.pool).await.unwrap();
+    assert_eq!(n, DAILY_SNAPSHOTS + 3);
+    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
+    assert!(matches!(start(&st, &owner, &body, "page", None).await, Err(AppError::TooManyRequests { .. })));
 }
