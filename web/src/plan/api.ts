@@ -1,5 +1,5 @@
 // The planner's server calls. Types live in @yama/core/plan, next to the logic that reads them.
-import type { ImportReport, LocalBuyRule, PlanBundle, ShoppingWant, StateName, StorePreference, StoreSnapshot } from "@yama/core/plan";
+import type { ImportReport, LocalBuyRule, PlanBundle, SealedItem, SealedView, ShoppingWant, StateName, StorePreference, StoreSnapshot } from "@yama/core/plan";
 import { api } from "../api";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
@@ -105,41 +105,11 @@ export const removeWant = (id: string) => api<{ removed: string }>(`/api/plan/wa
 export const deckGaps = (deck: string) =>
   api<{ deck: string; name: string; cards: { name: string; need: number; real: number; proxy: number }[] }>(`/api/plan/wants/deck-gaps/${encodeURIComponent(deck)}`);
 
-export interface SealedQuote {
-  id: string;
-  store: string;
-  store_name: string;
-  preference: StorePreference;
-  /** False when a later import retired the store: it's never the best choice. */
-  store_live: boolean;
-  price: number | null;
-  in_stock: boolean;
-  checked_on: string;
-  note: string | null;
-  /** Null when there's no price or no cap. */
-  over_cap: boolean | null;
-  vs_market_pct: number | null;
-  vs_singles_pct: number | null;
-}
-
-export interface SealedItem {
-  want: string;
-  name: string;
-  qty: number;
-  priority: "need" | "along";
-  why: string | null;
-  precon: { id: string; name: string; set_name: string | null; released: string | null } | null;
-  market: { usd: number | null; price_date: string; source: string; url: string; product_name: string } | null;
-  singles: { usd: number | null; priced_copies: number; unpriced_copies: number; oldest_date: string | null; newest_date: string | null; source: string } | null;
-  /** Each store's newest price, cheapest first. */
-  quotes: SealedQuote[];
-  /** The cheapest in stock at a store you're going to (along the way: one the trip visits), within the cap when one is set. */
-  best: string | null;
-}
-
 /** The sealed products on your list with store prices, the sealed market and the singles inside. */
+export type { SealedItem };
+
 export const sealedView = (today: string, going: string[] | null, trip: string[]) =>
-  api<{ date: string; cap_usd: number | null; items: SealedItem[] }>(
+  api<SealedView>(
     `/api/plan/sealed?today=${encodeURIComponent(today)}&trip=${encodeURIComponent(JSON.stringify(trip))}${going ? `&going=${encodeURIComponent(JSON.stringify(going))}` : ""}`,
   );
 

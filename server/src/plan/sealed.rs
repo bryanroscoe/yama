@@ -73,6 +73,9 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str, scope: &Scope) -> 
     .fetch_all(pool)
     .await?;
     let cap = cap_at(pool, owner, date).await?;
+    if wants.is_empty() {
+        return Ok(json!({"date": date, "cap_usd": cap, "items": []}));
+    }
     let market = crate::deck_prices::sealed(pool).await?;
     // Each store with whether it can be chosen now: a live store that isn't a printer.
     let stores: Vec<(String, String, Option<String>, bool)> = sqlx::query_as(
@@ -351,7 +354,15 @@ pub fn text(v: &Value) -> String {
             if q["id"] == it["best"] {
                 notes.push(if cap.is_some() { "the best choice: cheapest in stock within the cap".into() } else { "the cheapest in stock (no cap set)".into() });
             }
-            let _ = writeln!(out, "  - {}: {} on {}{}", q["store_name"].as_str().unwrap_or_default(), usd(q["price"].as_f64()), q["checked_on"].as_str().unwrap_or_default(), if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) });
+            let _ = writeln!(
+                out,
+                "  - {}: {} on {}{}{}",
+                q["store_name"].as_str().unwrap_or_default(),
+                usd(q["price"].as_f64()),
+                q["checked_on"].as_str().unwrap_or_default(),
+                if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) },
+                q["note"].as_str().map(|n| format!(". Note: {n}")).unwrap_or_default()
+            );
         }
     }
     out
@@ -455,6 +466,13 @@ mod tests {
         let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "mothership", "price": 59.99}))).await;
         let v = view(&pool, &owner, &today(), &Scope::default()).await.unwrap();
         assert!(v["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["store"] == "mothership" && q["over_cap"] == true));
+        // A note is kept and said; the bundle carries the sealed view for the page offline.
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 50.0, "note": "Behind the counter"}))).await;
+        assert!(s.is_success());
+        assert!(text(&view(&pool, &owner, &today(), &Scope::default()).await.unwrap()).contains("Note: Behind the counter"));
+        let b = crate::plan::bundle::load_bundle(&pool, &owner).await.unwrap();
+        assert_eq!(b["sealed"]["items"][0]["name"], "Federation Fleet Commander Deck");
+        assert_eq!(b["sealed"]["cap_usd"], 51.0);
         // The page sends the device's today; one far from the server's is refused.
         assert_eq!(send(&app, Method::GET, "/api/plan/sealed?today=1999-01-01", Some(&token), None).await.0.as_u16(), 400);
         let (s, v) = send(&app, Method::GET, &format!("/api/plan/sealed?today={}", today()), Some(&token), None).await;

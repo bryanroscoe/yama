@@ -28,7 +28,8 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// 4: store preferences and the real-card wishlist, for the store trip (2026-11-01).
 /// 5: a store's place in your order and a favourite's premium (2026-11-01).
 /// 6: store stock snapshots (`store_quotes`, `snapshots`) and hand-added wants (`shopping_wants`; 2026-11-01).
-const SHAPE: u32 = 6;
+/// 7: sealed products with their store prices (`sealed`), for the Trip page offline (2026-11-02).
+const SHAPE: u32 = 7;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
@@ -43,9 +44,11 @@ pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
          UNION ALL SELECT 'pref:' || store_key || '=' || preference || '/' || IFNULL(hassle, '') || '/' || IFNULL(premium_usd, '') || '/' || updated_at FROM plan_store_prefs WHERE owner_id = ?
          UNION ALL SELECT 'research:' || id || '=' || revision || '/' || updated_at FROM research_reports WHERE owner_id = ?
          UNION ALL SELECT 'snap:' || id || '=' || status || '/' || IFNULL(fetched_at, '') FROM store_snapshots WHERE owner_id = ?
-         UNION ALL SELECT 'want:' || id || '=' || IFNULL(retired_at, '') FROM shopping_wants WHERE owner_id = ?
+         UNION ALL SELECT 'want:' || id || '=' || IFNULL(retired_at, '') || '/' || IFNULL(precon_id, '') FROM shopping_wants WHERE owner_id = ?
+         UNION ALL SELECT 'sq:' || id FROM sealed_quotes WHERE owner_id = ?
          ORDER BY 1",
     )
+    .bind(owner)
     .bind(owner)
     .bind(owner)
     .bind(owner)
@@ -781,6 +784,9 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     });
     bundle["store_quotes"] = json!(store_quotes);
     bundle["shopping_wants"] = json!(shopping_wants);
+    // Sealed products as of now (every store; no pick along the way), for the Trip page offline.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    bundle["sealed"] = super::sealed::view(pool, owner, &today, &super::sealed::Scope::default()).await?;
     bundle["snapshots"] = json!(super::stock::snapshots(pool, owner, 40).await?);
     Ok(bundle)
 }

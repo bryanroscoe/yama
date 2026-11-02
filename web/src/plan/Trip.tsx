@@ -574,18 +574,23 @@ function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: 
     enabled: any,
   });
   if (!any) return null;
-  const cap = q.data?.cap_usd ?? null;
+  // Offline (or the request failed): the copy saved with your plan, which picks no store for
+  // products along the way.
+  const saved = !q.data && view.b.sealed ? view.b.sealed : null;
+  const data = q.data ?? saved;
+  const cap = data?.cap_usd ?? null;
   return (
     <section className="plan-section" aria-labelledby="trip-sealed">
       <h2 id="trip-sealed" className="plan-section-head">
         Sealed precons <span className="num dim">{q.data?.items.length ?? ""}</span>
       </h2>
+      {saved && <p className="small">Showing the copy saved with your plan on {fmtDate(saved.date)}; reconnect for the latest prices.</p>}
       <p className="dim small">
-        {cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
+        {!data ? "" : cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
         Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate.
       </p>
-      <ErrorText error={q.error} />
-      {(q.data?.items ?? []).map((it) => (
+      {!data && <ErrorText error={q.error} />}
+      {(data?.items ?? []).map((it) => (
         <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} capped={cap != null} />
       ))}
     </section>
@@ -600,10 +605,14 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
   const [price, setPrice] = useState("");
   const [inStock, setInStock] = useState(true);
   const [date, setDate] = useState(today);
+  const [note, setNote] = useState("");
   const done = () => void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });
   const add = useMutation({
-    mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: null }),
-    onSuccess: () => setPrice(""),
+    mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: note.trim() || null }),
+    onSuccess: () => {
+      setPrice("");
+      setNote("");
+    },
     onSettled: done,
   });
   const remove = useMutation({ mutationFn: removeSealedQuote, onSettled: done });
@@ -638,7 +647,8 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
             {x.over_cap ? ", over your cap" : ""}
             {x.store_live ? "" : ", a store no longer on your list"}
             {pct(x.vs_market_pct, "market")}
-            {it.best === x.id ? (capped ? ". Best choice" : ". Cheapest in stock") : ""}{" "}
+            {it.best === x.id ? (capped ? ". Best choice" : ". Cheapest in stock") : ""}
+            {x.note ? <span className="dim">. {x.note}</span> : null}{" "}
             <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
               Remove
             </button>
@@ -670,6 +680,9 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
         </label>
         <label>
           On <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label>
+          Note <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
         </label>
         <button type="submit" className="button outline" disabled={add.isPending}>
           Record the price
