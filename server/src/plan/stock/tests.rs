@@ -193,9 +193,11 @@ fn titles_and_variants_parse() {
     assert_eq!(yestcg_store(&y, "patsgames.com", "Sol Ring"), None, "not in YesTCG's answer");
     let broken = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true}]});
     assert_eq!(yestcg_store(&broken, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "no hit list is unknown, not none");
-    let nameless = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"price": 1.0}]}]});
+    let nameless = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"price": 1.0, "condition": "Near Mint"}]}]});
+    let no_condition = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "price": 1.0}]}]});
+    assert_eq!(yestcg_store(&no_condition, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a condition is unknown");
     assert_eq!(yestcg_store(&nameless, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a name is unknown");
-    let bad_qty = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "price": 1.0, "qty": "3"}]}]});
+    let bad_qty = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "condition": "Near Mint", "price": 1.0, "qty": "3"}]}]});
     assert_eq!(yestcg_store(&bad_qty, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a quantity that isn't a whole number is unknown");
 }
 

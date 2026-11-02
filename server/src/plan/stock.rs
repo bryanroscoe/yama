@@ -368,10 +368,11 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     }
     // A hit list that's missing or not a list is an answer we can't read: unknown, not none.
     let Some(hits) = r["hits"].as_array() else { return Some(None) };
-    // So is a hit without a name, with a price that isn't a number, or with a bad quantity.
+    // So is a hit without a name or a condition (finish and language are in it), with a price that
+    // isn't a number, or with a bad quantity.
     // A quantity, when given, must be a whole number of copies: a bad one isn't "any number".
     let qty_ok = |q: &Value| q.is_null() || q.as_u64().is_some_and(|n| n <= 100_000);
-    if !hits.iter().all(|h| h["name"].is_string() && (h["price"].is_number() || h["price"].is_null()) && qty_ok(&h["qty"])) {
+    if !hits.iter().all(|h| h["name"].is_string() && h["condition"].is_string() && (h["price"].is_number() || h["price"].is_null()) && qty_ok(&h["qty"])) {
         return Some(None);
     }
     let listings = hits
@@ -1249,6 +1250,8 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
 
 /// `POST /api/plan/stock/import`: a `yama-store-snapshot/1` file.
 pub async fn import_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(f): Json<ImportFile>) -> AppResult<Json<Value>> {
+    // Imports share the account's import allowance (plan files, Mythic Tools CSVs).
+    st.limits.imports.check_user(&user)?;
     Ok(Json(import(&st.pool, &user.id, f).await?))
 }
 
