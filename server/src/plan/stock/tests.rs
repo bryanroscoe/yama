@@ -338,6 +338,16 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let q = store_quotes(&pool, &owner, &cards).await.unwrap();
     assert_eq!(q.iter().find(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").unwrap()["origin"], "snapshot:s-late");
 
+    // Two checks started in the same second stay apart by their check ids: the newer direct read
+    // counts over an older YesTCG one.
+    for (id, source, check, fetched) in [("s-c1", "yestcg", "c1", "2099-04-01T00:00:02Z"), ("s-c2", "tcgplayer_pro", "c2", "2099-04-01T00:00:09Z")] {
+        snapshot(&pool, &owner, id, "multiverse-hobbies", source, if source == "yestcg" { Some(&["Sol Ring"]) } else { None }).await;
+        sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2099-04-01T00:00:00Z', fetched_at = ?, check_id = ? WHERE id = ?").bind(fetched).bind(check).bind(id).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO store_listings (snapshot_id, owner_id, card_name, card_key, price, available, price_kind) VALUES ('s-c2', ?, 'Sol Ring', 'sol ring', 0.4, 1, 'from')").bind(&owner).execute(&pool).await.unwrap();
+    let q = store_quotes(&pool, &owner, &cards).await.unwrap();
+    assert_eq!(q.iter().find(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").unwrap()["origin"], "snapshot:s-c2");
+
     // A check left running by a restart shows as failed when read.
     snapshot(&pool, &owner, "s-old", "pats", "shopify", Some(&["Sol Ring"])).await;
     sqlx::query("UPDATE store_snapshots SET requested_at = '2026-01-01T00:00:00Z' WHERE id = 's-old'").execute(&pool).await.unwrap();

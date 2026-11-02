@@ -24,7 +24,9 @@ CREATE TABLE store_snapshots (
     -- How it was asked for: the Trip page, a change Claude staged and they applied, or an import.
     via         TEXT NOT NULL CHECK (via IN ('page', 'assistant', 'import')),
     -- The staged change (check_stores) that started it, so applying that change again starts nothing.
-    change_id   TEXT
+    change_id   TEXT,
+    -- The check it belongs to (one per start; NULL for an import): its snapshots count together.
+    check_id    TEXT
 );
 CREATE INDEX store_snapshots_owner ON store_snapshots (owner_id, store_key, requested_at);
 

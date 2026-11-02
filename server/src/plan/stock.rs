@@ -620,7 +620,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                     // A title, and every variant's availability and price (a sum of money), or the product is unreadable.
                     Ok(body)
                         if body["title"].is_string()
-                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && x["price"].as_f64().is_some_and(|p| p.is_finite() && p >= 0.0))) =>
+                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (x["title"].is_string() || x["public_title"].is_string()) && x["price"].as_f64().is_some_and(|p| p.is_finite() && p >= 0.0))) =>
                     {
                         found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
                     }
@@ -1043,6 +1043,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
         });
     }
     let at = now();
+    let check = crate::util::new_id();
     let mut job = Job { owner: owner.to_string(), cards: uniq.clone(), targets: Vec::new() };
     let mut tx = pool.begin().await?;
     for (key, kind, base, host) in targets {
@@ -1054,7 +1055,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
             Kind::YesTcg => format!("GET {base}/api/decksearch?q=<card>&market=austin&game=mtg (this store's part, {})", host.as_deref().unwrap_or("?")),
         };
         let cards = (kind != Kind::Pro).then(|| json!(uniq).to_string());
-        sqlx::query("INSERT INTO store_snapshots (id, owner_id, store_key, source, cards, query, requested_at, status, via, change_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)")
+        sqlx::query("INSERT INTO store_snapshots (id, owner_id, store_key, source, cards, query, requested_at, status, via, change_id, check_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)")
             .bind(&id)
             .bind(owner)
             .bind(&key)
@@ -1064,6 +1065,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
             .bind(&at)
             .bind(via)
             .bind(change)
+            .bind(&check)
             .execute(&mut *tx)
             .await?;
         job.targets.push(Target { snapshot: id, store: key, kind, base, host });
@@ -1262,6 +1264,7 @@ struct SnapRow {
     fetched_at: String,
     status: String,
     requested_at: String,
+    check_id: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1302,7 +1305,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
         return Ok(vec![]);
     }
     let mut snaps: Vec<SnapRow> = sqlx::query_as(
-        "SELECT id, store_key, source, cards, failed, fetched_at, status, requested_at FROM store_snapshots
+        "SELECT id, store_key, source, cards, failed, fetched_at, status, requested_at, check_id FROM store_snapshots
          WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL",
     )
     .bind(owner)
@@ -1310,14 +1313,16 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     .await?;
     // Newest answer first: a check's snapshots count from when the last of them finished (an import
     // from when it was read), and within one check YesTCG's comes before the store's own.
+    // A check is its check_id (rows from before it was recorded: their request time).
+    let group = |s: &SnapRow| s.check_id.clone().unwrap_or_else(|| format!("at:{}", s.requested_at));
     let mut check_done: HashMap<String, String> = HashMap::new();
     for s in snaps.iter().filter(|s| s.source != "import") {
-        let e = check_done.entry(s.requested_at.clone()).or_default();
+        let e = check_done.entry(group(s)).or_default();
         if s.fetched_at > *e {
             *e = s.fetched_at.clone();
         }
     }
-    let answered = |s: &SnapRow| if s.source == "import" { s.fetched_at.clone() } else { check_done[&s.requested_at].clone() };
+    let answered = |s: &SnapRow| if s.source == "import" { s.fetched_at.clone() } else { check_done[&group(s)].clone() };
     snaps.sort_by(|a, b| {
         answered(b)
             .cmp(&answered(a))
