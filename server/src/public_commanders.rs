@@ -34,8 +34,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
 /// Prior strength in games, at the source's average commander.
 pub const PRIOR: f64 = 100.0;
@@ -48,8 +47,6 @@ const PER_PILOT: f64 = 4.0;
 const MAX_EFFECTIVE: f64 = 2000.0;
 const Z95: f64 = 1.959_963_985;
 pub const METHOD: &str = "real-games-commander-v1";
-/// Re-derive at least this often even when nothing changed.
-const FRESH: Duration = Duration::from_secs(600);
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -591,10 +588,11 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
 }
 
 type Shared = Arc<Ranking>;
-static CACHE: Mutex<Option<(Instant, String, Shared)>> = Mutex::new(None);
-static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// The ranking, kept until its inputs change (derived.rs).
+static RANKING: crate::derived::Kept<Ranking> = crate::derived::Kept::new("public commanders rebuild");
 
-/// Everything the ranking reads, so any change shows on the next request.
+/// Everything the ranking reads, so any change shows on the next request, and the day (its
+/// windows end today).
 async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT owner_id || ':' || source_name || ':' || enabled_at AS k FROM commander_evidence_sources ORDER BY k))
@@ -605,33 +603,18 @@ async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     )
     .fetch_one(pool)
     .await?;
-    Ok(format!("{}#{inputs}", pool.connect_options().get_filename().display()))
-}
-
-fn cached(key: &str) -> Option<Shared> {
-    CACHE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .filter(|(at, k, _)| k == key && at.elapsed() < FRESH)
-        .map(|(_, _, r)| r.clone())
+    Ok(format!("{}#{inputs}#{}", pool.connect_options().get_filename().display(), crate::derived::today()))
 }
 
 pub async fn ranking(pool: &SqlitePool) -> AppResult<Shared> {
     let key = fingerprint(pool).await?;
-    if let Some(r) = cached(&key) {
-        return Ok(r);
-    }
-    let _rebuilding = REBUILD.lock().await;
-    if let Some(r) = cached(&key) {
-        return Ok(r);
-    }
-    let job = crate::perf::Job::start("public commanders rebuild", std::time::Duration::from_secs(2));
-    let r = derive(pool).await;
-    job.finish(&r, r.as_ref().map(|r| format!("{} commanders", r.commanders.len())).unwrap_or_default());
-    let r = Arc::new(r?);
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, r.clone()));
-    Ok(r)
+    RANKING.get(pool, key, |pool| async move { derive(&pool).await }).await
+}
+
+/// Build the ranking now if its inputs changed (derived.rs).
+pub async fn prewarm(pool: &SqlitePool) -> AppResult<()> {
+    let key = fingerprint(pool).await?;
+    RANKING.refresh(pool, key, |pool| async move { derive(&pool).await }).await
 }
 
 /// Let `owner`'s datasets from `source_name` feed the public commander ranking.

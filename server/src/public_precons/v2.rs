@@ -2,7 +2,8 @@
 //! stock-precon tournament (`precon-evidence simulate`), through the same time-split gate as the Lab.
 //! The published Phase benchmark doesn't feed it (Bryan, 31 Oct 2026: Forge tracks real results
 //! better). Re-derived whenever a dataset revision, source, link, catalog import or the chosen
-//! simulation changes, and at least every few minutes, which also takes in a tournament's new games.
+//! simulation changes, each day, and every 100 games of a chosen tournament still playing
+//! (derived.rs keeps it until then).
 use super::Precon;
 use crate::error::AppResult;
 use crate::precon_evidence;
@@ -10,11 +11,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-
-/// Recency weighting moves with the date, so even unchanged inputs are re-derived this often.
-const FRESH: Duration = Duration::from_secs(600);
+use std::sync::Arc;
 
 #[derive(Clone, Serialize)]
 pub struct Info {
@@ -68,11 +65,13 @@ pub struct Row {
 }
 
 type Table = Arc<(Info, HashMap<String, Row>)>;
-static CACHE: Mutex<Option<(Instant, String, Table)>> = Mutex::new(None);
-/// One rebuild at a time: requests arriving during it wait for its result rather than repeat it.
-static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// The rating, kept until its inputs change (derived.rs).
+static TABLE: crate::derived::Kept<Table> = crate::derived::Kept::new("public precons rating rebuild");
 
-/// Everything the rating reads, so any change is seen on the next request.
+/// Everything the rating reads, so any change is seen on the next request: the sources, their
+/// datasets and links, the catalog, the chosen simulation and how far it has played (by 100
+/// games), the global ratings runs it falls back to without one (the newest ten, as
+/// `precon_evidence` reads them), and the day (recency weighting moves with the date).
 async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT owner_id || ':' || source_name || ':' || enabled_at AS k FROM precon_evidence_sources ORDER BY k))
@@ -80,11 +79,20 @@ async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
                     WHERE owner_id IN (SELECT owner_id FROM precon_evidence_sources) ORDER BY k))
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT source_name || ':' || precon_id || ':' || entity || ':' || rule || ':' || created_at AS k FROM precon_evidence_links ORDER BY k))
              || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)
-             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT experiment_id || ':' || engine || ':' || build || ':' || card_data || ':' || chosen_at AS k FROM precon_evidence_simulation ORDER BY k))",
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT experiment_id || ':' || engine || ':' || build || ':' || card_data || ':' || chosen_at AS k FROM precon_evidence_simulation ORDER BY k))
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || status || ':' || (games_done / 100) AS k FROM lab_experiments
+                    WHERE id IN (SELECT experiment_id FROM precon_evidence_simulation) ORDER BY k))
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || name || ':' || imported_at || ':' || IFNULL(analysed_at, '') AS k
+                    FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings' ORDER BY created_at DESC LIMIT 10))",
     )
     .fetch_one(pool)
     .await?;
-    Ok(format!("{}#{inputs}", pool.connect_options().get_filename().display()))
+    Ok(format!("{}#{inputs}#{}", pool.connect_options().get_filename().display(), crate::derived::today()))
+}
+
+/// The fingerprint, for pages that are built from this rating too.
+pub(crate) async fn key(pool: &SqlitePool) -> AppResult<String> {
+    fingerprint(pool).await
 }
 
 async fn derive(pool: &SqlitePool) -> AppResult<Table> {
@@ -172,30 +180,16 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
     Ok(Arc::new((info, table)))
 }
 
-fn cached(key: &str) -> Option<Table> {
-    CACHE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .filter(|(at, k, _)| k == key && at.elapsed() < FRESH)
-        .map(|(_, _, t)| t.clone())
-}
-
 async fn table(pool: &SqlitePool) -> AppResult<Table> {
     let key = fingerprint(pool).await?;
-    if let Some(t) = cached(&key) {
-        return Ok(t);
-    }
-    let _rebuilding = REBUILD.lock().await;
-    if let Some(t) = cached(&key) {
-        return Ok(t);
-    }
-    let job = crate::perf::Job::start("public precons rebuild", std::time::Duration::from_secs(2));
-    let t = derive(pool).await;
-    job.finish(&t, t.as_ref().map(|t| format!("{} precons ranked", t.0.ranked)).unwrap_or_default());
-    let t = t?;
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, t.clone()));
-    Ok(t)
+    let t = TABLE.get(pool, key, |pool| async move { derive(&pool).await }).await?;
+    Ok(Table::clone(&t))
+}
+
+/// Build the rating now if its inputs changed (derived.rs).
+pub(super) async fn prewarm(pool: &SqlitePool) -> AppResult<()> {
+    let key = fingerprint(pool).await?;
+    TABLE.refresh(pool, key, |pool| async move { derive(&pool).await }).await
 }
 
 /// Each ranked precon's rating v2 rank and the number ranked, for links from other public pages.

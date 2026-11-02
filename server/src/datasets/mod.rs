@@ -391,7 +391,10 @@ async fn import_route(
         ));
     }
     let bytes = decode(&body)?;
-    Ok(Json(import(&st.pool, &user.id, &bytes, false).await?))
+    let report = import(&st.pool, &user.id, &bytes, false).await?;
+    // A new revision can change the public rankings.
+    crate::derived::nudge();
+    Ok(Json(report))
 }
 #[derive(Deserialize)]
 struct ExportQuery {

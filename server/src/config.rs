@@ -75,6 +75,13 @@ pub struct Config {
     /// SQL statements slower than this many milliseconds are logged as warnings and listed there
     /// too (YAMA_SLOW_QUERY_MS, default 200).
     pub slow_query_ms: u64,
+    /// Nothing reaches an outside service (YAMA_OFFLINE=1; for a local copy of production's data,
+    /// scripts/dev-local.sh). The background imports, deck checks, the Forge worker, Google and
+    /// Cloudflare Access sign-in and the advisor's health check are off whatever their own settings
+    /// say, and what a request would fetch (a card preview, the scanner's files, an
+    /// MTGJSON precon list, a store check, Ask Claude, the research tools, a deck link) answers
+    /// "unavailable offline" instead (`error::offline`).
+    pub offline: bool,
 }
 
 /// The https hosts OAuth apps may redirect to when YAMA_OAUTH_REDIRECT_HOSTS isn't set: claude.ai's
@@ -310,8 +317,8 @@ impl Config {
             data_dir,
             secure_cookies: flag("YAMA_SECURE_COOKIES"),
             cors_origins: list("YAMA_CORS_ORIGINS"),
-            auto_import: flag("YAMA_AUTO_IMPORT"),
-            deck_checks: !off("YAMA_DECK_CHECKS"),
+            auto_import: flag("YAMA_AUTO_IMPORT") && !flag("YAMA_OFFLINE"),
+            deck_checks: !off("YAMA_DECK_CHECKS") && !flag("YAMA_OFFLINE"),
             mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
@@ -331,6 +338,7 @@ impl Config {
             oauth_redirect_hosts,
             slow_request_ms: number("YAMA_SLOW_REQUEST_MS", crate::perf::SLOW_REQUEST_MS as i64)? as u64,
             slow_query_ms: number("YAMA_SLOW_QUERY_MS", crate::perf::SLOW_QUERY_MS as i64)? as u64,
+            offline: flag("YAMA_OFFLINE"),
         })
     }
 }

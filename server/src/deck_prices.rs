@@ -309,6 +309,7 @@ pub fn spawn_scheduler(pool: SqlitePool, http: reqwest::Client) {
                 tracing::warn!(error = %e, "sealed deck price import failed");
             }
             job.finish(&result, "daily import");
+            crate::derived::nudge();
             tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
         }
     });

@@ -221,7 +221,11 @@ struct BundleFiles {
 
 async fn bundle_info(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<BundleInfo>> {
     let dir = bundle_dir(&st.cfg.data_dir);
-    let error = ensure(st.cfg.data_dir.clone(), st.http.clone()).await;
+    let error = if st.cfg.offline {
+        (!is_ready(&dir)).then(|| crate::error::offline("the scanner's download site").to_string())
+    } else {
+        ensure(st.cfg.data_dir.clone(), st.http.clone()).await
+    };
     let ready = is_ready(&dir);
     let constants = if ready {
         let manifest: serde_json::Value = serde_json::from_slice(&tokio::fs::read(dir.join("manifest.json")).await.map_err(anyhow::Error::from)?).map_err(anyhow::Error::from)?;

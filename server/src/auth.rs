@@ -363,6 +363,10 @@ async fn google_login(
     if st.cfg.google_client_ids.is_empty() {
         return Err(AppError::bad("Google sign-in is not configured (YAMA_GOOGLE_CLIENT_IDS)"));
     }
+    // Checking the token means fetching Google's keys.
+    if st.cfg.offline {
+        return Err(crate::error::offline("Google"));
+    }
     // Before any work, including fetching Google's keys.
     st.limits.sign_in_address.check(&address_key(address))?;
     let claims: GoogleClaims =

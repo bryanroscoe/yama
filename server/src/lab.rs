@@ -785,8 +785,38 @@ pub async fn precon_list(pool: &SqlitePool) -> AppResult<PreconList> {
     Ok(PreconList { run, precons })
 }
 
-async fn list_precons(State(st): State<AppState>, _u: CurrentUser) -> AppResult<Json<PreconList>> {
-    Ok(Json(precon_list(&st.pool).await?))
+/// `/api/precons`'s answer, encoded, kept until its inputs change (derived.rs): building it prices
+/// every stock list and loads every evidence dataset (0.4 s on saget for each request, 2026-11-02).
+static PRECON_LIST: crate::derived::Kept<Bytes> = crate::derived::Kept::new("Lab precon list rebuild");
+
+/// Everything the list reads: the catalog, prices and imports (the public catalog's fingerprint),
+/// the evidence behind rating v2 and the day (its fingerprint), and the latest ratings run with
+/// every field its label shows (an admin can rename it).
+async fn precon_list_key(pool: &SqlitePool) -> AppResult<String> {
+    let run = serde_json::to_string(&latest_global_ratings_run(pool).await?).map_err(anyhow::Error::from)?;
+    Ok(format!(
+        "{}#{}#{}",
+        crate::public_precons::fingerprint(pool).await?,
+        crate::public_precons::v2::key(pool).await?,
+        run
+    ))
+}
+
+async fn encoded_precon_list(pool: SqlitePool) -> AppResult<Bytes> {
+    Ok(Bytes::from(serde_json::to_vec(&precon_list(&pool).await?).map_err(anyhow::Error::from)?))
+}
+
+async fn list_precons(State(st): State<AppState>, _u: CurrentUser) -> AppResult<axum::response::Response> {
+    use axum::response::IntoResponse;
+    let key = precon_list_key(&st.pool).await?;
+    let body = PRECON_LIST.get(&st.pool, key, encoded_precon_list).await?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "application/json")], Bytes::clone(&body)).into_response())
+}
+
+/// Build `/api/precons`'s answer now if its inputs changed (derived.rs).
+pub async fn prewarm_precon_list(pool: &SqlitePool) -> AppResult<()> {
+    let key = precon_list_key(pool).await?;
+    PRECON_LIST.refresh(pool, key, encoded_precon_list).await
 }
 
 /// A card of a precon's list with what the deck list page shows about it.

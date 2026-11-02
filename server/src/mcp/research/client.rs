@@ -31,6 +31,18 @@ impl Provider {
         }
     }
 
+    /// Who it is, for "unavailable offline".
+    fn name(self) -> &'static str {
+        match self {
+            Self::Scryfall => "Scryfall",
+            Self::Spellbook => "Commander Spellbook",
+            Self::Edhrec => "EDHREC",
+            Self::Moxfield => "Moxfield",
+            Self::Archidekt => "Archidekt",
+            Self::Rules => "Wizards of the Coast",
+        }
+    }
+
     fn interval(self) -> Duration {
         Duration::from_millis(match self {
             Self::Scryfall => 110,
@@ -69,6 +81,8 @@ struct Cached {
 }
 
 pub struct Research {
+    /// YAMA_OFFLINE: answer from the cache or not at all.
+    offline: bool,
     http: reqwest::Client,
     cache: Mutex<HashMap<String, Cached>>,
     lanes: HashMap<Provider, Mutex<Instant>>,
@@ -79,6 +93,7 @@ pub struct Research {
 impl Default for Research {
     fn default() -> Self {
         Self {
+            offline: false,
             // Never follow a provider redirect to a caller-controlled or internal destination.
             http: reqwest::Client::builder()
                 .user_agent(concat!(
@@ -110,6 +125,11 @@ impl Default for Research {
 }
 
 impl Research {
+    /// The research client for a server that may run offline (YAMA_OFFLINE).
+    pub fn new(offline: bool) -> Self {
+        Self { offline, ..Self::default() }
+    }
+
     pub fn url(&self, provider: Provider, path: &str, query: &[(&str, String)]) -> Url {
         let base = provider.base();
         #[cfg(test)]
@@ -167,6 +187,9 @@ impl Research {
                 doc.cached = true;
                 return Ok(doc);
             }
+        }
+        if self.offline {
+            return Err(crate::error::offline(provider.name()));
         }
         let lane = &self.lanes[&provider];
         {

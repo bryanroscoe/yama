@@ -13,11 +13,11 @@
 #   --            everything after goes to `npm run polish -- shoot` (with --shots)
 #
 # Run it from the primary checkout or any worktree. Every background job and every outbound caller
-# that has a setting is off, so nothing reaches Scryfall, Commander Spellbook, MTGJSON, Forge, Claude
-# or the Mythic bridge on its own. A few request-triggered fetches have no setting (card hover
-# previews of uncatalogued cards, Check stores, MCP research, the scanner bundle and MTGJSON precon
-# lists when opened): see the skill. The copy holds real people's data: never commit, upload or paste it,
-# and delete data/yama*.db when you're done (see .claude/skills/yama-local/SKILL.md).
+# is off, so nothing reaches Scryfall, Commander Spellbook, MTGJSON, Forge, Claude, a store or the
+# Mythic bridge: YAMA_OFFLINE=1 also answers the request-triggered fetches (card hover previews of
+# uncatalogued cards, Check stores, Ask Claude, MCP research, the scanner bundle, MTGJSON precon
+# lists, deck links) with "unavailable offline". The copy holds real people's data: never commit,
+# upload or paste it, and delete data/yama*.db when you're done (see .claude/skills/yama-local/SKILL.md).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -88,6 +88,7 @@ server_env=(
   YAMA_CORS_ORIGINS=
   YAMA_OAUTH_REDIRECT_HOSTS=
   YAMA_DECK_LINK_SOURCES=  # no deck-link fetching (Archidekt)
+  YAMA_OFFLINE=1           # request-triggered fetches answer "unavailable offline" (server/src/config.rs)
 )
 # The web app must talk to this server only: a stray production API, public or relay address in the
 # shell or a Vite env file would send requests, or shared-table game setup, to production.

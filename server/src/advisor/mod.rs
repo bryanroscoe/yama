@@ -312,6 +312,9 @@ pub(crate) struct SidecarHealth {
 
 /// The sidecar's health: `None` when it didn't answer (2 s at most).
 pub(crate) async fn sidecar_health(st: &AppState) -> Option<SidecarHealth> {
+    if st.cfg.offline {
+        return None;
+    }
     let (url, secret) = (st.cfg.advisor.url.as_ref()?, st.cfg.advisor.secret.as_ref()?);
     let res = st.http.get(format!("{url}/health")).header("x-advisor-secret", secret).timeout(Duration::from_secs(2)).send().await.ok()?;
     if !res.status().is_success() {
@@ -552,6 +555,9 @@ async fn history(pool: &SqlitePool, owner: &str, conversation: &str) -> AppResul
 }
 
 async fn ask_route(State(st): State<AppState>, PowerUser(user): PowerUser, Json(body): Json<AskBody>) -> AppResult<Response> {
+    if st.cfg.offline {
+        return Err(crate::error::offline("Claude"));
+    }
     let question = body.question.trim().to_string();
     if question.is_empty() {
         return Err(AppError::bad("Ask a question first."));

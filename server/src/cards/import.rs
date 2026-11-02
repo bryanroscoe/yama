@@ -198,6 +198,8 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                         Ok(true) => {
                             tracing::info!(kind, "imported fresh Scryfall data");
                             crate::db::after_import(&pool).await;
+                            // New names, art and prices for the public pages.
+                            crate::derived::nudge();
                         }
                         Ok(false) => tracing::debug!(kind, "Scryfall data unchanged"),
                         // Batches committed before the failure still changed the tables.

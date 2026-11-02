@@ -1037,6 +1037,10 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
             return Ok(json!({"snapshots": ids, "skipped": [], "cards": Value::Null, "already": true}));
         }
     }
+    // A staged change already carried out answers above, offline too; a new check would fetch.
+    if st.cfg.offline {
+        return Err(crate::error::offline("the stores' sites"));
+    }
     expire_stale(pool, owner).await?;
     let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND status = 'running'").bind(owner).fetch_one(pool).await?;
     if running > 0 {
