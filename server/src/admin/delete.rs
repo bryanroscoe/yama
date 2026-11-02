@@ -214,78 +214,51 @@ pub async fn delete_account(st: &AppState, id: &str) -> AppResult<DeleteReport> 
 const FORMER_PLAYER: &str = "Former player";
 
 /// In the games that stay, the history's "player" events (someone took a seat, or changed name)
-/// stop naming the account: on the seats it sat in, an event tied to it loses the tie and its name,
-/// and any name it went by there (its display name, its seat's name, the names its events gave it)
-/// becomes "Former player", in `name` and in `was.name`. Other seats keep theirs, even one that
-/// happens to share its name. Runs before its seats lose `user_id`, which finds them.
+/// stop naming the account, only while it held the seat: walking each seat's events in order, one
+/// that seats it loses the tie and its name, and one that takes the seat from it (`was.userId`,
+/// recorded by the table since 2026-11-02, or following an event that seated it) loses the old
+/// name. Anyone else keeps their name, even someone who shares its name, before or after it.
 async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResult<()> {
-    let display: Option<String> = sqlx::query_scalar("SELECT display_name FROM users WHERE id = ?").bind(id).fetch_optional(&mut **tx).await?;
     let games: Vec<String> = sqlx::query_scalar(
-        "SELECT game_id FROM game_seats WHERE user_id = ?1
-          UNION SELECT game_id FROM game_events
-                 WHERE kind = 'player' AND (json_extract(payload, '$.userId') = ?1 OR json_extract(payload, '$.was.userId') = ?1)",
+        "SELECT game_id FROM game_events
+          WHERE kind = 'player' AND (json_extract(payload, '$.userId') = ?1 OR json_extract(payload, '$.was.userId') = ?1)",
     )
     .bind(id)
     .fetch_all(&mut **tx)
     .await?;
+    let games: std::collections::BTreeSet<String> = games.into_iter().collect();
     for game in games {
-        let seats: Vec<(i64, Option<String>)> =
-            sqlx::query_as("SELECT seat, guest_name FROM game_seats WHERE game_id = ? AND user_id = ?").bind(&game).bind(id).fetch_all(&mut **tx).await?;
         let events: Vec<(i64, String)> =
-            sqlx::query_as("SELECT seq, payload FROM game_events WHERE game_id = ? AND kind = 'player'").bind(&game).fetch_all(&mut **tx).await?;
-        let mut events: Vec<(i64, serde_json::Value)> =
-            events.into_iter().filter_map(|(seq, p)| Some((seq, serde_json::from_str::<serde_json::Value>(&p).ok()?))).collect();
-        let tied = |e: &serde_json::Value| e.get("userId").and_then(|v| v.as_str()) == Some(id);
-        // It sat here before someone took the seat: the event says so (`was.userId`, recorded
-        // since 2026-11-02), with the name it went by then.
-        let left = |e: &serde_json::Value| e.pointer("/was/userId").and_then(|v| v.as_str()) == Some(id);
-        let seat_of = |e: &serde_json::Value| e.get("seat").and_then(|v| v.as_i64());
-        let mut its_seats: std::collections::BTreeSet<i64> = seats.iter().map(|(seat, _)| *seat).collect();
-        let mut names: std::collections::BTreeSet<String> = seats.into_iter().filter_map(|(_, n)| n).chain(display.clone()).collect();
-        for (_, e) in &events {
-            if tied(e) {
-                its_seats.extend(seat_of(e));
-                names.extend(e.get("name").and_then(|v| v.as_str()).map(str::to_string));
-            }
-            if left(e) {
-                its_seats.extend(seat_of(e));
-                names.extend(e.pointer("/was/name").and_then(|v| v.as_str()).map(str::to_string));
-            }
-        }
-        for (seq, e) in events.iter_mut() {
-            if !seat_of(&*e).is_some_and(|seat| its_seats.contains(&seat)) {
-                continue;
-            }
+            sqlx::query_as("SELECT seq, payload FROM game_events WHERE game_id = ? AND kind = 'player' ORDER BY seq").bind(&game).fetch_all(&mut **tx).await?;
+        // Whether it holds each seat as the history reaches each event.
+        let mut holds: std::collections::HashMap<i64, bool> = std::collections::HashMap::new();
+        for (seq, payload) in events {
+            let Ok(mut e) = serde_json::from_str::<serde_json::Value>(&payload) else { continue };
+            let Some(seat) = e.get("seat").and_then(|v| v.as_i64()) else { continue };
             let Some(obj) = e.as_object_mut() else { continue };
+            let arrives = obj.get("userId").and_then(|v| v.as_str()) == Some(id);
+            let leaves = match obj.get("was").and_then(|w| w.get("userId")).and_then(|v| v.as_str()) {
+                Some(user) => user == id,
+                None => holds.get(&seat).copied().unwrap_or(false),
+            };
             let mut changed = false;
-            let was_tied = obj.get("userId").and_then(|v| v.as_str()) == Some(id);
-            if was_tied {
+            if arrives {
                 obj.remove("userId");
                 obj.remove("handle");
-                changed = true;
-            }
-            // A name it shared with someone else's account (two Alexes) stays theirs.
-            let someone_else = obj.get("userId").and_then(|v| v.as_str()).is_some_and(|u| u != id);
-            if was_tied || (!someone_else && obj.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n))) {
                 obj.insert("name".into(), FORMER_PLAYER.into());
                 changed = true;
             }
-            if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
-                let was_someone_else = was.get("userId").and_then(|v| v.as_str()).is_some_and(|u| u != id);
-                if was.get("userId").and_then(|v| v.as_str()) == Some(id) {
-                    was.remove("userId");
-                    changed = true;
-                }
-                if !was_someone_else && was.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n)) {
-                    was.insert("name".into(), FORMER_PLAYER.into());
-                    changed = true;
-                }
+            if leaves && let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
+                was.remove("userId");
+                was.insert("name".into(), FORMER_PLAYER.into());
+                changed = true;
             }
+            holds.insert(seat, arrives);
             if changed {
                 sqlx::query("UPDATE game_events SET payload = ? WHERE game_id = ? AND seq = ?")
                     .bind(e.to_string())
                     .bind(&game)
-                    .bind(*seq)
+                    .bind(seq)
                     .execute(&mut **tx)
                     .await?;
             }
@@ -311,9 +284,6 @@ pub fn is_scrubbed_player_event(stored: &serde_json::Value, sent: &serde_json::V
         obj.insert("name".into(), FORMER_PLAYER.into());
         obj.remove("userId");
         obj.remove("handle");
-    } else if former(stored.get("name")) && !obj.contains_key("userId") {
-        // A guest's name on a seat the deleted account left, scrubbed as one of its names.
-        obj.insert("name".into(), FORMER_PLAYER.into());
     }
     if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
         if was_gone {

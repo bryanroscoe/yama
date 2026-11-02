@@ -456,6 +456,8 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     event(5, 2, json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Vix", "userId": v}})).await;
     // Later the bystander, also called Vix, took that seat: their name is theirs.
     event(6, 2, json!({"type": "player", "seat": 2, "name": "Vix", "userId": b, "was": {"name": "Pat"}})).await;
+    // And a guest who happens to be called Vee took seat 0 from the victim.
+    event(7, 0, json!({"type": "player", "seat": 0, "name": "Vee", "was": {"name": "Vic T", "userId": v}})).await;
 
     let mut tx = pool.begin().await.unwrap();
     delete_rows(&mut tx, &v).await.unwrap();
@@ -475,6 +477,7 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     assert_eq!(payload(4).await, json!({"type": "life", "seat": 0, "delta": -3}));
     assert_eq!(payload(5).await, json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Former player"}}), "a seat it left");
     assert_eq!(payload(6).await, json!({"type": "player", "seat": 2, "name": "Vix", "userId": b, "was": {"name": "Pat"}}), "a namesake keeps their name");
+    assert_eq!(payload(7).await, json!({"type": "player", "seat": 0, "name": "Vee", "was": {"name": "Former player"}}), "so does a guest after it");
     // A phone retrying an upload whose answer was lost still holds the original events.
     use super::delete::is_scrubbed_player_event;
     let sent2 = json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
@@ -500,7 +503,7 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     assert_eq!(seat(0).await.as_deref(), Some("Former player"), "even a name typed in when it was logged");
     assert_eq!(seat(1).await.as_deref(), Some("victim"));
     assert_eq!(seat(2).await.as_deref(), Some("Pat"));
-    let leaks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE payload LIKE '%' || ? || '%' OR payload LIKE '%Vic T%' OR payload LIKE '%Vee%' OR (payload LIKE '%Vix%' AND seq <> 6)")
+    let leaks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE payload LIKE '%' || ? || '%' OR payload LIKE '%Vic T%' OR (payload LIKE '%Vee%' AND seq <> 7) OR (payload LIKE '%Vix%' AND seq <> 6)")
         .bind(&v)
         .fetch_one(&pool)
         .await
