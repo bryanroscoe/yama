@@ -401,7 +401,7 @@ pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str
         .bind(deck_id)
         .execute(&mut *conn)
         .await?;
-    crate::deck_checks::queue(&mut *conn, &vid).await?;
+    crate::deck_checks::queue(&mut *conn, &vid, cards).await?;
     Ok(vid)
 }
 

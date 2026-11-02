@@ -21,7 +21,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use serde::de::{DeserializeOwned, SeqAccess, Visitor};
 use sqlx::SqlitePool;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -174,13 +174,51 @@ pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str, force: bool
     Ok(true)
 }
 
+/// How long to wait after `failures` failed tries in a row: 2, 4, 8, 16, then 24 hours.
+fn retry_pause(failures: u32) -> chrono::Duration {
+    chrono::Duration::hours(if failures == 0 { 0 } else { (1i64 << failures.min(5)).min(24) })
+}
+
+/// Failed or unfinished imports of `kind` since its last successful one, and when the last of
+/// them started.
+async fn failures_since_success(pool: &SqlitePool, kind: &str) -> sqlx::Result<(u32, Option<chrono::DateTime<chrono::Utc>>)> {
+    let (n, last): (i64, Option<String>) = sqlx::query_as(
+        "SELECT COUNT(*), MAX(started_at) FROM import_runs
+          WHERE kind = ?1 AND (error IS NOT NULL OR finished_at IS NULL)
+            AND started_at > IFNULL((SELECT MAX(started_at) FROM import_runs WHERE kind = ?1 AND error IS NULL AND finished_at IS NOT NULL), '')",
+    )
+    .bind(kind)
+    .fetch_one(pool)
+    .await?;
+    let last = last.and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok()).map(|t| t.with_timezone(&chrono::Utc));
+    Ok((n as u32, last))
+}
+
+/// Whether a kind that has been failing may be tried again: [`retry_pause`] after the last try,
+/// counting imports that failed (`import_runs`, so a restart remembers) and, in `early`, tries
+/// that failed before an import began (the index or the download). Without this a file that
+/// won't import is downloaded again every hour (the calendar's `is_due` does the same).
+async fn retry_due(pool: &SqlitePool, kind: &str, early: Option<&(u32, chrono::DateTime<chrono::Utc>)>) -> bool {
+    let now = chrono::Utc::now();
+    let waited = |n: u32, last: Option<chrono::DateTime<chrono::Utc>>| last.is_none_or(|t| now - t >= retry_pause(n));
+    // On a database error, assume the last try just failed rather than try every hour.
+    let (n, last) = failures_since_success(pool, kind).await.unwrap_or((1, Some(now)));
+    waited(n, last) && early.is_none_or(|(n, last)| waited(*n, Some(*last)))
+}
+
 /// Background refresh for a running server: prices daily, rules text and rulings weekly. A kind
 /// whose last successful import came from an older importer version (see [`importer_version`])
-/// is imported on the first pass, which runs at startup.
+/// is imported on the first pass, which runs at startup. A kind that keeps failing waits longer
+/// between tries ([`retry_due`]).
 pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
     tokio::spawn(async move {
+        let mut early: HashMap<&str, (u32, chrono::DateTime<chrono::Utc>)> = HashMap::new();
         loop {
             for (kind, max_age_hours) in [("default_cards", 20), ("oracle_cards", 24 * 6), ("rulings", 24 * 6)] {
+                if !retry_due(&pool, kind, early.get(kind)).await {
+                    tracing::debug!(kind, "Scryfall import failed recently; waiting before trying again");
+                    continue;
+                }
                 let last: Option<String> = sqlx::query_scalar(
                     "SELECT MAX(finished_at) FROM import_runs WHERE kind = ? AND error IS NULL",
                 )
@@ -195,7 +233,17 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                 // downloading every hour.
                 let behind = matches!(current_import_date(&pool, kind).await, Ok(None));
                 if behind || age.is_none_or(|h| h >= max_age_hours) {
-                    match refresh(&pool, &data_dir, kind, behind).await {
+                    let result = refresh(&pool, &data_dir, kind, behind).await;
+                    match &result {
+                        Ok(_) => {
+                            early.remove(kind);
+                        }
+                        Err(_) => {
+                            let tries = early.get(kind).map_or(0, |(n, _)| *n) + 1;
+                            early.insert(kind, (tries, chrono::Utc::now()));
+                        }
+                    }
+                    match result {
                         Ok(true) => {
                             tracing::info!(kind, "imported fresh Scryfall data");
                             crate::db::after_import(&pool).await;
@@ -276,6 +324,7 @@ async fn bulk_index(http: &reqwest::Client, url: &str) -> anyhow::Result<BulkInd
     Ok(http
         .get(url)
         .header("Accept", "application/json")
+        .timeout(std::time::Duration::from_secs(30))
         .send()
         .await?
         .error_for_status()?
@@ -289,12 +338,12 @@ async fn download(http: &reqwest::Client, item: &BulkItem, dir: &Path) -> anyhow
     let path = dir.join(url.rsplit('/').next().unwrap_or("scryfall-bulk"));
     let mb = item.compressed_size.or(item.size).unwrap_or(0) / 1_000_000;
     println!("downloading {} ({mb} MB)…", item.kind);
-    let resp = http.get(url).send().await?.error_for_status()?;
+    let resp = http.get(url).timeout(crate::util::DOWNLOAD_TOTAL).send().await?.error_for_status()?;
     let bulk = BulkFile { path, meta: Some(item.clone()), downloaded: true };
     let mut file = tokio::fs::File::create(&bulk.path).await?;
     let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        file.write_all(&chunk?).await?;
+    while let Some(chunk) = crate::util::next_chunk(&mut stream).await? {
+        file.write_all(&chunk).await?;
     }
     file.flush().await?;
     Ok(bulk)
@@ -1030,6 +1079,45 @@ mod tests {
         let touched: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM printings WHERE updated_at != 'before'").fetch_one(&pool).await.unwrap();
         assert_eq!(touched, 0);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM price_point").fetch_one(&pool).await.unwrap(), points);
+    }
+
+    #[tokio::test]
+    async fn a_failing_import_waits_longer_each_time_before_downloading_again() {
+        assert_eq!([0, 1, 2, 3, 4, 5, 9].map(|n| retry_pause(n).num_hours()), [0, 2, 4, 8, 16, 24, 24]);
+        let pool = crate::db::test_pool().await;
+        let run = |started: chrono::DateTime<chrono::Utc>, ok: bool| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query("INSERT INTO import_runs (id, kind, started_at, finished_at, error) VALUES (?, 'default_cards', ?, ?, ?)")
+                    .bind(new_id())
+                    .bind(started.to_rfc3339())
+                    .bind(started.to_rfc3339())
+                    .bind((!ok).then_some("boom"))
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        };
+        let now = chrono::Utc::now();
+        assert!(retry_due(&pool, "default_cards", None).await);
+        run(now - chrono::Duration::hours(30), true).await;
+        // One failure an hour ago: not yet (two hours).
+        run(now - chrono::Duration::hours(1), false).await;
+        assert_eq!(failures_since_success(&pool, "default_cards").await.unwrap().0, 1);
+        assert!(!retry_due(&pool, "default_cards", None).await);
+        // Three in a row, the last nine hours ago: eight hours is enough.
+        run(now - chrono::Duration::hours(12), false).await;
+        run(now - chrono::Duration::hours(9), false).await;
+        sqlx::query("DELETE FROM import_runs WHERE started_at > ?").bind((now - chrono::Duration::hours(2)).to_rfc3339()).execute(&pool).await.unwrap();
+        run(now - chrono::Duration::hours(10), false).await;
+        assert_eq!(failures_since_success(&pool, "default_cards").await.unwrap().0, 3);
+        assert!(retry_due(&pool, "default_cards", None).await);
+        // A download that failed before any import began, ten minutes ago, waits too.
+        assert!(!retry_due(&pool, "default_cards", Some(&(1, now - chrono::Duration::minutes(10)))).await);
+        // A success clears it.
+        run(now - chrono::Duration::minutes(5), true).await;
+        assert_eq!(failures_since_success(&pool, "default_cards").await.unwrap().0, 0);
+        assert!(retry_due(&pool, "oracle_cards", None).await);
     }
 
     #[tokio::test]

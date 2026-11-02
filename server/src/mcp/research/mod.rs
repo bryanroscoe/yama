@@ -9,6 +9,7 @@ mod rules;
 use crate::auth::User;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
+use crate::deck_import::links::Site;
 use client::Provider;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -87,9 +88,9 @@ pub fn catalog() -> Vec<Value> {
         tool(
             "card_printings",
             "Printings and image links",
-            "Find paper printings by exact name, with USD/EUR regular and foil market references, legalities and original Scryfall image URLs. Images are never downloaded or bundled. A retrieval timestamp is an observation date, not a provider snapshot date.",
+            "Find a card's paper printings by exact name, from Yama's own copy of Scryfall's card data (no outside request): each with its latest TCGplayer, Cardmarket and Cardhoarder market prices, the date of those prices and their source, and original Scryfall image URLs. Images are never downloaded or bundled. A market price is a dated reference, not a store quote; a missing price is unknown.",
             schema(
-                json!({"name":string("Exact card name"),"page":number("Provider page",1,1,1000),"offset":number("Offset within that provider page",0,0,1000),"limit":number("Printings to show",20,1,60)}),
+                json!({"name":string("Exact card name"),"order":{"type":"string","enum":["usd","released"],"description":"Cheapest US price first (default) or newest first"},"offset":number("Printings to skip",0,0,1000),"limit":number("Printings to show",20,1,60)}),
                 &["name"],
             ),
             true,
@@ -282,15 +283,15 @@ pub async fn call(
         return Err(AppError::bad("arguments must be an object"));
     }
     let value = match name {
-        "search_scryfall" | "card_printings" => {
-            search(st, user, args, name == "card_printings").await?
-        }
+        "search_scryfall" => search(st, user, args).await?,
+        "card_printings" => printings(st, user, args).await?,
         "commander_recommendations" => recommendations(st, user, args).await?,
         "find_combos" => combos(st, user, args).await?,
-        "public_deck" => public_deck(st, required_text(args, "url", 1000)?).await?,
+        "public_deck" => public_deck(st, user, required_text(args, "url", 1000)?).await?,
         "rules_lookup" => {
             rules::lookup(
                 &st.research,
+                Some(&user.id),
                 required_text(args, "query", 200)?,
                 integer(args, "limit", 10, 1, 20)? as usize,
             )
@@ -363,34 +364,26 @@ pub fn card_summary(card: &Value) -> Value {
     out
 }
 
-async fn search(st: &AppState, user: &User, args: &Value, printings: bool) -> AppResult<Value> {
-    let query = if printings {
-        format!(
-            "!\"{}\" game:paper",
-            required_text(args, "name", 200)?
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-        )
-    } else {
-        required_text(args, "query", 1000)?.to_string()
-    };
+async fn search(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
+    let query = required_text(args, "query", 1000)?.to_string();
     let page = integer(args, "page", 1, 1, 1000)?;
     let limit = integer(args, "limit", 20, 1, 60)? as usize;
     let offset = integer(args, "offset", 0, 0, 1000)? as usize;
-    let order = optional_text(args, "order", 20)?.unwrap_or(if printings { "usd" } else { "name" });
+    let order = optional_text(args, "order", 20)?.unwrap_or("name");
     if !["name", "cmc", "edhrec", "usd", "released"].contains(&order) {
         return Err(AppError::bad("unsupported search order"));
     }
     let doc = st
         .research
         .get(
+            Some(&user.id),
             Provider::Scryfall,
             "/cards/search",
             &[
                 ("q", query),
                 ("page", page.to_string()),
                 ("order", order.into()),
-                ("unique", if printings { "prints" } else { "cards" }.into()),
+                ("unique", "cards".into()),
             ],
         )
         .await?;
@@ -432,6 +425,71 @@ async fn search(st: &AppState, user: &User, args: &Value, printings: bool) -> Ap
         "price_source":"Scryfall / TCGplayer and Cardmarket market references","price_observed_at":doc.fetched_at,"provider_price_date":null,
         "note":"This is a dated observation of provider market data, not a store quote or proof of stock. Missing price fields remain null. Follow next using the same query/order/limit. Card images load from their original URLs; retain artist and copyright credits."}),
     )
+}
+
+/// A card's paper printings from Yama's own copy of Scryfall's default cards, with each one's
+/// latest prices (`price_latest`), their date and their source. Nothing is fetched.
+async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
+    let name = required_text(args, "name", 200)?;
+    let limit = integer(args, "limit", 20, 1, 60)? as usize;
+    let offset = integer(args, "offset", 0, 0, 1000)? as usize;
+    let order = match optional_text(args, "order", 20)?.unwrap_or("usd") {
+        "usd" => "ps.usd IS NULL, ps.usd, p.released_at DESC, p.scryfall_id",
+        "released" => "p.released_at DESC, p.scryfall_id",
+        _ => return Err(AppError::bad("card_printings orders by usd or released")),
+    };
+    let Some(oracle_id) = crate::cards::resolve_names(&st.pool, &[name.to_string()]).await?.remove(name) else {
+        return Err(AppError::NotFound("a card by that exact name"));
+    };
+    let card: Option<String> = sqlx::query_scalar(
+        "SELECT json_object('oracle_id', oracle_id, 'name', name, 'mana_cost', mana_cost, 'cmc', cmc, 'type_line', type_line,
+                'oracle_text', oracle_text, 'color_identity', color_identity, 'legalities', json(legalities), 'keywords', json(keywords),
+                'game_changer', game_changer = 1, 'produced_mana', produced_mana)
+           FROM cards WHERE oracle_id = ?",
+    )
+    .bind(&oracle_id)
+    .fetch_optional(&st.pool)
+    .await?;
+    let card: Value = card.and_then(|c| serde_json::from_str(&c).ok()).unwrap_or(Value::Null);
+    let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT json_object('id', p.scryfall_id, 'set', p.set_code, 'set_name', p.set_name, 'set_type', p.set_type,
+                'collector_number', p.collector_number, 'lang', p.lang, 'rarity', p.rarity, 'finishes', json(p.finishes),
+                'released_at', p.released_at, 'artist', p.artist,
+                'scryfall_uri', 'https://scryfall.com/card/' || p.set_code || '/' || p.collector_number,
+                'image_uris', json_object('normal', p.image_normal, 'small', p.image_small, 'art_crop', p.image_art_crop),
+                'back_image_normal', p.back_image_normal,
+                'prices', json_object('usd', ps.usd, 'usd_foil', ps.usd_foil, 'usd_etched', ps.usd_etched, 'eur', ps.eur,
+                                      'eur_foil', ps.eur_foil, 'eur_etched', ps.eur_etched, 'tix', ps.tix),
+                'price_date', ps.date)
+           FROM printings p LEFT JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
+          WHERE p.oracle_id = ? AND IFNULL(p.digital, 0) = 0
+          ORDER BY {order}"
+    )))
+    .bind(&oracle_id)
+    .fetch_all(&st.pool)
+    .await?;
+    let total = rows.len();
+    let shown: Vec<Value> = rows.iter().skip(offset).take(limit).filter_map(|r| serde_json::from_str(r).ok()).collect();
+    let end = offset + shown.len();
+    // Which market each price is, from the series the history keeps.
+    let labels: Vec<(i64, String)> = sqlx::query_as("SELECT id, label FROM price_series WHERE feed = ? ORDER BY id")
+        .bind(crate::prices::SCRYFALL)
+        .fetch_all(&st.pool)
+        .await?;
+    let sources: serde_json::Map<String, Value> = crate::prices::SCRYFALL_SERIES
+        .iter()
+        .filter_map(|(id, column)| labels.iter().find(|(l, _)| l == id).map(|(_, label)| (column.to_string(), Value::from(label.as_str()))))
+        .collect();
+    let (real, proxies) = ownership(st, user).await?.get(&oracle_id).copied().unwrap_or_default();
+    let cards_at = crate::cards::import::cards_changed_at(&st.pool).await?;
+    let prices_at = crate::cards::import::latest_price_date(&st.pool).await?;
+    Ok(json!({
+        "provenance": {"provider": "Yama", "source": "Yama's copy of Scryfall's default cards (English, or a card's only language)", "retrieved_at": cards_at, "cached": true},
+        "card": card, "owned_real": real, "owned_proxies": proxies,
+        "total_printings": total, "offset": offset, "next": if end < total { json!({"offset": end}) } else { Value::Null },
+        "printings": shown, "price_sources": sources, "prices_as_of": prices_at,
+        "note": "Paper printings only. Each printing's prices are market references dated by its price_date (the newest Scryfall file Yama read that listed it, or found it missing), not store quotes or proof of stock; a missing price is unknown, never zero. Card images load from their original URLs; retain artist and copyright credits."
+    }))
 }
 
 fn slug(s: &str) -> String {
@@ -499,7 +557,7 @@ async fn recommendations(st: &AppState, user: &User, args: &Value) -> AppResult<
     } else {
         vec![]
     };
-    let doc = st.research.get(Provider::Edhrec, &path, &[]).await?;
+    let doc = st.research.get(Some(&user.id), Provider::Edhrec, &path, &[]).await?;
     let data = doc.json()?;
     let lists = data
         .pointer("/container/json_dict/cardlists")
@@ -600,6 +658,7 @@ async fn combos(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
         let doc = st
             .research
             .get(
+                Some(&user.id),
                 Provider::Spellbook,
                 "/variants/",
                 &[
@@ -639,7 +698,7 @@ async fn combos(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
             .map(|c| json!({"card":c.name,"quantity":c.qty}))
             .collect::<Vec<_>>()
     };
-    let doc=st.research.post(Provider::Spellbook,"/find-my-combos",json!({"commanders":entries(crate::decks::Board::Commander),"main":entries(crate::decks::Board::Main)})).await?;
+    let doc=st.research.post(Some(&user.id),Provider::Spellbook,"/find-my-combos",json!({"commanders":entries(crate::decks::Board::Commander),"main":entries(crate::decks::Board::Main)})).await?;
     let data = doc.json()?;
     let data = data
         .get("results")
@@ -838,14 +897,25 @@ pub fn parse_public(provider: Provider, data: &Value) -> AppResult<Value> {
     )
 }
 
-pub async fn public_deck(st: &AppState, raw: &str) -> AppResult<Value> {
+pub async fn public_deck(st: &AppState, user: &User, raw: &str) -> AppResult<Value> {
     let (provider, id, url) = deck_url(raw)?;
+    // The same rule as deck import (docs/deck-import.md): Moxfield's robots.txt disallows
+    // automated access and Archidekt's terms bar automated requests without permission, so Yama
+    // fetches from a site only where the server enables it (YAMA_DECK_LINK_SOURCES).
+    let site = if provider == Provider::Archidekt { Site::Archidekt } else { Site::Moxfield };
+    if !crate::deck_import::links::enabled(site) {
+        return Err(AppError::Forbidden(format!(
+            "Yama doesn't fetch {} decks: {}. Copy the list from the site and paste it instead.",
+            site.name(),
+            if site == Site::Moxfield { "Moxfield's robots.txt disallows automated access" } else { "Archidekt's terms bar automated requests without permission" }
+        )));
+    }
     let path = if provider == Provider::Archidekt {
         format!("/api/decks/{id}/")
     } else {
         format!("/v2/decks/all/{id}")
     };
-    let doc = st.research.get(provider, &path, &[]).await?;
+    let doc = st.research.get(Some(&user.id), provider, &path, &[]).await?;
     let mut result = parse_public(provider, &doc.json()?)?;
     result["url"] = url.into();
     result["provenance"] = doc.provenance();
@@ -886,7 +956,7 @@ async fn sources(st: &AppState) -> AppResult<Value> {
         {"name":"Commander Spellbook","url":"https://commanderspellbook.com","data":"Combos and prerequisites; explicit consent for deck list matching"},
         {"name":"Wizards","url":"https://magic.wizards.com/en/rules","data":"Official current rules, discovered and fetched at runtime"},
         {"name":"Moxfield / Archidekt","url":"https://moxfield.com","data":"Public deck lists; automated access can be blocked"}],
-        "note":"A capability inventory, not a live provider health check. Public GET results cached for one hour; deck POSTs are never cached. Source retrieval timestamps do not assert an upstream price snapshot date. Yama remains unofficial and not endorsed by Wizards."}),
+        "note":"A capability inventory, not a live provider health check. Public GET results are kept and shared for as long as each provider's answers stay useful (Scryfall 6 hours, public decks 3 hours, EDHREC and Spellbook searches a day, the rules page a day and a dated rules text 30 days), each with its provider and retrieval time; deck POSTs are never cached. Public deck links are fetched only from sites this server enables. Source retrieval timestamps do not assert an upstream price snapshot date. Yama remains unofficial and not endorsed by Wizards."}),
     )
 }
 

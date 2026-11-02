@@ -4,6 +4,7 @@ use super::client::{Provider, Research, trusted_rules_url};
 use crate::error::{AppError, AppResult};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use url::Url;
 
 #[derive(Default)]
@@ -85,16 +86,34 @@ pub fn discover(html: &str) -> AppResult<Url> {
         .ok_or_else(|| AppError::Unavailable("Wizards' rules page did not expose an official rules text link; no older edition was substituted.".into()))
 }
 
-pub async fn lookup(client: &Research, query: &str, limit: usize) -> AppResult<Value> {
-    let page = client.get(Provider::Rules, "/en/rules", &[]).await?;
+/// The current edition, parsed once and kept by its dated URL with its provenance. The rules
+/// page that names the edition is rechecked about daily (the research cache's time for it).
+static PARSED: std::sync::Mutex<Option<(String, Arc<Rules>, Value)>> = std::sync::Mutex::new(None);
+
+async fn current(client: &Research, who: Option<&str>) -> AppResult<(Arc<Rules>, Value)> {
+    let page = client.get(who, Provider::Rules, "/en/rules", &[]).await?;
     let url = discover(page.text()?)?;
-    let doc = client.rules_document(url).await?;
+    if let Some((kept, rules, provenance)) = PARSED.lock().expect("rules").as_ref()
+        && kept == url.as_str()
+    {
+        let mut provenance = provenance.clone();
+        provenance["cached"] = true.into();
+        return Ok((rules.clone(), provenance));
+    }
+    let doc = client.rules_document(who, url.clone()).await?;
     let rules = parse(doc.text()?);
     if rules.entries.len() < 100 {
         return Err(AppError::Unavailable(
             "The official rules document could not be indexed; no rule text was guessed.".into(),
         ));
     }
+    let rules = Arc::new(rules);
+    *PARSED.lock().expect("rules") = Some((url.to_string(), rules.clone(), doc.provenance()));
+    Ok((rules, doc.provenance()))
+}
+
+pub async fn lookup(client: &Research, who: Option<&str>, query: &str, limit: usize) -> AppResult<Value> {
+    let (rules, provenance) = current(client, who).await?;
     let query = query.trim().trim_end_matches('.');
     let matches: Vec<Value> = if rule_number(query) {
         rules
@@ -126,7 +145,7 @@ pub async fn lookup(client: &Research, query: &str, limit: usize) -> AppResult<V
         hits
     };
     Ok(
-        json!({"provenance": doc.provenance(), "effective": rules.effective, "query": query,
+        json!({"provenance": provenance, "effective": rules.effective, "query": query,
         "total_matches": matches.len(), "truncated": matches.len() > limit, "matches": matches.into_iter().take(limit).collect::<Vec<_>>(),
         "note": "Official rules evidence. Apply the cited rules to the actual scenario; an absent number is unknown, never a fabricated rule."}),
     )

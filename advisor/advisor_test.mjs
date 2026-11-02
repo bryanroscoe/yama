@@ -130,6 +130,22 @@ test("streamed text is passed on, then done with usage", async () => {
   assert.equal(seen[0].options.env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
 });
 
+test("prompt-cache token counts are passed on when the SDK reports them", async () => {
+  const out = [];
+  const req = validateRequest({ ...ok, mode: "api_key", api_key: KEY }).req;
+  const usage = { input_tokens: 12, output_tokens: 3, cache_read_input_tokens: 9000, cache_creation_input_tokens: 0 };
+  await runAdvice({
+    req,
+    queryFn: fakeQuery([{ type: "result", subtype: "success", is_error: false, result: "Hi", usage, total_cost_usd: 0.002 }], []),
+    oauthToken: TOKEN,
+    home: "/tmp/h",
+    path: "/usr/bin",
+    abortController: new AbortController(),
+    write: (e) => out.push(e),
+  });
+  assert.deepEqual(out.at(-1).usage, usage);
+});
+
 test("a whole answer without stream events is still sent", async () => {
   const out = [];
   await runAdvice({

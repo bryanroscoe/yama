@@ -42,3 +42,22 @@ where
 {
     serde::Deserialize::deserialize(d).map(Some)
 }
+
+/// How long a download may go without a byte before it counts as stalled.
+pub const DOWNLOAD_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+/// The longest a big download (Scryfall's bulk files, the scanner bundle) may take in all.
+pub const DOWNLOAD_TOTAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// The next piece of a download, or an error if none comes for [`DOWNLOAD_IDLE`], so a stalled
+/// connection can't hold up whatever is waiting for the file (the hourly import loop).
+pub async fn next_chunk<S, T>(stream: &mut S) -> anyhow::Result<Option<T>>
+where
+    S: futures_util::Stream<Item = reqwest::Result<T>> + Unpin,
+{
+    use futures_util::StreamExt;
+    match tokio::time::timeout(DOWNLOAD_IDLE, stream.next()).await {
+        Ok(Some(chunk)) => Ok(Some(chunk?)),
+        Ok(None) => Ok(None),
+        Err(_) => anyhow::bail!("the download stalled: nothing for {} s", DOWNLOAD_IDLE.as_secs()),
+    }
+}

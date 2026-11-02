@@ -136,10 +136,15 @@ async fn api_cors(State(cors): State<CorsLayer>, req: Request, next: Next) -> Re
     }
 }
 
+/// The client for Yama's own outside requests. Nothing may hang: a connection gets 10 s and a
+/// request two minutes, unless it sets its own (Ask Claude's answers, Forge games, the big
+/// downloads, which also give up when a stream stalls: `util::next_chunk`).
 pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         // Scryfall asks every client to identify itself.
         .user_agent(concat!("Yama/", env!("CARGO_PKG_VERSION"), " (private Magic app)"))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .expect("http client")
 }
@@ -180,8 +185,11 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         let (dir, http) = (cfg.data_dir.clone(), http_client());
         tokio::spawn(async move { crate::scan::ensure(dir, http).await });
     }
+    // Research answers are kept in the database (research_cache) so restarts reuse them; the deck
+    // checks pace their Spellbook requests with it.
+    let research = Arc::new(crate::mcp::research::client::Research::new(cfg.offline, pool.clone()));
     if cfg.deck_checks {
-        crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into());
+        crate::deck_checks::spawn_worker(pool.clone(), http_client(), crate::deck_checks::SPELLBOOK_ESTIMATE_URL.into(), research.clone());
     }
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
     // Forge as a second Lab engine, when its worker container is set up (lab/forge.rs).
@@ -222,7 +230,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         lab,
         watch: Arc::default(),
         limits: Arc::default(),
-        research: Arc::new(crate::mcp::research::client::Research::new(offline)),
+        research,
     };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");

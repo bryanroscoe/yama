@@ -62,7 +62,7 @@ pub async fn state() -> AppState {
 pub async fn state_with(cfg: Config, pool: SqlitePool) -> AppState {
     let play = crate::play::PlayHub::start(None, pool.clone());
     let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), None, None);
-    let research = Arc::new(crate::mcp::research::client::Research::new(cfg.offline));
+    let research = Arc::new(crate::mcp::research::client::Research::new(cfg.offline, pool.clone()));
     AppState {
         pool,
         cfg: Arc::new(cfg),

@@ -17,7 +17,6 @@ use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue};
 use axum::routing::get;
 use axum::{Json, Router};
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
@@ -119,13 +118,12 @@ async fn download(http: &reqwest::Client, dir: &Path) -> anyhow::Result<()> {
         }
         let url = format!("{RELEASE_URL}{BUNDLE_VERSION}/{name}");
         let part = dir.join(format!("{name}.part"));
-        let res = http.get(&url).send().await?.error_for_status().with_context(|| format!("downloading {url}"))?;
+        let res = http.get(&url).timeout(crate::util::DOWNLOAD_TOTAL).send().await?.error_for_status().with_context(|| format!("downloading {url}"))?;
         let mut file = tokio::fs::File::create(&part).await?;
         let mut hash = Sha256::new();
         let mut got = 0u64;
         let mut stream = res.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
+        while let Some(chunk) = crate::util::next_chunk(&mut stream).await? {
             got += chunk.len() as u64;
             anyhow::ensure!(got <= bytes, "{name} is larger than expected");
             hash.update(&chunk);

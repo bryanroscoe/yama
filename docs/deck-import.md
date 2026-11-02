@@ -19,6 +19,10 @@ Checked 22 Oct 2026. The import page is `/decks/import` (`web/src/decks/ImportPa
 | Scryfall decks | Paste | No documented deck API. |
 | Anything typed | Paste | One card per line; see below. |
 
+The research tools follow the same rule (2 Nov 2026): `public_deck` fetches a Moxfield or Archidekt deck only from a site `YAMA_DECK_LINK_SOURCES` enables, and otherwise answers that the list should be pasted.
+
+**EDHREC's JSON (`json.edhrec.com`).** The `commander_recommendations` research tool (`server/src/mcp/research/mod.rs`) fetches a commander's page from `json.edhrec.com`, and that sits uneasily with EDHREC's terms: as read on 18 Oct 2026 (`docs/research/mtg-apps-2026-10-18.md`), they allow personal, noncommercial use only, with no automated requests, and the JSON host refused the robots request (AccessDenied, 22 Oct). Yama's use is one request per question a signed-in person asks, paced a second apart, kept and shared for a day (the research cache) and counted in each person's outside-request budget, but none of that changes what the terms say. Not rechecked since; behaviour unchanged pending a decision (see the open questions). The ways to stay clearly inside them are Scryfall's `edhrec_rank` and links out, which Yama already has.
+
 Fetching, where it's switched on, runs on the server only: a User-Agent that names Yama and its about page, a 10-second timeout, a 3 MB cap, under each account's import limit (`limits.imports`, 60 an hour).
 
 ## Formats the parser reads
@@ -49,4 +53,5 @@ A copy the source marks as a proxy (the Proxy column of a Moxfield or Mythic Too
 
 ## Open questions for Bryan
 
+- EDHREC recommendations: ask EDHREC for permission to read `json.edhrec.com`, gate the `commander_recommendations` tool behind a setting the way deck links are, or drop it in favour of `edhrec_rank` and links out.
 - Ask Moxfield and Archidekt for permission to read public decks by link. Moxfield asks developers to contact it for API access; Archidekt's terms would need a yes. Until then, copy and paste works for both.

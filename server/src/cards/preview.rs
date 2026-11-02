@@ -13,7 +13,7 @@ pub(super) async fn get(State(st): State<AppState>, CurrentUser(user): CurrentUs
     if name.is_empty() || name.len()>240 || name.chars().any(char::is_control) {
         return Err(AppError::bad("Provide one card name."));
     }
-    let document=st.research.get(Provider::Scryfall,"cards/named",&[("exact",name.to_string())]).await?;
+    let document=st.research.get(Some(&user.id),Provider::Scryfall,"cards/named",&[("exact",name.to_string())]).await?;
     Ok(Json(preview(&document.json()?)))
 }
 

@@ -210,11 +210,11 @@ async fn network_cache_preserves_observation_date_and_blocks_redirects() {
     let (base, server) = mock(router).await;
     let research = client::Research::default().with_base(Provider::Scryfall, base);
     let a = research
-        .get(Provider::Scryfall, "/cards/search", &[])
+        .get(None, Provider::Scryfall, "/cards/search", &[])
         .await
         .unwrap();
     let b = research
-        .get(Provider::Scryfall, "/cards/search", &[])
+        .get(None, Provider::Scryfall, "/cards/search", &[])
         .await
         .unwrap();
     assert!(!a.cached);
@@ -223,7 +223,7 @@ async fn network_cache_preserves_observation_date_and_blocks_redirects() {
     assert_eq!(hits.load(Ordering::SeqCst), 1);
     assert!(
         research
-            .get(Provider::Scryfall, "/redirect", &[])
+            .get(None, Provider::Scryfall, "/redirect", &[])
             .await
             .unwrap_err()
             .to_string()
@@ -244,21 +244,21 @@ async fn provider_errors_limits_and_deck_sharing_are_explicit() {
     let research = client::Research::default().with_base(Provider::Scryfall, base);
     assert!(
         research
-            .get(Provider::Scryfall, "/bad", &[])
+            .get(None, Provider::Scryfall, "/bad", &[])
             .await
             .unwrap()
             .json()
             .is_err()
     );
     assert!(matches!(
-        research.get(Provider::Scryfall, "/limited", &[]).await,
+        research.get(None, Provider::Scryfall, "/limited", &[]).await,
         Err(AppError::TooManyRequests {
             retry_after: 15,
             ..
         })
     ));
     assert!(matches!(
-        research.get(Provider::Scryfall, "/limited", &[]).await,
+        research.get(None, Provider::Scryfall, "/limited", &[]).await,
         Err(AppError::TooManyRequests { .. })
     ));
     let st = testutil::state().await;
@@ -403,7 +403,7 @@ async fn scryfall_pagination_does_not_skip_cards_and_recommendation_filters_stay
             .with_base(Provider::Scryfall, base.clone())
             .with_base(Provider::Edhrec, base),
     );
-    let a = search(&st, &me, &json!({"query":"t:artifact","limit":1}), false)
+    let a = search(&st, &me, &json!({"query":"t:artifact","limit":1}))
         .await
         .unwrap();
     assert_eq!(a["next"], json!({"page":1,"offset":1}));
@@ -412,7 +412,6 @@ async fn scryfall_pagination_does_not_skip_cards_and_recommendation_filters_stay
         &st,
         &me,
         &json!({"query":"t:artifact","limit":1,"offset":1}),
-        false,
     )
     .await
     .unwrap();
@@ -422,7 +421,6 @@ async fn scryfall_pagination_does_not_skip_cards_and_recommendation_filters_stay
         &st,
         &me,
         &json!({"query":"t:artifact","limit":1,"offset":2}),
-        false,
     )
     .await
     .unwrap();
@@ -582,14 +580,7 @@ async fn live_public_research_contracts() {
             "find_combos",
             json!({"query":"card:\"Sol Ring\"","limit":1}),
         ),
-        (
-            "public_deck",
-            json!({"url":"https://archidekt.com/decks/1"}),
-        ),
-        (
-            "public_deck",
-            json!({"url":"https://moxfield.com/decks/8BVBQ928j0a76CqAbdmZYg"}),
-        ),
+        // public_deck fetches only from sites the server enables (YAMA_DECK_LINK_SOURCES).
         ("rules_lookup", json!({"query":"702.19","limit":2})),
     ];
     for (name, args) in cases {
@@ -600,4 +591,84 @@ async fn live_public_research_contracts() {
         assert!(result["provenance"]["retrieved_at"].is_string(), "{name}");
         eprintln!("verified {name}");
     }
+}
+
+#[tokio::test]
+async fn identical_requests_share_one_fetch_and_answers_outlive_a_restart() {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counter = hits.clone();
+    let router = Router::new().route(
+        "/cards/search",
+        get(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                axum::Json(json!({"data":[],"total_cards":0,"has_more":false}))
+            }
+        }),
+    );
+    let (base, server) = mock(router).await;
+    let pool = crate::db::test_pool().await;
+    let research = client::Research::default().with_base(Provider::Scryfall, base.clone()).with_store(pool.clone());
+    // Two people ask at once: one fetch, and the second has its answer.
+    let (a, b) = tokio::join!(
+        research.get(Some("a"), Provider::Scryfall, "/cards/search", &[]),
+        research.get(Some("b"), Provider::Scryfall, "/cards/search", &[])
+    );
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(a.fetched_at, b.fetched_at);
+    assert!(a.cached != b.cached);
+    // After a restart, from the database, with its provider and when it was fetched.
+    let restarted = client::Research::default().with_base(Provider::Scryfall, base).with_store(pool.clone());
+    let c = restarted.get(Some("c"), Provider::Scryfall, "/cards/search", &[]).await.unwrap();
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert!(c.cached);
+    assert_eq!(c.fetched_at, a.fetched_at);
+    assert_eq!(c.provenance()["provider"], "Scryfall");
+    server.abort();
+}
+
+#[tokio::test]
+async fn public_decks_are_fetched_only_from_enabled_sites() {
+    // The test environment never sets YAMA_DECK_LINK_SOURCES.
+    if std::env::var("YAMA_DECK_LINK_SOURCES").is_ok() {
+        return;
+    }
+    let st = testutil::state().await;
+    let (me, _) = account(&st, "me@example.com").await;
+    for (url, why) in [("https://moxfield.com/decks/8BVBQ928j0a76CqAbdmZYg", "robots.txt"), ("https://archidekt.com/decks/1", "terms")] {
+        let err = call(&st, &me, &Via::Key, "public_deck", &json!({"url": url})).await.unwrap_err();
+        assert!(matches!(err, AppError::Forbidden(_)), "{err}");
+        assert!(err.to_string().contains(why), "{err}");
+    }
+}
+
+#[tokio::test]
+async fn card_printings_come_from_local_data_with_dated_prices() {
+    let st = testutil::state().await;
+    seed(&st).await;
+    let (me, _) = account(&st, "me@example.com").await;
+    // Two more Sol Rings: a cheaper paper one, and a digital one that isn't listed.
+    for (id, set, digital, usd) in [("ring2", "cmm", 0, Some(1.25)), ("ring-mtgo", "prm", 1, Some(0.1))] {
+        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,updated_at) VALUES (?,'ring','Sol Ring',?,'Set','2','en','[\"nonfoil\",\"foil\"]',?,'2026-10-27')")
+            .bind(id).bind(set).bind(digital).execute(&st.pool).await.unwrap();
+        sqlx::query("INSERT INTO price_snapshots (scryfall_id,date,usd) VALUES (?,'2026-10-28',?)").bind(id).bind(usd).execute(&st.pool).await.unwrap();
+    }
+    let out: Value = serde_json::from_str(&call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring"})).await.unwrap()).unwrap();
+    assert_eq!(out["card"]["oracle_id"], "ring");
+    assert_eq!(out["total_printings"], 2);
+    // Cheapest first; a printing with no price is last, its price unknown rather than zero.
+    assert_eq!(out["printings"][0]["id"], "ring2");
+    assert_eq!(out["printings"][0]["prices"]["usd"], 1.25);
+    assert_eq!(out["printings"][0]["price_date"], "2026-10-28");
+    assert_eq!(out["printings"][1]["id"], "ring");
+    assert!(out["printings"][1]["prices"]["usd"].is_null());
+    assert_eq!(out["price_sources"]["usd"], "TCGplayer market via Scryfall");
+    assert_eq!(out["price_sources"]["eur_etched"], "Cardmarket via Scryfall");
+    assert_eq!(out["provenance"]["provider"], "Yama");
+    let paged: Value = serde_json::from_str(&call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring","limit":1})).await.unwrap()).unwrap();
+    assert_eq!(paged["next"], json!({"offset": 1}));
+    assert!(call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Not A Card"})).await.is_err());
 }
