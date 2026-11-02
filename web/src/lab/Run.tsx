@@ -112,7 +112,7 @@ function Again({ e }: { e: ExperimentDetail }) {
         {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${pick} games` : `Run again (${pick} games)`}
       </button>
       <span className="lab-note">
-        Same lists, opponents, engines and AI, new shuffles. More games give a tighter answer. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${pick} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
+        Same setup, new shuffles. {modeOf(e) === "tournament" ? "The count is appearances per deck, per engine." : ""}{enginesOf(e).mode === "both" ? ` ${pick} ${modeOf(e) === "tournament" ? "appearances per deck" : "games"} on each engine.` : ""}
       </span>
       <ErrorText error={again.error} />
     </div>
@@ -384,7 +384,7 @@ export function Progress({ e }: { e: ExperimentDetail }) {
       <ForgeWait e={e} />
       <p className="lab-note" style={{ margin: "0.2rem 0 0" }}>
         {e.status === "queued" ? "Waiting for earlier runs to finish" : "Playing"}
-        {games_ahead ? ` (${games_ahead} games ahead in the queue)` : ""}. This page checks every 5 seconds; you can leave and come back.
+        {games_ahead ? ` (${games_ahead} games ahead in the queue)` : ""}. You can leave and come back.
       </p>
     </section>
   );

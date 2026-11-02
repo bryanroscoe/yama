@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
-import { Details, ErrorText } from "./components/ui";
+import { ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
 import { discardQuestion, signOut, within } from "./plan/signout";
 import { clearPlanData } from "./plan/store";
@@ -309,7 +309,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
       <div>
         <SignInTitle className="login-title">{title}</SignInTitle>
         {pathname === "/oauth/authorize" && (
-          <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
+          <p style={{ margin: "0 0 8px" }}>Sign in to review this app's access.</p>
         )}
         {config.data?.open_signup ? (
           <p className="dim" style={{ margin: 0 }}>Free with a verified Google account.</p>
@@ -339,8 +339,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
       )}
       {config.data && !clientId && !config.data.dev_login && !config.data.cf_access && !config.data.password_login && (
         <p className="dim">
-          Sign-in isn't set up on this server yet. Set YAMA_GOOGLE_CLIENT_IDS, add an account with <code>yama-server user add</code>, or set
-          YAMA_DEV_LOGIN=1 for local use.
+          Sign-in isn't set up. Contact your host.
         </p>
       )}
       {config.data?.password_login && (
@@ -393,10 +392,6 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
         </form>
       )}
       <ErrorText error={error ?? config.error} />
-      <Details label="Accounts and offline use">
-        <p>Your data stays private unless you choose to share a deck or collection.</p>
-        <p>The life counter works offline on a phone that has signed in before.</p>
-      </Details>
     </>
   );
 }

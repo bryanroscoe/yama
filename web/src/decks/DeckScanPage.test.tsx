@@ -33,7 +33,7 @@ describe("Scan this deck", () => {
     expect(html).toContain("Add Test Commander without scanning");
     expect(html).toContain("Scan with the camera");
     expect(html).toContain("Or type a card&#x27;s name");
-    expect(html).toContain("the list it replaces stays in History");
+    expect(html).toContain("earlier versions stay in History");
     // Nothing to compare until a card is in.
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Check the changes<\/button>/);
   });

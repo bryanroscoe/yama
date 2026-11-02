@@ -113,7 +113,7 @@ export function DeckCheckPage() {
       <p className="small"><Link to={`/decks/${d.id}`}>Back to {d.name}</Link></p>
       <h1>Check {d.name}</h1>
       <p className="dim">
-        Flip through the box with the camera. Each card says at once whether it belongs in the list you pick, has to come out, or is a second copy. Nothing is saved: not the deck, its plan, your collection or installs.
+        Scan the box to find missing cards, extras and duplicates. Checking doesn't change your deck or collection.
       </p>
 
       <div className="deck-check-target">
@@ -152,7 +152,7 @@ export function DeckCheckPage() {
           </div>
           <label className="scan-keep deck-check-mute">
             <input type="checkbox" checked={muted} onChange={(e) => toggleMute(e.target.checked)} />
-            <span><strong>Mute.</strong> No sounds or buzzing, only colours. Remembered on this device.</span>
+            <span>Mute sounds and vibration</span>
           </label>
           <TakeOut verdicts={verdicts} />
           <StillMissing target={t} verdicts={verdicts} />
@@ -165,7 +165,7 @@ export function DeckCheckPage() {
               </button>
             </div>
           )}
-          {sum.checked > 0 && <p className="small dim">Save as a deck scan opens Scan this deck with these cards, to compare and save them as a new version of the deck. Until then nothing is saved.</p>}
+          {sum.checked > 0 && <p className="small dim">Review the changes before saving a deck version.</p>}
         </>
       )}
       {camera && t && (

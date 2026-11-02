@@ -22,7 +22,7 @@ describe("deck market prices", () => {
     expect(html).toContain("100 copies without a price");
     expect(html).not.toContain("$0.00");
     expect(html).not.toContain("Sealed deck:");
-    expect(renderToStaticMarkup(<DeckPrices singles={value} precon />)).toContain("no unambiguous product match");
+    expect(renderToStaticMarkup(<DeckPrices singles={value} precon />)).toContain("No matching sealed market price");
   });
 
   it("splits the value into real cards, proxies and what's left, keeping missing prices unknown", () => {

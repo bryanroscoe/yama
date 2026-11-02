@@ -89,7 +89,7 @@ export function DecksPage() {
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
         <div className="empty">
-          <p>No decks yet. Bring one in from Moxfield, Archidekt, MTG Arena, MTGO, ManaBox, a file or a typed list.</p>
+          <p>No decks yet.</p>
           <Link className="button primary" to="/decks/import">Add a deck</Link>
         </div>
       )}
@@ -730,10 +730,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         </label>
         <label>
           Bracket
-          <span className="hint">
-            The bracket you'd tell the table before a game. Yama's starting suggestion from the card list is shown beside it and never changes it. Choose 1 for a deliberately theme-first deck; an unflagged card list starts provisionally at 2.
-            {checksOn && ` ${SENDS_LIST}`}
-          </span>
+          {checksOn && <span className="hint">{SENDS_LIST}</span>}
           <select value={bracket} onChange={(e) => setBracket(e.target.value)}>
             <option value="">Not declared</option>
             {BRACKETS.map((b) => <option key={b.value} value={b.value}>{b.value}, {b.name}</option>)}
@@ -743,8 +740,8 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
           Configuration of
           <span className="hint">
             {hasConfigs
-              ? "This is a main deck with configurations of its own, so it stays one."
-              : "Group this deck under another as one of its builds (stock, budget, high power). It keeps its own versions, games and sharing."}
+              ? "This deck has configurations of its own."
+              : "Keeps its own versions, games and sharing."}
           </span>
           <select value={parent} onChange={(e) => setParent(e.target.value)} disabled={hasConfigs}>
             <option value="">None, it's a main deck</option>
@@ -753,12 +750,10 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         </label>
         <label>
           Configuration name
-          <span className="hint">{parent ? "How this build shows under its main deck." : "What this deck's own list is called beside its configurations; blank reads as Main."}</span>
           <input value={configuration} onChange={(e) => setConfiguration(e.target.value)} maxLength={60} placeholder={parent ? "stock" : "Main"} />
         </label>
         <label>
-          Physical deck
-          <span className="hint">The collection container this deck's cards live in, so you can see which copies are already sleeved up.</span>
+          Collection box
           <select value={container} onChange={(e) => setContainer(e.target.value)}>
             <option value="">None</option>
             {containers.data?.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
@@ -767,8 +762,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         <label>
           Deck list
           <span className="hint">
-            Keep the Commander and Deck headings. Saving makes a new version; older versions stay with the games they were played in. Got a newer
-            list on Moxfield or Archidekt, or a file? <Link to={`/decks/import?deck=${deck.id}`}>Update from a list or file</Link> shows what changes first.
+            Keep the Commander and Deck headings. Saving keeps earlier versions in History. <Link to={`/decks/import?deck=${deck.id}`}>Import an updated list</Link>
           </span>
           <textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: "18rem" }} />
         </label>
@@ -827,7 +821,7 @@ function SampleHand({ deck, art, artist, onClose }: { deck: DeckView; art: strin
             </li>
           ))}
         </ul>
-        <p className="small dim hand-note">The first mulligan is free, as in most Commander games. Card images from Scryfall, © Wizards of the Coast.</p>
+        <p className="small dim hand-note">First mulligan free. Card images from Scryfall, © Wizards of the Coast.</p>
       </div>
       <div className="hand-bar">
         <button className="primary" onClick={() => setG(draw(g))} disabled={g.toBottom > 0 || g.library.length === 0}>Draw</button>

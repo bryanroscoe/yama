@@ -201,7 +201,7 @@ export function RunsPage() {
           <h2 id="batch-runs" className="lab-runs-head">
             Batch runs
           </h2>
-          <p className="lab-note">Paired runs from your overnight batches, analysed in commander-decks and imported here. Only you see them.</p>
+          <p className="lab-note">Imported paired runs.</p>
           {batch.flatMap((r) =>
             (r.paired?.comparisons ?? []).map((c) => {
               const tag = verdictTag(c.verdict.kind);

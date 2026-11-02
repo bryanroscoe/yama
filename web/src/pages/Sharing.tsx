@@ -42,7 +42,7 @@ export function SharingPage() {
   const profile = sharing.data?.handle ? `${publicOrigin()}/u/${sharing.data.handle}` : null;
   return <main className="page sharing-page">
     <div className="page-head"><h1>Sharing</h1></div>
-    <p className="dim">Your public profile, shared decks and groups of builds. Open the page your friends see, copy its link, or go back to edit it.</p>
+    <p className="dim">Open your public pages, copy their links or manage what you share.</p>
     <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-notes">Builds and notes</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
     <section className="grp-section" aria-labelledby="sharing-profile">
       <h2 id="sharing-profile">Your public profile</h2>
@@ -60,7 +60,7 @@ export function SharingPage() {
     </section>
     <section className="grp-section" aria-labelledby="sharing-notes">
       <h2 id="sharing-notes">Shared builds and notes</h2>
-      <p className="dim">Groups of decks and alternate builds shared from Agent notes.</p>
+      <p className="dim">Groups of decks and alternate builds from Agent notes.</p>
       <ErrorText error={notes.error} />
       {notes.isPending && <p>Loading build notes…</p>}
       {sharedNotes?.length === 0 && <p>No build notes shared yet. Open an agent note and choose Share this note.</p>}

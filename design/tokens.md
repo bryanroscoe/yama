@@ -84,12 +84,15 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
 
 ## Copy and help
 
-Use labels and actions that explain themselves. Remove redundant introductions and repeated
-instructions. Put optional methods, definitions, shortcuts and extended explanations in a
-native, collapsed disclosure with a specific label. Disclosures must work on touch and keyboard;
-do not rely on a hover-only tooltip. Group related guidance instead of adding a help row for
-every field. Keep errors, active warnings, missing data, source dates, price sources and art
-credits visible beside the relevant content.
+Write like Bryan: direct, plain and useful. Let headings, labels and buttons do the work.
+Delete copy that repeats them. Empty states usually need one sentence. Skip feature pitches,
+rhetorical questions and reassurance after every action. Say what an action saves or shares
+where the person makes that decision; don't repeat it across the page.
+
+Cut unnecessary explanations before moving anything into help. Keep useful methods, definitions
+and shortcuts in one native, collapsed disclosure with a specific label. It must work on touch
+and keyboard; never rely on a hover-only tooltip for necessary information. Keep errors, active
+warnings, missing data, source dates, price sources and art credits visible beside their content.
 
 ## Buttons and controls
 

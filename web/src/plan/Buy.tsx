@@ -94,7 +94,7 @@ export function Buy() {
         )}
       </div>
 
-      {list.count === 0 && list.marked.length === 0 && <p className="empty">Nothing to buy. Proposals to buy show up here until you say no or your plan records the order.</p>}
+      {list.count === 0 && list.marked.length === 0 && <p className="empty">Nothing to buy.</p>}
 
       <div className="buy-stores">
         {list.stores.map((g) => (
@@ -108,14 +108,13 @@ export function Buy() {
                 </span>
               </span>
               {g.cartUrl && (
-                <a className="button primary buy-cart" href={g.cartUrl} target="_blank" rel="noreferrer" title="Replaces what's in that cart now">
-                  Fill the cart
+                <a className="button primary buy-cart" href={g.cartUrl} target="_blank" rel="noreferrer">
+                  Replace cart
                 </a>
               )}
             </header>
             {g.store.note && <p className="buy-store-note">{g.store.note}</p>}
             {g.rows.map(row)}
-            {g.cartUrl && <p className="buy-store-note">Filling the cart at {g.store.short ?? g.store.name} replaces what's in it now.</p>}
           </section>
         ))}
       </div>
@@ -152,7 +151,7 @@ export function Buy() {
           <h2 id="buy-marked" className="plan-section-head">
             Marked bought <span className="num dim">{list.marked.length + recorded.length}</span>
           </h2>
-          <p className="dim small">Out of the totals and carts. A card counts as yours once your plan records the order.</p>
+          <p className="dim small">Excluded from carts and totals; ownership waits for the recorded order.</p>
           {list.marked.map((r) => (
             <div key={r.swap.key} className="buy-row is-bought">
               <Crop src={view.card(r.swap.in)?.image_art_crop} />
@@ -202,7 +201,6 @@ export function Buy() {
       {realOrders.length > 0 && (
         <section className="plan-section" aria-labelledby="buy-orders">
           <h2 id="buy-orders" className="plan-section-head">Your orders</h2>
-          <p className="dim small">Each order A to Z, with the deck each card goes in, for sorting a delivery.</p>
           {realOrders.map((o) => (
             <Delivery key={o.key} order={o} view={view} />
           ))}

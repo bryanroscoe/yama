@@ -54,7 +54,7 @@ export function SharingSettings() {
       >
         <label>
           Your handle
-          <span className="hint">Your profile's address, /u/handle. 3 to 30 letters, digits, - or _. People seating a game can find you by it.</span>
+          <span className="hint">3–30 letters, digits, - or _. Your profile is at /u/handle.</span>
           <span className="row">
             <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="saget" maxLength={31} autoCapitalize="none" spellCheck={false} />
             <button disabled={save.isPending || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>Save</button>

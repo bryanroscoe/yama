@@ -45,10 +45,6 @@ export function Overview() {
       {b.decks.length === 0 ? (
         <div className="empty stack">
           <p>No plans yet.</p>
-          <p className="small">
-            A plan file brings in your decks with their stock, now and after-prints lists, every swap with its reason and where each card comes from, and
-            your proposals. Your plans are yours: nobody else sees them.
-          </p>
         </div>
       ) : (
         <>
@@ -115,7 +111,7 @@ export function Overview() {
           {installedGone.length > 0 && (
             <section className="plan-notes">
               <h3>Installed, but no longer in the plan</h3>
-              <p className="small dim">You ticked these as in the deck, and the latest import doesn't have the swap. Settle them with your planner, or clear the tick.</p>
+              <p className="small dim">Missing from the latest import. Review with your planner or clear the mark.</p>
               <ul className="small">
                 {installedGone.map(([key]) => {
                   const [, deck, inn, out] = key.split("|");
@@ -181,7 +177,7 @@ export function Overview() {
           {archived.length > 0 && (
             <section className="plan-section">
               <h2 className="plan-section-head">No longer in the plan</h2>
-              <p className="dim small">The latest import didn't include these decks. Yama keeps them so their answers aren't lost.</p>
+              <p className="dim small">Not in the latest import. Previous answers kept.</p>
               <div className="plan-deck-grid">
                 {archived.map((d) => (
                   <DeckTile key={d.key} deck={d} view={view} counts={deckCounts(d, view.swapsOf(d.key), view.answers, view.ctx.orders)} buy={buy} />

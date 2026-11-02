@@ -80,6 +80,6 @@ describe("returning to shared content", () => {
       expect(html).not.toContain("main-token");
       expect(html).not.toContain("/u/saget");
     }
-    expect(page(null)).toContain("Sign in to continue");
+    expect(page(null)).toContain("Sign in to Yama");
   });
 });

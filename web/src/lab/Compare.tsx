@@ -125,9 +125,9 @@ function CompareForm() {
       </div>
       <Details label="How this comparison works" className="lab-try-intro">
         <p>
-        {tournament ? "One shared experiment for a large field. Randomized four-player pods balance appearances and opponent meetings, and rotate every deck through all seats. Every deck at the table contributes to the results." : versus
-          ? "Your decks sit at the same table and play each other, every deck taking every seat in turn so going first evens out."
-          : "Both decks play the same pods: the same opponents, seats and shuffles. Only the deck differs, so the difference is between the decks."}
+        {tournament ? "Four-player pods balance appearances, opponents and seats across the field." : versus
+          ? "Your decks play each other, rotating seats."
+          : "Both lists face the same opponents, seats and shuffles."}
         </p>
         <p>{caveat()}</p>
       </Details>
@@ -143,7 +143,7 @@ function CompareForm() {
             </h2>
             {tournament ? <>
               <button type="button" className="outline" onClick={() => setPicked((decks.data ?? []).map(fromDeckSummary))}>Select all my saved decks</button>
-              <p className="small dim">Identical lists are counted once, even if a stock precon and one of your decks have different names. Current and after-prints lists stay separate when their cards differ.</p>
+              <p className="small dim">Identical lists count once.</p>
               <ul>{chosen.map((c) => <li key={c.key}>{c.label} <button type="button" className="quiet" aria-label={`Remove ${c.label}`} onClick={() => setPicked((p) => p.filter((x) => x?.key !== c.key))}>Remove</button></li>)}</ul>
               {chosen.length < 256 && <DeckChooser value={null} onChange={(c) => c && setPicked((p) => [...p.filter(Boolean), c])} exclude={chosen.map((c) => c.key)} />}
               <label><input type="checkbox" checked={includePrecons} onChange={(e) => setIncludePrecons(e.target.checked)} /> Include all supported stock precons as tournament entrants</label>
@@ -248,7 +248,7 @@ function CompareForm() {
               {create.isPending ? "Starting…" : tournament ? "Start tournament" : versus ? "Play them head to head" : "Compare them"}
             </button>
             <p className="lab-note" style={{ margin: 0 }}>
-              AI-piloted simulated games, not your table. To test a change to one deck, use <Link to="/lab/try">Try a change</Link>. <Link to="/lab/runs">My runs</Link>
+              AI simulations. To test swaps, use <Link to="/lab/try">Try a change</Link>. <Link to="/lab/runs">My runs</Link>
             </p>
           </section>
         </aside>

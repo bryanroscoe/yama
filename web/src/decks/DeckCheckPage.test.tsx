@@ -56,7 +56,7 @@ describe("Check this deck", () => {
   it("starts against the deck's current list and offers its versions and plan builds", () => {
     const html = page();
     expect(html).toContain("Check Prismari Artistry");
-    expect(html).toContain("Nothing is saved");
+    expect(html).toContain("Checking doesn&#x27;t change your deck or collection");
     expect(html).toMatch(/<optgroup label="This deck"><option value="current"[^>]*>The deck&#x27;s current list<\/option>/);
     expect(html).toContain("Stock, Oct 20, 2026");
     expect(html).not.toContain("Installed, Oct 31");
@@ -65,7 +65,7 @@ describe("Check this deck", () => {
     expect(html).toContain(">0</b> checked");
     expect(html).toContain("0 of 5 belong");
     expect(html).toContain("Check with the camera");
-    expect(html).toContain("Mute.");
+    expect(html).toContain("Mute sounds and vibration");
     expect(html).toContain("No cards checked yet.");
   });
 

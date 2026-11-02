@@ -30,8 +30,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
         {!apply.data && (
           <>
             <p className="dim small">
-              Pick the plan file your planner wrote (commander-decks writes data/planner/yama-plan.json). Yama checks it first and shows what would
-              change. Nothing is saved until you press Import.
+              Choose your planner's JSON export to preview the changes.
             </p>
             <label>
               Plan file
