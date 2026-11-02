@@ -31,11 +31,13 @@ export function WatchHome() {
     queryKey: ["watch"],
     queryFn: ({ signal }) => api<WatchSummary[]>("/api/watch", { signal }),
     // Every 15 s while one of them is playing and the page is on screen, once a minute while one is
-    // paused (another tab can resume it), and not at all once they've all finished. It was every
-    // 5 s. Coming back to the page always asks again.
+    // paused (another tab can resume it), and every 5 minutes while only finished ones are listed
+    // (the server lets them go 30 minutes after they were last looked at). It was every 5 s.
+    // Coming back to the page always asks again.
     refetchInterval: (q) => {
-      const live = q.state.data?.filter((g) => !g.status.finished) ?? [];
-      return live.some((g) => g.status.playing) ? 15_000 : live.length ? 60_000 : false;
+      const games = q.state.data ?? [];
+      const live = games.filter((g) => !g.status.finished);
+      return live.some((g) => g.status.playing) ? 15_000 : live.length ? 60_000 : games.length ? 300_000 : false;
     },
     refetchOnWindowFocus: "always",
   });
