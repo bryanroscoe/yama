@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Yama</string>
+    <string name="title_activity_main">Yama</string>
+    <string name="package_name">ing.yama.app</string>
+    <string name="custom_url_scheme">ing.yama.app</string>
+</resources>

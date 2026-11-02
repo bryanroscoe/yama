@@ -2,6 +2,7 @@ import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ErrorText } from "../components/ui";
 import { CopyButton } from "../plan/parts";
+import { publicOrigin } from "../api";
 import { disconnectApp, listConnectedApps } from "./api";
 import { appKind, appName, claudeCodeCommand } from "./logic";
 
@@ -14,7 +15,7 @@ export function ConnectedApps() {
   const apps = useQuery({ queryKey: ["connected-apps"], queryFn: listConnectedApps });
   const disconnect = useMutation({ mutationFn: disconnectApp, onSuccess: () => void qc.invalidateQueries({ queryKey: ["connected-apps"] }) });
   if (apps.data && !apps.data.enabled) return null;
-  const url = apps.data?.mcp_url ?? `${window.location.origin}/mcp`;
+  const url = apps.data?.mcp_url ?? `${publicOrigin()}/mcp`;
   const command = claudeCodeCommand(url);
   return (
     <section className="stack">

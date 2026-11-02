@@ -15,6 +15,7 @@ import "./art-framing.css";
 import { refreshOfflineCardsIfStale } from "./offline/cards";
 // Catches the browser's install prompt as early as it fires, for the Install Yama buttons.
 import "./install";
+import { installNative, isNative } from "./native";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -30,7 +31,10 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+installNative();
+
+// The Android app carries its own copy of the build, so it needs no service worker.
+if (import.meta.env.PROD && "serviceWorker" in navigator && !isNative()) {
   window.addEventListener("load", () => void navigator.serviceWorker.register(`/sw.js?v=${import.meta.env.VITE_SW_VERSION}`));
 }
 

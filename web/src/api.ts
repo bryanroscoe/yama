@@ -29,6 +29,12 @@ const TOKEN_KEY = "yama.token";
 /** Empty on the web (same origin). The phone apps load from the device, so they set the server URL. */
 export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
 
+/** Links people open elsewhere (shared decks, profiles, join links, the MCP address) always point at
+ * the web app on the server, never at the Android app's own origin. */
+export function publicOrigin(): string {
+  return (import.meta.env.VITE_PUBLIC_URL as string | undefined) ?? (API_BASE || location.origin);
+}
+
 /** Native apps can't share the web cookie, so they keep the bearer token. Web relies on the cookie. */
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -311,7 +317,7 @@ export interface PublicDeck {
 
 /** "https://yama.example/d/abc…" for a share token, on this site. */
 export function shareUrl(token: string): string {
-  return `${location.origin}/d/${token}`;
+  return `${publicOrigin()}/d/${token}`;
 }
 
 /** An outside bracket estimate, shown beside the declared bracket and never instead of it. */
