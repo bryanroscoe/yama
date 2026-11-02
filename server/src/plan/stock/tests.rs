@@ -391,14 +391,22 @@ async fn pruning_keeps_the_days_reads_so_the_cap_holds() {
         snapshot(&st.pool, &owner, &id, "pats", "shopify", Some(&["Sol Ring"])).await;
         sqlx::query("UPDATE store_snapshots SET status = 'ok', fetched_at = requested_at WHERE id = ?").bind(&id).execute(&st.pool).await.unwrap();
     }
-    // An old one past the newest 20 goes; today's all stay.
-    snapshot(&st.pool, &owner, "old", "pats", "shopify", Some(&["Sol Ring"])).await;
-    sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2026-01-01T00:00:00Z', fetched_at = '2026-01-01T00:00:00Z' WHERE id = 'old'").execute(&st.pool).await.unwrap();
+    // An old one past the newest 20 goes; today's all stay, and so does one a pending change started.
+    for id in ["old", "old-pending"] {
+        snapshot(&st.pool, &owner, id, "pats", "shopify", Some(&["Sol Ring"])).await;
+        sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2026-01-01T00:00:00Z', fetched_at = '2026-01-01T00:00:00Z' WHERE id = ?").bind(id).execute(&st.pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO assistant_changes (id, owner_id, kind, summary, payload, via, created_at) VALUES ('chg-p', ?, 'check_stores', 's', '{}', 'key', 'now')")
+        .bind(&owner)
+        .execute(&st.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE store_snapshots SET change_id = 'chg-p' WHERE id = 'old-pending'").execute(&st.pool).await.unwrap();
     let mut tx = st.pool.begin().await.unwrap();
     prune(&mut tx, &owner, "pats").await.unwrap();
     tx.commit().await.unwrap();
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ?").bind(&owner).fetch_one(&st.pool).await.unwrap();
-    assert_eq!(n, DAILY_SNAPSHOTS + 3);
+    assert_eq!(n, DAILY_SNAPSHOTS + 4, "the day's reads and the pending change's read stay; the other old one goes");
     let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
     assert!(matches!(start(&st, &owner, &body, "page", None).await, Err(AppError::TooManyRequests { .. })));
 }

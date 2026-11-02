@@ -693,18 +693,21 @@ async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l:
 }
 
 /// Keep the newest `KEEP` snapshots of a store, and raw responses for the newest `RAW_KEEP`. Rows
-/// from the last 24 hours always stay, since the daily cap counts them.
+/// from the last 24 hours always stay, since the daily cap counts them, and so do rows a pending
+/// check_stores change started (they're how applying it again knows it already ran).
 async fn prune(tx: &mut sqlx::SqliteConnection, owner: &str, store: &str) -> AppResult<()> {
     let day = (Utc::now() - Days::hours(24)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let old: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM (SELECT id, requested_at FROM store_snapshots WHERE owner_id = ? AND store_key = ? AND status != 'running'
+        "SELECT id FROM (SELECT id, requested_at, change_id FROM store_snapshots WHERE owner_id = ? AND store_key = ? AND status != 'running'
                          ORDER BY requested_at DESC, id DESC LIMIT -1 OFFSET ?)
-         WHERE requested_at < ?",
+         WHERE requested_at < ?
+           AND (change_id IS NULL OR change_id NOT IN (SELECT id FROM assistant_changes WHERE owner_id = ? AND status = 'pending'))",
     )
     .bind(owner)
     .bind(store)
     .bind(KEEP)
     .bind(&day)
+    .bind(owner)
     .fetch_all(&mut *tx)
     .await?;
     for id in old {
