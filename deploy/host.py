@@ -64,19 +64,40 @@ def api(path, token):
         raise Refused('GitHub verification unavailable for ' + path.split('?')[0]) from None
 
 
-def verify_ci(revision, token):
-    if api('git/ref/heads/main', token)['object']['sha'] != revision:
-        return False  # superseded request, never an implicit rollback
+def push_ci(revision, token):
+    """The latest push CI run for a main revision, or None."""
     runs = api('actions/workflows/ci.yml/runs?event=push&branch=main&head_sha='
                + revision + '&per_page=1', token)['workflow_runs']
-    if not runs:
-        raise Refused('No push CI exists for this main revision')
-    run = runs[0]
+    return runs[0] if runs else None
+
+
+def passed(run, revision):
     expected = {'head_sha': revision, 'head_branch': 'main', 'event': 'push',
                 'status': 'completed', 'conclusion': 'success'}
-    if (any(run.get(k) != v for k, v in expected.items())
-            or run.get('path', '').split('@')[0] != '.github/workflows/ci.yml'
-            or run.get('head_repository', {}).get('full_name') != REPO):
+    return (run is not None and all(run.get(k) == v for k, v in expected.items())
+            and run.get('path', '').split('@')[0] == '.github/workflows/ci.yml'
+            and run.get('head_repository', {}).get('full_name') == REPO)
+
+
+def ahead(base, head, token):
+    """True when head is base or a descendant of it on GitHub."""
+    return base == head or api('compare/' + base + '...' + head, token).get('status') == 'ahead'
+
+
+def verify_ci(revision, token):
+    main = api('git/ref/heads/main', token)['object']['sha']
+    if main != revision:
+        # Main moved on while this request waited, built or activated. With merges every few
+        # minutes and a slower CI and build, requiring the exact tip starved every release.
+        # A commit still on main deploys unless a newer main commit is already deployable
+        # (its push CI passed): that one's own request supersedes this one. A commit off main
+        # never deploys; release() separately refuses anything older than production.
+        if not ahead(revision, main, token) or passed(push_ci(main, token), main):
+            return False
+    run = push_ci(revision, token)
+    if run is None:
+        raise Refused('No push CI exists for this main revision')
+    if not passed(run, revision):
         raise Refused('Latest push CI for this main revision has not passed')
     return True
 
@@ -170,9 +191,30 @@ def checkout(revision, token):
         raise Refused('Deployment checkout must be clean main')
     run(['git', '-C', repo, 'fetch', '--no-tags', 'origin',
          '+refs/heads/main:refs/remotes/origin/main'], env=git_auth(token))
-    if run(['git', '-C', repo, 'rev-parse', 'origin/main']) != revision:
+
+    def contains(older, newer):
+        # A nonzero exit is "no": 1 when not an ancestor, 128 when the commit was never fetched
+        # with main (so it isn't on main). A timeout or the release deadline is a failed
+        # release, never a quiet supersession.
+        try:
+            run(['git', '-C', repo, 'merge-base', '--is-ancestor', older, newer])
+            return True
+        except Refused as error:
+            if str(error).startswith('Command failed: '):
+                return False
+            raise
+
+    # The revision must be on main (main may have moved past it), and never older than what
+    # this checkout last deployed: fast-forward only.
+    if not contains(revision, 'origin/main'):
         return None
-    run(['git', '-C', repo, 'merge', '--ff-only', 'origin/main'])
+    try:
+        head = run(['git', '-C', repo, 'rev-parse', '--verify', '--quiet', 'HEAD'])
+    except Refused:
+        head = ''  # a new checkout has no commit yet
+    if head and head != revision and not contains(head, revision):
+        return None
+    run(['git', '-C', repo, 'merge', '--ff-only', revision])
     if run(['git', '-C', repo, 'rev-parse', 'HEAD']) != revision:
         raise Refused('Deployment checkout differs from verified main')
     return repo
@@ -635,6 +677,11 @@ def release(revision, token, check_only=False):
                     record['status'] = 'already_healthy'
                     log('Already deployed and healthy at ' + revision + '; nothing restarted.')
                     return 'already_healthy'
+                # Main may have moved on (verify_ci), but production never goes back.
+                if saved.get('revision') and not ahead(saved['revision'], revision, token):
+                    record['status'] = 'superseded'
+                    log('Superseded: production already runs a newer main commit; nothing deployed.')
+                    return 'superseded'
             record['stage'] = 'checkout'
             write_json(record_path, record)
             repo = checkout(revision, token)

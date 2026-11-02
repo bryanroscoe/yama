@@ -113,6 +113,45 @@ class HostGate(unittest.TestCase):
                 with self.assertRaises(host.Refused):
                     host.verify_ci(SHA, 'token')
 
+    def test_moved_main_still_deploys_until_a_newer_main_commit_passes(self):
+        pending = {**self.good_run, 'head_sha': OTHER, 'status': 'in_progress', 'conclusion': None}
+        # Main moved to OTHER, whose CI is still running: SHA (on main, CI passed) deploys.
+        with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
+                                                    {'workflow_runs': [pending]}, {'workflow_runs': [self.good_run]}]):
+            self.assertTrue(host.verify_ci(SHA, 'token'))
+        # OTHER's CI passed: its own request deploys it, so SHA's is superseded.
+        done = {**self.good_run, 'head_sha': OTHER}
+        with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
+                                                    {'workflow_runs': [done]}]):
+            self.assertFalse(host.verify_ci(SHA, 'token'))
+        # A commit that isn't on main never deploys.
+        for status in ('diverged', 'behind', 'identical'):
+            with self.subTest(status=status), patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': status}]):
+                self.assertFalse(host.verify_ci(SHA, 'token'))
+
+    def test_checkout_failures_are_errors_not_supersessions(self):
+        repo = self.base / 'yama'
+        repo.mkdir()
+        def fake(args, **_):
+            if 'merge-base' in args:
+                raise host.Refused('Host command timed out: git')
+            if 'get-url' in args:
+                return 'https://github.com/' + host.REPO + '.git'
+            return 'main' if 'symbolic-ref' in args else ''
+        with patch.object(host, 'run', side_effect=fake), patch.object(host, 'git_auth', return_value={}):
+            with self.assertRaisesRegex(host.Refused, 'timed out'):
+                host.checkout(SHA, 'token')
+
+    def test_production_never_goes_back_to_an_older_main_commit(self):
+        (self.base / 'current.json').write_text(json.dumps({
+            'revision': OTHER, 'images': {s: 'id' for s in host.SERVICES}}))
+        with patch.object(host, 'verify_ci', return_value=True), \
+             patch.object(host, 'api', return_value={'status': 'behind'}) as api, \
+             patch.object(host, 'checkout') as checkout:
+            self.assertEqual(host.release(SHA, 'token'), 'superseded')
+            self.assertIn('compare/' + OTHER + '...' + SHA, api.call_args.args[0])
+            checkout.assert_not_called()
+
     def test_missing_ci_is_refused(self):
         with patch.object(host, 'api', side_effect=[{'object': {'sha': SHA}}, {'workflow_runs': []}]):
             with self.assertRaises(host.Refused):
@@ -496,10 +535,19 @@ class HostGate(unittest.TestCase):
             git('add', '.', cwd=writer); git('commit', '-m', 'second', cwd=writer)
             git('push', str(remote), 'main', cwd=writer)
             second = git('rev-parse', 'HEAD', cwd=writer)
-            self.assertIsNone(host.checkout(first, 'token'))
+            # Main moved on: the older commit is still on main, so it stays deployable.
+            self.assertEqual(host.checkout(first, 'token'), repo)
             self.assertEqual(git('rev-parse', 'HEAD', cwd=repo), first)
             host.checkout(second, 'token')
             self.assertEqual(git('rev-parse', 'HEAD', cwd=repo), second)
+            # Never back to an older commit than the checkout has, and never off main.
+            self.assertIsNone(host.checkout(first, 'token'))
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=repo), second)
+            git('checkout', '-b', 'side', first, cwd=writer)
+            (writer / 'side').write_text('off main')
+            git('add', '.', cwd=writer); git('commit', '-m', 'side', cwd=writer)
+            git('push', str(remote), 'side', cwd=writer)
+            self.assertIsNone(host.checkout(git('rev-parse', 'HEAD', cwd=writer), 'token'))
             (repo / 'file').write_text('preserve me')
             with self.assertRaisesRegex(host.Refused, 'clean main'):
                 host.checkout(second, 'token')
