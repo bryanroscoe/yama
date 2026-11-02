@@ -48,13 +48,14 @@ export function holdScreenAwake(nav: WakeLockHost, page: PageHost): () => void {
   };
 
   page.addEventListener("visibilitychange", ask);
-  page.addEventListener("pointerdown", ask, { capture: true, passive: true });
+  // A click, not pointerdown: a touch only counts as a tap (user activation) once it lifts.
+  page.addEventListener("click", ask, { capture: true, passive: true });
   ask();
 
   return () => {
     stopped = true;
     page.removeEventListener("visibilitychange", ask);
-    page.removeEventListener("pointerdown", ask, { capture: true });
+    page.removeEventListener("click", ask, { capture: true });
     void lock?.release().catch(() => {});
     lock = null;
   };

@@ -67,11 +67,11 @@ describe("holdScreenAwake", () => {
     await settle();
     expect(f.sentinels).toHaveLength(0);
 
-    f.page.emit("pointerdown");
+    f.page.emit("click");
     await settle();
     expect(f.sentinels).toHaveLength(1);
 
-    f.page.emit("pointerdown");
+    f.page.emit("click");
     f.page.emit("visibilitychange");
     await settle();
     expect(f.requests()).toBe(2);
@@ -86,7 +86,7 @@ describe("holdScreenAwake", () => {
     expect(f.sentinels[0]!.released).toBe(true);
     expect([...f.listeners.values()].every((s) => s.size === 0)).toBe(true);
 
-    f.page.emit("pointerdown");
+    f.page.emit("click");
     await settle();
     expect(f.requests()).toBe(1);
   });
