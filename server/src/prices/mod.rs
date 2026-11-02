@@ -80,6 +80,16 @@ impl Writer {
         Ok(writer)
     }
 
+    /// A write transaction for price data, checked to still hold the lease. `BEGIN IMMEDIATE`
+    /// takes SQLite's write lock before the lease is read: a deferred transaction that read it
+    /// first could find another connection's commit in between and fail its first write
+    /// (`SQLITE_BUSY_SNAPSHOT`, which the busy timeout can't wait out).
+    pub async fn begin<'p>(&self, pool: &'p SqlitePool) -> anyhow::Result<sqlx::Transaction<'p, sqlx::Sqlite>> {
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        self.fence(&mut tx).await?;
+        Ok(tx)
+    }
+
     /// Inside a write transaction: an error unless the lease is still this writer's.
     pub async fn fence(&self, conn: &mut SqliteConnection) -> anyhow::Result<()> {
         let holder: Option<String> = sqlx::query_scalar("SELECT value ->> 'id' FROM price_meta WHERE key = 'writer'").fetch_optional(&mut *conn).await?.flatten();

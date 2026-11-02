@@ -101,7 +101,7 @@ async fn replay(pool: &SqlitePool, writer: &Writer, dates: &[String]) -> anyhow:
             anyhow::bail!("price_snapshots has a price for {id} on {date} that isn't a whole number of cents; the replay stopped");
         }
         let file = format!("price_snapshots {date}");
-        let mut tx = pool.begin().await?;
+        let mut tx = writer.begin(pool).await?;
         let printings = sqlx::query(sqlx::AssertSqlSafe(stage.clone())).bind(&file).bind(date).execute(&mut *tx).await?.rows_affected();
         write::publish(&mut tx, writer, day, date, &Observation { file, file_updated_at, import_run: Some(import_run), printings: printings as i64 }).await?;
         // Checked before it counts: a day that doesn't give back the old table's values isn't

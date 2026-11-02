@@ -790,9 +790,8 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
     let mut count = 0;
     let stamp = now();
     while let Some(batch) = rx.recv().await {
-        let mut tx = pool.begin().await?;
         // A writer whose lease another process took stops before it writes anything more.
-        file.writer.fence(&mut tx).await?;
+        let mut tx = file.writer.begin(pool).await?;
         let mut prices = Vec::new();
         for c in batch? {
             if c.layout.as_deref().is_some_and(|l| SKIP_LAYOUTS.contains(&l)) {
@@ -868,8 +867,7 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
             import_run: Some(file.run.to_string()),
             printings: count as i64,
         };
-        let mut tx = pool.begin().await?;
-        file.writer.fence(&mut tx).await?;
+        let mut tx = file.writer.begin(pool).await?;
         replace_old_day(&mut tx, price_date, file.run).await?;
         crate::prices::write::publish(&mut tx, file.writer, file.day, price_date, &observation).await?;
         tx.commit().await?;

@@ -460,3 +460,25 @@ async fn a_replayed_day_that_doesnt_match_is_not_published() {
         assert_eq!(staged, 0);
     }
 }
+
+#[tokio::test]
+async fn nobody_else_commits_between_the_lease_check_and_the_writes() {
+    // A file and two connections: the in-memory test pool has one, so it can't show this.
+    let dir = tempfile::tempdir().unwrap();
+    let pool = crate::db::connect(&format!("sqlite://{}", dir.path().join("t.db").display()), std::time::Duration::from_millis(crate::perf::SLOW_QUERY_MS)).await.unwrap();
+    let writer = Writer::acquire(&pool).await.unwrap();
+    let mut tx = writer.begin(&pool).await.unwrap();
+    // Another request writes meanwhile (as the lease's heartbeat does): it waits for the
+    // writer's transaction instead of committing under it...
+    let other = tokio::spawn({
+        let pool = pool.clone();
+        async move { sqlx::query("INSERT INTO price_meta (key, value) VALUES ('other', 'x')").execute(&pool).await.map(|_| ()) }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!other.is_finished(), "another connection committed inside the price writer's transaction");
+    // ...so the writer's first write succeeds, where a deferred transaction's would fail.
+    sqlx::query("INSERT INTO price_printing (scryfall_id) VALUES ('a')").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    other.await.unwrap().unwrap();
+    writer.release().await;
+}
