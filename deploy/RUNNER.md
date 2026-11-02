@@ -52,6 +52,11 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 - `previous.json`: the running image IDs and base Compose config before the last
   attempted activation, plus that attempt's database backup path. Every activation also retains its own
   `.previous.json` beside the history record, so retries preserve older rollback inputs.
+- `/mnt/user/appdata/yama/data/backups`: one SQLite copy per activation. After a healthy
+  activation the host deletes its `*.db` files older than 48 hours, keeping the newest three
+  and the copies that `previous.json` and `current.json` name. Nothing is deleted after a
+  failed, refused or superseded attempt. Retention runs only from the installed host, so
+  installing a changed `host.py` here is what turns it on (see Updating in `deploy/README.md`).
 
 Before activation, the updated host resolves the candidate Compose configuration
 (including the server override and environment), then verifies the current and

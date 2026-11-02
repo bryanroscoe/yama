@@ -157,6 +157,21 @@ preserves local configuration/Compose overrides, and verifies exact image IDs pl
 `./deploy/deploy.sh --check` still checks local source/engine readiness without contacting
 saget; a requested manual retry uses `./deploy/deploy.sh` and the same server CI gate.
 
+Where the copies live, and how long each is kept (2026-11-02, Bryan: Google Drive keeps
+history, so the server keeps a couple of days' end copies):
+
+- **Deploy copies**, `/mnt/user/appdata/yama/data/backups/*.db`, one before each activation.
+  After a healthy activation the host deletes those older than 48 hours, always keeping the
+  newest three, this release's copy, and the copies named by `previous.json` and
+  `current.json`. Failed, refused and superseded attempts delete nothing, and nothing else in
+  the folder is touched. This takes effect once the reviewed `host.py` is installed on saget
+  ([RUNNER.md](RUNNER.md)).
+- **Daily verified snapshots**, `/mnt/user/backups/yama/snapshot-*/yama.db`, written at 02:10
+  by the sagetserver job and kept for 14 UTC dates.
+- **Offsite:** the nightly Google Drive job copies the live database, not these folders. It
+  skips `backups` directories and `/mnt/user/backups/yama`, so deploy copies and snapshots
+  exist only on saget.
+
 ## Phones
 
 Android only. The default is the installable web app, with no store; an optional Google Play app is described in [docs/mobile.md](../docs/mobile.md). It is built and published separately, not by `deploy.sh`.
@@ -174,8 +189,10 @@ ssh saget 'docker logs --tail 50 yama'
 
 ## Debugging with real data
 
-`./deploy/pull-db.sh` copies saget's newest backup to the local `data/yama.db` (read-only on saget; `--fresh` writes a new backup first, which changes the server). See "Signing in locally" in the main README.
+`./deploy/pull-db.sh` copies saget's newest verified daily snapshot to the local `data/yama.db`, or the newest deploy copy when there is no snapshot (read-only on saget; `--fresh` writes a new backup first and copies that one, which changes the server). See "Signing in locally" in the main README.
 
 ## Rollback
 
 Retag a previous image: `docker tag yama:<old-rev> yama:latest`, then `docker compose up -d` in the Yama directory. To restore data, stop the container, copy a backup over `data/yama.db`, and start it again. Taking Yama offline publicly only means removing its public hostname from the tunnel.
+
+Pick the copy from the release record: `/mnt/user/appdata/yama-release/previous.json` names the copy taken before the last activation, and `current.json` names the one for the running release. Both are kept by the retention rule under "Updating". For anything older, use a daily snapshot in `/mnt/user/backups/yama` (14 days). Verify it first, and follow the recovery steps, in sagetserver's `docs/YAMA-BACKUP.md`.
