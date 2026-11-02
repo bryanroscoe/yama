@@ -874,9 +874,6 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
         .collect();
     let wanted: Vec<_> = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect();
     let items = to_get(pool, wanted).await?;
-    if items.is_empty() {
-        return Ok(String::new());
-    }
     let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
     let mut total = Totals::default();
     for t in &items {
@@ -900,6 +897,11 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
         }
         option(Which::All, "All builds");
         s.push_str("</ul></nav>");
+    }
+    // Builds that add nothing: say so, and keep the choices above to pick others.
+    if items.is_empty() {
+        s.push_str("<p class=\"dim\">These builds add no cards to the starting lists.</p></section>");
+        return Ok(s);
     }
     if which == Which::All {
         s.push_str("<p class=\"dim share-shop-how\">Every build as its own deck, starting from one copy of each precon: the cards the builds share are counted once per build.</p>");
@@ -1059,7 +1061,11 @@ pub(super) async fn deck(
     let (cards, cut) = cards_of(&st.pool, text(b, "list")).await?;
     let size: i64 = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
 
-    let mut body = format!("<a class=\"back-link\" href=\"/r/{}\">← {}</a>", e(&token), e(title));
+    let back = match how.param() {
+        Some(g) => format!("/r/{}?get={g}", e(&token)),
+        None => format!("/r/{}", e(&token)),
+    };
+    let mut body = format!("<a class=\"back-link\" href=\"{back}\">← {}</a>", e(title));
     body.push_str("<section class=\"public-art\">");
     if let Some((url, _, _)) = &art {
         write!(body, "<img src=\"{}\" alt=\"\" fetchpriority=\"high\"><div class=\"art-wash\"></div>", e(url)).unwrap();

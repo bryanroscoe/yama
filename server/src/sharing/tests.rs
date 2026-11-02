@@ -712,6 +712,7 @@ async fn shared_notes_price_the_cards_to_get() {
     }
     // Print every card, or buy every card: the totals follow.
     let print = page(&app, &format!("/r/{token}/party?get=print")).await.2;
+    assert!(print.contains(&format!("class=\"back-link\" href=\"/r/{token}?get=print\"")), "the way back keeps the choice");
     assert!(print.contains("3 to print: about $0.90") && print.contains("About $0.90 to get") && !print.contains("to buy locally"), "{print}");
     let buy = page(&app, &format!("/r/{token}/party?get=buy")).await.2;
     assert!(buy.contains("3 to buy locally: about $4.75 + 1 without a price") && buy.contains("About $4.75 to get") && buy.contains("1 card without a known cost is out of the cost."), "{buy}");
