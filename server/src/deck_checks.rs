@@ -91,15 +91,16 @@ pub fn list_hash(cards: &[DeckCard]) -> String {
 /// owner's [`PER_OWNER_HOUR`]). Does nothing if it's already queued or checked.
 pub async fn queue(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard]) -> sqlx::Result<()> {
     let hash = list_hash(cards);
+    let requested = stamp();
     let queued = sqlx::query("INSERT INTO deck_version_checks (version_id, source, requested_at, list_hash) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
         .bind(version_id)
         .bind(SPELLBOOK)
-        .bind(stamp())
+        .bind(&requested)
         .bind(&hash)
         .execute(&mut *conn)
         .await?;
     if queued.rows_affected() > 0 {
-        reuse(conn, version_id, cards, &hash, &stamp_of(Utc::now() - chrono::Duration::days(REUSE_DAYS))).await?;
+        reuse(conn, version_id, cards, &hash, &stamp_of(Utc::now() - chrono::Duration::days(REUSE_DAYS)), &requested).await?;
     }
     Ok(())
 }
@@ -107,8 +108,10 @@ pub async fn queue(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &
 /// Give `version_id`'s check Spellbook's answer for the same list, if one came back since
 /// `since`, summarized against this version's own `cards`: the names shown come from this deck
 /// or from Spellbook, never from whichever deck asked first (another account's included). The
-/// row is answered, not pending, and records no try of its own. True if there was one.
-async fn reuse(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard], hash: &str, since: &str) -> sqlx::Result<bool> {
+/// row is answered, not pending, and records no try of its own. Only while the row's request is
+/// still `requested`: a "Check again" that came in meanwhile wants a newer answer, and keeps
+/// waiting for it. True if it took one.
+async fn reuse(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard], hash: &str, since: &str, requested: &str) -> sqlx::Result<bool> {
     let source: Option<(String, String)> = sqlx::query_as(
         "SELECT estimate, checked_at FROM deck_version_checks
           WHERE source = ? AND list_hash = ? AND version_id != ? AND estimate IS NOT NULL AND checked_at >= ?
@@ -123,10 +126,10 @@ async fn reuse(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[Dec
     let Some((raw, at)) = source else { return Ok(false) };
     let Ok(est) = serde_json::from_str::<Estimate>(&raw) else { return Ok(false) };
     let r = summarize(est, cards, &at);
-    sqlx::query(
+    let done = sqlx::query(
         "UPDATE deck_version_checks SET requested_at = MIN(requested_at, ?), checked_at = ?, bracket_tag = ?, game_changers = ?, mld = ?,
             extra_turns = ?, combos = ?, unrecognized = ?, estimate = ?, list_hash = ?, attempts = 0, error = NULL
-         WHERE version_id = ? AND source = ?",
+         WHERE version_id = ? AND source = ? AND requested_at = ?",
     )
     .bind(&r.checked_at)
     .bind(&r.checked_at)
@@ -140,9 +143,10 @@ async fn reuse(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[Dec
     .bind(hash)
     .bind(version_id)
     .bind(SPELLBOOK)
+    .bind(requested)
     .execute(&mut *conn)
     .await?;
-    Ok(true)
+    Ok(done.rows_affected() > 0)
 }
 
 /// For the worker: a pending check takes the answer for the same list if one came back since it
@@ -155,7 +159,7 @@ async fn reuse_answer(pool: &SqlitePool, version_id: &str, cards: &[DeckCard], h
         .fetch_optional(&mut *conn)
         .await?;
     let Some(requested) = requested else { return Ok(false) };
-    if reuse(&mut conn, version_id, cards, hash, &requested).await? {
+    if reuse(&mut conn, version_id, cards, hash, &requested, &requested).await? {
         return Ok(true);
     }
     sqlx::query("UPDATE deck_version_checks SET list_hash = ? WHERE version_id = ? AND source = ?")
@@ -1225,6 +1229,23 @@ mod tests {
         let text = serde_json::to_string(&shown.result).unwrap();
         assert!(!text.contains("PRIVATE"), "{text}");
         assert_eq!(shown.result.unwrap().bracket, Some(4));
+
+        // A "Check again" that lands between the worker reading a request and taking an answer
+        // for it isn't overwritten: the row keeps waiting for a newer answer.
+        sqlx::query("UPDATE deck_version_checks SET requested_at = ?, checked_at = '2025-01-01T00:00:00.000Z' WHERE version_id = ?")
+            .bind(stamp())
+            .bind(&t3)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let newer: String = sqlx::query_scalar("SELECT requested_at FROM deck_version_checks WHERE version_id = ?").bind(&t3).fetch_one(&pool).await.unwrap();
+        let cards = load_version_cards(&pool, &t3).await.unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        assert!(!reuse(&mut conn, &t3, &cards, &list_hash(&cards), "2020-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z").await.unwrap());
+        drop(conn);
+        let after: String = sqlx::query_scalar("SELECT requested_at FROM deck_version_checks WHERE version_id = ?").bind(&t3).fetch_one(&pool).await.unwrap();
+        assert_eq!(after, newer);
+        assert!(view(&pool, Some(&t3), true).await.unwrap().pending);
     }
 
     #[tokio::test]

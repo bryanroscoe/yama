@@ -503,16 +503,40 @@ fn hold(host: &str, wait: Duration) {
     *entry = (*entry).max(until);
 }
 
-/// Wait out a host's hold if it's short; an error saying how long if not.
+/// Wait out a host's hold while it's short (it may be extended meanwhile); an error saying how
+/// long once it isn't.
 async fn wait_hold(host: &str, url: &str) -> Result<(), String> {
-    let left = held(host);
-    if left > MAX_ASKED {
-        return Err(format!("{url}: the store asked Yama to wait {} s", left.as_secs()));
-    }
-    if !left.is_zero() {
+    loop {
+        let left = held(host);
+        if left.is_zero() {
+            return Ok(());
+        }
+        if left > MAX_ASKED {
+            return Err(format!("{url}: the store asked Yama to wait {} s", left.as_secs()));
+        }
         tokio::time::sleep(left).await;
     }
-    Ok(())
+}
+
+/// This check's turn at a host: past any hold, then the host's pacing lock, and the hold checked
+/// again once the lock is held, since a check ahead may have been told to wait while this one
+/// queued. The lock is kept until the answer is read; a 429's hold is published before it goes.
+async fn turn(host: &str, url: &str, pause: Duration) -> Result<tokio::sync::OwnedMutexGuard<Instant>, String> {
+    loop {
+        wait_hold(host, url).await?;
+        let guard = pace(host, pause).await;
+        if held(host).is_zero() {
+            return Ok(guard);
+        }
+    }
+}
+
+/// A 429's Retry-After, or a minute when it gives none.
+fn asked_wait(resp: &reqwest::Response) -> Duration {
+    resp.headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .map_or(Duration::from_secs(60), |v| Duration::from_secs(crate::mcp::research::client::retry_after(v.trim())))
 }
 
 struct Shared {
@@ -634,8 +658,7 @@ impl Fetcher {
         let pause = if self.pause.is_zero() { Duration::ZERO } else { kind.pause().max(self.pause) };
         let mut last = String::new();
         for attempt in 0..3u32 {
-            wait_hold(&host, url).await?;
-            let guard = pace(&host, pause).await;
+            let guard = turn(&host, url, pause).await?;
             let mut req = if method == "POST" { self.http.post(url) } else { self.http.get(url) };
             req = req.header("User-Agent", BROWSER_UA).header("Accept", accept).timeout(Duration::from_secs(60));
             if let Some(b) = body {
@@ -670,11 +693,11 @@ impl Fetcher {
                 Ok((429, Some(asked), _)) => *asked,
                 _ => Duration::ZERO,
             };
-            *guard = Instant::now();
-            drop(guard);
             if !asked.is_zero() {
                 hold(&host, asked);
             }
+            *guard = Instant::now();
+            drop(guard);
             match read {
                 Ok((status, _, text)) => {
                     raw.add(method, url, status, &text);
@@ -702,13 +725,22 @@ impl Fetcher {
     }
 
     /// YesTCG answers its API only with the session cookie its home page sets.
-    async fn yestcg_cookie(&mut self, base: &str, raw: &mut Raw) {
+    /// An error, and nothing more asked of the store, when it's holding Yama off or answers
+    /// this with a 429.
+    async fn yestcg_cookie(&mut self, base: &str, raw: &mut Raw) -> Result<(), String> {
         let host = host_of(base).unwrap_or_default();
-        if wait_hold(&host, base).await.is_err() {
-            return;
-        }
-        let mut guard = pace(&host, if self.pause.is_zero() { Duration::ZERO } else { Kind::YesTcg.pause() }).await;
+        let mut guard = turn(&host, base, if self.pause.is_zero() { Duration::ZERO } else { Kind::YesTcg.pause() }).await?;
         let sent = self.http.get(format!("{base}/")).header("User-Agent", BROWSER_UA).timeout(Duration::from_secs(30)).send().await;
+        if let Ok(resp) = &sent
+            && resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS
+        {
+            let asked = asked_wait(resp);
+            hold(&host, asked);
+            *guard = Instant::now();
+            drop(guard);
+            raw.add("GET", &format!("{base}/"), 429, "");
+            return Err(format!("{base}/: the store asked Yama to wait {} s", asked.as_secs()));
+        }
         // The next request waits its pause from now.
         *guard = Instant::now();
         drop(guard);
@@ -727,6 +759,7 @@ impl Fetcher {
                 self.cookie = Some(cookies.join("; "));
             }
         }
+        Ok(())
     }
 }
 
@@ -889,7 +922,13 @@ async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
 /// YesTCG's Austin search for each card, split by the person's stores it covers (by host).
 async fn fetch_yestcg(f: &mut Fetcher, base: &str, cards: &[String], hosts: &[String], raw: &mut Raw) -> HashMap<String, Found> {
     let mut out: HashMap<String, Found> = hosts.iter().map(|h| (h.clone(), Found::default())).collect();
-    f.yestcg_cookie(base, raw).await;
+    if let Err(e) = f.yestcg_cookie(base, raw).await {
+        for found in out.values_mut() {
+            found.errors.push(e.clone());
+            found.failed.extend(cards.iter().cloned());
+        }
+        return out;
+    }
     for card in cards {
         let front = card.split(" // ").next().unwrap_or(card).trim();
         let mut u = url::Url::parse(&format!("{base}/api/decksearch")).expect("base");

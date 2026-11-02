@@ -572,3 +572,85 @@ async fn store_answers_are_shared_between_checks_and_retry_after_is_honoured() {
     assert!(err.contains("wait 5") || err.contains("wait 6"), "{err}");
     assert_eq!(raw_a.items.len(), asked, "no request was made");
 }
+
+#[tokio::test]
+async fn a_check_queued_behind_a_429_sends_nothing() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let (h1, h2) = (hits.clone(), hits.clone());
+    let app = Router::new()
+        .route(
+            "/slow",
+            get(|| async {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "600")], "")
+            }),
+        )
+        .route(
+            "/after",
+            get(move || {
+                let h = h1.clone();
+                async move {
+                    h.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({}))
+                }
+            }),
+        )
+        .route(
+            "/",
+            get(|| async { (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "5")], "") }),
+        )
+        .route(
+            "/api/decksearch",
+            get(move || {
+                let h = h2.clone();
+                async move {
+                    h.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({}))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = crate::routes::http_client();
+    // Check A holds the store's lock while it waits for an answer, which turns out to be a 429...
+    let (http_a, slow) = (http.clone(), format!("{base}/slow"));
+    let a = tokio::spawn(async move { Fetcher::new(http_a, None).send(Kind::Shopify, "GET", &slow, None, &mut Raw::default()).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    // ...and check B, already queued behind it, sends nothing once it's told.
+    let err = Fetcher::new(http.clone(), None).send(Kind::Shopify, "GET", &format!("{base}/after"), None, &mut Raw::default()).await.unwrap_err();
+    assert!(err.contains("wait"), "{err}");
+    assert!(a.await.unwrap().is_err());
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn yestcg_answering_its_cookie_request_with_429_stops_the_check() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let app = Router::new()
+        .route("/", get(|| async { (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "5")], "") }))
+        .route(
+            "/api/decksearch",
+            get(move || {
+                let h = h.clone();
+                async move {
+                    h.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({}))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut f = Fetcher::new(crate::routes::http_client(), None);
+    let cards = vec!["Sol Ring".to_string()];
+    let hosts = vec!["store.example".to_string()];
+    let found = fetch_yestcg(&mut f, &base, &cards, &hosts, &mut Raw::default()).await;
+    let store = &found["store.example"];
+    assert!(store.errors.iter().any(|e| e.contains("wait 5 s")), "{:?}", store.errors);
+    assert_eq!(store.failed, cards);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
