@@ -19,13 +19,14 @@ export function PlayGame() {
   const game = useQuery({
     queryKey: ["play", id],
     queryFn: () => api<OnlineGame>(`/api/play/${id}`),
-    refetchInterval: (q) => (q.state.data?.status === "lobby" ? 2000 : false),
+    refetchInterval: (q) => (q.state.data?.status === "lobby" || q.state.data?.runtime_error ? 2000 : false),
   });
   if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
+  if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
   if (game.data.status === "lobby") return <Lobby game={game.data} />;
   // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
-  return <Board key={id} id={id} live={game.data.status === "in_progress"} />;
+  return <Board key={id} id={id} live={game.data.status === "in_progress"} phaseBoard={game.data.phase_board === true} />;
 }
 
 const BackArrow = () => (

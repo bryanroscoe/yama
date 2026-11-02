@@ -77,7 +77,7 @@ export const NEWS: NewsEntry[] = [
     date: "2026-11-01",
     title: "Count life without an account",
     items: [
-      "Friends without a Yama account can use the life counter on their own phone: \"Count life without an account\" on the sign-in page. Their games stay on that phone.",
+      "Anyone can use the life counter without an account: Yama opens on it, with the usual nav, and the sign-in page links to it. Games counted that way stay on that phone.",
       "If they sign in later, the Table page asks whether to save those games to their account. Sharing a table with everyone's phones still needs an account; joining one by its code doesn't.",
     ],
   },

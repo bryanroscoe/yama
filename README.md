@@ -4,9 +4,10 @@ Bracket builds and reversible deck-box inserts: `/decks/builds` brings saved Cur
 
 Yet Another Magic App: a free Magic: The Gathering app with a public precon reference and private accounts for playing and tracking Commander. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-The engine is maintained in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
+The engine is maintained in the public MIT/Apache-licensed [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
 Clone it beside this repository as `../yama-phase`; releases fetch `deploy/phase-repo` and export
-the exact published commit in `deploy/phase-rev`. See [engine integration](docs/engine-integration.md).
+the exact published commit in `deploy/phase-rev`. Local Cargo builds require that sibling to be clean
+and checked out at the pin. See [engine integration](docs/engine-integration.md).
 
 Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast. Card data and images come from [Scryfall](https://scryfall.com); images load from Scryfall at runtime and are never stored or re-hosted here.
 
@@ -85,9 +86,9 @@ Online play needs the local phase fork and its card data (see docs/engine-integr
 git clone https://github.com/bryanroscoe/yama-phase.git ../yama-phase
 git -C ../yama-phase checkout "$(cat deploy/phase-rev)"
 mkdir -p data/engine
-  # Build card-data-1e5608e61683de41.json from the archived inputs as described in
-  # docs/engine-integration.md (SHA-256 1e5608e61683de41…). This local recovery export
-  # is not published on data.phase-rs.dev. It must match deploy/phase-rev.
+  # Build card-data-cbd552b41f962f5b.json from the archived inputs as described in
+  # docs/engine-integration.md (SHA-256 cbd552b41f962f5b…). This export from Yama's
+  # pinned parser is not published on data.phase-rs.dev. It must match deploy/phase-rev.
 ./target/debug/soak                     # all-AI game with Bryan's decks; checks replay determinism
 ```
 
@@ -95,20 +96,20 @@ Checks on games people play (docs/play-performance.md), in release:
 
 ```sh
 cargo build --release -p yama-play --bins
-./target/release/soak data/engine/card-data-1e5608e61683de41.json 80 1-20   # 20 full games, loop detection as online
-./target/release/playbench data/engine/card-data-1e5608e61683de41.json --games 2   # AI, engine and view times
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
-  cargo test --release -p yama-play --test integration -- --ignored determinism:: # same games twice, and resumed
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
-  cargo test --release -p yama-play --test integration -- --ignored --test-threads=1 lab_regressions:: # frozen live failures and a successful control
-YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
+./target/release/soak data/engine/card-data-cbd552b41f962f5b.json 80 1-20   # 20 full games, loop detection as online
+./target/release/playbench data/engine/card-data-cbd552b41f962f5b.json --games 2   # AI, engine and view times
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-cbd552b41f962f5b.json \
+  cargo test --release -p yama-play --test integration -- --ignored determinism::          # same games twice, and resumed
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-cbd552b41f962f5b.json \
+  CARGO_BUILD_JOBS=1 cargo test -p yama-play --test integration lab_regressions_candidate:: -- --ignored --nocapture --test-threads=1 # unchanged seeded inputs on the candidate runtime
+YAMA_ENGINE_CARD_DATA=data/engine/card-data-cbd552b41f962f5b.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
 
 The gameplay checks above are separate from `cargo test`, which skips full-game tests by default.
-The determinism checks fail on an AI stop or missing card data. The live regression suite expects
-games to finish normally; it currently exposes unresolved priority-session, Adventure-offer and
-combat-tax defects. See [gameplay validation](docs/gameplay-validation.md). A healthy isolated
+The determinism checks fail on an AI stop or missing card data. The candidate regression suite requires normal error-free completion of the unchanged seeded
+scenarios. Historical fixtures and their winner/turn/action control remain separate and immutable;
+the old schema must run with its matching historical runtime. See [gameplay validation](docs/gameplay-validation.md). A healthy isolated
 worker is evidence of server reliability; it does not establish rules or AI correctness.
 
 Optional:
@@ -164,7 +165,7 @@ npm run typecheck     # core + web
 Successful CI on merged `main` automatically deploys through the dedicated saget runner
 ([operation and recovery](deploy/RUNNER.md)). Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
 
-`cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-1e5608e61683de41.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
+`cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-cbd552b41f962f5b.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
 
 ## Layout
 

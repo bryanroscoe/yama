@@ -37,7 +37,7 @@ use engine::game::dungeon::{DungeonId, DungeonPreview, room_nodes};
 use engine::types::actions::{GameAction, MulliganChoice, PrecastCopyShortcutResponse};
 use engine::types::game_state::{CompanionDeclaration, GameState, TimeTravelPhase, WaitingFor};
 use engine::types::identifiers::ObjectId;
-use engine::types::keywords::{DisguiseCost, Keyword};
+use engine::types::keywords::{DisguiseCost, Keyword, MorphCost};
 use engine::types::player::PlayerId;
 use engine::types::zones::Zone;
 use phase_llm::render::action::humanize_identifier;
@@ -202,13 +202,20 @@ pub(crate) fn public_shortcut(vs: &GameState, names: &[String]) -> Option<Shortc
 /// look at the card underneath has it.
 pub(crate) fn face_up_cost(vs: &GameState, id: &ObjectId) -> Option<String> {
     let back = vs.objects.get(id)?.back_face.as_ref()?;
+    // The outer Option says whether the card has a turn-face-up keyword at all; the inner one
+    // whether its cost has a printed form. A keyword whose cost can't be printed shows no cost,
+    // never the card's mana cost, which is only a manifested creature's way up.
     let keyword = back.keywords.iter().find_map(|k| match k {
-        Keyword::Morph(c) | Keyword::Megamorph(c) => Some(c.clone()),
-        Keyword::Disguise(DisguiseCost::Mana(c)) | Keyword::Disguise(DisguiseCost::Reduced { cost: c, .. }) => Some(c.clone()),
+        Keyword::Morph(MorphCost::Mana(c)) | Keyword::Megamorph(c) => Some(Some(mana_cost_text(c))),
+        // A non-mana morph cost ("Morph—Reveal a blue card"), where it has a printed form.
+        Keyword::Morph(MorphCost::NonMana(c)) => Some(Some(crate::cost_text(c)).filter(|t| !t.is_empty())),
+        Keyword::Disguise(DisguiseCost::Mana(c)) | Keyword::Disguise(DisguiseCost::Reduced { cost: c, .. }) => Some(Some(mana_cost_text(c))),
         _ => None,
     });
-    let cost = keyword.or_else(|| back.card_types.core_types.contains(&engine::types::card_type::CoreType::Creature).then(|| back.mana_cost.clone()))?;
-    Some(mana_cost_text(&cost))
+    match keyword {
+        Some(cost) => cost,
+        None => back.card_types.core_types.contains(&engine::types::card_type::CoreType::Creature).then(|| mana_cost_text(&back.mana_cost)),
+    }
 }
 
 /// A ninja's cost (CR 702.49a), printed, as the engine works it out for `player`.

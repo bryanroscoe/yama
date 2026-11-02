@@ -4,10 +4,13 @@ Run from any directory: python3 deploy/test_release.py
 """
 
 import os
+import hashlib
+import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -263,6 +266,165 @@ exit 97
         result = self.check(wrapper=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.git(self.phase, "cat-file", "-e", revision + "^{commit}")
+
+
+class FirstTimeArtifacts(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix='yama-first-time-test-')
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.local = self.root / 'data/engine'
+        self.local.mkdir(parents=True)
+        self.remote = self.root / 'remote'
+        self.remote.mkdir()
+        deploy = self.root / 'deploy'
+        deploy.mkdir()
+        shutil.copyfile(SCRIPTS / 'target.sh', deploy / 'target.sh')
+        (deploy / 'yama.env.example').write_text('TEST=1\n')
+        text = (SCRIPTS / 'first-time.sh').read_text()
+        self.files = []
+        for name, digest_key in [('CARD_DATA', 'SHA'), ('HISTORICAL_CARD_DATA', 'HISTORICAL_SHA')]:
+            filename = re.search(r'^' + name + r'=(.+)$', text, re.M)[1]
+            content = ('synthetic ' + name).encode()
+            (self.local / filename).write_bytes(content)
+            self.files.append(filename)
+            text = re.sub(r'^' + digest_key + r'=[0-9a-f]{64}$',
+                          digest_key + '=' + hashlib.sha256(content).hexdigest(), text, flags=re.M)
+        self.script = deploy / 'first-time.sh'
+        self.script.write_text(text)
+        commands = self.root / 'bin'
+        commands.mkdir()
+        # No actual SSH/SCP. Verify uploaded bytes in a local fake server.
+        stub = '''import os, pathlib, shutil, subprocess, sys
+remote = pathlib.Path(os.environ['FAKE_SERVER'])
+name = pathlib.Path(sys.argv[0]).name
+if name == 'scp':
+    target = remote / sys.argv[-1].rsplit('/', 1)[-1]
+    if os.environ.get('FAIL_TRANSFER') and os.environ.get('TARGET_ARTIFACT', '!') in target.name:
+        target.write_bytes(b'partial transfer')
+        sys.exit(1)
+    shutil.copyfile(sys.argv[-2], target)
+    with (remote / 'copies.log').open('a') as stream: stream.write(target.name + '\\n')
+else:
+    command = sys.argv[-1]
+    if '--quiet' in command and os.environ.get('TARGET_ARTIFACT', '!') in command:
+        fault = os.environ.get('FAIL_CHECK')
+        if fault: sys.exit(255 if fault == 'transport' else 10)
+    command = command.replace('/mnt/user/appdata/yama/data/engine', str(remote))
+    command = command.replace('/mnt/user/appdata/yama', str(remote))
+    result = subprocess.run(['sh', '-c', command], capture_output=True, text=True)
+    sys.stdout.write(result.stdout.replace(str(remote), '/mnt/user/appdata/yama/data/engine'))
+    sys.stderr.write(result.stderr)
+    sys.exit(result.returncode)
+'''
+        for name in ('ssh', 'scp'):
+            path = commands / name
+            path.write_text('#!' + sys.executable + '\n' + stub)
+            path.chmod(0o755)
+        (commands / 'chown').write_text('#!/bin/sh\nexit 0\n')
+        (commands / 'chown').chmod(0o755)
+        checksum = commands / 'sha256sum'
+        checksum.write_text('#!' + sys.executable + '\n' + '''import hashlib, pathlib, sys
+ok = True
+for line in sys.stdin:
+    expected, filename = line.rstrip().split('  ', 1)
+    path = pathlib.Path(filename)
+    ok = ok and path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected
+sys.exit(0 if ok else 1)
+''')
+        checksum.chmod(0o755)
+        if sys.platform == 'darwin':
+            # Production/CI use GNU mv -T. Model its exact-destination rename
+            # with the OS rename primitive on macOS, whose mv has no -T.
+            move = commands / 'mv'
+            move.write_text('#!' + sys.executable + '\n' + '''import os, subprocess, sys
+if sys.argv[1:3] == ['-fT', '--']:
+    try:
+        os.replace(sys.argv[3], sys.argv[4])
+    except OSError:
+        sys.exit(1)
+else:
+    sys.exit(subprocess.run(['/bin/mv', *sys.argv[1:]]).returncode)
+''')
+            move.chmod(0o755)
+        self.env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'],
+                        FAKE_SERVER=str(self.remote), YAMA_DEPLOY_HOST='test.invalid', YAMA_DEPLOY_USER='root')
+
+    def run_setup(self):
+        return subprocess.run(['sh', str(self.script)], env=self.env, capture_output=True, text=True)
+
+    def test_fresh_server_gets_both_verified_artifacts(self):
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Server prepared.', result.stdout)
+        for filename in self.files:
+            self.assertEqual((self.remote / filename).read_bytes(), (self.local / filename).read_bytes())
+
+    def test_verified_existing_files_do_not_need_local_copies(self):
+        for filename in self.files:
+            shutil.move(self.local / filename, self.remote / filename)
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_or_corrupt_historical_source_cannot_report_ready(self):
+        previous = self.local / self.files[1]
+        previous.unlink()
+        result = self.run_setup()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('Server prepared.', result.stdout)
+        previous.write_bytes(b'wrong historical bytes')
+        result = self.run_setup()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('Server prepared.', result.stdout)
+
+    def test_setup_hashes_match_release_manifests(self):
+        text = (SCRIPTS / 'first-time.sh').read_text()
+        current = json.loads((SCRIPTS / 'engine-data.json').read_text())
+        historical = json.loads((SCRIPTS.parent / 'runtime/historical.json').read_text())
+        self.assertIn('SHA=' + current['current_sha256'], text)
+        self.assertIn('CARD_DATA=' + Path(current['current_file']).name, text)
+        self.assertIn('HISTORICAL_SHA=' + historical['card_sha256'], text)
+        self.assertIn('HISTORICAL_CARD_DATA=' + current['historical_file'], text)
+
+    def test_failed_check_transfer_or_verification_preserves_valid_existing_artifact(self):
+        previous = self.files[1]
+        original = (self.local / previous).read_bytes()
+        for filename in self.files:
+            shutil.copyfile(self.local / filename, self.remote / filename)
+        for fault in ('transport', 'verification', 'transfer'):
+            with self.subTest(fault=fault):
+                (self.local / previous).write_bytes(b'corrupt local artifact')
+                self.env.update(TARGET_ARTIFACT=previous,
+                                FAIL_CHECK='transport' if fault == 'transport' else 'mismatch')
+                if fault == 'transfer':
+                    self.env['FAIL_TRANSFER'] = '1'
+                result = self.run_setup()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('Server prepared.', result.stdout)
+                self.assertEqual((self.remote / previous).read_bytes(), original)
+                self.assertEqual(list(self.remote.glob('.' + previous + '.*')), [])
+        self.assertNotIn(previous + '\n', (self.remote / 'copies.log').read_text())
+
+    def assert_invalid_destination_is_preserved(self, kind):
+        destination = self.remote / self.files[1]
+        other_directory = self.root / 'other-directory'
+        other_directory.mkdir()
+        if kind == 'directory':
+            destination.mkdir()
+        else:
+            destination.symlink_to(other_directory, target_is_directory=True)
+        result = self.run_setup()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn('Server prepared.', result.stdout)
+        self.assertEqual(list(destination.iterdir()), [])
+        self.assertEqual(list(self.remote.glob('.' + self.files[1] + '.*')), [])
+        self.assertEqual(destination.is_symlink(), kind == 'symlink')
+
+    def test_directory_destination_cannot_report_ready(self):
+        self.assert_invalid_destination_is_preserved('directory')
+
+    def test_symlink_directory_destination_cannot_report_ready(self):
+        self.assert_invalid_destination_is_preserved('symlink')
 
 
 if __name__ == "__main__":

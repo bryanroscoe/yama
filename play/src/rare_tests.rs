@@ -201,6 +201,29 @@ fn a_morph_is_cast_face_down_and_only_its_controller_sees_what_it_is() {
 }
 
 #[test]
+fn a_morph_cost_with_no_printed_form_shows_no_cost_not_the_mana_cost() {
+    use engine::types::ability::AbilityCost;
+    use engine::types::keywords::{Keyword, MorphCost};
+    let mut cards = lands(6, "Plains");
+    cards.push(("Exalted Angel", At::Hand));
+    let (mut m, cs) = table(&cards);
+    let angel = cs[6];
+    cast(&mut m, angel);
+    act(&mut m, Act::ChooseAlternativeCast { alternative: true });
+    settle(&mut m);
+    assert_eq!(crate::rare::face_up_cost(&m.state, &angel).as_deref(), Some("{2}{W}{W}"));
+    // A non-mana morph cost Yama can't print: the card still has a morph cost, so its mana
+    // cost ({4}{W}{W}, a manifested creature's way up) must not stand in for it.
+    let back = m.state.objects.get_mut(&angel).unwrap().back_face.as_mut().unwrap();
+    for k in back.keywords.iter_mut() {
+        if matches!(k, Keyword::Morph(_)) {
+            *k = Keyword::Morph(MorphCost::NonMana(AbilityCost::CollectEvidence { amount: 3 }));
+        }
+    }
+    assert_eq!(crate::rare::face_up_cost(&m.state, &angel), None);
+}
+
+#[test]
 fn a_manifested_card_stays_hidden_from_everyone_but_its_controller() {
     let mut cards = lands(2, "Forest");
     cards.push(("Manifest Dread", At::Hand));

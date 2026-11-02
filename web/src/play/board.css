@@ -1795,6 +1795,8 @@ button.pile-chip:hover {
 }
 .dock-links {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   justify-content: space-between;
   align-items: center;
   font-size: 13px;

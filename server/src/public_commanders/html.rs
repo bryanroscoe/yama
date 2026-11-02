@@ -316,7 +316,7 @@ pub(super) async fn index(
     .unwrap();
     write!(
         body,
-        "<form class=\"public-filters\" method=\"get\" action=\"/commanders\" aria-label=\"Filter commanders\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search commanders\"></label><label><span class=\"sr-only\">Sort</span><select name=\"s\">",
+        "<form class=\"public-filters\" method=\"get\" action=\"/commanders\" data-live aria-label=\"Filter commanders\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search commanders\"></label><label><span class=\"sr-only\">Sort</span><select name=\"s\">",
         e(&filters.q)
     )
     .unwrap();
@@ -355,7 +355,7 @@ pub(super) async fn index(
 
     let pages = rows.len().div_ceil(PER_PAGE).max(1);
     let current = filters.page.max(1).min(pages);
-    write!(body, "<p class=\"table-note\">{} of {} commanders</p>", count(rows.len() as i64), count(r.commanders.len() as i64)).unwrap();
+    write!(body, "<div id=\"results\" data-matched=\"{}\"><p class=\"table-note\">{} of {} commanders</p>", rows.len(), count(rows.len() as i64), count(r.commanders.len() as i64)).unwrap();
     if rows.is_empty() {
         body.push_str("<div class=\"empty-state\"><h2>No matching commanders</h2><p>Try fewer games, a different color or <a href=\"/commanders\">clear the filters</a>.</p></div>");
     } else {
@@ -404,6 +404,7 @@ pub(super) async fn index(
         }
         body.push_str("</div></nav>");
     }
+    body.push_str("</div>");
     Ok(response(
         &headers,
         page(

@@ -217,6 +217,9 @@ async fn the_public_page_lists_commanders_without_signing_in() {
         assert!(html.contains(text), "{text} missing");
     }
     assert!(!html.contains("operator@example.com"), "no account details");
+    assert!(html.contains("action=\"/commanders\" data-live"), "the form filters live");
+    assert!(html.contains("<div id=\"results\" data-matched=\""), "the script swaps this container");
+    assert!(html.contains("</div></nav></div></main>"), "the page's rows and Next link sit inside it");
     // The default floor hides commanders with few games; a search and colors narrow the list.
     let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
     assert!(!html.contains("Partner A</strong>"));
