@@ -493,6 +493,15 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     let elsewhere = json!({"type": "player", "seat": 0, "name": "Bo", "userId": b, "was": {"name": "Vee"}});
     assert!(!is_scrubbed_player_event(&payload(2).await, &elsewhere, &deleted));
     assert!(!is_scrubbed_player_event(&payload(2).await, &sent2, &|_: &str| false), "only a deleted account may be missing");
+    // An event the phone recorded before the deletion and uploads after is stored scrubbed, and its
+    // retry still matches.
+    let mut late = json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Seat 1"}});
+    let original = late.clone();
+    assert!(super::delete::scrub_departed(&mut late, &deleted));
+    assert_eq!(late, json!({"type": "player", "seat": 0, "name": "Former player", "was": {"name": "Seat 1"}}));
+    assert!(is_scrubbed_player_event(&late, &original, &deleted));
+    let mut alive = json!({"type": "player", "seat": 1, "name": "victim", "userId": b});
+    assert!(!super::delete::scrub_departed(&mut alive, &deleted), "a living account is left alone");
     let seat = |n: i64| {
         let pool = pool.clone();
         let g = g.clone();

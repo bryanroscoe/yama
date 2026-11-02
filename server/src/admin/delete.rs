@@ -267,6 +267,28 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
     Ok(())
 }
 
+/// Take deleted accounts out of one "player" event: one it seats (`userId`) loses the tie and its
+/// name, one it says left the seat (`was.userId`) loses the old name. For events that arrive after
+/// the deletion (`games::insert_events`). Returns whether anything changed.
+pub fn scrub_departed(payload: &mut serde_json::Value, deleted: &dyn Fn(&str) -> bool) -> bool {
+    let Some(obj) = payload.as_object_mut() else { return false };
+    let mut changed = false;
+    if obj.get("userId").and_then(|v| v.as_str()).is_some_and(deleted) {
+        obj.remove("userId");
+        obj.remove("handle");
+        obj.insert("name".into(), FORMER_PLAYER.into());
+        changed = true;
+    }
+    if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut())
+        && was.get("userId").and_then(|v| v.as_str()).is_some_and(deleted)
+    {
+        was.remove("userId");
+        was.insert("name".into(), FORMER_PLAYER.into());
+        changed = true;
+    }
+    changed
+}
+
 /// Whether `stored` is the "player" event `sent` after a deletion scrubbed it (`scrub_game_history`):
 /// a phone retrying an upload whose answer was lost still holds the original, and that's the same
 /// event, not another device's. Only an account `deleted` says is gone (the one `sent` names, or the
