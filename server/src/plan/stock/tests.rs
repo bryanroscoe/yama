@@ -146,6 +146,8 @@ fn connectors_come_from_a_fixed_list() {
 fn titles_and_variants_parse() {
     assert_eq!(title_name("Sol Ring [C21 - 263]"), "Sol Ring");
     assert_eq!(title_name("MTG - Sol Ring (Etched Foil) [CMM - 410]"), "Sol Ring");
+    assert_eq!(title_name("Sol Ring - Foil"), "Sol Ring", "a variant suffix isn't part of the name");
+    assert_eq!(variant_parts("Near Mint / JP / Normal").1.as_deref(), Some("Japanese"), "an abbreviated language");
     assert_eq!(set_and_number("Sol Ring [C21 - 263]"), (Some("c21".into()), Some("263".into())));
     assert_eq!(set_and_number("Sol Ring [Commander Masters]"), (None, None));
     assert_eq!(variant_parts("Near Mint / English / Foil"), (Some("Near Mint".into()), Some("English".into()), "foil"));

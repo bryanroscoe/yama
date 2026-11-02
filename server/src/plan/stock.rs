@@ -158,7 +158,8 @@ fn text_ok(v: &Value) -> bool {
 fn title_name(title: &str) -> &str {
     let t = title.trim();
     let t = t.strip_prefix("MTG - ").unwrap_or(t);
-    let end = [t.find(" ["), t.find(" (")].into_iter().flatten().min().unwrap_or(t.len());
+    // Card names have no " - "; a store's variant suffix ("Sol Ring - Foil") does.
+    let end = [t.find(" ["), t.find(" ("), t.find(" - ")].into_iter().flatten().min().unwrap_or(t.len());
     t[..end].trim()
 }
 
@@ -182,25 +183,31 @@ fn set_and_number(title: &str) -> (Option<String>, Option<String>) {
 
 const LANGUAGES: [&str; 12] = ["english", "japanese", "german", "french", "italian", "spanish", "portuguese", "korean", "chinese", "russian", "phyrexian", "foreign"];
 
+/// A language other than English a word names, in full or abbreviated ("japanese", "jp"), capitalized.
+fn foreign_language(word: &str) -> Option<String> {
+    let w = word.trim().to_lowercase();
+    let lang = match w.as_str() {
+        "jp" | "jpn" | "ja" => Some("japanese"),
+        "de" | "ger" => Some("german"),
+        "fr" | "fre" => Some("french"),
+        "it" | "ita" => Some("italian"),
+        "es" | "sp" | "spa" => Some("spanish"),
+        "pt" | "por" => Some("portuguese"),
+        "ko" | "kor" => Some("korean"),
+        "zh" | "cs" | "ct" | "chs" | "cht" => Some("chinese"),
+        "ru" | "rus" => Some("russian"),
+        w => LANGUAGES.iter().find(|l| **l == w && **l != "english").copied(),
+    }?;
+    let mut c = lang.chars();
+    Some(c.next().map(|f| f.to_ascii_uppercase().to_string() + c.as_str()).unwrap_or_default())
+}
+
 /// A language a store's title names in brackets or parentheses ("Sol Ring (Japanese)", "[JP]").
 fn title_language(title: &str) -> Option<String> {
     for part in qualifiers(title) {
         for word in part.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()) {
-            let lang = match word {
-                "jp" | "jpn" | "ja" => Some("japanese"),
-                "de" | "ger" => Some("german"),
-                "fr" | "fre" => Some("french"),
-                "it" | "ita" => Some("italian"),
-                "es" | "sp" | "spa" => Some("spanish"),
-                "pt" | "por" => Some("portuguese"),
-                "ko" | "kor" => Some("korean"),
-                "zh" | "cs" | "ct" | "chs" | "cht" => Some("chinese"),
-                "ru" | "rus" => Some("russian"),
-                w => LANGUAGES.iter().find(|l| **l == w && **l != "english").copied(),
-            };
-            if let Some(l) = lang {
-                let mut c = l.chars();
-                return Some(c.next().map(|f| f.to_ascii_uppercase().to_string() + c.as_str()).unwrap_or_default());
+            if let Some(l) = foreign_language(word) {
+                return Some(l);
             }
         }
     }
@@ -260,6 +267,9 @@ fn variant_parts(text: &str) -> (Option<String>, Option<String>, &'static str) {
         let l = part.to_lowercase();
         if LANGUAGES.iter().any(|x| l == *x || l.starts_with(&format!("{x} "))) {
             language = Some(part.to_string());
+        } else if let Some(lang) = foreign_language(&l) {
+            // An abbreviation ("JP") is a language too.
+            language = Some(lang);
         } else if ["normal", "foil", "etched", "non-foil", "nonfoil"].contains(&l.as_str()) || l.ends_with(" foil") {
         } else if condition.is_none() && !part.is_empty() {
             condition = Some(part.to_string());
