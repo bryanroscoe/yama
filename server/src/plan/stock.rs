@@ -662,6 +662,12 @@ impl Fetcher {
         let mut last = String::new();
         for attempt in 0..3u32 {
             let guard = turn(&host, url, pause).await?;
+            // A check ahead in the queue may have fetched this very answer meanwhile.
+            if let Some((text, at)) = shared_get(&shared_key(method, url, body)) {
+                drop(guard);
+                raw.add_shared(method, url, &at, &text);
+                return Ok((text.to_string(), false));
+            }
             let mut req = if method == "POST" { self.http.post(url) } else { self.http.get(url) };
             req = req.header("User-Agent", BROWSER_UA).header("Accept", accept).timeout(Duration::from_secs(60));
             if let Some(b) = body {

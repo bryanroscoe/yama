@@ -670,3 +670,37 @@ async fn a_429_without_retry_after_still_holds_the_store() {
     let left = held(&host_of(&url).unwrap());
     assert!(left > Duration::from_secs(50) && left <= UNSAID_HOLD, "{left:?}");
 }
+
+#[tokio::test]
+async fn checks_queued_for_the_same_answer_share_one_request() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let app = Router::new().route(
+        "/slow",
+        get(move || {
+            let h = h.clone();
+            async move {
+                h.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                Json(json!({"products": []}))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = crate::routes::http_client();
+    let url = format!("{base}/slow");
+    // Three checks ask at once; the store's lock queues them, and the two behind the first
+    // find its answer when their turn comes.
+    let ask = || {
+        let (http, url) = (http.clone(), url.clone());
+        tokio::spawn(async move { Fetcher::new(http, None).send(Kind::Shopify, "GET", &url, None, &mut Raw::default()).await.unwrap() })
+    };
+    let (a, b, c) = (ask(), ask(), ask());
+    for answer in [a.await.unwrap(), b.await.unwrap(), c.await.unwrap()] {
+        assert_eq!(answer, json!({"products": []}));
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
