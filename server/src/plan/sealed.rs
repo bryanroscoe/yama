@@ -274,15 +274,21 @@ pub fn text(v: &Value) -> String {
         } else {
             let m = &it["market"];
             let s = &it["singles"];
+            let range = match (s["oldest_date"].as_str(), s["newest_date"].as_str()) {
+                (Some(a), Some(b)) if a != b => format!(", prices {a} to {b}"),
+                (Some(a), _) => format!(", prices of {a}"),
+                _ => String::new(),
+            };
             let _ = writeln!(
                 out,
-                ": sealed market {}{}; singles inside {} ({} priced copies, {} unpriced{}).",
+                ": sealed market {}{}{}; singles inside {} ({} priced copies, {} unpriced; {}{range}).",
                 usd(m["usd"].as_f64()),
                 m["price_date"].as_str().map(|d| format!(" on {d}")).unwrap_or_default(),
+                m["source"].as_str().map(|x| format!(" ({x})")).unwrap_or_default(),
                 usd(s["usd"].as_f64()),
                 s["priced_copies"],
                 s["unpriced_copies"],
-                s["newest_date"].as_str().map(|d| format!(", prices to {d}")).unwrap_or_default(),
+                s["source"].as_str().unwrap_or("market"),
             );
         }
         let quotes = it["quotes"].as_array().unwrap_or(&empty);
@@ -381,7 +387,7 @@ mod tests {
         assert_eq!(it["best"], quotes[0]["id"]);
         assert_eq!(quotes[1]["vs_market_pct"], 4.2);
         let t = text(&v);
-        assert!(t.contains("their cap is $51.00 a deck") && t.contains("sealed market $48.00 on 2026-11-01") && t.contains("Mothership: $49.99 on 2026-10-31 (within their cap, 4.1% above market, the best choice: cheapest in stock within the cap)"), "{t}");
+        assert!(t.contains("their cap is $51.00 a deck") && t.contains("sealed market $48.00 on 2026-11-01 (TCGplayer market via TCGCSV)") && t.contains("TCGplayer market via Scryfall, prices of 2026-10-31") && t.contains("Mothership: $49.99 on 2026-10-31 (within their cap, 4.1% above market, the best choice: cheapest in stock within the cap)"), "{t}");
         // Two prices from one store on one day: the one recorded last counts.
         send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 45.0, "checked_on": "2026-11-01"}))).await;
         send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 47.0, "checked_on": "2026-11-01"}))).await;
