@@ -105,6 +105,45 @@ export const removeWant = (id: string) => api<{ removed: string }>(`/api/plan/wa
 export const deckGaps = (deck: string) =>
   api<{ deck: string; name: string; cards: { name: string; need: number; real: number; proxy: number }[] }>(`/api/plan/wants/deck-gaps/${encodeURIComponent(deck)}`);
 
+export interface SealedQuote {
+  id: string;
+  store: string;
+  store_name: string;
+  preference: StorePreference;
+  price: number | null;
+  in_stock: boolean;
+  checked_on: string;
+  note: string | null;
+  /** Null when there's no price or no cap. */
+  over_cap: boolean | null;
+  vs_market_pct: number | null;
+  vs_singles_pct: number | null;
+}
+
+export interface SealedItem {
+  want: string;
+  name: string;
+  qty: number;
+  priority: "need" | "along";
+  why: string | null;
+  precon: { id: string; name: string; set_name: string | null; released: string | null } | null;
+  market: { usd: number | null; price_date: string; source: string; url: string; product_name: string } | null;
+  singles: { usd: number | null; priced_copies: number; unpriced_copies: number; oldest_date: string | null; newest_date: string | null; source: string } | null;
+  /** Each store's newest price, cheapest first. */
+  quotes: SealedQuote[];
+  /** The cheapest in stock within the cap at a store you'll go to. */
+  best: string | null;
+}
+
+/** The sealed products on your list with store prices, the sealed market and the singles inside. */
+export const sealedView = () => api<{ date: string; cap_usd: number | null; items: SealedItem[] }>("/api/plan/sealed");
+
+/** A store's dated price for a sealed product on your list. */
+export const addSealedQuote = (want: string, body: { store: string; price: number | null; in_stock: boolean; checked_on: string; note: string | null }) =>
+  api<{ id: string }>(`/api/plan/sealed/${encodeURIComponent(want)}/quotes`, { method: "POST", json: body });
+
+export const removeSealedQuote = (id: string) => api<{ removed: string }>(`/api/plan/sealed/quotes/${encodeURIComponent(id)}`, { method: "DELETE" });
+
 /** Save your buy rule and sealed cap as a new rule set from `effective_from` (today). */
 export const saveShoppingRules = (body: { effective_from: string; local_buy: LocalBuyRule; sealed_max_usd: number | null; note: string | null }) =>
   api<{ effective_from: string; origin: string }>("/api/plan/settings", { method: "POST", json: body });

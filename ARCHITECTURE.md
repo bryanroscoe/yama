@@ -1274,6 +1274,11 @@ a deck that isn't in a plan (the cEDH deck) gets its local buys on the same trip
 cards the collection lacks (`GET /api/plan/wants/deck-gaps/{deck}`) are listed to pick from, never
 added automatically. Claude reads it with `shopping_list`.
 
+Sealed precons (slice 4, migration 0056, `server/src/plan/sealed.rs`): a sealed want is matched to
+a precon by name; stores' dated prices for it (`sealed_quotes`, typed on the Trip page, since no
+store Yama reads lists sealed product online) are shown against the sealed cap in force, the
+sealed market and the singles inside at market (`deck_prices`).
+
 ### Deck market values (2026-10-27)
 
 Saved deck lists and the precon catalog show a singles replacement estimate alongside the existing cost to finish. `server/src/deck_prices.rs` uses the planner's cheapest eligible nonfoil paper-printing policy, with snapshots within three days of each card's newest snapshot. Commander and main quantities count, including basics; sideboards do not. This estimates the card list independent of ownership and proxies, not the resale value of the user's actual printings. Totals include priced copies only, are null when none are priced, count missing copies explicitly, and carry the oldest and newest contributing dates and TCGplayer/Scryfall provenance.

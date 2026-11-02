@@ -23,7 +23,20 @@ import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
-import { addWant, checkStores, deckGaps, removeWant, setStoreOrder, setStorePreference, storeSnapshots, type StorePrefBody } from "./api";
+import {
+  addSealedQuote,
+  addWant,
+  checkStores,
+  deckGaps,
+  removeSealedQuote,
+  removeWant,
+  sealedView,
+  setStoreOrder,
+  setStorePreference,
+  storeSnapshots,
+  type SealedItem,
+  type StorePrefBody,
+} from "./api";
 import { api, type DeckSummary } from "../api";
 import { marketSentence } from "./marks";
 import { CopyButton } from "./parts";
@@ -280,6 +293,8 @@ export function Trip() {
       )}
 
       <MyList view={view} userId={userId} />
+
+      <Sealed stores={stores} view={view} userId={userId} />
 
       <StorePrefs stores={stores} view={view} userId={userId} skipped={trip.skipped} />
 
@@ -543,6 +558,111 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * Sealed precons on your list: each store's newest price against your sealed cap, the sealed market
+ * and the singles inside at market. A store price is a dated quote you typed, not a purchase; the
+ * singles value is an estimate of the cards, not what they'd sell for.
+ */
+function Sealed({ stores, view, userId }: { stores: Store[]; view: PlanView; userId: string }) {
+  const any = (view.b.shopping_wants ?? []).some((w) => w.kind === "sealed");
+  const q = useQuery({ queryKey: ["plan-sealed", userId, view.b.rev], queryFn: sealedView, enabled: any });
+  if (!any) return null;
+  const cap = q.data?.cap_usd ?? null;
+  return (
+    <section className="plan-section" aria-labelledby="trip-sealed">
+      <h2 id="trip-sealed" className="plan-section-head">
+        Sealed precons <span className="num dim">{q.data?.items.length ?? ""}</span>
+      </h2>
+      <p className="dim small">
+        {cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
+        Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate.
+      </p>
+      <ErrorText error={q.error} />
+      {(q.data?.items ?? []).map((it) => (
+        <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} />
+      ))}
+    </section>
+  );
+}
+
+function SealedRow({ it, stores, userId, today }: { it: SealedItem; stores: Store[]; userId: string; today: string }) {
+  const qc = useQueryClient();
+  const [store, setStore] = useState(stores[0]?.key ?? "");
+  const [price, setPrice] = useState("");
+  const [inStock, setInStock] = useState(true);
+  const [date, setDate] = useState(today);
+  const done = () => void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });
+  const add = useMutation({
+    mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: null }),
+    onSuccess: () => setPrice(""),
+    onSettled: done,
+  });
+  const remove = useMutation({ mutationFn: removeSealedQuote, onSettled: done });
+  const pct = (p: number | null, what: string) => (p == null ? "" : p >= 0 ? `, ${p}% above ${what}` : `, ${-p}% below ${what}`);
+  return (
+    <div className="buy-store">
+      <p>
+        <b>{it.name}</b>
+        {it.qty > 1 ? ` ×${it.qty}` : ""}
+        {it.precon ? <span className="dim">{it.precon.set_name ? `, ${it.precon.set_name}` : ""}</span> : <span className="dim">, not matched to a precon Yama knows</span>}
+      </p>
+      {it.precon && (
+        <p className="small">
+          Sealed market {it.market?.usd != null ? `${usd(it.market.usd)}, ${fmtDate(it.market.price_date)}` : "unknown"}. Singles inside{" "}
+          {it.singles?.usd != null ? usd(it.singles.usd) : "unknown"}
+          {it.singles ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""})` : ""}.
+        </p>
+      )}
+      <ul className="small">
+        {it.quotes.length === 0 && <li className="dim">No store price recorded.</li>}
+        {it.quotes.map((x) => (
+          <li key={x.id}>
+            {x.store_name}: {usd(x.price)}, {fmtDate(x.checked_on)}
+            {x.in_stock ? "" : ", not in stock"}
+            {x.over_cap ? ", over your cap" : ""}
+            {pct(x.vs_market_pct, "market")}
+            {it.best === x.id ? ". Best choice" : ""}{" "}
+            <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="trip-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (store) add.mutate();
+        }}
+      >
+        <label>
+          Store{" "}
+          <select value={store} onChange={(e) => setStore(e.target.value)}>
+            {stores.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.short ?? s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Price $<input type="number" min={0} step={0.01} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="unknown" />
+        </label>
+        <label>
+          <input type="checkbox" checked={inStock} onChange={(e) => setInStock(e.target.checked)} /> In stock
+        </label>
+        <label>
+          On <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <button type="submit" className="button outline" disabled={add.isPending}>
+          Record the price
+        </button>
+      </form>
+      <ErrorText error={add.error ?? remove.error} />
+    </div>
   );
 }
 

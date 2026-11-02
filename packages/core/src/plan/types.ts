@@ -473,6 +473,8 @@ export interface ShoppingWant {
   why: string | null;
   source: "page" | "assistant";
   added_at: string;
+  /** For a sealed product: the precon Yama matched it to by name, when there is one. */
+  precon_id?: string | null;
 }
 
 /** One dated read of one store's stock (server/src/plan/stock.rs). */

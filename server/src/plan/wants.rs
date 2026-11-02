@@ -111,10 +111,12 @@ pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: 
     if copies + qty > MAX_COPIES {
         return Err(AppError::bad(format!("Your list has {copies} copies; at most {MAX_COPIES} in all. Remove some first.")));
     }
+    // A sealed product names the precon it is, when Yama knows one (`sealed.rs`).
+    let precon = if kind == "sealed" { super::sealed::precon_for(pool, &name).await? } else { None };
     let id = id.map_or_else(crate::util::new_id, String::from);
     let at = now();
     sqlx::query(
-        "INSERT INTO shopping_wants (id, owner_id, kind, name, qty, priority, deck_id, deck_name, why, source, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO shopping_wants (id, owner_id, kind, name, qty, priority, deck_id, deck_name, why, source, added_at, precon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(owner)
@@ -127,9 +129,10 @@ pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: 
     .bind(&why)
     .bind(source)
     .bind(&at)
+    .bind(&precon)
     .execute(pool)
     .await?;
-    Ok(json!({"id": id, "kind": kind, "name": name, "qty": qty, "priority": priority, "deck_id": deck_id, "deck_name": deck_name, "why": why, "source": source, "added_at": at}))
+    Ok(json!({"id": id, "kind": kind, "name": name, "qty": qty, "priority": priority, "deck_id": deck_id, "deck_name": deck_name, "why": why, "source": source, "added_at": at, "precon_id": precon}))
 }
 
 /// The owner's wants on the list now, oldest first. A deck that's gone keeps its label.
@@ -144,8 +147,8 @@ async fn one(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<Value
 
 async fn rows(pool: &SqlitePool, owner: &str, id: Option<&str>) -> AppResult<Vec<Value>> {
     #[allow(clippy::type_complexity)]
-    let rows: Vec<(String, String, String, i64, String, Option<String>, Option<String>, Option<String>, String, String)> = sqlx::query_as(
-        "SELECT w.id, w.kind, w.name, w.qty, w.priority, w.deck_id, COALESCE(d.name, w.deck_name), w.why, w.source, w.added_at
+    let rows: Vec<(String, String, String, i64, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT w.id, w.kind, w.name, w.qty, w.priority, w.deck_id, COALESCE(d.name, w.deck_name), w.why, w.source, w.added_at, w.precon_id
          FROM shopping_wants w LEFT JOIN decks d ON d.id = w.deck_id AND d.owner_id = w.owner_id
          WHERE w.owner_id = ? AND (w.id = ? OR (? IS NULL AND w.retired_at IS NULL)) ORDER BY w.added_at, w.id",
     )
@@ -156,8 +159,8 @@ async fn rows(pool: &SqlitePool, owner: &str, id: Option<&str>) -> AppResult<Vec
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, kind, name, qty, priority, deck_id, deck_name, why, source, at)| {
-            json!({"id": id, "kind": kind, "name": name, "qty": qty, "priority": priority, "deck_id": deck_id, "deck_name": deck_name, "why": why, "source": source, "added_at": at})
+        .map(|(id, kind, name, qty, priority, deck_id, deck_name, why, source, at, precon)| {
+            json!({"id": id, "kind": kind, "name": name, "qty": qty, "priority": priority, "deck_id": deck_id, "deck_name": deck_name, "why": why, "source": source, "added_at": at, "precon_id": precon})
         })
         .collect())
 }
@@ -170,7 +173,12 @@ pub async fn add_route(State(st): State<AppState>, CurrentUser(user): CurrentUse
 /// `DELETE /api/plan/wants/{id}`: take it off your list. One added on the page is deleted; one a
 /// change from Claude added is kept, retired, since applying that change again must add nothing.
 pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Value>> {
-    let gone = sqlx::query("DELETE FROM shopping_wants WHERE id = ? AND owner_id = ? AND source = 'page'").bind(&id).bind(&user.id).execute(&st.pool).await?;
+    let mut tx = st.pool.begin().await?;
+    let gone = sqlx::query("DELETE FROM shopping_wants WHERE id = ? AND owner_id = ? AND source = 'page'").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    if gone.rows_affected() > 0 {
+        // Its recorded store prices (a sealed product's) go with it.
+        sqlx::query("DELETE FROM sealed_quotes WHERE want_id = ? AND owner_id = ?").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    }
     let done = if gone.rows_affected() > 0 {
         gone
     } else {
@@ -178,9 +186,10 @@ pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): Current
             .bind(now())
             .bind(&id)
             .bind(&user.id)
-            .execute(&st.pool)
+            .execute(&mut *tx)
             .await?
     };
+    tx.commit().await?;
     if done.rows_affected() == 0 {
         return Err(AppError::NotFound("want"));
     }

@@ -94,6 +94,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("research_reports", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
+    ("sealed_quotes", "owner_id"),
     ("sessions", "user_id"),
     ("shopping_wants", "owner_id"),
     ("store_listings", "owner_id"),
@@ -137,7 +138,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("advisor_keys", "user_id"),
     ("advisor_settings", "user_id"),
     ("advisor_shared_access", "user_id"),
-    // Shopping: listings point at their snapshots.
+    // Shopping: listings point at their snapshots, sealed prices at wants.
+    ("sealed_quotes", "owner_id"),
     ("store_listings", "owner_id"),
     ("store_snapshots", "owner_id"),
     ("shopping_wants", "owner_id"),
