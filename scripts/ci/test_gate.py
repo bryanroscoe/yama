@@ -224,6 +224,7 @@ class Workflow(unittest.TestCase):
         self.assertNotIn('add-rust-environment-hash-key', rust)
         self.assertIn('rustup toolchain uninstall', rust)
         self.assertLess(rust.index('rustup toolchain uninstall'), rust.index('Swatinem/rust-cache'))
+        self.assertLess(rust.index('rustup default 1.98.1'), rust.index('rustup toolchain uninstall'))
 
 
 class LocalScript(unittest.TestCase):

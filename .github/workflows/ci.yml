@@ -175,7 +175,9 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal
           echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
           # rust-cache's key hashes every installed toolchain, so the image's own (whose
-          # version moves with image updates) would miss the cache. Keep only 1.98.1.
+          # version moves with image updates) would miss the cache. Keep only 1.98.1, made
+          # the default first: rustup reinstalls a removed toolchain that is still active.
+          rustup default 1.98.1
           for toolchain in $(rustup toolchain list --quiet); do
             case "$toolchain" in
               1.98.1-*) ;;
