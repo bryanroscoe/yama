@@ -208,8 +208,8 @@ merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RE
 **Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for same-repository
 PRs into every base branch (including stacked feature PRs) and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
 event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
-`saget-yama-ci` container after hosted jobs hit an account billing block. It runs one job at a
-time, capped at two CPUs/12 GiB, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
+`saget-yama-ci` and `saget-yama-ci-2` containers after hosted jobs hit an account billing block.
+Each runs one job at a time, capped at four CPUs/12 GiB within the eight-CPU/20-GiB pool, with preinstalled Rust 1.98.1 and Node 22. Locked Rust and
 Python regressions plus clean-installed web tests/typecheck/build retain the same acceptance
 checks. Rust builds the exact Phase pin through a read-only deploy key and real sibling
 Cargo paths. A dedicated persistent Cargo/npm cache is separate from production; job checkouts,
@@ -232,7 +232,7 @@ the gitignored `deploy/.env` and Actions secrets, never in tracked files. CI job
 hook records the reservation; the first normal workflow step waits for capacity
 before checkout so runner reporting and cancellation stay responsive. The
 personal-account CI fleet control plane lives in `bryanroscoe/sagetserver` with
-separate per-project state/cache, an aggregate four-CPU/12-GiB budget and two
+separate per-project state/cache, an aggregate eight-CPU/20-GiB budget and two
 execution slots with root-selected memory reservations. CI shares the production
 release gate; production takes it exclusively. An authorized production request first holds the
 fleet admission lock so existing CI finishes while new jobs wait, preventing release starvation.

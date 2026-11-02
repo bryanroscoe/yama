@@ -9,8 +9,8 @@ A newer push to a PR cancels its superseded run. Push CI on main is never cancel
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
-`[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. The separate
-`saget-yama-ci` runner executes one job at a time; it has no deployment credential, Docker
+`[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. Two listeners,
+`saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each has no deployment credential, Docker
 socket, production data/env mounts, or production runner state. Only its own runner state and
 dedicated Cargo/npm cache are mounted. This is a persistent runner for this private
 repository's trusted branches, not a sandbox for arbitrary untrusted code.
@@ -25,11 +25,13 @@ backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.
-- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with two build
+- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with four build
   jobs and low debug information, release/host guards, portable worker/build identity,
   commander evidence/list validation (also under Python optimization), and dataset recovery.
-  Resource usage, process timing and tested Yama/Phase revisions are recorded. The runner
-  has two CPUs, 12 GiB RAM and no extra swap; jobs cannot change host swap or use sudo.
+  Resource usage, process timing and tested Yama/Phase revisions are recorded. Each saget
+  runner has four CPUs and a 12 GiB memory limit inside the shared CI pool (eight CPUs, 20 GiB;
+  Bryan, 2026-11-02), so both Yama listeners can run a Rust job at once; jobs cannot change
+  host swap or use sudo. The pool lives in sagetserver's `ci/` fleet controller.
 
 `deploy/ci-runner/` defines the pinned official runner/toolchain image, startup, Compose
 limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci-runner`.
@@ -90,7 +92,8 @@ Do not start a second standalone worker from the legacy Compose example while
 the fleet controller owns this worker. Its state/cache stay at
 `/mnt/user/appdata/yama-ci-runner`; the deployment runner remains separate.
 
-Pooled CI has an aggregate four-CPU/12-GiB limit and two execution slots, with
+Pooled CI has an aggregate eight-CPU/20-GiB limit (four CPUs and 12 GiB per worker; Bryan,
+2026-11-02) and two execution slots, with
 root-selected memory reservations. It shares Yama's host release gate; production
 takes that gate exclusively. Each repository has separate state, cache and network.
 Only read-only hooks, nonsecret settings and empty coordination locks are
