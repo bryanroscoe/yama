@@ -772,13 +772,10 @@ pub fn trip_cards(bundle: &Value) -> Vec<String> {
 /// Returns the snapshot ids and anything that couldn't be checked.
 pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str) -> AppResult<Value> {
     let pool = &st.pool;
-    // A check cut off by a restart is over.
-    let stale = (Utc::now() - Days::minutes(STALE_MINUTES)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    sqlx::query("UPDATE store_snapshots SET status = 'error', error = 'Cut off before it finished (the server restarted).' WHERE owner_id = ? AND status = 'running' AND requested_at < ?")
-        .bind(owner)
-        .bind(&stale)
-        .execute(pool)
-        .await?;
+    // One admission at a time, so two checks can't both see none running.
+    static ADMIT: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    let _admit = ADMIT.get_or_init(Default::default).lock().await;
+    expire_stale(pool, owner).await?;
     let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND status = 'running'").bind(owner).fetch_one(pool).await?;
     if running > 0 {
         return Err(AppError::Conflict("A store check is already running; wait for it to finish.".into()));
@@ -894,8 +891,20 @@ pub async fn check_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     Ok(Json(start(&st, &user.id, &body, "page").await?))
 }
 
+/// A check cut off by a restart (or a task that died) is over: it shows as failed.
+async fn expire_stale(pool: &SqlitePool, owner: &str) -> AppResult<()> {
+    let stale = (Utc::now() - Days::minutes(STALE_MINUTES)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    sqlx::query("UPDATE store_snapshots SET status = 'error', error = 'Cut off before it finished (the server restarted).' WHERE owner_id = ? AND status = 'running' AND requested_at < ?")
+        .bind(owner)
+        .bind(&stale)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// The owner's snapshots, newest first (without listings or raw responses).
 pub async fn snapshots(pool: &SqlitePool, owner: &str, limit: i64) -> AppResult<Vec<Value>> {
+    expire_stale(pool, owner).await?;
     #[allow(clippy::type_complexity)]
     let rows: Vec<(String, String, String, Option<String>, Option<String>, String, String, Option<String>, String, Option<String>, i64, String, bool)> = sqlx::query_as(
         "SELECT id, store_key, source, cards, failed, query, requested_at, fetched_at, status, error, item_count, via, raw_gz IS NOT NULL
@@ -1049,6 +1058,7 @@ struct SnapRow {
     cards: Option<String>,
     failed: Option<String>,
     fetched_at: String,
+    status: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1089,19 +1099,33 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
         return Ok(vec![]);
     }
     let snaps: Vec<SnapRow> = sqlx::query_as(
-        "SELECT id, store_key, source, cards, failed, fetched_at FROM store_snapshots
+        "SELECT id, store_key, source, cards, failed, fetched_at, status FROM store_snapshots
          WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL ORDER BY fetched_at DESC, id DESC",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    // A whole catalog read only in part (a later page failed) answers only for the cards it listed:
+    // a card missing from it is unknown, not out of stock.
+    let partial: Vec<&String> = snaps.iter().filter(|s| s.cards.is_none() && s.status == "partial").map(|s| &s.id).collect();
+    let listed: HashSet<(String, String)> = if partial.is_empty() {
+        HashSet::new()
+    } else {
+        let rows: Vec<(String, String)> = sqlx::query_as("SELECT DISTINCT snapshot_id, card_key FROM store_listings WHERE owner_id = ? AND snapshot_id IN (SELECT value FROM json_each(?))")
+            .bind(owner)
+            .bind(serde_json::to_string(&partial).map_err(anyhow::Error::from)?)
+            .fetch_all(pool)
+            .await?;
+        rows.into_iter().collect()
+    };
     // For each (store, card): the newest snapshot that answered for it.
     let mut pick: HashMap<(String, String), usize> = HashMap::new();
     for (i, s) in snaps.iter().enumerate() {
         let failed: HashSet<String> = s.failed.as_deref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).unwrap_or_default().iter().map(|c| card_key(c)).collect();
         let asked: Option<HashSet<String>> = s.cards.as_deref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).map(|v| v.iter().map(|c| card_key(c)).collect());
         for k in names.keys() {
-            let covers = asked.as_ref().is_none_or(|a| a.contains(k)) && !failed.contains(k);
+            let in_part = !(s.cards.is_none() && s.status == "partial") || listed.contains(&(s.id.clone(), k.clone()));
+            let covers = asked.as_ref().is_none_or(|a| a.contains(k)) && !failed.contains(k) && in_part;
             if covers {
                 pick.entry((s.store_key.clone(), k.clone())).or_insert(i);
             }

@@ -232,6 +232,25 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     // An error snapshot answers nothing, so the older one still counts.
     assert_eq!(store_quotes(&pool, &owner, &cards).await.unwrap().iter().filter(|q| q["store"] == "pats" && q["card"] == "Sol Ring").count(), 3);
 
+    // A catalog read only in part answers for the cards it listed; the rest are unknown, not absent.
+    snapshot(&pool, &owner, "s-bc2", "black-castle", "tcgplayer_pro", None).await;
+    sqlx::query("UPDATE store_snapshots SET status = 'partial', fetched_at = '2099-01-01T00:00:00Z', error = 'page 2 failed' WHERE id = 's-bc2'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO store_listings (snapshot_id, owner_id, card_name, card_key, price, available, price_kind) VALUES ('s-bc2', ?, 'Sol Ring', 'sol ring', 0.9, 1, 'from')")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let q = store_quotes(&pool, &owner, &cards).await.unwrap();
+    let bc = |card: &str| q.iter().filter(|x| x["store"] == "black-castle" && x["card"] == card).cloned().collect::<Vec<_>>();
+    assert_eq!(bc("Sol Ring")[0]["price"], 0.9, "the newer partial catalog answers for what it listed");
+    assert_eq!(bc("Fellwar Stone")[0]["origin"], "snapshot:s-bc", "and the older full catalog still answers for the rest");
+
+    // A check left running by a restart shows as failed when read.
+    snapshot(&pool, &owner, "s-old", "pats", "shopify", Some(&["Sol Ring"])).await;
+    sqlx::query("UPDATE store_snapshots SET requested_at = '2026-01-01T00:00:00Z' WHERE id = 's-old'").execute(&pool).await.unwrap();
+    let all = snapshots(&pool, &owner, 50).await.unwrap();
+    assert_eq!(all.iter().find(|x| x["id"] == "s-old").unwrap()["status"], "error");
+
     // Someone else sees none of it.
     let (other, _) = user(&pool, "other@example.com").await;
     assert!(store_quotes(&pool, &other, &cards).await.unwrap().is_empty());
