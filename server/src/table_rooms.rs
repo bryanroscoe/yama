@@ -88,7 +88,9 @@ fn room_end(game_id: &str) -> String {
 fn ended_for(gone: Result<String, broadcast::error::RecvError>, ids: &[&str]) -> bool {
     match gone {
         Ok(id) => ids.contains(&id.as_str()),
-        Err(broadcast::error::RecvError::Lagged(_)) => false,
+        // Notices were missed (many deletions at once): one may have been for this socket. End it;
+        // a phone that's still allowed reconnects, and `connect` refuses a deleted account.
+        Err(broadcast::error::RecvError::Lagged(_)) => true,
         Err(broadcast::error::RecvError::Closed) => true,
     }
 }
@@ -407,6 +409,6 @@ mod tests {
         let table = ended.try_recv().unwrap();
         assert!(ended_for(Ok(table.clone()), &["sam", room_end("ann-game").as_str()]), "sam, following ann's table, leaves");
         assert!(!ended_for(Ok(table), &["sam", room_end("bob-game").as_str()]), "bob's table carries on");
-        assert!(!ended_for(Err(broadcast::error::RecvError::Lagged(3)), &["bob"]));
+        assert!(ended_for(Err(broadcast::error::RecvError::Lagged(3)), &["bob"]), "missed notices end the socket to be safe");
     }
 }

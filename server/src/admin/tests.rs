@@ -478,13 +478,18 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     // A phone retrying an upload whose answer was lost still holds the original events.
     use super::delete::is_scrubbed_player_event;
     let sent2 = json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
-    assert!(is_scrubbed_player_event(&payload(2).await, &sent2));
+    let deleted = |u: &str| u == v;
+    assert!(is_scrubbed_player_event(&payload(2).await, &sent2, &deleted));
     let sent5 = json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Vix", "userId": v}});
-    assert!(is_scrubbed_player_event(&payload(5).await, &sent5));
+    assert!(is_scrubbed_player_event(&payload(5).await, &sent5, &deleted));
     let other = json!({"type": "player", "seat": 0, "name": "Somebody", "userId": v, "was": {"name": "Vee"}});
-    assert!(!is_scrubbed_player_event(&payload(3).await, &other), "an unscrubbed event matches only exactly");
+    assert!(!is_scrubbed_player_event(&payload(3).await, &other, &deleted), "an unscrubbed event matches only exactly");
     let moved = json!({"type": "player", "seat": 1, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
-    assert!(!is_scrubbed_player_event(&payload(2).await, &moved), "another seat is another event");
+    assert!(!is_scrubbed_player_event(&payload(2).await, &moved, &deleted), "another seat is another event");
+    // Another device's change under the same number names a living account: never a retry.
+    let elsewhere = json!({"type": "player", "seat": 0, "name": "Bo", "userId": b, "was": {"name": "Vee"}});
+    assert!(!is_scrubbed_player_event(&payload(2).await, &elsewhere, &deleted));
+    assert!(!is_scrubbed_player_event(&payload(2).await, &sent2, &|_: &str| false), "only a deleted account may be missing");
     let seat = |n: i64| {
         let pool = pool.clone();
         let g = g.clone();

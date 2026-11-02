@@ -460,11 +460,24 @@ async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Ev
                 .await?;
             // The time travels with the event, so two devices making the same tap under the same
             // number (both "life -1") still differ, and only an exact resend is a retry.
-            // A "player" event a deletion has since scrubbed is still that event.
             let stored = serde_json::from_str::<serde_json::Value>(&payload).ok();
-            let same = kind == e.kind
-                && stored.as_ref().is_some_and(|s| *s == e.payload || (kind == "player" && crate::admin::delete::is_scrubbed_player_event(s, &e.payload)))
-                && e.created_at.as_ref().is_none_or(|t| *t == created_at);
+            let mut same = kind == e.kind && stored.as_ref() == Some(&e.payload) && e.created_at.as_ref().is_none_or(|t| *t == created_at);
+            // A "player" event a deletion has since scrubbed is still that event, provided the
+            // account it no longer names really is gone.
+            if !same && kind == "player" && kind == e.kind && e.created_at.as_ref().is_none_or(|t| *t == created_at)
+                && let Some(stored) = &stored
+            {
+                let mut gone = std::collections::HashSet::new();
+                for pointer in ["/userId", "/was/userId"] {
+                    if let Some(id) = e.payload.pointer(pointer).and_then(|v| v.as_str()) {
+                        let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ?)").bind(id).fetch_one(&mut *tx).await?;
+                        if !exists {
+                            gone.insert(id.to_string());
+                        }
+                    }
+                }
+                same = crate::admin::delete::is_scrubbed_player_event(stored, &e.payload, &|id: &str| gone.contains(id));
+            }
             if !same {
                 return Err(AppError::Conflict(
                     "another device already saved different changes to this game. Keep the game going on one device".into(),

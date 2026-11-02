@@ -296,25 +296,31 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
 
 /// Whether `stored` is the "player" event `sent` after a deletion scrubbed it (`scrub_game_history`):
 /// a phone retrying an upload whose answer was lost still holds the original, and that's the same
-/// event, not another device's.
-pub fn is_scrubbed_player_event(stored: &serde_json::Value, sent: &serde_json::Value) -> bool {
+/// event, not another device's. Only an account `deleted` says is gone (the one `sent` names, or the
+/// one it says left the seat) may have been taken out; anything else must match exactly.
+pub fn is_scrubbed_player_event(stored: &serde_json::Value, sent: &serde_json::Value, deleted: &dyn Fn(&str) -> bool) -> bool {
     let former = |v: Option<&serde_json::Value>| v.and_then(|n| n.as_str()) == Some(FORMER_PLAYER);
-    if !former(stored.get("name")) && !former(stored.pointer("/was/name")) {
+    let gone = |pointer: &str| sent.pointer(pointer).and_then(|v| v.as_str()).is_some_and(deleted);
+    let (self_gone, was_gone) = (gone("/userId"), gone("/was/userId"));
+    if !self_gone && !was_gone {
         return false;
     }
     let mut sent = sent.clone();
     let Some(obj) = sent.as_object_mut() else { return false };
-    if former(stored.get("name")) && stored.get("userId").is_none() {
+    if self_gone {
         obj.insert("name".into(), FORMER_PLAYER.into());
         obj.remove("userId");
         obj.remove("handle");
+    } else if former(stored.get("name")) && !obj.contains_key("userId") {
+        // A guest's name on a seat the deleted account left, scrubbed as one of its names.
+        obj.insert("name".into(), FORMER_PLAYER.into());
     }
     if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
-        if former(stored.pointer("/was/name")) {
-            was.insert("name".into(), FORMER_PLAYER.into());
-        }
-        if stored.pointer("/was/userId").is_none() {
+        if was_gone {
             was.remove("userId");
+        }
+        if former(stored.pointer("/was/name")) && !was.contains_key("userId") {
+            was.insert("name".into(), FORMER_PLAYER.into());
         }
     }
     &sent == stored
