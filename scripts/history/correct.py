@@ -215,10 +215,22 @@ def apply(conn, owner, request, dry_run=False):
                 change.update(before=now, after=new)
                 write(conn, change, new)
                 changes.append(change)
+        # Legacy seats may identify an account only through member_id. Capture that
+        # relationship now, before account deletion anonymizes the membership.
+        subjects = {owner}
+        for change in changes:
+            if change['kind'] == 'player':
+                for snapshot in (change['before'], change['after']):
+                    if snapshot['user_id']:
+                        subjects.add(snapshot['user_id'])
+                    member = conn.execute('SELECT user_id FROM playgroup_members WHERE id=?',
+                                          (snapshot['member_id'],)).fetchone()
+                    if member and member['user_id']:
+                        subjects.add(member['user_id'])
         created = datetime.datetime.now(datetime.timezone.utc).isoformat()
         conn.execute('INSERT INTO history_corrections '
-                     '(id,owner_id,actor,reason,request,changes,reverts,created_at) VALUES (?,?,?,?,?,?,?,?)',
-                     (request['id'], owner, request['actor'], request['reason'], encode(request), encode(changes), reverts, created))
+                     '(id,owner_id,actor,reason,request,changes,subjects,reverts,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+                     (request['id'], owner, request['actor'], request['reason'], encode(request), encode(changes), encode(sorted(subjects)), reverts, created))
         result = {'id': request['id'], 'dry_run': dry_run, 'changes': changes}
         if dry_run:
             conn.rollback()

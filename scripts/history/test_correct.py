@@ -231,6 +231,17 @@ class Corrections(unittest.TestCase):
         declaration = re.search(r'pub const WIN_CONDITIONS:.*?= \[(.*?)\];', source).group(1)
         self.assertEqual(correct.CONDITIONS, set(re.findall(r'"(.*?)"', declaration)))
 
+    def test_deleted_legacy_member_account_purges_log_after_anonymization(self):
+        self.c.execute("UPDATE game_seats SET member_id='chelsey-member',guest_name='Chelsey' WHERE game_id='g1' AND seat=1")
+        self.c.commit()
+        self.req['changes'][1]['before'].update(member_id='chelsey-member', guest_name='Chelsey')
+        self.req['changes'][1]['after'].update(member_id='other-member', user_id='other')
+        self.apply()
+        self.c.execute("UPDATE playgroup_members SET user_id=NULL,guest_name='Former member' WHERE user_id='chelsey'")
+        self.c.execute("DELETE FROM users WHERE id='chelsey'")
+        self.c.commit()
+        self.assertEqual(self.logs(), 0)
+
     def test_validation_duplicate_targets_and_bad_types(self):
         bad = [[], {'id': 'x'}, {**self.req, 'extra': 1}, {**self.req, 'changes': []},
                {**self.req, 'changes': [self.req['changes'][0]] * 2}]
