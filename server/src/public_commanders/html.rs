@@ -50,7 +50,7 @@ impl Filters {
     /// at least the chosen number of games. Colors, sources and a search narrow the list but keep
     /// those ranks.
     fn apply<'a>(&self, all: &'a [Commander], sources: &[Source]) -> AppResult<Vec<(usize, &'a Commander)>> {
-        if self.q.len() > 200 || self.c.len() > 5 || self.m.len() > 20 || self.g.len() > 6 || self.s.len() > 20 || self.src.len() > 240 {
+        if self.q.len() > 200 || self.c.len() > 5 || self.m.len() > 20 || self.g.len() > 6 || self.s.len() > 20 || self.src.len() > 242 {
             return Err(AppError::bad("Commander filters are too long"));
         }
         let colors = self.c.to_ascii_uppercase();
