@@ -219,6 +219,14 @@ mounts or deployment key enter CI. Both jobs must pass on the actual PR before m
 main-push CI gates automatic production deployment; the opt-in hosted lab simulation workflow
 remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 
+**CI tests off (Bryan, 2026-11-02):** hosted CI used 2,715 of the plan's 3,000 monthly Actions
+minutes in two days, so the repository variable `CI_TESTS` now switches the test jobs and is off.
+PR and main-push runs then start no hosted job; agents run the full local checks
+(`scripts/local-ci.sh --no-amend`) on the final head before merging and report them as local
+evidence. A seconds-long marker job on saget's free CI runner keeps push CI on main successful,
+so automatic deployment and the host release gate work unchanged. Setting `CI_TESTS` to `on`
+restores the test CI described above. See `docs/ci.md`, "Tests on or off".
+
 **Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
 triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
 reviewed work to main now requests production release. The runner has no Docker socket,
