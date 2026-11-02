@@ -48,6 +48,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("api_tokens", "owner_id"),
     ("applied_ops", "owner_id"),
     ("assistant_changes", "owner_id"),
+    ("history_corrections", "owner_id"),
     ("calendar_watches", "user_id"),
     ("collection_items", "owner_id"),
     ("commander_evidence_sources", "owner_id"),
@@ -133,6 +134,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
     ("assistant_changes", "owner_id"),
+    ("history_corrections", "owner_id"),
     ("advisor_messages", "owner_id"),
     ("advisor_conversations", "owner_id"),
     ("advisor_usage", "owner_id"),
