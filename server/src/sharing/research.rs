@@ -963,28 +963,52 @@ fn plain_list(b: &Value) -> String {
     export(&cards, "names")
 }
 
+/// Most list lines a note page puts in its text boxes, across every list. A Commander list is
+/// about 100 lines, so this covers 13 decks of 3 builds with room to spare; a public page mustn't
+/// return work in proportion to an arbitrarily long note.
+const COPY_LINES: usize = 6000;
+
 /// Every list the note page's build choice covers, each to copy, and all of them as one text.
+/// A list past `MAX_LINES`, or past the page's `COPY_LINES`, is a download link instead; the
+/// one-text box appears only when every list fits.
 fn note_lists(token: &str, decks: &[Value], which: Which, how: How) -> String {
-    let lists: Vec<(String, String)> = decks
-        .iter()
-        .flat_map(|d| which.builds(d).into_iter().map(move |b| (format!("{}: {}", text(d, "name"), text(b, "label")), plain_list(b))))
-        .collect();
-    if lists.is_empty() {
+    let builds: Vec<(&Value, &Value)> = decks.iter().flat_map(|d| which.builds(d).into_iter().map(move |b| (d, b))).collect();
+    if builds.is_empty() {
         return String::new();
+    }
+    let mut budget = COPY_LINES;
+    let mut boxes = Vec::new();
+    let mut every = String::new();
+    let mut whole = true;
+    for (i, (d, b)) in builds.iter().enumerate() {
+        let title = format!("{}: {}", text(d, "name"), text(b, "label"));
+        let lines = text(b, "list").lines().count();
+        if lines <= MAX_LINES && lines <= budget {
+            budget -= lines;
+            let list = plain_list(b);
+            write!(every, "// {title}\n{list}\n").unwrap();
+            boxes.push(copy_box(&format!("list-{i}"), &title, &list, 8));
+        } else {
+            whole = false;
+            boxes.push(format!(
+                "<div class=\"share-copy-box\"><div class=\"share-copy-head\"><b>{}</b><a class=\"button\" href=\"/r/{}/{}/{}-names.txt\" download>Download</a></div><p class=\"dim\">Too long to show here.</p></div>",
+                e(&title),
+                e(token),
+                e(text(d, "key")),
+                e(text(b, "id"))
+            ));
+        }
     }
     let mut s = format!(
         "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} list{}</p><h2 id=\"lists-head\">Deck lists</h2></div></div><p class=\"dim share-shop-how\">Standard text lists (Commander, then Deck), for Moxfield, Archidekt or Yama's own import. The builds follow the shopping list's choice; <a href=\"{}\">every build</a> lists them all.</p>",
-        lists.len(),
-        if lists.len() == 1 { "" } else { "s" },
+        builds.len(),
+        if builds.len() == 1 { "" } else { "s" },
         note_href(token, Which::All, how, "lists-head"),
     );
-    let every: String = lists.iter().map(|(title, list)| format!("// {title}\n{list}\n")).collect();
-    s.push_str(&copy_box("lists-all", &format!("Every list ({})", lists.len()), &every, 8));
-    s.push_str("<div class=\"share-copy-grid\">");
-    for (i, (title, list)) in lists.iter().enumerate() {
-        s.push_str(&copy_box(&format!("list-{i}"), title, list, 8));
+    if whole {
+        s.push_str(&copy_box("lists-all", &format!("Every list ({})", builds.len()), &every, 8));
     }
-    s.push_str("</div></section>");
+    write!(s, "<div class=\"share-copy-grid\">{}</div></section>", boxes.concat()).unwrap();
     s
 }
 
@@ -1236,7 +1260,10 @@ pub(super) async fn deck(
         .unwrap();
     }
     body.push_str("</div>");
-    body.push_str(&copy_box("decklist", "Standard list (Commander, then Deck)", &plain_list(b), 12));
+    // The whole list, unless it's past the page's cap: then the download above has it.
+    if !cut {
+        body.push_str(&copy_box("decklist", "Standard list (Commander, then Deck)", &plain_list(b), 12));
+    }
     body.push_str(&card_views(&cards));
     body.push_str("</section>");
     if cut {

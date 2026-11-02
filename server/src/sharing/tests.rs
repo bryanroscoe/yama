@@ -755,6 +755,12 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(all.contains("// Party Time: Bracket 2\n") && all.contains("// Party Time: Bracket 3\n") && all.contains("aria-label=\"Every list (2)\""), "{all}");
     assert!(all.contains(">All builds</a>") && all.contains("aria-current=\"page\" href=\"/r/"), "{all}");
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+    // A list too long to copy on the page is a download instead, and there's no one-text box.
+    let mut long = both.clone();
+    long["decks"][0]["builds"][0]["list"] = json!(format!("Commander\n1 Nalia de'Arnise\nDeck\n{}", (0..400).map(|i| format!("1 Card {i}")).collect::<Vec<_>>().join("\n")));
+    crate::deck_research::save(&pool, &bryan, &long).await.unwrap();
+    let longer = page(&app, &format!("/r/{token}?builds=all")).await.2;
+    assert!(longer.contains(&format!("href=\"/r/{token}/party/b2-names.txt\" download>Download</a>")) && !longer.contains("id=\"lists-all\"") && longer.contains("id=\"list-1\""), "{longer}");
     // A build may be called "all": the every-build view has its own parameter.
     let mut named = both.clone();
     named["decks"][0]["builds"][0]["id"] = json!("all");
