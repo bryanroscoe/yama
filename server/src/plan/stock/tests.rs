@@ -18,6 +18,8 @@ fn suggest(card: &str) -> Value {
         "\"Fellwar Stone\"" => json!({"resources": {"results": {"products": [
             {"title": "Fellwar Stone [DRK - 103]", "handle": "fellwar-stone-drk", "available": false},
         ]}}}),
+        // Ten products, none the card itself: the in-stock search that follows fails in the mock.
+        "\"Many\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Many Things {i}"), "handle": format!("many-{i}")})).collect::<Vec<_>>()}}}),
         _ => json!({"resources": {"results": {"products": []}}}),
     }
 }
@@ -69,7 +71,7 @@ async fn mock() -> String {
         .route(
             "/search/suggest.json",
             get(|Query(q): Query<HashMap<String, String>>| async move {
-                if q["q"].contains("Fail Me") {
+                if q["q"].contains("Fail Me") || q["q"] == "title:\"Many\" available:true" {
                     return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
                 }
                 Ok(Json(suggest(&q["q"])))
@@ -178,7 +180,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let base = mock().await;
     let (_app, pool) = app().await;
     let (owner, _) = user(&pool, "bryan@example.com").await;
-    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard"].map(String::from).to_vec();
+    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many"].map(String::from).to_vec();
     let refs: Vec<&str> = cards.iter().map(String::as_str).collect();
     snapshot(&pool, &owner, "s-pats", "pats", "shopify", Some(&refs)).await;
     snapshot(&pool, &owner, "s-bc", "black-castle", "tcgplayer_pro", None).await;
@@ -195,7 +197,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let by = |s: &str| snaps.iter().find(|x| x["id"] == s).unwrap().clone();
     // Pat's: Fail Me couldn't be read, so it's partial; only available variants are kept.
     assert_eq!(by("s-pats")["status"], "partial", "{snaps:?}");
-    assert_eq!(by("s-pats")["failed"], 1);
+    assert_eq!(by("s-pats")["failed"], 2, "Fail Me, and Many, whose in-stock search failed");
     assert_eq!(by("s-pats")["listings"], 4, "three available Sol Ring variants and the etched one");
     assert!(by("s-pats")["raw"] == true);
     assert_eq!(by("s-bc")["status"], "ok");
@@ -220,6 +222,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let fellwar = at("pats", "Fellwar Stone");
     assert_eq!((fellwar.len(), &fellwar[0]["in_stock"]), (1, &json!(false)));
     assert!(at("pats", "Fail Me").is_empty());
+    assert!(at("pats", "Many").is_empty(), "a failed follow-up search leaves the card unknown");
     // Black Castle's catalog: Exotic Orchard "from" its lowest price, Fellwar Stone not in the catalog.
     let orchard = at("black-castle", "Exotic Orchard");
     assert_eq!((orchard[0]["price"].as_f64(), orchard[0]["in_stock"].as_bool()), (Some(0.5), Some(true)));

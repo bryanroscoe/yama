@@ -456,6 +456,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
         let front = card.split(" // ").next().unwrap_or(card).trim();
         let mut handles: Vec<(String, String)> = Vec::new();
         let mut ok = false;
+        let mut missed = false;
         let mut queries = vec![format!("\"{front}\"")];
         let mut i = 0;
         while i < queries.len() {
@@ -465,6 +466,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                 Ok(body) => {
                     let Some((n, found)) = shopify_suggest(&body, card) else {
                         out.errors.push(format!("{}: an answer without a product list", u.as_str()));
+                        missed = true;
                         i += 1;
                         continue;
                     };
@@ -479,7 +481,10 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                         queries.push(format!("title:\"{front}\" available:true"));
                     }
                 }
-                Err(e) => out.errors.push(e),
+                Err(e) => {
+                    out.errors.push(e);
+                    missed = true;
+                }
             }
             i += 1;
         }
@@ -487,7 +492,9 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
             out.failed.push(card.clone());
             continue;
         }
-        let mut product_failed = false;
+        // A search or printing that couldn't be read may be the one in stock: the card is unknown
+        // unless a copy was found anyway.
+        let mut product_failed = missed;
         for (handle, _) in &handles {
             match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
                 Ok(body) if body["variants"].is_array() => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
@@ -501,7 +508,6 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                 }
             }
         }
-        // A printing that couldn't be read may be the one in stock: unknown, unless another is.
         if product_failed && !out.listings.iter().any(|l| l.card == *card) {
             out.failed.push(card.clone());
         }
