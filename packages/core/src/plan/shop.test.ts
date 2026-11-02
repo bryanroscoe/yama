@@ -358,6 +358,8 @@ describe("buyList", () => {
     expect(list.unpriced).toBe(3); // Unpriced, plus Nowhere and Pending with no listing
     expect(list.count).toBe(5);
     expect(cartUrl(stores[0]!, [])).toBeNull();
+    // Two copies of one listing are one line with quantity 2.
+    expect(cartUrl(stores[0]!, ["111", "222", "111"])).toBe("https://shop.example/cart/111:2,222:1");
     expect(cartUrl({ ...stores[0]!, cart_url_template: "http://shop.example/cart/{items}" }, ["1"])).toBeNull();
   });
 

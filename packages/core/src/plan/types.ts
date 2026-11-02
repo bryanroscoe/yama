@@ -248,6 +248,8 @@ export interface Quote {
   url: string | null;
   source: string;
   origin: string;
+  /** Copies the listing says it has (store snapshots); missing or null when it doesn't say. */
+  qty?: number | null;
 }
 
 export interface Store {
@@ -446,6 +448,50 @@ export interface PlanBundle {
   store_prefs?: Record<string, StorePref>;
   /** Your real-card wishlist, from research. Missing from older bundles. */
   wishlist?: WishItem[];
+  /**
+   * Store stock snapshots as stock checks: for each card the trip plans for and each store, the
+   * newest snapshot that answered for it (`checked` is its fetch time). Missing from older bundles.
+   */
+  store_quotes?: Quote[];
+  /** Your newest store snapshots, newest first (no listings). Missing from older bundles. */
+  snapshots?: StoreSnapshot[];
+  /** Cards (and sealed products) you added to your shopping list by hand. Missing from older bundles. */
+  shopping_wants?: ShoppingWant[];
+}
+
+/** A card or sealed product you want, added by hand in Yama or by a change from Claude you applied. */
+export interface ShoppingWant {
+  id: string;
+  kind: "card" | "sealed";
+  name: string;
+  qty: number;
+  /** "need": a reason to go to a store; "along": only from a store already on the trip. */
+  priority: "need" | "along";
+  /** Your Yama deck it's for, when it is one; `deck_name` is its name, or a label for a deck not in Yama. */
+  deck_id: string | null;
+  deck_name: string | null;
+  why: string | null;
+  source: "page" | "assistant";
+  added_at: string;
+}
+
+/** One dated read of one store's stock (server/src/plan/stock.rs). */
+export interface StoreSnapshot {
+  id: string;
+  store: string;
+  source: "shopify" | "tcgplayer_pro" | "yestcg" | "import";
+  /** How many cards it asked about; null: the whole catalog. */
+  cards: number | null;
+  /** Cards whose answer is unknown (a request failed). */
+  failed: number;
+  query: string;
+  requested_at: string;
+  fetched_at: string | null;
+  status: "running" | "ok" | "partial" | "error";
+  error: string | null;
+  listings: number;
+  via: "page" | "assistant" | "import";
+  raw: boolean;
 }
 
 export interface RowCounts {

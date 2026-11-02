@@ -98,8 +98,8 @@ force (its `local_buy`, else the rule read from its older fields).
 | **Rule sets made in Yama** | `plan_settings` rows with `origin = 'yama'`, from Settings or the staged `set_shopping_rules` (see "Account-level rules") | Built |
 | Dated listings for plan cards | `plan_quotes` (`stock_check`: store, checked date, in stock, price, printing, cart variant, URL) | Exists |
 | Real-card wishlist | Research scenarios with `purpose: permanent_real_wishlist` (`research_reports`), one entry per card | Exists; the bundle now carries it as `wishlist` |
-| **Stock snapshots** | `store_snapshots (id, owner_id, store_key, source, query, fetched_at, status, raw_gz, item_count)` and `store_listings (snapshot_id, owner_id, card_name, oracle_id, set_code, number, finish, condition, language, price, qty, variant, url)`. One snapshot is one dated read of one store (a whole catalog, or the answers for a card list). Listings are never edited; a newer snapshot of the same store supersedes an older one, as `newestChecks` does for quotes. The raw response is kept gzipped (newest 10 per store) so a parse bug can be fixed without fetching again. | Slice 2 |
-| **Shopping list** | Derived, not stored: `packages/core` `shoppingList(bundle, decks, collection)`. Only the wishlist and sealed wants need new rows: `shopping_wants (id, owner_id, kind: card/sealed, name, oracle_id, product_id, qty, tier, why, source, added_at, retired_at)`, for cards he adds by hand in Yama. | Slice 3 |
+| **Stock snapshots** | `store_snapshots (id, owner_id, store_key, source, cards, failed, query, requested_at, fetched_at, status, error, raw_gz, item_count, via, change_id, check_id)` and `store_listings (snapshot_id, owner_id, card_name, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, price_kind, variant, url)`, migration 0055. One snapshot is one dated read of one store (a whole catalog when `cards` is null, or the answers for a card list; `failed` lists cards whose answer is unknown). Listings are never edited; for each card and store the newest answer counts (`stock.rs` `store_quotes`): a check's snapshots (one `check_id`) count from when the last of them finished, an import from when it was read, and within one check YesTCG's comes before the store's own. A whole catalog read only in part answers for nothing. The raw responses are kept gzipped (newest 10 per store, newest 20 snapshots kept) so a parse bug can be fixed without fetching again. | Built (slice 2) |
+| **Shopping list** | Derived from the bundle (the trip's wants), plus `shopping_wants (id, owner_id, kind: card/sealed, name, qty, priority: need/along, deck_id, deck_name, why, source: page/assistant, added_at, retired_at)`, migration 0055, for cards and sealed products added by hand on the Trip page or by an applied `add_wish`. A card is checked against Yama's cards (the canonical name is kept); a deck is one of theirs by id, or a label for a deck not in Yama. Removing one retires it. | Built (slice 3) |
 | Sealed products | `sealed_products`/sealed prices already in `deck_prices.rs`; store listings of sealed product go in `store_listings` with `product_id` | Slice 4 |
 
 Everything is owner-only, like the rest of the planner: stores, preferences, quotes and
@@ -151,6 +151,8 @@ and it has a qualifying copy of a needed card.
   store's place, so the order is entirely his.
 
 **What's left, and why** (each needed card not on the trip, first reason that applies):
+not enough copies at the stores on the trip (a snapshot listing that gives a quantity covers at
+most that many wants; needed cards take them first, and the search counts them too);
 only at stores he left off this trip (named); only at a store he won't go to (named); over the rule's limit (print it, keep it on the wishlist);
 above the rule for its market; no market to judge it by; in stock with no price (ask); not in
 stock at the last check; no check recorded. "Won't go" stores with cards he needs are listed with
@@ -170,14 +172,26 @@ account, and each response kept as a snapshot.
 
 | Store kind | Query | Gives | Notes |
 |---|---|---|---|
-| Shopify storefronts (Pat's Games, Mothership) | `GET /search/suggest.json?q="<card>"&resources[type]=product&resources[limit]=10`, paging the storefront search for more printings, then `GET /products/<handle>.js` | Each printing's variants: condition, price, available, variant id (a cart line) | As commander-decks' `data/prices/local-2026-10-31-cedh/search.py`. Exact-name match, then set and number from the product title. |
+| Shopify storefronts (Pat's Games, Mothership) | `GET /search/suggest.json?q="<card>"&resources[type]=product&resources[limit]=10`; when that's full (10), the storefront search pages `GET /search?q="<card>"&type=product&page=N` (up to 12, until one adds nothing); then `GET /products/<handle>.js` (up to 60 a card) | Each printing's variants: condition, price, available, variant id (a cart line) | As commander-decks' `data/prices/local-2026-10-31-cedh/search.py`. Exact-name match, then set and number from the product title. A card any of whose reads failed, or with more printings than that, is unknown (a printing not read may be the cheapest). |
 | TCGplayer Pro storefronts (Multiverse Hobbies, Black Castle) | `POST /api/catalog/search` with `{"query":"","context":{"productLineName":"Magic: The Gathering"},"filters":{},"from":0,"size":5000}` | The whole in-stock catalog: product, set, `lowestPrice` only | No condition or variant, so no cart line and no per-condition price: listings are "from $X". Multiverse's 1 Nov catalog had 2,098 singles and no sealed product. Black Castle refuses scripts (works from a browser tab), so it comes as an import. |
 | YesTCG (about 53 Austin stores; about 10 with searchable stock, Multiverse among them with conditions) | `GET https://yestcg.com/api/decksearch?q=<card>&market=austin&game=mtg` after loading `https://yestcg.com/` for its cookie, with `Referer` and `X-Requested-With` | Per store: name, set, condition, price, shipping for marketplace stores, matched market | A store that failed in a response is unknown stock, not absent. Uses an aggregator's undocumented API: run it only on request, at most 4 at once, and drop it if they object. |
 | In store only (Card Gurus) and anything a script can't reach | — | — | Import only: a stock check typed in Yama, or `plan_quotes` from the export. |
 
-Until slice 2, every listing comes from the plan import (`plan_quotes`), as today. A
-`yama-store-snapshot/1` file (store key, source, fetched time, the query, listings) can also be
-imported, so commander-decks' existing scripts keep working and their output lands in Yama.
+Before slice 2 every listing came from the plan import (`plan_quotes`). A `yama-store-snapshot/1`
+file can also be imported, so commander-decks' scripts keep working and their output lands in Yama:
+
+```json
+{"format": "yama-store-snapshot/1", "store": "black-castle", "source": "browser tab",
+ "fetched_at": "2026-11-01T16:24:00Z", "query": "POST /api/catalog/search ...",
+ "cards": null,
+ "listings": [{"card": "Sol Ring", "title": "Sol Ring", "set": "C21", "number": "263",
+               "set_name": "Commander 2021", "finish": "nonfoil", "condition": "Near Mint",
+               "language": "English", "price": 1.25, "available": true, "qty": 2,
+               "price_is_lowest": false, "variant": 4242, "url": "https://..."}]}
+```
+
+`cards` null means the store's whole catalog (a card missing from it is not in stock); a list
+means only those cards were asked about. A missing price stays `null`.
 
 ## Sealed precons (slice 4)
 
@@ -200,9 +214,13 @@ Staged writes (built with migration 0051, which rebuilds `assistant_changes` for
 applied by the person in Yama: `set_shopping_rules` (a new dated set on the day they apply it) and
 `set_store_preference` (one store's level, place and premium; unspecified parts stay as they are).
 
-Later, read: `shopping_list` (every want with its source and status), `store_stock` (one store's
-newest snapshot for given cards). Staged: `check_stores` (fetch snapshots for a card list),
-`add_wish`.
+Stock (slice 2, migration 0055 adds the kinds): read `store_stock` (one store's newest snapshot
+answers for given cards, default the trip's); staged `check_stores` (read stores' stock when
+applied; stores Yama can't read are refused at staging, so nothing is staged that reads nothing).
+
+The list (slice 3): read `shopping_list` (every want with its source and where the trip puts it,
+or why not); staged `add_wish` (a card or sealed product, need or along, for a Yama deck or a
+label).
 
 ## Slices
 
@@ -211,10 +229,24 @@ newest snapshot for given cards). Staged: `check_stores` (fetch snapshots for a 
    wishlist tiers, the Trip page (`/decks/plan/trip`) with the store choices, and `shopping_trip`.
 1b. **Built:** account-level rules (Settings, `shopping_settings`, `set_shopping_rules`) and store
    preferences v2 (favourite, order, premium, "Going this time", `set_store_preference`).
-2. Stock snapshots: tables, the Shopify, TCGplayer Pro and YesTCG connectors on request, the
-   snapshot import, and the trip reading snapshots beside `plan_quotes`.
-3. One shopping list: Yama deck cards not owned and not in a plan (the cEDH deck), hand-added wants,
-   and the list view with sources; the acquisition count from proposal review.
+2. **Built:** stock snapshots: tables, the Shopify, TCGplayer Pro and YesTCG connectors on request
+   (Trip page "Store stock", `check_stores`), the snapshot import (`POST /api/plan/stock/import`),
+   `store_stock`, and the trip reading snapshots (`store_quotes`) beside `plan_quotes`. A
+   snapshot's check time is its fetch time, so it beats a plan quote from the same day; a foil
+   listing still never qualifies, and a TCGplayer Pro "from" price (lowest listed, condition and
+   finish not given) is judged like any other price.
+3. **Built:** one shopping list. Hand-added wants (`server/src/plan/wants.rs`, `POST
+   /api/plan/wants`, `DELETE /api/plan/wants/{id}`, the bundle's `shopping_wants`) join the trip:
+   "need" ones decide the stores like planned buys, "along" ones come along like undecided
+   proposals. Each copy is its own want, also when a plan buys the card for another deck (Sol Ring
+   for the cEDH deck and for a precon upgrade are two copies). The Trip page's "Your list" adds and
+   removes them, and for any Yama deck lists the cards the collection lacks (`GET
+   /api/plan/wants/deck-gaps/{deck}`: real copies across the whole collection against the deck's
+   main and commander cards, proxies counted apart, basics left out) with an Add button each. Those
+   aren't added automatically: a deck he proxies (the cEDH deck) would fill the trip with cards he
+   means to print, so only the ones he picks (its four local buys) go on the list. Claude reads the
+   list with `shopping_list` and stages `add_wish`. The acquisition count from proposal review is
+   still on its unmerged branch.
 4. Sealed: store sealed prices against market and singles, and the $51 rule.
 5. Staged MCP writes (`set_store_preference`, `check_stores`, `add_wish`).
 

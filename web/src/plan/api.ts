@@ -1,5 +1,5 @@
 // The planner's server calls. Types live in @yama/core/plan, next to the logic that reads them.
-import type { ImportReport, LocalBuyRule, PlanBundle, StateName, StorePreference } from "@yama/core/plan";
+import type { ImportReport, LocalBuyRule, PlanBundle, ShoppingWant, StateName, StorePreference, StoreSnapshot } from "@yama/core/plan";
 import { api } from "../api";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
@@ -83,6 +83,27 @@ export const setStoreOrder = (keys: string[]) => api<{ keys: string[] }>("/api/p
 
 export const setStorePreference = (store: string, body: StorePrefBody) =>
   api<{ store: string; preference: StorePreference | null }>(`/api/plan/stores/${encodeURIComponent(store)}/preference`, { method: "PUT", json: body });
+
+/** Read your stores' stock now, in the background: one snapshot per store (docs/shopping-design.md). */
+export const checkStores = (body: { stores: string[] | null; cards?: string[] | null; yestcg: boolean }) =>
+  api<{ snapshots: { id: string; store: string; source: string }[]; skipped: { store: string; name: string; why: string }[]; cards: number }>("/api/plan/stock/check", {
+    method: "POST",
+    json: body,
+  });
+
+/** Your newest store snapshots, to follow a check. */
+export const storeSnapshots = () => api<{ snapshots: StoreSnapshot[] }>("/api/plan/stock");
+
+/** Add a card or sealed product to your shopping list. */
+export const addWant = (body: { kind: "card" | "sealed"; name: string; qty: number; priority: "need" | "along"; deck_id: string | null; deck_name: string | null; why: string | null }) =>
+  api<ShoppingWant>("/api/plan/wants", { method: "POST", json: body });
+
+/** Take a want off your list. */
+export const removeWant = (id: string) => api<{ removed: string }>(`/api/plan/wants/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/** A deck's cards your collection doesn't hold enough real copies of (basic lands left out). */
+export const deckGaps = (deck: string) =>
+  api<{ deck: string; name: string; cards: { name: string; need: number; real: number; proxy: number }[] }>(`/api/plan/wants/deck-gaps/${encodeURIComponent(deck)}`);
 
 /** Save your buy rule and sealed cap as a new rule set from `effective_from` (today). */
 export const saveShoppingRules = (body: { effective_from: string; local_buy: LocalBuyRule; sealed_max_usd: number | null; note: string | null }) =>

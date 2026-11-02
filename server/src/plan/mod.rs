@@ -13,9 +13,11 @@ pub mod inputs;
 pub mod installed;
 pub mod model;
 pub mod shopping;
+pub mod stock;
 pub mod swap_in;
 pub mod tokens;
 pub mod trip;
+pub mod wants;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -51,6 +53,12 @@ pub fn router() -> Router<AppState> {
         .route("/api/plan/store-order", put(shopping::order_route))
         .route("/api/plan/settings", post(shopping::save_route))
         .route("/api/plan/settings/{date}", delete(shopping::remove_route))
+        .route("/api/plan/stock", get(stock::list_route))
+        .route("/api/plan/stock/check", post(stock::check_route))
+        .route("/api/plan/stock/import", post(stock::import_route).layer(DefaultBodyLimit::max(IMPORT_LIMIT)))
+        .route("/api/plan/wants", post(wants::add_route))
+        .route("/api/plan/wants/{id}", delete(wants::remove_route))
+        .route("/api/plan/wants/deck-gaps/{deck}", get(wants::gaps_route))
         .merge(inputs::router())
         .merge(tokens::router())
 }

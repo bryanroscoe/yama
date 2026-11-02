@@ -534,3 +534,102 @@ async fn shopping_rules_and_store_preferences_are_staged_then_applied() {
     assert!(text.contains("- Black Castle Gamez (key black-castle): their favourite, to support, up to $0.25 more a card here\n"), "{text}");
 
 }
+
+#[tokio::test]
+async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    for (id, key, name, homepage, sort) in [("st1", "pats", "Pat's Games", Some("https://patsgames.com"), 1), ("st2", "card-gurus", "Card Gurus", None, 2)] {
+        sqlx::query("INSERT INTO plan_stores (id, owner_id, key, name, kind, homepage, sort, origin, created_at, updated_at) VALUES (?, ?, ?, ?, 'local', ?, ?, 'import', 'now', 'now')")
+            .bind(id)
+            .bind(&a)
+            .bind(key)
+            .bind(name)
+            .bind(homepage)
+            .bind(sort)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let (err, text) = call(&app, &mcp, "store_stock", json!({"store": "pats", "cards": ["Sol Ring"]})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("No stock snapshot of Pat's Games yet") && text.contains("- Sol Ring: no answer"), "{text}");
+
+    let file = json!({
+        "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T16:24:00Z", "cards": ["Sol Ring", "Mana Vault"],
+        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "condition": "Near Mint", "finish": "nonfoil", "price": 1.0, "available": true, "qty": 2}],
+    });
+    let (s, v) = send(&app, Method::POST, "/api/plan/stock/import", Some(&a_session), Some(file)).await;
+    assert!(s.is_success(), "{v}");
+    let (err, text) = call(&app, &mcp, "store_stock", json!({"store": "Pat's Games", "cards": ["Sol Ring", "Mana Vault"]})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("- Sol Ring: $1.00, Sol Ring [C21 - 263] (Near Mint, non-foil, 2 in stock)"), "{text}");
+    assert!(text.contains("- Mana Vault: Not found in stock"), "{text}");
+    // A listing that didn't say whether it's available is said to be unknown, with its price.
+    let quiet = json!({
+        "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T17:00:00Z", "cards": ["Sol Ring"],
+        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "price": 0.9}],
+    });
+    assert!(send(&app, Method::POST, "/api/plan/stock/import", Some(&a_session), Some(quiet)).await.0.is_success());
+    let (_, text) = call(&app, &mcp, "store_stock", json!({"store": "pats", "cards": ["Sol Ring"]})).await;
+    assert!(text.contains("- Sol Ring: $0.90, Sol Ring [C21 - 263]; the listing didn't say whether it's in stock, so ask the store"), "{text}");
+
+    // A store Yama can't read is refused at once; a readable one is only staged.
+    // With no stores named, one they'll go to must be readable: Pat's is, unless they won't go.
+    sqlx::query("INSERT INTO plan_store_prefs (owner_id, store_key, preference, updated_at) VALUES (?, 'pats', 'never', 'now')").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"cards": ["Sol Ring"]})).await;
+    assert!(err && text.contains("can't read any of their stores"), "{text}");
+    sqlx::query("DELETE FROM plan_store_prefs WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["card gurus"], "cards": ["Sol Ring"]})).await;
+    assert!(err && text.contains("can't read Card Gurus's stock") && text.contains("Nothing was staged"), "{text}");
+    // With no cards named and none on the trip, a card search reads nothing: refused.
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["pats"]})).await;
+    assert!(err && text.contains("Nothing to read"), "{text}");
+    // Up to 300 cards, as the tool says.
+    let many: Vec<String> = (0..250).map(|i| format!("Card {i}")).collect();
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["pats"], "cards": many})).await;
+    assert!(!err, "{text}");
+    sqlx::query("DELETE FROM assistant_changes WHERE owner_id = ? AND kind = 'check_stores'").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["pats"], "cards": ["Sol Ring"]})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Staged for their review") && text.contains("Check stock: Pat's Games"), "{text}");
+    let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND source != 'import'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(running, 0, "nothing is fetched until they apply it");
+    let payload: String = sqlx::query_scalar("SELECT payload FROM assistant_changes WHERE owner_id = ? AND kind = 'check_stores'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({"stores": ["pats"], "cards": ["Sol Ring"], "yestcg": false}));
+}
+
+#[tokio::test]
+async fn add_wish_is_staged_then_on_the_shopping_list() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES ('o-sol', 'Sol Ring', 'Artifact', 'now')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Sol Ring', 'o-sol')").execute(&pool).await.unwrap();
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let (err, text) = call(&app, &mcp, "add_wish", json!({"name": "sol ring", "deck": "Kraum & Tymna (cEDH)", "why": "One of the four local buys"})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Add Sol Ring to their shopping list") && text.contains("not a Yama deck; kept as a label"), "{text}");
+    // Two decks with one name: refused, so the wish can't land on the wrong one.
+    deck(&pool, &a, "Twins").await;
+    deck(&pool, &a, "Twins").await;
+    let (err, text) = call(&app, &mcp, "add_wish", json!({"name": "Sol Ring", "deck": "twins"})).await;
+    assert!(err && text.contains("2 decks are called") && text.contains("Nothing was staged"), "{text}");
+    let (err, text) = call(&app, &mcp, "add_wish", json!({"name": "Not A Card"})).await;
+    assert!(err && text.contains("doesn't know a card"), "{text}");
+    let (_, text) = call(&app, &mcp, "shopping_list", json!({})).await;
+    assert!(text.contains("To buy (these decide the stores): 0"), "staged, not applied: {text}");
+
+    let id: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'add_wish'").bind(&a).fetch_one(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
+    assert!(!err, "{text}");
+    let (_, text) = call(&app, &mcp, "shopping_list", json!({})).await;
+    assert!(text.contains("- Sol Ring (added to their list, for Kraum & Tymna (cEDH)): not on the trip: no store check recorded"), "{text}");
+    let source: String = sqlx::query_scalar("SELECT source FROM shopping_wants WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(source, "assistant");
+    // Applying it again (a crash between the want and the change's status) adds nothing.
+    let w = crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() };
+    crate::plan::wants::add(&pool, &a, &w, "assistant", Some(&id)).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 1);
+}

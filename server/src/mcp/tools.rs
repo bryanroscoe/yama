@@ -207,6 +207,84 @@ const TOOLS: &[Tool] = &[
         does: Does::Stage,
     },
     Tool {
+        name: "store_stock",
+        title: "A store's stock",
+        description: "One of their stores' newest stock answers for cards: each listing's price, condition, finish and \
+                      quantity where the store gives them, or not in stock, with the time it was read. Default cards: every card \
+                      the trip plans for. Listings are dated quotes from a snapshot (read when they asked, or imported), not \
+                      proof the card is still there; a missing price is unknown.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "store": {"type": "string", "description": "The store's key or name, from shopping_settings."},
+                    "cards": {"type": "array", "items": {"type": "string"}, "description": "Card names; default every card the trip plans for."},
+                },
+                "required": ["store"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Read,
+    },
+    Tool {
+        name: "check_stores",
+        title: "Read stores' stock",
+        description: staged!(
+            "Read their stores' stock now, when they apply it: Shopify stores Yama knows (Pat's Games, Mothership) card by \
+             card, TCGplayer Pro storefronts (Black Castle, Multiverse) as a whole catalog with each product's lowest \
+             price, and with yestcg true also YesTCG's Austin search (condition and quantity) for the stores it covers. \
+             Each store's answer is a dated snapshot the trip and store_stock read. Default stores: every store they'll \
+             go to that Yama can read; default cards: every card the trip plans for."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "stores": {"type": "array", "items": {"type": "string"}, "description": "Store keys or names, from shopping_settings."},
+                    "cards": {"type": "array", "items": {"type": "string"}, "description": "Card names, at most 300."},
+                    "yestcg": {"type": "boolean", "description": "Also ask YesTCG (Austin) about the stores it covers."},
+                },
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "shopping_list",
+        title: "Their shopping list",
+        description: "Everything on their one shopping list and where the store trip puts each card: planned buys with no \
+                      order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), \
+                      and a count of their real-card wishlist. Each card says the store and price the trip picks, or why it \
+                      isn't on the trip (print it, ask the store, no check). Listings are dated quotes, not purchases.",
+        schema: || obj(&[("today", "string", "Optional YYYY-MM-DD; picks the rule set. Default: today (UTC).")], &[]),
+        does: Does::Read,
+    },
+    Tool {
+        name: "add_wish",
+        title: "Add to their shopping list",
+        description: staged!(
+            "Add a card (or a sealed product) to their shopping list. priority need (default): a reason to go to a \
+             store; along: only from a store already on the trip. deck: one of their Yama decks by name, or a label for \
+             a deck not in Yama yet. Each copy is its own want, also when a plan already buys the card for another deck."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The card's name (Yama must know it), or a sealed product's name."},
+                    "kind": {"type": "string", "enum": ["card", "sealed"]},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 99},
+                    "priority": {"type": "string", "enum": ["need", "along"]},
+                    "deck": {"type": "string", "description": "A Yama deck's name, or a label for a deck not in Yama."},
+                    "why": {"type": "string"},
+                },
+                "required": ["name"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
         name: "review_queue",
         title: "Proposals to review",
         description: "Every proposed swap, deck by deck: the ones still waiting for their answer first, then the ones they answered.",
@@ -768,6 +846,8 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "set_condition" => changes::set_condition(st, user, via, args).await,
         "set_shopping_rules" => changes::set_shopping_rules(st, user, via, args).await,
         "set_store_preference" => changes::set_store_preference(st, user, via, args).await,
+        "check_stores" => changes::check_stores(st, user, via, args).await,
+        "add_wish" => changes::add_wish(st, user, via, args).await,
         "apply_change" => {
             let c = changes::apply(st, user, text_arg(args, "id")?).await?;
             match (c.status.as_str(), c.error) {
@@ -821,6 +901,35 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "shopping_settings" => {
             let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
             Ok(crate::plan::shopping::settings_text(&bundle, &chrono::Utc::now().format("%Y-%m-%d").to_string()))
+        }
+        "shopping_list" => {
+            let today = match args.get("today").and_then(Value::as_str) {
+                Some(d) if crate::plan::model::is_date(d) => d.to_string(),
+                Some(d) => return Err(AppError::bad(format!("today: \"{d}\" isn't a YYYY-MM-DD date"))),
+                None => chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            };
+            let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
+            Ok(crate::plan::trip::list_text(&bundle, &today))
+        }
+        "store_stock" => {
+            let wanted = text_arg(args, "store")?;
+            let w = wanted.trim().to_lowercase();
+            let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, name FROM plan_stores WHERE owner_id = ? AND kind != 'printer' ORDER BY sort, key").bind(&user.id).fetch_all(pool).await?;
+            let Some((key, name)) = rows.iter().find(|(k, n)| k.to_lowercase() == w || n.to_lowercase() == w).or_else(|| {
+                let hits: Vec<&(String, String)> = rows.iter().filter(|(_, n)| n.to_lowercase().contains(&w)).collect();
+                (hits.len() == 1).then(|| hits[0])
+            }) else {
+                return Err(AppError::bad(format!("No store \"{wanted}\". Their stores: {}.", rows.iter().map(|(k, n)| format!("{n} ({k})")).collect::<Vec<_>>().join(", "))));
+            };
+            let cards: Vec<String> = match args.get("cards").filter(|v| !v.is_null()) {
+                Some(v) => v
+                    .as_array()
+                    .and_then(|a| a.iter().map(|x| x.as_str().map(|s| s.trim().to_string())).collect::<Option<Vec<_>>>())
+                    .filter(|c| c.len() <= crate::plan::stock::MAX_CARDS)
+                    .ok_or_else(|| AppError::bad("cards must be a list of at most 300 card names"))?,
+                None => crate::plan::stock::trip_cards(&crate::plan::bundle::load_bundle(pool, &user.id).await?),
+            };
+            crate::plan::stock::stock_text(pool, &user.id, key, name, &cards).await
         }
         "find_cards" => {
             st.limits.search.check_user(user)?;

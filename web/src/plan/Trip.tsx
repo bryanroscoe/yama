@@ -13,15 +13,18 @@ import {
   type Store,
   type StorePreference,
   type StorePref,
+  type ShoppingWant,
+  type StoreSnapshot,
   type TripRow,
 } from "@yama/core/plan";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
-import { setStoreOrder, setStorePreference, type StorePrefBody } from "./api";
+import { addWant, checkStores, deckGaps, removeWant, setStoreOrder, setStorePreference, storeSnapshots, type StorePrefBody } from "./api";
+import { api, type DeckSummary } from "../api";
 import { marketSentence } from "./marks";
 import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -35,6 +38,8 @@ const SKIP_TEXT: Record<SkipReason, string> = { never: "you won't go", "not-loca
 function printReason(p: PrintRow): string {
   const at = p.offer ? `${usd(p.offer.price)} at ${p.offer.store.name}` : "";
   switch (p.reason) {
+    case "too-few":
+      return `Not enough copies: ${p.stores.join(", ")} ${p.stores.length === 1 ? "lists" : "list"} fewer than you want (${at}).`;
     case "never-store":
       return `Only at ${p.stores.join(", ")}, where you won't go (${at}).`;
     case "not-local":
@@ -128,6 +133,8 @@ export function Trip() {
           ))}
         </fieldset>
       )}
+
+      <StockCheck stores={stores} going={going} view={view} userId={userId} />
 
       <div className="plan-figures">
         <div className="plan-figure">
@@ -272,6 +279,8 @@ export function Trip() {
         </section>
       )}
 
+      <MyList view={view} userId={userId} />
+
       <StorePrefs stores={stores} view={view} userId={userId} skipped={trip.skipped} />
 
       {trip.wishlist.length > 0 && (
@@ -303,7 +312,12 @@ export function Trip() {
 function TripItem({ r, view }: { r: TripRow; view: PlanView }) {
   const { want, offer } = r;
   const q = offer.quote;
-  const what = want.source === "wishlist" ? "Your real-card wishlist" : `${want.deckName ?? ""}${want.source === "proposal" && !want.needed ? ", proposed, not decided" : ""}`;
+  const what =
+    want.source === "wishlist"
+      ? "Your real-card wishlist"
+      : want.source === "want"
+        ? `On your list${want.deckName ? `, for ${want.deckName}` : ""}`
+        : `${want.deckName ?? ""}${want.source === "proposal" && !want.needed ? ", proposed, not decided" : ""}`;
   return (
     <div className="buy-row">
       <Crop src={view.card(want.card)?.image_art_crop} />
@@ -324,6 +338,211 @@ function TripItem({ r, view }: { r: TripRow; view: PlanView }) {
         <span className="buy-row-meta">{marketSentence(offer.market, true)}</span>
       </span>
     </div>
+  );
+}
+
+const SOURCE_TEXT: Record<StoreSnapshot["source"], string> = {
+  shopify: "its website",
+  tcgplayer_pro: "its TCGplayer Pro catalog",
+  yestcg: "YesTCG",
+  import: "an imported file",
+};
+
+/** One snapshot in words: when, from where, and how it went. */
+function snapshotText(s: StoreSnapshot): string {
+  const when = s.fetched_at ?? s.requested_at;
+  const what = s.cards == null ? "whole catalog" : s.cards === 1 ? "1 card" : `${s.cards} cards`;
+  const how =
+    s.status === "running"
+      ? "reading now"
+      : s.status === "error"
+        ? `failed${s.error ? `: ${s.error}` : ""}`
+        : `${s.listings === 1 ? "1 listing" : `${s.listings} listings`}${s.failed ? `, ${s.failed} ${s.failed === 1 ? "card" : "cards"} unknown (a request failed)` : ""}`;
+  return `${fmtDate(when)} ${when.slice(11, 16)} UTC, ${what} from ${SOURCE_TEXT[s.source]}: ${how}.`;
+}
+
+/**
+ * "Check stores": Yama reads the stores' stock now (only when you ask), one dated snapshot per
+ * store, and the trip uses the newest answer for each card beside the plan's own checks.
+ */
+function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: string[] | null; view: PlanView; userId: string }) {
+  const qc = useQueryClient();
+  const [yestcg, setYestcg] = useState(false);
+  const [skipped, setSkipped] = useState<{ store: string; name: string; why: string }[]>([]);
+  const start = useMutation({
+    mutationFn: () => checkStores({ stores: going, yestcg }),
+    onSuccess: (r) => {
+      setSkipped(r.skipped);
+      void qc.invalidateQueries({ queryKey: ["plan-stock", userId] });
+    },
+  });
+  // Follow a running check every few seconds; the bundle is fetched again when it ends.
+  const live = useQuery({
+    queryKey: ["plan-stock", userId],
+    queryFn: storeSnapshots,
+    enabled: start.isSuccess || (view.b.snapshots ?? []).some((s) => s.status === "running"),
+    refetchInterval: (q) => (q.state.data?.snapshots.some((s) => s.status === "running") ? 4000 : false),
+  });
+  const snaps = live.data?.snapshots ?? view.b.snapshots ?? [];
+  const running = snaps.some((s) => s.status === "running");
+  useEffect(() => {
+    if (live.data && !running) void qc.invalidateQueries({ queryKey: ["plan", userId] });
+  }, [live.data, running, qc, userId]);
+  // The newest snapshot of each store and source.
+  const newest = new Map<string, StoreSnapshot>();
+  for (const s of snaps) if (!newest.has(`${s.store}|${s.source}`)) newest.set(`${s.store}|${s.source}`, s);
+  const name = (key: string) => stores.find((s) => s.key === key)?.name ?? key;
+  return (
+    <section className="plan-section" aria-labelledby="trip-stock">
+      <h2 id="trip-stock" className="plan-section-head">Store stock</h2>
+      <p className="dim small">
+        Yama reads Pat's and Mothership's websites and TCGplayer Pro storefronts (Black Castle, Multiverse) only when you ask, for the cards on this page. Each read is a
+        dated snapshot; the newest answer for a card counts. Stores without an online list need a stock check by hand.
+      </p>
+      <p className="trip-copy">
+        <button type="button" className="button outline" disabled={start.isPending || running} onClick={() => start.mutate()}>
+          {running ? "Checking stores…" : going ? "Check the stores I'm going to" : "Check stores"}
+        </button>
+        <label className="small">
+          <input type="checkbox" checked={yestcg} onChange={(e) => setYestcg(e.target.checked)} /> Also ask YesTCG (Austin), which gives condition and quantity
+        </label>
+      </p>
+      <ErrorText error={start.error} />
+      {skipped.length > 0 && (
+        <p className="small dim">
+          Not checked: {skipped.map((x) => `${x.name} (${x.why})`).join("; ")}.
+        </p>
+      )}
+      {newest.size > 0 && (
+        <ul className="small">
+          {[...newest.values()].map((s) => (
+            <li key={s.id}>
+              {name(s.store)}: {snapshotText(s)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Cards and sealed products you added to your list by hand: needed ones decide the stores like
+ * planned buys; "along the way" ones only come from a store already on the trip. A deck that isn't
+ * in a plan says which of its cards your collection lacks, so you can add the ones to buy here.
+ */
+function MyList({ view, userId }: { view: PlanView; userId: string }) {
+  const qc = useQueryClient();
+  const wants = view.b.shopping_wants ?? [];
+  const [name, setName] = useState("");
+  const [qty, setQty] = useState(1);
+  const [kind, setKind] = useState<ShoppingWant["kind"]>("card");
+  const [priority, setPriority] = useState<ShoppingWant["priority"]>("need");
+  const [deckId, setDeckId] = useState("");
+  const [why, setWhy] = useState("");
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const gaps = useQuery({ queryKey: ["deck-gaps", userId, deckId], queryFn: () => deckGaps(deckId), enabled: !!deckId });
+  const done = () => void qc.invalidateQueries({ queryKey: ["plan", userId] });
+  const add = useMutation({ mutationFn: addWant, onSuccess: () => setName(""), onSettled: done });
+  const remove = useMutation({ mutationFn: removeWant, onSettled: done });
+  const deckName = decks.data?.find((d) => d.id === deckId)?.name ?? null;
+  const submit = (card: string, n: number, as: ShoppingWant["kind"] = kind) =>
+    add.mutate({ kind: as, name: card.trim(), qty: n, priority, deck_id: deckId || null, deck_name: null, why: why.trim() || null });
+  return (
+    <section className="plan-section" aria-labelledby="trip-list">
+      <h2 id="trip-list" className="plan-section-head">
+        Your list <span className="num dim">{wants.length}</span>
+      </h2>
+      <p className="dim small">Cards you want that aren't in a plan, such as a deck you built in Yama. A card here is a wish, not a purchase; it stays until you remove it.</p>
+      {wants.length > 0 && (
+        <ul className="small">
+          {wants.map((w) => (
+            <li key={w.id}>
+              {w.kind === "card" ? <CardRef name={w.name} oracleId={view.oracleId(w.name)} image={view.card(w.name)?.image_normal} /> : w.name}
+              {w.qty > 1 ? ` ×${w.qty}` : ""}
+              <span className="dim">
+                {w.kind === "sealed" ? ", sealed" : ""}
+                {w.priority === "along" ? ", only along the way" : ""}
+                {w.deck_name ? `, for ${w.deck_name}` : ""}
+                {w.why ? `. ${w.why}` : ""}
+                {w.source === "assistant" ? " (added by a change from Claude)" : ""}
+              </span>{" "}
+              <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(w.id)}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="trip-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) submit(name, qty);
+        }}
+      >
+        <label>
+          {kind === "card" ? "Card" : "Product"} <input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} required />
+        </label>
+        <label>
+          How many <input type="number" min={1} max={99} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(99, Number(e.target.value) || 1)))} />
+        </label>
+        <label>
+          <select value={kind} onChange={(e) => setKind(e.target.value as ShoppingWant["kind"])}>
+            <option value="card">A card</option>
+            <option value="sealed">A sealed product</option>
+          </select>
+        </label>
+        <label>
+          <select value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
+            <option value="need">To buy: worth a trip</option>
+            <option value="along">Only along the way</option>
+          </select>
+        </label>
+        <label>
+          For{" "}
+          <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
+            <option value="">No deck</option>
+            {(decks.data ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Why <input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} />
+        </label>
+        <button type="submit" className="button primary" disabled={add.isPending}>
+          Add to the list
+        </button>
+      </form>
+      <ErrorText error={add.error ?? remove.error} />
+      {deckId && (
+        <details className="plan-fold" open>
+          <summary>
+            {deckName ?? "This deck"}: cards your collection doesn't hold <span className="num dim">{gaps.data?.cards.length ?? ""}</span>
+          </summary>
+          <p className="dim small">Real copies counted across your whole collection, so a card another deck uses counts here too. Basic lands are left out.</p>
+          {gaps.isLoading && <p className="small dim">Reading the deck…</p>}
+          <ErrorText error={gaps.error} />
+          <ul className="small">
+            {(gaps.data?.cards ?? []).map((c) => (
+              <li key={c.name}>
+                <CardRef name={c.name} oracleId={view.oracleId(c.name)} image={view.card(c.name)?.image_normal} />{" "}
+                <span className="dim">
+                  {c.real ? `${c.real} of ${c.need} real` : c.need > 1 ? `${c.need} needed` : "none real"}
+                  {c.proxy ? `, ${c.proxy} ${c.proxy === 1 ? "proxy" : "proxies"}` : ""}
+                </span>{" "}
+                <button type="button" className="button outline small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real), "card")}>
+                  Add
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
   );
 }
 

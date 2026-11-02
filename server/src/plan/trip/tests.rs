@@ -18,7 +18,12 @@ fn matches_the_typescript_trip_on_the_shared_fixture() {
     for case in f["cases"].as_array().unwrap() {
         let today = case["today"].as_str().unwrap();
         let stores: Option<Vec<String>> = case.get("stores").and_then(Value::as_array).map(|a| a.iter().map(|x| x.as_str().unwrap().to_string()).collect());
-        let got = summary(&plan(&f["bundle"], today, stores.as_deref()));
+        // A case may add fields to the bundle (store snapshot quotes, hand-added wants).
+        let mut bundle = f["bundle"].clone();
+        for (k, v) in case.get("with").and_then(Value::as_object).into_iter().flatten() {
+            bundle[k] = v.clone();
+        }
+        let got = summary(&plan(&bundle, today, stores.as_deref()));
         assert!(same(&got, &case["expect"]), "{today}:\n got {got}\nwant {}", case["expect"]);
     }
 }
@@ -200,4 +205,10 @@ fn preferences_read_the_old_name_and_order_the_stores() {
         Some("https://mversetcg.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc")
     );
     assert_eq!(pro_search_url(&json!({"homepage": "https://patsgames.com"}), "Sol Ring"), None);
+}
+
+#[test]
+fn a_cart_link_counts_copies_of_one_listing() {
+    let store = serde_json::json!({"cart_url_template": "https://shop.example/cart/{items}"});
+    assert_eq!(cart_url(&store, &["111", "222", "111"]).as_deref(), Some("https://shop.example/cart/111:2,222:1"));
 }
