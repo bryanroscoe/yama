@@ -396,7 +396,7 @@ export interface Danger {
   kind: Loss["kind"];
   /** "low" is worth a look; "critical" is about one hit from out. */
   level: "low" | "critical";
-  /** "Low life", "1 more poison is lethal", "3 more from Atraxa is lethal". */
+  /** "Low life", "Lethal in 1 poison", "Lethal in 3 from Atraxa". */
   text: string;
 }
 
@@ -413,10 +413,10 @@ export function dangerOf(state: TableState, p: PlayerState): Danger | null {
     if (left > 5) continue;
     const from = state.players.find((x) => x.seat === keySeat(source));
     const name = (sourceName(state, source) ?? (from ? `${from.name}'s commander` : "one commander")).split(",")[0]!;
-    found.push({ kind: "commander_damage", level: left <= 3 ? "critical" : "low", text: `${left} more from ${name} is lethal`, left });
+    found.push({ kind: "commander_damage", level: left <= 3 ? "critical" : "low", text: `Lethal in ${left} from ${name}`, left });
   }
   const poisonLeft = POISON_LETHAL - p.poison;
-  if (poisonLeft <= 3) found.push({ kind: "poison", level: poisonLeft <= 1 ? "critical" : "low", text: `${poisonLeft} more poison is lethal`, left: poisonLeft });
+  if (poisonLeft <= 3) found.push({ kind: "poison", level: poisonLeft <= 1 ? "critical" : "low", text: `Lethal in ${poisonLeft} poison`, left: poisonLeft });
   const start = state.setup.startingLife;
   if (p.life <= Math.ceil(start / 4)) found.push({ kind: "life", level: p.life <= Math.ceil(start / 8) ? "critical" : "low", text: "Low life", left: p.life });
   // Critical before low; among equals, the fewest points from out.

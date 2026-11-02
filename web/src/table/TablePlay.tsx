@@ -510,6 +510,7 @@ export function Panel(props: {
           art && <ArtPanel className="panel-art" art={art.art} artist={art.artist} wash="center" credit={false} />
         )}
         <div className="bands" />
+        {danger && <div className="danger-glow" />}
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: -n })} className="tap minus" label={`${p.name} loses 1 life`}>
           <span aria-hidden="true">−</span>
         </Hold>
@@ -521,8 +522,14 @@ export function Panel(props: {
           <span key={p.life} className="life-value">{p.life}</span>
           {pending !== null && <span key={pending > 0 ? "up" : "down"} className="pending">{pending > 0 ? `+${pending}` : `−${-pending}`}</span>}
         </div>
+        <span className="visually-hidden" aria-live="polite">{danger ? `${p.name}: ${danger.text}` : ""}</span>
         <div className="panel-top">
           <div className="badges">
+            {danger && (
+              <span key={danger.text} className="badge danger-badge">
+                <WarningIcon /> {danger.text}
+              </span>
+            )}
             {state.monarch === p.seat && <span className="badge">Monarch</span>}
             {state.initiative === p.seat && <span className="badge">Initiative</span>}
             {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
@@ -556,11 +563,6 @@ export function Panel(props: {
           <button className="out-prompt" onClick={onKnockOut}>
             Out? {loss.text}
           </button>
-        )}
-        {danger && !busy && (
-          <span key={danger.text} className="danger-chip">
-            <WarningIcon /> {danger.text}
-          </span>
         )}
         {out && <div className="out-label">{p.eliminated!.uncounted ? "Out" : `Out on turn ${p.eliminated!.turn}`}</div>}
         {commanderGame && !out && !busy && (onAttack || onTake) && (

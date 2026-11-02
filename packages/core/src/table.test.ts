@@ -64,11 +64,11 @@ describe("table", () => {
     expect(sam()).toMatchObject({ kind: "life", level: "critical" });
     s = apply(s, { type: "life", seat: 1, delta: 25 });
     s = apply(s, { type: "poison", seat: 1, delta: 7 });
-    expect(sam()).toMatchObject({ kind: "poison", level: "low", text: "3 more poison is lethal" });
+    expect(sam()).toMatchObject({ kind: "poison", level: "low", text: "Lethal in 3 poison" });
     s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 19 });
-    expect(sam()).toEqual({ kind: "commander_damage", level: "critical", text: "2 more from Atraxa is lethal" });
+    expect(sam()).toEqual({ kind: "commander_damage", level: "critical", text: "Lethal in 2 from Atraxa" });
     s = apply(s, { type: "poison", seat: 1, delta: 2 });
-    expect(sam()).toMatchObject({ kind: "poison", level: "critical", text: "1 more poison is lethal" });
+    expect(sam()).toMatchObject({ kind: "poison", level: "critical", text: "Lethal in 1 poison" });
     // At a loss the out prompt takes over; once out, no warning either.
     s = apply(s, { type: "poison", seat: 1, delta: 1 });
     expect(sam()).toBeNull();
