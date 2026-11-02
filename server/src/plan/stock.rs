@@ -198,6 +198,10 @@ fn variant_parts(text: &str) -> (Option<String>, Option<String>, &'static str) {
 pub fn shopify_suggest(body: &Value, card: &str) -> Option<(usize, Vec<(String, String)>)> {
     // An answer without the product list isn't "none found": it's an answer we can't read.
     let items = body["resources"]["results"]["products"].as_array()?;
+    // So is one whose products don't all have a title and a handle.
+    if !items.iter().all(|p| p["title"].is_string() && p["handle"].is_string()) {
+        return None;
+    }
     let found = items
         .iter()
         .filter_map(|p| {
@@ -256,6 +260,10 @@ pub fn pro_catalog(body: &Value, base: &str) -> Option<(i64, Vec<Listing>)> {
     // An answer without the catalog's fields isn't an empty catalog: it's one we can't read.
     let total = body["products"]["totalItems"].as_i64()?;
     let items = body["products"]["items"].as_array()?;
+    // So is a page with a product that has no name: it may be the card wanted.
+    if !items.iter().all(|p| p["name"].is_string()) {
+        return None;
+    }
     let out = items
         .iter()
         .filter(|p| p["productLineName"].as_str().is_none_or(|l| l == "Magic: The Gathering"))
@@ -303,6 +311,10 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     }
     // A hit list that's missing or not a list is an answer we can't read: unknown, not none.
     let Some(hits) = r["hits"].as_array() else { return Some(None) };
+    // So is a hit without a name, or with a price that isn't a number.
+    if !hits.iter().all(|h| h["name"].is_string() && (h["price"].is_number() || h["price"].is_null())) {
+        return Some(None);
+    }
     let listings = hits
         .iter()
         .filter_map(|h| {

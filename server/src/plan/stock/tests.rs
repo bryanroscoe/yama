@@ -130,6 +130,7 @@ fn titles_and_variants_parse() {
 
     let (n, found) = shopify_suggest(&suggest("\"Sol Ring\""), "Sol Ring").unwrap();
     assert_eq!(shopify_suggest(&json!({"errors": "nope"}), "Sol Ring"), None, "an unreadable answer isn't \"none found\"");
+    assert_eq!(shopify_suggest(&json!({"resources": {"results": {"products": [{"title": "Sol Ring [C21 - 263]"}]}}}), "Sol Ring"), None, "a product without a handle");
     assert_eq!(n, 4);
     assert_eq!(found.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["sol-ring-c21-263", "sol-ring-etched-cmm-410"]);
     let l = shopify_product(&product("sol-ring-c21-263.js").unwrap(), "Sol Ring", "https://patsgames.com", "sol-ring-c21-263");
@@ -141,6 +142,7 @@ fn titles_and_variants_parse() {
 
     let (total, l) = pro_catalog(&catalog(), "https://bc.tcgplayerpro.com").unwrap();
     assert!(pro_catalog(&json!({"products": {}}), "https://bc.tcgplayerpro.com").is_none(), "an unreadable answer isn't an empty catalog");
+    assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"id": 1, "lowestPrice": 1.0}]}}), "https://bc.tcgplayerpro.com").is_none(), "a product without a name");
     assert_eq!((total, l.len()), (3, 3));
     assert_eq!((l[1].card.as_str(), l[1].price, l[1].from_price), ("Exotic Orchard", Some(0.5), true));
     assert_eq!(l[0].url.as_deref(), Some("https://bc.tcgplayerpro.com/catalog/magic/commander-masters/sol-ring/1"));
@@ -154,6 +156,8 @@ fn titles_and_variants_parse() {
     assert_eq!(yestcg_store(&y, "patsgames.com", "Sol Ring"), None, "not in YesTCG's answer");
     let broken = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true}]});
     assert_eq!(yestcg_store(&broken, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "no hit list is unknown, not none");
+    let nameless = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"price": 1.0}]}]});
+    assert_eq!(yestcg_store(&nameless, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a name is unknown");
 }
 
 async fn store_row(pool: &SqlitePool, owner: &str, key: &str, name: &str, homepage: &str, sort: i64) {
