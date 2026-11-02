@@ -100,17 +100,25 @@ export function useLogout() {
 }
 
 /**
- * Delete the signed-in account and everything it owns (`DELETE /api/me`), then forget it on this
+ * Delete the signed-in account and everything it owns (`DELETE /api/me`), and forget it on this
  * device as signing out does: plan data and unsent answers, the token and the cached user. The
- * person types their email to confirm; the server checks it too.
+ * person types their email to confirm; the server checks it too. Plan data leaves first, so a
+ * deletion whose answer is lost on the way back doesn't leave prices paid on the phone; trying
+ * again then gets 401 (the session went with the account) and finishes the rest.
  */
 export function useDeleteAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (confirmEmail: string) => {
       const userId = qc.getQueryData<User | null>(["me"])?.id;
-      await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
       await clearPlanData(userId);
+      qc.removeQueries({ queryKey: ["plan"] });
+      qc.removeQueries({ queryKey: ["plan-cache"] });
+      try {
+        await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 401)) throw e;
+      }
       setToken(null);
       localStorage.removeItem(ME_KEY);
       qc.setQueryData(["me"], null);

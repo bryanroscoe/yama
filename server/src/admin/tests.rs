@@ -412,6 +412,71 @@ fn seat_json(seat: u8, user: &str, name: &str) -> Value {
 }
 
 #[tokio::test]
+async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() {
+    let pool = crate::db::test_pool().await;
+    let (v, _) = user(&pool, "victim@example.com").await;
+    let (b, _) = user(&pool, "bystander@example.com").await;
+    let g = fill(&pool, "games", &[("created_by", t(&b)), ("mode", t("in_person")), ("status", t("finished"))]).await;
+    // Seat 0 was the victim's, logged under a typed name; seat 1 is a bystander who happens to share
+    // the victim's display name; seat 2 is a guest.
+    fill(&pool, "game_seats", &[("game_id", t(&g)), ("seat", V::I(0)), ("user_id", t(&v)), ("guest_name", t("Vic T"))]).await;
+    fill(&pool, "game_seats", &[("game_id", t(&g)), ("seat", V::I(1)), ("user_id", t(&b)), ("guest_name", t("victim"))]).await;
+    fill(&pool, "game_seats", &[("game_id", t(&g)), ("seat", V::I(2)), ("guest_name", t("Pat"))]).await;
+    let event = |seq: i64, seat: i64, payload: Value| {
+        let pool = pool.clone();
+        let g = g.clone();
+        async move {
+            sqlx::query("INSERT INTO game_events (game_id, seq, actor_seat, kind, payload, created_at) VALUES (?, ?, ?, ?, ?, '2026-11-01T00:00:00Z')")
+                .bind(&g)
+                .bind(seq)
+                .bind(seat)
+                .bind(payload["type"].as_str().unwrap_or("life"))
+                .bind(payload.to_string())
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    event(1, 0, json!({"type": "player", "seat": 0, "name": "Vee", "userId": v, "was": {"name": "Seat 1"}})).await;
+    event(2, 0, json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Vee"}})).await;
+    event(3, 1, json!({"type": "player", "seat": 1, "name": "victim", "userId": b})).await;
+    event(4, 0, json!({"type": "life", "seat": 0, "delta": -3})).await;
+
+    let mut tx = pool.begin().await.unwrap();
+    delete_rows(&mut tx, &v).await.unwrap();
+    tx.commit().await.unwrap();
+
+    let payload = |seq: i64| {
+        let pool = pool.clone();
+        let g = g.clone();
+        async move {
+            let p: String = sqlx::query_scalar("SELECT payload FROM game_events WHERE game_id = ? AND seq = ?").bind(&g).bind(seq).fetch_one(&pool).await.unwrap();
+            serde_json::from_str::<Value>(&p).unwrap()
+        }
+    };
+    assert_eq!(payload(1).await, json!({"type": "player", "seat": 0, "name": "Former player", "was": {"name": "Seat 1"}}));
+    assert_eq!(payload(2).await, json!({"type": "player", "seat": 0, "name": "Former player", "was": {"name": "Former player"}}));
+    assert_eq!(payload(3).await, json!({"type": "player", "seat": 1, "name": "victim", "userId": b}), "another seat keeps its name");
+    assert_eq!(payload(4).await, json!({"type": "life", "seat": 0, "delta": -3}));
+    let seat = |n: i64| {
+        let pool = pool.clone();
+        let g = g.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<String>>("SELECT guest_name FROM game_seats WHERE game_id = ? AND seat = ?").bind(&g).bind(n).fetch_one(&pool).await.unwrap()
+        }
+    };
+    assert_eq!(seat(0).await.as_deref(), Some("Former player"), "even a name typed in when it was logged");
+    assert_eq!(seat(1).await.as_deref(), Some("victim"));
+    assert_eq!(seat(2).await.as_deref(), Some("Pat"));
+    let leaks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE payload LIKE '%' || ? || '%' OR payload LIKE '%Vic T%' OR payload LIKE '%Vee%'")
+        .bind(&v)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(leaks, 0);
+}
+
+#[tokio::test]
 async fn deleting_an_account_leaves_nothing_of_it() {
     let pool = crate::db::test_pool().await;
     let (v, _) = user(&pool, "victim@example.com").await;
