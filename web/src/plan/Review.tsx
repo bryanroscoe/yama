@@ -203,8 +203,7 @@ export function Review() {
       <p className="small dim review-todo" role="status">{toAnswerLine(decks)}</p>
       <Details label="How review works">
         <p>
-          Only proposals need an answer. Swaps already in the plan are listed last, closed: they were agreed earlier, and you only need to open them to change
-          your mind. Answers marked as coming from {view.app} were made there, not here.
+          Planned swaps are already agreed. Open one to change your answer.
         </p>
         {imported && <p>
           Your answers go to your {view.app} inbox. A want joins the plan when the plan is updated there; a no on a planned swap changes nothing until you and
@@ -511,7 +510,7 @@ const ReviewCard = memo(function ReviewCard({
         )}
 
         {item.section === "planned" && !a?.decision && (
-          <p className="small dim">This swap is already in the plan, so it doesn't need an answer. Answer only if you've changed your mind.</p>
+          <p className="small dim">Already planned. Answer to change your mind.</p>
         )}
         <div className="review-decide" role="group" aria-label={`Your answer for ${s.in}`}>
           {DECISIONS.map((d) => (
@@ -632,7 +631,7 @@ function Orphans({ view, userId }: { view: PlanView; userId: string }) {
       <h3>
         Answers for swaps no longer in the plan <span className="dim num">{live.length}</span>
       </h3>
-      <p className="dim small">Yama keeps these so nothing you said is lost. Your planner sees them too.</p>
+      <p className="dim small">Previous answers, kept for your planner.</p>
       <div className="list">
         {live.map(([key, r]) => (
           <div key={key} className="list-row">

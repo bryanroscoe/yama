@@ -102,8 +102,8 @@ export function SwapInSheet({ deckKey, deckName, onClose }: { deckKey: string; d
           <>
             <p className="dim">
               {result
-                ? "Done. Yama now has the deck as it is with the prints in."
-                : "Do this once the prints are sleeved into the real deck. Yama then matches it: the deck's list, its box, and where the cards you took out went."}
+                ? "Deck and collection updated."
+                : "Sleeve the prints first. This updates the deck list and moves collection copies as shown below."}
             </p>
             <ul className="collect-facts">
               {facts(p, !!result).map((s) => (

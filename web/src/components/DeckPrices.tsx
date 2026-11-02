@@ -47,8 +47,8 @@ export function DeckPrices({ singles, sealed, precon = false, ownership }: { sin
     <p><SinglesPrice value={singles} /></p>
     {ownership && <OwnershipValue o={ownership} />}
     <Details label="How market value is estimated">
-      {precon && !sealed && <p>There is no unambiguous product match with a market snapshot yet.</p>}
-      <p>Singles estimate uses each card's cheapest eligible nonfoil paper printing, including commanders and basics, excluding sideboards. Quantities count; this is the list's replacement value, including cards played as proxies. Actual printings, finishes and condition can change the value. Market references are not store quotes or sale proceeds.</p>
+      {precon && !sealed && <p>No matching sealed market price yet.</p>}
+      <p>Replacement cost at each card's cheapest eligible nonfoil paper printing. Includes commanders, basics and cards played as proxies; excludes sideboards. Actual printings, finishes and condition affect value. Market references aren't store quotes or resale offers.</p>
     </Details>
   </section>;
 }

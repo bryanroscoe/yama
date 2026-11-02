@@ -271,7 +271,7 @@ pub(super) async fn index(
     let rows = filters.apply(&r.commanders, &r.sources)?;
     let games: u64 = r.sources.iter().map(|s| s.games).sum();
     let mut body = format!(
-        "<section class=\"public-hero\"><div class=\"hero-copy\"><p class=\"eyebrow\">Commanders</p><h1>Which commanders<br>win the most?</h1><p class=\"lede\">Real games logged by players, combined into one score per commander.</p><p class=\"dim\">{} commanders from {} game records, one per commander per game. Free to explore.</p></div>",
+        "<section class=\"public-hero\"><div class=\"hero-copy\"><h1>Which commanders<br>win the most?</h1><p class=\"dim\">{} commanders from {} game records, one per commander per game.</p></div>",
         count(r.commanders.len() as i64),
         count(games as i64)
     );
@@ -300,7 +300,7 @@ pub(super) async fn index(
     } else if r.sources.is_empty() {
         body.push_str("<div class=\"hero-note\"><h2>No real-game sources yet.</h2><p>Commander scores appear here once a real-game source is enabled.</p></div>");
     } else {
-        write!(body, "<div class=\"hero-note\"><h2>Nothing to feature here.</h2><p>No commander these filters list has {} games yet.</p></div>", DEFAULT_MIN_GAMES).unwrap();
+        write!(body, "<div class=\"hero-note\"><h2>No featured commander.</h2><p>No commander these filters list has {} games yet.</p></div>", DEFAULT_MIN_GAMES).unwrap();
     }
     body.push_str("</section><div class=\"source-strip\">");
     // Each source shows what it covers and lists just those commanders.

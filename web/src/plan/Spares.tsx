@@ -28,25 +28,23 @@ export function Spares() {
   const show = (list: Spare[]) =>
     list.filter((s) => (!freeOnly || s.free) && words.every((w) => `${s.card}\n${s.from.name}\n${s.why}`.toLowerCase().includes(w)));
   const sections: { id: string; title: string; about: string; list: Spare[] }[] = [
-    { id: "now", title: "Out now", about: "Their replacement is in hand: bought, moved in, a stand-in, or a basic holding a print's slot.", list: sp.now },
+    { id: "now", title: "Out now", about: "Replacement in hand.", list: sp.now },
     {
       id: "after",
       title: "Out when prints arrive",
-      about: "Cards whose replacement waits for a print or for another deck to free it.",
+      about: "Waiting on prints or a transfer.",
       list: sp.after.filter((s) => !s.standin),
     },
-    { id: "standins", title: "Stand-ins leaving", about: "Each holds a slot until its print arrives, then comes out.", list: sp.after.filter((s) => s.standin) },
-    { id: "extras", title: "Bought with no slot", about: "Bought for a deck that the plan has no slot for.", list: sp.extras },
+    { id: "standins", title: "Stand-ins leaving", about: "Until prints arrive.", list: sp.after.filter((s) => s.standin) },
+    { id: "extras", title: "Bought with no slot", about: "", list: sp.extras },
   ];
   const artists = sections.flatMap((s) => show(s.list)).map((s) => view.card(s.card)?.artist);
   return (
     <>
       <PlansHead title="Spares" />
-      <p className="spares-intro">Cards leaving one deck, and where they go next.</p>
       <Details label="How spares are counted">
         <p>
-        Check here before buying or printing a card: a spare can fill another deck's slot for free. Read from your now and after-prints lists, so a card
-        counts as out only when its list says so.
+        Based on your now and after-prints lists, rather than a physical inventory.
         </p>
       </Details>
       <div className="row plan-spares-tools">
@@ -81,7 +79,7 @@ export function Spares() {
               <h2 className="plan-section-head spares-head">
                 {sec.title} <span className="num">{list.length === sec.list.length ? sec.list.length : `${list.length} of ${sec.list.length}`}</span>
               </h2>
-              <p className="dim small">{sec.about}</p>
+              {sec.about && <p className="dim small">{sec.about}</p>}
               {list.length === 0 ? <p className="empty">Nothing here matches.</p> : list.map((s) => <SpareRow key={`${s.card}|${s.from.key}|${s.when}`} s={s} view={view} />)}
             </section>
           );

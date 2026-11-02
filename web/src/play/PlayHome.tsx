@@ -192,7 +192,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
     return (
       <section className="ph-new">
         <h2>New game</h2>
-        <p className="dim">Add a deck first (Decks tab); each seat plays one.</p>
+        <p className="dim">Add a deck to start playing.</p>
       </section>
     );
   }
@@ -256,7 +256,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                     ))}
                   </div>
                 )}
-                {s.kind === "friend" && <p className="ph-friend">Joins with the table code and brings their own deck.</p>}
+                {s.kind === "friend" && <p className="ph-friend">Joins by code with their own deck.</p>}
                 {s.kind !== "friend" && deck && (deck.bracket != null || deck.estimate) && (
                   <div><BracketChips declared={deck.bracket} estimate={deck.estimate} /></div>
                 )}

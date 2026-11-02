@@ -210,7 +210,7 @@ export function DeckChooser({
         <div className="stack" style={{ gap: "0.5rem" }}>
           <label>
             Deck list
-            <span className="hint">One card per line, like "1 Sol Ring". With no Commander section, the first card is the commander.</span>
+            <span className="hint">One card per line: "1 Sol Ring". Put the commander first or under a Commander heading.</span>
             <textarea value={text} onChange={(e) => setText(e.target.value)} />
           </label>
           <div className="row">
@@ -428,7 +428,7 @@ export function GamesPicker({ choices, games, setGames, pace, note, id, label = 
         ))}
       </div>
       <span className="lab-note">
-        {note} More games take longer and give a tighter answer.
+        {note} More games narrow the uncertainty.
         {eta != null ? ` ${durationText(eta).replace(/^about/, "About")}.` : ""}
       </span>
       {pace?.allowance && <span className="lab-note">{allowanceText(pace.allowance)}</span>}

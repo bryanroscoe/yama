@@ -74,15 +74,16 @@ describe("deck research evidence", () => {
     expect(html).toContain("Buy these precons first");expect(html).toContain("$47.01");expect(html).toContain("$1.25 before tax");expect(html).not.toContain("$48.26");expect(html).toContain("not cards you own now");
   });
 
-  it("labels research as agent notes that need nothing from you, on the index and on a note",()=>{
+  it("introduces agent notes once on the index and keeps dated provenance on a note",()=>{
     const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});
     client.setQueryData(["research","owner","list"],[{id:"audit",title:"Deck review",revision:1,updated_at:"2026-10-27"}]);
     const index=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research"]}><Routes><Route path="/decks/research" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
     client.clear();
-    expect(index).toContain("<h1>Agent notes</h1>");expect(index).toContain("Agent notes are what Claude and other agents save");expect(index).toContain("nothing here needs you to do anything");
-    expect(index).toContain('href="/decks/plan/review"');expect(index).toContain("has changed since the note was saved");
+    expect(index).toContain("<h1>Agent notes</h1>");expect(index).toContain("Research saved by your agents.");
+    expect(index).toContain('href="/decks/plan/review"');
+    expect(index).toContain("saves it to your account and replaces any note with the same ID");
     const note=fullPage();
-    expect(note).toContain("Agent notes are what Claude and other agents save");expect(note).toContain("Note saved 27 Oct 2026");
+    expect(note).not.toContain("Research saved by your agents.");expect(note).toContain("Note saved 27 Oct 2026");
   });
 
   it("flags a note's deck when the deck changed after the note was saved",()=>{

@@ -49,6 +49,7 @@ describe("the Trip page", () => {
     expect(html).toContain('href="https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&amp;productLineName=Magic%3A%20The%20Gathering&amp;sort=price-asc"');
     expect(html).toContain('href="https://www.tcgplayer.com/massentry?productline=Magic&amp;c=1%20Arcane%20Signet||');
     expect(html).toContain("Compare on TCGplayer");
+    expect(page("2026-11-01", "?going=1&store=mothership")).toMatch(/<a[^>]*class="button primary buy-cart"[^>]*>Replace cart<\/a>/);
   });
 
   it("shows each store's preference in your order, the stores going this time, and the wishlist by tier", () => {

@@ -152,13 +152,13 @@ function NextOrder({ view, plan, printer }: { view: PlanView; plan: ReturnType<t
         </span>
       )}
       {n.count === 0 ? (
-        <p className="small dim">Nothing yet. Planned prints that aren't on a placed order, and proposed prints you want, go here.</p>
+        <p className="small dim">No prints waiting.</p>
       ) : (
         <>
           <p className="small">{tierText}</p>
           <p className="small dim">
             {n.each != null
-              ? `Proxy cost is ${n.eachNote ?? `${usd(n.each)} a card`} (your setting), so ${n.eachNote?.startsWith("at least") ? "at least " : "about "}${usd(n.estimate)} for these. That's what the print costs, not a market price.`
+              ? `Print cost: ${n.eachNote ?? `${usd(n.each)} a card`}; ${n.eachNote?.startsWith("at least") ? "at least " : "about "}${usd(n.estimate)} total.`
               : "No print cost in your settings."}
           </p>
           <div className="row">

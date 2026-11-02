@@ -229,7 +229,7 @@ function TryForm() {
     <>
       <LabHead title="Try a change" />
       <Details label="How the test works" className="lab-try-intro">
-        <p>Swap cards in a list, then play both versions against the same opponents, seats and shuffles. You can also run an unchanged list or <Link to="/lab/compare">compare decks</Link>.</p>
+        <p>Test swaps against the same opponents, seats and shuffles, or <Link to="/lab/compare">compare decks</Link>.</p>
         <p>{caveat()}</p>
       </Details>
 
@@ -440,7 +440,7 @@ function ChangesPanel({
 }) {
   const art = useCardArt(swaps.flatMap((s) => [s.out, s.in].filter((x): x is string => !!x)));
   if (!swaps.length) {
-    return <p className="small dim lab-diff-empty">No swaps yet. Tap Swap beside a card below to pick its replacement, or Cut to take it out.</p>;
+    return <p className="small dim lab-diff-empty">No swaps yet.</p>;
   }
   const remove = (id: string) => setSwaps((s) => s.filter((x) => x.id !== id));
   return (
@@ -771,7 +771,7 @@ function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { i
             </div>
           ))}
           {shown.length === 0 && <p className="small dim">No cards match.</p>}
-          {results.data.total > 12 && <p className="small dim">{results.data.total.toLocaleString()} cards match; showing the 12 most played. Narrow the search for others.</p>}
+          {results.data.total > 12 && <p className="small dim">{results.data.total.toLocaleString()} matches; showing the 12 most played.</p>}
         </div>
       )}
     </div>

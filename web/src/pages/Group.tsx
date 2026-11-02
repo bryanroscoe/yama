@@ -28,7 +28,7 @@ export function GroupPage() {
       {groups.data?.length === 0 && (
         <>
           <h1>Playgroup</h1>
-          <p className="empty">You're not in a playgroup yet. Start one for your table, or join with a friend's code.</p>
+          <p className="empty">No playgroup yet.</p>
         </>
       )}
       {group && (
@@ -183,7 +183,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
       </div>
 
       <ErrorText error={stats.error ?? games.error} />
-      {s && s.games === 0 && <p className="dim">No finished games yet. Play one from the Table tab with this playgroup chosen, and the stats start here.</p>}
+      {s && s.games === 0 && <p className="dim">No finished games yet.</p>}
       {s && s.games > 0 && (
         <>
           <section className="grp-section" aria-labelledby="grp-players">
@@ -305,7 +305,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   )}
                 </div>
               ) : (
-                <p className="dim">{myKey ? "No one has the edge on you yet, and you don't have it on anyone. Play a few more games." : "Join the group's games to see your rivalries."}</p>
+                <p className="dim">{myKey ? "No rivalry edge yet." : "Join a game to see your rivalries."}</p>
               )}
               {games.data && games.data.length >= 200 && <p className="small dim">From the group's last 200 games.</p>}
             </section>

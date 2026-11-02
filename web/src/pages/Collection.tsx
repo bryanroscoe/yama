@@ -207,7 +207,7 @@ export function CollectionPage() {
         <ErrorText error={items.error ?? summary.error} />
         {items.data && items.data.length === 0 && !filter && !container && kind === "all" && (
           <div className="empty">
-            <p>Your collection is empty. Import your Mythic Tools export to bring everything over, or add cards from the Cards tab.</p>
+            <p>No cards yet. Import a collection or add cards from search.</p>
           </div>
         )}
         {items.data && items.data.length === 0 && (filter || container || kind !== "all") && (
@@ -317,12 +317,10 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           <button className="quiet" onClick={onClose}>{result ? "Done" : "Close"}</button>
         </div>
         <p className="dim">
-          In Mythic Tools, export your collection as CSV, then choose the file here. You'll see what changes before anything is saved. A newer export adds only
-          what's new, and cards you've moved in Yama stay where you put them.
+          Choose a Mythic Tools CSV to preview the changes. Cards you've moved in Yama stay where you put them.
         </p>
         <p className="dim small">
-          Mythic Tools' collection export leaves your decks out. To bring a deck over, export that deck from Mythic Tools (as CSV, or as a text list to paste on
-          the Decks tab). Cards in a deck become a Yama deck, linked to those cards.
+          Mythic Tools exports decks separately. Import each deck's CSV here, or its text list from Decks.
         </p>
         <label>
           CSV file
