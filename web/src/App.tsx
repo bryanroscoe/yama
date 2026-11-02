@@ -15,6 +15,8 @@ import { DatasetsPage } from "./datasets/Datasets";
 import { afterSignIn, Login, useMe } from "./auth";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe } from "./components/RailMe";
+import { SiteLinks } from "./components/SiteLinks";
+import { SharingPage } from "./pages/Sharing";
 import { SiteNotice } from "./components/SiteNotice";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, LabIcon, PlayIcon, TableIcon } from "./components/icons";
 import { ErrorText } from "./components/ui";
@@ -99,6 +101,7 @@ function Shell() {
       </nav>
       {/* What's new is for people using Yama, not someone looking around. */}
       {me.data && <NewsNotice />}
+      <SiteLinks />
       <Outlet />
       <div className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></div>
     </div>
@@ -115,7 +118,7 @@ export function App() {
   // tab's cache, so nothing of that account shows.
   useEffect(() => {
     if (!signedOutNow) return;
-    const accountLists = new Set(["games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
+    const accountLists = new Set(["sharing", "games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
     // Card searches carry the account's copies; the guest's own (keyed `true`, Cards.tsx) stay,
     // since the Cards page may already be running one.
     const accountSearch = (key: readonly unknown[]) => key[0] === "search" && key[4] !== true;
@@ -229,6 +232,7 @@ export function App() {
           <Route path="decks/:id" element={<DeckPage />} />
           <Route path="decks/:id/scan" element={<DeckScanPage />} />
           <Route path="decks/:id/check" element={<DeckCheckPage />} />
+          <Route path="sharing" element={<SharingPage />} />
           <Route path="group" element={<GroupPage />} />
           <Route path="group/mythic" element={<MythicImportPage />} />
           <Route path="mythic/sent" element={<MythicSentPage />} />

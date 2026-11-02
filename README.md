@@ -16,6 +16,8 @@ Precon comparisons and detail pages show [source-backed upgradeability](docs/pre
 Production: [yama.ing](https://yama.ing). Existing users should sync pending changes on the old
 site before signing in at the new address; installed apps and MCP connectors need the new URL.
 
+Sharing is reachable from the main app navigation and from Decks. It brings together your public profile, shared decks and alternate configurations, shared groups of builds from Agent notes, copyable links and sharing settings. Precons, Commanders and the MCP guide stay in the same navigation.
+
 ## What works today
 
 Historical evidence can be imported as private, immutable [datasets](docs/datasets.md)

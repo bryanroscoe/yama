@@ -11,7 +11,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
   const id = bundle.document.id;
-  const sharing = useQuery({ queryKey: ["sharing"], queryFn: () => api<Sharing>("/api/me/sharing") });
+  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: () => api<Sharing>("/api/me/sharing"), enabled: !!userId });
   const [copied, copy] = useCopy();
   // The server's answer is the note's sharing now: put it in the cached note at once, so a reset
   // link never leaves the old one on screen, then refetch.
@@ -48,7 +48,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
     </div>}
     {visibility === "public" && sharing.data && (handle
       ? <p className="small dim">Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>.</p>
-      : <p className="small">Your profile needs a handle before it lists anything. <Link to="/group#sharing">Pick one under Group, You</Link>.</p>)}
+      : <p className="small">Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing</Link>.</p>)}
     <ErrorText error={set.error ?? reset.error} />
   </details>;
 }

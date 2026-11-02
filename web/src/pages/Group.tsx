@@ -11,7 +11,6 @@ import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
-import { SharingSettings } from "../decks/SharingSettings";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 import { DeleteAccount } from "./DeleteAccount";
 import { exportLink } from "../download";
@@ -419,7 +418,7 @@ function Account() {
           </span>
         </div>
         <OfflineCardsSetting />
-        {!me.data?.viewing && <SharingSettings />}
+        {!me.data?.viewing && <div className="grp-you-row" id="sharing"><span className="grp-you-text"><b>Sharing</b><span>Your public profile, shared decks, builds and privacy settings.</span></span><Link className="button outline" to="/sharing">Open Sharing</Link></div>}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
         {me.data?.is_admin && (
