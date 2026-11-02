@@ -862,7 +862,8 @@ bounded and paced public Scryfall cache. It forwards one card name, no private l
 credentials, and writes no cards or collection records. Public stock lists enhance their
 sanitized image links with `/card-preview-v1.js`; their CSP permits self-hosted scripts only.
 The `/precons` and `/commanders` lists filter as you type and load the next page on scroll
-with `/public-list-v1.js` (Bryan, 1 Nov 2026): it fetches the same server-rendered page and
+with `web/public/public-list-v1.js` (Bryan, 1 Nov 2026), served content-addressed at
+`/precons/assets/list-<sha256>.js` like the stylesheet: it fetches the same server-rendered page and
 swaps or extends its `#results`, so the HTML stays the one rendering and the form and Next link
 still work without script. The CSP's `connect-src 'self'` allows only those same-origin fetches.
 Research accounting distinguishes all 100 cards (commander, main and repeated basics), exact

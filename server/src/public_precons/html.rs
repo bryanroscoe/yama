@@ -23,8 +23,9 @@ pub(crate) fn page(st: &AppState, path: &str, title: &str, description: &str, bo
         .unwrap_or_default();
     let wordmark = WORDMARK;
     format!(
-        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"><script defer src="/card-preview-v1.js"></script><script defer src="/public-list-v1.js"></script></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/commanders"{commanders_current}>Commanders</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0c0e"><title>{title} | Yama</title><meta name="description" content="{description}"><meta property="og:title" content="{title} | Yama"><meta property="og:description" content="{description}"><meta property="og:type" content="website">{canonical}<link rel="icon" href="/icon.svg"><link rel="preload" href="/precon-fonts/big-shoulders-display-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="{stylesheet_path}"><script defer src="/card-preview-v1.js"></script><script defer src="{list_script}"></script></head><body class="public-precons"><a class="skip" href="#content">Skip to content</a><header class="public-header"><a class="public-wordmark" href="/precons" aria-label="Yama precons">{wordmark}</a><nav aria-label="Public reference"><a href="/precons"{index_current}>Precons</a><a href="/commanders"{commanders_current}>Commanders</a><a href="/precons/methodology"{method_current}>How we rank</a><a class="button" href="/">Open Yama <span aria-hidden="true">↗</span></a></nav></header><main id="content">{body}</main><footer class="public-footer"><div class="footer-top"><span>Free to explore. Built for Commander.</span><nav aria-label="About Yama"><a href="/about/">About</a><a href="/privacy/">Privacy</a><a href="/tos/">Terms</a></nav></div>{NOTICE}</footer></body></html>"##,
         stylesheet_path = stylesheet().1,
+        list_script = list_script().1,
         title = e(title),
         description = e(description),
         index_current = if path == "/precons" {
@@ -1002,6 +1003,17 @@ pub(crate) fn stylesheet() -> &'static (String, String) {
     })
 }
 
+// Content-addressed like the stylesheet: a new version is a new cache key, so neither a browser
+// nor Cloudflare can keep serving an older copy (or the app shell cached before it existed).
+pub(crate) fn list_script() -> &'static (String, String) {
+    static JS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+    JS.get_or_init(|| {
+        let body = include_str!("../../../web/public/public-list-v1.js").to_string();
+        let path = format!("/precons/assets/list-{}.js", sha256_hex(&body));
+        (body, path)
+    })
+}
+
 // Keep old links readable, but new documents always use the content-addressed URL.
 pub(super) async fn style(headers: HeaderMap) -> Response {
     cached(&headers, stylesheet().0.clone(), "text/css; charset=utf-8")
@@ -1011,11 +1023,14 @@ pub(super) async fn versioned_style(
     Path(filename): Path<String>,
     headers: HeaderMap,
 ) -> AppResult<Response> {
-    let css = stylesheet();
-    if css.1.rsplit('/').next() != Some(filename.as_str()) {
-        return Err(AppError::NotFound("stylesheet"));
-    }
-    let mut response = cached(&headers, css.0.clone(), "text/css; charset=utf-8");
+    let name = |path: &str| path.rsplit('/').next().map(str::to_string);
+    let mut response = if name(&stylesheet().1).as_deref() == Some(filename.as_str()) {
+        cached(&headers, stylesheet().0.clone(), "text/css; charset=utf-8")
+    } else if name(&list_script().1).as_deref() == Some(filename.as_str()) {
+        cached(&headers, list_script().0.clone(), "text/javascript; charset=utf-8")
+    } else {
+        return Err(AppError::NotFound("asset"));
+    };
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=31536000, immutable"),
