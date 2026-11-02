@@ -441,14 +441,20 @@ impl Fetcher {
                     req = req.header("Cookie", c);
                 }
             }
-            let sent = req.send().await;
+            // The host's lock is held until the whole answer is read, then the pause runs from there.
             let mut guard = guard;
-            *guard = Instant::now();
-            drop(guard);
-            match sent {
+            let sent = req.send().await;
+            let read = match sent {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    let text = resp.text().await.unwrap_or_default();
+                    Ok((status, resp.text().await.unwrap_or_default()))
+                }
+                Err(e) => Err(e),
+            };
+            *guard = Instant::now();
+            drop(guard);
+            match read {
+                Ok((status, text)) => {
                     raw.add(method, url, status, &text);
                     if (200..300).contains(&status) {
                         return Ok(text);
@@ -473,8 +479,12 @@ impl Fetcher {
     /// YesTCG answers its API only with the session cookie its home page sets.
     async fn yestcg_cookie(&mut self, base: &str, raw: &mut Raw) {
         let host = url::Url::parse(base).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
-        let _g = pace(&host, if self.pause.is_zero() { Duration::ZERO } else { Kind::YesTcg.pause() }).await;
-        if let Ok(resp) = self.http.get(format!("{base}/")).header("User-Agent", BROWSER_UA).timeout(Duration::from_secs(30)).send().await {
+        let mut guard = pace(&host, if self.pause.is_zero() { Duration::ZERO } else { Kind::YesTcg.pause() }).await;
+        let sent = self.http.get(format!("{base}/")).header("User-Agent", BROWSER_UA).timeout(Duration::from_secs(30)).send().await;
+        // The next request waits its pause from now.
+        *guard = Instant::now();
+        drop(guard);
+        if let Ok(resp) = sent {
             let cookies: Vec<String> = resp
                 .headers()
                 .get_all("set-cookie")
@@ -1248,19 +1258,8 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     .bind(owner)
     .fetch_all(pool)
     .await?;
-    // A whole catalog read only in part (a later page failed) answers only for the cards it listed:
-    // a card missing from it is unknown, not out of stock.
-    let partial: Vec<&String> = snaps.iter().filter(|s| s.cards.is_none() && s.status == "partial").map(|s| &s.id).collect();
-    let listed: HashSet<(String, String)> = if partial.is_empty() {
-        HashSet::new()
-    } else {
-        let rows: Vec<(String, String)> = sqlx::query_as("SELECT DISTINCT snapshot_id, card_key FROM store_listings WHERE owner_id = ? AND snapshot_id IN (SELECT value FROM json_each(?))")
-            .bind(owner)
-            .bind(serde_json::to_string(&partial).map_err(anyhow::Error::from)?)
-            .fetch_all(pool)
-            .await?;
-        rows.into_iter().collect()
-    };
+    // A whole catalog read only in part (a page failed) answers for nothing: a page not read may
+    // hold another printing of a card, or the card itself, so an older full read still counts.
     // For each (store, card): the newest snapshot that answered for it, by the check it came from;
     // when one check read a store both directly and through YesTCG (which they asked for, and which
     // gives condition and quantity), YesTCG's answer comes first, the store's own for the rest.
@@ -1269,8 +1268,8 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
         let failed: HashSet<String> = s.failed.as_deref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).unwrap_or_default().iter().map(|c| card_key(c)).collect();
         let asked: Option<HashSet<String>> = s.cards.as_deref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).map(|v| v.iter().map(|c| card_key(c)).collect());
         for k in names.keys() {
-            let in_part = !(s.cards.is_none() && s.status == "partial") || listed.contains(&(s.id.clone(), k.clone()));
-            let covers = asked.as_ref().is_none_or(|a| a.contains(k)) && !failed.contains(k) && in_part;
+            let whole_in_part = s.cards.is_none() && s.status == "partial";
+            let covers = asked.as_ref().is_none_or(|a| a.contains(k)) && !failed.contains(k) && !whole_in_part;
             if covers {
                 pick.entry((s.store_key.clone(), k.clone())).or_insert(i);
             }

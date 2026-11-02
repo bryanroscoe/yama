@@ -290,7 +290,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     // An error snapshot answers nothing, so the older one still counts.
     assert_eq!(store_quotes(&pool, &owner, &cards).await.unwrap().iter().filter(|q| q["store"] == "pats" && q["card"] == "Sol Ring").count(), 3);
 
-    // A catalog read only in part answers for the cards it listed; the rest are unknown, not absent.
+    // A catalog read only in part answers for nothing; the older full catalog still counts.
     snapshot(&pool, &owner, "s-bc2", "black-castle", "tcgplayer_pro", None).await;
     sqlx::query("UPDATE store_snapshots SET status = 'partial', fetched_at = '2099-01-01T00:00:00Z', error = 'page 2 failed' WHERE id = 's-bc2'").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO store_listings (snapshot_id, owner_id, card_name, card_key, price, available, price_kind) VALUES ('s-bc2', ?, 'Sol Ring', 'sol ring', 0.9, 1, 'from')")
@@ -300,8 +300,8 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
         .unwrap();
     let q = store_quotes(&pool, &owner, &cards).await.unwrap();
     let bc = |card: &str| q.iter().filter(|x| x["store"] == "black-castle" && x["card"] == card).cloned().collect::<Vec<_>>();
-    assert_eq!(bc("Sol Ring")[0]["price"], 0.9, "the newer partial catalog answers for what it listed");
-    assert_eq!(bc("Fellwar Stone")[0]["origin"], "snapshot:s-bc", "and the older full catalog still answers for the rest");
+    assert_eq!(bc("Sol Ring")[0]["origin"], "snapshot:s-bc", "a page not read may hold a cheaper printing");
+    assert_eq!(bc("Fellwar Stone")[0]["origin"], "snapshot:s-bc");
 
     // One check that read a store directly and through YesTCG: YesTCG's answer counts, whichever
     // finished last; a listing with no copies left is out of stock.
