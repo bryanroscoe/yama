@@ -60,6 +60,94 @@
     inset 0 0 0 5px var(--ground);
   pointer-events: none;
 }
+/* Close to out (dangerOf): a --bad glow around the panel's edge, an overlay so the art under it is
+   never filtered. It beats slowly while low and like a racing heart when one hit from out; with
+   reduced motion it stays lit without beating. */
+.panel.danger::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 2px var(--bad),
+    inset 0 0 24px 4px rgb(240 122 98 / 0.4);
+  pointer-events: none;
+  animation: danger-beat 2.6s ease-in-out infinite;
+}
+.panel.danger-critical::before {
+  box-shadow:
+    inset 0 0 0 3px var(--bad),
+    inset 0 0 44px 10px rgb(240 122 98 / 0.55);
+  animation: danger-heart 1.1s ease-in-out infinite;
+}
+@keyframes danger-beat {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes danger-heart {
+  0%,
+  45%,
+  100% {
+    opacity: 0.5;
+  }
+  12%,
+  32% {
+    opacity: 1;
+  }
+  22% {
+    opacity: 0.7;
+  }
+}
+/* Critically low life: the number itself turns to the warning color and beats with the glow. */
+.panel.danger-critical.danger-life .life-value {
+  color: var(--bad);
+}
+.panel.danger-critical.danger-life .life {
+  animation: life-heart 1.1s ease-in-out infinite;
+}
+@keyframes life-heart {
+  0%,
+  45%,
+  100% {
+    scale: 1;
+  }
+  12%,
+  32% {
+    scale: 1.05;
+  }
+}
+/* The word for it, where "Out?" goes once a player reaches a loss. */
+.danger-chip {
+  position: absolute;
+  bottom: 22%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 3px 12px 3px 9px;
+  border: 1px solid var(--bad);
+  border-radius: var(--r-pill);
+  background: var(--ground);
+  color: var(--bad);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: pill-in 220ms ease-out both;
+}
+.danger-chip svg {
+  flex: none;
+}
 /* Out of the game: a dark veil over the panel (an overlay, so art could sit under it unfiltered). */
 .panel.out .panel-inner::before {
   content: "";

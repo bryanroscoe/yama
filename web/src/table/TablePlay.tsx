@@ -1,6 +1,7 @@
 import {
   commanderSources,
   commanderTax,
+  dangerOf,
   keySeat,
   sourceName,
   COMMANDER_LETHAL,
@@ -449,6 +450,8 @@ export function Panel(props: {
   const base = MANA[fill];
   const out = !!p.eliminated;
   const loss = lossOf(state, p);
+  // Close to a loss (low life, poison or commander damage nearly lethal): the panel's edge glows.
+  const danger = dangerOf(state, p);
   const commanderGame = state.setup.format === "commander" && state.players.length > 1;
   const attacker = attack ? state.players.find((x) => x.seat === attack.seat) : undefined;
   const attackKey = attack ? (`${attack.seat}${attack.partner ? "b" : ""}` as CommanderKey) : null;
@@ -493,9 +496,9 @@ export function Panel(props: {
 
   return (
     <section
-      className={`panel${active ? " active" : ""}${out ? " out" : ""}${attack?.seat === p.seat || taking === p.seat ? " attacker" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}`}
+      className={`panel${active ? " active" : ""}${out ? " out" : ""}${attack?.seat === p.seat || taking === p.seat ? " attacker" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}${danger ? ` danger danger-${danger.level} danger-${danger.kind}` : ""}`}
       style={style}
-      aria-label={`${p.name}, ${p.life} life`}
+      aria-label={`${p.name}, ${p.life} life${danger ? `, ${danger.text}` : ""}`}
     >
       <div className={`panel-inner${sideways ? " sideways" : ""}${vertical ? " vertical" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
         {art && partnerArt ? (
@@ -553,6 +556,11 @@ export function Panel(props: {
           <button className="out-prompt" onClick={onKnockOut}>
             Out? {loss.text}
           </button>
+        )}
+        {danger && !busy && (
+          <span key={danger.text} className="danger-chip">
+            <WarningIcon /> {danger.text}
+          </span>
         )}
         {out && <div className="out-label">{p.eliminated!.uncounted ? "Out" : `Out on turn ${p.eliminated!.turn}`}</div>}
         {commanderGame && !out && !busy && (onAttack || onTake) && (
@@ -715,6 +723,14 @@ const SwordsIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
     <path d="m13 19 6-6M16 16l4 4M19 21l2-2" />
+  </svg>
+);
+
+/** A warning triangle, beside the word for how close a player is to out. */
+const WarningIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    <path d="M12 9v4M12 17h.01" />
   </svg>
 );
 
