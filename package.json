@@ -7,7 +7,8 @@
     "build": "npm run build -w web",
     "test": "vitest run",
     "typecheck": "tsc -p packages/core && tsc -p web",
-    "polish": "npm run polish -w web --"
+    "polish": "npm run polish -w web --",
+    "local": "scripts/dev-local.sh"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
