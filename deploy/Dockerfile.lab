@@ -9,6 +9,7 @@ FROM rust:1-bookworm AS build
 WORKDIR /src/yama
 COPY --from=phase Cargo.toml /src/yama-phase/Cargo.toml
 COPY --from=phase crates /src/yama-phase/crates
+COPY --from=phase protocol /src/yama-phase/protocol
 COPY Cargo.toml Cargo.lock ./
 COPY server server
 COPY play play

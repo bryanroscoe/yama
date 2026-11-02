@@ -61,9 +61,10 @@ FROM rust:1-bookworm AS server
 # This dependency also serializes the two engine builds sharing the Cargo cache.
 COPY --from=historical /usr/local/bin/historical-runtime /usr/local/bin/historical-runtime
 WORKDIR /src/yama
-# The rules engine (local fork of phase-rs; only its manifest and crates are needed).
+# The rules engine and the protocol registry used by its build scripts.
 COPY --from=phase Cargo.toml /src/yama-phase/Cargo.toml
 COPY --from=phase crates /src/yama-phase/crates
+COPY --from=phase protocol /src/yama-phase/protocol
 COPY Cargo.toml Cargo.lock ./
 COPY server server
 COPY play play

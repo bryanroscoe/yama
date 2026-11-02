@@ -33,7 +33,7 @@ build)
   PHASE_DIR=$(sh ./deploy/check-phase.sh HEAD)
   PHASE_SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-lab-phase.XXXXXX")
   trap 'rm -rf "$PHASE_SRC"' EXIT
-  git -C "$PHASE_DIR" archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$PHASE_SRC"
+  git -C "$PHASE_DIR" archive "$PHASE_REV" Cargo.toml crates protocol | tar -x -C "$PHASE_SRC"
   # The source goes over without .git, so the runner stamp (play/build.rs) gets the commit and
   # whether the runner's sources differ from it as build args; build.rs adds the source hash.
   DIRTY=0
