@@ -822,3 +822,20 @@ a.rg-row:focus-visible {
   margin: 0;
   flex: 1 1 18rem;
 }
+/* Phones: the counter's setup starts on the first screen, with the way in beside the note. */
+@media (max-width: 520px) {
+  .guest-banner:has(> .button) {
+    flex-wrap: nowrap;
+    margin-bottom: 1rem;
+    padding: 12px 14px;
+  }
+  .guest-banner:has(> .button) p {
+    flex-basis: auto;
+    font-size: var(--t-sm);
+    line-height: 1.4;
+  }
+  .guest-banner > .button {
+    flex: none;
+    white-space: nowrap;
+  }
+}
