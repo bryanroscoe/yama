@@ -303,9 +303,12 @@ async fn refresh_from(
 pub fn spawn_scheduler(pool: SqlitePool, http: reqwest::Client) {
     tokio::spawn(async move {
         loop {
-            if let Err(e) = refresh(&pool, &http).await {
+            let job = crate::perf::Job::start("sealed deck prices", std::time::Duration::from_secs(300));
+            let result = refresh(&pool, &http).await;
+            if let Err(e) = &result {
                 tracing::warn!(error = %e, "sealed deck price import failed");
             }
+            job.finish(&result, "daily import");
             tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
         }
     });

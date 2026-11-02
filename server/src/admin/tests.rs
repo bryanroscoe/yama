@@ -29,6 +29,7 @@ fn admin_routes() -> Vec<(Method, &'static str, Option<Value>)> {
         (Method::DELETE, "/api/admin/users/someone/power", None),
         (Method::GET, "/api/admin/usage", None),
         (Method::GET, "/api/admin/server", None),
+        (Method::GET, "/api/admin/perf", None),
         (Method::POST, "/api/admin/watch/some-game/stop", None),
         (Method::GET, "/api/admin/lab-runs", None),
         (Method::PATCH, "/api/admin/lab-runs/some-run", Some(json!({"name": "x"}))),
@@ -747,4 +748,23 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     assert_eq!(report.games_deleted, 2, "{report:?}");
     assert_eq!(report.online_games_removed, 2, "{report:?}");
     assert!(report.rows_deleted >= 25, "{report:?}");
+}
+
+#[tokio::test]
+async fn response_times_name_route_templates_never_paths_queries_or_people() {
+    let (app, pool) = app().await;
+    let (_, token) = admin(&pool, "boss@example.com").await;
+    // An id in the path and a share token in the query string.
+    let (status, _) = send(&app, Method::GET, "/api/decks/not-a-real-deck?token=secret-share-token", Some(&token), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, perf) = send(&app, Method::GET, "/api/admin/perf", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let text = perf.to_string();
+    for private in ["not-a-real-deck", "secret-share-token", "boss@example.com"] {
+        assert!(!text.contains(private), "{private} in {text}");
+    }
+    let routes = perf["routes"].as_array().unwrap();
+    assert!(routes.iter().any(|r| r["method"] == "GET" && r["route"] == "/api/decks/{id}" && r["count"].as_u64() >= Some(1)), "{routes:?}");
+    assert_eq!(perf["slow_request_ms"], 500);
+    assert_eq!(perf["window_minutes"], 60);
 }

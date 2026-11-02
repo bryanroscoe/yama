@@ -626,7 +626,10 @@ pub async fn ranking(pool: &SqlitePool) -> AppResult<Shared> {
     if let Some(r) = cached(&key) {
         return Ok(r);
     }
-    let r = Arc::new(derive(pool).await?);
+    let job = crate::perf::Job::start("public commanders rebuild", std::time::Duration::from_secs(2));
+    let r = derive(pool).await;
+    job.finish(&r, r.as_ref().map(|r| format!("{} commanders", r.commanders.len())).unwrap_or_default());
+    let r = Arc::new(r?);
     *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, r.clone()));
     Ok(r)
 }

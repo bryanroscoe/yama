@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SharedGrant, SharedOverview, UsageRow } from "./api";
-import { advisorLine, ago, bytes, confirms, deleteSummary, holdings, nearLimits, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary, today, usd } from "./logic";
+import { advisorLine, ago, bytes, confirms, deleteSummary, duration, holdings, nearLimits, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary, today, usd } from "./logic";
 
 const row = (over: Partial<UsageRow> = {}): UsageRow => ({
   id: "u1",
@@ -154,5 +154,17 @@ describe("admin words", () => {
     expect(s).toBe(
       "Deleted pat@gmail.com and 42 rows it owned. 2 games it logged stay for the other players, without its name. 1 game only it played was deleted. 3 seats in other people's games no longer name it. 1 playgroup passed to another member.",
     );
+  });
+});
+
+describe("durations", () => {
+  it("reads at a glance", () => {
+    expect(duration(0.4)).toBe("0.4 ms");
+    expect(duration(4)).toBe("4 ms");
+    expect(duration(180.6)).toBe("181 ms");
+    expect(duration(1440)).toBe("1.4 s");
+    expect(duration(25_300)).toBe("25 s");
+    expect(duration(200_000)).toBe("3 min 20 s");
+    expect(duration(120_000)).toBe("2 min");
   });
 });

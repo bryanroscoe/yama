@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { ErrorText } from "../components/ui";
-import { adminApi, type ServerInfo, type WatchItem } from "./api";
-import { ago, bytes, usd } from "./logic";
+import { adminApi, type PerfSummary, type ServerInfo, type WatchItem } from "./api";
+import { ago, bytes, duration, usd } from "./logic";
 
 const yes = (b: boolean) => (b ? "On" : "Off");
 
@@ -83,6 +83,7 @@ export function ServerPage() {
               </details>
             )}
           </section>
+          <PerfSection />
           <section className="admin-section" aria-labelledby="adm-lab">
             <h2 id="adm-lab">Lab</h2>
             <Facts
@@ -98,6 +99,154 @@ export function ServerPage() {
           <WatchSection games={s.watch} />
         </>
       )}
+    </>
+  );
+}
+
+/** Rows shown before "Show all". */
+const FIRST = 15;
+
+/** How long requests, SQL statements and background jobs take (server/src/perf.rs). */
+function PerfSection() {
+  const perf = useQuery({ queryKey: ["admin-perf"], queryFn: adminApi.perf, refetchInterval: 15_000 });
+  const p = perf.data;
+  return (
+    <section className="admin-section" aria-labelledby="adm-perf">
+      <h2 id="adm-perf">Response times</h2>
+      <ErrorText error={perf.error} />
+      {p && (
+        <>
+          <p className="admin-lead">
+            Requests in the last {p.window_minutes} minutes (each route keeps its newest 1,000), slowest routes first. Requests over {duration(p.slow_request_ms)} and SQL
+            statements over {duration(p.slow_query_ms)} are warnings in the server's log too.
+          </p>
+          <RouteTable routes={p.routes} />
+          <JobTable jobs={p.jobs} />
+          <SlowLists p={p} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function RouteTable({ routes }: { routes: PerfSummary["routes"] }) {
+  const [all, setAll] = useState(false);
+  if (!routes.length) return <p className="dim">No requests yet.</p>;
+  const shown = all ? routes : routes.slice(0, FIRST);
+  return (
+    <>
+      <div className="admin-table-wrap">
+        <table className="plain small admin-perf">
+          <thead>
+            <tr>
+              <th>Route</th>
+              <th className="r">Requests</th>
+              <th className="r">Median</th>
+              <th className="r">95th percentile</th>
+              <th className="r">Slowest</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={`${r.method} ${r.route}`}>
+                <td>
+                  <code>
+                    {r.method} {r.route}
+                  </code>
+                </td>
+                <td className="r">{r.count.toLocaleString("en-US")}</td>
+                <td className="r">{duration(r.p50_ms)}</td>
+                <td className="r">{duration(r.p95_ms)}</td>
+                <td className="r">{duration(r.max_ms)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {routes.length > FIRST && (
+        <button className="outline admin-more" onClick={() => setAll(!all)}>
+          {all ? `Show the slowest ${FIRST}` : `Show all ${routes.length} routes`}
+        </button>
+      )}
+    </>
+  );
+}
+
+function JobTable({ jobs }: { jobs: PerfSummary["jobs"] }) {
+  const [all, setAll] = useState(false);
+  if (!jobs.length) return <p className="dim">No background jobs have finished since the server started.</p>;
+  const shown = all ? jobs : jobs.slice(0, FIRST);
+  return (
+    <>
+      <div className="admin-table-wrap">
+        <table className="plain small admin-perf">
+          <thead>
+            <tr>
+              <th>Background job</th>
+              <th>Finished</th>
+              <th className="r">Took</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((j, i) => (
+              <tr key={`${j.at} ${j.job} ${i}`}>
+                <td>{j.job}</td>
+                <td>{ago(j.at)}</td>
+                <td className="r">{duration(j.ms)}</td>
+                <td>
+                  {!j.ok ? <span className="admin-bad">Failed</span> : j.slow ? <span className="admin-warn">Slow</span> : "Done"}
+                  {j.note ? `, ${j.note}` : ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {jobs.length > FIRST && (
+        <button className="outline admin-more" onClick={() => setAll(!all)}>
+          {all ? `Show the newest ${FIRST}` : `Show all ${jobs.length} jobs`}
+        </button>
+      )}
+    </>
+  );
+}
+
+function SlowLists({ p }: { p: PerfSummary }) {
+  return (
+    <>
+      <details className="admin-details">
+        <summary>Slow requests ({p.slow_requests.length})</summary>
+        {p.slow_requests.length === 0 ? (
+          <p className="dim">None over {duration(p.slow_request_ms)} since the server started.</p>
+        ) : (
+          <ul className="admin-plain admin-slow">
+            {p.slow_requests.map((r, i) => (
+              <li key={`${r.at} ${i}`}>
+                <code>
+                  {r.method} {r.route}
+                </code>{" "}
+                answered {r.status === 499 ? "nothing (the client went away)" : r.status} in {duration(r.ms)}, {ago(r.at)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+      <details className="admin-details">
+        <summary>Slow SQL statements ({p.slow_statements.length})</summary>
+        {p.slow_statements.length === 0 ? (
+          <p className="dim">None over {duration(p.slow_query_ms)} since the server started.</p>
+        ) : (
+          <ul className="admin-plain admin-slow">
+            {p.slow_statements.map((q, i) => (
+              <li key={`${q.at} ${i}`}>
+                {duration(q.ms)} for {q.rows.toLocaleString("en-US")} {q.rows === 1 ? "row" : "rows"}, {ago(q.at)}
+                <code className="admin-sql">{q.sql}</code>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
     </>
   );
 }
