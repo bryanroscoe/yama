@@ -149,6 +149,11 @@ fn price_ok(v: &Value) -> bool {
     v.is_null() || v.as_f64().is_some_and(|p| p.is_finite() && p >= 0.0)
 }
 
+/// A store's name or title: text that isn't blank.
+fn text_ok(v: &Value) -> bool {
+    v.as_str().is_some_and(|t| !t.trim().is_empty())
+}
+
 /// A store's product title before ` [` or ` (`, without a "MTG - " prefix.
 fn title_name(title: &str) -> &str {
     let t = title.trim();
@@ -243,7 +248,7 @@ pub fn shopify_suggest(body: &Value, card: &str) -> Option<(usize, Vec<(String, 
     // An answer without the product list isn't "none found": it's an answer we can't read.
     let items = body["resources"]["results"]["products"].as_array()?;
     // So is one whose products don't all have a title and a handle.
-    if !items.iter().all(|p| p["title"].is_string() && p["handle"].is_string()) {
+    if !items.iter().all(|p| text_ok(&p["title"]) && text_ok(&p["handle"])) {
         return None;
     }
     let found = items
@@ -319,10 +324,11 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
 /// A TCGplayer Pro catalog answer: (total products, listings, one per product at its lowest price).
 pub fn pro_catalog(body: &Value, base: &str) -> Option<(i64, Vec<Listing>)> {
     // An answer without the catalog's fields isn't an empty catalog: it's one we can't read.
-    let total = body["products"]["totalItems"].as_i64()?;
+    let total = body["products"]["totalItems"].as_i64().filter(|t| *t >= 0)?;
     let items = body["products"]["items"].as_array()?;
-    // So is a page with a product that has no name (it may be the card wanted) or an unreadable price.
-    if !items.iter().all(|p| p["name"].is_string() && price_ok(&p["lowestPrice"])) {
+    // So is a page with more products than the catalog's total, a product that has no name (it may
+    // be the card wanted), or an unreadable price.
+    if items.len() as i64 > total || !items.iter().all(|p| text_ok(&p["name"]) && price_ok(&p["lowestPrice"])) {
         return None;
     }
     let out = items
@@ -377,7 +383,7 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     // isn't a number, or with a bad quantity.
     // A quantity, when given, must be a whole number of copies: a bad one isn't "any number".
     let qty_ok = |q: &Value| q.is_null() || q.as_u64().is_some_and(|n| n <= 100_000);
-    if !hits.iter().all(|h| h["name"].is_string() && h["condition"].is_string() && price_ok(&h["price"]) && qty_ok(&h["qty"])) {
+    if !hits.iter().all(|h| text_ok(&h["name"]) && h["condition"].is_string() && price_ok(&h["price"]) && qty_ok(&h["qty"])) {
         return Some(None);
     }
     let listings = hits
@@ -625,7 +631,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                 match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
                     // A title, and every variant's availability and price (a sum of money), or the product is unreadable.
                     Ok(body)
-                        if body["title"].is_string()
+                        if text_ok(&body["title"])
                             && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (x["title"].is_string() || x["public_title"].is_string()) && x["price"].is_number() && price_ok(&x["price"]))) =>
                     {
                         found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))

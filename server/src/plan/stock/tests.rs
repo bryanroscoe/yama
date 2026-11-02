@@ -47,7 +47,7 @@ fn product(handle: &str) -> Option<Value> {
         "popular-b.js" => json!({"title": "Popular [PP - 2]", "variants": [{"id": 8, "title": "Near Mint / English / Normal", "price": 30, "available": false}]}),
         // A negative price is no price: unreadable.
         "neg-1.js" => json!({"title": "Neg [NEG - 1]", "variants": [{"id": 9, "title": "Near Mint", "price": -100, "available": true}]}),
-        "untitled-1.js" => json!({"variants": [{"id": 2, "title": "Near Mint", "price": 100, "available": true}]}),
+        "untitled-1.js" => json!({"title": "", "variants": [{"id": 2, "title": "Near Mint", "price": 100, "available": true}]}),
         "odd-1.js" => json!({"title": "Odd [ODD - 1]", "variants": [{"id": 1, "title": "Near Mint", "price": 100}]}),
         "fellwar-stone-drk.js" => json!({"title": "Fellwar Stone [DRK - 103]", "variants": [
             {"id": 131, "title": "Damaged / English / Normal", "price": 975, "available": false},
@@ -180,6 +180,9 @@ fn titles_and_variants_parse() {
     assert!(pro_catalog(&json!({"products": {}}), "https://bc.tcgplayerpro.com").is_none(), "an unreadable answer isn't an empty catalog");
     assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"id": 1, "lowestPrice": 1.0}]}}), "https://bc.tcgplayerpro.com").is_none(), "a product without a name");
     assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"name": "Sol Ring", "lowestPrice": -1.0}]}}), "https://bc.tcgplayerpro.com").is_none(), "a negative price");
+    assert!(pro_catalog(&json!({"products": {"totalItems": -1, "items": []}}), "https://bc.tcgplayerpro.com").is_none(), "a negative total");
+    assert!(pro_catalog(&json!({"products": {"totalItems": 0, "items": [{"name": "Sol Ring"}]}}), "https://bc.tcgplayerpro.com").is_none(), "more products than the total");
+    assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"name": " "}]}}), "https://bc.tcgplayerpro.com").is_none(), "a blank name");
     assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"name": "Sol Ring", "lowestPrice": "1.00"}]}}), "https://bc.tcgplayerpro.com").is_none(), "a price that isn't a number");
     assert_eq!((total, l.len()), (4, 4));
     assert_eq!(l[3].language.as_deref(), Some("Japanese"));
