@@ -15,6 +15,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
       <header className="landing-head">
         <a className="landing-brand" href="/" aria-label="Yama home"><Wordmark /></a>
         <nav aria-label="Public pages">
+          <a href="/">Life counter</a>
           <a href="/precons">Precons</a>
           <a href="/docs/mcp/">MCP guide</a>
           <a className="landing-signin-link" href="#sign-in">Sign in</a>
@@ -37,6 +38,13 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               <h2 id="explore-title">Explore without an account</h2>
             </div>
             <div className="landing-public-links">
+              {/* The life counter is Yama's home page, signed in or not (guest.ts). */}
+              <a className="landing-destination landing-counter" href="/">
+                <span className="landing-destination-kind">Life counter</span>
+                <h3>Count life at the table</h3>
+                <p>Commander damage, poison and turns for up to six players. No account needed: games stay on this phone.</p>
+                <span className="landing-destination-action">Start a game <span aria-hidden="true">→</span></span>
+              </a>
               <a className="landing-destination" href="/precons">
                 <span className="landing-destination-kind">Public reference</span>
                 <h3>Find your next precon</h3>

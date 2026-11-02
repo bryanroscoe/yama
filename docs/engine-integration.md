@@ -1,6 +1,176 @@
 # Embedding phase-rs in Yama
 
-Status: research spike, 2026-10-18. Pinned target: phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). All file references are into that tag of <https://github.com/phase-rs/phase>.
+Status: research spike, 2026-10-18. Pinned target: phase **v0.113.0** (tag commit `0571ee32f08c`, released 2026-10-18). All file references are into that tag of <https://github.com/phase-rs/phase>. The current pin (v0.119.0 plus Yama's commits, re-pinned 30 October 2026) is in the next section.
+
+## Current release composition (1 November 2026)
+
+The public fork's accepted engine merge is `1847875ae46e7f896cd9656dc0524a0177c70938`.
+The board release adds a separately reviewed client attribution/display delta and pins its
+published merge in `deploy/phase-rev`. Native runtime and browser bundle use that same full
+pin, and saved-game identities include it. The production Dockerfile builds the actual
+board/WASM bundle; `deploy/host.py` validates its exact marker before activation.
+See [the current architecture decision](../ARCHITECTURE.md#phase-board-release-integration-1-november-2026).
+Earlier dated pin and local validation records below are retained as historical evidence.
+The old private fork PR numbers belong to the private archive; new work uses the public fork.
+
+## Saved-game preservation and upgrade acceptance
+
+The PR #29 follow-up guards saved identities before replay parsing and verifies actual data
+bytes, then routes the known v0.113 identity to its frozen Yama adapter and Phase executable.
+Live games continue on that runtime and completed boards rebuild there; keeping old JSON or
+rejecting all old games is not a compatibility solution. See [runtime packaging and checks](../runtime/README.md).
+The original record is archived before continuation, and archives follow online-record deletion
+when an account is removed. Unknown identities remain explicitly unavailable without mutation.
+
+The original `lab_regressions` suite and its winner 3 / turn 54 / 2,072-action control remain
+historical evidence. `lab_regressions_candidate` runs the identical seeded inputs on verified
+`cbd552b4` data and the current adapter; its separate provenance/expectation is documented in
+[gameplay validation](gameplay-validation.md). Do not run the old Morph schema on new Phase or
+replace the historical control. Candidate success remains separate from historical-runtime compatibility and actual image/host
+acceptance. The dated seed-10 failure and its subsequent fixes are preserved in the acceptance records.
+
+## Re-pin, 30 October 2026
+
+`deploy/phase-rev` now pins the fork's main `dd276b0f626c868f43804d0d0cd300d8e7369fbf`:
+upstream phase-rs main `df87a7c` plus Yama's 54 commits. The 29 October pin (`ebb64e3`) is under the
+tag `archive/pre-sync-20261030`, and the stack between them (`b7520eb`) under
+`archive/pre-sync-20261030-2`. The fork's game-over commit is now the reviewed upstream-PR version
+(bryanroscoe/yama-phase#12). Runtime/replay identity is `phase-v0.119.0+dd276b0f-yama/cards-cbd552b4`;
+the lab's engine label is `phase-rs v0.119.0+yama-dd276b0f`.
+
+No Yama code changed for the engine API [ran `cargo check`]. The fork fixes the three engine
+bugs the 29 October checks found: Creative Technique's "NotOwed cannot discharge an installed
+final-part debt" assert, the painland cancel that tapped an untapped Mountain again, and the
+game-over leftovers behind the debug "top frame OptionalEffect does not match waiting prompt
+GameOver" check.
+
+**Card data [ran]:** the generator recipe below, at `dd276b0`, on the same archived inputs
+(`card-data-2905717cc9fe0f53-inputs.tar.zst`, SHA-256 `7a798b5b…97df`, matched), the fork's
+`data/bracket_lists.json` (identical to the bundle's copy) and `GATED_SETS_AS_OF=2026-10-25`.
+
+- Output: `card-data-cbd552b41f962f5b.json`, 101,518,046 bytes, SHA-256
+  `cbd552b41f962f5b80839d35196cfc9621df2406ef3886ca23db8e2f743be505`. `card-data-validate` reads
+  all 36,051 faces. A second run gave the same bytes (and the same `card-names.json`).
+- The compressed copy (`zstd -19`) is 7,641,262 bytes, SHA-256 `c09156ab…aedd8`. Both are in
+  `data/engine/` on the Mac (gitignored). Neither is on saget yet.
+- **Against `84ea6540` (the 29 October file):** 35,969 entries unchanged, 82 changed, none added or
+  removed, all parser changes. 20 entries gain an unimplemented part or warning and 8 lose one.
+- **Against `1e5608e6` (the pin on main):** 34,816 unchanged, 1,235 changed, none added or removed.
+  105 entries gain an unimplemented part or warning and 99 lose one.
+- Yama's coverage (`play/src/bin/coverage.rs`) against the 29 October report, on the cards in both:
+  Bryan's 1,212 cards are unchanged (1,150 full, 17 uncertain, 45 partial). The precon catalog
+  (6,429 cards) goes from 5,900 full to 5,897: Harsh Mercy, Shadow Kin and Stitcher Geralf go from
+  full to partial, Revivify from uncertain to partial, and none got better. These are upstream's
+  deliberate refusals: #9920 (`fac93d0`) refuses a "this way" anaphor it can't bind, and pins
+  Stitcher Geralf and Harsh Mercy as refusals.
+- Against `docs/card-coverage.json` (`1e5608e6`): Bryan's 778 cards in both go from 740 full to
+  738 (partial 25 to 27). Kefka, Dancing Mad, Mog, Moogle Warrior and Negative Zone Portal got
+  worse; Summon: Esper Valigarmanda got better. The catalog goes from 5,910 full to 5,897.
+- The deck card fixture takes the one changed entry among its faces (Cosmic Crucible) from the
+  new export; the other fixtures' entries are unchanged.
+
+**Checks [ran 30 Oct, Mac, one build job]:**
+
+- `cargo test`: 1,632 passed, 0 failed, 46 ignored. `card_tests::smoke::creative_technique` and
+  `pay_tests::a_painland_hurts_and_cancelling_gives_back_only_what_it_can` now pass.
+- Release `soak` (Bryan's decks, 80 turns, seeds 1-20): 20 wins, replays and snapshots match.
+  Release `determinism` (`--ignored`): both pass.
+- Debug `determinism` (`--ignored`): both pass, so the game-over check no longer fires.
+- Debug `soak` (80 turns, seeds 1-20): 19 wins; seed 10 still stops on the engine's debug-only
+  "a spell trigger carrier outlived its action" (upstream issue #10359, not fixed in the fork).
+  Release builds skip that check.
+- `lab_regressions` was not run: its fixtures are frozen on `1e5608e6`.
+
+**Switching on saget** (Bryan's deploy step, not done): as below for 29 October, with
+`card-data-cbd552b41f962f5b.json` in place of `card-data-84ea6540f9b03310.json`. The `84ea6540`
+file was never deployed and is not needed there.
+
+## Engine v0.119.0, 29 October 2026
+
+The fork was rebuilt as upstream phase-rs main `57ef03d` (v0.119.0 and later) plus Yama's
+53 commits. `deploy/phase-rev` pins its main, `ebb64e315a046f75bddd4fc22e05900682d78a65`.
+The earlier v0.113.0-based fork (`8aff83e`) is kept under the tag `archive/pre-sync-20261028`.
+Runtime/replay identity is `phase-v0.119.0+ebb64e31-yama/cards-84ea6540`; the lab's engine
+label is `phase-rs v0.119.0+yama-ebb64e31`, so its results are not pooled with earlier ones.
+
+Yama's code changes for the upstream API [ran `cargo check`]:
+
+- The AI's `PreparedAiDecision` (a fork commit) is gone. Upstream's equivalent is
+  `AiDecisionContract::issue` plus `choose_action_with_issued_contract`, which enumerates the
+  candidates once per decision.
+- `GameAction::ActivateAbility` carries a `payment_mode`. Yama passes the engine's own
+  candidate through, so activations keep the automatic payment they had.
+- Morph costs may be non-mana (`MorphCost::NonMana`), and a cost can resume turning a
+  face-down permanent face up (`CostResume::TurnFaceUp`).
+
+**Card data [ran]:** the generator recipe below, at `ebb64e3`, on the same archived MTGJSON
+inputs (`card-data-2905717cc9fe0f53-inputs.tar.zst`, SHA-256 `7a798b5b…97df`, matched), the
+fork's unchanged `data/bracket_lists.json` and `GATED_SETS_AS_OF=2026-10-25`.
+
+- Output: `card-data-84ea6540f9b03310.json`, 101,510,738 bytes, SHA-256
+  `84ea6540f9b03310299b763dcfdc4686285893d6e3efa2ff650456592e523e13`. `card-data-validate`
+  reads all 36,051 faces. A second run gave the same bytes (and the same `card-names.json`).
+- The compressed copy (`zstd -19`) is 7,640,037 bytes, SHA-256 `c070ce9d…7d87`. Both are in
+  `data/engine/` on the Mac (gitignored). Neither is on saget yet.
+- **Against `1e5608e6` (the previous pin):** 34,896 entries unchanged, 1,155 changed, none
+  added or removed. The inputs are identical, so every change is the parser. 85 entries gain
+  an unimplemented part or a warning and 91 lose one.
+- **Against `2905717c`:** 34,832 unchanged, 1,219 changed, none added or removed.
+- A control run of upstream `57ef03d`'s generator on the same inputs splits the changes.
+  The fork's export differs from upstream's in 118 entries: 64 have fewer gaps than upstream
+  (Yama's parser fixes) and 15 have more. Those 15 are exactly as they were in `1e5608e6`:
+  readings the recovery work made fail conservatively (Blaster Hulk, Lumbering Megasloth, Seal
+  of the Guildpact and others).
+- Yama's coverage (`play/src/bin/coverage.rs`, Yama's verdict) on the cards in both runs:
+  26 cards got worse and 14 better. Bryan's 779 cards from the last report go from 741 full to
+  739 (partial 25 to 27). The precon catalog (6,429 cards) goes from 5,910 full to 5,900.
+- Every card that got worse has the same entry in upstream's export, so the parser change is
+  upstream's, not a lost fork fix. Most are deliberate fail-closed readings, where upstream
+  now marks a clause unimplemented instead of lowering it wrongly:
+  - Bryan's cards: Aether Refinery, Pia Nalaar, Rampaging Aetherhood and Territorial Aetherkite
+    ("pay one or more {E}"); Kefka, Dancing Mad and Mog, Moogle Warrior (a player named by
+    "who ..."); Papalymo Totolymo ("each opponent who lost life this turn"); Negative Zone
+    Portal (the exiled-count condition).
+  - Catalog only: Colfenor's Urn, Concord with the Kami, Crooked Scales, Curie, Gatewatch
+    Beacon, Gyome, Hadana's Climb, Hateful Eidolon, Ian the Reckless, Infernal Offering,
+    Kynaios and Tiro, Localized Destruction, Sigil Captain, Titan Hunter, Wakka, Winged Hive
+    Tyrant and Zenith Flare. Bill Potts goes from full to uncertain.
+  - Upstream also leaves the werewolves' "if a player cast two or more spells last turn"
+    unparsed (33 faces) on purpose: a table-wide count would be wrong.
+- Better for Bryan: Aberrant Return, Summon: Esper Valigarmanda and Tataru Taru.
+- The per-card test fixture (`play/tests/fixtures/deck-cards.json`) and
+  `docs/card-coverage.md` are still the `1e5608e6` slice and report. Regenerating them with
+  the coverage tool also picks up the cards added to `commander-decks` since, so it's left to
+  its own change.
+
+**Checks [ran 29 Oct, Mac, one build job]:**
+
+- `cargo test`: 1,585 passed, 2 failed, 46 ignored. The test card fixtures
+  (`play/tests/fixtures/*-cards.json`) were refreshed from `84ea6540` with the same faces,
+  since the v0.119.0 reader rejects the old ability shapes. Both failures are engine
+  regressions against the old pin:
+  - `card_tests::smoke::creative_technique`: the engine's own `assert!` fires,
+    "NotOwed cannot discharge an installed final-part debt" (`game/engine.rs`), in release
+    builds too.
+  - `pay_tests::a_painland_hurts_and_cancelling_gives_back_only_what_it_can`: after a
+    Battlefield Forge (with its damage) and a Mountain are tapped by hand, Yama untaps the
+    Mountain and cancels; the cancel's cast reversal taps the Mountain again.
+- Release `soak` (Bryan's two decks, 80 turns, seeds 1-20): 20 wins, replays and snapshots
+  match. Release `determinism` (`--ignored`): both tests pass.
+- In debug builds the engine's debug-only invariants stop some games: soak seed 10 ("a spell
+  trigger carrier outlived its action") and the determinism twin games ("top frame
+  OptionalEffect does not match waiting prompt GameOver"). Release builds skip these checks.
+- `lab_regressions` was not run: its fixtures are frozen on `1e5608e6`, which the new engine
+  can't read.
+
+**Switching on saget** (Bryan's deploy step, not done):
+
+1. Copy `card-data-84ea6540f9b03310.json` to `/mnt/user/appdata/yama/data/engine/` (99:100)
+   and check its SHA-256. Leave `1e5608e6` and older files in place for earlier games' replays.
+2. If saget's `yama.env` sets `YAMA_ENGINE_CARD_DATA`, point it at the new file; otherwise
+   the new default in `server/src/config.rs` applies.
+3. Deploy from main per `deploy/RELEASING.md`. Rebuild the lab image (`deploy/lab.sh build`)
+   before new lab runs.
 
 ## Recovery baseline, 25 October 2026
 
@@ -362,6 +532,26 @@ Copy the field set of phase's `ServerMessage::StateUpdate` (server-core/src/prot
   - Replace `useEngineCardData` with a lookup against Yama's own cards API (Scryfall oracle data), so phones never download the WASM or the card data.
   - Keep the WASM only for an optional offline or solo mode later.
   - The client uses pnpm (not installed). npm may work against `package.json` but is untested.
+
+### Phase's board, as built (2026-10-29)
+
+The board is phase's client almost unchanged, over its own `ws-adapter.ts` (not a `YamaAdapter`): Yama's server answers phase's protocol (`play/src/board.rs`, `server/src/play/board.rs`; ARCHITECTURE.md, "phase's own board"). The client keeps its WASM card data path, so a board downloads the engine WASM and the engine's card data (served from `/api/play/board-data/card-data.json`, the file the server loads) once, and caches them; the card-image map comes from Yama's own cards table (`/api/play/board-data/scryfall-data.json`).
+
+To run it locally:
+
+1. Build the board from the commit in `deploy/phase-rev`: `deploy/build-board.sh ../yama-phase board-dist`. The supplied checkout must contain that commit; it may have advanced or contain local edits. Packaging creates a disposable clone at the exact pin and builds its bindings, dependencies and staged media there. It needs Python 3, the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the pinned `Cargo.lock` version. The default compiler output is disposable; an explicit `CARGO_TARGET_DIR` can retain a cache outside the supplied checkout. The build includes the audio and battlefield backgrounds Bryan approved on 30 October, excludes card-art preview videos and the bundled icon font, and leaves tracked, untracked and ignored source files alone.
+2. Start the server with `YAMA_BOARD_DIST=$PWD/board-dist`. `/api/play/status` then says `board: true`, and a live game's board shows "Phase board".
+3. `npm run dev` proxies `/board` to the server like `/api`, so the board shares the signed-in origin with its socket.
+
+The output must be outside the Phase checkout and must not contain either source
+checkout. Within Yama, only the generated `board-dist` and `web/board-dist`
+destinations are allowed. Vite builds into fresh staging space; it never empties
+the requested destination. A nonempty destination must have an unchanged
+`.yama-board-files.json` inventory from this publisher. Unrecognized files, edits,
+directories or symlinks stop publication and are preserved, including changes
+made during the build. For an older bundle without that inventory, choose a new
+empty destination and update `YAMA_BOARD_DIST`; the script does not adopt or
+delete the older files. A failed build preserves the previous published bundle.
 
 ### Implementation order
 

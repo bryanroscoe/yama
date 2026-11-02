@@ -13,6 +13,7 @@
 // the bottom, and every hand face up when asked.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
@@ -94,6 +95,7 @@ import { ZoneBrowser, type BrowsedZone } from "./Zones";
 import { GameLog } from "./GameLog";
 import { GameOver, GameOverBar, KnockoutNote, OutStrips, YouAreOut } from "./Endings";
 import { RevealPanel } from "./Reveal";
+import { openPhaseBoard } from "./phaseBoard";
 import { collapseNinjutsu, ninjutsuPick, specialAct } from "./rare";
 import "./board.css";
 
@@ -220,7 +222,7 @@ interface Control {
 
 // ── the board ──────────────────────────────────────────────────────────────
 
-export function Board({ id, live, watch = false }: { id: string; live: boolean; watch?: boolean }) {
+export function Board({ id, live, watch = false, phaseBoard = false }: { id: string; live: boolean; watch?: boolean; phaseBoard?: boolean }) {
   const [msg, setMsg] = useState<ViewMessage | null>(null);
   const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null);
   // Watching: the seat at the bottom of the board.
@@ -233,6 +235,8 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const [sheet, setSheet] = useState<SheetKind>(null);
   // This game's settings (GSettings), open at a section, and the ways to pass (GPriority's menu).
   const [settings, setSettings] = useState<SettingsSection | null>(null);
+  // Whether phase's own board is served here, to open this game on it.
+  const playStatus = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null; board?: boolean }>("/api/play/status") });
   const [passMenu, setPassMenu] = useState(false);
   // A stack item being read, so a trigger can be yielded to from the card reader.
   const [inspectStack, setInspectStack] = useState<StackItem | null>(null);
@@ -2006,6 +2010,11 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
   const settingsButton = playing && savedTurns ? (
     <button type="button" className="rail-log" onClick={() => setSettings("yields")}>Settings</button>
   ) : null;
+  // The hosted board shares this origin's cookie and /board/ assets. Remote-API
+  // builds (including Capacitor) need a separate authenticated handoff first.
+  const phaseButton = !API_BASE && playing && you !== null && phaseBoard && playStatus.data?.board ? (
+    <button type="button" className={wide ? "rail-log" : "quiet"} onClick={() => openPhaseBoard(id, you)}>Phase board</button>
+  ) : null;
   const whose = view.active === you ? (
     <span className="whose mine" key={`w${view.active}-${view.turn}`}>Your turn {view.turn}</span>
   ) : (
@@ -2369,6 +2378,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
           <div className="rail-top">
             <Link to={leaveTo} className="rail-leave">Leave</Link>
             {settingsButton}
+            {phaseButton}
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
           </div>
           <section className="rail-stack" aria-labelledby="pb-stack-h">
@@ -2751,6 +2761,7 @@ export function Board({ id, live, watch = false }: { id: string; live: boolean; 
         <div className="dock-links">
           <Link to={leaveTo}>Leave</Link>
           {playing && savedTurns && <button type="button" className="quiet" onClick={() => setSettings("yields")}>Settings</button>}
+          {phaseButton}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
         </div>
       </div>

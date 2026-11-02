@@ -144,13 +144,7 @@ jobs:
           persist-credentials: false
       - name: Read the published Phase pin
         id: phase
-        env:
-          PHASE_KEY: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
         run: |
-          if [ -z "$PHASE_KEY" ]; then
-            echo '::error::Configure YAMA_PHASE_DEPLOY_KEY with read-only access to bryanroscoe/yama-phase; see docs/ci.md.'
-            exit 1
-          fi
           test "$(cat deploy/phase-repo)" = 'https://github.com/bryanroscoe/yama-phase.git'
           revision="$(cat deploy/phase-rev)"
           if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
@@ -158,13 +152,12 @@ jobs:
             exit 1
           fi
           echo "sha=$revision" >> "$GITHUB_OUTPUT"
-      - name: Check out the private pinned engine
+      - name: Check out the public pinned engine
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: bryanroscoe/yama-phase
           ref: ${{ steps.phase.outputs.sha }}
           path: yama-phase
-          ssh-key: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
           persist-credentials: false
       - name: Prepare GitHub-hosted Rust and build memory
         if: runner.environment == 'github-hosted'

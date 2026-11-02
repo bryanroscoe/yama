@@ -818,3 +818,63 @@ fn every_new_answer_round_trips_through_the_engines_action() {
     let decline = engine::types::actions::GameAction::CascadeChoice { choice: engine::types::actions::CastChoice::Decline };
     assert_eq!(Act::from_action(&decline), Some(Act::CastOffer { cast: false, payment: PayMode::Ask }));
 }
+
+#[test]
+fn candidate_adventure_offer_has_engine_choices_and_resolves() {
+    use engine::ai_support::AiDecisionContract;
+    use engine::types::actions::GameAction;
+    let e = engine();
+    let mut cards = lands(3, "Mountain");
+    cards.push(("Bonecrusher Giant", At::Hand));
+    let (mut m, ids) = table(&e, &cards);
+    cast(&mut m, ids[3]);
+    assert!(
+        matches!(m.state.waiting_for, WaitingFor::CastOffer { kind: CastOfferKind::Adventure { .. }, .. }),
+        "the witness must actually reach the Adventure offer"
+    );
+    let contract = AiDecisionContract::issue(&m.state, PlayerId(0));
+    assert!(contract.candidates.iter().any(|c| matches!(&c.action, GameAction::ChooseAdventureFace { creature: true })));
+    assert!(contract.candidates.iter().any(|c| matches!(&c.action, GameAction::ChooseAdventureFace { creature: false })));
+    act(&mut m, Act::ChooseAdventureFace { creature: true });
+    settle(&mut m);
+    assert!(on_field(&m, ids[3]), "the offered creature resolves normally");
+}
+
+#[test]
+fn candidate_priority_pass_continues_an_existing_rechecking_session() {
+    use engine::ai_support::AiDecisionContract;
+    use engine::game::engine::apply_verified_ai_priority_pass;
+    use engine::types::actions::GameAction;
+    use engine::types::game_state::StackResolutionPolicy;
+    let e = engine();
+    let mut cards = lands(5, "Forest");
+    cards.push(("Grizzly Bears", At::Hand));
+    let (mut m, ids) = table(&e, &cards);
+    // Both players have a real instant-speed response, so the first pass must retain
+    // its session while the other player is offered priority.
+    for seat in 0..2 {
+        let face = e.database().get_face_by_name("Walking Ballista").unwrap();
+        let owner = PlayerId(seat);
+        let id = engine::game::deck_loading::create_object_from_card_face(&mut m.state, face, owner);
+        m.state.players[seat as usize].library.retain(|card| *card != id);
+        m.state.battlefield.push_back(id);
+        let object = m.state.objects.get_mut(&id).unwrap();
+        object.zone = Zone::Battlefield;
+        object.summoning_sick = false;
+        object.counters.insert(CounterType::Plus1Plus1, 1);
+    }
+    evaluate_layers(&mut m.state);
+    m.set_full_control(0, true);
+    cast(&mut m, ids[5]);
+    let first = AiDecisionContract::issue(&m.state, PlayerId(0));
+    apply_verified_ai_priority_pass(&mut m.state, PlayerId(0), &first, GameAction::PassPriority).unwrap();
+    let session = m.state.stack_resolution_session.as_ref().expect("first pass retains an active session");
+    assert_eq!(session.policy, StackResolutionPolicy::RecheckNoMeaningfulPriorityAction);
+    assert!(matches!(m.state.waiting_for, WaitingFor::Priority { player: PlayerId(1) }));
+    let second = AiDecisionContract::issue(&m.state, PlayerId(1));
+    apply_verified_ai_priority_pass(&mut m.state, PlayerId(1), &second, GameAction::PassPriority)
+        .expect("next representative's pass continues the active session");
+    assert!(m.state.stack.is_empty());
+    assert!(m.state.stack_resolution_session.is_none());
+    assert!(on_field(&m, ids[5]), "the spell resolves through the retained session");
+}

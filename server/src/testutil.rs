@@ -17,6 +17,7 @@ pub fn config() -> Config {
         database_url: "sqlite::memory:".into(),
         bind: "127.0.0.1:0".into(),
         web_dist: None,
+        board_dist: None,
         google_client_ids: vec![],
         admin_emails: vec![],
         dev_login: false,

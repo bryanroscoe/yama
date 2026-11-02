@@ -19,6 +19,8 @@ export default defineConfig({
       "^/(precons(?:/|$)|[udr]/|sitemap\\.xml$)": { target: "http://127.0.0.1:8787" },
       // The scanner's recognition bundle (server/src/scan.rs).
       "/scan-bundle": { target: "http://127.0.0.1:8787" },
+      // phase's own board (deploy/build-board.sh, served by the server from YAMA_BOARD_DIST).
+      "/board": { target: "http://127.0.0.1:8787" },
       // Claude's tools and their OAuth sign-in (server/src/mcp, server/src/oauth). `/oauth/authorize`
       // stays here: it's the web app's consent page.
       "^/(mcp|oauth/(register|token|revoke)|\\.well-known/oauth-)": { target: "http://127.0.0.1:8787" },
