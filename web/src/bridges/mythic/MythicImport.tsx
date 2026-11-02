@@ -16,7 +16,7 @@ import "./mythic.css";
 export function MythicImportPage() {
   const enabled = useMythicBridge();
   const qc = useQueryClient();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
   const [file, setFile] = useState<{ name: string; data: MythicExport } | null>(null);
   const [fileError, setFileError] = useState<unknown>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -255,7 +255,7 @@ export function MythicNote({ gameId }: { gameId: string }) {
   const enabled = useMythicBridge();
   const note = useQuery({
     queryKey: ["mythic-note", gameId],
-    queryFn: () => api<{ note: string | null; tags: unknown }>(`/api/bridges/mythic/games/${gameId}/note`),
+    queryFn: ({ signal }) => api<{ note: string | null; tags: unknown }>(`/api/bridges/mythic/games/${gameId}/note`, { signal }),
     enabled,
     retry: false,
   });

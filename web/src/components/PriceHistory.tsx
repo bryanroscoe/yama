@@ -18,7 +18,7 @@ const PAD = { top: 8, right: 8, bottom: 8, left: 8 };
 
 /** Daily market price for one printing and finish, with a hover readout and a table view. */
 export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: string; finish: "nonfoil" | "foil" | "etched"; setName: string }) {
-  const history = useQuery({ queryKey: ["prices", scryfallId], queryFn: () => api<Point[]>(`/api/printings/${scryfallId}/prices`) });
+  const history = useQuery({ queryKey: ["prices", scryfallId], queryFn: ({ signal }) => api<Point[]>(`/api/printings/${scryfallId}/prices`, { signal }) });
   const [hover, setHover] = useState<number | null>(null);
   const pick = (p: Point) => (finish === "foil" ? p.usd_foil : finish === "etched" ? p.usd_etched : p.usd);
   const points = (history.data ?? []).map((p) => ({ date: p.date, value: pick(p) })).filter((p): p is { date: string; value: number } => p.value !== null);

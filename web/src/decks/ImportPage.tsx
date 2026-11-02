@@ -48,7 +48,7 @@ export function ImportPage() {
   const updating = params.get("deck");
   const precon = params.get("precon");
   const shared = params.get("shared");
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [text, setText] = useState(() => sharedText(params));
   const [guideKey, setGuideKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -64,7 +64,7 @@ export function ImportPage() {
   // The precon's stock list, as "Start a deck" on the Cards page and release calendar asks.
   const stock = useQuery({
     queryKey: ["precon", precon],
-    queryFn: () => api<PreconList>(`/api/calendar/precons/${encodeURIComponent(precon!)}`),
+    queryFn: ({ signal }) => api<PreconList>(`/api/calendar/precons/${encodeURIComponent(precon!)}`, { signal }),
     enabled: !!precon,
     retry: false,
     staleTime: Infinity,
@@ -76,7 +76,7 @@ export function ImportPage() {
   // A friend's shared deck, as its page's "Save a copy in Yama" asks.
   const friend = useQuery({
     queryKey: ["shared-deck", shared],
-    queryFn: () => api<PublicDeck>(`/api/public/decks/${encodeURIComponent(shared!)}`),
+    queryFn: ({ signal }) => api<PublicDeck>(`/api/public/decks/${encodeURIComponent(shared!)}`, { signal }),
     enabled: !!shared,
     retry: false,
     staleTime: Infinity,
@@ -565,7 +565,7 @@ function SaveBar({
   const [mode, setMode] = useState<"new" | "update">(updating ? "update" : "new");
   const current = useQuery({
     queryKey: ["deck", target],
-    queryFn: () => api<DeckView>(`/api/decks/${target}`),
+    queryFn: ({ signal }) => api<DeckView>(`/api/decks/${target}`, { signal }),
     enabled: mode === "update" && !!target,
   });
   const body = toSave(draft);

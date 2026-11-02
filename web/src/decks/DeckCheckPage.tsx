@@ -39,7 +39,7 @@ type SetDraft = (next: (d: CheckDraft) => CheckDraft) => void;
 export function DeckCheckPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
+  const deck = useQuery({ queryKey: ["deck", id], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${id}`, { signal }) });
   const [kept, setKept] = useState<CheckDraft | null>(null);
   const commanders = (d: DeckView) => d.cards.filter((c) => c.board === "commander").map((c) => c.name);
   const draft = kept ?? (deck.data ? (loadCheck(id) ?? newCheck(id, commanders(deck.data))) : null);
@@ -188,10 +188,10 @@ function groupsOf(options: TargetOption[]): [string, TargetOption[]][] {
 function useTargetOptions(deck: DeckView | undefined) {
   const userId = useMe().data?.id;
   const plan = usePlan(userId);
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const index = useQuery({ queryKey: ["research", userId, "list"], queryFn: reports, enabled: !!userId });
-  const notes = useQueries({ queries: (index.data ?? []).map((r) => ({ queryKey: ["research", userId, r.id], queryFn: () => report(r.id), enabled: !!userId })) });
-  const versions = useQuery({ queryKey: ["deck-versions", deck?.id, deck?.version_id], queryFn: () => api<DeckVersionRow[]>(`/api/decks/${deck!.id}/versions`), enabled: !!deck });
+  const notes = useQueries({ queries: (index.data ?? []).map((r) => ({ queryKey: ["research", userId, r.id], queryFn: ({ signal }) => report(r.id, signal), enabled: !!userId })) });
+  const versions = useQuery({ queryKey: ["deck-versions", deck?.id, deck?.version_id], queryFn: ({ signal }) => api<DeckVersionRow[]>(`/api/decks/${deck!.id}/versions`, { signal }), enabled: !!deck });
   // The research queries' array is new each render; this says when any of them changed.
   const notesKey = notes.map((r) => `${r.status}${r.dataUpdatedAt}`).join();
   return useMemo(() => {
@@ -217,8 +217,8 @@ function useTarget(deck: DeckView | undefined, option: TargetOption | undefined,
   const load = option?.load;
   const savedDeck = load && "savedDeck" in load && load.savedDeck !== deck?.id ? load.savedDeck : null;
   const version = load && "version" in load ? load.version : null;
-  const other = useQuery({ queryKey: ["deck", savedDeck], queryFn: () => api<DeckView>(`/api/decks/${savedDeck}`), enabled: !!savedDeck });
-  const old = useQuery({ queryKey: ["deck-version", deck?.id, version], queryFn: () => api<DeckVersion>(`/api/decks/${deck!.id}/versions/${version}`), enabled: !!deck && !!version, staleTime: Infinity });
+  const other = useQuery({ queryKey: ["deck", savedDeck], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${savedDeck}`, { signal }), enabled: !!savedDeck });
+  const old = useQuery({ queryKey: ["deck-version", deck?.id, version], queryFn: ({ signal }) => api<DeckVersion>(`/api/decks/${deck!.id}/versions/${version}`, { signal }), enabled: !!deck && !!version, staleTime: Infinity });
   const data = useMemo(() => {
     if (!deck || !option || !load) return null;
     const pairs = [...option.pairs, ...pool];

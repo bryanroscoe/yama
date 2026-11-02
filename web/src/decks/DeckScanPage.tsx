@@ -25,7 +25,7 @@ const CLOSEUPS = "yama.scan.closeups";
 
 export function DeckScanPage() {
   const { id = "" } = useParams();
-  const deck = useQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`) });
+  const deck = useQuery({ queryKey: ["deck", id], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${id}`, { signal }) });
   // A scan left unfinished on this device, else a new one with the deck's commander. Nothing is
   // stored until the first card goes in.
   const [kept, setKept] = useState<ScanDraft | null>(null);

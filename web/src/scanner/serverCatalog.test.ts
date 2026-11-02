@@ -3,10 +3,10 @@ import { createServerCatalog } from "./serverCatalog";
 import { decide } from "./pipeline";
 import { NameIndex } from "./fuzzy";
 
-vi.mock("../offline/cards", () => ({ loadOfflineCards: async () => ({ cards: [
+vi.mock("../offline/cards", () => ({ offlineCardNames: async () => [
   { i: "keep", n: "Keep Card" }, { i: "double", n: "Front Face // Back Face" },
   { i: "brainstorm", n: "Brainstorm" }, { i: "adventure", n: "Harmonized Trio // Brainstorm" },
-] }) }));
+] }));
 vi.mock("../api", () => ({ api: vi.fn(() => { throw new Error("No network in identity mode"); }), ApiError: class extends Error {} }));
 
 describe("identity-only scan catalog", () => {

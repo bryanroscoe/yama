@@ -10,7 +10,7 @@ import "./share.css";
 export function SharingSettings() {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
-  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: () => api<Sharing>("/api/me/sharing"), enabled: !!userId });
+  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
   const [handle, setHandle] = useState("");
   useEffect(() => {
     if (sharing.data) setHandle(sharing.data.handle ?? "");

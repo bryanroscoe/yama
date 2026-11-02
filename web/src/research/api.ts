@@ -62,8 +62,9 @@ export interface ReportSummary { id: string; title: string; revision: number; up
 export interface NoteSharing { id: string; visibility: Visibility; share_token: string | null; link: string | null }
 export interface ReviewOp { op_id: string; target: string; decision: string | null; note: string | null; expected_version: number; target_hash: string }
 
-export const reports = () => api<ReportSummary[]>("/api/research");
-export const report = (id: string) => api<ResearchBundle>(`/api/research/${encodeURIComponent(id)}`);
+/** Usable as a query function: React Query's signal cancels the request when it's no longer wanted. */
+export const reports = ({ signal }: { signal?: AbortSignal } = {}) => api<ReportSummary[]>("/api/research", { signal });
+export const report = (id: string, signal?: AbortSignal) => api<ResearchBundle>(`/api/research/${encodeURIComponent(id)}`, { signal });
 export const saveReview = (id: string, op: ReviewOp) => api<Review>(`/api/research/${encodeURIComponent(id)}/reviews`, { method: "POST", json: op });
 export const setNoteSharing = (id: string, visibility: Visibility) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/sharing`, { method: "PUT", json: { visibility } });
 export const resetNoteLink = (id: string) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/share-link`, { method: "POST" });

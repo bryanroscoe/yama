@@ -219,8 +219,8 @@ function InstallCard() {
 function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const me = useMe();
   const guest = isGuest();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }), enabled: !guest });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: !guest });
   const [groupId, setGroupId] = useState<string>("");
   const [life, setLife] = useState(40);
   const [format, setFormat] = useState<TableFormat>("commander");
@@ -576,7 +576,7 @@ const RECENT_WIDE = 4;
 const RECENT_PHONE = 3;
 
 function RecentGames({ waiting }: { waiting: ReactNode }) {
-  const games = useQuery({ queryKey: ["games"], queryFn: () => api<(GameRow & { note?: string | null })[]>("/api/games") });
+  const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<(GameRow & { note?: string | null })[]>("/api/games", { signal }) });
   const [logging, setLogging] = useState(false);
   const wide = useWide();
   // A game deleted while offline stays out of the list until Yama catches up.
@@ -656,8 +656,8 @@ const UNANSWERED = { turns: "", winner: null, first: null, condition: null, fun:
 export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; editing?: GameDetail; copyFrom?: GameDetail }) {
   const qc = useQueryClient();
   const me = useMe();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [form] = useState(() => {
     const from = editing ?? copyFrom;
     if (!from) return null;

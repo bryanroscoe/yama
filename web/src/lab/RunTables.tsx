@@ -43,7 +43,7 @@ const LIVE = new Set(["queued", "running"]);
 function useRun(id: string | undefined) {
   return useQuery({
     queryKey: ["lab", "experiment", id],
-    queryFn: () => api<ExperimentDetail>(`/api/lab/experiments/${id}`),
+    queryFn: ({ signal }) => api<ExperimentDetail>(`/api/lab/experiments/${id}`, { signal }),
     refetchInterval: (q) => {
       const d = q.state.data;
       if (!d) return false;
@@ -59,7 +59,7 @@ function useTables(id: string | undefined, engine: string, filter: { entrant?: s
   if (filter.table) q.set("table", String(filter.table));
   return useQuery({
     queryKey: ["lab", "tables", id, q.toString(), done ?? 0],
-    queryFn: () => api<Tables>(`/api/lab/experiments/${id}/tables?${q}`),
+    queryFn: ({ signal }) => api<Tables>(`/api/lab/experiments/${id}/tables?${q}`, { signal }),
     enabled,
     placeholderData: (prev) => prev,
   });

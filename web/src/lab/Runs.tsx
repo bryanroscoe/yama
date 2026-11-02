@@ -99,7 +99,7 @@ export function RunsPage() {
     refetchInterval: (q) => (q.state.data?.pages.some((p) => p.some((e) => e.status === "queued" || e.status === "running")) ? 5000 : false),
   });
   const exps = { data: pages.data?.pages.flat(), error: pages.error };
-  const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs") });
+  const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: ({ signal }) => api<RunListItem[]>("/api/lab/runs", { signal }) });
   const precons = usePrecons();
   const name = (label: string) => deckName(label, precons.data?.precons ?? []);
   const batch = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired");
@@ -310,7 +310,7 @@ function shortName(name: string): string {
 
 export function BatchPage() {
   const { id } = useParams();
-  const run = useQuery({ queryKey: ["lab", "run", id], queryFn: () => api<RunDetail>(`/api/lab/runs/${id}`) });
+  const run = useQuery({ queryKey: ["lab", "run", id], queryFn: ({ signal }) => api<RunDetail>(`/api/lab/runs/${id}`, { signal }) });
   if (run.error) {
     return (
       <>

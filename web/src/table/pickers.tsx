@@ -11,17 +11,9 @@ import { artCredits } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import { cardSearchPath, isGuest } from "../guest";
 import "./pickers.css";
+import { useDebounced } from "../useDebounced";
 
 /** The value after the person stops typing for `ms`. */
-function useDebounced<T>(value: T, ms = 180): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
 export interface Option<T> {
   key: string;
   value: T;
@@ -255,8 +247,8 @@ export function canPair(a: Pick<Card, "name" | "oracle_text" | "type_line">, b: 
   return ka === kb && (ka === "partner" || ka === "friends");
 }
 
-async function searchCards(q: string, order?: string): Promise<Card[]> {
-  return (await api<SearchResult>(cardSearchPath(q, order))).cards;
+async function searchCards(q: string, order?: string, signal?: AbortSignal): Promise<Card[]> {
+  return (await api<SearchResult>(cardSearchPath(q, order), { signal })).cards;
 }
 
 /**
@@ -287,7 +279,7 @@ function useCardSearch(text: string, scope: string) {
   const q = useDebounced(text.trim());
   return useQuery({
     queryKey: ["table-card-search", scope, q],
-    queryFn: async () => rankByName(await searchCards(`${scope} ${q.includes(" ") ? `"${q.replace(/"/g, "")}"` : q}`, "edhrec"), q),
+    queryFn: async ({ signal }) => rankByName(await searchCards(`${scope} ${q.includes(" ") ? `"${q.replace(/"/g, "")}"` : q}`, "edhrec", signal), q),
     enabled: q.length >= 2,
     staleTime: 5 * 60_000,
     placeholderData: (prev) => prev,
@@ -532,7 +524,7 @@ function usePeopleSearch(text: string) {
   const q = useDebounced(handlePrefix(text) ?? "", 250);
   return useQuery({
     queryKey: ["people-search", q],
-    queryFn: () => api<FoundPerson[]>(`/api/people?q=${encodeURIComponent(q)}`),
+    queryFn: ({ signal }) => api<FoundPerson[]>(`/api/people?q=${encodeURIComponent(q)}`, { signal }),
     // Finding people by handle needs an account.
     enabled: q.length >= 2 && !isGuest(),
     staleTime: 60_000,
@@ -600,14 +592,14 @@ export type DeckPick =
 
 /** The precon catalog (the Lab's query, so either page fills the other's cache). */
 function usePreconCatalog(enabled: boolean) {
-  return useQuery({ queryKey: ["lab", "precons"], queryFn: () => api<PreconList>("/api/precons"), staleTime: 5 * 60_000, enabled });
+  return useQuery({ queryKey: ["lab", "precons"], queryFn: ({ signal }) => api<PreconList>("/api/precons", { signal }), staleTime: 5 * 60_000, enabled });
 }
 
 /** The public decks on someone's profile. */
 function useProfileDecks(handle: string | undefined) {
   return useQuery({
     queryKey: ["people-decks", handle],
-    queryFn: () => api<ProfileDeck[]>(`/api/people/${encodeURIComponent(handle!)}/decks`),
+    queryFn: ({ signal }) => api<ProfileDeck[]>(`/api/people/${encodeURIComponent(handle!)}/decks`, { signal }),
     enabled: !!handle,
     staleTime: 5 * 60_000,
   });

@@ -46,7 +46,7 @@ function CompareForm() {
   const eta = engines.mode === "phase" ? phaseEta : engines.mode === "forge" ? forgeEta : phaseEta != null && forgeEta != null ? Math.max(phaseEta, forgeEta) : null;
 
   // "Edit and run again" brings decks back: yours by id, precons by slug (lists can't come back).
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const precons = usePrecons();
   const restored = useRef(false);
   useEffect(() => {

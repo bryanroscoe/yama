@@ -69,7 +69,7 @@ function TryForm() {
   const [swapping, setSwapping] = useState<string | null>(null);
   const opId = useRef(crypto.randomUUID());
 
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const precons = usePrecons();
   const { lists: planLists, view: plan } = usePlanLists();
   const pace = usePace();
@@ -146,8 +146,8 @@ function TryForm() {
     setSwaps(swapsFrom(prefill.add, prefill.cut, prefill.pairs ?? []));
   }, [chosen]);
 
-  const deck = useQuery({ queryKey: ["deck", chosen?.deckId], queryFn: () => api<DeckView>(`/api/decks/${chosen!.deckId}`), enabled: !!chosen?.deckId });
-  const precon = useQuery({ queryKey: ["lab", "precon", chosen?.precon], queryFn: () => api<PreconDetail>(`/api/precons/${chosen!.precon}`), enabled: !!chosen?.precon });
+  const deck = useQuery({ queryKey: ["deck", chosen?.deckId], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${chosen!.deckId}`, { signal }), enabled: !!chosen?.deckId });
+  const precon = useQuery({ queryKey: ["lab", "precon", chosen?.precon], queryFn: ({ signal }) => api<PreconDetail>(`/api/precons/${chosen!.precon}`, { signal }), enabled: !!chosen?.precon });
 
   const base: LoadedBase | null = useMemo(() => {
     if (!chosen) return null;
@@ -711,9 +711,9 @@ function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { i
   const query = q ? `${q} ${idq}`.trim() : "";
   const results = useQuery({
     queryKey: ["search", query, "edhrec", 1],
-    queryFn: async (): Promise<SearchResult> => {
+    queryFn: async ({ signal }): Promise<SearchResult> => {
       try {
-        return await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(query)}&order=edhrec&page=1`);
+        return await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(query)}&order=edhrec&page=1`, { signal });
       } catch (e) {
         if (isNetworkError(e)) return offlineSearch(query, "edhrec", 1);
         throw e;
@@ -783,7 +783,7 @@ export function RunningNow() {
   const exps = useQuery({
     // Asked for directly: an older run still playing can be past the list's first page.
     queryKey: ["lab", "experiments", "active"],
-    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments?active=true"),
+    queryFn: ({ signal }) => api<ExperimentItem[]>("/api/lab/experiments?active=true", { signal }),
     refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
   });
   const e = exps.data?.find((x) => x.status === "running") ?? exps.data?.find((x) => x.status === "queued");

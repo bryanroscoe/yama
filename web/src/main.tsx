@@ -74,5 +74,6 @@ if (import.meta.env.PROD && "serviceWorker" in navigator && !isNative()) {
 // An installed app keeps its offline data: ask the browser not to clear it under storage pressure.
 keepStorage({ installed: true });
 
-// Keep a copy of the card list for offline lookups; quietly, after the app has loaded.
-window.addEventListener("load", () => setTimeout(() => void refreshOfflineCardsIfStale(), 5000));
+// Keep a copy of the card list for offline lookups: quietly, after the app has loaded, and only for
+// an account (the server's list needs one). The list itself is read only when it's needed.
+window.addEventListener("load", () => setTimeout(() => void (savedMe() && refreshOfflineCardsIfStale()), 5000));

@@ -908,7 +908,7 @@ function LinkDeck({ deck }: { deck: PlanDeck }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
   const [open, setOpen] = useState(false);
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: open || !!deck.deck_id });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: open || !!deck.deck_id });
   const linked = decks.data?.find((d) => d.id === deck.deck_id);
   const link = useMutation({
     mutationFn: (id: string | null) => linkDeck(deck.key, id),

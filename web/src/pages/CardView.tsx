@@ -52,7 +52,7 @@ interface Point {
 
 /** The cheapest printing's last 30 days as a line, and the dates it covers. */
 function Sparkline({ scryfallId, finish, fallbackDate }: { scryfallId: string; finish: Finish; fallbackDate: string | null }) {
-  const history = useQuery({ queryKey: ["prices", scryfallId], queryFn: () => api<Point[]>(`/api/printings/${scryfallId}/prices`) });
+  const history = useQuery({ queryKey: ["prices", scryfallId], queryFn: ({ signal }) => api<Point[]>(`/api/printings/${scryfallId}/prices`, { signal }) });
   const pick = (p: Point) => (finish === "foil" ? p.usd_foil : finish === "etched" ? p.usd_etched : p.usd);
   const points = (history.data ?? [])
     .map((p) => ({ date: p.date, value: pick(p) }))
@@ -96,7 +96,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   // Your copies of this card, any printing: the collection filtered by name, then by the card.
   const owned = useQuery({
     queryKey: ["collection", "card", oracleId],
-    queryFn: () => api<CollectionItem[]>(`/api/collection?q=${encodeURIComponent(card!.name.split(" // ")[0]!)}`),
+    queryFn: ({ signal }) => api<CollectionItem[]>(`/api/collection?q=${encodeURIComponent(card!.name.split(" // ")[0]!)}`, { signal }),
     enabled: !!card && !guest,
     select: (items) => items.filter((i) => i.oracle_id === oracleId && i.qty > 0),
   });

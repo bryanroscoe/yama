@@ -211,7 +211,7 @@ export function RunPage() {
   const navigate = useNavigate();
   const exp = useQuery({
     queryKey: ["lab", "experiment", id],
-    queryFn: () => api<ExperimentDetail>(`/api/lab/experiments/${id}`),
+    queryFn: ({ signal }) => api<ExperimentDetail>(`/api/lab/experiments/${id}`, { signal }),
     // Every 5 s while it plays, and after a cancel until the games that were playing are in.
     refetchInterval: (q) => {
       const d = q.state.data;
@@ -891,7 +891,7 @@ function Pods({ id, done, status, mode, engine, pod = 4 }: { id: string; done: n
   const [open, setOpen] = useState(false);
   const pods = useQuery({
     queryKey: ["lab", "pods", id, done, engine ?? ""],
-    queryFn: () => api<PodView[]>(`/api/lab/experiments/${id}/pods${engine ? `?engine=${engine}` : ""}`),
+    queryFn: ({ signal }) => api<PodView[]>(`/api/lab/experiments/${id}/pods${engine ? `?engine=${engine}` : ""}`, { signal }),
     enabled: open,
     placeholderData: (prev) => prev,
   });

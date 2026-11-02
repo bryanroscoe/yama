@@ -195,7 +195,7 @@ export interface AuthConfig {
 
 /** The server's sign-in settings, shared by the sign-in page and the admin rows in Group. */
 export function useAuthConfig(enabled = true) {
-  return useQuery({ queryKey: ["auth-config"], queryFn: () => api<AuthConfig>("/api/auth/config"), enabled });
+  return useQuery({ queryKey: ["auth-config"], queryFn: ({ signal }) => api<AuthConfig>("/api/auth/config", { signal }), enabled });
 }
 
 declare global {

@@ -67,7 +67,7 @@ export function GameDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const local = useTable();
-  const game = useQuery({ queryKey: ["game", id], queryFn: () => api<GameDetail>(`/api/games/${id}`) });
+  const game = useQuery({ queryKey: ["game", id], queryFn: ({ signal }) => api<GameDetail>(`/api/games/${id}`, { signal }) });
   const g = game.data;
   const outbox = useOutbox();
   const here = local.game?.setup.id === id;
@@ -79,7 +79,7 @@ export function GameDetailPage() {
   const mayContinue = !!g?.can_continue && !uploading && !isViewing();
   const live = useQuery({
     queryKey: ["table-live", id],
-    queryFn: () => api<{ hosting: boolean; key?: string }>(`/api/table/${id}/live`),
+    queryFn: ({ signal }) => api<{ hosting: boolean; key?: string }>(`/api/table/${id}/live`, { signal }),
     enabled: mayContinue,
     refetchInterval: 15_000,
   });
@@ -87,7 +87,7 @@ export function GameDetailPage() {
   /** The Log a game sheet: editing this game, or a new log starting from it. */
   const [sheet, setSheet] = useState<"edit" | "copy" | null>(null);
   // Both name the seats' decks from your list, so they open once that's here.
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: game.data?.mode === "in_person" });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: game.data?.mode === "in_person" });
 
   const carryOn = useMutation({
     mutationFn: async () => {
