@@ -312,6 +312,9 @@ pub(crate) struct SidecarHealth {
 
 /// The sidecar's health: `None` when it didn't answer (2 s at most).
 pub(crate) async fn sidecar_health(st: &AppState) -> Option<SidecarHealth> {
+    if st.cfg.offline {
+        return None;
+    }
     let (url, secret) = (st.cfg.advisor.url.as_ref()?, st.cfg.advisor.secret.as_ref()?);
     let res = st.http.get(format!("{url}/health")).header("x-advisor-secret", secret).timeout(Duration::from_secs(2)).send().await.ok()?;
     if !res.status().is_success() {

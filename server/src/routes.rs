@@ -92,15 +92,17 @@ pub fn app(state: AppState) -> Router {
         let index = dist.join("index.html");
         router = router.nest_service("/board", ServeDir::new(dist).fallback(ServeFile::new(index)));
     }
-    // The phone apps call the API from their own origin with a bearer token (no cookies). Only
-    // the API: pages and files don't need CORS, and its `Vary: Origin` kept the service worker's
-    // saved files from matching (web PR #110).
+    // The phone apps call the API, and fetch the scanner's files, from their own origin with a
+    // bearer token (no cookies). Only those: pages and the web app's files don't need CORS, and
+    // its `Vary: Origin` kept the service worker's saved files from matching (web PR #110). The
+    // validators go both ways, so the offline card list can be revalidated from a phone.
     if !state.cfg.cors_origins.is_empty() {
         let origins: Vec<HeaderValue> = state.cfg.cors_origins.iter().filter_map(|o| o.parse().ok()).collect();
         let cors = CorsLayer::new()
             .allow_origin(origins)
             .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::IF_NONE_MATCH, header::IF_MODIFIED_SINCE])
+            .expose_headers([header::ETAG, header::LAST_MODIFIED]);
         router = router.layer(axum::middleware::from_fn_with_state(cors, api_cors));
     }
     // Admin "View as" stays read only: checked for every request, before routing (view_as.rs).
@@ -118,9 +120,14 @@ pub fn app(state: AppState) -> Router {
     router.with_state(state)
 }
 
-/// CORS for `/api/` only.
+/// The paths the phone apps fetch from another origin.
+fn cross_origin(path: &str) -> bool {
+    path.starts_with("/api/") || path.starts_with("/scan-bundle/")
+}
+
+/// CORS for [`cross_origin`] paths only.
 async fn api_cors(State(cors): State<CorsLayer>, req: Request, next: Next) -> Response {
-    if !req.uri().path().starts_with("/api/") {
+    if !cross_origin(req.uri().path()) {
         return next.run(req).await;
     }
     match tower::Layer::layer(&cors, next).oneshot(req).await {
@@ -175,6 +182,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     let play = crate::play::PlayHub::start(cfg.engine_card_data.clone(), pool.clone());
     // Forge as a second Lab engine, when its worker container is set up (lab/forge.rs).
     let forge: Option<Arc<dyn crate::lab::forge::ForgeClient>> = match (cfg.forge.enabled(), &cfg.forge.url, &cfg.forge.secret) {
+        (true, ..) if cfg.offline => None,
         (true, Some(url), Some(secret)) => {
             tracing::info!(url = %url, "Lab: Forge runs go to the Forge worker");
             Some(Arc::new(crate::lab::forge::HttpForge::new(http_client(), url.clone(), secret.clone())))
@@ -185,9 +193,14 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     let bind = cfg.bind.clone();
     let offline = cfg.offline;
     if offline {
-        tracing::warn!("YAMA_OFFLINE is on: no imports, deck checks, previews, store checks, Ask Claude or research fetches reach outside services");
+        tracing::warn!("YAMA_OFFLINE is on: no imports, deck checks, previews, store checks, Ask Claude, research, Google or Access sign-in, or Forge");
     }
     let cf_keys = match (&cfg.cf_access_team, &cfg.cf_access_aud) {
+        // Access's signing keys come from Cloudflare.
+        (Some(_), Some(_)) if cfg.offline => {
+            tracing::warn!("YAMA_OFFLINE: Cloudflare Access sign-in is off");
+            None
+        }
         (Some(team), Some(_)) => {
             tracing::info!(team, "signing people in through Cloudflare Access");
             Some(Arc::new(crate::auth::JwkCache::new(&format!("https://{team}.cloudflareaccess.com/cdn-cgi/access/certs"))))
@@ -292,6 +305,7 @@ mod tests {
     async fn offline_requests_say_so_instead_of_reaching_out() {
         let mut cfg = crate::testutil::config();
         cfg.offline = true;
+        cfg.google_client_ids = vec!["client.apps.googleusercontent.com".into()];
         let st = crate::testutil::state_with(cfg, crate::db::test_pool().await).await;
         let pool = st.pool.clone();
         let app = crate::routes::app(st);
@@ -304,6 +318,7 @@ mod tests {
             (Method::GET, "/api/calendar/precons/Test_TST", None),
             (Method::POST, "/api/plan/stock/check", Some(json!({}))),
             (Method::POST, "/api/advisor/ask", Some(json!({"question": "Is Sol Ring good?"}))),
+            (Method::POST, "/api/auth/google", Some(json!({"credential": "a.b.c"}))),
         ] {
             let (status, answer) = send(&app, method.clone(), path, Some(&token), body).await;
             assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{method} {path}: {answer}");
@@ -338,9 +353,24 @@ mod tests {
         let res = get("/decks/123").await.unwrap();
         assert_eq!((res.status(), res.headers()[header::CACHE_CONTROL].to_str().unwrap()), (StatusCode::OK, crate::web_files::REVALIDATE));
         assert!(!vary(&res).contains("origin"));
-        // The API still answers the phone apps' origin.
+        // The API still answers the phone apps' origin, and lets them read and send validators.
         let res = get("/api/health").await.unwrap();
         assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "https://localhost");
         assert!(vary(&res).contains("origin"));
+        assert!(res.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS].to_str().unwrap().to_lowercase().contains("etag"));
+        let preflight = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/api/cards/offline")
+            .header(header::ORIGIN, "https://localhost")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization,if-none-match")
+            .body(Body::empty())
+            .unwrap();
+        let res = app.clone().oneshot(preflight).await.unwrap();
+        assert!(res.status().is_success(), "{}", res.status());
+        assert!(res.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS].to_str().unwrap().to_lowercase().contains("if-none-match"));
+        // So does the scanner's files' folder, which the phone app's worker downloads from.
+        let res = get(&format!("/scan-bundle/{}/detector.onnx", crate::scan::BUNDLE_VERSION)).await.unwrap();
+        assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "https://localhost");
     }
 }

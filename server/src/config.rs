@@ -76,8 +76,9 @@ pub struct Config {
     /// too (YAMA_SLOW_QUERY_MS, default 200).
     pub slow_query_ms: u64,
     /// Nothing reaches an outside service (YAMA_OFFLINE=1; for a local copy of production's data,
-    /// scripts/dev-local.sh). The background imports and deck checks are off whatever their own
-    /// settings say, and what a request would fetch (a card preview, the scanner's files, an
+    /// scripts/dev-local.sh). The background imports, deck checks, the Forge worker, Google and
+    /// Cloudflare Access sign-in and the advisor's health check are off whatever their own settings
+    /// say, and what a request would fetch (a card preview, the scanner's files, an
     /// MTGJSON precon list, a store check, Ask Claude, the research tools, a deck link) answers
     /// "unavailable offline" instead (`error::offline`).
     pub offline: bool,

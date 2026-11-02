@@ -59,6 +59,15 @@ fn with_cache(mut res: Response, value: &'static str) -> Response {
     res
 }
 
+/// Every file may have a precompressed copy, so every answer varies by `Accept-Encoding`; tower-http
+/// leaves that off a 304.
+fn vary(mut res: Response) -> Response {
+    if !res.headers().contains_key(header::VARY) {
+        res.headers_mut().insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    }
+    res
+}
+
 fn missing() -> Response {
     with_cache((StatusCode::NOT_FOUND, "Not found").into_response(), NO_STORE)
 }
@@ -76,9 +85,11 @@ impl WebFiles {
         // For the shell, if this turns out to be an app route: the same conditional and
         // encoding headers.
         let (method, headers) = (req.method().clone(), req.headers().clone());
-        let res = self.files.oneshot(req).await?.map(Body::new);
+        let res = vary(self.files.oneshot(req).await?.map(Body::new));
         if res.status() != StatusCode::NOT_FOUND {
-            let cache = if kind == Kind::Hashed && res.status().is_success() { IMMUTABLE } else { REVALIDATE };
+            // A 304 keeps the policy of the answer it stands for.
+            let kept = res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED;
+            let cache = if kind == Kind::Hashed && kept { IMMUTABLE } else { REVALIDATE };
             return Ok(with_cache(res, cache));
         }
         if kind != Kind::Route || !(method == Method::GET || method == Method::HEAD) {
@@ -86,7 +97,7 @@ impl WebFiles {
         }
         let mut shell = Request::builder().method(method).uri("/index.html").body(Body::empty()).expect("shell request");
         *shell.headers_mut() = headers;
-        let res = self.index.oneshot(shell).await?.map(Body::new);
+        let res = vary(self.index.oneshot(shell).await?.map(Body::new));
         Ok(if res.status() == StatusCode::NOT_FOUND { missing() } else { with_cache(res, REVALIDATE) })
     }
 }
@@ -147,6 +158,12 @@ mod tests {
         assert_eq!(cache(&res), IMMUTABLE);
         assert!(res.headers().get(header::ETAG).is_some() || res.headers().get(header::LAST_MODIFIED).is_some());
         assert_eq!(cache(&get(&files, "/ocr/abc123/worker.js", &[]).await), IMMUTABLE);
+        // Revalidating one keeps it immutable, and says it varies by encoding.
+        let etag = res.headers()[header::ETAG].to_str().unwrap().to_string();
+        let again = get(&files, "/assets/app-1a2b.js", &[(header::IF_NONE_MATCH, &etag)]).await;
+        assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(cache(&again), IMMUTABLE);
+        assert_eq!(again.headers()[header::VARY], "accept-encoding");
         for path in ["/assets/gone-9z9z.js", "/ocr/old/worker.js", "/assets/gone"] {
             let res = get(&files, path, &[]).await;
             assert_eq!(res.status(), StatusCode::NOT_FOUND, "{path}");
