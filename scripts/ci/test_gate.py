@@ -144,7 +144,7 @@ class PushReuse(unittest.TestCase):
 class CacheKeys(unittest.TestCase):
     def test_cache_key_changes_force_a_full_main_run(self):
         for path in ('Cargo.lock', 'play/Cargo.toml', 'deploy/phase-rev', 'package-lock.json',
-                     'rust-toolchain.toml'):
+                     'rust-toolchain.toml', '.github/workflows/ci.yml'):
             with self.subTest(path=path):
                 self.assertTrue(gate.changes_cache_key(['web/src/a.ts', path]))
         self.assertFalse(gate.changes_cache_key(['server/src/main.rs', 'web/package.json']))
@@ -210,6 +210,18 @@ class Workflow(unittest.TestCase):
         self.assertIn('name: ci-passed-tree-${{ steps.tested.outputs.tree }}', rust)
         self.assertIn('overwrite: true', rust)  # a re-run uploads the same name again
         self.assertEqual(rust.count("if: github.event_name == 'pull_request'"), 2)
+
+    def test_the_rust_cache_can_keep_the_engine_build(self):
+        rust = job(self.workflow, 'rust')
+        # rust-cache keeps dependency builds only from paths outside the workspace root;
+        # the engine is checked out at ../yama-phase, so the root must not prefix it.
+        checkout = re.search(r'with:\n\s+path: (\S+)\n', rust).group(1)
+        self.assertFalse('yama-phase'.startswith(checkout))
+        self.assertIn(f'working-directory: {checkout}\n', rust)
+        self.assertIn(f'workspaces: {checkout} -> target', rust)
+        # A toolchain added to the image or a job count change must not miss the cache.
+        self.assertIn("add-rust-environment-hash-key: 'false'", rust)
+        self.assertIn('key: phase-${{ steps.phase.outputs.sha }}-rust-1.98.1', rust)
 
 
 class LocalScript(unittest.TestCase):

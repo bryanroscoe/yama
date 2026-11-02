@@ -124,7 +124,7 @@ jobs:
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
       run:
-        working-directory: yama
+        working-directory: app
     env:
       CARGO_BUILD_JOBS: '4'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -138,9 +138,12 @@ jobs:
         run: |
           test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
           python3 /run/saget-ci/slot.py --step
+      # Not "yama": rust-cache saves the workspace's dependencies only from packages whose
+      # path lies outside the workspace root, and ".../yama-phase" starts with ".../yama",
+      # so the engine build was dropped from every saved cache and rebuilt (12 minutes).
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          path: yama
+          path: app
           persist-credentials: false
       - name: Read the published Phase pin
         id: phase
@@ -194,11 +197,12 @@ jobs:
         if: runner.environment == 'github-hosted'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: yama -> target
-          key: phase-${{ steps.phase.outputs.sha }}
-          # rust-cache counts ../yama-phase as a workspace crate (its path starts with
-          # this workspace's path), so keep workspace crates or the engine is dropped.
-          cache-workspace-crates: 'true'
+          workspaces: app -> target
+          # The key names exactly what the cached build depends on. rust-cache's own
+          # environment hash also covers every toolchain on the image and job counts,
+          # so an image update or a CARGO_BUILD_JOBS change missed every cache.
+          key: phase-${{ steps.phase.outputs.sha }}-rust-1.98.1
+          add-rust-environment-hash-key: 'false'
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Check Rust and dedicated cache
         run: |
