@@ -803,7 +803,8 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
             continue;
         }
         if !w.needed {
-            if let Some(there) = offers.iter().find(|o| o.verdict == Verdict::Ok && eligible(o.store)) {
+            // Elsewhere means a store off this trip: copies used up at a store on it don't count.
+            if let Some(there) = offers.iter().find(|o| o.verdict == Verdict::Ok && eligible(o.store) && !chosen.contains(o.key())) {
                 let k = there.key().to_string();
                 let row = Row { want: w.clone(), offer: there.clone() };
                 match elsewhere.iter_mut().find(|(g, _)| *g == k) {

@@ -292,9 +292,9 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     if r["ok"] != true {
         return Some(None);
     }
-    let listings = r["hits"]
-        .as_array()
-        .unwrap_or(&empty)
+    // A hit list that's missing or not a list is an answer we can't read: unknown, not none.
+    let Some(hits) = r["hits"].as_array() else { return Some(None) };
+    let listings = hits
         .iter()
         .filter_map(|h| {
             let name = h["name"].as_str()?;
@@ -1117,7 +1117,8 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     }
     let snaps: Vec<SnapRow> = sqlx::query_as(
         "SELECT id, store_key, source, cards, failed, fetched_at, status FROM store_snapshots
-         WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL ORDER BY fetched_at DESC, id DESC",
+         WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL
+         ORDER BY requested_at DESC, source = 'yestcg' DESC, fetched_at DESC, id DESC",
     )
     .bind(owner)
     .fetch_all(pool)
@@ -1135,7 +1136,9 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             .await?;
         rows.into_iter().collect()
     };
-    // For each (store, card): the newest snapshot that answered for it.
+    // For each (store, card): the newest snapshot that answered for it, by the check it came from;
+    // when one check read a store both directly and through YesTCG (which they asked for, and which
+    // gives condition and quantity), YesTCG's answer comes first, the store's own for the rest.
     let mut pick: HashMap<(String, String), usize> = HashMap::new();
     for (i, s) in snaps.iter().enumerate() {
         let failed: HashSet<String> = s.failed.as_deref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).unwrap_or_default().iter().map(|c| card_key(c)).collect();
@@ -1186,7 +1189,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             "price_from_text": false, "currency": "USD", "printing_from_text": false, "scryfall_id": null,
             "source": source, "origin": format!("snapshot:{}", s.id),
         });
-        let listed: Vec<&&ListRow> = by.get(&(s.id.as_str(), key.as_str())).map(|v| v.iter().filter(|r| r.available != Some(false) && english(r.language.as_deref())).collect()).unwrap_or_default();
+        let listed: Vec<&&ListRow> = by.get(&(s.id.as_str(), key.as_str())).map(|v| v.iter().filter(|r| r.available != Some(false) && r.qty != Some(0) && english(r.language.as_deref())).collect()).unwrap_or_default();
         if listed.is_empty() {
             let mut q = base.clone();
             q["result"] = json!(if s.cards.is_none() { "Not in the store's catalog" } else { "Not found in stock" });

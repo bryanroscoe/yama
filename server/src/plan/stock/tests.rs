@@ -143,6 +143,8 @@ fn titles_and_variants_parse() {
     assert_eq!((mv[0].qty, mv[0].finish, mv[1].finish), (Some(3), Some("nonfoil"), Some("foil")));
     assert_eq!(yestcg_store(&y, "spacegoblinmtg.tcgplayerpro.com", "Sol Ring"), Some(None), "a store YesTCG says failed is unknown");
     assert_eq!(yestcg_store(&y, "patsgames.com", "Sol Ring"), None, "not in YesTCG's answer");
+    let broken = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true}]});
+    assert_eq!(yestcg_store(&broken, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "no hit list is unknown, not none");
 }
 
 async fn store_row(pool: &SqlitePool, owner: &str, key: &str, name: &str, homepage: &str, sort: i64) {
@@ -246,6 +248,24 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let bc = |card: &str| q.iter().filter(|x| x["store"] == "black-castle" && x["card"] == card).cloned().collect::<Vec<_>>();
     assert_eq!(bc("Sol Ring")[0]["price"], 0.9, "the newer partial catalog answers for what it listed");
     assert_eq!(bc("Fellwar Stone")[0]["origin"], "snapshot:s-bc", "and the older full catalog still answers for the rest");
+
+    // One check that read a store directly and through YesTCG: YesTCG's answer counts, whichever
+    // finished last; a listing with no copies left is out of stock.
+    for (id, source, fetched) in [("s-mv-direct", "tcgplayer_pro", "2099-02-01T00:00:09Z"), ("s-mv-yes", "yestcg", "2099-02-01T00:00:05Z")] {
+        snapshot(&pool, &owner, id, "multiverse-hobbies", source, if source == "yestcg" { Some(&["Sol Ring"]) } else { None }).await;
+        sqlx::query("UPDATE store_snapshots SET status = 'ok', fetched_at = ?, requested_at = '2099-02-01T00:00:00Z' WHERE id = ?").bind(fetched).bind(id).execute(&pool).await.unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO store_listings (snapshot_id, owner_id, card_name, card_key, price, available, qty, price_kind) VALUES
+         ('s-mv-direct', ?1, 'Sol Ring', 'sol ring', 0.5, 1, NULL, 'from'), ('s-mv-yes', ?1, 'Sol Ring', 'sol ring', 0.75, 1, 0, 'each')",
+    )
+    .bind(&owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let q = store_quotes(&pool, &owner, &cards).await.unwrap();
+    let mv: Vec<&Value> = q.iter().filter(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").collect();
+    assert_eq!((mv.len(), &mv[0]["origin"], &mv[0]["in_stock"]), (1, &json!("snapshot:s-mv-yes"), &json!(false)), "{mv:?}");
 
     // A check left running by a restart shows as failed when read.
     snapshot(&pool, &owner, "s-old", "pats", "shopify", Some(&["Sol Ring"])).await;

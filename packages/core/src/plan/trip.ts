@@ -522,7 +522,8 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       continue;
     }
     if (!w.needed) {
-      const there = offers.find((o) => o.verdict === "ok" && eligible(o.store));
+      // Elsewhere means a store off this trip: copies used up at a store on it don't count.
+      const there = offers.find((o) => o.verdict === "ok" && eligible(o.store) && !chosen.has(o.store.key));
       if (there) elsewhere.set(there.store.key, [...(elsewhere.get(there.store.key) ?? []), { want: w, offer: there }]);
       continue;
     }
