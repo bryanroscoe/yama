@@ -942,6 +942,30 @@ class BackupRetention(unittest.TestCase):
             host.prune_backups(None, now=self.NOW)
         self.assertTrue((elsewhere / 'old.db').is_file())
 
+    def test_directory_swapped_after_scanning_cannot_redirect_deletion(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (outside / 'old.db').write_bytes(b'not a backup')
+        os.utime(outside / 'old.db', (self.NOW - 900 * self.HOUR,) * 2)
+        self.copy('old-1.db', 500)
+        self.copy('old.db', 501)  # same name as the file outside the folder
+        for name, hours in (('a.db', 1), ('b.db', 2), ('c.db', 3)):
+            self.copy(name, hours)
+        moved = self.root / 'moved'
+        swapped = []
+
+        def swap_after_first_deletion(message):
+            # The folder is renamed and replaced by a symlink while pruning is under way.
+            if message.startswith('Removed old backup') and not swapped:
+                swapped.append(message)
+                os.rename(self.backups, moved)
+                os.symlink(outside, self.backups)
+        self.log.side_effect = swap_after_first_deletion
+        host.prune_backups(None, now=self.NOW)
+        self.assertEqual(len(swapped), 1)
+        self.assertEqual((outside / 'old.db').read_bytes(), b'not a backup')
+        self.assertEqual(sorted(p.name for p in moved.iterdir()), ['a.db', 'b.db', 'c.db'])
+
     def test_missing_backup_directory_is_a_quiet_no_op(self):
         self.backups.rmdir()
         host.prune_backups(None, now=self.NOW)

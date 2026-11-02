@@ -7,6 +7,7 @@ Only published main with successful push CI reaches Docker. Importing is inert.
 import base64
 from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
+import errno
 import fcntl
 import hashlib
 import json
@@ -659,6 +660,25 @@ def rollback_backup(name):
     return Path(value).name if value else None
 
 
+@contextmanager
+def real_directory(path, dir_fd=None):
+    """Open a directory by descriptor without following a symlink at its last component.
+
+    Holding the descriptor pins the directory itself: a rename or symlink swap of the path
+    afterwards cannot redirect what is later listed or deleted through it.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused('Backup directory must be a real directory') from None
+        raise
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
 def prune_backups(release_backup, now=None):
     """Delete old deploy copies from data/backups. Call only after a healthy activation.
 
@@ -666,34 +686,36 @@ def prune_backups(release_backup, now=None):
     and other files are never touched. Kept: the newest few by mtime, anything younger than
     the window, this release's copy, and the copies named by the rollback inputs.
     """
-    backups = APP / 'data/backups'
-    if not os.path.lexists(backups):
-        return
-    if backups.is_symlink() or (APP / 'data').is_symlink() or not backups.is_dir():
-        raise Refused('Backup directory must be a real directory')
-    # Read the rollback inputs before deleting anything: if one is unreadable, keep every copy.
-    kept = {rollback_backup('previous.json'), rollback_backup('current.json')}
-    if release_backup:
-        kept.add(Path(release_backup).name)
     now = time.time() if now is None else now
-    copies = []
-    with os.scandir(backups) as entries:
-        for entry in entries:
-            if entry.name.startswith('.') or not entry.name.endswith('.db') or not entry.is_file(follow_symlinks=False):
+    with ExitStack() as held:
+        try:
+            data = held.enter_context(real_directory(APP / 'data'))
+            backups = held.enter_context(real_directory('backups', dir_fd=data))
+        except FileNotFoundError:
+            return  # first installation: no data folder or no deploy copies yet
+        # Read the rollback inputs before deleting anything: if one is unreadable, keep every copy.
+        kept = {rollback_backup('previous.json'), rollback_backup('current.json')}
+        if release_backup:
+            kept.add(Path(release_backup).name)
+        copies = []
+        # Scan and delete through the held descriptor, never through the path again.
+        with os.scandir(backups) as entries:
+            for entry in entries:
+                if entry.name.startswith('.') or not entry.name.endswith('.db') or not entry.is_file(follow_symlinks=False):
+                    continue
+                status = entry.stat(follow_symlinks=False)
+                copies.append((status.st_mtime, entry.name, status.st_size))
+        copies.sort(reverse=True)
+        kept.update(name for _, name, _ in copies[:BACKUP_KEEP_NEWEST])
+        freed = removed = 0
+        for modified, name, size in copies:
+            if name in kept or now - modified < BACKUP_RETENTION_SECONDS:
                 continue
-            status = entry.stat(follow_symlinks=False)
-            copies.append((status.st_mtime, entry.name, status.st_size))
-    copies.sort(reverse=True)
-    kept.update(name for _, name, _ in copies[:BACKUP_KEEP_NEWEST])
-    freed = removed = 0
-    for modified, name, size in copies:
-        if name in kept or now - modified < BACKUP_RETENTION_SECONDS:
-            continue
-        (backups / name).unlink()
-        freed += size
-        removed += 1
-        log('Removed old backup ' + name + ' (' + str(size) + ' bytes)')
-    log('Backup retention freed ' + str(freed) + ' bytes; ' + str(len(copies) - removed) + ' copies kept')
+            os.unlink(name, dir_fd=backups)
+            freed += size
+            removed += 1
+            log('Removed old backup ' + name + ' (' + str(size) + ' bytes)')
+        log('Backup retention freed ' + str(freed) + ' bytes; ' + str(len(copies) - removed) + ' copies kept')
 
 
 def retain_backups(release_backup):
