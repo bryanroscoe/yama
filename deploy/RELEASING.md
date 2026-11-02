@@ -28,6 +28,8 @@ branch's deployment script. Stop the runner to pause releases without stopping C
    unavailable, disclose why and obtain an independent Codex agent review; record the reviewed SHA.
 4. Reconcile current main and verify the combined head. Merge through GitHub after checks and
    reviews are satisfied; both automatic [CI jobs](../docs/ci.md) must pass on the actual PR.
+   While CI tests are off (`CI_TESTS`, [Tests on or off](../docs/ci.md#tests-on-or-off)),
+   `scripts/local-ci.sh --no-amend` passing on the final head stands in for them; record it in the PR.
    Do not bypass branch protections or force-push main. A self-authored
    agent review comment is review evidence, not a second human's GitHub approval.
 5. Use event-driven PR watching while required checks or reviews are pending, with a continuation

@@ -197,11 +197,36 @@ class Workflow(unittest.TestCase):
                 text = job(self.workflow, name)
                 self.assertIn('needs: gate', text)
                 condition = re.search(r'if: >-\n(.*?)\n    runs-on', text, re.S).group(1)
-                self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n\s*needs\.gate\.outputs\.skip != 'true' &&\n"
+                self.assertRegex(condition, r"^\s*!cancelled\(\) &&\n"
+                                            r"\s*\(vars\.CI_TESTS == 'on' \|\| github\.event_name == 'workflow_dispatch'\) &&\n"
+                                            r"\s*needs\.gate\.outputs\.skip != 'true' &&\n"
                                             r"\s*\(github\.event_name != 'pull_request' \|\|")
                 self.assertNotIn("outputs.rust == 'true'", condition)
                 self.assertNotIn("outputs.skip == 'false'", condition)
                 self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', condition)
+
+    def test_tests_run_only_when_switched_on_or_started_by_hand(self):
+        gate_if = re.search(r'if: >-\n(.*?)\n    # ', job(self.workflow, 'gate'), re.S).group(1)
+        self.assertRegex(gate_if, r"^\s*vars\.CI_TESTS == 'on' &&\n")
+        for name in ('web', 'rust'):
+            with self.subTest(job=name):
+                self.assertIn("(vars.CI_TESTS == 'on' || github.event_name == 'workflow_dispatch') &&",
+                              job(self.workflow, name))
+        android = (ROOT / '.github/workflows/android.yml').read_text()
+        self.assertIn("if: vars.CI_TESTS == 'on' || github.event_name == 'workflow_dispatch'", android)
+
+    def test_main_push_succeeds_on_saget_with_tests_off(self):
+        # The deploy and host.py need a successful push run; an all-skipped run is "skipped".
+        marker = job(self.workflow, 'tests-off')
+        condition = re.search(r'if: >-\n(.*?)\n    runs-on', marker, re.S).group(1)
+        self.assertIn("vars.CI_TESTS != 'on' &&", condition)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", condition)
+        self.assertIn('runs-on: [self-hosted, Linux, X64, yama-ci]', marker)
+        self.assertIn('permissions: {}', marker)
+        self.assertIn('timeout-minutes: 360', marker)  # waits for saget capacity like the others
+        self.assertNotIn('needs:', marker)
+        self.assertNotIn('uses:', marker)
+        self.assertNotIn('secrets.', marker)
 
     def test_rust_job_publishes_its_tree_only_after_every_check(self):
         rust = job(self.workflow, 'rust')
