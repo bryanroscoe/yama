@@ -304,7 +304,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   )}
                 </div>
               ) : (
-                <p className="dim">{myKey ? "Too few games for rivalries yet." : "Join a game to see your rivalries."}</p>
+                <p className="dim">{myKey ? "No rivalry edge yet." : "Join a game to see your rivalries."}</p>
               )}
               {games.data && games.data.length >= 200 && <p className="small dim">From the group's last 200 games.</p>}
             </section>
