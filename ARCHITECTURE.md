@@ -299,6 +299,23 @@ contacting saget; manual deployment calls the same server gate. See `deploy/RUNN
 - **Auth:** Google OIDC with an invite allowlist, or (with `YAMA_OPEN_SIGNUP=1`, 2026-10-20) open to any Google account with a verified email; see "Open sign-up" under Milestones. Native Google sign-in on mobile; the server checks the ID token and issues our own session token. Password accounts (argon2id) are created only from the server's command line (`yama-server user add`), for debugging, test players, or when Google is unavailable; no route creates one, and `YAMA_PASSWORD_LOGIN=0` turns password sign-in off. The email-only dev login works only when the server listens on localhost. Admins can disable an account.
 - **Play is server-authoritative.** The server sends each seat only what that seat may see, which protects hidden information. Clients send `{expected_revision, action}`. The server checks the action against the engine's legal list, applies it, appends the event and broadcasts filtered views. Details are in the first draft and carry over unchanged.
 
+**Recorded-game corrections (2026-11-02):** privileged operators use
+`scripts/history/correct.py` ([workflow](docs/history-corrections.md)) for batched player
+attribution and win-condition fixes on the recorder's finished in-person games. Migration
+0059 adds a private `history_corrections` log: operation ID, recorder, operator attribution,
+reason, before/after field values and optional undo link. Validation, changes and log insertion
+share one immediate SQLite transaction; stable IDs make retries safe. Undo appends a reversing
+entry only while the targeted values still match. Deck labels/results stay intact and foreign
+private deck-version links are detached on account reassignment. Account/game deletion purges
+affected audit batches. This replaces ad hoc rollback files for these corrections; ordinary
+backups and gameplay events remain separate. The detail page projects corrected terminal
+result facts into its displayed history without rewriting the stored events. Recorder account
+seats without a group membership remain valid through correction and undo. It is not a public
+editing API or a log of all SQL. Durable correction counters also fence legacy game resaves,
+finish retries and event uploads inside their writing transactions (409). Corrected games
+remain viewable/deletable; further editing uses the audited command rather than the old log
+form, even after undo or a privacy purge.
+
 ## 5. Offline-first data (Table, Collection, Cards)
 
 Game night has bad wifi, so the companion features must work without a connection.

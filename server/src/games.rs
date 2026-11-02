@@ -263,10 +263,12 @@ async fn insert_seats(conn: &mut sqlx::SqliteConnection, game: &str, seats: &[St
 /// - A logged game (a finish and no table events, from Log a game) is only what the form said, so
 ///   saving it again stores what the form says now. That covers a Save whose answer was lost
 ///   and an edit made before saving again.
+/// - A game with an audited history correction refuses legacy sync writes, including retries;
+///   later changes use the audited command.
 /// - Online games are written by the rules engine alone; their ids are refused here.
 pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> AppResult<serde_json::Value> {
     check_game(pool, user, &g).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let saved = create_game_in(&mut tx, user, g).await?;
     tx.commit().await?;
     Ok(saved)
@@ -334,6 +336,7 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
             false
         }
         Some((by, mode, stored_group, status)) if by == user && mode == "in_person" => {
+            check_history_write(&mut *tx, &g.id).await?;
             let has_events: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM game_events WHERE game_id = ?)").bind(&g.id).fetch_one(&mut *tx).await?;
             // Only a game already stored as logged (finished, no table events) takes the form's
             // players as they are now; a table game still going keeps its seats, even before its
@@ -449,6 +452,7 @@ async fn departed_accounts(tx: &mut sqlx::SqliteConnection, payload: &serde_json
 }
 
 async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Event]) -> AppResult<u64> {
+    check_history_write(&mut *tx, game).await?;
     let mut n = 0;
     for e in events {
         // A "player" event recorded before the account it names was deleted, arriving after:
@@ -530,7 +534,7 @@ async fn append_events(
     if !can_write(&st.pool, &id, &user.id).await? {
         return Err(AppError::NotFound("game"));
     }
-    let mut tx = st.pool.begin().await?;
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     let added = insert_events(&mut tx, &id, &events).await?;
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "added": added })))
@@ -551,15 +555,30 @@ async fn finish_as(pool: &SqlitePool, id: &str, user: &str, f: Finish) -> AppRes
     }
     let seats: Vec<i64> = sqlx::query_scalar("SELECT seat FROM game_seats WHERE game_id = ?").bind(id).fetch_all(pool).await?;
     check_finish(&f, &seats)?;
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     finish_in(&mut tx, id, f).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+/// Operator corrections supersede the phone's original snapshot. Check while holding
+/// the writing transaction, including bridge imports, so a delayed retry cannot undo one.
+/// Counters survive privacy purges and undo; further edits use the audited command.
+async fn check_history_write(conn: &mut sqlx::SqliteConnection, id: &str) -> AppResult<()> {
+    let corrected: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM history_correction_targets WHERE game_id = ?)")
+        .bind(id)
+        .fetch_one(&mut *conn)
+        .await?;
+    if corrected {
+        return Err(AppError::Conflict("This game's history has been corrected. Refresh to see the saved result.".into()));
+    }
     Ok(())
 }
 
 /// Store a checked finish. Setting the same values again is harmless, so a retried finish
 /// changes nothing.
 async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish) -> AppResult<()> {
+    check_history_write(&mut *conn, id).await?;
     sqlx::query(
         "UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ? WHERE id = ?",
     )
@@ -700,8 +719,12 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
         })
         .collect();
     let mine = can_write(&st.pool, &id, &user.id).await?;
-    let can_continue = game.status == "in_progress" && mine;
-    let can_edit = mine && is_logged(&game, &events);
+    let corrected: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM history_correction_targets WHERE game_id = ?)")
+        .bind(&id)
+        .fetch_one(&st.pool)
+        .await?;
+    let can_continue = game.status == "in_progress" && mine && !corrected;
+    let can_edit = mine && !corrected && is_logged(&game, &events);
     let mut your_decks = std::collections::BTreeMap::new();
     for s in &game.seats {
         if let Some(v) = &s.deck_version_id {
@@ -957,6 +980,71 @@ mod tests {
         assert_eq!(g["your_decks"], json!({ "0": my_deck }));
         // Sam has no seat on it, so can't even see it (and Sam's list on a guest seat was dropped).
         assert_eq!(send(&app, Method::GET, &format!("/api/games/{id}"), Some(&st), None).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn audited_history_survives_stale_finish_resave_and_event_sync() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        for table_game in [false, true] {
+            let (app, pool) = app().await;
+            let (me, token) = user(&pool, "me@example.com").await;
+            let (_, other_token) = user(&pool, "other@example.com").await;
+            let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0099";
+            let old_finish = json!({"winner_seat":0,"win_condition":"combo","seats":[]});
+            let event = json!({"seq":1,"kind":"finish","payload":{"type":"finish","winnerSeat":0,"winCondition":"combo","endedAt":"2026-10-18T03:00:00Z"}});
+            let old = json!({
+                "id":id,"seats":[{"seat":0,"user_id":me},{"seat":1,"guest_name":"Guest"}],
+                "finish":old_finish,
+                "events":if table_game { vec![event] } else { vec![] },
+            });
+            assert_eq!(send(&app, Method::POST, "/api/games", Some(&token), Some(old.clone())).await.0, StatusCode::OK);
+            let route = format!("/api/games/{id}");
+            assert_eq!(send(&app, Method::GET, &route, Some(&token), None).await.1["can_edit"], !table_game);
+
+            // The operator commits its changes, audit and revision counters together.
+            let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+            sqlx::query("UPDATE games SET win_condition='combat' WHERE id=?").bind(id).execute(&mut *tx).await.unwrap();
+            sqlx::query("UPDATE game_seats SET guest_name='Corrected guest' WHERE game_id=? AND seat=1").bind(id).execute(&mut *tx).await.unwrap();
+            for (kind, seat) in [("win_condition", -1_i64), ("player", 1)] {
+                sqlx::query("INSERT INTO history_correction_targets(game_id,kind,seat,revision) VALUES (?,?,?,1)")
+                    .bind(id).bind(kind).bind(seat).execute(&mut *tx).await.unwrap();
+            }
+            let changes = json!([{"game_id":id,"kind":"win_condition","before":{"win_condition":"combo"},"after":{"win_condition":"combat"},"revision":1}]);
+            sqlx::query("INSERT INTO history_corrections(id,owner_id,actor,reason,request,changes,subjects,created_at) VALUES ('audit',?,'test','confirmed','{}',?,'[]','now')")
+                .bind(&me).bind(changes.to_string()).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+
+            let detail = send(&app, Method::GET, &route, Some(&token), None).await.1;
+            assert_eq!(detail["can_edit"], false);
+            assert_eq!(detail["can_continue"], false);
+            assert_eq!(detail["can_delete"], true);
+            assert_eq!(detail["win_condition"], "combat");
+            for (path, payload) in [
+                ("/api/games".to_string(), old.clone()),
+                (format!("{route}/finish"), old_finish.clone()),
+                (format!("{route}/events"), json!([{"seq":99,"kind":"player","actor_seat":1,"payload":{"type":"player","seat":1,"name":"Stale guest"}}])),
+            ] {
+                let (status, answer) = send(&app, Method::POST, &path, Some(&token), Some(payload)).await;
+                assert_eq!(status, StatusCode::CONFLICT, "{path}: {answer}");
+            }
+            assert_eq!(send(&app, Method::POST, &format!("{route}/finish"), Some(&other_token), Some(old_finish.clone())).await.0, StatusCode::NOT_FOUND);
+            let (condition, guest): (String, String) = sqlx::query_as("SELECT g.win_condition,s.guest_name FROM games g JOIN game_seats s ON s.game_id=g.id WHERE g.id=? AND s.seat=1")
+                .bind(id).fetch_one(&pool).await.unwrap();
+            assert_eq!((condition.as_str(), guest.as_str()), ("combat", "Corrected guest"));
+            let revisions: i64 = sqlx::query_scalar("SELECT SUM(revision) FROM history_correction_targets WHERE game_id=?").bind(id).fetch_one(&pool).await.unwrap();
+            assert_eq!(revisions, 2);
+            let added: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE game_id=? AND seq=99").bind(id).fetch_one(&pool).await.unwrap();
+            assert_eq!(added, 0);
+            let audit: String = sqlx::query_scalar("SELECT changes FROM history_corrections WHERE id='audit'").fetch_one(&pool).await.unwrap();
+            assert_eq!(audit, changes.to_string());
+
+            // Privacy purges remove audit details, but cannot reopen stale sync writes.
+            sqlx::query("DELETE FROM history_corrections WHERE id='audit'").execute(&pool).await.unwrap();
+            assert_eq!(send(&app, Method::POST, &format!("{route}/finish"), Some(&token), Some(old_finish)).await.0, StatusCode::CONFLICT);
+            assert_eq!(send(&app, Method::DELETE, &route, Some(&token), None).await.0, StatusCode::OK);
+            assert_eq!(send(&app, Method::POST, "/api/games", Some(&token), Some(old)).await.0, StatusCode::GONE);
+        }
     }
 
     #[tokio::test]
