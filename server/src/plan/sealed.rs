@@ -218,8 +218,8 @@ pub struct QuoteBody {
     price: Option<f64>,
     #[serde(default = "yes")]
     in_stock: bool,
-    /// YYYY-MM-DD; default today.
-    checked_on: Option<String>,
+    /// YYYY-MM-DD, the day of the price (required, so a retry is the same request whatever the day).
+    checked_on: String,
     note: Option<String>,
     /// The page's id for this price (required), so a retried request records it once.
     id: String,
@@ -243,7 +243,7 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     if b.price.is_some_and(|p| !(p.is_finite() && (0.0..=100000.0).contains(&p))) {
         return Err(AppError::bad("price: $0 to $100,000, or null when the store didn't say"));
     }
-    let checked = b.checked_on.clone().unwrap_or_else(today);
+    let checked = b.checked_on.clone();
     // Not after the device's today, which may be a day ahead of the server's.
     let latest = (Utc::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
     if !super::model::is_date(&checked) || checked > latest {
@@ -463,7 +463,7 @@ mod tests {
             let (s, v) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": store, "price": price, "checked_on": date}))).await;
             assert!(s.is_success(), "{v}");
         }
-        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "nowhere", "price": 1}))).await.0.as_u16(), 400);
+        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "id": crate::util::new_id(), "store": "nowhere", "price": 1}))).await.0.as_u16(), 400);
         // Every price carries the page's id.
         assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 1}))).await.0.as_u16(), 422);
         let v = view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap();
@@ -516,11 +516,11 @@ mod tests {
         assert_eq!(view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap()["items"][0]["precon"]["id"], "federation-fleet-2");
         sqlx::query("DELETE FROM precons WHERE id = 'federation-fleet-2'").execute(&pool).await.unwrap();
         // A price over the cap is flagged; another account sees nothing and can't add a price.
-        let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "mothership", "price": 59.99}))).await;
+        let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "id": crate::util::new_id(), "store": "mothership", "price": 59.99}))).await;
         let v = view(&pool, &owner, &today(), &Scope::default()).await.unwrap();
         assert!(v["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["store"] == "mothership" && q["over_cap"] == true));
         // A note is kept and said; the bundle carries the sealed view for the page offline.
-        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 50.0, "note": "Behind the counter"}))).await;
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "id": crate::util::new_id(), "store": "pats", "price": 50.0, "note": "Behind the counter"}))).await;
         assert!(s.is_success());
         assert!(text(&view(&pool, &owner, &today(), &Scope::default()).await.unwrap()).contains("Note: Behind the counter"));
         let b = crate::plan::bundle::load_bundle(&pool, &owner).await.unwrap();
@@ -532,22 +532,22 @@ mod tests {
         assert!(s.is_success() && v["cap_usd"] == 51.0, "{v}");
         // A retried request with the page's id records the price once.
         for _ in 0..2 {
-            let (s, v) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
+            let (s, v) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
             assert!(s.is_success() && v["id"] == "retry-0001", "{v}");
         }
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE id = 'retry-0001'").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 1);
         // The same id with another price is refused, not silently dropped.
-        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 43.0, "id": "retry-0001"}))).await;
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 43.0, "id": "retry-0001"}))).await;
         assert_eq!(s.as_u16(), 409);
         // A late retry of a price the history has since pruned still saves nothing.
         sqlx::query("DELETE FROM sealed_quotes WHERE id = 'retry-0001'").execute(&pool).await.unwrap();
-        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
         assert!(s.is_success());
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE id = 'retry-0001'").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 0);
         // ...and one with other values is refused, pruned or not.
-        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 42.0, "id": "retry-0001"}))).await;
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"checked_on": today(), "store": "pats", "price": 42.0, "id": "retry-0001"}))).await;
         assert_eq!(s.as_u16(), 409);
         // A short history per product and store.
         for i in 0..(HISTORY + 3) {
@@ -557,7 +557,7 @@ mod tests {
         assert_eq!(kept, HISTORY);
         let (other, other_token) = user(&pool, "other@example.com").await;
         assert_eq!(view(&pool, &other, "2026-11-01", &Scope::default()).await.unwrap()["items"], json!([]));
-        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 1}))).await.0.as_u16(), 404);
+        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"checked_on": today(), "id": crate::util::new_id(), "store": "pats", "price": 1}))).await.0.as_u16(), 404);
         let qid = quotes[0]["id"].as_str().unwrap();
         assert_eq!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&other_token), None).await.0.as_u16(), 404);
         assert!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&token), None).await.0.is_success());
