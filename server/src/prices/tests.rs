@@ -248,8 +248,9 @@ async fn the_old_table_replays_once_and_matches_it_exactly() {
     assert_eq!((v.rows, v.mismatches, v.stale), (6, 0, 0));
     // gone on the 19th and the 20th, back on the 19th: no old row, and no price in the history.
     assert_eq!(v.pairs, 3);
-    // The stale price the old table showed as current is gone.
-    assert_eq!(latest(&pool, "gone").await, Some(("2026-10-19".into(), None, None)));
+    // The stale price the old table showed as current is gone, dated with the newest file that
+    // found it missing.
+    assert_eq!(latest(&pool, "gone").await, Some(("2026-10-20".into(), None, None)));
     assert_eq!(as_of(&pool, "back", 2, "2026-10-19").await, None);
     assert_eq!(as_of(&pool, "back", 2, "2026-10-20").await, Some(30));
     let stored: String = sqlx::query_scalar("SELECT value FROM price_meta WHERE key = 'backfill'").fetch_one(&pool).await.unwrap();

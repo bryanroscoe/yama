@@ -94,14 +94,16 @@ async fn replay(pool: &SqlitePool, dates: &[String]) -> AppResult<()> {
     Ok(())
 }
 
-/// Run the replay in the background once the server starts (it waits for an import in progress).
-pub fn spawn(pool: SqlitePool) {
-    tokio::spawn(async move {
-        let _writer = PRICE_WRITER.lock().await;
-        if let Err(e) = backfill_if_needed(&pool).await {
-            tracing::error!(error = %e, "replaying price_snapshots into the price history failed; the next start or import tries again");
-        }
-    });
+/// Replay the old table before the server listens, so no request reads the latest prices while
+/// they're part replayed. A failure is logged and the server starts anyway: the next start or
+/// import tries again.
+pub async fn run_before_serving(pool: &SqlitePool) {
+    let _writer = PRICE_WRITER.lock().await;
+    match backfill_if_needed(pool).await {
+        Ok(0) => {}
+        Ok(days) => tracing::info!(days, "price history replayed before serving"),
+        Err(e) => tracing::error!(error = %e, "replaying price_snapshots into the price history failed; the next start or import tries again"),
+    }
 }
 
 /// How the history compares with `price_snapshots`, on every observed day or one.

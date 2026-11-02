@@ -55,7 +55,7 @@ CREATE TABLE price_point (
 ) WITHOUT ROWID;
 
 -- Scryfall's prices as of its newest file, one row per printing that has ever had one. `date` is
--- the file it was last read from, or found missing in; `file` which file that was (an import run),
+-- the newest file it was read from or found missing in; `file` which file that was (an import run),
 -- so a second file for the same day can tell the printings it left out. REAL = cents / 100.0, the
 -- same double the old table held for the same decimal.
 CREATE TABLE price_latest (

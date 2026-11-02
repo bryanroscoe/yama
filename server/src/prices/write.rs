@@ -89,7 +89,8 @@ const BEFORE: &str = "(SELECT pp.cents FROM price_point pp WHERE pp.printing = k
 
 /// After a file's last batch, in one transaction: every printing it left out has no price from
 /// this day (a NULL row where the day before had a price, and no row for the day where it had
-/// none; a NULL latest price dated with this file), then the day is recorded as observed, last,
+/// none; a NULL latest price dated with this file, the newest to find it missing), then the day
+/// is recorded as observed, last,
 /// so a crash part way leaves the day unobserved and the rerun completes it.
 pub async fn finish_day(conn: &mut SqliteConnection, day: i64, date: &str, observation: &Observation) -> sqlx::Result<()> {
     let left_out = |sql: &str| sql.replace("{LEFT_OUT}", LEFT_OUT).replace("{BEFORE}", BEFORE);
@@ -119,10 +120,10 @@ pub async fn finish_day(conn: &mut SqliteConnection, day: i64, date: &str, obser
     .bind(SCRYFALL)
     .execute(&mut *conn)
     .await?;
+    // Every left-out printing, priced or already without: its row says this file found it missing.
     sqlx::query(sqlx::AssertSqlSafe(left_out(
         "UPDATE price_latest AS l SET date = ?2, file = ?3, usd = NULL, usd_foil = NULL, usd_etched = NULL, eur = NULL, eur_foil = NULL, eur_etched = NULL, tix = NULL
-          WHERE {LEFT_OUT} AND (usd IS NOT NULL OR usd_foil IS NOT NULL OR usd_etched IS NOT NULL OR eur IS NOT NULL
-                               OR eur_foil IS NOT NULL OR eur_etched IS NOT NULL OR tix IS NOT NULL)",
+          WHERE {LEFT_OUT}",
     )))
     .bind(day)
     .bind(date)
