@@ -21,7 +21,7 @@ fn suggest(card: &str) -> Value {
         // Ten products, none the card itself: the in-stock search that follows fails in the mock.
         // Full both times: the in-stock search is saturated too, and none of these is the card.
         "\"Lots\"" | "title:\"Lots\" available:true" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Lots More {i}"), "handle": format!("lots-{i}")})).collect::<Vec<_>>()}}}),
-        "\"Popular\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Popular Things {i}"), "handle": format!("popthing-{i}")})).collect::<Vec<_>>()}}}),
+        "\"Popular\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Popular Things {i}"), "handle": format!("popular-things-{i}")})).collect::<Vec<_>>()}}}),
         "\"Neg\"" => json!({"resources": {"results": {"products": [{"title": "Neg [NEG - 1]", "handle": "neg-1"}]}}}),
         "\"Odd\"" => json!({"resources": {"results": {"products": [{"title": "Odd [ODD - 1]", "handle": "odd-1"}]}}}),
         "\"Untitled\"" => json!({"resources": {"results": {"products": [{"title": "Untitled [U - 1]", "handle": "untitled-1"}]}}}),
@@ -42,6 +42,7 @@ fn product(handle: &str) -> Option<Value> {
             {"id": 121, "title": "Near Mint / English", "price": 250, "available": true},
         ]}),
         // Variants without availability: unreadable, so the card is unknown.
+        "popular-things-0.js" => json!({"title": "Popular Things 0", "variants": []}),
         "popular-a.js" => json!({"title": "Popular [PP - 1]", "variants": [{"id": 7, "title": "Near Mint / English / Normal", "price": 50, "available": true}]}),
         "popular-b.js" => json!({"title": "Popular [PP - 2]", "variants": [{"id": 8, "title": "Near Mint / English / Normal", "price": 30, "available": false}]}),
         // A negative price is no price: unreadable.
@@ -99,10 +100,12 @@ async fn mock() -> String {
                     "\"Many\"" => Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
                     // Every page adds more: past the page cap, the card is unknown.
                     "\"Lots\"" => Ok(axum::response::Html(format!("<a href=\"/products/lots-p{page}-a\">x</a>"))),
-                    // Two printings on page 1 (one in stock), nothing new on page 2: complete.
-                    "\"Popular\"" => Ok(axum::response::Html(
-                        "<a href=\"/products/popular-a\">a</a> <a href=\"/products/popular-b?variant=8\">b</a> <a href=\"/products/other-thing\">c</a>".to_string(),
-                    )),
+                    // Page 1 repeats a suggestion (popthing), page 2 adds two printings (one in
+                    // stock), page 3 repeats page 2: complete.
+                    "\"Popular\"" => Ok(axum::response::Html(match page {
+                        1 => "<a href=\"/products/popular-things-0\">x</a> <a href=\"/products/other-thing\">c</a>".to_string(),
+                        _ => "<a href=\"/products/popular-a\">a</a> <a href=\"/products/popular-b?variant=8\">b</a>".to_string(),
+                    })),
                     _ => Ok(axum::response::Html(String::new())),
                 }
             }),

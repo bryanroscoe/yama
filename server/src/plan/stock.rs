@@ -444,10 +444,11 @@ impl Fetcher {
             // The host's lock is held until the whole answer is read, then the pause runs from there.
             let mut guard = guard;
             let sent = req.send().await;
+            // A body that couldn't be read is a failed request (retried), never an empty answer.
             let read = match sent {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    Ok((status, resp.text().await.unwrap_or_default()))
+                    resp.text().await.map(|t| (status, t))
                 }
                 Err(e) => Err(e),
             };
@@ -538,19 +539,29 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
         };
         let mut incomplete = false;
         if n >= 10 {
-            // Suggest is full: read the storefront's search pages until one adds nothing.
+            // Suggest is full: read the storefront's search pages until one has none of the card's
+            // printings or only repeats an earlier page (a page may repeat the suggestions and still
+            // be followed by more).
             let mut done = false;
+            let mut paged: Vec<String> = Vec::new();
             for page in 1..=SHOP_PAGES {
                 let mut p = url::Url::parse(&format!("{base}/search")).expect("base");
                 p.query_pairs_mut().append_pair("q", &format!("\"{front}\"")).append_pair("type", "product").append_pair("page", &page.to_string());
                 match f.page(Kind::Shopify, p.as_str(), raw).await {
                     Ok(html) => {
-                        let new: Vec<String> = search_page_handles(&html, card).into_iter().filter(|h| !handles.contains(h)).collect();
-                        if new.is_empty() {
+                        let on_page = search_page_handles(&html, card);
+                        if on_page.iter().all(|h| paged.contains(h)) {
                             done = true;
                             break;
                         }
-                        handles.extend(new);
+                        for h in on_page {
+                            if !paged.contains(&h) {
+                                paged.push(h.clone());
+                            }
+                            if !handles.contains(&h) {
+                                handles.push(h);
+                            }
+                        }
                     }
                     Err(e) => {
                         out.errors.push(e);
