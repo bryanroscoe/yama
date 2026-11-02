@@ -5,6 +5,8 @@ import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishFor, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
+// The scan choices and their notes, shown here outside the scanner too.
+import "../scanner/scanner.css";
 
 // The scanner pulls in OCR; load it only when someone rescans.
 const ScannerView = lazy(() => import("../scanner").then((m) => ({ default: m.ScannerView })));

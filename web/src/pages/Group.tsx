@@ -10,6 +10,7 @@ import { streakText } from "../components/statsText";
 import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
+import { keepStorage } from "../storage";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 import { DeleteAccount } from "./DeleteAccount";
@@ -457,7 +458,13 @@ function OfflineCardsSetting() {
               : "Save every card's rules text (a 5 MB download) so card search works without signal."}
           </span>
         </span>
-        <button onClick={() => void downloadOfflineCards()} disabled={s.downloading}>
+        <button
+          onClick={() => {
+            keepStorage();
+            void downloadOfflineCards();
+          }}
+          disabled={s.downloading}
+        >
           {s.downloading ? "Saving…" : s.count ? "Update" : "Save"}
         </button>
       </div>

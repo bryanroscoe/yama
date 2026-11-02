@@ -12,7 +12,7 @@ export function Crop({ src, size = "", empty = false, alt = "" }: { src: string 
   const [failed, setFailed] = useState<string | null>(null);
   const cls = `crop${size ? ` crop-${size}` : ""}`;
   if (!src || failed === src) return <span className={`${cls}${empty ? " crop-empty" : ""}`} aria-hidden={alt ? undefined : true} role={alt ? "img" : undefined} aria-label={alt || undefined} />;
-  return <img className={cls} src={src} alt={alt} loading="lazy" decoding="async" draggable={false} onError={() => setFailed(src)} />;
+  return <img className={cls} src={src} alt={alt} loading="lazy" decoding="async" crossOrigin="anonymous" draggable={false} onError={() => setFailed(src)} />;
 }
 
 /**

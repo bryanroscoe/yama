@@ -159,7 +159,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
     <div className="cp">
       {card.image_art_crop && (
         <div className="cp-hero" aria-hidden="true">
-          <img src={card.image_art_crop} alt="" />
+          <img src={card.image_art_crop} alt="" crossOrigin="anonymous" />
           <span className="cp-hero-wash" />
         </div>
       )}
