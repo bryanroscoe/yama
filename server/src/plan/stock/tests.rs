@@ -156,6 +156,9 @@ fn titles_and_variants_parse() {
     assert_eq!(title_finish("Sol Ring [Etched Foil]"), Some("etched"));
     assert_eq!(title_finish("Sol Ring (Non-Foil)"), None);
     assert_eq!(title_finish("Foilborn Sprite"), None, "a word in the name isn't a finish");
+    assert_eq!(title_finish("Etched Champion [SOM - 6]"), None, "nor is a whole word of the card's name");
+    assert_eq!(title_finish("Etched Champion [SOM - 6] - Near Mint Foil"), Some("foil"), "a variant suffix is");
+    assert_eq!(title_finish("MTG - Etched Champion"), None, "nor a store's prefix");
     assert_eq!(title_language("Sol Ring (Japanese)").as_deref(), Some("Japanese"));
     assert_eq!(title_language("Sol Ring [C21 - 263] (JP)").as_deref(), Some("Japanese"));
     assert_eq!(title_language("Sol Ring [C21 - 263]"), None, "a set code isn't a language");

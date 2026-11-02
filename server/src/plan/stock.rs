@@ -184,18 +184,7 @@ const LANGUAGES: [&str; 12] = ["english", "japanese", "german", "french", "itali
 
 /// A language a store's title names in brackets or parentheses ("Sol Ring (Japanese)", "[JP]").
 fn title_language(title: &str) -> Option<String> {
-    let lower = title.to_lowercase();
-    let mut parts = Vec::new();
-    for (open, close) in [('(', ')'), ('[', ']')] {
-        let mut rest = lower.as_str();
-        while let Some(i) = rest.find(open) {
-            let after = &rest[i + 1..];
-            let Some(j) = after.find(close) else { break };
-            parts.push(after[..j].to_string());
-            rest = &after[j + 1..];
-        }
-    }
-    for part in parts {
+    for part in qualifiers(title) {
         for word in part.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()) {
             let lang = match word {
                 "jp" | "jpn" | "ja" => Some("japanese"),
@@ -218,9 +207,32 @@ fn title_language(title: &str) -> Option<String> {
     None
 }
 
-/// A foil or etched finish a title names as a word ("Sol Ring (Foil)", "[Etched Foil]"); "non-foil" isn't one.
+/// A title's qualifiers, lowercased: what's in brackets or parentheses, and a " - " suffix (a
+/// variant's options). Never the card's name ("Etched Champion" is a card, not a finish).
+fn qualifiers(title: &str) -> Vec<String> {
+    let lower = title.to_lowercase();
+    let mut parts = Vec::new();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        let mut rest = lower.as_str();
+        while let Some(i) = rest.find(open) {
+            let after = &rest[i + 1..];
+            let Some(j) = after.find(close) else { break };
+            parts.push(after[..j].to_string());
+            rest = &after[j + 1..];
+        }
+    }
+    // The suffix after the last bracket or parenthesis, without a "MTG - " prefix.
+    let bare = lower.trim_start().strip_prefix("mtg - ").unwrap_or(&lower);
+    let tail = bare.rfind([']', ')']).map_or(bare, |i| &bare[i + 1..]);
+    if let Some((_, suffix)) = tail.rsplit_once(" - ") {
+        parts.push(suffix.to_string());
+    }
+    parts
+}
+
+/// A foil or etched finish a title's qualifiers name ("Sol Ring (Foil)", "[Etched Foil]"); "non-foil" isn't one.
 fn title_finish(title: &str) -> Option<&'static str> {
-    let lower = title.to_lowercase().replace("non-foil", " ").replace("nonfoil", " ");
+    let lower = qualifiers(title).join(" ").replace("non-foil", " ").replace("nonfoil", " ");
     let words: Vec<&str> = lower.split(|c: char| !c.is_ascii_alphanumeric()).collect();
     if words.contains(&"etched") {
         Some("etched")
