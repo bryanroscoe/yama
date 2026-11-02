@@ -39,7 +39,7 @@ self.addEventListener("install", (event) => {
           .then(async () => {
             try {
               const res = await c.match("/", BY_URL);
-              if (res) await adoptShell(res);
+              if (res) await inTurn(() => adoptShell(res));
             } catch {
               /* offline or refused: pages save it as they load */
             }
@@ -96,6 +96,18 @@ async function buildListUrl(shell) {
 async function readBuilds() {
   const res = await (await caches.open(SHELL)).match(BUILDS);
   return res ? res.json() : { current: null, previous: null };
+}
+
+/**
+ * One shell at a time: saving a shell and adopting its build run in turn, so two tabs that got
+ * different builds around a release can't record one build while keeping the other's shell, or
+ * prune from an out-of-date record.
+ */
+let turn = Promise.resolve();
+function inTurn(work) {
+  const run = turn.then(work);
+  turn = run.catch(() => undefined);
+  return run;
 }
 
 /**
@@ -176,7 +188,7 @@ function openPage(event) {
     // Copies taken now, before the page starts reading the answer.
     const copy = res.clone();
     const forList = res.clone();
-    return caches.open(SHELL).then((c) => c.put("/", copy)).then(() => adoptShell(forList));
+    return inTurn(() => caches.open(SHELL).then((c) => c.put("/", copy)).then(() => adoptShell(forList)));
   });
   event.waitUntil(saved.catch(() => undefined));
   return caches.match("/", { cacheName: SHELL, ...BY_URL }).then((cached) => {

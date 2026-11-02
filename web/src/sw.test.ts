@@ -207,6 +207,34 @@ describe("the service worker", () => {
     expect(sw.fetched.length - before).toBe(1);
   });
 
+  it("keeps the saved shell and the recorded build together when two releases arrive at once", async () => {
+    const lists: Record<string, object> = {
+      "/assets/precache-old.json": { precache: ["/assets/old.js"], files: ["/assets/old.js"], keep: [] },
+      "/assets/precache-new.json": { precache: ["/assets/new.js"], files: ["/assets/new.js"], keep: [] },
+    };
+    // The older build's list is slow to arrive, so without taking turns it would finish last.
+    let releaseOld: () => void = () => {};
+    const oldListGate = new Promise<void>((r) => (releaseOld = r));
+    const sw = worker(async (url) => {
+      const path = new URL(url).pathname;
+      if (path === "/old") return res(shellHtml("/assets/precache-old.json"), "text/html");
+      if (path === "/new") return res(shellHtml("/assets/precache-new.json"), "text/html");
+      if (path === "/assets/precache-old.json") await oldListGate;
+      if (lists[path]) return res(JSON.stringify(lists[path]), "application/json");
+      return res("export {}", "text/javascript");
+    });
+    const first = sw.fire("fetch", { url: "/old", mode: "navigate" });
+    const second = sw.fire("fetch", { url: "/new", mode: "navigate" });
+    await new Promise((r) => setTimeout(r, 5));
+    releaseOld();
+    await Promise.all([first, second]);
+    const shell = await sw.stores.get("yama-shell-v2")!.get(`${ORIGIN}/`)!.clone().text();
+    const builds = JSON.parse(await sw.stores.get("yama-shell-v2")!.get(`${ORIGIN}/__yama/builds`)!.clone().text());
+    expect(shell).toContain(builds.current.url);
+    expect(sw.cached("yama-assets-v2", "/assets/old.js")).toBe(true);
+    expect(sw.cached("yama-assets-v2", "/assets/new.js")).toBe(true);
+  });
+
   it("asks Scryfall for images with CORS and keeps only whole ones", async () => {
     const sw = worker(async (url) => (url.includes("missing") ? new Response("", { status: 404 }) : new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } })));
     const img = "https://cards.scryfall.io/normal/front/a/b/ab.jpg";
