@@ -31,9 +31,20 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
-      .then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", SELECT_CHEVRON]))
-      // The shell is saved; its code is saved too if it can be (offline, it's saved as pages open).
-      .then(() => caches.match("/", BY_URL).then((res) => res && adoptShell(res)).catch(() => undefined))
+      .then((c) =>
+        c
+          .addAll(["/", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", SELECT_CHEVRON])
+          // The shell just saved here (an older worker's cache may hold an older one); its code
+          // is saved too if it can be, and otherwise as pages load.
+          .then(async () => {
+            try {
+              const res = await c.match("/", BY_URL);
+              if (res) await adoptShell(res);
+            } catch {
+              /* offline or refused: pages save it as they load */
+            }
+          }),
+      )
       .then(() => self.skipWaiting()),
   );
 });
@@ -89,22 +100,27 @@ async function readBuilds() {
 
 /**
  * A new shell: save the code its build lists and forget code no recent build uses. Runs after
- * install and whenever a page load brings a different shell. A failure leaves things as they were;
- * the next page load tries again.
+ * install and on every page load the network answers. Until every listed file is saved (a
+ * connection that dropped part way), each page load tries the missing ones again.
  */
 async function adoptShell(shell) {
   const url = await buildListUrl(shell);
   if (!url) return;
   const builds = await readBuilds();
-  if (builds.current?.url === url) return;
-  const res = await fetch(url);
-  if (!isAsset(res, url)) return;
-  const list = await res.json();
-  // `precache`: saved now. `files`: the whole build, kept once saved (the scanner's 15 MB
-  // WASM is saved only when someone scans). `keep`: folders kept whole (the OCR engine).
-  const build = { url, files: list.files || [], keep: list.keep || [] };
+  const same = builds.current?.url === url;
+  if (same && builds.current.complete) return;
+  let build = same ? builds.current : null;
+  if (!build) {
+    const res = await fetch(url);
+    if (!isAsset(res, url)) return;
+    const list = await res.json();
+    // `precache`: saved now. `files`: the whole build, kept once saved (the scanner's 15 MB
+    // WASM is saved only when someone scans). `keep`: folders kept whole (the OCR engine).
+    build = { url, precache: list.precache || [], files: list.files || [], keep: list.keep || [] };
+  }
   const cache = await caches.open(ASSETS);
-  const queue = (list.precache || []).slice();
+  const queue = build.precache.slice();
+  let missing = 0;
   // A few at a time, so a phone's connection isn't swamped while someone uses the page.
   await Promise.all(
     [0, 1, 2, 3].map(async () => {
@@ -112,10 +128,12 @@ async function adoptShell(shell) {
         if (await cache.match(path, BY_URL)) continue;
         const res = await fetch(path).catch(() => null);
         if (res && isAsset(res, path)) await cache.put(path, res);
+        else missing++;
       }
     }),
   );
-  const next = { current: build, previous: builds.current ?? builds.previous };
+  build = { ...build, complete: missing === 0 };
+  const next = { current: build, previous: same ? builds.previous : (builds.current ?? builds.previous) };
   await (await caches.open(SHELL)).put(BUILDS, new Response(JSON.stringify(next), { headers: { "content-type": "application/json" } }));
   await prune(next);
 }

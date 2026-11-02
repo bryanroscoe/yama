@@ -173,6 +173,40 @@ describe("the service worker", () => {
     expect(sw.fetched.length - before).toBe(1);
   });
 
+  it("adopts the shell it just saved, not an older worker's, when it installs", async () => {
+    const sw = worker(async (url) => {
+      const path = new URL(url).pathname;
+      if (path === "/") return res(shellHtml("/assets/precache-n.json"), "text/html");
+      if (path === "/assets/precache-n.json") return res(JSON.stringify({ precache: ["/assets/n.js"], files: ["/assets/n.js"], keep: [] }), "application/json");
+      return path.endsWith(".js") ? res("export {}", "text/javascript") : res("", "text/plain");
+    });
+    // v1's shell, older and first in line, with no build list.
+    sw.stores.set("yama-shell-v1", new Map([[`${ORIGIN}/`, res("<!doctype html><title>old</title>", "text/html")]]));
+    await sw.fire("install");
+    expect(sw.cached("yama-assets-v2", "/assets/n.js")).toBe(true);
+  });
+
+  it("tries again for build files that didn't arrive", async () => {
+    let flaky = true;
+    const sw = worker(async (url) => {
+      const path = new URL(url).pathname;
+      if (!path.includes(".")) return res(shellHtml("/assets/precache-f.json"), "text/html");
+      if (path === "/assets/precache-f.json") return res(JSON.stringify({ precache: ["/assets/f1.js", "/assets/f2.js"], files: ["/assets/f1.js", "/assets/f2.js"], keep: [] }), "application/json");
+      if (path === "/assets/f2.js" && flaky) throw new TypeError("Failed to fetch");
+      return res("export {}", "text/javascript");
+    });
+    await sw.fire("install");
+    expect(sw.cached("yama-assets-v2", "/assets/f1.js")).toBe(true);
+    expect(sw.cached("yama-assets-v2", "/assets/f2.js")).toBe(false);
+    flaky = false;
+    await sw.fire("fetch", { url: "/", mode: "navigate" });
+    expect(sw.cached("yama-assets-v2", "/assets/f2.js")).toBe(true);
+    // Complete now: the next page load asks for nothing but the shell.
+    const before = sw.fetched.length;
+    await sw.fire("fetch", { url: "/", mode: "navigate" });
+    expect(sw.fetched.length - before).toBe(1);
+  });
+
   it("asks Scryfall for images with CORS and keeps only whole ones", async () => {
     const sw = worker(async (url) => (url.includes("missing") ? new Response("", { status: 404 }) : new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } })));
     const img = "https://cards.scryfall.io/normal/front/a/b/ab.jpg";
