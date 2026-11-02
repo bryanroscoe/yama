@@ -454,6 +454,8 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     event(3, 1, json!({"type": "player", "seat": 1, "name": "victim", "userId": b})).await;
     event(4, 0, json!({"type": "life", "seat": 0, "delta": -3})).await;
     event(5, 2, json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Vix", "userId": v}})).await;
+    // Later the bystander, also called Vix, took that seat: their name is theirs.
+    event(6, 2, json!({"type": "player", "seat": 2, "name": "Vix", "userId": b, "was": {"name": "Pat"}})).await;
 
     let mut tx = pool.begin().await.unwrap();
     delete_rows(&mut tx, &v).await.unwrap();
@@ -472,6 +474,17 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     assert_eq!(payload(3).await, json!({"type": "player", "seat": 1, "name": "victim", "userId": b}), "another seat keeps its name");
     assert_eq!(payload(4).await, json!({"type": "life", "seat": 0, "delta": -3}));
     assert_eq!(payload(5).await, json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Former player"}}), "a seat it left");
+    assert_eq!(payload(6).await, json!({"type": "player", "seat": 2, "name": "Vix", "userId": b, "was": {"name": "Pat"}}), "a namesake keeps their name");
+    // A phone retrying an upload whose answer was lost still holds the original events.
+    use super::delete::is_scrubbed_player_event;
+    let sent2 = json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
+    assert!(is_scrubbed_player_event(&payload(2).await, &sent2));
+    let sent5 = json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Vix", "userId": v}});
+    assert!(is_scrubbed_player_event(&payload(5).await, &sent5));
+    let other = json!({"type": "player", "seat": 0, "name": "Somebody", "userId": v, "was": {"name": "Vee"}});
+    assert!(!is_scrubbed_player_event(&payload(3).await, &other), "an unscrubbed event matches only exactly");
+    let moved = json!({"type": "player", "seat": 1, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
+    assert!(!is_scrubbed_player_event(&payload(2).await, &moved), "another seat is another event");
     let seat = |n: i64| {
         let pool = pool.clone();
         let g = g.clone();
@@ -482,7 +495,7 @@ async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() 
     assert_eq!(seat(0).await.as_deref(), Some("Former player"), "even a name typed in when it was logged");
     assert_eq!(seat(1).await.as_deref(), Some("victim"));
     assert_eq!(seat(2).await.as_deref(), Some("Pat"));
-    let leaks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE payload LIKE '%' || ? || '%' OR payload LIKE '%Vic T%' OR payload LIKE '%Vee%' OR payload LIKE '%Vix%'")
+    let leaks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE payload LIKE '%' || ? || '%' OR payload LIKE '%Vic T%' OR payload LIKE '%Vee%' OR (payload LIKE '%Vix%' AND seq <> 6)")
         .bind(&v)
         .fetch_one(&pool)
         .await

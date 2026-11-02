@@ -460,8 +460,10 @@ async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Ev
                 .await?;
             // The time travels with the event, so two devices making the same tap under the same
             // number (both "life -1") still differ, and only an exact resend is a retry.
+            // A "player" event a deletion has since scrubbed is still that event.
+            let stored = serde_json::from_str::<serde_json::Value>(&payload).ok();
             let same = kind == e.kind
-                && serde_json::from_str::<serde_json::Value>(&payload).ok().as_ref() == Some(&e.payload)
+                && stored.as_ref().is_some_and(|s| *s == e.payload || (kind == "player" && crate::admin::delete::is_scrubbed_player_event(s, &e.payload)))
                 && e.created_at.as_ref().is_none_or(|t| *t == created_at);
             if !same {
                 return Err(AppError::Conflict(

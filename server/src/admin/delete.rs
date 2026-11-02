@@ -264,16 +264,19 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
                 obj.remove("handle");
                 changed = true;
             }
-            if was_tied || obj.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n)) {
+            // A name it shared with someone else's account (two Alexes) stays theirs.
+            let someone_else = obj.get("userId").and_then(|v| v.as_str()).is_some_and(|u| u != id);
+            if was_tied || (!someone_else && obj.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n))) {
                 obj.insert("name".into(), FORMER_PLAYER.into());
                 changed = true;
             }
             if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
+                let was_someone_else = was.get("userId").and_then(|v| v.as_str()).is_some_and(|u| u != id);
                 if was.get("userId").and_then(|v| v.as_str()) == Some(id) {
                     was.remove("userId");
                     changed = true;
                 }
-                if was.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n)) {
+                if !was_someone_else && was.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n)) {
                     was.insert("name".into(), FORMER_PLAYER.into());
                     changed = true;
                 }
@@ -289,6 +292,32 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
         }
     }
     Ok(())
+}
+
+/// Whether `stored` is the "player" event `sent` after a deletion scrubbed it (`scrub_game_history`):
+/// a phone retrying an upload whose answer was lost still holds the original, and that's the same
+/// event, not another device's.
+pub fn is_scrubbed_player_event(stored: &serde_json::Value, sent: &serde_json::Value) -> bool {
+    let former = |v: Option<&serde_json::Value>| v.and_then(|n| n.as_str()) == Some(FORMER_PLAYER);
+    if !former(stored.get("name")) && !former(stored.pointer("/was/name")) {
+        return false;
+    }
+    let mut sent = sent.clone();
+    let Some(obj) = sent.as_object_mut() else { return false };
+    if former(stored.get("name")) && stored.get("userId").is_none() {
+        obj.insert("name".into(), FORMER_PLAYER.into());
+        obj.remove("userId");
+        obj.remove("handle");
+    }
+    if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
+        if former(stored.pointer("/was/name")) {
+            was.insert("name".into(), FORMER_PLAYER.into());
+        }
+        if stored.pointer("/was/userId").is_none() {
+            was.remove("userId");
+        }
+    }
+    &sent == stored
 }
 
 /// Online games the account hosts or has a seat in.
