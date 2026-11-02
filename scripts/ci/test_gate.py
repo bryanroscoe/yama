@@ -223,6 +223,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", condition)
         self.assertIn('runs-on: [self-hosted, Linux, X64, yama-ci]', marker)
         self.assertIn('permissions: {}', marker)
+        self.assertIn('timeout-minutes: 360', marker)  # waits for saget capacity like the others
         self.assertNotIn('needs:', marker)
         self.assertNotIn('uses:', marker)
         self.assertNotIn('secrets.', marker)
