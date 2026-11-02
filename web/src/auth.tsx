@@ -102,10 +102,11 @@ export function useLogout() {
 /**
  * Delete the signed-in account and everything it owns (`DELETE /api/me`), and forget it on this
  * device as signing out does: plan data and unsent answers, the token and the cached user. The
- * person types their email to confirm; the server checks it too. Plan data leaves first, so a
- * deletion whose answer is lost on the way back doesn't leave prices paid on the phone. Trying
- * again after such a lost answer gets 401 (the session went with the account), which finishes the
- * rest; a 401 on a first try is only an expired sign-in, and the account is still there.
+ * person types their email to confirm; the server checks it too. A refused deletion (a typo, an
+ * expired sign-in) leaves everything on the phone. One whose answer is lost on the way back may
+ * have happened, so the plan data (prices paid) leaves then; trying again gets 401 (the session
+ * went with the account), which finishes the rest. A 401 on a first try is only an expired
+ * sign-in, and the account is still there.
  */
 export function useDeleteAccount() {
   const qc = useQueryClient();
@@ -113,19 +114,23 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: async (confirmEmail: string) => {
       const userId = qc.getQueryData<User | null>(["me"])?.id;
-      await clearPlanData(userId);
-      qc.removeQueries({ queryKey: ["plan"] });
-      qc.removeQueries({ queryKey: ["plan-cache"] });
+      const clearPlans = async () => {
+        await clearPlanData(userId);
+        qc.removeQueries({ queryKey: ["plan"] });
+        qc.removeQueries({ queryKey: ["plan-cache"] });
+      };
       try {
         await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
       } catch (e) {
         if (!(e instanceof ApiError)) {
           answerLost.current = true;
+          await clearPlans();
           throw new Error("Couldn't reach Yama. Try again when you're online; if your account was already deleted, that finishes signing this phone out.");
         }
         if (e.status !== 401) throw e;
         if (!answerLost.current) throw new Error("Your sign-in has run out. Sign in again to delete your account.");
       }
+      await clearPlans();
       setToken(null);
       localStorage.removeItem(ME_KEY);
       qc.setQueryData(["me"], null);

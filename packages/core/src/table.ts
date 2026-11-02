@@ -118,9 +118,10 @@ export type TableEvent =
     } & CommanderPick)
   /**
    * Someone else sits here, or the same person under another name or tied to their member row or
-   * account. Every field is replaced. `was` keeps the old name for the game's history.
+   * account. Every field is replaced. `was` keeps the old name for the game's history, and the old
+   * account so deleting it can take its name out of the history too (server/src/admin/delete.rs).
    */
-  | ({ type: "player"; seat: Seat; was?: { name: string } } & PlayerPick)
+  | ({ type: "player"; seat: Seat; was?: { name: string; userId?: string } } & PlayerPick)
   | ({ type: "finish"; winnerSeat: Seat | null; endedAt: string } & FinishDetails);
 
 export interface LoggedEvent {

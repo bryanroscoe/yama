@@ -342,7 +342,7 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
     const d = sameCommanders ? now : await resolveDraft(now as SeatDraft & CommanderDraft);
     const name = d.name.trim() || p.name;
     if (name !== p.name || d.memberId !== p.memberId || d.userId !== p.userId) {
-      dispatch({ type: "player", seat, name, memberId: d.memberId, userId: d.userId, was: { name: p.name } });
+      dispatch({ type: "player", seat, name, memberId: d.memberId, userId: d.userId, was: { name: p.name, ...(p.userId ? { userId: p.userId } : {}) } });
     }
     if (commander) {
       const pick: CommanderPick = {

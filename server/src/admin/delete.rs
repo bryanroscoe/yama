@@ -222,7 +222,8 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
     let display: Option<String> = sqlx::query_scalar("SELECT display_name FROM users WHERE id = ?").bind(id).fetch_optional(&mut **tx).await?;
     let games: Vec<String> = sqlx::query_scalar(
         "SELECT game_id FROM game_seats WHERE user_id = ?1
-          UNION SELECT game_id FROM game_events WHERE kind = 'player' AND json_extract(payload, '$.userId') = ?1",
+          UNION SELECT game_id FROM game_events
+                 WHERE kind = 'player' AND (json_extract(payload, '$.userId') = ?1 OR json_extract(payload, '$.was.userId') = ?1)",
     )
     .bind(id)
     .fetch_all(&mut **tx)
@@ -235,6 +236,9 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
         let mut events: Vec<(i64, serde_json::Value)> =
             events.into_iter().filter_map(|(seq, p)| Some((seq, serde_json::from_str::<serde_json::Value>(&p).ok()?))).collect();
         let tied = |e: &serde_json::Value| e.get("userId").and_then(|v| v.as_str()) == Some(id);
+        // It sat here before someone took the seat: the event says so (`was.userId`, recorded
+        // since 2026-11-02), with the name it went by then.
+        let left = |e: &serde_json::Value| e.pointer("/was/userId").and_then(|v| v.as_str()) == Some(id);
         let seat_of = |e: &serde_json::Value| e.get("seat").and_then(|v| v.as_i64());
         let mut its_seats: std::collections::BTreeSet<i64> = seats.iter().map(|(seat, _)| *seat).collect();
         let mut names: std::collections::BTreeSet<String> = seats.into_iter().filter_map(|(_, n)| n).chain(display.clone()).collect();
@@ -242,6 +246,10 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
             if tied(e) {
                 its_seats.extend(seat_of(e));
                 names.extend(e.get("name").and_then(|v| v.as_str()).map(str::to_string));
+            }
+            if left(e) {
+                its_seats.extend(seat_of(e));
+                names.extend(e.pointer("/was/name").and_then(|v| v.as_str()).map(str::to_string));
             }
         }
         for (seq, e) in events.iter_mut() {
@@ -260,11 +268,15 @@ async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppRe
                 obj.insert("name".into(), FORMER_PLAYER.into());
                 changed = true;
             }
-            if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut())
-                && was.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n))
-            {
-                was.insert("name".into(), FORMER_PLAYER.into());
-                changed = true;
+            if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
+                if was.get("userId").and_then(|v| v.as_str()) == Some(id) {
+                    was.remove("userId");
+                    changed = true;
+                }
+                if was.get("name").and_then(|v| v.as_str()).is_some_and(|n| names.contains(n)) {
+                    was.insert("name".into(), FORMER_PLAYER.into());
+                    changed = true;
+                }
             }
             if changed {
                 sqlx::query("UPDATE game_events SET payload = ? WHERE game_id = ? AND seq = ?")
