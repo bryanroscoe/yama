@@ -392,6 +392,38 @@ export function lossesOf(state: TableState, p: PlayerState): Loss[] {
   return out;
 }
 
+export interface Danger {
+  kind: Loss["kind"];
+  /** "low" is worth a look; "critical" is about one hit from out. */
+  level: "low" | "critical";
+  /** "Low life", "Lethal in 1 poison", "Lethal in 3 from Atraxa". */
+  text: string;
+}
+
+/**
+ * How close a player still in the game is to a loss, the most urgent cause first; null when
+ * they're comfortable or already at a loss (`lossOf` asks about that). Life counts against the
+ * game's starting life: a quarter left is low and an eighth is critical (10 and 5 in Commander).
+ */
+export function dangerOf(state: TableState, p: PlayerState): Danger | null {
+  if (p.eliminated || lossesOf(state, p).length) return null;
+  const found: (Danger & { left: number })[] = [];
+  for (const [source, dmg] of Object.entries(p.commanderDamage) as [CommanderKey, number | undefined][]) {
+    const left = COMMANDER_LETHAL - (dmg ?? 0);
+    if (left > 5) continue;
+    const from = state.players.find((x) => x.seat === keySeat(source));
+    const name = (sourceName(state, source) ?? (from ? `${from.name}'s commander` : "one commander")).split(",")[0]!;
+    found.push({ kind: "commander_damage", level: left <= 3 ? "critical" : "low", text: `Lethal in ${left} from ${name}`, left });
+  }
+  const poisonLeft = POISON_LETHAL - p.poison;
+  if (poisonLeft <= 3) found.push({ kind: "poison", level: poisonLeft <= 1 ? "critical" : "low", text: `Lethal in ${poisonLeft} poison`, left: poisonLeft });
+  const start = state.setup.startingLife;
+  if (p.life <= Math.ceil(start / 4)) found.push({ kind: "life", level: p.life <= Math.ceil(start / 8) ? "critical" : "low", text: "Low life", left: p.life });
+  // Critical before low; among equals, the fewest points from out.
+  const best = found.sort((a, b) => (a.level === b.level ? a.left - b.left : a.level === "critical" ? -1 : 1))[0];
+  return best ? { kind: best.kind, level: best.level, text: best.text } : null;
+}
+
 /** The name of the commander behind a key, retired ones included; undefined if it has none. */
 export function sourceName(state: TableState, key: CommanderKey): string | undefined {
   const gone = state.retired?.[key];
