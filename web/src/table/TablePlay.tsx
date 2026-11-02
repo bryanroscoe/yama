@@ -41,6 +41,7 @@ import { LayoutPicker } from "./LayoutPicker";
 import { EditSeat } from "./SeatEditor";
 import { setCountTurns, useCountTurns } from "./turns";
 import { useFullscreen, useInstall } from "../install";
+import { useScreenAwake } from "./wakeLock";
 import { isGuest } from "../guest";
 
 /** Where panel taps go: this device's game, or the host's game for a guest phone. */
@@ -81,12 +82,7 @@ export function TablePlay() {
   const landscape = useLandscape();
 
   // Keep the screen on during a game where supported.
-  useEffect(() => {
-    let lock: { release(): Promise<void> } | null = null;
-    const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } };
-    nav.wakeLock?.request("screen").then((l) => (lock = l)).catch(() => {});
-    return () => void lock?.release();
-  }, []);
+  useScreenAwake();
 
   const artFor = useTableArt(state?.players ?? []);
   const lethal = useLethalPrompt(state);
