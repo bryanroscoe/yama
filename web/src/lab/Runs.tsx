@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
 import { POWER_NOTE } from "../components/PowerOnly";
@@ -80,14 +80,25 @@ function cardSimLabel(e: ExperimentItem): string {
   });
 }
 
+/** Runs per page of My runs (the server's default page). */
+export const RUNS_PAGE = 20;
+
+/** One page of your runs, newest first: the first, or the page after the run `before`. */
+export const runsPage = (before?: string) =>
+  api<ExperimentItem[]>(`/api/lab/experiments?limit=${RUNS_PAGE}${before ? `&before=${encodeURIComponent(before)}` : ""}`);
+
 export function RunsPage() {
   const power = usePower();
   const qc = useQueryClient();
-  const exps = useQuery({
-    queryKey: ["lab", "experiments"],
-    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments"),
-    refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
+  const pages = useInfiniteQuery({
+    queryKey: ["lab", "experiments", "pages"],
+    queryFn: ({ pageParam }) => runsPage(pageParam || undefined),
+    initialPageParam: "",
+    // A full page may have more after it.
+    getNextPageParam: (last) => (last.length === RUNS_PAGE ? last[last.length - 1]!.id : undefined),
+    refetchInterval: (q) => (q.state.data?.pages.some((p) => p.some((e) => e.status === "queued" || e.status === "running")) ? 5000 : false),
   });
+  const exps = { data: pages.data?.pages.flat(), error: pages.error };
   const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs") });
   const precons = usePrecons();
   const name = (label: string) => deckName(label, precons.data?.precons ?? []);
@@ -194,6 +205,11 @@ export function RunsPage() {
             );
           })}
         </section>
+      )}
+      {pages.hasNextPage && (
+        <button className="quiet" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
+          {pages.isFetchingNextPage ? "Loading older runs" : "Show older runs"}
+        </button>
       )}
 
       {batch.length > 0 && (
