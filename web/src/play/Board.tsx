@@ -19,6 +19,7 @@ import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { Sheet } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
+import { AlphaTag } from "../components/AlphaTag";
 import {
   addCosts,
   atKey,
@@ -2377,6 +2378,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         <aside className="pb-rail" aria-label="Stack and your options">
           <div className="rail-top">
             <Link to={leaveTo} className="rail-leave">Leave</Link>
+            <AlphaTag />
             {settingsButton}
             {phaseButton}
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
@@ -2760,6 +2762,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         </div>
         <div className="dock-links">
           <Link to={leaveTo}>Leave</Link>
+          <AlphaTag />
           {playing && savedTurns && <button type="button" className="quiet" onClick={() => setSettings("yields")}>Settings</button>}
           {phaseButton}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>

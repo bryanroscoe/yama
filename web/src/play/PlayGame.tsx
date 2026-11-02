@@ -8,6 +8,7 @@ import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
+import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { BracketChips } from "../components/Bracket";
 import { useCardArt } from "../components/useCardArt";
 import { Board } from "./Board";
@@ -18,8 +19,11 @@ export function PlayGame() {
   const { id = "" } = useParams();
   const game = useQuery({
     queryKey: ["play", id],
-    queryFn: () => api<OnlineGame>(`/api/play/${id}`),
-    refetchInterval: (q) => (q.state.data?.status === "lobby" || q.state.data?.runtime_error ? 2000 : false),
+    queryFn: ({ signal }) => api<OnlineGame>(`/api/play/${id}`, { signal }),
+    // The lobby fills as friends join: every 4 s while it's on screen (it was 2 s), and at once on
+    // coming back to the tab. A game that can't run on its saved engine is asked about every 15 s.
+    refetchInterval: (q) => (q.state.data?.runtime_error ? 15_000 : q.state.data?.status === "lobby" ? 4000 : false),
+    refetchOnWindowFocus: true,
   });
   if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
@@ -74,8 +78,11 @@ function Lobby({ game }: { game: OnlineGame }) {
 
       <div className="lobby-head">
         <div className="lobby-title">
-          <h1>{title}</h1>
-          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here.</p>
+          <h1>
+            {title}
+            <AlphaTag />
+          </h1>
+          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here. {ALPHA_NOTE}</p>
         </div>
         <div className="lobby-code" role="group" aria-label="Table code">
           <span className="lobby-code-text">

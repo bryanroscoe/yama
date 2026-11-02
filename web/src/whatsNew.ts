@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-02-play-alpha",
+    date: "2026-11-02",
+    title: "Online play is marked alpha",
+    items: [
+      "Play now carries an Alpha tag. Online games work, but expect bugs and slow turns while the rules engine and its board are finished. The life counter isn't affected.",
+      "Play's pages ask Yama for news less often, and not at all while they're hidden.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
     id: "2026-11-02-faster",
     date: "2026-11-02",
     title: "Yama opens faster",

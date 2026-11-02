@@ -1004,6 +1004,40 @@ button.list-row:hover {
   border: 1px solid var(--line);
   color: var(--dim);
 }
+/* Online play is in alpha (components/AlphaTag.tsx). */
+.alpha-tag {
+  margin-left: 8px;
+  padding: 0 8px;
+  font-family: var(--body);
+  font-size: var(--t-xs);
+  letter-spacing: 0;
+  vertical-align: middle;
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+/* Phones: a small chip on the Play tab's icon; the tab bar has no room beside the label. */
+.nav a {
+  position: relative;
+}
+.nav .alpha-tag {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  margin-left: 4px;
+  padding: 0 5px;
+  font-size: 0.5625rem;
+  line-height: 1.5;
+  background: var(--ground);
+}
+@media (min-width: 900px) {
+  .nav .alpha-tag {
+    position: static;
+    margin-left: auto;
+    padding: 0 8px;
+    font-size: var(--t-xs);
+    background: none;
+  }
+}
 .tag.good {
   color: var(--good);
   background: var(--good-tint);
