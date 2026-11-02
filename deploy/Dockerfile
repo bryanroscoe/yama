@@ -31,9 +31,15 @@ COPY web/public/precons.css web/public/site-notice.html web/public/
 # The commit this image is built from (the build context has no .git); server/build.rs stamps it.
 ARG YAMA_GIT_SHA=
 ARG YAMA_GIT_DIRTY=
+# The target cache is shared by every build on this host, including other branches'. Cargo
+# judges path crates fresh by file timestamps, so a source this tree shares with an older or
+# other-branch build can look already compiled and its stale artifact (or build script) ships.
+# Touch this tree's Yama and Phase sources so they always compile from what was copied in;
+# crates.io dependencies stay cached.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/yama/target \
-    YAMA_GIT_SHA=$YAMA_GIT_SHA YAMA_GIT_DIRTY=$YAMA_GIT_DIRTY \
+    find /src/yama-phase/crates server play \( -name '*.rs' -o -name Cargo.toml \) -exec touch {} + \
+ && YAMA_GIT_SHA=$YAMA_GIT_SHA YAMA_GIT_DIRTY=$YAMA_GIT_DIRTY \
     YAMA_LAB_GIT_SHA=$YAMA_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_GIT_DIRTY \
     CARGO_BUILD_JOBS=4 cargo build --release -p yama-server \
  && cp target/release/yama-server /usr/local/bin/yama-server
