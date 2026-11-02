@@ -400,6 +400,72 @@ async fn phase_board_preferences_carry_to_the_next_game_without_overwriting_othe
 }
 
 #[tokio::test]
+async fn failed_start_keeps_the_lobby_and_a_retry_starts_once() {
+    use crate::testutil::{deck as make_deck, user};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let (host, _) = user(&pool, "start-host@example.com").await;
+    let (friend, _) = user(&pool, "start-friend@example.com").await;
+    let (host_deck, host_version) = make_deck(&pool, &host, "Host").await;
+    let (friend_deck, friend_version) = make_deck(&pool, &friend, "Friend").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    for version in [&host_version, &friend_version] {
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?")
+            .bind(serde_json::to_string(&cards).unwrap()).bind(version).execute(&pool).await.unwrap();
+    }
+    let seats: Vec<_> = [(&host, &host_deck, &host_version), (&friend, &friend_deck, &friend_version)]
+        .into_iter().enumerate().map(|(n, (user, deck, version))| {
+            let mut s = seat(n as u8, "Player");
+            s.user_id = Some(user.to_string());
+            s.deck_id = Some(deck.to_string());
+            s.deck_version_id = Some(version.to_string());
+            s
+        }).collect();
+    sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at) VALUES('start-failure','online',?,'in_progress','2026-11-02T00:00:00Z')")
+        .bind(&host).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,created_at,updated_at) VALUES('start-failure','START0',?,'lobby',?,'2026-11-02T00:00:00Z','2026-11-02T00:00:00Z')")
+        .bind(&host).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+    sqlx::query("CREATE TRIGGER reject_initial_replay BEFORE UPDATE OF replay ON online_games WHEN NEW.game_id='start-failure' AND NEW.replay IS NOT NULL BEGIN SELECT RAISE(ABORT,'simulated initial replay write failure'); END")
+        .execute(&pool).await.unwrap();
+
+    let error = start_game(&st, "start-failure", &host).await.unwrap_err();
+    assert!(format!("{error:?}").contains("simulated initial replay write failure"));
+    let r = load_row(&pool, "start-failure").await.unwrap();
+    assert_eq!(r.stage, "lobby", "failed persistence must not leave an unknown live game");
+    assert_eq!(r.updated_at, "2026-11-02T00:00:00Z");
+    assert_eq!(r.engine_version, None);
+    assert!(st.play.game_error(&r).is_none());
+    let saved: (Option<i64>, Option<String>, i64) = sqlx::query_as("SELECT g.seed,o.replay,o.revision FROM games g JOIN online_games o ON o.game_id=g.id WHERE g.id='start-failure'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(saved, (None, None, 0));
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM game_seats WHERE game_id='start-failure'").fetch_one(&pool).await.unwrap(), 0);
+    assert!(st.play.live("start-failure").is_none());
+
+    sqlx::query("DROP TRIGGER reject_initial_replay").execute(&pool).await.unwrap();
+    let (first, second) = tokio::join!(start_game(&st, "start-failure", &host), start_game(&st, "start-failure", &host));
+    first.unwrap();
+    second.unwrap();
+    let r = load_row(&pool, "start-failure").await.unwrap();
+    assert_eq!(r.stage, "live");
+    assert_eq!(r.engine_version.as_deref(), Some(yama_play::ENGINE_VERSION));
+    let live = st.play.live("start-failure").unwrap();
+    board(&live, 0).await;
+    let saved: (i64, String) = sqlx::query_as("SELECT g.seed,o.replay FROM games g JOIN online_games o ON o.game_id=g.id WHERE g.id='start-failure'")
+        .fetch_one(&pool).await.unwrap();
+    let replay: serde_json::Value = serde_json::from_str(&saved.1).unwrap();
+    assert_eq!(replay["header"]["seed"].as_u64(), Some(saved.0 as u64));
+    start_game(&st, "start-failure", &host).await.unwrap();
+    let after: (i64, String) = sqlx::query_as("SELECT g.seed,o.replay FROM games g JOIN online_games o ON o.game_id=g.id WHERE g.id='start-failure'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(after, saved, "another start cannot replace the committed game");
+    st.play.stop("start-failure");
+}
+
+#[tokio::test]
 async fn the_host_starts_a_rematch_and_the_other_players_can_join_it() {
     use crate::testutil::{deck as make_deck, send as request, user};
     use axum::http::{Method, StatusCode};
