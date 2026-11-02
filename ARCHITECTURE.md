@@ -246,8 +246,8 @@ triggers `.github/workflows/deploy.yml` on the dedicated saget production runner
 reviewed work to main now requests production release. The runner has no Docker socket,
 production data/env mounts or general server shell. A restricted SSH command invokes the
 server-owned `deploy/host.py`, which independently verifies a main commit and its successful
-push CI (main may have moved on, unless a newer main commit already passed; never older than
-production), fetches a dedicated clean main checkout and the published Phase pin, and builds
+push CI (main may have moved on, while the commit stays on main; never older than production),
+fetches a dedicated clean main checkout and the published Phase pin, and builds
 committed exports on saget. The repository variable `DEPLOY_BACKEND` can move that request
 from the saget runner to a one-use GitHub-hosted job that reaches the same gate over
 Cloudflare Access SSH (deploy/RUNNER.md). Saget's address and deploy credentials live only in
@@ -262,8 +262,11 @@ release gate; production takes it exclusively. An authorized production request 
 fleet admission lock so existing CI finishes while new jobs wait, preventing release starvation.
 GitHub summaries distinguish healthy activation from superseded requests.
 GitHub concurrency and one host lock serialize automated and
-manual deployments. Superseded builds do not activate; a final GitHub check follows
-backup and immediately precedes the live config switch. Missing sidecar configuration
+manual deployments. A request activates while its commit is still on main, even after newer
+commits pass CI (2026-11-02: superseding builds whenever a newer commit passed its one-minute
+push CI starved production through four merges); a final GitHub check follows
+backup and immediately precedes the live config switch. A superseded request's run carries a
+"Not deployed" warning. Missing sidecar configuration
 is bootstrapped once under the lock, preserving existing credentials. A mandatory SQLite
 backup precedes activation of an existing database; only a genuinely empty first
 installation can initialize without one; full-SHA image tags, the preserved server-local Compose override, all three

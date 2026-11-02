@@ -152,7 +152,9 @@ Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yam
 Successful push CI on current `main` automatically deploys through the dedicated saget
 runner. Follow [Releasing Yama](RELEASING.md) for reviews and merge, and [runner operation](RUNNER.md)
 for setup, pause, status and recovery. One server lock serializes automatic and manual
-releases. The server builds committed exports, requires a SQLite backup before activation,
+releases. A request builds and activates its commit while that commit is still on main, even
+if newer merges have passed CI meanwhile; they deploy after it. A superseded run (its commit left
+main, or production is already newer) carries a "Not deployed" warning. The server builds committed exports, requires a SQLite backup before activation,
 preserves local configuration/Compose overrides, and verifies exact image IDs plus health.
 `./deploy/deploy.sh --check` still checks local source/engine readiness without contacting
 saget; a requested manual retry uses `./deploy/deploy.sh` and the same server CI gate.
