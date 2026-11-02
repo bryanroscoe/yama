@@ -18,3 +18,9 @@ CREATE INDEX games_playgroup ON games(playgroup_id, started_at);
 CREATE INDEX sessions_user ON sessions(user_id);
 -- What's in a box or binder (the collection's containers, emptying one).
 CREATE INDEX collection_items_container ON collection_items(container_id);
+
+-- Each date prices are stored under, so the newest is one lookup: MAX(date) over price_snapshots
+-- reads that table's whole index (0.4 s on saget at 1.6 million rows). The card import adds a
+-- date in the transaction that stores its prices.
+CREATE TABLE price_dates (date TEXT PRIMARY KEY) WITHOUT ROWID;
+INSERT INTO price_dates SELECT DISTINCT date FROM price_snapshots;

@@ -132,19 +132,12 @@ async fn import_date_since(pool: &SqlitePool, kind: &str, min_version: i64) -> s
     .flatten())
 }
 
-/// The date of the newest complete set of prices (YYYY-MM-DD): the latest date any successful
-/// printings import stored its prices under, which is its Scryfall file's date, or for a file given
-/// on the command line the day the import started (see [`import_default`]). An import that failed
-/// part way may have stored some prices of a later date; each of those still carries its own date.
-/// From `import_runs`: `MAX(date)` over price_snapshots reads that table's whole index (0.4 s on
+/// The newest date any price is stored under (YYYY-MM-DD), as `MAX(date)` over price_snapshots
+/// would say, from `price_dates` (migration 0057), which every batch of an import fills in the
+/// transaction that stores its prices. `MAX(date)` itself reads that table's whole index (0.4 s on
 /// saget at 1.6 million rows, 2026-11-02).
 pub async fn latest_price_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar(
-        "SELECT MAX(substr(COALESCE(source_updated_at, started_at), 1, 10)) FROM import_runs
-         WHERE kind = 'default_cards' AND error IS NULL AND finished_at IS NOT NULL",
-    )
-    .fetch_one(pool)
-    .await
+    sqlx::query_scalar("SELECT MAX(date) FROM price_dates").fetch_one(pool).await
 }
 
 /// When the card table last changed: the newest rules-text import's end, or its start while it
@@ -598,10 +591,14 @@ async fn start_run(pool: &SqlitePool, kind: &str, meta: Option<&BulkItem>) -> an
 /// take about two minutes on saget.
 const SLOW_IMPORT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
-/// Time one import: one log line at its end, and a row in Admin, Server.
-fn timed(kind: &str, job: crate::perf::Job, result: &anyhow::Result<usize>) {
+/// Record an import's end in `import_runs`, then time it: one log line, and a row in Admin,
+/// Server. The import fails if its record can't be written either.
+async fn finish_timed(pool: &SqlitePool, run: &str, kind: &str, job: crate::perf::Job, result: &anyhow::Result<usize>) -> anyhow::Result<()> {
+    let recorded = finish_run(pool, run, result).await;
     let rows = result.as_ref().map(|n| format!(", {n} rows")).unwrap_or_default();
-    job.finish(result, format!("{kind}{rows}"));
+    let unrecorded = if recorded.is_err() { ", its import_runs row not written" } else { "" };
+    job.done(result.is_ok() && recorded.is_ok(), format!("{kind}{rows}{unrecorded}"));
+    recorded
 }
 
 async fn finish_run(pool: &SqlitePool, id: &str, result: &anyhow::Result<usize>) -> anyhow::Result<()> {
@@ -623,8 +620,7 @@ pub async fn import_oracle(pool: &SqlitePool, path: &Path, meta: Option<&BulkIte
     let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "oracle_cards", meta).await?;
     let result = import_oracle_inner(pool, path).await;
-    finish_run(pool, &run, &result).await?;
-    timed("oracle_cards", job, &result);
+    finish_timed(pool, &run, "oracle_cards", job, &result).await?;
     result
 }
 
@@ -712,14 +708,10 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
 pub async fn import_default(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
     let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "default_cards", meta).await?;
-    // Prices belong to the day Scryfall generated the file, not the day we imported it. A file
-    // given on the command line has no such date: its prices go under the day the run started
-    // (`started_at`, which `latest_price_date` reads back).
-    let started: String = sqlx::query_scalar("SELECT started_at FROM import_runs WHERE id = ?").bind(&run).fetch_one(pool).await?;
-    let price_date = meta.map(|m| m.updated_at[..10].to_string()).unwrap_or_else(|| started[..10].to_string());
+    // Prices belong to the day Scryfall generated the file, not the day we imported it.
+    let price_date = meta.map(|m| m.updated_at[..10].to_string()).unwrap_or_else(|| now()[..10].to_string());
     let result = import_default_inner(pool, path, &price_date).await;
-    finish_run(pool, &run, &result).await?;
-    timed("default_cards", job, &result);
+    finish_timed(pool, &run, "default_cards", job, &result).await?;
     result
 }
 
@@ -729,6 +721,7 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
     let stamp = now();
     while let Some(batch) = rx.recv().await {
         let mut tx = pool.begin().await?;
+        let mut priced = false;
         for c in batch? {
             if c.layout.as_deref().is_some_and(|l| SKIP_LAYOUTS.contains(&l)) {
                 continue;
@@ -777,6 +770,7 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
             let p = &c.prices;
             let values = [price(&p.usd), price(&p.usd_foil), price(&p.usd_etched), price(&p.eur), price(&p.eur_foil), price(&p.tix)];
             if values.iter().any(Option::is_some) {
+                priced = true;
                 sqlx::query(
                     "INSERT OR REPLACE INTO price_snapshots (scryfall_id, date, usd, usd_foil, usd_etched, eur, eur_foil, tix)
                      VALUES (?,?,?,?,?,?,?,?)",
@@ -793,6 +787,10 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, price_date: &str) 
                 .await?;
             }
             count += 1;
+        }
+        // With the prices, so the newest date is right even if a later batch fails.
+        if priced {
+            sqlx::query("INSERT OR IGNORE INTO price_dates (date) VALUES (?)").bind(price_date).execute(&mut *tx).await?;
         }
         tx.commit().await?;
     }
@@ -817,8 +815,7 @@ pub async fn import_rulings(pool: &SqlitePool, path: &Path, meta: Option<&BulkIt
     let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "rulings", meta).await?;
     let result = import_rulings_inner(pool, path).await;
-    finish_run(pool, &run, &result).await?;
-    timed("rulings", job, &result);
+    finish_timed(pool, &run, "rulings", job, &result).await?;
     result
 }
 
@@ -920,6 +917,9 @@ mod tests {
         let prices: Vec<(String, Option<f64>, Option<f64>)> =
             sqlx::query_as("SELECT scryfall_id, usd, usd_foil FROM price_snapshots").fetch_all(&pool).await.unwrap();
         assert_eq!(prices, vec![("p1".into(), Some(1.5), None)]);
+        // The newest price date is the one those prices went under, without reading them all.
+        let stored: String = sqlx::query_scalar("SELECT MAX(date) FROM price_snapshots").fetch_one(&pool).await.unwrap();
+        assert_eq!(latest_price_date(&pool).await.unwrap(), Some(stored));
     }
 
     #[tokio::test]
