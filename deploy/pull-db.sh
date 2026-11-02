@@ -1,9 +1,10 @@
 #!/bin/sh
 # Copy saget's newest database backup into the local data/ folder, to debug against real data.
 #
-#   ./deploy/pull-db.sh           read-only on saget: copies the newest existing backup
-#   ./deploy/pull-db.sh --fresh   first writes a new backup on saget (this changes the server:
-#                                 only run it when Bryan has said so)
+#   ./deploy/pull-db.sh           read-only on saget: copies the newest verified daily snapshot
+#                                 (/mnt/user/backups/yama, 14 days), else the newest deploy copy
+#   ./deploy/pull-db.sh --fresh   first writes a new backup on saget and copies that one (this changes
+#                                 the server: only run it when Bryan has said so)
 #
 # The local database is kept as data/yama.local-<time>.db, never deleted. Stop the local server
 # first. Afterwards, sign in locally as yourself with dev login (YAMA_DEV_LOGIN=1) or give your
@@ -13,6 +14,7 @@ DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama
+SNAPSHOTS=/mnt/user/backups/yama
 
 if lsof -nP -iTCP:8787 -sTCP:LISTEN > /dev/null 2>&1; then
   echo "The local server is running on port 8787. Stop it first, then run this again."; exit 1
@@ -22,14 +24,17 @@ if [ "${1:-}" = "--fresh" ]; then
   STAMP=$(date +%Y%m%d-%H%M%S)
   echo "Writing a new backup on saget…"
   ssh "$HOST" "docker exec yama yama-server backup /data/backups/yama-$STAMP.db"
+  LATEST="$DIR/data/backups/yama-$STAMP.db"
+else
+  # Snapshot folders are published only after verification, and their names carry the UTC stamp,
+  # so name order is age order. Never open a backup in place on the server; only list and copy.
+  LATEST=$(ssh "$HOST" "ls -1d $SNAPSHOTS/snapshot-*/yama.db 2>/dev/null | sort | tail -1")
+  [ -n "$LATEST" ] || LATEST=$(ssh "$HOST" "ls -t $DIR/data/backups/*.db 2>/dev/null | head -1")
 fi
-
-# Never open a backup in place on the server; only list and copy.
-LATEST=$(ssh "$HOST" "ls -t $DIR/data/backups/yama-*.db 2>/dev/null | head -1")
 if [ -z "$LATEST" ]; then
   echo "No backups on saget yet. Run with --fresh (changes the server) or deploy once."; exit 1
 fi
-echo "Copying $LATEST…"
+echo "Copying ${LATEST}…"
 mkdir -p data
 scp -q "$HOST:$LATEST" data/yama.pulled.db
 
@@ -42,4 +47,4 @@ if [ -f data/yama.db ]; then
   echo "Kept the old local database as $KEEP"
 fi
 mv data/yama.pulled.db data/yama.db
-echo "Done. data/yama.db is now saget's $(basename "$LATEST")."
+echo "Done. data/yama.db is now a copy of saget's $LATEST."

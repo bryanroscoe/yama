@@ -14,10 +14,28 @@ import { isNative, nativeGoogleCredential } from "./native";
 
 const ME_KEY = "yama.me";
 
-/** The signed-in user. Offline, the last known user is used so the life counter still opens. */
+/** The account this device last saw signed in, if any (kept by useMe). */
+export function savedMe(): User | undefined {
+  try {
+    const saved = localStorage.getItem(ME_KEY);
+    return saved ? (JSON.parse(saved) as User) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The signed-in user. The app opens at once as the account this device last saw, while Yama's
+ * server is asked again in the background (Bryan, 2026-11-02: no blank screen while /api/me
+ * answers). A 401 means signed out: the saved account goes. Offline, the last known user is
+ * used so the life counter still opens.
+ */
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
+    // Read once, when the query is first made; stale from the start, so it's checked straight away.
+    initialData: savedMe,
+    initialDataUpdatedAt: 0,
     queryFn: async () => {
       try {
         const me = await api<User>("/api/me");
@@ -30,14 +48,19 @@ export function useMe() {
           noteViewing(null);
           return null;
         }
-        const cached = localStorage.getItem(ME_KEY);
-        if (cached) return JSON.parse(cached) as User;
+        const cached = savedMe();
+        if (cached) return cached;
         throw e;
       }
     },
     // Checked again after five minutes (on the next mount or focus), so a power-user grant or its
     // withdrawal reaches an open app without a reload; the cached account shows meanwhile.
     staleTime: 5 * 60_000,
+    // Unanswered with no account saved: the app opens without one. Pages mounting then mustn't ask
+    // again, which would put the app back to waiting and round again; it's asked once the
+    // connection is back. Offline there's no point retrying.
+    retryOnMount: false,
+    retry: (failures) => failures < 1 && navigator.onLine,
   });
 }
 

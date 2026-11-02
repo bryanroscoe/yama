@@ -20,6 +20,8 @@ function tileMeta(copies: number, value: number | undefined, unpriced: number | 
   return `${cards}, ${money}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
 import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
+// The scan choices and their notes, shown here outside the scanner too.
+import "../scanner/scanner.css";
 
 // The scanner pulls in OCR; load it only when someone opens it.
 const scanner = () => import("../scanner");
@@ -220,7 +222,7 @@ export function CollectionPage() {
             return (
               <li key={i.id}>
                 <button className="coll-row" onClick={() => setOpen(i)}>
-                  {i.image_art_crop ? <img className="coll-art" src={i.image_art_crop} alt="" loading="lazy" /> : <CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />}
+                  {i.image_art_crop ? <img className="coll-art" src={i.image_art_crop} alt="" loading="lazy" crossOrigin="anonymous" /> : <CardImage src={i.image_small} name={i.name ?? "?"} className="coll-art coll-thumb" />}
                   <span className="coll-row-text">
                     <span className="coll-row-name">
                       <CardHover name={i.name??i.scryfall_id} oracleId={i.oracle_id} image={i.image_small}/>

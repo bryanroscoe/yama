@@ -2,7 +2,6 @@
 // everyone who scanned the code. Their taps come back as events and go through our dispatch.
 
 import { RELAY_TOKEN, relayShareKey, type TableEvent } from "@yama/core";
-import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { api, API_BASE, publicOrigin } from "../api";
 import { dispatch, getGame, isPosted, subscribeTable, sync } from "./store";
@@ -233,7 +232,14 @@ function useQrSvg(url: string, on: boolean): string {
   useEffect(() => {
     // Stopped sharing: no code left on screen for anyone to scan into an empty room.
     if (!on) return setSvg("");
-    QRCode.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }).then(setSvg);
+    // The QR library loads only when a table is shared.
+    let live = true;
+    void import("qrcode")
+      .then((QRCode) => QRCode.default.toString(url, { type: "svg", margin: 1, color: { dark: "#0b0c0e", light: "#f2efe8" } }))
+      .then((svg) => live && setSvg(svg));
+    return () => {
+      live = false;
+    };
   }, [on, url]);
   return svg;
 }

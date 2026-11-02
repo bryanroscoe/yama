@@ -22,6 +22,7 @@ import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEd
 import { gameSummary } from "./history";
 import { formFromGame, settleRebuilt } from "./logEdit";
 import { useInstall } from "../install";
+import { tablePlay } from "./playLoader";
 import "./seats.css";
 import "./home.css";
 
@@ -68,6 +69,11 @@ export function TableHome() {
   const navigate = useNavigate();
   const showArt = useShowArt();
   const guest = isGuest();
+  // The life counter's code, ready before anyone presses Start.
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1500));
+    idle(() => tablePlay.prefetch());
+  }, []);
 
   return (
     <main className="page table-home">

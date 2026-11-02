@@ -282,9 +282,12 @@ export function ScannerView({
   /** Tesseract, started on first use. */
   const ocrEngine = useCallback(() => {
     // Served by the app (scripts/copy-ocr.mjs), so it works offline and loads nothing from a CDN.
+    // The folder and tesseract's own saved copy of the model are named by the engine's version, so
+    // a new engine is fetched rather than an old copy kept.
+    const ocr = `/ocr/${import.meta.env.VITE_OCR_VERSION}`;
     ocrRef.current ??= ocrProp
       ? Promise.resolve(ocrProp)
-      : createTesseractOcr({ workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang" }).then((o) => {
+      : createTesseractOcr({ workerPath: `${ocr}/worker.min.js`, corePath: `${ocr}/core`, langPath: `${ocr}/lang`, cachePath: `ocr-${import.meta.env.VITE_OCR_VERSION}` }).then((o) => {
           if (!alive.current) {
             void o.terminate();
             throw new Error("The scanner is closed");
