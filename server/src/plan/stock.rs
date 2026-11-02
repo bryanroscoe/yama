@@ -1222,6 +1222,7 @@ struct SnapRow {
     failed: Option<String>,
     fetched_at: String,
     status: String,
+    requested_at: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1261,14 +1262,30 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     if names.is_empty() {
         return Ok(vec![]);
     }
-    let snaps: Vec<SnapRow> = sqlx::query_as(
-        "SELECT id, store_key, source, cards, failed, fetched_at, status FROM store_snapshots
-         WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL
-         ORDER BY requested_at DESC, source = 'yestcg' DESC, fetched_at DESC, id DESC",
+    let mut snaps: Vec<SnapRow> = sqlx::query_as(
+        "SELECT id, store_key, source, cards, failed, fetched_at, status, requested_at FROM store_snapshots
+         WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    // Newest answer first: a check's snapshots count from when the last of them finished (an import
+    // from when it was read), and within one check YesTCG's comes before the store's own.
+    let mut check_done: HashMap<String, String> = HashMap::new();
+    for s in snaps.iter().filter(|s| s.source != "import") {
+        let e = check_done.entry(s.requested_at.clone()).or_default();
+        if s.fetched_at > *e {
+            *e = s.fetched_at.clone();
+        }
+    }
+    let answered = |s: &SnapRow| if s.source == "import" { s.fetched_at.clone() } else { check_done[&s.requested_at].clone() };
+    snaps.sort_by(|a, b| {
+        answered(b)
+            .cmp(&answered(a))
+            .then((b.source == "yestcg").cmp(&(a.source == "yestcg")))
+            .then(b.fetched_at.cmp(&a.fetched_at))
+            .then(b.id.cmp(&a.id))
+    });
     // A whole catalog read only in part (a page failed) answers for nothing: a page not read may
     // hold another printing of a card, or the card itself, so an older full read still counts.
     // For each (store, card): the newest snapshot that answered for it, by the check it came from;

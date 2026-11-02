@@ -18,8 +18,10 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 
-/// At most this many wants on a list at once.
+/// At most this many wants on a list at once, and this many copies across them (each copy is a
+/// want the trip plans for).
 pub const MAX_WANTS: i64 = 500;
+pub const MAX_COPIES: i64 = 500;
 
 fn now() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
@@ -96,9 +98,15 @@ pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: 
         return Ok(done);
     }
     let (kind, name, qty, priority, deck_id, deck_name, why) = check(pool, owner, w).await?;
-    let open: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL").bind(owner).fetch_one(pool).await?;
+    let (open, copies): (i64, i64) = sqlx::query_as("SELECT COUNT(*), IFNULL(SUM(qty), 0) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL")
+        .bind(owner)
+        .fetch_one(pool)
+        .await?;
     if open >= MAX_WANTS {
         return Err(AppError::bad(format!("Your list has {open} cards and products, the most Yama keeps. Remove some first.")));
+    }
+    if copies + qty > MAX_COPIES {
+        return Err(AppError::bad(format!("Your list has {copies} copies; at most {MAX_COPIES} in all. Remove some first.")));
     }
     let id = id.map_or_else(crate::util::new_id, String::from);
     let at = now();
@@ -257,6 +265,13 @@ mod tests {
         let (s, _) = send(&app, Method::POST, "/api/plan/wants", Some(&token), Some(json!({"kind": "sealed", "name": "Federation Fleet", "priority": "along"}))).await;
         assert!(s.is_success());
         assert_eq!(list(&pool, &owner).await.unwrap().len(), 2);
+        // Copies count toward the cap, not just rows.
+        for _ in 0..5 {
+            assert!(send(&app, Method::POST, "/api/plan/wants", Some(&token), Some(json!({"name": "Sol Ring", "qty": 99}))).await.0.is_success());
+        }
+        let (s, v) = send(&app, Method::POST, "/api/plan/wants", Some(&token), Some(json!({"name": "Sol Ring", "qty": 99}))).await;
+        assert!(s.as_u16() == 400 && v["error"].as_str().unwrap().contains("copies"), "{v}");
+        sqlx::query("DELETE FROM shopping_wants WHERE owner_id = ? AND qty = 99").bind(&owner).execute(&pool).await.unwrap();
         // In the bundle, and its card in the trip.
         let b = crate::plan::bundle::load_bundle(&pool, &owner).await.unwrap();
         assert_eq!(b["shopping_wants"].as_array().unwrap().len(), 2);

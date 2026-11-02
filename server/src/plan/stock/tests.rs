@@ -324,6 +324,14 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let mv: Vec<&Value> = q.iter().filter(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").collect();
     assert_eq!((mv.len(), &mv[0]["origin"], &mv[0]["in_stock"]), (1, &json!("snapshot:s-mv-yes"), &json!(false)), "{mv:?}");
 
+    // A check that finished after an import counts over it, even though it was asked for first.
+    snapshot(&pool, &owner, "s-late", "multiverse-hobbies", "tcgplayer_pro", None).await;
+    sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2099-03-01T10:00:00Z', fetched_at = '2099-03-01T10:10:00Z' WHERE id = 's-late'").execute(&pool).await.unwrap();
+    snapshot(&pool, &owner, "s-imp", "multiverse-hobbies", "import", Some(&["Sol Ring"])).await;
+    sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2099-03-01T10:05:00Z', fetched_at = '2099-03-01T10:05:00Z' WHERE id = 's-imp'").execute(&pool).await.unwrap();
+    let q = store_quotes(&pool, &owner, &cards).await.unwrap();
+    assert_eq!(q.iter().find(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").unwrap()["origin"], "snapshot:s-late");
+
     // A check left running by a restart shows as failed when read.
     snapshot(&pool, &owner, "s-old", "pats", "shopify", Some(&["Sol Ring"])).await;
     sqlx::query("UPDATE store_snapshots SET requested_at = '2026-01-01T00:00:00Z' WHERE id = 's-old'").execute(&pool).await.unwrap();
