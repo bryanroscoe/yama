@@ -911,7 +911,7 @@ button.list-row:hover {
   inset: 50% auto auto 50%;
   translate: -50% -50%;
   width: min(30rem, calc(100% - 24px));
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   border: 1px solid var(--line);
   border-radius: var(--r-sheet);
   padding: 22px 20px;

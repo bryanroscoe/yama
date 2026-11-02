@@ -1377,8 +1377,8 @@ function GameLog({ state, log }: { state: TableState; log: LoggedEvent[] }) {
  */
 function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtFor; onDone: () => void }) {
   const [rolled, setRolled] = useState<number | null>(null);
-  // While "Pick at random" spins: the lit tile, and whether the light has stopped on it.
-  const [lit, setLit] = useState<{ index: number; landed: boolean } | null>(null);
+  // While "Pick at random" spins: the lit player's seat, and whether the light has stopped on it.
+  const [lit, setLit] = useState<{ seat: number; landed: boolean } | null>(null);
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const spinning = lit !== null;
@@ -1403,22 +1403,27 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
     const steps = spinSchedule(players.length, from, to);
     const end = steps.at(-1)!.at;
     setRolled(null);
-    setLit({ index: from, landed: false });
+    setLit({ seat: players[from]!.seat, landed: false });
     timers.current = [
-      ...steps.map(({ index, at }) => window.setTimeout(() => setLit({ index, landed: at === end }), at)),
+      ...steps.map(({ index, at }) => window.setTimeout(() => setLit({ seat: players[index]!.seat, landed: at === end }), at)),
       window.setTimeout(() => land(seat), end + 550),
     ];
   };
   const winner = state.players.find((p) => p.seat === rolled);
+  // One status line for both views, so a screen reader hears each result even though the view
+  // around it is swapped out for the spin.
+  const status = <span className="visually-hidden" role="status">{winner ? `${winner.name} goes first` : spinning ? "Picking a player" : ""}</span>;
   if (winner) {
     return (
       <div className="stack first-sheet">
-        <div className="first-rolled" role="status">
+        {status}
+        <div className="first-rolled">
           <SeatDot art={artFor(winner.seat)} colorIdentity={winner.colorIdentity} className="first-rolled-dot" />
           <h2>{winner.name} goes first</h2>
         </div>
         <div className="row">
-          <button className="primary" onClick={onDone}>Start</button>
+          {/* The button tapped is gone by now; keyboard focus lands here instead of the page. */}
+          <button className="primary" autoFocus onClick={onDone}>Start</button>
           <button className="quiet" onClick={roll}>Roll again</button>
         </div>
       </div>
@@ -1426,15 +1431,16 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
   }
   return (
     <div className="stack first-sheet">
+      {status}
       <div className="sheet-head">
         <h2>Who goes first?</h2>
         <button className="quiet" onClick={onDone}>Skip</button>
       </div>
       <div className="tm-winners" aria-busy={spinning}>
-        {state.players.map((p, i) => (
+        {state.players.map((p) => (
           <button
             key={p.seat}
-            className={`tm-winner${lit?.index === i ? (lit.landed ? " lit landed" : " lit") : ""}`}
+            className={`tm-winner${lit?.seat === p.seat ? (lit.landed ? " lit landed" : " lit") : ""}`}
             aria-disabled={spinning}
             onClick={() => pick(p.seat)}
           >
@@ -1443,7 +1449,7 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
           </button>
         ))}
       </div>
-      <button className="primary" aria-disabled={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</button>
+      <button className="primary" aria-disabled={spinning} autoFocus={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</button>
       <p className="small dim" style={{ margin: 0 }}>Saved with the game for the playgroup's turn-order stats. Change it any time from the menu.</p>
     </div>
   );
