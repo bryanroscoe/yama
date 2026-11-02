@@ -2,12 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, type Card, type CardDetail, type SearchResult } from "../api";
+import { cardSearchPath, isGuest } from "../guest";
 import "./card-ref.css";
 
 export type PreviewCard = Pick<Card, "oracle_id" | "name" | "image_normal" | "back_image_normal" | "oracle_text" | "type_line" | "mana_cost"> & { remote?: boolean };
 
 /** Card-only lookup. No deck, inventory or research text is sent outside Yama. */
 export async function lookupPreview(name: string, oracleId?: string): Promise<PreviewCard | null> {
+  // Signed out, only the guest search answers: the card by its exact name, or nothing.
+  if (isGuest()) {
+    const cards = (await api<SearchResult>(cardSearchPath(`!"${name.replace(/"/g, "")}"`))).cards;
+    return cards.find((c) => c.oracle_id === oracleId) ?? cards[0] ?? null;
+  }
   if (oracleId) return (await api<CardDetail>(`/api/cards/${encodeURIComponent(oracleId)}`)).card;
   const q = `!"${name.replace(/"/g, "")}"`;
   const cards = (await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(q)}`)).cards;

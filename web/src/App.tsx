@@ -178,7 +178,9 @@ export function App() {
       <Route path="/play/:id" element={signedIn ? <PlayGame /> : <Login />} />
       <Route path="/play/watch/:id" element={signedIn ? <WatchGame /> : <Login />} />
       <Route element={<Shell />}>
-        <Route index element={<TableHome />} />
+        {/* Keyed by who's signed in: a session that ends (or starts) under an open setup starts
+            it afresh, so no account's seats, decks or playgroup carry into a guest game. */}
+        <Route index element={<TableHome key={me.data?.id ?? "guest"} />} />
         <Route path="cards" element={<CardsPage />} />
         <Route path="new" element={<WhatsNewPage />} />
         <Route element={<RequireAccount />}>
