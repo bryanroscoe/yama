@@ -654,3 +654,19 @@ async fn yestcg_answering_its_cookie_request_with_429_stops_the_check() {
     assert_eq!(store.failed, cards);
     assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn a_429_without_retry_after_still_holds_the_store() {
+    let app = Router::new().route("/unsaid", get(|| async { axum::http::StatusCode::TOO_MANY_REQUESTS }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let url = format!("{base}/unsaid");
+    let (http, u) = (crate::routes::http_client(), url.clone());
+    // The check gets its 429, then waits out the hold before trying again; stop it there.
+    let check = tokio::spawn(async move { Fetcher::new(http, None).send(Kind::Shopify, "GET", &u, None, &mut Raw::default()).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    check.abort();
+    let left = held(&host_of(&url).unwrap());
+    assert!(left > Duration::from_secs(50) && left <= UNSAID_HOLD, "{left:?}");
+}

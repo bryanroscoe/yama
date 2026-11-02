@@ -737,6 +737,12 @@ pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, versi
     }
     if let Some(pacer) = pacer {
         pacer.pace(Provider::Spellbook).await;
+        // The wait can be long (a 429 holds every Spellbook request off): the deck may have been
+        // saved again or archived meanwhile, or the same list answered elsewhere.
+        let failed = |e: sqlx::Error| CheckError::Failed(format!("couldn't read the checks: {e}"));
+        if !still_wanted(pool, version_id).await.map_err(failed)? || reuse_answer(pool, version_id, &cards, &list_hash(&cards)).await.map_err(failed)? {
+            return Ok(());
+        }
     }
     let started = stamp();
     let outcome = fetch(http, url, &cards, version_id, &started).await;
@@ -751,6 +757,21 @@ pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, versi
         tracing::warn!(error = %e, version_id, "couldn't save a deck check");
     }
     outcome.map(|_| ())
+}
+
+/// Whether a check still needs an answer: its deck is live, this is its current version, and
+/// no answer has come since it was requested.
+async fn still_wanted(pool: &SqlitePool, version_id: &str) -> sqlx::Result<bool> {
+    if !matches!(deck_state(pool, version_id).await?, DeckState::Live) {
+        return Ok(false);
+    }
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM deck_version_checks WHERE version_id = ? AND source = ? AND (checked_at IS NULL OR checked_at < requested_at))",
+    )
+    .bind(version_id)
+    .bind(SPELLBOOK)
+    .fetch_one(pool)
+    .await
 }
 
 /// Spellbook's answer for `cards`, summarized, with the answer as sent (kept, so the same list
@@ -1246,6 +1267,29 @@ mod tests {
         let after: String = sqlx::query_scalar("SELECT requested_at FROM deck_version_checks WHERE version_id = ?").bind(&t3).fetch_one(&pool).await.unwrap();
         assert_eq!(after, newer);
         assert!(view(&pool, Some(&t3), true).await.unwrap().pending);
+    }
+
+    #[tokio::test]
+    async fn a_check_waiting_for_spellbook_skips_a_deck_archived_meanwhile() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Rohan", None, rohan_sample()).await.unwrap();
+        let v = current_version(&pool, &deck).await;
+        // A 429 holds Spellbook off; while the check waits, the deck is archived.
+        let pacer = Research::default();
+        pacer.hold_off(Provider::Spellbook, Duration::from_millis(400));
+        let archive = async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            sqlx::query("UPDATE decks SET archived = 1 WHERE id = ?").bind(&deck).execute(&pool).await.unwrap();
+        };
+        // This "Spellbook" fails, so a request would show as an error.
+        let url = fake_spellbook(500).await;
+        let http = crate::routes::http_client();
+        let (result, _) = tokio::join!(run_one(&pool, &http, &url, &v, Some(&pacer)), archive);
+        result.unwrap();
+        let (attempts, error): (i64, Option<String>) =
+            sqlx::query_as("SELECT attempts, error FROM deck_version_checks WHERE version_id = ?").bind(&v).fetch_one(&pool).await.unwrap();
+        assert_eq!((attempts, error), (0, None), "nothing was sent");
     }
 
     #[tokio::test]

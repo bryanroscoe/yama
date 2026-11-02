@@ -531,12 +531,15 @@ async fn turn(host: &str, url: &str, pause: Duration) -> Result<tokio::sync::Own
     }
 }
 
-/// A 429's Retry-After, or a minute when it gives none.
+/// How long a 429 without a usable Retry-After holds its host.
+const UNSAID_HOLD: Duration = Duration::from_secs(60);
+
+/// A 429's Retry-After, or [`UNSAID_HOLD`] when it gives none.
 fn asked_wait(resp: &reqwest::Response) -> Duration {
     resp.headers()
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|v| v.to_str().ok())
-        .map_or(Duration::from_secs(60), |v| Duration::from_secs(crate::mcp::research::client::retry_after(v.trim())))
+        .map_or(UNSAID_HOLD, |v| Duration::from_secs(crate::mcp::research::client::retry_after(v.trim())))
 }
 
 struct Shared {
@@ -690,7 +693,7 @@ impl Fetcher {
             // The next request to this host, from any check, waits its pause from now, and as long
             // as the store asked.
             let asked = match &read {
-                Ok((429, Some(asked), _)) => *asked,
+                Ok((429, asked, _)) => asked.unwrap_or(UNSAID_HOLD),
                 _ => Duration::ZERO,
             };
             if !asked.is_zero() {
