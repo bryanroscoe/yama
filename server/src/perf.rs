@@ -317,29 +317,43 @@ impl VisitFmt for ShortStatements<'_> {
 
 /// A background job's timing. `let job = Job::start("Scryfall import", Duration::from_secs(900));`
 /// then `job.done(ok, note)`: one info line with the duration, a warning instead when it failed
-/// or took longer than `slow_after`. The note is a count or a kind, never anyone's data.
+/// or took longer than `slow_after`. The note is a count or a kind, never anyone's data. A job
+/// dropped before that (an early `?`) is recorded as failed.
 pub struct Job {
     name: &'static str,
     started: Instant,
     slow_after: Duration,
     frequent: bool,
+    ended: bool,
 }
 
 impl Job {
     pub fn start(name: &'static str, slow_after: Duration) -> Self {
-        Self { name, started: Instant::now(), slow_after, frequent: false }
+        Self { name, started: Instant::now(), slow_after, frequent: false, ended: false }
     }
 
     /// A job that runs many times a minute (a lab game's result): its normal runs are debug lines
     /// and stay out of the summary, so they don't push out the rest; slow or failed runs show.
     pub fn frequent(name: &'static str, slow_after: Duration) -> Self {
-        Self { frequent: true, ..Self::start(name, slow_after) }
+        let mut job = Self::start(name, slow_after);
+        job.frequent = true;
+        job
     }
 
-    pub fn done(self, ok: bool, note: impl Into<String>) -> Duration {
+    pub fn done(mut self, ok: bool, note: impl Into<String>) -> Duration {
+        self.end(ok, note.into())
+    }
+
+    /// [`Job::done`] from a result: ok unless it's an error.
+    pub fn finish<T, E>(self, result: &Result<T, E>, note: impl Into<String>) -> Duration {
+        self.done(result.is_ok(), note)
+    }
+
+    fn end(&mut self, ok: bool, note: String) -> Duration {
+        self.ended = true;
         let took = self.started.elapsed();
         let slow = took >= self.slow_after;
-        let (job, ms, note) = (self.name, ms(took), note.into());
+        let (job, ms) = (self.name, ms(took));
         let slow_after_ms = self.slow_after.as_millis() as u64;
         match (ok, slow, self.frequent) {
             (false, ..) => tracing::warn!(job, ms, note, "job failed"),
@@ -352,10 +366,15 @@ impl Job {
         }
         took
     }
+}
 
-    /// [`Job::done`] from a result: ok unless it's an error.
-    pub fn finish<T, E>(self, result: &Result<T, E>, note: impl Into<String>) -> Duration {
-        self.done(result.is_ok(), note)
+/// A job dropped without [`Job::done`] ended early: an error returned before it was timed, or its
+/// task was cancelled. It counts as failed.
+impl Drop for Job {
+    fn drop(&mut self) {
+        if !self.ended {
+            self.end(false, "stopped before it finished".into());
+        }
     }
 }
 
@@ -477,9 +496,11 @@ mod tests {
         Job::frequent("test failed", Duration::from_secs(60)).done(false, "1 game");
         Job::frequent("test slow", Duration::ZERO).done(true, "1 game");
         Job::start("test daily", Duration::from_secs(60)).done(true, "3 tables");
+        // An early return drops a job unfinished: it counts as failed.
+        drop(Job::frequent("test dropped", Duration::from_secs(60)));
         let jobs: Vec<&str> = store().jobs.iter().map(|j| j.job).filter(|j| j.starts_with("test ")).collect();
         assert!(!jobs.contains(&"test quick"));
-        for j in ["test failed", "test slow", "test daily"] {
+        for j in ["test failed", "test slow", "test daily", "test dropped"] {
             assert!(jobs.contains(&j), "{j}");
         }
     }
