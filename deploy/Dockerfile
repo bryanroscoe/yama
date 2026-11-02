@@ -35,9 +35,9 @@ ARG YAMA_GIT_DIRTY=
 # judges path crates fresh by file timestamps, so a source this tree shares with an older or
 # other-branch build can look already compiled and its stale artifact (or build script) ships.
 # Touch this tree's Yama and Phase sources so they always compile from what was copied in;
-# crates.io dependencies stay cached.
+# crates.io dependencies stay cached. The cache is locked: one build writes it at a time.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/yama/target \
+    --mount=type=cache,target=/src/yama/target,sharing=locked \
     find /src/yama-phase/crates server play \( -name '*.rs' -o -name Cargo.toml \) -exec touch {} + \
  && YAMA_GIT_SHA=$YAMA_GIT_SHA YAMA_GIT_DIRTY=$YAMA_GIT_DIRTY \
     YAMA_LAB_GIT_SHA=$YAMA_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_GIT_DIRTY \
