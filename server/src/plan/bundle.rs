@@ -47,10 +47,9 @@ pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
          UNION ALL SELECT 'want:' || id || '=' || IFNULL(retired_at, '') || '/' || IFNULL(precon_id, '') FROM shopping_wants WHERE owner_id = ?
          UNION ALL SELECT 'sq:' || id FROM sealed_quotes WHERE owner_id = ?
          UNION ALL SELECT 'sealed-prices:' || checked_at || '/' || source_updated_at FROM deck_price_imports WHERE id = 'sealed'
-         UNION ALL SELECT 'precon:' || id || '=' || content_sha256 FROM precons WHERE id IN (SELECT precon_id FROM shopping_wants WHERE owner_id = ? AND precon_id IS NOT NULL)
+         UNION ALL SELECT 'precons:' || COUNT(*) || '/' || IFNULL(MAX(imported_at), '') FROM precons
          ORDER BY 1",
     )
-    .bind(owner)
     .bind(owner)
     .bind(owner)
     .bind(owner)

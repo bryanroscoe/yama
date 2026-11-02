@@ -610,8 +610,9 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
   const [inStock, setInStock] = useState(true);
   const [date, setDate] = useState(today);
   const [note, setNote] = useState("");
-  // One id per price entered, so a retried save records it once.
+  // One id per price entered, so a retried save records it once; a changed form is a new price.
   const [entry, setEntry] = useState(() => crypto.randomUUID());
+  useEffect(() => setEntry(crypto.randomUUID()), [store, price, inStock, date, note]);
   // The live view, and the plan bundle that keeps the offline copy.
   const done = () => {
     void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });

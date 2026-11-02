@@ -247,10 +247,15 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     let id = match b.id.as_deref() {
         None => crate::util::new_id(),
         Some(i) if (8..=64).contains(&i.len()) && i.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
-            let owner: Option<String> = sqlx::query_scalar("SELECT owner_id FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
-            match owner {
-                Some(o) if o == user.id => return Ok(Json(json!({"id": i}))),
-                Some(_) => return Err(AppError::Conflict("That id is taken; send another.".into())),
+            #[allow(clippy::type_complexity)]
+            let had: Option<(String, String, String, Option<f64>, bool, String, Option<String>)> =
+                sqlx::query_as("SELECT owner_id, want_id, store_key, price, in_stock, checked_on, note FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
+            match had {
+                // The same price sent again: already recorded.
+                Some((o, w, st, p, s, c, n)) if o == user.id && w == want && st == b.store && p == b.price && s == b.in_stock && c == checked && n.as_deref() == note => {
+                    return Ok(Json(json!({"id": i})));
+                }
+                Some(_) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
                 None => i.to_string(),
             }
         }
@@ -498,6 +503,9 @@ mod tests {
         }
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE id = 'retry-0001'").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 1);
+        // The same id with another price is refused, not silently dropped.
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 43.0, "id": "retry-0001"}))).await;
+        assert_eq!(s.as_u16(), 409);
         // A short history per product and store.
         for i in 0..(HISTORY + 3) {
             send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;
