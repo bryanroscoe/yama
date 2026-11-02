@@ -22,7 +22,7 @@ export function ManaCost({ cost }: { cost: string | null }) {
 
 export function CardImage({ src, name, className = "card-img" }: { src: string | null | undefined; name: string; className?: string }) {
   if (!src) return <div className="card-fallback">{name}</div>;
-  return <img className={className} src={src} alt={name} loading="lazy" decoding="async" />;
+  return <img className={className} src={src} alt={name} loading="lazy" decoding="async" crossOrigin="anonymous" />;
 }
 
 /** Scryfall's large image for a small or normal one, so the zoomed card's text is readable. */
@@ -48,7 +48,7 @@ export function ZoomableCard({ src, name, className = "card-img" }: { src: strin
       {open &&
         createPortal(
           <div className="card-zoom" role="dialog" aria-modal="true" aria-label={name} onClick={() => setOpen(false)}>
-            <img src={largeOf(src)} alt={name} decoding="async" />
+            <img src={largeOf(src)} alt={name} decoding="async" crossOrigin="anonymous" />
             <button type="button" className="outline" autoFocus onClick={() => setOpen(false)}>
               Close
             </button>

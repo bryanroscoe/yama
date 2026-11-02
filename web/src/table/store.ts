@@ -16,6 +16,7 @@ import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api";
 import { isViewing } from "../viewingFlag";
 import { isGuest } from "../guest";
+import { keepStorage } from "../storage";
 
 export interface LocalGame {
   setup: TableSetup;
@@ -115,15 +116,15 @@ function emit() {
 function setCurrent(next: LocalGame | null) {
   current = next;
   derived = next ? replay(next.setup, next.log) : null;
-  // Called while App renders: the pages below it read the new game as they render, and anything
-  // already showing hears about it once the render is over.
+  // Saved now; anything already showing hears about it in a moment, not in the middle of a
+  // render or commit.
   localStorage.setItem(currentKey(), JSON.stringify(current));
   queueMicrotask(emit);
 }
 
 /**
- * Show the game without an account (guest) or the account's (App calls it as the mode changes,
- * while it renders). The two never mix: a game counted without an account stays in its own slot
+ * Show the game without an account (guest) or the account's (main.tsx calls it before the first
+ * render and whenever /api/me's answer changes, before any page renders with it). The two never mix: a game counted without an account stays in its own slot
  * until whoever signs in says to save it (saveGuestGames), so nothing an account does reaches it.
  */
 export function selectSlot(guest: boolean, user?: string | null) {
@@ -142,8 +143,8 @@ export function selectSlot(guest: boolean, user?: string | null) {
   }
   derived = current ? replay(current.setup, current.log) : null;
   waitingGuest = slot !== "guest" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
-  // The pages below App read the new game as they render; anything already showing hears about
-  // it once the render is over.
+  // Pages that render from now on read the new game; anything already showing hears about it
+  // in a moment, before the screen updates.
   queueMicrotask(emit);
 }
 
@@ -278,6 +279,8 @@ export function useSyncStatus() {
 }
 
 export function startGame(setup: TableSetup) {
+  // A game in progress lives only on this device until it's uploaded.
+  keepStorage();
   const owner = isGuest() ? undefined : (signedInUser() ?? undefined);
   setCurrent({ setup, log: [], redo: [], syncedThrough: 0, ...(isGuest() ? { guest: true as const } : {}), ...(owner ? { owner } : {}) });
   void sync();

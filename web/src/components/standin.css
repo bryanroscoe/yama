@@ -1,0 +1,146 @@
+/* Stand-ins (components/StandIn.tsx): flat grey blocks where a page's parts will be. */
+
+.si-block {
+  display: block;
+  background: var(--raised);
+  border-radius: var(--r-tile);
+  animation: si-pulse 1.6s ease-in-out infinite alternate;
+}
+@keyframes si-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .si-block {
+    animation: none;
+  }
+}
+
+.si-title {
+  width: min(320px, 60%);
+  height: 2.5rem;
+}
+.si-bar {
+  height: 48px;
+  width: min(480px, 100%);
+  border-radius: var(--r-pill);
+}
+.si-strip {
+  height: 120px;
+  border-radius: var(--r-panel);
+  margin-bottom: 16px;
+}
+.si-hero {
+  height: 180px;
+  border-radius: var(--r-panel);
+  margin-bottom: 16px;
+}
+.si-panel-wide {
+  height: 96px;
+  border-radius: var(--r-panel);
+  margin-bottom: 16px;
+}
+
+.si-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.si-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+}
+.si-thumb {
+  width: 48px;
+  height: 48px;
+  flex: none;
+}
+.si-lines {
+  flex: 1;
+  display: grid;
+  gap: 8px;
+}
+.si-line {
+  height: 14px;
+  width: 70%;
+  border-radius: var(--r-pill);
+}
+.si-line.si-short {
+  width: 40%;
+}
+.si-end {
+  width: 56px;
+  height: 14px;
+  flex: none;
+  border-radius: var(--r-pill);
+}
+
+.si-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.si-tile {
+  aspect-ratio: 16 / 10;
+  border-radius: var(--r-panel);
+}
+
+/* The online board and the life counter take the whole screen. */
+.si-full {
+  position: fixed;
+  inset: 0;
+  background: var(--ground);
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+.si-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.si-opponents {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.si-seat {
+  height: 96px;
+  border-radius: var(--r-panel);
+}
+.si-field {
+  flex: 1;
+  border-radius: var(--r-panel);
+}
+.si-hand {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.si-card {
+  width: min(96px, 12vw);
+  aspect-ratio: 63 / 88;
+  border-radius: var(--card-radius);
+}
+.si-counter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  padding: 6px;
+}
+.si-panel {
+  border-radius: var(--r-panel);
+}

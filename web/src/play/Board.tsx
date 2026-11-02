@@ -1851,7 +1851,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         </div>
       )}
       {attackGroups.map((g) => (
-        <div key={g.key} className="plan-group" style={seatStyle(g.tone)}>
+        <div key={g.key} className="combat-plan-group" style={seatStyle(g.tone)}>
           <span className="plan-head">
             <b><span className="seat-dot" aria-hidden="true" />{g.name}</b>
             <b className="num plan-power" aria-label={`${g.power} power`}>{g.power}</b>

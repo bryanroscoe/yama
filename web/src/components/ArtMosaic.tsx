@@ -10,7 +10,7 @@ export function ArtMosaic({ arts, className = "" }: { arts: (string | null | und
   return (
     <span className={`art-mosaic${className ? ` ${className}` : ""}`} data-n={shown.length} aria-hidden="true">
       {shown.map((a, i) => (
-        <img key={`${i}-${a}`} src={a} alt="" loading="lazy" />
+        <img key={`${i}-${a}`} src={a} alt="" loading="lazy" crossOrigin="anonymous" />
       ))}
     </span>
   );

@@ -23,10 +23,6 @@
 
 /* ── tags, notes ────────────────────────────────────────────────────────── */
 
-.tag.warn {
-  color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-}
 .plan-banner {
   border-radius: 12px;
   background: var(--surface);
@@ -513,11 +509,16 @@
   width: 100%;
 }
 
+/* The look these sections have always had: until pages loaded separately (2026-11-02), the
+   board's rule of the same name loaded after this one and won. */
 .plan-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 3px;
   margin: 0 0 24px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
 }
 .plan-group > p {
   margin: 0;
