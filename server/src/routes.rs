@@ -156,6 +156,8 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
             tracing::info!("open sign-up: anyone with a verified Google account can make an account");
         }
     }
+    // The price history from the old daily table, once (prices/backfill.rs).
+    crate::prices::backfill::spawn(pool.clone());
     // The public rankings and the Lab's precon list, built before the server listens so no
     // request waits for one (derived.rs), then kept up to date.
     crate::derived::prewarm(&pool).await;

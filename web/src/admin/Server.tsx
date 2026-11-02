@@ -64,6 +64,7 @@ export function ServerPage() {
             <Facts
               rows={[
                 ["Database", s.database.file ? `${bytes(s.database.bytes)}, plus ${bytes(s.database.wal_bytes ?? 0)} in the write-ahead log` : "In memory"],
+                ["Price history", priceHistory(s.prices)],
                 [
                   "Newest backup",
                   s.backups[0] ? `${s.backups[0].name}, ${bytes(s.backups[0].bytes)}, ${ago(s.backups[0].modified)}` : "None in the backups folder",
@@ -101,6 +102,17 @@ export function ServerPage() {
       )}
     </>
   );
+}
+
+/** The price history in a line: how far it goes, and whether it matches the old daily table. */
+function priceHistory(p: ServerInfo["prices"]): ReactNode {
+  if (!p) return "Not on this server";
+  if (!p.newest_day) return "No prices read yet";
+  const check = p.newest_check ?? p.backfill;
+  const days = `${p.days.toLocaleString("en-US")} ${p.days === 1 ? "day" : "days"}, newest ${p.newest_day}`;
+  if (!check) return days;
+  const bad = check.mismatches + check.stale;
+  return bad ? <span className="admin-bad">{`${days}; ${bad.toLocaleString("en-US")} values differ from the old table`}</span> : `${days}; matches the old table`;
 }
 
 /** Rows shown before "Show all". */

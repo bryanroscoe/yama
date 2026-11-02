@@ -232,6 +232,6 @@ covers the whole file and takes the cost out of reads through Unraid's `/mnt/use
 
 ## Rollback
 
-Retag a previous image: `docker tag yama:<old-rev> yama:latest`, then `docker compose up -d` in the Yama directory. To restore data, stop the container, copy a backup over `data/yama.db`, and start it again. Taking Yama offline publicly only means removing its public hostname from the tunnel.
+Retag a previous image: `docker tag yama:<old-rev> yama:latest`, then `docker compose up -d` in the Yama directory. Until a later migration drops it, the old daily price table (`price_snapshots`) is written beside the price history (2026-11-02), so an image from before the history still finds every day's prices. `docker exec yama yama-server prices verify` checks the history against it (read only). To restore data, stop the container, copy a backup over `data/yama.db`, and start it again. Taking Yama offline publicly only means removing its public hostname from the tunnel.
 
 Pick the copy from the release record: `/mnt/user/appdata/yama-release/previous.json` names the copy taken before the last activation, and `current.json` names the one for the running release. Both are kept by the retention rule under "Updating". For anything older, use a daily snapshot in `/mnt/user/backups/yama` (14 days). Verify it first, and follow the recovery steps, in sagetserver's `docs/YAMA-BACKUP.md`.

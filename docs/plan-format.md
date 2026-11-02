@@ -59,7 +59,7 @@ commander-decks' exporter also writes fields this format doesn't define. Yama ac
 
 - **Dates** are `YYYY-MM-DD`. **Times** are RFC 3339 in UTC, whole seconds (`2026-10-19T01:00:00Z`).
 - **Money** is a number ≥ 0, or `null` when unknown. `null` never means 0, and 0 is never written for "unknown". Currency is USD unless a `currency` field says otherwise.
-- **Every price says when and where it came from.** A quote has `checked` and `source`. An order item's price is dated by its order and comes from that order. Daily market prices are not in the file: Yama reads them from its own `price_snapshots`, with their dates. A market price is not a store quote and doesn't show a store has the card.
+- **Every price says when and where it came from.** A quote has `checked` and `source`. An order item's price is dated by its order and comes from that order. Daily market prices are not in the file: Yama reads them from its own price tables (`price_latest`), with their dates. A market price is not a store quote and doesn't show a store has the card.
 - **Card names** are Scryfall English names. Double-faced cards may use the front face or the full `A // B` name. Yama resolves names to cards when it builds the bundle, not at import, so a card Scryfall adds later (the Star Trek decks, around 2026-11-13) resolves without a new import. Unknown names are kept and reported, never dropped.
 - **Printings** are `set` (Scryfall set code, any case) plus `num` (collector number as a string), or `scryfall_id`. Unknown printings are kept and reported.
 - **Color identity** is written in WUBRG order: `"WUR"`.

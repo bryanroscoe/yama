@@ -177,9 +177,8 @@ async fn with_price_and_ownership(pool: &SqlitePool, owner: &str, cards: Vec<Car
     if !printings.is_empty() {
         let marks = vec!["?"; printings.len()].join(",");
         let sql = format!(
-            "SELECT ps.scryfall_id, COALESCE(ps.usd, ps.usd_foil, ps.usd_etched), ps.date FROM price_snapshots ps
-             WHERE ps.scryfall_id IN ({marks})
-               AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = ps.scryfall_id)"
+            "SELECT ps.scryfall_id, COALESCE(ps.usd, ps.usd_foil, ps.usd_etched), ps.date FROM price_latest ps
+             WHERE ps.scryfall_id IN ({marks})"
         );
         let mut q = sqlx::query_as::<_, (String, Option<f64>, String)>(AssertSqlSafe(sql));
         for id in &printings {
@@ -285,8 +284,7 @@ pub const PRINTING_SELECT: &str = "SELECT p.scryfall_id, p.oracle_id, p.name, p.
     p.lang, p.rarity, p.finishes, p.released_at, p.image_normal, p.image_small, p.back_image_normal, p.artist,
     ps.date AS price_date, ps.usd, ps.usd_foil, ps.usd_etched, ps.eur, ps.eur_foil
     FROM printings p
-    LEFT JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-      AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)";
+    LEFT JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id";
 
 #[derive(Serialize)]
 struct CardDetail {
@@ -543,23 +541,23 @@ async fn offline_bundle(pool: &SqlitePool, version: String, game_changers: bool)
     Ok(OfflineBundle { format: OFFLINE_FORMAT, version, game_changers, cards })
 }
 
-#[derive(Serialize, sqlx::FromRow)]
-struct PricePoint {
-    date: String,
-    usd: Option<f64>,
-    usd_foil: Option<f64>,
-    usd_etched: Option<f64>,
-    eur: Option<f64>,
+#[derive(Deserialize)]
+struct HistoryRange {
+    from: Option<String>,
+    to: Option<String>,
 }
 
-/// Every daily snapshot we've kept for one printing, oldest first. Gaps are days we didn't import.
-async fn price_history(State(st): State<AppState>, _u: CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<PricePoint>>> {
-    Ok(Json(
-        sqlx::query_as("SELECT date, usd, usd_foil, usd_etched, eur FROM price_snapshots WHERE scryfall_id = ? ORDER BY date")
-            .bind(&id)
-            .fetch_all(&st.pool)
-            .await?,
-    ))
+/// One printing's prices on each day Yama read Scryfall's file, from its first price, oldest
+/// first (`?from=`, `?to=`, YYYY-MM-DD). Gaps are days we didn't import. The same shape as before
+/// the history (2026-11-02), with Cardmarket foil and etched and MTGO tickets added.
+async fn price_history(
+    State(st): State<AppState>,
+    _u: CurrentUser,
+    Path(id): Path<String>,
+    Query(range): Query<HistoryRange>,
+) -> AppResult<Json<Vec<crate::prices::history::DayPoint>>> {
+    let (from, to) = crate::prices::history::range(range.from.as_deref(), range.to.as_deref())?;
+    Ok(Json(crate::prices::history::history(&st.pool, &id, from, to).await?))
 }
 
 /// Every set code we have printings for, so the scanner only looks up real sets.

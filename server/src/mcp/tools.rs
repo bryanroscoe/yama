@@ -332,6 +332,31 @@ const TOOLS: &[Tool] = &[
         does: Does::Read,
     },
     Tool {
+        name: "price_history",
+        title: "Price history",
+        description: "One printing's market price over time, from the days Yama read Scryfall's daily file: the first and \
+                      last price, the low and high, and each change, each with its date. Give a card name (its default \
+                      printing, or with cheapest the cheapest playable printing), or a printing by Scryfall id, or set and \
+                      collector number. TCGplayer market prices via Scryfall in USD, not store quotes; a missing price is \
+                      null, and days Yama didn't read are gaps.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "card": {"type": "string", "description": "A card name (any face)."},
+                    "cheapest": {"type": "boolean", "description": "With card: the cheapest playable printing instead of the default one."},
+                    "printing": {"type": "string", "description": "A Scryfall printing id."},
+                    "set": {"type": "string", "description": "A set code, with number."},
+                    "number": {"type": "string", "description": "A collector number, with set."},
+                    "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "nonfoil (default), foil or etched."},
+                    "days": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "How far back, in days (default 90)."},
+                },
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Read,
+    },
+    Tool {
         name: "check_list",
         title: "Check a deck list",
         description: "Check a proposed Commander list without saving it: the 100-card count, singleton, color identity, \
@@ -947,6 +972,10 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             st.limits.search.check_user(user)?;
             card(pool, user, args).await
         }
+        "price_history" => {
+            st.limits.search.check_user(user)?;
+            price_history(pool, args).await
+        }
         "check_list" => check_list(pool, args).await,
         "lab_runs" => lab_runs(pool, user).await,
         "lab_run" => context::build(pool, user, "experiment", Some(text_arg(args, "id")?)).await,
@@ -962,6 +991,84 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
 
 pub(super) fn text_arg<'a>(args: &'a Value, key: &str) -> AppResult<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 300).ok_or_else(|| AppError::bad(format!("{key} is missing")))
+}
+
+/// The printing a `price_history` call names: (Scryfall id, name, set code, collector number).
+async fn history_printing(pool: &SqlitePool, args: &Value) -> AppResult<(String, String, String, String)> {
+    const COLUMNS: &str = "p.scryfall_id, p.name, p.set_code, p.collector_number";
+    let arg = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+    let found: Option<(String, String, String, String)> = if let Some(id) = arg("printing") {
+        sqlx::query_as(AssertSqlSafe(format!("SELECT {COLUMNS} FROM printings p WHERE p.scryfall_id = ?"))).bind(id).fetch_optional(pool).await?
+    } else if let (Some(set), Some(number)) = (arg("set"), arg("number")) {
+        sqlx::query_as(AssertSqlSafe(format!("SELECT {COLUMNS} FROM printings p WHERE p.set_code = lower(?) AND p.collector_number = ? ORDER BY p.lang = 'en' DESC LIMIT 1")))
+            .bind(set)
+            .bind(number)
+            .fetch_optional(pool)
+            .await?
+    } else if let Some(name) = arg("card") {
+        let ids = crate::cards::resolve_names(pool, &[name.to_string()]).await?;
+        let Some(oid) = ids.values().next() else { return Err(AppError::bad(format!("Yama doesn't know a card called {name:?}"))) };
+        if args.get("cheapest").and_then(Value::as_bool).unwrap_or(false) {
+            // As `card` picks it: playable printings only.
+            sqlx::query_as(AssertSqlSafe(format!(
+                "SELECT {COLUMNS} FROM printings p JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
+                  WHERE p.oracle_id = ? AND ps.usd IS NOT NULL AND IFNULL(p.digital, 0) = 0
+                    AND IFNULL(p.set_type, '') NOT IN ('memorabilia', 'funny', 'token', 'minigame')
+                  ORDER BY ps.usd LIMIT 1"
+            )))
+            .bind(oid)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            sqlx::query_as(AssertSqlSafe(format!("SELECT {COLUMNS} FROM printings p JOIN cards c ON c.default_printing = p.scryfall_id WHERE c.oracle_id = ?")))
+                .bind(oid)
+                .fetch_optional(pool)
+                .await?
+        }
+    } else {
+        return Err(AppError::bad("name a card, a printing (Scryfall id), or a set and number"));
+    };
+    found.ok_or(AppError::NotFound("printing"))
+}
+
+/// A printing's market price over time (the `price_history` tool): change points, not every day.
+async fn price_history(pool: &SqlitePool, args: &Value) -> AppResult<String> {
+    let finish = args.get("finish").and_then(Value::as_str).unwrap_or("nonfoil");
+    let series = match finish {
+        "nonfoil" => 1,
+        "foil" => 2,
+        "etched" => 3,
+        other => return Err(AppError::bad(format!("finish: {other:?} isn't nonfoil, foil or etched"))),
+    };
+    let days = args.get("days").and_then(Value::as_i64).unwrap_or(90);
+    if !(1..=1000).contains(&days) {
+        return Err(AppError::bad("days: 1 to 1000"));
+    }
+    let (id, name, set, number) = history_printing(pool, args).await?;
+    let Some(to) = crate::prices::newest_observation(pool, crate::prices::SCRYFALL).await? else {
+        return Ok("No prices have been read yet.".into());
+    };
+    let from = to - days + 1;
+    let h = crate::prices::history::changes(pool, &id, series, from, to).await?;
+    let point = |p: &Option<(String, Option<f64>)>| p.as_ref().map(|(d, v)| json!({"date": d, "price": v}));
+    let extreme = |p: &Option<(String, f64)>| p.as_ref().map(|(d, v)| json!({"date": d, "price": v}));
+    let out = json!({
+        "printing": format!("{name} ({}) #{number}", set.to_uppercase()),
+        "scryfall_id": id,
+        "series": "TCGplayer market via Scryfall",
+        "currency": "USD",
+        "finish": finish,
+        "from": crate::prices::date_of(from),
+        "to": crate::prices::date_of(to),
+        "observed_days": h.observed_days,
+        "first": point(&h.first),
+        "last": point(&h.last),
+        "low": extreme(&h.low),
+        "high": extreme(&h.high),
+        "changes": h.changes.iter().map(|(d, v)| json!({"date": d, "price": v})).collect::<Vec<_>>(),
+        "note": "Daily market reference prices on the days Yama read them. Not a store quote. A null price means none was listed; gaps are days Yama didn't read. This product uses TCGplayer data but is not endorsed or certified by TCGplayer.",
+    });
+    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
 }
 
 fn price(usd: Option<f64>, date: Option<&str>) -> String {
@@ -1177,16 +1284,16 @@ async fn card(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
         let _ = writeln!(out, "Color identity {}; {}{}{}", identity(&card.color_identity), legality(&card), game_changer(&card), rank);
         let latest: Option<(Option<f64>, String, String, String)> = sqlx::query_as(
             "SELECT COALESCE(ps.usd, ps.usd_foil, ps.usd_etched), ps.date, p.set_name, p.collector_number
-             FROM printings p JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-             WHERE p.scryfall_id = ? ORDER BY ps.date DESC LIMIT 1",
+             FROM printings p JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
+             WHERE p.scryfall_id = ?",
         )
         .bind(card.default_printing.as_deref().unwrap_or(""))
         .fetch_optional(pool)
         .await?;
         // Gold-bordered, digital and novelty printings aren't playable in a sanctioned game.
         let cheapest: Option<(f64, String, String, String)> = sqlx::query_as(
-            "SELECT ps.usd, ps.date, p.set_name, p.collector_number FROM printings p JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-             WHERE p.oracle_id = ? AND ps.usd IS NOT NULL AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
+            "SELECT ps.usd, ps.date, p.set_name, p.collector_number FROM printings p JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
+             WHERE p.oracle_id = ? AND ps.usd IS NOT NULL
                AND IFNULL(p.digital, 0) = 0 AND IFNULL(p.set_type, '') NOT IN ('memorabilia', 'funny', 'token', 'minigame')
              ORDER BY ps.usd LIMIT 1",
         )
@@ -1196,6 +1303,12 @@ async fn card(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
         match latest {
             Some((usd, date, set, num)) => {
                 let _ = writeln!(out, "Price (Scryfall market, default printing: {set} #{num}): {}", price(usd, Some(&date)));
+                if let Some(day) = crate::prices::day_of(&date) {
+                    let then = crate::prices::history::history(pool, card.default_printing.as_deref().unwrap_or(""), day - 30, day - 30).await?;
+                    if let Some(p) = then.first().filter(|p| p.usd.is_some() || p.usd_foil.is_some() || p.usd_etched.is_some()) {
+                        let _ = writeln!(out, "30 days ago: {}", price(p.usd.or(p.usd_foil).or(p.usd_etched), Some(&p.date)));
+                    }
+                }
             }
             None => out.push_str("Price: none known\n"),
         }

@@ -216,6 +216,8 @@ export function toolActivity(name: string): string {
     case "card":
     case "card_printings":
       return "Looking up cards…";
+    case "price_history":
+      return "Reading price history…";
     case "commander_recommendations":
       return "Reading community recommendations…";
     case "find_combos":

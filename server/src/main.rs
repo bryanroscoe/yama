@@ -29,6 +29,7 @@ mod people;
 mod perf;
 mod playgroups;
 mod precon_evidence;
+mod prices;
 mod public_page;
 mod public_commanders;
 mod public_precons;
@@ -161,7 +162,12 @@ USAGE:
                                              else the first YAMA_ADMIN_EMAILS account
   yama-server advisor unshare EMAIL          Take the shared key away from EMAIL
   yama-server advisor shared                 Who has it, and this month's spend
-  yama-server backup FILE                    Write a consistent copy of the database
+  yama-server backup FILE                    Write a consistent copy of the database (prices and
+                                             their history included)
+  yama-server prices backfill                Replay the old daily price table into the price
+                                             history now (the server does it once at start)
+  yama-server prices verify [DATE]           Check the price history against the old daily
+                                             table, every day or one (YYYY-MM-DD); read only
 
 Configuration comes from the environment; see .env.example.";
 
@@ -327,6 +333,23 @@ async fn main() -> anyhow::Result<()> {
             println!("public ranking withdrawn; the stock catalog remains available");
             Ok(())
         }
+        Some("prices") => match args.get(1).map(String::as_str) {
+            Some("backfill") => {
+                let _writer = prices::PRICE_WRITER.lock().await;
+                let days = prices::backfill::backfill_if_needed(&pool).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                println!("replayed {days} days");
+                println!("{}", serde_json::to_string(&prices::backfill::verify(&pool, None).await.map_err(|e| anyhow::anyhow!("{e}"))?)?);
+                Ok(())
+            }
+            Some("verify") => {
+                let date = args.get(2).map(String::as_str);
+                let v = prices::backfill::verify(&pool, date).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                println!("{}", serde_json::to_string(&v)?);
+                anyhow::ensure!(v.mismatches == 0 && v.stale == 0, "the price history doesn't match the old table");
+                Ok(())
+            }
+            _ => anyhow::bail!("usage: yama-server prices backfill | prices verify [DATE]"),
+        },
         Some("backup") => {
             // A consistent copy of the live database (safe while the server runs).
             let to = args.get(1).context("usage: yama-server backup FILE")?;
