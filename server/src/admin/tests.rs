@@ -252,6 +252,37 @@ async fn the_delete_route_needs_the_email_and_spares_admins() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+#[tokio::test]
+async fn people_delete_their_own_account_with_their_email_but_admins_cannot() {
+    let (app, pool) = app().await;
+    let (_, admin_token) = admin(&pool, "bryan@example.com").await;
+    let (pat, pat_token) = user(&pool, "pat@example.com").await;
+    let (_, sam_token) = user(&pool, "sam@example.com").await;
+    deck(&pool, &pat, "Pat's deck").await;
+
+    let (status, _) = send(&app, Method::DELETE, "/api/me", None, Some(json!({"confirm_email": "pat@example.com"}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "signed out");
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&admin_token), Some(json!({"confirm_email": "bryan@example.com"}))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an admin comes back from YAMA_ADMIN_EMAILS");
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&sam_token), Some(json!({"confirm_email": "pat@example.com"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "only your own email confirms");
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&pat_token), Some(json!({"confirm_email": "pat@exampel.com"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a typo doesn't delete");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&pat_token), None).await.0, StatusCode::OK);
+
+    let (status, report) = send(&app, Method::DELETE, "/api/me", Some(&pat_token), Some(json!({"confirm_email": " PAT@example.com "}))).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["email"], "pat@example.com");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&pat_token), None).await.0, StatusCode::UNAUTHORIZED);
+    let left: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM users WHERE id = ?1) + (SELECT COUNT(*) FROM decks WHERE owner_id = ?1)")
+        .bind(&pat)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0, "the account and its decks are gone");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&sam_token), None).await.0, StatusCode::OK, "nobody else is touched");
+}
+
 /// Every column in the schema that can hold an account id: foreign keys to `users`, and columns
 /// whose names say they hold one.
 async fn schema_user_columns(pool: &SqlitePool) -> BTreeSet<(String, String)> {

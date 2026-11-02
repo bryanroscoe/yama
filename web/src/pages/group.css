@@ -613,3 +613,55 @@
   align-items: center;
   gap: 8px 12px;
 }
+
+/* Delete account (DeleteAccount.tsx) */
+.grp-you button.grp-danger {
+  color: var(--bad);
+}
+.grp-you button.grp-danger:hover {
+  border-color: var(--bad);
+}
+.grp-delete {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.grp-delete h2 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+.grp-delete p {
+  margin: 0;
+}
+.grp-delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-label);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.grp-delete-confirm input {
+  min-height: 44px;
+}
+.grp-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.grp-delete-actions button {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: var(--t-label);
+}
+.grp-delete-actions button.grp-danger-fill {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--ground);
+}
+.grp-delete-actions button.grp-danger-fill:disabled {
+  background: var(--raised);
+  border-color: var(--raised);
+  color: var(--dim);
+  opacity: 1;
+}

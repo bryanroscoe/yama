@@ -13,6 +13,7 @@ import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { SharingSettings } from "../decks/SharingSettings";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
+import { DeleteAccount } from "./DeleteAccount";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -433,6 +434,8 @@ function Account() {
           <Link className="grp-new" to="/new">What's new in Yama</Link>
         </div>
         <ErrorText error={signOutError} />
+        {/* Not while an admin views as you (read only), and not for an admin, whom YAMA_ADMIN_EMAILS would make again. */}
+        {me.data && !me.data.viewing && !me.data.is_admin && <DeleteAccount email={me.data.email} />}
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
     </section>

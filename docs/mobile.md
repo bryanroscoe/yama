@@ -10,7 +10,7 @@ Release ladder:
 
 1. **Server and web (done 2026-10-31):** power users. Starting simulations, watched AI games and Ask Claude are for admins and power users only, enforced by the server; results stay visible; MCP stays without the simulation-starting tools (ARCHITECTURE.md, "Power users and the semi-public release"). Grant friends in Admin, People.
 2. **Still to build before a Play submission:**
-   - **Account deletion** in the app and at a web link that works without the app (a Play requirement for apps with sign-up). Today it's by email to Bryan, which isn't enough.
+   - **Account deletion (done 2026-11-01):** Group, You, Delete account in the app (`DELETE /api/me`), and the web link for the Play listing, `https://yama.ing/delete-account/`.
    - **Native Google sign-in** (below) and an Android OAuth client registered with the Play signing key's SHA-1.
    - **The Android project and build:** `npx cap add android`, the camera permission, the app origin in `YAMA_CORS_ORIGINS`, target API 36. Build the signed `.aab` in GitHub Actions rather than on the Mac: its disk is too full for the Android SDK and Gradle caches.
    - **What goes in the Play build (Bryan's call, still open):** the full app, or the companion only (Table, Collection, Scanner, Decks, Lab results, Precons) with online Play left on the web. A full game client in a public listing is the bigger IP target (ARCHITECTURE.md §11); companion-only needs a build flag that drops the Play routes and navigation.

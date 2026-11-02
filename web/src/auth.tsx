@@ -99,6 +99,27 @@ export function useLogout() {
   };
 }
 
+/**
+ * Delete the signed-in account and everything it owns (`DELETE /api/me`), then forget it on this
+ * device as signing out does: plan data and unsent answers, the token and the cached user. The
+ * person types their email to confirm; the server checks it too.
+ */
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (confirmEmail: string) => {
+      const userId = qc.getQueryData<User | null>(["me"])?.id;
+      await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
+      await clearPlanData(userId);
+      setToken(null);
+      localStorage.removeItem(ME_KEY);
+      qc.setQueryData(["me"], null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      window.location.replace("/");
+    },
+  });
+}
+
 /** The sign-in page, coming back to `from` (a path on Yama) once signed in. */
 export function signInPath(from?: string): string {
   return from && from !== "/" && from !== "/signin" ? `/signin?next=${encodeURIComponent(from)}` : "/signin";

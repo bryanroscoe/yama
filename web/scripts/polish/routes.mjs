@@ -98,6 +98,7 @@ export const SERVER_ROUTES = [
   "/about/",
   "/privacy/",
   "/tos/",
+  "/delete-account/",
   "/docs/mcp/",
 ];
 

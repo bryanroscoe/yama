@@ -94,7 +94,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/password", post(password_login))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/config", get(auth_config))
-        .route("/api/me", get(me))
+        .route("/api/me", get(me).delete(delete_me))
         .route("/api/invites", get(list_invites).post(create_invite))
         .route("/api/invites/{email}", delete(delete_invite))
         .route("/api/admin/users", get(admin_list_users))
@@ -723,6 +723,39 @@ struct Me {
 
 async fn me(CurrentUser(user): CurrentUser, crate::view_as::MaybeView(view): crate::view_as::MaybeView) -> Json<Me> {
     Json(Me { user, viewing: view.as_ref().map(crate::view_as::Viewing::from) })
+}
+
+#[derive(Deserialize)]
+struct DeleteMe {
+    /// The account's email, typed to confirm.
+    confirm_email: String,
+}
+
+/// `DELETE /api/me`: the signed-in person deletes their own account and everything it owns, as
+/// an admin's deletion does (`admin/delete.rs` says what goes and what stays, anonymised, for
+/// other people's records). Google Play wants this in the app and at a web link (`/account/`).
+/// It takes a session (script keys and OAuth tokens can't), never runs while an admin views as
+/// someone, and refuses an admin account, which YAMA_ADMIN_EMAILS would only make again.
+async fn delete_me(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    crate::view_as::MaybeView(view): crate::view_as::MaybeView,
+    jar: CookieJar,
+    Json(body): Json<DeleteMe>,
+) -> AppResult<(CookieJar, Json<crate::admin::delete::DeleteReport>)> {
+    if view.is_some() {
+        return Err(AppError::Forbidden("stop viewing as someone to delete an account".into()));
+    }
+    if user.is_admin {
+        return Err(AppError::Forbidden("an admin account can't be deleted here; remove it from YAMA_ADMIN_EMAILS first".into()));
+    }
+    if !body.confirm_email.trim().eq_ignore_ascii_case(&user.email) {
+        return Err(AppError::bad("type your account's email exactly to confirm"));
+    }
+    let report = crate::admin::delete::delete_account(&st, &user.id).await?;
+    tracing::info!(account = %report.email, games_kept = report.games_kept, games_deleted = report.games_deleted,
+        rows = report.rows_deleted, "account deleted by its owner");
+    Ok((jar.remove(Cookie::build(SESSION_COOKIE).path("/")), Json(report)))
 }
 
 /// The account for a dev login or a Cloudflare Access sign-in, made if need be. Admin from
