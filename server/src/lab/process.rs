@@ -29,8 +29,9 @@ pub(super) struct Request {
 
 pub(super) fn runner() -> String {
     // Bump this suffix whenever child execution or resource policy changes.
+    // v2 (2026-11-02): Linux children play at nice 10, below the server's requests.
     let policy = if cfg!(target_os = "linux") {
-        "isolated-linux-2g-v1"
+        "isolated-linux-2g-v2"
     } else {
         "isolated-local-v1"
     };
@@ -221,6 +222,8 @@ fn apply_limits(cpu_seconds: u64, memory_bytes: u64) -> anyhow::Result<()> {
             return Err(std::io::Error::last_os_error()).context("setting game resource limit");
         }
     }
+    // Below the server's own priority; the game thread started after this inherits it.
+    super::worker::lower_priority();
     Ok(())
 }
 
