@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { api, type DeckSummary } from "../api";
-import { useMe } from "../auth";
+import { signInPath, useMe } from "../auth";
 import { useOutbox, useRejected, useSyncStatus } from "../table/store";
 import { artCredit } from "./ArtPanel";
 
@@ -34,7 +34,15 @@ export function RailMe() {
   const me = useMe();
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !!me.data });
   const sync = useSyncLine();
-  if (!me.data) return null;
+  const { pathname, search } = useLocation();
+  if (!me.data) {
+    // Signed out, the rail's foot is the way in; the sign-in page comes back here afterwards.
+    return (
+      <div className="rail-foot">
+        <Link to={signInPath(pathname + search)} className="button rail-signin">Sign in</Link>
+      </div>
+    );
+  }
   const name = me.data.display_name || me.data.email;
   const initials = name
     .split(/[\s@._-]+/)

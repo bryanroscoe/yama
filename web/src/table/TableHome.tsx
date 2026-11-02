@@ -12,7 +12,7 @@ import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applySeatPatch, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
-import { chooseGuest, isGuest } from "../guest";
+import { isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
@@ -143,12 +143,12 @@ function GuestBanner() {
   return (
     <aside className="guest-banner" aria-label="Counting without an account">
       <p>
-        <b>Counting without an account.</b>
+        <b>No account needed to count life.</b>
         <span className="dim">
-          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in with Google to share the table with everyone's phones, keep your playgroup's stats, and save these games.
+          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in with Google to share the table with everyone's phones, keep your playgroup's stats and save these games, and keep your decks and collection.
         </span>
       </p>
-      <button className="primary" onClick={() => chooseGuest(false)}>Sign in</button>
+      <Link className="button primary" to="/signin">Sign in</Link>
     </aside>
   );
 }

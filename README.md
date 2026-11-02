@@ -24,9 +24,11 @@ tools, and inspected with 180-day-default descriptive monthly weighting. Overlap
 snapshots, activity counts and undated ELO sequences keep their own meanings; imports
 do not publish rankings or change decks and games.
 
-The signed-out home page highlights the public precon reference and MCP guide, explains what
-an account adds, and keeps Google sign-in directly accessible. OAuth and private links use a
-focused sign-in view.
+Signed out, Yama opens as usual with its full navigation: the life counter and card search
+work without an account, and pages that keep someone's own data (decks, collection, playgroup,
+the Lab) ask them to sign in where the page would be. The sign-in page (`/signin`) highlights the
+public precon reference and MCP guide, explains what an account adds, and keeps Google sign-in
+directly accessible. OAuth and private links use a focused sign-in view.
 
 | Area | Status |
 |---|---|

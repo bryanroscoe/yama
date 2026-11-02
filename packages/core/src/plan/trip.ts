@@ -15,6 +15,7 @@ import { cheapestMarket, printingMarket, recordedMarket, rulesAt, type MarketBas
 import { usd } from "./source";
 import { answerIndex } from "./text";
 import { cartUrl } from "./buy";
+import { massEntryUrl, pasteText, proSearchUrl } from "./carts";
 import type { Decision, PlanBundle, Quote, Review, Store, StorePreference } from "./types";
 
 // ── the buy rule ───────────────────────────────────────────────────────────
@@ -98,19 +99,38 @@ export function judge(rule: LocalBuyRule | null, price: number, market: number |
 // ── preferences ────────────────────────────────────────────────────────────
 
 /** Lower is preferred. A store with no preference is "ok". */
-const RANK: Record<StorePreference, number> = { default: 0, ok: 1, maybe: 2, never: 3 };
+const RANK: Record<StorePreference, number> = { favorite: 0, ok: 1, maybe: 2, never: 3 };
 
 export function storePreference(b: Pick<PlanBundle, "store_prefs">, key: string): StorePreference {
   const p = b.store_prefs?.[key]?.preference;
+  if (p === "default") return "favorite"; // bundles from before migration 0051
   return p && p in RANK ? p : "ok";
 }
 
 export const PREFERENCE_TEXT: Record<StorePreference, string> = {
-  default: "Your usual store",
+  favorite: "Favourite, support them",
   ok: "Fine to go",
   maybe: "Maybe, one trip",
   never: "Won't go",
 };
+
+/** How much more a card may cost at this store and still come from it (USD, 0 when unset). */
+export function storePremium(b: Pick<PlanBundle, "store_prefs">, key: string): number {
+  if (storePreference(b, key) !== "favorite") return 0; // a premium kept from when it was a favourite
+  const v = num(b.store_prefs?.[key]?.premium_usd);
+  return v != null && v > 0 ? v : 0;
+}
+
+/**
+ * Every store's place in your order of how easy it is to get to, from 1: the stores you numbered
+ * first (by their number), then the rest in the plan's store order. Retired stores and printers
+ * have no place.
+ */
+export function hassleOrder(b: Pick<PlanBundle, "store_prefs" | "stores">): Map<string, number> {
+  const h = (k: string) => num(b.store_prefs?.[k]?.hassle) ?? Number.MAX_SAFE_INTEGER;
+  const order = b.stores.filter((s) => !s.retired && s.kind !== "printer").sort((x, y) => h(x.key) - h(y.key) || x.sort - y.sort || cmp(x.key, y.key));
+  return new Map(order.map((s, i) => [s.key, i + 1]));
+}
 
 // ── the plan ───────────────────────────────────────────────────────────────
 
@@ -158,16 +178,20 @@ export interface TripStop {
   cartUrl: string | null;
   /** Needed rows with no cart line: ask at the counter. */
   noCartLine: number;
+  /** The needed cards as a list to paste, "1 Card" a line. */
+  paste: string;
+  /** On a TCGplayer Pro storefront, which has no cart link: a search for each needed card. */
+  search: { card: string; url: string }[];
 }
 
-export type PrintReason = "never-store" | "not-local" | "over-max" | "over-market" | "no-market" | "no-price" | "unknown-stock" | "not-stocked" | "no-check";
+export type PrintReason = "never-store" | "not-local" | "left-out" | "over-max" | "over-market" | "no-market" | "no-price" | "unknown-stock" | "not-stocked" | "no-check";
 
 export interface PrintRow {
   want: Want;
   reason: PrintReason;
   /** The cheapest listing that explains the reason, when there is one. */
   offer: TripOffer | null;
-  /** For "never-store" and "not-local": the stores off the trip that have it under your rule; for "no-price" and "unknown-stock": the stores to ask. */
+  /** For "never-store", "not-local" and "left-out": the stores off this trip that have it under your rule; for "no-price" and "unknown-stock": the stores to ask. */
   stores: string[];
 }
 
@@ -184,6 +208,8 @@ export interface WishTier {
   market: number | null;
 }
 
+export type SkipReason = "never" | "not-local" | "left-out";
+
 export interface TripPlan {
   today: string;
   rule: TripRule;
@@ -197,10 +223,18 @@ export interface TripPlan {
   alternatives: TripAlternative[];
   /** Needed cards no chosen store has under your rule: print them, or check by hand. */
   print: PrintRow[];
+  /** Those cards as a list to paste, and as a TCGplayer Mass Entry link (null: none, or too long). */
+  printPaste: string;
+  printMassEntry: string | null;
   /** Cards along the way that only stores you aren't visiting have, by store. */
   elsewhere: { store: Store; preference: StorePreference; rows: TripRow[] }[];
-  /** Stores you won't go to, with how many needed cards they have under your rule. */
-  skipped: { store: Store; preference: StorePreference; cards: number }[];
+  /**
+   * Stores off this trip that have needed cards under your rule, with how many: ones you won't go
+   * to, ones that aren't local when your rule says buy local, and ones you left off this time.
+   */
+  skipped: { store: Store; preference: StorePreference; cards: number; why: SkipReason }[];
+  /** The stores you said you're going to this time; null: every store you'll go to. */
+  going: string[] | null;
   /** Check dates of the listings considered, oldest first. */
   checkedOn: string[];
   wishlist: WishTier[];
@@ -213,6 +247,8 @@ export interface TripOptions {
   answers?: Map<string, Review>;
   /** Bought marks per live swap. Default: from the bundle. */
   bought?: (key: string) => boolean;
+  /** The store keys you're going to this time; null or missing: every store you'll go to. */
+  stores?: string[] | null;
 }
 
 export type TripData = Pick<PlanBundle, "decks" | "swaps" | "quotes" | "stores" | "settings" | "aliases" | "reviews" | "marks" | "store_prefs" | "wishlist"> & PriceData;
@@ -273,10 +309,6 @@ function offerMarket(q: Quote, card: string, recorded: Quote[], p: PriceData): M
   return printingMarket(ref, p) ?? cheapestMarket(card, p) ?? recordedMarket(recorded, p.prices_as_of);
 }
 
-function compareOffers(a: TripOffer, b: TripOffer): number {
-  return a.price - b.price || RANK[a.preference] - RANK[b.preference] || a.store.sort - b.store.sort || cmp(a.store.key, b.store.key);
-}
-
 /** Plan the trip from the bundle. */
 export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const live = b.swaps.filter((s) => !s.retired).map((s) => s.key);
@@ -297,6 +329,17 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     const k = norm(q.card);
     quotesByCard.set(k, [...(quotesByCard.get(k) ?? []), q]);
   }
+
+  // A card goes to its cheapest copy after each store's premium (a favourite's "worth a little more"),
+  // then the preferred store, then the easier one to get to.
+  const hassle = hassleOrder(b);
+  const premiumCents = (o: TripOffer) => Math.max(0, Math.round((o.price - storePremium(b, o.store.key)) * 100));
+  const compareOffers = (x: TripOffer, y: TripOffer) =>
+    premiumCents(x) - premiumCents(y) ||
+    RANK[x.preference] - RANK[y.preference] ||
+    hassle.get(x.store.key)! - hassle.get(y.store.key)! ||
+    x.store.sort - y.store.sort ||
+    cmp(x.store.key, y.store.key);
 
   const checked = new Set<string>();
   // Every want's in-stock, priced listings at known stores, judged; plus what was seen for the reasons.
@@ -337,7 +380,10 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     seenOf.set(w.id, { checks, unpriced, unknown });
   }
 
-  const eligible = (s: Store) => storePreference(b, s.key) !== "never" && (!localOnly || s.kind === "local");
+  const going = opts.stores ? new Set(opts.stores) : null;
+  const skipWhy = (s: Store): SkipReason | null =>
+    storePreference(b, s.key) === "never" ? "never" : localOnly && s.kind !== "local" ? "not-local" : going && !going.has(s.key) ? "left-out" : null;
+  const eligible = (s: Store) => skipWhy(s) == null;
   const needed = wants.filter((w) => w.needed);
   // A "maybe" store is only for needed cards no other store you'll go to has under your rule: for
   // the rest it neither decides the stores nor takes the card.
@@ -347,23 +393,28 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const usable = (w: Want, o: TripOffer) => o.verdict === "ok" && !(o.preference === "maybe" && elsewhereToo.has(w.id));
   const okAt = (w: Want, keys: Set<string>) => (offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && keys.has(o.store.key));
 
-  // Stores worth searching: eligible ones with a qualifying copy of a needed card.
+  // Stores worth searching: eligible ones with a qualifying copy of a needed card. A favourite with
+  // one is on every trip; the rest are searched.
   const coverage = new Map<string, Set<string>>();
   for (const w of needed) for (const o of offersOf.get(w.id) ?? []) if (usable(w, o) && eligible(o.store)) {
     coverage.set(o.store.key, (coverage.get(o.store.key) ?? new Set()).add(w.id));
   }
-  const ranked = [...coverage.keys()]
-    .map((k) => stores.get(k)!)
-    .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || x.sort - y.sort || cmp(x.key, y.key));
-  // At most 12 stores are searched exhaustively, so the trip is exact up to 12 candidate stores.
-  // With more, a greedy cover (the store adding the most cards not yet covered, ties in this
-  // ranking) picks the stores searched first, then the ranking fills the rest; a cover longer
-  // than 12 puts its later stores on every trip. Every coverable card stays reachable, but the
-  // fewest stores is approximate there.
+  const byOrder = (x: Store, y: Store) => x.sort - y.sort || cmp(x.key, y.key);
+  const covering = [...coverage.keys()].map((k) => stores.get(k)!);
+  const favourites = covering.filter((s) => storePreference(b, s.key) === "favorite");
+  const ranked = covering
+    .filter((s) => storePreference(b, s.key) !== "favorite")
+    .sort((x, y) => coverage.get(y.key)!.size - coverage.get(x.key)!.size || RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || byOrder(x, y));
+  // Up to 12 other stores are searched exhaustively, so the trip is exact up to 12 candidates.
+  // With more, a greedy cover of the cards the favourites don't have (the store adding the most
+  // not yet covered, ties in this ranking) picks the stores searched first, then the ranking fills
+  // the rest; a cover longer than 12 puts its later stores on every trip. Every coverable card
+  // stays reachable, but the fewest stores is approximate there.
   let pool = ranked;
-  let forced: Store[] = [];
+  let forced: Store[] = [...favourites];
   if (ranked.length > MAX_SEARCH) {
-    const left = new Set([...coverage.values()].flatMap((c) => [...c]));
+    const left = new Set(ranked.flatMap((s) => [...coverage.get(s.key)!]));
+    for (const f of favourites) for (const id of coverage.get(f.key)!) left.delete(id);
     const rest = [...ranked];
     const cover: Store[] = [];
     while (left.size) {
@@ -378,19 +429,21 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       cover.push(s!);
       for (const id of coverage.get(s!.key)!) left.delete(id);
     }
-    forced = cover.slice(MAX_SEARCH);
+    forced = [...favourites, ...cover.slice(MAX_SEARCH)];
     pool = [...cover.slice(0, MAX_SEARCH), ...rest].slice(0, MAX_SEARCH);
   }
-  pool = [...pool].sort((x, y) => x.sort - y.sort || cmp(x.key, y.key));
+  pool = [...pool].sort(byOrder);
+  forced.sort(byOrder);
 
-  // Every subset: cards covered, then fewer "maybe" stores, then fewer stores that aren't your usual
-  // one, then the lower total, then store order. The best of each size is an alternative.
-  interface Choice { keys: string[]; covered: number; maybes: number; others: number; total: number }
+  // Every subset (with the favourites): cards covered, then fewer "maybe" stores, then the easier
+  // stores to get to (the sum of their places in your order), then the lower total, then store order.
+  // The best of each size is an alternative.
+  interface Choice { keys: string[]; covered: number; maybes: number; hassle: number; total: number }
   const best = new Map<number, Choice>();
   const better = (a: Choice, c: Choice) =>
-    a.covered !== c.covered ? a.covered > c.covered : a.maybes !== c.maybes ? a.maybes < c.maybes : a.others !== c.others ? a.others < c.others : Math.abs(a.total - c.total) > EPS ? a.total < c.total : a.keys.join("|") < c.keys.join("|");
+    a.covered !== c.covered ? a.covered > c.covered : a.maybes !== c.maybes ? a.maybes < c.maybes : a.hassle !== c.hassle ? a.hassle < c.hassle : Math.abs(a.total - c.total) > EPS ? a.total < c.total : a.keys.join("|") < c.keys.join("|");
   for (let mask = forced.length ? 0 : 1; mask < 1 << pool.length; mask++) {
-    const keys = [...pool.filter((_, i) => mask & (1 << i)), ...forced].sort((x, y) => x.sort - y.sort || cmp(x.key, y.key)).map((s) => s.key);
+    const keys = [...forced, ...pool.filter((_, i) => mask & (1 << i))].sort(byOrder).map((s) => s.key);
     const set = new Set(keys);
     let covered = 0;
     let total = 0;
@@ -401,8 +454,13 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
         total += o.price;
       }
     }
-    const prefs = keys.map((k) => storePreference(b, k));
-    const c: Choice = { keys, covered, maybes: prefs.filter((p) => p === "maybe").length, others: prefs.filter((p) => p !== "default").length, total: cents(total) };
+    const c: Choice = {
+      keys,
+      covered,
+      maybes: keys.filter((k) => storePreference(b, k) === "maybe").length,
+      hassle: keys.reduce((n, k) => n + hassle.get(k)!, 0),
+      total: cents(total),
+    };
     const cur = best.get(keys.length);
     if (!cur || better(c, cur)) best.set(keys.length, c);
   }
@@ -435,13 +493,15 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       if (there) elsewhere.set(there.store.key, [...(elsewhere.get(there.store.key) ?? []), { want: w, offer: there }]);
       continue;
     }
-    const banned = offers.filter((o) => o.verdict === "ok" && !eligible(o.store));
-    const firstOf = (v: Verdict) => offers.find((o) => o.verdict === v && eligible(o.store)) ?? null;
+    // Off this trip: first the stores you left off today, then ones that aren't local when the rule
+    // says buy local, then ones you won't go to.
+    const off = offers.filter((o) => o.verdict === "ok" && !eligible(o.store));
+    const why = (["left-out", "not-local", "never"] as const).find((r) => off.some((o) => skipWhy(o.store) === r));
+    const banned = why ? off.filter((o) => skipWhy(o.store) === why) : [];
+    // A price that fails the rule says so wherever it's listed: the store doesn't change the reason.
+    const firstOf = (v: Verdict) => offers.find((o) => o.verdict === v) ?? null;
     const seen = seenOf.get(w.id)!;
-    // Off the trip because the rule says buy local (the store is fine otherwise), or because you won't go.
-    const notLocal = banned.filter((o) => o.preference !== "never");
-    const off = notLocal.length ? notLocal : banned;
-    if (off.length) print.push({ want: w, reason: notLocal.length ? "not-local" : "never-store", offer: off[0]!, stores: [...new Set(off.map((o) => o.store.name))] });
+    if (why) print.push({ want: w, reason: why === "never" ? "never-store" : why, offer: banned[0]!, stores: [...new Set(banned.map((o) => o.store.name))] });
     else if (firstOf("over-max") || firstOf("over-market") || firstOf("no-market")) {
       // The order the design note gives: over the limit (print it) first.
       const o = (firstOf("over-max") ?? firstOf("over-market") ?? firstOf("no-market"))!;
@@ -454,7 +514,7 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const byCard = (x: TripRow, y: TripRow) => cmp(x.want.deckName ?? "", y.want.deckName ?? "") || cmp(x.want.card, y.want.card);
   const stops: TripStop[] = [...chosen]
     .map((k) => stores.get(k)!)
-    .sort((x, y) => RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || x.sort - y.sort || cmp(x.key, y.key))
+    .sort((x, y) => RANK[storePreference(b, x.key)] - RANK[storePreference(b, y.key)] || hassle.get(x.key)! - hassle.get(y.key)! || byOrder(x, y))
     .map((store) => {
       const { rows, along } = stopRows.get(store.key)!;
       rows.sort(byCard);
@@ -469,6 +529,11 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
         alongTotal: cents(along.reduce((n, r) => n + r.offer.price, 0)),
         cartUrl: cartUrl(store, lines),
         noCartLine: rows.length - lines.length,
+        paste: pasteText(rows.map((r) => r.want.card)),
+        search: rows.flatMap((r) => {
+          const url = proSearchUrl(store, r.want.card);
+          return url ? [{ card: r.want.card, url }] : [];
+        }),
       };
     });
   const covered = stops.reduce((n, s) => n + s.rows.length, 0);
@@ -476,7 +541,12 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
 
   const skipped = [...stores.values()]
     .filter((s) => !eligible(s) && s.kind !== "printer")
-    .map((store) => ({ store, preference: storePreference(b, store.key), cards: needed.filter((w) => (offersOf.get(w.id) ?? []).some((o) => o.verdict === "ok" && o.store.key === store.key)).length }))
+    .map((store) => ({
+      store,
+      preference: storePreference(b, store.key),
+      cards: needed.filter((w) => (offersOf.get(w.id) ?? []).some((o) => o.verdict === "ok" && o.store.key === store.key)).length,
+      why: skipWhy(store)!,
+    }))
     .filter((s) => s.cards > 0)
     .sort((x, y) => x.store.sort - y.store.sort || cmp(x.store.key, y.store.key));
 
@@ -489,10 +559,13 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     total: covered ? cents(stops.reduce((n, s) => n + s.total, 0)) : null,
     alternatives,
     print,
+    printPaste: pasteText(print.map((p) => p.want.card)),
+    printMassEntry: massEntryUrl(print.map((p) => p.want.card)),
     elsewhere: [...elsewhere]
       .map(([k, rows]) => ({ store: stores.get(k)!, preference: storePreference(b, k), rows: rows.sort(byCard) }))
       .sort((x, y) => x.store.sort - y.store.sort || cmp(x.store.key, y.store.key)),
     skipped,
+    going: opts.stores ? [...opts.stores] : null,
     checkedOn: [...checked].sort(),
     wishlist: wishTiers(wishWants(b), b),
   };
@@ -550,8 +623,10 @@ export function tripSummary(t: TripPlan) {
     total: t.total,
     alternatives: t.alternatives.map((a) => [a.stores, a.covered, a.total]),
     print: t.print.map((p) => [p.want.card, p.reason]),
+    print_mass_entry: t.printMassEntry,
+    search: t.stops.map((s) => s.search.map((x) => x.url)),
     elsewhere: t.elsewhere.map((e) => [e.store.key, e.rows.map((r) => r.want.card)]),
-    skipped: t.skipped.map((s) => [s.store.key, s.cards]),
+    skipped: t.skipped.map((s) => [s.store.key, s.cards, s.why]),
     wishlist: t.wishlist.map((w) => [w.label, w.items.map((i) => i.want.card)]),
   };
 }

@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { setGuestActive } from "../guest";
 import { CardHover, CardRef, CardText, cardTextParts, listenForPreviewControl, lookupPreview, previewDetailsUrl, previewPosition } from "./CardRef";
 
 vi.mock("../api", () => ({ api: vi.fn() }));
@@ -23,6 +24,17 @@ describe("shared card references", () => {
     expect(await lookupPreview("Not a real card")).toBeNull();
     expect(vi.mocked(api).mock.calls.at(-1)?.[0]).toBe('/api/cards/preview?name=Not%20a%20real%20card');
     expect(vi.mocked(api).mock.calls.every(([url])=>url.startsWith("/api/cards/"))).toBe(true);
+  });
+  it("signed out, previews through the guest search only",async()=>{
+    const card={oracle_id:"ring",name:"Sol Ring",image_normal:"https://cards.scryfall.io/normal/ring.jpg",oracle_text:"Add two"};
+    vi.mocked(api).mockResolvedValue({cards:[card]});
+    setGuestActive(true);
+    try {
+      expect((await lookupPreview("Sol Ring","ring"))?.oracle_id).toBe("ring");
+      expect(vi.mocked(api).mock.calls.map(([url])=>url)).toEqual(['/api/guest/cards/search?q=!%22Sol%20Ring%22']);
+    } finally {
+      setGuestActive(false);
+    }
   });
   it("can preview a new public card missing from the local Oracle snapshot",async()=>{
     const fresh={oracle_id:"borg",name:"The Borg Queen",image_normal:"https://cards.scryfall.io/normal/borg.jpg",back_image_normal:null,oracle_text:"Assimilate.",type_line:"Legendary Artifact Creature",mana_cost:"{W}{U}{B}"};

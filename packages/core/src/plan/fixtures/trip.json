@@ -1,5 +1,5 @@
 {
- "about": "One bundle and the trip each side must plan from it (packages/core/src/plan/trip.ts and server/src/plan/trip.rs). Regenerate `expect` only after checking the change by hand.",
+ "about": "One bundle and the trip each side must plan from it (packages/core/src/plan/trip.ts and server/src/plan/trip.rs). A case may name the stores going this time (`stores`). Regenerate `expect` only after checking the change by hand.",
  "bundle": {
   "settings": [
    {
@@ -41,6 +41,21 @@
    }
   ],
   "stores": [
+   {
+    "key": "black-castle",
+    "name": "Black Castle Gamez",
+    "short": "Black Castle",
+    "kind": "local",
+    "cart_url_template": null,
+    "homepage": "https://blackcastlegamez.tcgplayerpro.com",
+    "location": "Cedar Park, 3.6 mi",
+    "note": null,
+    "print_tiers": null,
+    "sort": 0,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
    {
     "key": "pats",
     "name": "Pat's Games",
@@ -133,20 +148,33 @@
    }
   ],
   "store_prefs": {
-   "pats": {
-    "preference": "default",
-    "note": null,
-    "updated_at": "2026-11-01T00:00:00Z"
+   "black-castle": {
+    "preference": "favorite",
+    "note": "Closest; support them",
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 1,
+    "premium_usd": 0.25
    },
    "mothership": {
     "preference": "ok",
     "note": null,
-    "updated_at": "2026-11-01T00:00:00Z"
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 2,
+    "premium_usd": null
+   },
+   "pats": {
+    "preference": "ok",
+    "note": "Most stock, hardest to get to",
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 3,
+    "premium_usd": null
    },
    "multiverse-hobbies": {
     "preference": "maybe",
     "note": "One trip; haven't been",
-    "updated_at": "2026-11-01T00:00:00Z"
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 4,
+    "premium_usd": null
    },
    "alpha-strike": {
     "preference": "never",
@@ -1226,6 +1254,72 @@
     "url": null,
     "source": "Store website",
     "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Fellwar Stone",
+    "kind": "stock_check",
+    "store": "black-castle",
+    "store_label": null,
+    "checked": "2026-11-01",
+    "result": null,
+    "in_stock": true,
+    "price": 0.5,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Sol Ring",
+    "kind": "stock_check",
+    "store": "black-castle",
+    "store_label": null,
+    "checked": "2026-11-01",
+    "result": null,
+    "in_stock": true,
+    "price": 1.5,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Swords to Plowshares",
+    "kind": "stock_check",
+    "store": "mothership",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 1,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
    }
   ],
   "wishlist": [
@@ -1477,26 +1571,26 @@
     "derived": false,
     "stops": [
      {
-      "store": "pats",
+      "store": "black-castle",
       "rows": [
        [
         "Fellwar Stone",
         0.5
        ],
        [
-        "Swords to Plowshares",
-        1
+        "Sol Ring",
+        1.5
        ]
       ],
       "along": [],
-      "total": 1.5
+      "total": 2
      },
      {
       "store": "mothership",
       "rows": [
        [
-        "Sol Ring",
-        1.25
+        "Swords to Plowshares",
+        1
        ]
       ],
       "along": [
@@ -1509,7 +1603,7 @@
         0.4
        ]
       ],
-      "total": 1.25
+      "total": 1
      },
      {
       "store": "multiverse-hobbies",
@@ -1530,31 +1624,31 @@
     ],
     "needed": 11,
     "covered": 4,
-    "total": 3.5,
+    "total": 3.75,
     "alternatives": [
      [
       [
-       "pats"
+       "black-castle"
       ],
       2,
-      1.5
+      2
      ],
      [
       [
-       "pats",
+       "black-castle",
        "mothership"
       ],
       3,
-      2.75
+      3
      ],
      [
       [
-       "pats",
+       "black-castle",
        "mothership",
        "multiverse-hobbies"
       ],
       4,
-      3.5
+      3.75
      ]
     ],
     "print": [
@@ -1587,11 +1681,21 @@
       "no-check"
      ]
     ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=1%20Arcane%20Signet||1%20Command%20Tower||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Fellwar%20Stone&productLineName=Magic%3A%20The%20Gathering&sort=price-asc",
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     [],
+     []
+    ],
     "elsewhere": [],
     "skipped": [
      [
       "alpha-strike",
-      1
+      1,
+      "never"
      ]
     ],
     "wishlist": [
@@ -1630,22 +1734,22 @@
     "derived": true,
     "stops": [
      {
-      "store": "pats",
+      "store": "black-castle",
       "rows": [
        [
-        "Swords to Plowshares",
-        1
+        "Sol Ring",
+        1.5
        ]
       ],
       "along": [],
-      "total": 1
+      "total": 1.5
      },
      {
       "store": "mothership",
       "rows": [
        [
-        "Sol Ring",
-        1.25
+        "Swords to Plowshares",
+        1
        ]
       ],
       "along": [
@@ -1654,27 +1758,27 @@
         0.4
        ]
       ],
-      "total": 1.25
+      "total": 1
      }
     ],
     "needed": 11,
     "covered": 2,
-    "total": 2.25,
+    "total": 2.5,
     "alternatives": [
      [
       [
-       "pats"
+       "black-castle"
       ],
       1,
-      1
+      1.5
      ],
      [
       [
-       "pats",
+       "black-castle",
        "mothership"
       ],
       2,
-      2.25
+      2.5
      ]
     ],
     "print": [
@@ -1715,6 +1819,13 @@
       "no-check"
      ]
     ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=1%20Arcane%20Signet||1%20Command%20Tower||1%20Exotic%20Orchard||1%20Fellwar%20Stone||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     []
+    ],
     "elsewhere": [
      [
       "multiverse-hobbies",
@@ -1726,7 +1837,172 @@
     "skipped": [
      [
       "alpha-strike",
-      1
+      1,
+      "never"
+     ]
+    ],
+    "wishlist": [
+     [
+      "$200 and up",
+      [
+       "Mox Diamond"
+      ]
+     ],
+     [
+      "$50 to $200",
+      [
+       "Mana Vault",
+       "Rhystic Study"
+      ]
+     ],
+     [
+      "Under $2",
+      [
+       "Dark Ritual"
+      ]
+     ],
+     [
+      "No market price",
+      [
+       "Unknown Card"
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "today": "2026-11-01",
+   "stores": [
+    "black-castle",
+    "pats",
+    "multiverse-hobbies"
+   ],
+   "expect": {
+    "rule_from": "2026-10-28",
+    "derived": false,
+    "stops": [
+     {
+      "store": "black-castle",
+      "rows": [
+       [
+        "Fellwar Stone",
+        0.5
+       ],
+       [
+        "Sol Ring",
+        1.5
+       ]
+      ],
+      "along": [],
+      "total": 2
+     },
+     {
+      "store": "pats",
+      "rows": [
+       [
+        "Swords to Plowshares",
+        1
+       ]
+      ],
+      "along": [],
+      "total": 1
+     },
+     {
+      "store": "multiverse-hobbies",
+      "rows": [
+       [
+        "Exotic Orchard",
+        0.75
+       ]
+      ],
+      "along": [
+       [
+        "Brainstorm",
+        0.3
+       ]
+      ],
+      "total": 0.75
+     }
+    ],
+    "needed": 11,
+    "covered": 4,
+    "total": 3.75,
+    "alternatives": [
+     [
+      [
+       "black-castle"
+      ],
+      2,
+      2
+     ],
+     [
+      [
+       "black-castle",
+       "pats"
+      ],
+      3,
+      3
+     ],
+     [
+      [
+       "black-castle",
+       "pats",
+       "multiverse-hobbies"
+      ],
+      4,
+      3.75
+     ]
+    ],
+    "print": [
+     [
+      "Arcane Signet",
+      "over-market"
+     ],
+     [
+      "Command Tower",
+      "not-stocked"
+     ],
+     [
+      "Mana Vault",
+      "over-max"
+     ],
+     [
+      "Mind Stone",
+      "no-price"
+     ],
+     [
+      "Ponder",
+      "no-market"
+     ],
+     [
+      "Strike It Rich",
+      "never-store"
+     ],
+     [
+      "Thought Vessel",
+      "no-check"
+     ]
+    ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=1%20Arcane%20Signet||1%20Command%20Tower||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Fellwar%20Stone&productLineName=Magic%3A%20The%20Gathering&sort=price-asc",
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     [],
+     []
+    ],
+    "elsewhere": [],
+    "skipped": [
+     [
+      "mothership",
+      2,
+      "left-out"
+     ],
+     [
+      "alpha-strike",
+      1,
+      "never"
      ]
     ],
     "wishlist": [
