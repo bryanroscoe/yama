@@ -613,9 +613,16 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
       </p>
       {it.precon && (
         <p className="small">
-          Sealed market {it.market?.usd != null ? `${usd(it.market.usd)}, ${fmtDate(it.market.price_date)}` : "unknown"}. Singles inside{" "}
+          Sealed market {it.market?.usd != null ? `${usd(it.market.usd)}, ${fmtDate(it.market.price_date)} (${it.market.source})` : "unknown"}. Singles inside{" "}
           {it.singles?.usd != null ? usd(it.singles.usd) : "unknown"}
-          {it.singles ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""})` : ""}.
+          {it.singles
+            ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""}${
+                it.singles.oldest_date
+                  ? `; ${it.singles.source}, ${fmtDate(it.singles.oldest_date)}${it.singles.newest_date && it.singles.newest_date !== it.singles.oldest_date ? ` to ${fmtDate(it.singles.newest_date)}` : ""}`
+                  : ""
+              })`
+            : ""}
+          .
         </p>
       )}
       <ul className="small">

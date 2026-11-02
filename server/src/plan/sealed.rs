@@ -21,6 +21,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use std::fmt::Write as _;
 
+/// Prices kept per sealed product and store (the newest counts).
+const HISTORY: i64 = 10;
+
 fn now() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
@@ -218,6 +221,20 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
         .bind(now())
         .execute(pool)
         .await?;
+    // Only the newest prices count; keep a short history per product and store.
+    sqlx::query(
+        "DELETE FROM sealed_quotes WHERE owner_id = ? AND want_id = ? AND store_key = ? AND id NOT IN
+           (SELECT id FROM sealed_quotes WHERE owner_id = ? AND want_id = ? AND store_key = ? ORDER BY checked_on DESC, created_at DESC, rowid DESC LIMIT ?)",
+    )
+    .bind(&user.id)
+    .bind(&want)
+    .bind(&b.store)
+    .bind(&user.id)
+    .bind(&want)
+    .bind(&b.store)
+    .bind(HISTORY)
+    .execute(pool)
+    .await?;
     Ok(Json(json!({"id": id})))
 }
 
@@ -388,6 +405,12 @@ mod tests {
         assert_eq!(send(&app, Method::GET, "/api/plan/sealed?today=1999-01-01", Some(&token), None).await.0.as_u16(), 400);
         let (s, v) = send(&app, Method::GET, &format!("/api/plan/sealed?today={}", today()), Some(&token), None).await;
         assert!(s.is_success() && v["cap_usd"] == 51.0, "{v}");
+        // A short history per product and store.
+        for i in 0..(HISTORY + 3) {
+            send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;
+        }
+        let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE owner_id = ? AND want_id = ? AND store_key = 'pats'").bind(&owner).bind(want).fetch_one(&pool).await.unwrap();
+        assert_eq!(kept, HISTORY);
         let (other, other_token) = user(&pool, "other@example.com").await;
         assert_eq!(view(&pool, &other, "2026-11-01").await.unwrap()["items"], json!([]));
         assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"store": "pats", "price": 1}))).await.0.as_u16(), 404);
