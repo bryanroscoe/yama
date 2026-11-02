@@ -207,10 +207,15 @@ async fn stage(st: &AppState, user: &User, via: &Via, s: Staged) -> AppResult<St
 
 /// A list of card names (at most `MAX_CARDS`); missing means none.
 fn names_arg(args: &Value, key: &str) -> AppResult<Vec<String>> {
+    names_arg_max(args, key, MAX_CARDS)
+}
+
+/// A list of card names, at most `max`; missing means none.
+fn names_arg_max(args: &Value, key: &str, max: usize) -> AppResult<Vec<String>> {
     let Some(v) = args.get(key).filter(|v| !v.is_null()) else { return Ok(vec![]) };
     let arr = v.as_array().ok_or_else(|| AppError::bad(format!("{key} must be a list of card names")))?;
-    if arr.len() > MAX_CARDS {
-        return Err(AppError::bad(format!("{key}: at most {MAX_CARDS} cards at a time")));
+    if arr.len() > max {
+        return Err(AppError::bad(format!("{key}: at most {max} cards at a time")));
     }
     arr.iter()
         .map(|n| n.as_str().map(str::trim).filter(|n| !n.is_empty() && n.len() <= 200).map(String::from).ok_or_else(|| AppError::bad(format!("{key} must be a list of card names"))))
@@ -1581,7 +1586,7 @@ async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppRes
 /// named (default: every card the trip plans for).
 pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     use crate::plan::stock;
-    let cards = names_arg(args, "cards")?;
+    let cards = names_arg_max(args, "cards", stock::MAX_CARDS)?;
     let mut stores: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.get("stores").filter(|v| !v.is_null()) {
         let list = v.as_array().ok_or_else(|| AppError::bad("stores must be a list of store keys or names"))?;

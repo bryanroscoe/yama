@@ -158,6 +158,8 @@ fn titles_and_variants_parse() {
     assert_eq!(yestcg_store(&broken, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "no hit list is unknown, not none");
     let nameless = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"price": 1.0}]}]});
     assert_eq!(yestcg_store(&nameless, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a name is unknown");
+    let bad_qty = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "price": 1.0, "qty": "3"}]}]});
+    assert_eq!(yestcg_store(&bad_qty, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a quantity that isn't a whole number is unknown");
 }
 
 async fn store_row(pool: &SqlitePool, owner: &str, key: &str, name: &str, homepage: &str, sort: i64) {

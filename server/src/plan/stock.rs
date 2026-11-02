@@ -311,8 +311,10 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     }
     // A hit list that's missing or not a list is an answer we can't read: unknown, not none.
     let Some(hits) = r["hits"].as_array() else { return Some(None) };
-    // So is a hit without a name, or with a price that isn't a number.
-    if !hits.iter().all(|h| h["name"].is_string() && (h["price"].is_number() || h["price"].is_null())) {
+    // So is a hit without a name, with a price that isn't a number, or with a bad quantity.
+    // A quantity, when given, must be a whole number of copies: a bad one isn't "any number".
+    let qty_ok = |q: &Value| q.is_null() || q.as_u64().is_some_and(|n| n <= 100_000);
+    if !hits.iter().all(|h| h["name"].is_string() && (h["price"].is_number() || h["price"].is_null()) && qty_ok(&h["qty"])) {
         return Some(None);
     }
     let listings = hits
