@@ -169,9 +169,13 @@ fn deck_link(token: &str, deck: &str, build: Option<&str>, how: How) -> String {
     }
 }
 
+/// The most copies of one card a page counts from a line or swap. No list plays more; with
+/// every count bounded, no sum on a page can overflow.
+const MAX_COPIES: i64 = 10_000;
+
 /// A swap's copies: `qty`, else one.
 fn qty(s: &Value) -> i64 {
-    s.get("qty").and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or(1)
+    s.get("qty").and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or(1).min(MAX_COPIES)
 }
 
 /// Copies added and cut by a build's swaps.
@@ -227,7 +231,8 @@ fn counts(list: &str) -> (Vec<String>, HashMap<String, i64>) {
         if *copies == 0 {
             order.push(line.name);
         }
-        *copies += line.qty;
+        // Saturating: a note may hold any count, and an overflow must not wrap or panic.
+        *copies = copies.saturating_add(line.qty.clamp(0, MAX_COPIES));
     }
     (order, n)
 }
@@ -515,7 +520,7 @@ async fn to_get(pool: &SqlitePool, wanted: Vec<(String, i64, Option<String>)>) -
             items.push(ToGet { name, n: 0, price: None, image: String::new(), decks: Vec::new() });
             items.len() - 1
         });
-        items[i].n += n;
+        items[i].n = items[i].n.saturating_add(n.min(MAX_COPIES));
         if let Some(d) = deck.filter(|d| !items[i].decks.contains(d)) {
             items[i].decks.push(d);
         }
@@ -824,9 +829,11 @@ fn all_builds_need(d: &Value) -> Vec<(String, i64)> {
     let Some(base) = build_of(d, None) else { return Vec::new() };
     let (_, mut start) = counts(text(base, "list"));
     for s in base["swaps"].as_array().into_iter().flatten() {
-        *start.entry(same(text(s, "card_in"))).or_insert(0) -= qty(s);
+        let c = start.entry(same(text(s, "card_in"))).or_insert(0);
+        *c = c.saturating_sub(qty(s));
         if !text(s, "card_out").is_empty() {
-            *start.entry(same(text(s, "card_out"))).or_insert(0) += qty(s);
+            let c = start.entry(same(text(s, "card_out"))).or_insert(0);
+            *c = c.saturating_add(qty(s));
         }
     }
     let mut order: Vec<String> = Vec::new();
@@ -837,7 +844,7 @@ fn all_builds_need(d: &Value) -> Vec<(String, i64)> {
             let k = same(&name);
             let copies = n.get(&k).copied().unwrap_or(0);
             match total.get_mut(&k) {
-                Some(t) => t.1 += copies,
+                Some(t) => t.1 = t.1.saturating_add(copies),
                 None => {
                     order.push(k.clone());
                     total.insert(k, (name, copies));
@@ -849,7 +856,7 @@ fn all_builds_need(d: &Value) -> Vec<(String, i64)> {
         .into_iter()
         .filter_map(|k| {
             let (name, n) = total.remove(&k)?;
-            let need = n - start.get(&k).copied().unwrap_or(0).max(0);
+            let need = n.saturating_sub(start.get(&k).copied().unwrap_or(0).max(0));
             (need > 0).then_some((name, need))
         })
         .collect()

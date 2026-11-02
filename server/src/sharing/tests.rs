@@ -761,6 +761,12 @@ async fn shared_notes_price_the_cards_to_get() {
     crate::deck_research::save(&pool, &bryan, &long).await.unwrap();
     let longer = page(&app, &format!("/r/{token}?builds=all")).await.2;
     assert!(longer.contains(&format!("href=\"/r/{token}/party/b2-names.txt\" download>Download</a>")) && !longer.contains("id=\"lists-all\"") && longer.contains("id=\"list-1\""), "{longer}");
+    // Counts too large to add up saturate rather than wrap or panic.
+    let mut huge = both.clone();
+    huge["decks"][0]["builds"][0]["list"] = json!(format!("Commander\n1 Nalia de'Arnise\nDeck\n{} Plains", i64::MAX));
+    huge["decks"][0]["builds"][1]["list"] = json!(format!("Commander\n1 Nalia de'Arnise\nDeck\n{} Plains", i64::MAX));
+    crate::deck_research::save(&pool, &bryan, &huge).await.unwrap();
+    assert_eq!(page(&app, &format!("/r/{token}?builds=all")).await.0, StatusCode::OK);
     // A build may be called "all": the every-build view has its own parameter.
     let mut named = both.clone();
     named["decks"][0]["builds"][0]["id"] = json!("all");
