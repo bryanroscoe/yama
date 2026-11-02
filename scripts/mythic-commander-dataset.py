@@ -59,11 +59,19 @@ def main(deliver: Path, out: Path) -> None:
                 },
             })
     coverage = {k: summary["coverage"][k] for k in ("commanders", "successful", "partner_precons") if k in summary.get("coverage", {})}
+    # The first hand-off (2026-10-31) predates these keys; later ones name their own collection window.
+    finished = summary.get("snapshot_finished_at", "2026-10-31T14:38:25Z")
+    if "snapshot_started_at" not in summary:
+        cohort = "Commanders that face catalog precons only."
+    elif summary.get("complete"):
+        cohort = "Every commander-legal card, looked up one by one, plus the catalog precons' faces."
+    else:
+        cohort = f"A partial lookup of every commander-legal card: {len(records)} so far."
     doc = {
         "schema": "yama-dataset/1",
         "id": "mythic-commander-scores",
         "title": "Mythic Tools commander scores",
-        "generated_at": "2026-10-31T14:41:00Z",
+        "generated_at": finished,
         "source": {
             "name": "Mythic Tools",
             "url": "https://mythic.tools",
@@ -73,13 +81,13 @@ def main(deliver: Path, out: Path) -> None:
         "method": (
             "Clean-room derivation (deliver/METHOD.md): per commander, wins and losses from Mythic's platform aggregate, "
             f"Beta prior of strength {prior:g} at the cohort mean {baseline:.4f}, effective sample min(N/4, 4 x decks, 2000); "
-            "score = 100 * logistic((logit(p) - logit(p0)) / 0.5) with a 95% credible interval. Commanders that face catalog precons only."
+            f"score = 100 * logistic((logit(p) - logit(p0)) / 0.5) with a 95% credible interval. {cohort}"
         ),
         "coverage": coverage,
         "sources": [{
             "sha256": digest,
             "url": None,
-            "retrieved_at": "2026-10-31T14:38:25Z",
+            "retrieved_at": finished,
             "source_as_of": None,
             "captured_at": None,
             "flags": [],
@@ -88,7 +96,7 @@ def main(deliver: Path, out: Path) -> None:
         }, {
             "sha256": summary_digest,
             "url": None,
-            "retrieved_at": "2026-10-31T14:38:25Z",
+            "retrieved_at": finished,
             "source_as_of": None,
             "captured_at": None,
             "flags": [],
