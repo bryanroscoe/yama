@@ -108,14 +108,13 @@ export function Buy() {
                 </span>
               </span>
               {g.cartUrl && (
-                <a className="button primary buy-cart" href={g.cartUrl} target="_blank" rel="noreferrer" title="Replaces what's in that cart now">
-                  Fill the cart
+                <a className="button primary buy-cart" href={g.cartUrl} target="_blank" rel="noreferrer">
+                  Replace cart
                 </a>
               )}
             </header>
             {g.store.note && <p className="buy-store-note">{g.store.note}</p>}
             {g.rows.map(row)}
-            {g.cartUrl && <p className="buy-store-note">Filling the cart at {g.store.short ?? g.store.name} replaces what's in it now.</p>}
           </section>
         ))}
       </div>

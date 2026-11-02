@@ -193,8 +193,8 @@ export function Trip() {
                 </span>
               </span>
               {st.cartUrl && (
-                <a className="button primary buy-cart" href={st.cartUrl} target="_blank" rel="noreferrer" title="Replaces what's in that cart now">
-                  Fill the cart
+                <a className="button primary buy-cart" href={st.cartUrl} target="_blank" rel="noreferrer">
+                  Replace cart
                 </a>
               )}
             </header>
