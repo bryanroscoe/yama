@@ -38,7 +38,7 @@ if (typeof window !== "undefined") {
 }
 
 /** Opened from the home screen (or as an installed app), not in a browser tab. */
-function standalone(): boolean {
+export function standalone(): boolean {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }

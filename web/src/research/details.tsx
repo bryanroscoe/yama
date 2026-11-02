@@ -1,5 +1,7 @@
 import { CardRef, CardText } from "../components/CardRef";
 import type { Accounting, Build, Combo, GameplayProfile, Power, ResearchDeck } from "./api";
+// Deck pages and the deck check show these too, without the rest of the research pages.
+import "./research.css";
 
 export interface ListEntry { name: string; qty: number; commander: boolean }
 export const BASICS = new Set(["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes", "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest"]);

@@ -640,6 +640,7 @@ label > span.hint {
 }
 
 .rail-foot {
+  flex: none;
   gap: 8px;
   padding-top: 16px;
 }

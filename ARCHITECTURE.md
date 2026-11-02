@@ -1196,6 +1196,36 @@ Bryan (2026-11-01): "let's just make a new commander ranking page … it has not
 - **Seeing each source.** Mythic's first hand-off covered only the 174 commanders that lead catalog precons, so most rows were Playgroup.gg alone; the 2 Nov 2026 lookup covers every commander-legal card, and the dataset's method line says whether a hand-off was partial. Each source's chip shows how many commanders it covers and lists just those (`src`), "In every source" lists the commanders both have, and a source without a commander says "Not covered" rather than "no games". Ranks depend only on the games floor; colors, sources and searches narrow the list but keep them (Bryan, 1 Nov 2026: "I don't see the mythic data anywhere").
 - **Caveats shown on the page.** Stock and upgraded lists, every power level and pod size, self-logged; not a forecast for a table. Attribution and licence of each source are shown with the figures.
 
+### Faster first load, caching and cache busting (2026-11-02)
+
+Bryan (2026-11-02): "React lazy, showing placards right there before they do, and having stand-ins is great. If we're going to mark things as cacheable, we need to make sure we have built-in cache busting."
+
+- **Pages load with their area.** `web/src/App.tsx` loads each area (Play, the Lab, plans, admin, Decks, Collection, Group, research, datasets, the bridges, the life counter...) as one module the first time one of its pages opens (`web/src/lazyPages.tsx`); its stylesheet comes with it. The Table home, card search and What's new stay in the main bundle: they're where Yama opens and what works offline before anything else has loaded. The life counter's code is fetched while the Table home is open. The main entry went from 1,620 KiB (464 KiB gzipped) to about 330 KiB (103 KiB).
+- **Stand-ins.** Until an area's code arrives its page shows a stand-in shaped like it (`components/StandIn.tsx`): the page's real title, then flat grey blocks for its toolbar, rows, tiles or board, pulsing gently unless reduced motion is asked for. No card images. A page that fails to load (offline and never saved, or broken) says so with a Reload button instead of a blank screen.
+- **Stylesheets that leaned on load order.** With every stylesheet in one file, a rule could win just by coming later. Three such rules were made explicit so each page looks as it did: the plan pages' `.plan-group` (the board's rule of the same name used to win; the board's is now `.combat-plan-group`), `.tag.warn` and `.rail-foot`. Research details and the Collection's scan choices import the stylesheets they use.
+- **No blank screen.** The app opens as the account this device last saw (`yama.me`) and asks `/api/me` in the background; a 401 signs out and forgets it, and any page request answered 401 asks again. A device with no saved account shows the nav and a stand-in until the server answers. `main.tsx` keeps `guest.ts` and the life counter's game slot in step with `/api/me` as its answer changes, before any page renders with it, instead of App setting them while it renders. When the first answer never comes (offline, server down), pages that open don't ask again in a loop; it's asked again when the connection returns.
+- **Stale tabs.** A tab opened before a release that asks for code the server no longer has reloads once (`vite:preloadError`; a second failure within a minute shows the error).
+- **Service worker** (`web/public/sw.js`, caches `yama-shell-v2`, `yama-assets-v2`, `yama-images-v2`; the v1 caches are deleted). A page load takes the network's shell if it answers within 3 seconds, otherwise the saved one, and a late answer still replaces the saved shell. Every build lists its files in `/assets/precache-<hash>.json`, named by `<meta name="yama-precache">` in `index.html` (`precacheList` in `web/vite.config.ts`). When a new shell arrives the worker saves every JS, CSS and woff2 file it lists, so pages never opened still work offline, and drops build files that neither this shell nor the one before it lists (a tab opened before a release keeps working). Build files are kept only when they are what their address says: a JS address answered with HTML is passed on but never saved. Saved files are matched by address alone (`ignoreVary`), since the server sends `Vary: Origin`. Card images from `cards.scryfall.io` are fetched with CORS (Scryfall allows any origin) and kept only when they arrive whole; opaque responses hid failures and counted several MB each against the quota. The image cache is trimmed once when the worker starts and then every 50 new images. Installed apps, starting a life counter game and saving the card list by hand ask the browser to keep Yama's storage (`navigator.storage.persist`, `web/src/storage.ts`).
+- **The OCR engine** is copied to `/ocr/<version>/`, the version derived from its packages' versions (`web/scripts/ocr-version.mjs`), and tesseract's own saved model is keyed by it, so a new engine is fetched rather than an old copy kept.
+- **Compression.** The web build writes `.br` and `.gz` beside every compressible file over 1 KiB (`precompress` in `web/vite.config.ts`; skipped for the Android build).
+
+**What the server sends for the web app's files** (for `server/src/routes.rs`; not yet implemented on 2026-11-02):
+
+| Path | `Cache-Control` | Notes |
+|---|---|---|
+| `/assets/*` (content-hashed JS, CSS, fonts, WASM, `precache-<hash>.json`) | `public, max-age=31536000, immutable` | A missing file is a `404` with `Cache-Control: no-store`, never `index.html` |
+| `/ocr/<version>/*` | `public, max-age=31536000, immutable` | Missing: `404`, `no-store` |
+| `/`, `/index.html` and every app route (the shell) | `no-cache` | With `ETag` or `Last-Modified`, so a check is a `304` |
+| `/sw.js` | `no-cache` | Registered as `/sw.js?v=<hash of its source>` |
+| `/manifest.webmanifest`, `/icon*.svg`, `/icon-*.png`, `/apple-touch-icon.png` | `no-cache` | Fixed names; the shell asks for them with `?v=2` |
+| `/select-chevron-v1.svg`, `/card-preview-v1.js`, `/share-copy-v1.js`, `/public-list-v1.js`, `/precons.css`, `/site-notice.html`, `/precon-fonts/*` | `no-cache` | Fixed names used by the server-rendered pages. Later: content-address them as `/precons/assets/` already does for the stylesheet and list script |
+| `/about/`, `/privacy/`, `/tos/`, `/delete-account/`, `/docs/mcp/*` | `no-cache` | Static pages |
+
+- Only addresses without a file extension fall back to `index.html`; a missing file anywhere (any path whose last segment has an extension, and everything under `/assets/` and `/ocr/`) is a `404` with `no-store`. On 2026-11-02 Cloudflare kept a fallback `index.html` served for a `.js` address for 4 hours.
+- Precompressed files: serve `x.br` or `x.gz` for `x` when the request accepts it (tower-http `ServeDir::precompressed_br().precompressed_gzip()`), with `Content-Encoding` and `Vary: Accept-Encoding`; the compression layer leaves responses that already carry `Content-Encoding` alone.
+- Static files need no CORS headers; keeping the CORS layer to `/api/` drops `Vary: Origin` from them.
+- Cloudflare's browser cache TTL setting must respect the origin's headers.
+
 ## 11. Risks
 
 - **Legal and IP:**

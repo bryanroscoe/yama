@@ -59,7 +59,7 @@ export function ArtPanel({
     <Tag className={`art-panel wash-${wash} ${kind}${toGround ? " to-ground" : ""}${Tag === "header" ? " art-scene" : ""}${className ? ` ${className}` : ""}`} style={style}>
       {shown && (
         <>
-          <img className="art-img" src={shown} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(shown)} />
+          <img className="art-img" src={shown} alt="" loading="lazy" decoding="async" crossOrigin="anonymous" draggable={false} onError={() => setFailed(shown)} />
           <span className="art-wash" aria-hidden="true" />
         </>
       )}

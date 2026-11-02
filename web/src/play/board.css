@@ -1303,12 +1303,12 @@ button.pile-chip:hover {
   padding: 0 12px;
   font-size: 13px;
 }
+/* Its gap and top padding come from styles.css's .rail-foot. */
 .rail-foot {
   margin-top: auto;
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 .rail-recent {
   display: flex;
@@ -4546,10 +4546,11 @@ button.portrait:hover {
   min-height: 38px;
   padding: 0 14px;
 }
-.plan-group {
+.combat-plan-group {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  margin: 0 0 24px;
   padding: 10px 12px;
   border-radius: 14px;
   background: var(--surface);
