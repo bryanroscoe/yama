@@ -12,6 +12,7 @@ import {
   cantJudge,
   caveat,
   deltaBound,
+  deckName,
   durationText,
   engineFamily,
   fieldResult,
@@ -35,10 +36,10 @@ import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
-export function headline(e: ExperimentItem): string {
+export function headline(e: ExperimentItem, name?: (label: string) => string): string {
   const p = e.progress;
   const s = e.summary && hasResults(e.summary) ? e.summary : null;
-  const field = fieldResult(s, e.status !== "queued" && e.status !== "running");
+  const field = fieldResult(s, e.status !== "queued" && e.status !== "running", name);
   switch (e.status) {
     case "queued":
       return p.eta_seconds != null ? `Waiting, done in ${durationText(p.eta_seconds)}` : "Waiting for its turn";
@@ -89,6 +90,7 @@ export function RunsPage() {
   });
   const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs") });
   const precons = usePrecons();
+  const name = (label: string) => deckName(label, precons.data?.precons ?? []);
   const batch = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
   const stop = useMutation({ mutationFn: (id: string) => api(`/api/lab/experiments/${id}/cancel`, { method: "POST" }), onSuccess: refresh });
@@ -130,7 +132,7 @@ export function RunsPage() {
           {exps.data.map((e) => {
             const live = e.status === "queued" || e.status === "running";
             const s = e.summary && hasResults(e.summary) ? e.summary : null;
-            const field = fieldResult(s, !live);
+            const field = fieldResult(s, !live, name);
             const tag = live
               ? { text: e.status === "running" ? "Running" : "Waiting", tone: "" }
               : e.status === "failed"
@@ -157,7 +159,7 @@ export function RunsPage() {
                     <span style={{ width: `${e.progress.total ? (e.progress.done / e.progress.total) * 100 : 0}%` }} />
                   </span>
                 )}
-                <span className="lab-runcard-result">{headline(e)}</span>
+                <span className="lab-runcard-result">{headline(e, name)}</span>
                 {field && field.leaders.length > 1 && (s?.versus?.entrants.length ?? 0) > 3 && (
                   <ol className="lab-runcard-leaders" aria-label="Most wins">
                     {field.leaders.map((l) => (
