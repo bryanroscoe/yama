@@ -59,13 +59,15 @@ by explicitly expecting `null` when filling missing ones. Allowed values are `co
 (to clear an incorrect reason).
 
 For account assignments, specify that account's member ID in the game's group, its user ID,
-and a null guest name. A named group guest uses its member ID, null user ID and matching
+and a null guest name. The recorder may occupy their own account seat without a member ID,
+including games with no playgroup; other accounts require a matching group membership. A named group guest uses its member ID, null user ID and matching
 guest name; an unlinked guest uses null member/user IDs and a guest name. The command does
 not create memberships or globally rename "Guest 1": attribution is per game seat.
 
 Reassigning a player preserves the recorded deck label, commander and result. It detaches a
 private deck-version link if the newly seated account does not own that deck. A guest may
-retain the recorder's borrowed deck link. The detached ID is logged for guarded undo.
+retain the recorder's borrowed deck link. The detached ID is logged for guarded undo. The detail page reconciles its terminal outcome
+with the corrected game facts for display, while leaving the original stored events unchanged.
 
 ## Undo
 

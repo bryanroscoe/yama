@@ -270,6 +270,24 @@ class Corrections(unittest.TestCase):
         self.assertEqual(self.scalar("SELECT user_id FROM game_seats WHERE game_id='g1' AND seat=0"), 'bryan')
         self.assertEqual(self.scalar("SELECT user_id FROM game_seats WHERE game_id='g1' AND seat=1"), 'chelsey')
 
+    def test_recorder_seat_without_membership_can_be_corrected_and_undone(self):
+        for group in (None, 'group'):
+            with self.subTest(group=group):
+                self.c.execute("UPDATE games SET playgroup_id=? WHERE id='g1'", (group,))
+                self.c.execute("UPDATE game_seats SET member_id=NULL WHERE game_id='g1' AND seat=0")
+                self.c.commit()
+                change = {'kind': 'player', 'game_id': 'g1', 'seat': 0,
+                          'before': dict(member_id=None, user_id='bryan', guest_name=None, deck_version_id=None),
+                          'after': dict(member_id=None, user_id=None, guest_name='Guest')}
+                op = 'no-membership-' + str(group)
+                self.apply({**self.req, 'id': op, 'changes': [change]})
+                self.apply({**self.undo(op+'-undo'), 'reverts': op})
+                self.assertEqual(self.scalar("SELECT user_id FROM game_seats WHERE game_id='g1' AND seat=0"), 'bryan')
+                self.assertIsNone(self.scalar("SELECT member_id FROM game_seats WHERE game_id='g1' AND seat=0"))
+                change['after'] = dict(member_id=None, user_id='other', guest_name=None)
+                with self.assertRaises(ValueError):
+                    self.apply({**self.req, 'id': op+'-foreign', 'changes': [change]})
+
     def test_validation_duplicate_targets_and_bad_types(self):
         bad = [[], {'id': 'x'}, {**self.req, 'extra': 1}, {**self.req, 'changes': []},
                {**self.req, 'changes': [self.req['changes'][0]] * 2}]

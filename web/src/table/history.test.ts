@@ -23,6 +23,32 @@ const setup: TableSetup = {
 const log = (events: TableEvent[]): LoggedEvent[] => events.map((event, i) => ({ seq: i + 1, at: `2026-10-29T19:0${i}:00Z`, event }));
 
 describe("table history", () => {
+  it("reconciles a corrected terminal result without changing the stored events", () => {
+    const detail = {
+      id: "g9", status: "finished", winner_seat: 0, win_condition: "combat",
+      started_at: "2026-10-29T19:00:00Z", format: "commander", starting_life: 40, playgroup_id: null,
+      seats: [{ seat: 0, guest_name: "Bryan" }, { seat: 1, guest_name: "Sam" }],
+      events: [
+        { seq: 1, payload: { type: "life", seat: 1, delta: -3 } },
+        { seq: 2, payload: { type: "finish", winnerSeat: 0, endedAt: "2026-10-29T20:00:00Z", winCondition: "combo" } },
+      ],
+    } as unknown as GameDetail;
+    const original = JSON.stringify(detail.events);
+    const shown = () => {
+      const { setup, log } = setupFromServer(detail);
+      return history(setup, log).map((l) => l.text);
+    };
+    expect(shown()).toEqual(["Sam lost 3 life, now 37.", "Bryan won (combat)."]);
+    detail.win_condition = null;
+    expect(shown().at(-1)).toBe("Bryan won.");
+    detail.win_condition = "combat";
+    detail.winner_seat = null;
+    expect(shown().at(-1)).toBe("The game ended in a draw.");
+    expect(JSON.stringify(detail.events)).toBe(original);
+    detail.status = "in_progress";
+    expect(shown().at(-1)).toBe("Bryan won (combo).");
+  });
+
   it("a saved game's history names whoever sat there at the time", () => {
     const detail = {
       id: "g9", started_at: "2026-10-29T19:00:00Z", format: "commander", starting_life: 40, playgroup_id: null,

@@ -305,7 +305,10 @@ share one immediate SQLite transaction; stable IDs make retries safe. Undo appen
 entry only while the targeted values still match. Deck labels/results stay intact and foreign
 private deck-version links are detached on account reassignment. Account/game deletion purges
 affected audit batches. This replaces ad hoc rollback files for these corrections; ordinary
-backups and gameplay events remain separate. It is not a public editing API or a log of all SQL.
+backups and gameplay events remain separate. The detail page projects corrected terminal
+result facts into its displayed history without rewriting the stored events. Recorder account
+seats without a group membership remain valid through correction and undo. It is not a public
+editing API or a log of all SQL.
 
 ## 5. Offline-first data (Table, Collection, Cards)
 

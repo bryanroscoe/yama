@@ -104,7 +104,8 @@ def check_identity(conn, value, g, seat, proposed):
         if uid is not None and guest is not None:
             raise ValueError('account seats must not also have a guest name')
     elif uid:
-        raise ValueError('account assignment requires its playgroup member_id')
+        if uid != g['created_by'] or guest is not None:
+            raise ValueError('only the recorder may use an account seat without a playgroup member_id')
     elif guest is None:
         raise ValueError('an unlinked guest needs a name')
     if uid and conn.execute('SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL', (uid,)).fetchone() is None:

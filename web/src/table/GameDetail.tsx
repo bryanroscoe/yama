@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatLabel, winConditionLabel, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
+import { formatLabel, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
@@ -29,6 +29,19 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
   const log: LoggedEvent[] = g.events
     .filter((e) => !!e.payload && typeof e.payload === "object" && "type" in (e.payload as object))
     .map((e) => ({ seq: e.seq, at: e.created_at ?? g.started_at, event: e.payload as TableEvent }));
+  // Finished-game facts may have been corrected after the table uploaded its events.
+  // Reconcile the displayed terminal result, keeping the persisted event log untouched.
+  if (g.status === "finished") {
+    const terminal = log.findLastIndex(({ event }) => event.type === "finish");
+    const row = log[terminal];
+    if (row?.event.type === "finish") {
+      log[terminal] = { ...row, event: {
+        ...row.event,
+        winnerSeat: g.winner_seat,
+        winCondition: g.winner_seat === null ? undefined : WIN_CONDITIONS.find((c) => c.key === g.win_condition)?.key,
+      } };
+    }
+  }
   // The server keeps a seat's newest commander; a seat that changed says what it started with.
   const started = new Map<number, { commanderName?: string; partnerName?: string }>();
   for (const { event: e } of log) if (e.type === "seat" && e.was && !started.has(e.seat)) started.set(e.seat, e.was);
