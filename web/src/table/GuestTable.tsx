@@ -9,6 +9,7 @@ import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
 import { guestWsUrl, joinFragment, joinLink } from "./share";
 import { useLandscape } from "./layouts";
+import { useScreenAwake } from "./wakeLock";
 import { DispatchContext, KnockOut, LethalSheet, Panel, PlayerSheet, pendingDelta, uprightLayout, useLethalPrompt, useTableArt } from "./TablePlay";
 import "./table.css";
 
@@ -49,6 +50,9 @@ function GuestGame({ gameId }: { gameId: string }) {
   const socket = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
   const landscape = useLandscape();
+  // A guest phone sits on the table too: keep its screen on once the game has loaded (and through
+  // a dropped connection after that), but not on a join that never got in.
+  useScreenAwake(snapshot !== null);
   // The share key and relay come in the link's #fragment; kept so a reload can reconnect. The
   // game's own creator (following from another device) needs no key on the server's relay.
   const [{ key, relay }] = useState(() => joinLink(gameId));

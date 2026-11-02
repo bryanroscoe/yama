@@ -14,6 +14,14 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-table-awake",
+    date: "2026-11-01",
+    title: "The life counter keeps your screen on",
+    items: [
+      "Your phone no longer goes to sleep during a game. Yama asks again to keep the screen on each time you come back from another app or unlock the phone, and phones following a shared table stay awake too.",
+    ],
+  },
+  {
     id: "2026-11-01-shopping-settings",
     date: "2026-11-01",
     title: "Your buy rule, your favourite store, and lists to paste",
