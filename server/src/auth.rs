@@ -735,8 +735,8 @@ struct DeleteMe {
 /// an admin's deletion does (`admin/delete.rs` says what goes and what stays, anonymised, for
 /// other people's records). Google Play wants this in the app and at a web link (`/account/`).
 /// It takes a Yama session (script keys, OAuth tokens and Cloudflare Access alone can't), never
-/// runs while an admin views as someone, and refuses an admin account, which YAMA_ADMIN_EMAILS
-/// would only make again.
+/// runs while an admin views as someone or on a server behind Cloudflare Access, and refuses an
+/// admin account: Access and YAMA_ADMIN_EMAILS would only make them again.
 async fn delete_me(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -747,6 +747,12 @@ async fn delete_me(
 ) -> AppResult<(CookieJar, Json<crate::admin::delete::DeleteReport>)> {
     if view.is_some() {
         return Err(AppError::Forbidden("stop viewing as someone to delete an account".into()));
+    }
+    // Behind Cloudflare Access the Access credential would sign the account straight back in and
+    // make it again, whatever happens to the Yama session: there an admin removes the person from
+    // the Access policy and deletes the account.
+    if st.cfg.cf_access_team.is_some() {
+        return Err(AppError::Forbidden("on this server an admin deletes accounts; ask yours".into()));
     }
     // A Yama session of this account, not Cloudflare Access alone: Access would sign the
     // account straight back in, making it again (`upsert_user`).

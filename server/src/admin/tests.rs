@@ -283,6 +283,18 @@ async fn people_delete_their_own_account_with_their_email_but_admins_cannot() {
     assert_eq!(send(&app, Method::GET, "/api/me", Some(&sam_token), None).await.0, StatusCode::OK, "nobody else is touched");
 }
 
+#[tokio::test]
+async fn behind_cloudflare_access_only_an_admin_deletes_accounts() {
+    let pool = crate::db::test_pool().await;
+    let mut cfg = crate::testutil::config();
+    cfg.cf_access_team = Some("team".into());
+    let app = crate::routes::app(crate::testutil::state_with(cfg, pool.clone()).await);
+    let (_, token) = user(&pool, "pat@example.com").await;
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&token), Some(json!({"confirm_email": "pat@example.com"}))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "Access would sign the account straight back in");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&token), None).await.0, StatusCode::OK);
+}
+
 /// Every column in the schema that can hold an account id: foreign keys to `users`, and columns
 /// whose names say they hold one.
 async fn schema_user_columns(pool: &SqlitePool) -> BTreeSet<(String, String)> {

@@ -198,6 +198,13 @@ async fn connect(
     if host && p.key.len() < 16 {
         return Err(AppError::bad("missing share key"));
     }
+    // Hear a deletion of this account from now on, then check it still exists: a deletion that
+    // committed before this subscribed (`Rooms::end_for` runs after the commit) is caught here.
+    let ended = st.rooms.ended.subscribe();
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ?)").bind(&user.id).fetch_one(&st.pool).await?;
+    if !exists {
+        return Err(AppError::Unauthorized);
+    }
     if host {
         let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
             .bind(&game_id)
@@ -228,16 +235,15 @@ async fn connect(
     let rooms = st.rooms.clone();
     Ok(ws.max_message_size(MAX_MESSAGE).on_upgrade(move |socket| async move {
         if host {
-            run_host(rooms, game_id, user.id, socket).await
+            run_host(rooms, game_id, user.id, ended, socket).await
         } else {
-            run_guest(rooms, game_id, user.id, user.display_name, socket).await
+            run_guest(rooms, game_id, user.id, user.display_name, ended, socket).await
         }
     }))
 }
 
-async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, socket: WebSocket) {
+async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, mut ended: broadcast::Receiver<String>, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
-    let mut ended = rooms.ended.subscribe();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let (conn, guests) = {
         let mut map = rooms.rooms.lock().unwrap();
@@ -283,9 +289,15 @@ async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, socket: W
     }
 }
 
-async fn run_guest(rooms: Arc<Rooms>, game_id: String, user_id: String, name: String, socket: WebSocket) {
+async fn run_guest(
+    rooms: Arc<Rooms>,
+    game_id: String,
+    user_id: String,
+    name: String,
+    mut ended: broadcast::Receiver<String>,
+    socket: WebSocket,
+) {
     let (mut sink, mut stream) = socket.split();
-    let mut ended = rooms.ended.subscribe();
     let (mut updates, snapshot, host_connected) = {
         let mut map = rooms.rooms.lock().unwrap();
         let room = map.entry(game_id.clone()).or_insert_with(Room::new);

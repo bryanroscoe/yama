@@ -197,13 +197,15 @@ pub async fn delete_account(st: &AppState, id: &str) -> AppResult<DeleteReport> 
         .await?
         .ok_or(AppError::NotFound("account"))?;
     st.watch.remove_owner(id);
-    st.rooms.end_for(id);
     for game in online_games_of(&st.pool, id).await? {
         st.play.stop(&game);
     }
     let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     let mut report = delete_rows(&mut tx, id).await?;
     tx.commit().await?;
+    // After the commit, so a table socket that subscribes too late to hear this finds the account
+    // gone instead (`table_rooms::connect`).
+    st.rooms.end_for(id);
     report.email = email;
     Ok(report)
 }

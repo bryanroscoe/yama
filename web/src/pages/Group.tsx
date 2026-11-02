@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
-import { useLogout, useMe } from "../auth";
+import { useAuthConfig, useLogout, useMe } from "../auth";
 import { Details, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats, pct } from "../components/GroupStats";
@@ -405,6 +405,7 @@ function GroupActions() {
 function Account() {
   const me = useMe();
   const logout = useLogout();
+  const authConfig = useAuthConfig();
   const [signOutError, setSignOutError] = useState<unknown>(null);
   return (
     <section className="grp-section" aria-labelledby="grp-you">
@@ -434,8 +435,8 @@ function Account() {
           <Link className="grp-new" to="/new">What's new in Yama</Link>
         </div>
         <ErrorText error={signOutError} />
-        {/* Not while an admin views as you (read only), and not for an admin, whom YAMA_ADMIN_EMAILS would make again. */}
-        {me.data && !me.data.viewing && !me.data.is_admin && <DeleteAccount email={me.data.email} />}
+        {/* Not while an admin views as you (read only), nor for an admin or behind Cloudflare Access, which would make the account again. */}
+        {me.data && !me.data.viewing && !me.data.is_admin && !authConfig.data?.cf_access && <DeleteAccount email={me.data.email} />}
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
     </section>
