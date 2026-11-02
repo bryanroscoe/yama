@@ -71,7 +71,7 @@ Needs Rust (stable) and Node 22+.
 
 **Quickest, on production's data (2 Nov 2026):** `npm run local` copies saget's newest backup to
 `data/yama.db` (only when it's missing; `-- --refresh` copies again), builds the server and starts it
-and the web app with every background and outbound job off, then prints how to sign in.
+and the web app with every background job off, then prints how to sign in.
 `npm run local -- --shots` also takes screenshots of every page once it's up, and `--dry-run` prints
 the plan. It works from any worktree. The copy holds real people's data: keep it out of git, PRs and
 uploads, and delete `data/yama*.db` when you're done. See

@@ -12,9 +12,11 @@
 #   --dry-run     print the plan and change nothing
 #   --            everything after goes to `npm run polish -- shoot` (with --shots)
 #
-# Run it from the primary checkout or any worktree. The server runs with every background job and
-# outbound caller off, so nothing reaches Scryfall, Commander Spellbook, MTGJSON, Forge, Claude or
-# the Mythic bridge on its own. The copy holds real people's data: never commit, upload or paste it,
+# Run it from the primary checkout or any worktree. Every background job and every outbound caller
+# that has a setting is off, so nothing reaches Scryfall, Commander Spellbook, MTGJSON, Forge, Claude
+# or the Mythic bridge on its own. A few request-triggered fetches have no setting (card hover
+# previews of uncatalogued cards, Check stores, MCP research, the scanner bundle and MTGJSON precon
+# lists when opened): see the skill. The copy holds real people's data: never commit, upload or paste it,
 # and delete data/yama*.db when you're done (see .claude/skills/yama-local/SKILL.md).
 set -euo pipefail
 
@@ -215,7 +217,9 @@ Yama is running on a copy of production's data:
 Sign in: open the web address and use "Sign in (development)" with $email (no password).
 That account exists in the copy, so you see its real decks, collection and games; $email is the
 local admin. Nothing here is written back to production.
-Background jobs and outbound callers are off: no card or price imports, no Spellbook, no Lab games.
+Background jobs are off: no card or price imports, no Spellbook, no Lab games, no Forge or Claude.
+Some pages still fetch public data when you open them (hovering a card the copy doesn't know, the
+scanner, a precon list), and Check stores contacts a store: avoid that last one.
 EOF
 
 if [ "$shots" = 1 ]; then
