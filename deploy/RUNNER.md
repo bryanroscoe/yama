@@ -20,9 +20,12 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 - The host entrypoint lives outside runner-writable paths. It checks GitHub itself:
   a commit on main, latest push CI for that SHA, the CI workflow identity, success,
   branch, event and source repository. If main moved on after the request, the commit still
-  deploys unless a newer main commit's push CI has already passed (that one deploys instead);
-  a commit off main, or older than production, never deploys (Bryan, 2026-11-02: requiring the
-  exact tip starved every release while merges landed every few minutes). A PR job cannot grant itself deployment access
+  deploys while it stays on main. Before building, a newer main commit whose push CI already
+  passed supersedes it (that commit's own request is queued behind this one). Once built, it
+  activates even if newer commits have passed since; their requests deploy after it. A commit
+  off main, or older than production, never deploys (Bryan, 2026-11-02: requiring the exact tip
+  starved every release while merges landed every few minutes, and so did superseding finished
+  builds once push CI passed in about a minute). A PR job cannot grant itself deployment access
   merely by selecting the runner label. Ordinary CI uses a separate `yama-ci` runner,
   state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
@@ -102,7 +105,10 @@ the runner. No new public ingress is needed.
 
 GitHub's `yama-production` concurrency group finishes an active run without cancelling
 it. The host lock also protects manual releases, independent of the runner. Already healthy deployments are idempotent and do not restart. Old queued
-SHAs are skipped; a release superseded during its build does not activate. Fresh
+SHAs are skipped before building when a newer main commit has passed push CI. A finished
+build activates if its commit is still on main and its own push CI still passes; merges
+during the build no longer discard it (2026-11-02: production sat on one commit while main
+moved through four, each merge superseding the ~20-minute build in progress). Fresh
 GitHub checks happen before building, after building, and after backup immediately
 before switching the live Compose configuration. If GitHub or
 Phase cannot be freshly checked, deployment fails closed.
@@ -118,6 +124,8 @@ requests never reserve priority. Never replace either lock file.
 
 The host prints a `YAMA_RELEASE_RESULT` outcome after finishing. GitHub's summary says
 whether the SHA was deployed, was already healthy, or was superseded without activation.
+A superseded run still succeeds (skipping an old request is normal) but carries a
+"Not deployed" warning annotation, and the host log above it says why.
 Install the reviewed host entrypoint before using the updated workflow; a missing result
 is an error, not evidence of activation.
 

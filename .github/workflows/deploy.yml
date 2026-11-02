@@ -66,7 +66,10 @@ jobs:
           case "$result" in
             success) message='Deployed and health-verified' ;;
             already_healthy) message='Already deployed and health-verified; nothing restarted' ;;
-            superseded) message='Superseded by newer main; this request did not activate production' ;;
+            superseded)
+              # A green run that deployed nothing must not read as a release: flag it.
+              message='Superseded: this request did not activate production (the host log says why)'
+              echo "::warning title=Not deployed::Superseded: $RELEASE_SHA did not activate production. The host log above says why." ;;
             *) echo '::error::Host did not report a recognized release outcome; check the installed host.py version.'; exit 1 ;;
           esac
           printf '%s: %s.\n' "$message" "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
@@ -148,7 +151,10 @@ jobs:
           case "$result" in
             success) message='Deployed and health-verified' ;;
             already_healthy) message='Already deployed and health-verified; nothing restarted' ;;
-            superseded) message='Superseded by newer main; this request did not activate production' ;;
+            superseded)
+              # A green run that deployed nothing must not read as a release: flag it.
+              message='Superseded: this request did not activate production (the host log says why)'
+              echo "::warning title=Not deployed::Superseded: $RELEASE_SHA did not activate production. The host log above says why." ;;
             *) echo '::error::Host did not report a recognized release outcome; check the installed host.py version.'; exit 1 ;;
           esac
           printf '%s: %s.\n' "$message" "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"

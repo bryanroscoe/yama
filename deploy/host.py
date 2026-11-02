@@ -87,15 +87,23 @@ def ahead(base, head, token):
     return base == head or api('compare/' + base + '...' + head, token).get('status') == 'ahead'
 
 
-def verify_ci(revision, token):
+def verify_ci(revision, token, built=False):
     main = api('git/ref/heads/main', token)['object']['sha']
     if main != revision:
         # Main moved on while this request waited, built or activated. With merges every few
         # minutes and a slower CI and build, requiring the exact tip starved every release.
-        # A commit still on main deploys unless a newer main commit is already deployable
-        # (its push CI passed): that one's own request supersedes this one. A commit off main
-        # never deploys; release() separately refuses anything older than production.
-        if not ahead(revision, main, token) or passed(push_ci(main, token), main):
+        # A commit off main never deploys; release() separately refuses anything older than
+        # production, and the release lock keeps production from changing during a build.
+        if not ahead(revision, main, token):
+            log('Superseded: ' + revision + ' is no longer on main.')
+            return False
+        # Before building, a newer main commit whose push CI passed supersedes this one: main's
+        # push CI runs one at a time in merge order, so that commit's own request is queued
+        # behind this one and gets the lock without waiting for a wasted build. Once built, a
+        # release activates anyway (Bryan, 2026-11-02): push CI passes in about a minute, so
+        # superseding finished builds let every merge discard the ~20-minute build in progress.
+        if not built and passed(push_ci(main, token), main):
+            log('Superseded before building: newer main ' + main + ' already passed push CI.')
             return False
     run = push_ci(revision, token)
     if run is None:
@@ -628,8 +636,8 @@ def activate(source, revision, images, record, record_path, token):
         stream.write(config.read_bytes())
     try:
         # Resolve and validate Compose, inspect containers, and back up before
-        # this last remote check. Superseded work must never replace live config.
-        if not verify_ci(revision, token):
+        # this last remote check. A commit that left main must never replace live config.
+        if not verify_ci(revision, token, built=True):
             record['status'] = 'superseded'
             log('Superseded before activation; running production was preserved.')
             return False
@@ -733,7 +741,7 @@ def release(revision, token, check_only=False):
     global COMMAND_DEADLINE
     # Unready requests must not block the CI they need to become deployable.
     if not verify_ci(revision, token):
-        log('Superseded: requested commit is no longer main; nothing deployed.')
+        log('Nothing deployed.')
         return 'superseded'
     if check_only:
         log('Host gate passed: current main has successful push CI. No deployment performed.')
@@ -741,7 +749,7 @@ def release(revision, token, check_only=False):
     with release_lock():
         COMMAND_DEADLINE = time.monotonic() + RELEASE_SECONDS
         if not verify_ci(revision, token):
-            log('Superseded: requested commit is no longer main; nothing deployed.')
+            log('Nothing deployed.')
             return 'superseded'
         history = BASE / 'history'
         history.mkdir(exist_ok=True)
@@ -820,7 +828,7 @@ def release(revision, token, check_only=False):
                             raise
                 images = [run(['docker', 'image', 'inspect', s + ':' + revision,
                                '--format', '{{.Id}}']) for s in SERVICES]
-                if not verify_ci(revision, token):
+                if not verify_ci(revision, token, built=True):
                     record['status'] = 'superseded'
                     log('Superseded during build; running production was preserved.')
                     return 'superseded'

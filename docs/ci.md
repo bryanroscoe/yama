@@ -62,8 +62,9 @@ the same checks locally on its exact tree and contains `main`, or when they carr
 `skip-ci` label; see [Skip CI on a PR](#skip-ci-on-a-pr).
 A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
-successful push CI on a main commit authorizes release, and only until a newer main commit's
-push CI passes; production never goes back to an older commit. Bryan authorized a dedicated CI runner on
+successful push CI on a main commit authorizes release. A newer main commit whose push CI
+passed supersedes it only before its build starts; a finished build activates while its commit
+is still on main. Production never goes back to an older commit. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
 `[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. Two listeners,
 `saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each has no deployment credential, Docker

@@ -1,4 +1,5 @@
 """Production release failure/authorization tests; no real GitHub, Docker or SSH."""
+from contextlib import contextmanager
 import importlib.util
 import hashlib
 import io
@@ -113,21 +114,33 @@ class HostGate(unittest.TestCase):
                 with self.assertRaises(host.Refused):
                     host.verify_ci(SHA, 'token')
 
-    def test_moved_main_still_deploys_until_a_newer_main_commit_passes(self):
+    def test_moved_main_supersedes_only_before_building(self):
         pending = {**self.good_run, 'head_sha': OTHER, 'status': 'in_progress', 'conclusion': None}
         # Main moved to OTHER, whose CI is still running: SHA (on main, CI passed) deploys.
         with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
                                                     {'workflow_runs': [pending]}, {'workflow_runs': [self.good_run]}]):
             self.assertTrue(host.verify_ci(SHA, 'token'))
-        # OTHER's CI passed: its own request deploys it, so SHA's is superseded.
+        # OTHER's CI passed: before building, its own request deploys it, so SHA's is superseded.
         done = {**self.good_run, 'head_sha': OTHER}
         with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
                                                     {'workflow_runs': [done]}]):
             self.assertFalse(host.verify_ci(SHA, 'token'))
-        # A commit that isn't on main never deploys.
-        for status in ('diverged', 'behind', 'identical'):
-            with self.subTest(status=status), patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': status}]):
-                self.assertFalse(host.verify_ci(SHA, 'token'))
+        # Once built, SHA still activates: OTHER's request deploys after it. OTHER's CI isn't consulted.
+        with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
+                                                    {'workflow_runs': [self.good_run]}]) as api:
+            self.assertTrue(host.verify_ci(SHA, 'token', built=True))
+            self.assertNotIn('head_sha=' + OTHER, ' '.join(c.args[0] for c in api.call_args_list))
+        # SHA's own CI must still pass after building.
+        with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
+                                                    {'workflow_runs': [{**self.good_run, 'conclusion': 'failure'}]}]):
+            with self.assertRaises(host.Refused):
+                host.verify_ci(SHA, 'token', built=True)
+        # A commit that isn't on main never deploys, built or not.
+        for built in (False, True):
+            for status in ('diverged', 'behind', 'identical'):
+                with self.subTest(status=status, built=built), \
+                     patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': status}]):
+                    self.assertFalse(host.verify_ci(SHA, 'token', built=built))
 
     def test_checkout_failures_are_errors_not_supersessions(self):
         repo = self.base / 'yama'
@@ -356,22 +369,93 @@ class HostGate(unittest.TestCase):
         self.assertEqual(json.loads((self.base / 'current.json').read_text())['status'], 'success')
         host.log.assert_any_call('Backup retention failed: ValueError')
 
-    def test_supersession_after_build_preserves_running_service_and_cleans_exports(self):
+    def test_leaving_main_during_build_preserves_running_service_and_cleans_exports(self):
         repo = self.root / 'repo'
         repo.mkdir()
         def export(repo, revision, destination, *paths):
             destination.mkdir()
-        with patch.object(host, 'verify_ci', side_effect=[True, True, False]), \
+        with patch.object(host, 'verify_ci', side_effect=[True, True, False]) as verify, \
              patch.object(host, 'checkout', return_value=repo), \
              patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
              patch.object(host, 'export', side_effect=export), \
              patch.object(host, 'run', return_value='image-id'), patch.object(host, 'activate') as activate:
             self.assertEqual(host.release(SHA, 'token'), 'superseded')
             activate.assert_not_called()
+            # Only the checks before building let a newer passed main commit supersede.
+            self.assertEqual([c.kwargs.get('built', False) for c in verify.call_args_list], [False, False, True])
         self.assertEqual(list((self.base / 'builds').iterdir()), [])
         records = list((self.base / 'history').glob('*.json'))
         self.assertEqual(len(records), 1)
         self.assertEqual(json.loads(records[0].read_text())['status'], 'superseded')
+        self.assertFalse((self.base / 'current.json').exists())
+
+    def fake_github(self, line, passed_ci):
+        """GitHub's API over a linear main: its tip is line[-1]; push CI passed for passed_ci."""
+        def api(path, token):
+            if path == 'git/ref/heads/main':
+                return {'object': {'sha': line[-1]}}
+            if path.startswith('compare/'):
+                base, head = path[len('compare/'):].split('...')
+                if base == head:
+                    return {'status': 'identical'}
+                if base not in line or head not in line:
+                    return {'status': 'diverged'}
+                return {'status': 'ahead' if line.index(base) < line.index(head) else 'behind'}
+            revision = re.search(r'head_sha=([0-9a-f]{40})', path).group(1)
+            return {'workflow_runs': [{**self.good_run, 'head_sha': revision}] if revision in passed_ci else []}
+        return api
+
+    def test_main_advancing_with_passed_ci_during_build_still_activates_the_built_commit(self):
+        # 2026-11-02: production sat on one commit while main moved through four. Each merge's
+        # minute-long push CI passed during the ~20-minute build and discarded it.
+        newer, newest = OTHER, 'c' * 40
+        line, passed_ci = [SHA], {SHA}
+        repo = self.root / 'repo'
+        repo.mkdir()
+
+        def export(repo, revision, destination, *paths):
+            (destination / 'deploy').mkdir(parents=True)
+            (destination / 'deploy/compose.yaml').write_text('candidate compose\n')
+
+        def execute(args, **kwargs):
+            if args[:2] == ['docker', 'build'] and newer not in line:
+                line.append(newer)  # a merge lands and its push CI passes mid-build
+                passed_ci.add(newer)
+            if args[:4] == ['docker', 'exec', 'yama', 'yama-server']:
+                (self.app / 'data/backups' / Path(args[-1]).name).write_text('backup')
+                line.append(newest)  # and another during the backup, just before the switch
+                passed_ci.add(newest)
+            return 'image-id' if args[:3] == ['docker', 'image', 'inspect'] else ''
+        with patch.object(host, 'api', side_effect=self.fake_github(line, passed_ci)), \
+             patch.object(host, 'checkout', return_value=repo), \
+             patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
+             patch.object(host, 'bootstrap_sidecars'), patch.object(host, 'export', side_effect=export), \
+             patch.object(host, 'run', side_effect=execute), \
+             patch.object(host, 'compose', return_value=self.resolved(['image-id'] * 3)) as compose, \
+             patch.object(host, 'existing_images', return_value={s: 'old-id' for s in host.SERVICES}), \
+             patch.object(host.os, 'chown'), patch.object(host, 'healthy', return_value=True):
+            self.assertEqual(host.release(SHA, 'token'), 'success')
+            self.assertEqual(compose.call_args.args[2], 'up')
+        self.assertEqual(line, [SHA, newer, newest])
+        self.assertEqual((self.app / 'compose.yaml').read_text(), 'candidate compose\n')
+        self.assertEqual(json.loads((self.base / 'current.json').read_text())['revision'], SHA)
+
+    def test_newer_passed_main_while_waiting_for_the_lock_supersedes_before_building(self):
+        line, passed_ci = [SHA], {SHA}
+        real_lock = host.release_lock
+
+        @contextmanager
+        def lock():
+            line.append(OTHER)  # merged and passed push CI while this request waited
+            passed_ci.add(OTHER)
+            with real_lock():
+                yield
+        with patch.object(host, 'api', side_effect=self.fake_github(line, passed_ci)), \
+             patch.object(host, 'release_lock', lock), patch.object(host, 'checkout') as checkout, \
+             patch.object(host, 'run') as run:
+            self.assertEqual(host.release(SHA, 'token'), 'superseded')
+            checkout.assert_not_called()
+            run.assert_not_called()
         self.assertFalse((self.base / 'current.json').exists())
 
     def test_actions_timeout_covers_host_wait_and_release_with_cleanup_margin(self):
@@ -411,7 +495,7 @@ class HostGate(unittest.TestCase):
         (source / 'deploy/compose.yaml').write_text('candidate compose\n')
         return source
 
-    def test_main_advancing_during_backup_prevents_config_switch_and_restart(self):
+    def test_leaving_main_during_backup_prevents_config_switch_and_restart(self):
         source = self.activation_fixture()
         backup_created = []
         def backup(args, **kwargs):
@@ -419,8 +503,9 @@ class HostGate(unittest.TestCase):
             path.write_text('backup')
             backup_created.append(path)
             return ''
-        def recheck(revision, token):
+        def recheck(revision, token, built=False):
             self.assertEqual(revision, SHA)
+            self.assertTrue(built)
             self.assertTrue(backup_created[0].is_file())
             return False
         with patch.object(host, 'compose', return_value=self.resolved()) as compose, \
@@ -777,6 +862,9 @@ with host.release_lock():
                         self.assertIn(expected, summary)
                     else:
                         self.assertEqual(summary, '')
+                    # A run that deployed nothing is flagged, not just green.
+                    self.assertEqual('::warning title=Not deployed::' in run.stdout,
+                                     result == 'superseded' and exit_code == 0, run.stdout)
                     self.assertNotIn('private-fixture', run.stdout + run.stderr)
                     self.assertIn('root@192.0.2.40', args)
                     self.assertIn('StrictHostKeyChecking=yes', args)
