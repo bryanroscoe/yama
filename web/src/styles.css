@@ -484,6 +484,9 @@ label > span.hint {
 }
 
 .site-footer { max-width: calc(var(--content-w) + 2 * var(--page-pad)); padding: 20px var(--page-pad) 32px; margin: 0 auto; border-top: 1px solid var(--line); }
+.site-links { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; max-width: calc(var(--content-w) + 2 * var(--page-pad)); margin: 0 auto; padding: 8px var(--page-pad); border-bottom: 1px solid var(--line); }
+.site-links a { display: inline-flex; align-items: center; min-height: 44px; font-size: var(--t-sm); color: var(--dim); text-decoration: none; }
+.site-links a:hover, .site-links a.active { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
 .site-notice { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
 .site-notice p { margin: 12px 0 0; }
 

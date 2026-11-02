@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
+import { useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
 import "./share.css";
 
@@ -28,7 +29,8 @@ export function useCopy(): [string | null, (text: string) => Promise<void>] {
 /** Who can see this deck, and its link. */
 export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
-  const sharing = useQuery({ queryKey: ["sharing"], queryFn: () => api<Sharing>("/api/me/sharing") });
+  const userId = useMe().data?.id;
+  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: () => api<Sharing>("/api/me/sharing"), enabled: !!userId });
   const [copied, copy] = useCopy();
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["deck", deck.id] });
@@ -86,7 +88,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         )}
         {visibility === "public" && !handle && sharing.data && (
           <p className="small">
-            Your profile needs a handle before it lists anything. <Link to="/group#sharing">Pick one under Group, You</Link>.
+            Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing</Link>.
           </p>
         )}
         {visibility === "public" && handle && (
