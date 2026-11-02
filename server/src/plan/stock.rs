@@ -1319,10 +1319,11 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     .bind(owner)
     .fetch_all(pool)
     .await?;
-    // Newest answer first: a check's snapshots count from when the last of them finished (an import
-    // from when it was read), and within one check YesTCG's comes before the store's own.
-    // A check is its check_id (rows from before it was recorded: their request time).
-    let group = |s: &SnapRow| s.check_id.clone().unwrap_or_else(|| format!("at:{}", s.requested_at));
+    // Newest answer first, by when each store was read. One check that read a store both directly
+    // and through YesTCG counts once, from the later of the two, with YesTCG's answer first. Other
+    // stores in the same check don't matter: they say nothing about this store's stock.
+    // A check is its check_id (rows from before it was recorded: their request time), per store.
+    let group = |s: &SnapRow| format!("{}|{}", s.check_id.clone().unwrap_or_else(|| format!("at:{}", s.requested_at)), s.store_key);
     let mut check_done: HashMap<String, String> = HashMap::new();
     for s in snaps.iter().filter(|s| s.source != "import") {
         let e = check_done.entry(group(s)).or_default();

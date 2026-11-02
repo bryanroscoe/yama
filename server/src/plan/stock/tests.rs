@@ -336,6 +336,17 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let mv: Vec<&Value> = q.iter().filter(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").collect();
     assert_eq!((mv.len(), &mv[0]["origin"], &mv[0]["in_stock"]), (1, &json!("snapshot:s-mv-yes"), &json!(false)), "{mv:?}");
 
+    // Another store in the same check finishing later doesn't make this store's read newer.
+    for (id, store, fetched) in [("s-x1", "multiverse-hobbies", "2099-05-01T10:01:00Z"), ("s-x2", "black-castle", "2099-05-01T10:10:00Z")] {
+        snapshot(&pool, &owner, id, store, "tcgplayer_pro", None).await;
+        sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2099-05-01T10:00:00Z', fetched_at = ?, check_id = 'cx' WHERE id = ?").bind(fetched).bind(id).execute(&pool).await.unwrap();
+    }
+    snapshot(&pool, &owner, "s-ximp", "multiverse-hobbies", "import", Some(&["Sol Ring"])).await;
+    sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2099-05-01T10:05:00Z', fetched_at = '2099-05-01T10:05:00Z' WHERE id = 's-ximp'").execute(&pool).await.unwrap();
+    let q = store_quotes(&pool, &owner, &cards).await.unwrap();
+    assert_eq!(q.iter().find(|x| x["store"] == "multiverse-hobbies" && x["card"] == "Sol Ring").unwrap()["origin"], "snapshot:s-ximp");
+    sqlx::query("DELETE FROM store_snapshots WHERE id IN ('s-x1', 's-x2', 's-ximp')").execute(&pool).await.unwrap();
+
     // A check that finished after an import counts over it, even though it was asked for first.
     snapshot(&pool, &owner, "s-late", "multiverse-hobbies", "tcgplayer_pro", None).await;
     sqlx::query("UPDATE store_snapshots SET status = 'ok', requested_at = '2099-03-01T10:00:00Z', fetched_at = '2099-03-01T10:10:00Z' WHERE id = 's-late'").execute(&pool).await.unwrap();
