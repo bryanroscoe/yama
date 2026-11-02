@@ -77,7 +77,10 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 export function cartUrl(store: Store, variants: string[]): string | null {
   const t = store.cart_url_template;
   if (!t || !t.startsWith("https://") || !t.includes("{items}") || !variants.length) return null;
-  return t.replace("{items}", variants.map((v) => `${encodeURIComponent(v)}:1`).join(","));
+  // One line per variant with its quantity (`variant:quantity`), in first-seen order.
+  const qty = new Map<string, number>();
+  for (const v of variants) qty.set(v, (qty.get(v) ?? 0) + 1);
+  return t.replace("{items}", [...qty].map(([v, n]) => `${encodeURIComponent(v)}:${n}`).join(","));
 }
 
 export interface BuyListOptions {

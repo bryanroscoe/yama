@@ -206,3 +206,9 @@ fn preferences_read_the_old_name_and_order_the_stores() {
     );
     assert_eq!(pro_search_url(&json!({"homepage": "https://patsgames.com"}), "Sol Ring"), None);
 }
+
+#[test]
+fn a_cart_link_counts_copies_of_one_listing() {
+    let store = serde_json::json!({"cart_url_template": "https://shop.example/cart/{items}"});
+    assert_eq!(cart_url(&store, &["111", "222", "111"]).as_deref(), Some("https://shop.example/cart/111:2,222:1"));
+}

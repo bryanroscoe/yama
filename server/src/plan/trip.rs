@@ -501,7 +501,15 @@ fn cart_url(store: &Value, variants: &[&str]) -> Option<String> {
     if !t.starts_with("https://") || !t.contains("{items}") || variants.is_empty() {
         return None;
     }
-    let items: Vec<String> = variants.iter().map(|v| format!("{}:1", urlencoding(v))).collect();
+    // One line per variant with its quantity (`variant:quantity`), in first-seen order (`buy.ts`).
+    let mut qty: Vec<(&str, usize)> = Vec::new();
+    for v in variants {
+        match qty.iter_mut().find(|(x, _)| x == v) {
+            Some((_, n)) => *n += 1,
+            None => qty.push((v, 1)),
+        }
+    }
+    let items: Vec<String> = qty.iter().map(|(v, n)| format!("{}:{n}", urlencoding(v))).collect();
     Some(t.replace("{items}", &items.join(",")))
 }
 
