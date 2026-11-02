@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from 
 import { chooseGuest, useGuestChosen } from "./guest";
 import { useQueryClient } from "@tanstack/react-query";
 import { afterSignIn, Login, useMe } from "./auth";
+import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe } from "./components/RailMe";
 import { SiteLinks } from "./components/SiteLinks";
@@ -101,7 +102,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
   const me = useMe();
   const tabs = [
     { to: "/", label: "Table", icon: <TableIcon />, end: true },
-    { to: "/play", label: "Play", icon: <PlayIcon /> },
+    { to: "/play", label: "Play", icon: <PlayIcon />, alpha: true },
     { to: "/cards", label: "Cards", icon: <CardsIcon /> },
     { to: "/collection", label: "Collection", icon: <CollectionIcon /> },
     { to: "/decks", label: "Decks", icon: <DecksIcon /> },
@@ -119,6 +120,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
             <NavLink key={t.to} to={t.to} end={t.end}>
               {t.icon}
               <span>{t.label}</span>
+              {t.alpha && <AlphaTag />}
             </NavLink>
           ))}
           {/* Admins only, and only in the laptop rail; phones reach it from Group, You. */}

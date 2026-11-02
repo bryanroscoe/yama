@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import { Outlet, useLocation } from "react-router";
 import { SignInForm, useMe } from "../auth";
+import { ALPHA_NOTE } from "./AlphaTag";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
   sharing: { title: "Sharing", lede: "Sign in to manage your public profile, shared decks and build notes." },
   decks: { title: "Decks", lede: "Sign in to save your decks." },
   collection: { title: "Collection", lede: "Sign in to track your cards." },
-  play: { title: "Play online", lede: "Sign in to play Commander online." },
+  play: { title: "Play online", lede: `Sign in to play Commander online. ${ALPHA_NOTE}` },
   group: { title: "Playgroup", lede: "Sign in to see your group's games and stats." },
   mythic: { title: "Playgroup", lede: "Bring your playgroup's games over from Mythic Tools." },
   table: { title: "Saved games", lede: "Sign in for saved games. The life counter works without an account." },

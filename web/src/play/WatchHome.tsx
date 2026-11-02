@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { usePower } from "../auth";
 import { POWER_NOTE } from "../components/PowerOnly";
+import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -26,7 +27,20 @@ const BackArrow = () => (
 
 export function WatchHome() {
   const power = usePower();
-  const games = useQuery({ queryKey: ["watch"], queryFn: () => api<WatchSummary[]>("/api/watch"), refetchInterval: 5000 });
+  const games = useQuery({
+    queryKey: ["watch"],
+    queryFn: ({ signal }) => api<WatchSummary[]>("/api/watch", { signal }),
+    // Every 15 s while one of them is playing and the page is on screen, once a minute while one is
+    // paused (another tab can resume it), and every 5 minutes while only finished ones are listed
+    // (the server lets them go 30 minutes after they were last looked at). It was every 5 s.
+    // Coming back to the page always asks again.
+    refetchInterval: (q) => {
+      const games = q.state.data ?? [];
+      const live = games.filter((g) => !g.status.finished);
+      return live.some((g) => g.status.playing) ? 15_000 : live.length ? 60_000 : games.length ? 300_000 : false;
+    },
+    refetchOnWindowFocus: "always",
+  });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const precons = useQuery({ queryKey: ["precons"], queryFn: () => api<PreconList>("/api/precons") });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
@@ -35,7 +49,10 @@ export function WatchHome() {
     <main className="page play-home watch-home">
       <Link to="/play" className="lobby-back"><BackArrow />Play online</Link>
       <div className="ph-head">
-        <h1>Watch AIs play</h1>
+        <h1>
+          Watch AIs play
+          <AlphaTag />
+        </h1>
         <p className="dim">
           AI games don't count toward your playgroup's stats.
         </p>

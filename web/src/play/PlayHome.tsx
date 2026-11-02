@@ -9,6 +9,7 @@ import { api, type DeckSummary, type Playgroup } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
+import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
 import { useMe, usePower } from "../auth";
@@ -57,7 +58,14 @@ function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } 
 
 export function PlayHome() {
   const power = usePower();
-  const games = useQuery({ queryKey: ["play"], queryFn: () => api<OnlineGame[]>("/api/play"), refetchInterval: 5000 });
+  const games = useQuery({
+    queryKey: ["play"],
+    queryFn: ({ signal }) => api<OnlineGame[]>("/api/play", { signal }),
+    // Every 10 s while one of your tables waits for players, otherwise every 30 s (only while the
+    // page is on screen), and again on coming back to it. It was every 5 s.
+    refetchInterval: (q) => (q.state.data?.some((g) => g.status === "lobby") ? 10_000 : 30_000),
+    refetchOnWindowFocus: "always",
+  });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
   const current = games.data?.find((g) => g.status === "in_progress" && g.you !== null);
@@ -67,7 +75,11 @@ export function PlayHome() {
   return (
     <main className="page play-home">
       <div className="ph-head">
-        <h1>Play online</h1>
+        <h1>
+          Play online
+          <AlphaTag />
+        </h1>
+        <p className="dim">{ALPHA_NOTE}</p>
       </div>
       {status.data && !status.data.enabled && <p className="dim">Online play isn't running on this server: {status.data.reason}</p>}
       {current && <ContinueHero game={current} />}
@@ -114,12 +126,21 @@ export function PlayHome() {
   );
 }
 
-/** Your game in progress, on every seat's commander art. */
+/**
+ * Your game in progress, on every seat's commander art. The headline needs the game's board (25 to
+ * 100 KB), which used to be asked for every 10 s: now it's asked when the games list says the game
+ * moved on (`updated_at`), and otherwise once a minute, since `updated_at` counts whole seconds and
+ * two moves in one second look like one.
+ */
 function ContinueHero({ game }: { game: OnlineGame }) {
   const view = useQuery({
-    queryKey: ["play-view", game.id],
-    queryFn: () => api<ViewMessage>(`/api/play/${game.id}/view`),
-    refetchInterval: 10_000,
+    queryKey: ["play-view", game.id, game.updated_at ?? game.created_at],
+    queryFn: ({ signal }) => api<ViewMessage>(`/api/play/${game.id}/view`, { signal }),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    // Keeps the last headline while the next one loads, for this game only: another game taking
+    // its place starts without one.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === game.id ? prev : undefined),
   });
   const v = view.data?.view;
   const seats = game.seats.slice(0, 4);
