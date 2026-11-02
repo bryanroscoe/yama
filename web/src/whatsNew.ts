@@ -14,6 +14,14 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-table-danger",
+    date: "2026-11-01",
+    title: "The life counter warns when someone is close to out",
+    items: [
+      "A player's panel glows red around the edge when they're close to losing: a quarter of their starting life left (10 in Commander), 7 poison, or 16 damage from one commander. It beats faster once they're one hit from out, and a badge says why.",
+    ],
+  },
+  {
     id: "2026-11-01-table-awake",
     date: "2026-11-01",
     title: "The life counter keeps your screen on",
