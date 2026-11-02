@@ -146,7 +146,10 @@ Create an OAuth client ID (type "Web application") in Google Cloud Console, add 
 
 ## Checks
 
-[GitHub CI](docs/ci.md) runs the Rust and Python suites, web tests, typecheck and web build on
+GitHub CI tests are switched off while hosted Actions minutes are short (Bryan, 2 Nov 2026):
+the `CI_TESTS` repository variable turns them back on, and until then agents run
+`scripts/local-ci.sh --no-amend` before merging ([Tests on or off](docs/ci.md#tests-on-or-off)).
+With tests on, [GitHub CI](docs/ci.md) runs the Rust and Python suites, web tests, typecheck and web build on
 every ready PR into main and every main push. Both CI jobs must pass before merge, or be skipped
 by the gate because `scripts/local-ci.sh` passed on that commit's tree (or the PR has the
 `skip-ci` label). Draft PRs run no CI; see [Skip CI on a PR](docs/ci.md#skip-ci-on-a-pr).

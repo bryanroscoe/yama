@@ -1,5 +1,56 @@
 # GitHub test CI
 
+## Tests on or off
+
+**Off since 2 Nov 2026 (Bryan).** The plan includes 3,000 hosted Actions minutes a month and
+CI used 2,715 of them in the first two days of November: about 2,600 minutes in 208 runs of
+each CI job. The Rust job alone took 2,233 of those minutes, the gate 193 and the web checks
+182. At that rate a month needs roughly 40,000 minutes, about 13 times the allowance.
+
+The repository Actions variable `CI_TESTS` is the switch:
+
+```sh
+gh variable get CI_TESTS                 # off unless it says exactly "on"
+gh variable set CI_TESTS --body on       # tests back on
+gh variable set CI_TESTS --body off      # tests off
+```
+
+No workflow edit is needed; the next run reads it. Any value but `on`, including an unset
+variable, means off:
+
+- PR runs and main-push runs start no gate, web or Rust job, so they use no runner time.
+  Automatic Android PR builds (`android.yml`) are off too.
+- A push to main runs one job, **Tests are off (checked locally before merge)**, on saget's
+  free `yama-ci` runner. It runs no checks. It exists because the deploy workflow and saget's
+  release gate (`deploy/host.py`) both require a *successful* push CI run, and a run whose
+  jobs are all skipped concludes "skipped". It waits for saget CI capacity like any job there.
+- A manual run (`gh workflow run CI --ref <branch>`, or an Android build from the Actions tab)
+  still tests or builds in full on the runner `CI_LINUX_RUNNER` picks. Start one only when
+  Bryan asks.
+
+With tests off, agents run the checks before merging: `CARGO_BUILD_JOBS=1
+scripts/local-ci.sh --no-amend` on the final head after reconciling with main, then the local
+results go in the PR as local evidence (AGENTS.md). `local-ci.sh` doesn't build the Android
+app, so a change under the paths `android.yml` watches (`web/android/**`,
+`web/capacitor.config.ts`, `web/src/native.ts`, `web/package.json`) also runs that build
+locally with JDK 21 and the Android SDK (docs/mobile.md):
+
+```sh
+npm run android:sync -w web
+(cd web/android && ./gradlew --no-daemon assembleDebug bundleRelease)
+``` The caveats in
+[Don't test a merge twice](#dont-test-a-merge-twice) about macOS vs Linux apply to every merge
+while tests are off, since nothing re-tests main on Linux.
+
+To get free CI tests back without paying for minutes, set `CI_TESTS` to `on` and route CI to
+saget (`python3 scripts/ci_runners.py switch saget --repo yama --apply` from `sagetserver`;
+see [Choose the CI backend](#choose-the-ci-backend)). Saget jobs cost no Actions minutes but
+share saget's CI pool.
+
+The rest of this page describes CI with tests on.
+
+## How it runs
+
 `.github/workflows/ci.yml` runs on ready pull requests into `main`, pushes to `main`, and manual
 dispatch. There are no path filters: documentation and workflow changes also receive checks.
 Draft PRs skip every job. Ready PRs skip the web and Rust jobs when their head commit passed

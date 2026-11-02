@@ -22,6 +22,13 @@ concurrency:
   # GitHub keeps one main run going and only the newest waiting behind it.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The repository variable CI_TESTS switches the test jobs (docs/ci.md, "Tests on or off").
+# Anything but `on` turns them off: PR and main-push runs start no hosted job and agents run
+# the checks locally before merging (Bryan, 2 Nov 2026: hosted minutes ran out in two days).
+# Main pushes then get one free job on saget so the deploy still has its successful push CI.
+# A manual run (workflow_dispatch) always tests.
+#   gh variable set CI_TESTS --body on    # tests back on
+#   gh variable set CI_TESTS --body off   # tests off
 jobs:
   # Ready PRs: skips the web and Rust jobs when the head commit records local checks
   # on its exact tree (scripts/local-ci.sh) or the PR has the skip-ci label, and skips
@@ -32,10 +39,11 @@ jobs:
   gate:
     name: Local CI gate
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-       !github.event.pull_request.draft &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+      vars.CI_TESTS == 'on' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'pull_request' &&
+        !github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     # Same backend as the other jobs, so a hosted billing block can't stop it on saget.
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
@@ -72,6 +80,31 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python3 scripts/ci/gate.py
 
+  # With tests off, push CI on main still has to succeed: the deploy workflow and saget's
+  # release gate (deploy/host.py) both require a successful push CI run, and a run whose
+  # jobs are all skipped concludes "skipped". This job vouches only that tests were off
+  # and ran locally before merge. It runs on saget's free CI runner, never a hosted one.
+  tests-off:
+    name: Tests are off (checked locally before merge)
+    if: >-
+      vars.CI_TESTS != 'on' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, yama-ci]
+    # Like the other saget jobs, it may wait for the shared CI pool and the release gate
+    # (a running deploy holds it); timing out here would fail push CI and block the deploy.
+    timeout-minutes: 360
+    permissions: {}
+    steps:
+      - name: Record that CI tests are off
+        env:
+          CI_TESTS: ${{ vars.CI_TESTS }}
+        run: |
+          {
+            echo "CI tests are off (CI_TESTS='${CI_TESTS}'), so this push ran no checks."
+            echo 'Agents run the checks locally before merging; see docs/ci.md.'
+            echo 'Turn tests back on with: gh variable set CI_TESTS --body on'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
   web:
     name: Web checks
     needs: gate
@@ -79,6 +112,7 @@ jobs:
     # explicit skip from the gate, a draft or a fork PR does not.
     if: >-
       !cancelled() &&
+      (vars.CI_TESTS == 'on' || github.event_name == 'workflow_dispatch') &&
       needs.gate.outputs.skip != 'true' &&
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
@@ -115,6 +149,7 @@ jobs:
     needs: gate
     if: >-
       !cancelled() &&
+      (vars.CI_TESTS == 'on' || github.event_name == 'workflow_dispatch') &&
       needs.gate.outputs.skip != 'true' &&
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
