@@ -36,16 +36,19 @@ pub async fn connect(url: &str, slow_query: Duration) -> anyhow::Result<SqlitePo
 }
 
 /// Give SQLite's query planner current table statistics. The database had none at all until
-/// 2026-11-02 (no `sqlite_stat1`), so the planner guessed at every table's size. `0x10002` checks
-/// every table and analyses the ones never analysed, or ten times bigger or smaller than when they
-/// were; when nothing changed it's a quick look. Run at startup, daily and after card imports.
+/// 2026-11-02 (no `sqlite_stat1`), so the planner guessed at every table's size. `0x10012` checks
+/// every table (0x10000) and analyses (0x2) the ones never analysed, or ten times bigger or smaller
+/// than when they were, reading at most about 2,000 rows of each index (0x10). Without that limit
+/// (the plain 0x10002 form) an analysis reads whole indexes while it holds the database's one
+/// writer, which on the price table's 1.6 million rows, and more later, would stall every write.
+/// When nothing changed it's a quick look. Run at startup, daily and after card imports.
 pub async fn optimize(pool: &SqlitePool) {
     let job = crate::perf::Job::start("SQLite optimize", Duration::from_secs(10));
     // The same pragma with the 0x1 bit lists what it would analyse, without doing it.
     let result: sqlx::Result<usize> = async {
-        let due: Vec<String> = sqlx::query_scalar("PRAGMA optimize=0x10003").fetch_all(pool).await?;
+        let due: Vec<String> = sqlx::query_scalar("PRAGMA optimize=0x10013").fetch_all(pool).await?;
         if !due.is_empty() {
-            sqlx::query("PRAGMA optimize=0x10002").execute(pool).await?;
+            sqlx::query("PRAGMA optimize=0x10012").execute(pool).await?;
         }
         Ok(due.len())
     }
@@ -59,19 +62,12 @@ pub async fn optimize(pool: &SqlitePool) {
     };
 }
 
-/// Fold the write-ahead log back into the database after a big import and cut the file to
-/// nothing. It waits at most two seconds for readers and writers to finish; if they don't, the
-/// automatic checkpoints carry on as before.
+/// Fold the write-ahead log back into the database after a big import. A passive checkpoint
+/// copies what no reader still needs and never blocks a writer (a truncating one holds the writer
+/// for the whole copy); `journal_size_limit` cuts the file back when the log starts over.
 pub async fn checkpoint(pool: &SqlitePool) {
     let job = crate::perf::Job::start("SQLite checkpoint", Duration::from_secs(5));
-    let result: sqlx::Result<(i64, i64, i64)> = async {
-        let mut conn = pool.acquire().await?;
-        // Closed afterwards, not given back to the pool with the shorter wait.
-        conn.close_on_drop();
-        sqlx::query("PRAGMA busy_timeout = 2000").execute(&mut *conn).await?;
-        sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)").fetch_one(&mut *conn).await
-    }
-    .await;
+    let result: sqlx::Result<(i64, i64, i64)> = sqlx::query_as("PRAGMA wal_checkpoint(PASSIVE)").fetch_one(pool).await;
     match result {
         Ok((busy, frames, done)) => job.done(true, format!("{done} of {frames} pages copied{}", if busy != 0 { ", busy" } else { "" })),
         Err(e) => {

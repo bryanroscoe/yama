@@ -117,7 +117,7 @@ function PerfSection() {
       {p && (
         <>
           <p className="admin-lead">
-            Requests in the last {p.window_minutes} minutes, slowest routes first. Requests over {duration(p.slow_request_ms)} and SQL
+            Requests in the last {p.window_minutes} minutes (each route keeps its newest 1,000), slowest routes first. Requests over {duration(p.slow_request_ms)} and SQL
             statements over {duration(p.slow_query_ms)} are warnings in the server's log too.
           </p>
           <RouteTable routes={p.routes} />

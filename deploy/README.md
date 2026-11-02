@@ -216,10 +216,12 @@ percentile and slowest over the last hour, the background jobs, and the last 200
 statements. It's in memory and starts empty after each restart. Both thresholds are set in
 `yama.env` (`YAMA_SLOW_REQUEST_MS=500`, `YAMA_SLOW_QUERY_MS=200`) and apply after a restart.
 
-SQLite keeps table statistics for its query planner: the server runs `PRAGMA optimize` at start,
-daily and after each card import, and folds the write-ahead log back in after an import
-(`SQLite optimize` and `SQLite checkpoint` job lines). Each connection has a 32 MB page cache and
-reads through a 256 MB memory map (`server/src/db.rs`).
+SQLite keeps table statistics for its query planner: the server runs a bounded
+`PRAGMA optimize=0x10012` at start, daily and after each card import, and folds the write-ahead
+log back in after an import without blocking writers (`SQLite optimize` and `SQLite checkpoint`
+job lines). Each connection has a 32 MB page cache and reads through a 1 GiB memory map, which
+covers the whole file and takes the cost out of reads through Unraid's `/mnt/user` layer
+(`server/src/db.rs`).
 
 ## Debugging with real data
 

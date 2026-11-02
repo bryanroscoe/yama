@@ -132,11 +132,19 @@ async fn import_date_since(pool: &SqlitePool, kind: &str, min_version: i64) -> s
     .flatten())
 }
 
-/// The date of the newest prices (YYYY-MM-DD): the Scryfall file of the newest successful printings
-/// import, which is the date its prices are stored under. From `import_runs`: `MAX(date)` over
-/// price_snapshots reads that table's whole index (0.4 s on saget at 1.6 million rows, 2026-11-02).
+/// The date of the newest complete set of prices (YYYY-MM-DD): the latest date any successful
+/// printings import stored its prices under, which is its Scryfall file's date, or for a file given
+/// on the command line the day the import started (see [`import_default`]). An import that failed
+/// part way may have stored some prices of a later date; each of those still carries its own date.
+/// From `import_runs`: `MAX(date)` over price_snapshots reads that table's whole index (0.4 s on
+/// saget at 1.6 million rows, 2026-11-02).
 pub async fn latest_price_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
-    import_date_since(pool, "default_cards", 1).await
+    sqlx::query_scalar(
+        "SELECT MAX(substr(COALESCE(source_updated_at, started_at), 1, 10)) FROM import_runs
+         WHERE kind = 'default_cards' AND error IS NULL AND finished_at IS NOT NULL",
+    )
+    .fetch_one(pool)
+    .await
 }
 
 /// When the card table last changed: the newest rules-text import's end, or its start while it
@@ -704,8 +712,11 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
 pub async fn import_default(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
     let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "default_cards", meta).await?;
-    // Prices belong to the day Scryfall generated the file, not the day we imported it.
-    let price_date = meta.map(|m| m.updated_at[..10].to_string()).unwrap_or_else(|| now()[..10].to_string());
+    // Prices belong to the day Scryfall generated the file, not the day we imported it. A file
+    // given on the command line has no such date: its prices go under the day the run started
+    // (`started_at`, which `latest_price_date` reads back).
+    let started: String = sqlx::query_scalar("SELECT started_at FROM import_runs WHERE id = ?").bind(&run).fetch_one(pool).await?;
+    let price_date = meta.map(|m| m.updated_at[..10].to_string()).unwrap_or_else(|| started[..10].to_string());
     let result = import_default_inner(pool, path, &price_date).await;
     finish_run(pool, &run, &result).await?;
     timed("default_cards", job, &result);
