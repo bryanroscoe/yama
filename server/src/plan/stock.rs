@@ -692,6 +692,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
 async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
     let mut out = Found::default();
     let mut from = 0i64;
+    let mut seen: HashSet<i64> = HashSet::new();
     for _ in 0..PRO_PAGES {
         let body = json!({"query": "", "context": {"productLineName": "Magic: The Gathering"}, "filters": {}, "from": from, "size": 5000});
         match f.send(Kind::Pro, "POST", &format!("{base}/api/catalog/search"), Some(&body), raw).await {
@@ -700,12 +701,15 @@ async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
                     out.errors.push(format!("{base}/api/catalog/search: an answer without the catalog"));
                     break;
                 };
-                // Every page must count the same catalog as the first.
-                if out.total.is_some_and(|t| t != total) {
-                    out.errors.push(format!("{base}/api/catalog/search: the catalog's size changed between pages"));
+                // Every page must count the same catalog as the first, hold no more than is left, and
+                // repeat no product an earlier page had.
+                let n = answer["products"]["items"].as_array().map_or(0, Vec::len) as i64;
+                let ids: Vec<i64> = answer["products"]["items"].as_array().into_iter().flatten().filter_map(|p| p["id"].as_i64()).collect();
+                let repeats = ids.len() as i64 != n || ids.iter().any(|id| !seen.insert(*id));
+                if out.total.is_some_and(|t| t != total) || n > total - from || repeats {
+                    out.errors.push(format!("{base}/api/catalog/search: the pages don't add up to one catalog"));
                     break;
                 }
-                let n = answer["products"]["items"].as_array().map_or(0, Vec::len) as i64;
                 out.total = Some(total);
                 out.listings.extend(listings);
                 from += n;
