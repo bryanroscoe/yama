@@ -48,7 +48,7 @@ export function SharingPage() {
       <h2 id="sharing-profile">Your public profile</h2>
       {sharing.isPending && <p>Loading profile…</p>}
       <ErrorText error={sharing.error} />
-      {profile ? <><p>Public decks, public build notes{sharing.data?.collection_public ? " and your collection" : ""} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
+      {profile ? <><p>Public decks, public build notes{sharing.data?.collection_public ? " and your collection" : ""} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
     </section>
     <section className="grp-section" aria-labelledby="sharing-decks">
       <h2 id="sharing-decks">Shared decks</h2>

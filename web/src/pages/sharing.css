@@ -3,6 +3,7 @@
 .sharing-page .row { flex-wrap: wrap; }
 .sharing-jumps { display: flex; gap: 8px 24px; flex-wrap: wrap; }
 .sharing-jumps a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
+.sharing-page .share-fallback { width: 100%; min-width: 0; max-width: 100%; }
 .sharing-item input { max-width: 100%; min-width: 0; }
 .sharing-item > div:first-child > a, .sharing-browse, .sharing-page .share-profile-link > a { display: inline-flex; align-items: center; min-height: 44px; }
 .sharing-browse { align-self: flex-start; }
