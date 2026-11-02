@@ -73,6 +73,8 @@ Read (no review needed):
 | `review_queue` | Proposals still to answer, by deck |
 | `shopping_trip` | Which of their stores to visit: the fewest stores covering the most cards under their local buy rule and store preferences (optionally only the stores they're going to this time), each store's cards, total and cart link or card search links, what to print instead and why with a TCGplayer Mass Entry link, and the real-card wishlist by price tier ([shopping-design.md](shopping-design.md)) |
 | `shopping_settings` | Their buy rule in force, every dated rule set with its origin, the sealed precon cap, and each store's level, place in their order and premium |
+| `shopping_list` | Every want on their one list (planned buys, proposals, cards and sealed products they added, the wishlist count) and where the trip puts each card, or why not |
+| `store_stock` | One store's newest snapshot answers for cards (default: the trip's cards): price, condition, finish and quantity where given, or not in stock, with the time read |
 | `spares` | Cards you own outside any deck, and what a plan would free |
 | `lab_runs`, `lab_run` | Your experiments and rating runs, with live progress, the paired difference and its interval (and the lab's caveats), per engine, with unscored games by reason and the settle estimate. Admins also see the count of earlier Phase games ahead in the shared queue; for both-engine runs, ETA and queue position are Phase-only. No other account's run or deck details are exposed. |
 | `lab_games` | One run's games pod by pod; one game's schedule line, result line and lists, to replay it; a head-to-head or tournament run's tables for one deck (`deck`) or one table (`table`), with finish order, who went first and knockout turns |
@@ -92,6 +94,8 @@ Write (staged):
 | `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
 | `set_shopping_rules` | A new buy rule and sealed cap as a rule set from the day they apply it (parts left out keep the rule in force) |
 | `set_store_preference` | One store's level, place in their order of how easy stores are to get to, and a favourite's premium (parts left out stay) |
+| `add_wish` | A card or sealed product on their shopping list (need or along the way; for a Yama deck or a label) |
+| `check_stores` | Read their stores' stock when they apply it (stores and cards default to the trip's; optional YesTCG), as dated snapshots |
 | `swap_in_prints` | When prints arrive: a plan deck's now list to its after-prints list in Yama (the linked deck's new version, prints into its box as proxies, cut cards to the deck that takes them, its swap bag box or Spares, installed ticks), the same as the plan page's "Swap in the prints" (`server/src/plan/swap_in.rs`) |
 
 Plan swaps themselves can't be edited yet: imported plans are managed by the commander-decks repo

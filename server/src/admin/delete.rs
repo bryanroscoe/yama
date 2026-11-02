@@ -93,6 +93,9 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
     ("sessions", "user_id"),
+    ("shopping_wants", "owner_id"),
+    ("store_listings", "owner_id"),
+    ("store_snapshots", "owner_id"),
     ("view_sessions", "admin_id"),
     ("view_sessions", "target_id"),
 ];
@@ -132,6 +135,10 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("advisor_keys", "user_id"),
     ("advisor_settings", "user_id"),
     ("advisor_shared_access", "user_id"),
+    // Shopping: listings point at their snapshots.
+    ("store_listings", "owner_id"),
+    ("store_snapshots", "owner_id"),
+    ("shopping_wants", "owner_id"),
     // Plans: quotes point at swaps and stores; swaps at decks, orders and items; items at orders;
     // states at decks; plan decks at the account's decks.
     ("plan_quotes", "owner_id"),

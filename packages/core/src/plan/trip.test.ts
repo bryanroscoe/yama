@@ -47,7 +47,9 @@ describe("the local buy rule", () => {
 describe("the trip", () => {
   test.each(fixture.cases)("matches the fixture the Rust port also checks ($today, $stores)", (c) => {
     const stores = "stores" in c ? (c.stores as string[]) : null;
-    expect(tripSummary(planTrip(bundle, { today: c.today, stores }))).toEqual(c.expect);
+    // A case may add fields to the bundle (store snapshot quotes, hand-added wants).
+    const b = "with" in c ? ({ ...bundle, ...(c.with as object) } as TripData) : bundle;
+    expect(tripSummary(planTrip(b, { today: c.today, stores }))).toEqual(c.expect);
   });
 
   test("preferences: none is fine to go, the old name for a favourite still reads, a never store is skipped but counted", () => {

@@ -1834,6 +1834,22 @@
   gap: 6px;
   min-height: 44px;
 }
+.trip-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 8px 0 12px;
+}
+.trip-add label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.trip-add input[type="number"] {
+  width: 4.5em;
+}
 .trip-move {
   min-width: var(--target);
   padding: 0.5rem 0.75rem;

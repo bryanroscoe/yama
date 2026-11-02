@@ -18,7 +18,12 @@ fn matches_the_typescript_trip_on_the_shared_fixture() {
     for case in f["cases"].as_array().unwrap() {
         let today = case["today"].as_str().unwrap();
         let stores: Option<Vec<String>> = case.get("stores").and_then(Value::as_array).map(|a| a.iter().map(|x| x.as_str().unwrap().to_string()).collect());
-        let got = summary(&plan(&f["bundle"], today, stores.as_deref()));
+        // A case may add fields to the bundle (store snapshot quotes, hand-added wants).
+        let mut bundle = f["bundle"].clone();
+        for (k, v) in case.get("with").and_then(Value::as_object).into_iter().flatten() {
+            bundle[k] = v.clone();
+        }
+        let got = summary(&plan(&bundle, today, stores.as_deref()));
         assert!(same(&got, &case["expect"]), "{today}:\n got {got}\nwant {}", case["expect"]);
     }
 }

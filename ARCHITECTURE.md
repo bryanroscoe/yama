@@ -1129,8 +1129,8 @@ permanent_real_wishlist`) and preferences in the plan bundle, and the trip (`pac
 `planTrip`, page `/decks/plan/trip`): the fewest stores that cover the most planned and wanted buys
 under the person's dated `local_buy` rule, with what comes along, what to print and why, and the
 wishlist by price tier. Claude's `shopping_trip` tool runs a Rust port (`server/src/plan/trip.rs`)
-checked against the same fixture. Listings are still the plan's dated `plan_quotes`; store
-snapshots fetched by the server come in slice 2.
+checked against the same fixture. Listings were the plan's dated `plan_quotes` until slice 2
+(below).
 
 Account rules and store preferences v2 (2026-11-01, same design note): the buy rule and sealed
 cap are edited in Plan settings (`server/src/plan/shopping.rs`, `packages/core` `shoprules.ts`)
@@ -1142,6 +1142,28 @@ most that much more than the cheapest). The Trip page also takes the stores goin
 list to copy per store, search links for TCGplayer Pro storefronts (which have no cart link) and a
 TCGplayer Mass Entry link for what's left (`carts.ts`). Claude reads it with `shopping_settings`
 and stages `set_shopping_rules` and `set_store_preference`.
+
+Store stock snapshots (slice 2, 2026-11-01): `server/src/plan/stock.rs`, migration 0055
+(`store_snapshots`, `store_listings`). The server reads a store's stock only when the person asks
+(the Trip page's "Check stores", `POST /api/plan/stock/check`, or Claude's staged `check_stores`
+once applied), in the background: Shopify stores on a fixed list (Pat's Games, Mothership) card by
+card through `suggest.json` and `/products/<handle>.js`, `<name>.tcgplayerpro.com` storefronts as a
+whole catalog (`POST /api/catalog/search`, lowest price per product only), and optionally YesTCG's
+Austin search for the person's stores it covers (matched by host; condition and quantity). Hosts
+come from that fixed list, never from a URL a person types. One request at a time per host with a
+pause, one running check per account, 24 store reads a day, the newest 20 snapshots per store
+(raw responses gzipped for the newest 10). A card whose request failed is unknown, not absent.
+`yama-store-snapshot/1` files import through `POST /api/plan/stock/import`. The bundle carries the
+newest answer per store and card as `store_quotes` (shaped like stock checks, `checked` the fetch
+time, so a same-day snapshot beats a plan quote) and the snapshot list as `snapshots`; the trip
+(both ports) reads `store_quotes` beside `quotes`. Claude reads one store with `store_stock`.
+
+One shopping list (slice 3, same migration): `shopping_wants`, cards and sealed products added by
+hand on the Trip page or by an applied `add_wish` (`server/src/plan/wants.rs`). They join the
+trip's wants (each copy its own want; "need" ones decide the stores, "along" ones come along), so
+a deck that isn't in a plan (the cEDH deck) gets its local buys on the same trip. A Yama deck's
+cards the collection lacks (`GET /api/plan/wants/deck-gaps/{deck}`) are listed to pick from, never
+added automatically. Claude reads it with `shopping_list`.
 
 ### Deck market values (2026-10-27)
 

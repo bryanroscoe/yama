@@ -479,6 +479,10 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     fill(&pool, "plan_reviews", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_marks", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_store_prefs", &[("owner_id", t(&v))]).await;
+    // Store stock snapshots with a listing, and a hand-added want.
+    let snap = fill(&pool, "store_snapshots", &[("owner_id", t(&v))]).await;
+    fill(&pool, "store_listings", &[("owner_id", t(&v)), ("snapshot_id", t(&snap))]).await;
+    fill(&pool, "shopping_wants", &[("owner_id", t(&v))]).await;
     fill(&pool, "plan_meta", &[("owner_id", t(&b))]).await;
 
     // Keys, watches, the lab and the advisor.

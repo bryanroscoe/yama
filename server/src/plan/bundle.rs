@@ -27,7 +27,8 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// 3: installed states read from the owner's decks (`installed.rs`, 2026-10-28).
 /// 4: store preferences and the real-card wishlist, for the store trip (2026-11-01).
 /// 5: a store's place in your order and a favourite's premium (2026-11-01).
-const SHAPE: u32 = 5;
+/// 6: store stock snapshots (`store_quotes`, `snapshots`) and hand-added wants (`shopping_wants`; 2026-11-01).
+const SHAPE: u32 = 6;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
@@ -41,8 +42,12 @@ pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
          UNION ALL SELECT 'plan:' || key || '=' || COALESCE(deck_id, '') || '/' || name FROM plan_decks WHERE owner_id = ?
          UNION ALL SELECT 'pref:' || store_key || '=' || preference || '/' || IFNULL(hassle, '') || '/' || IFNULL(premium_usd, '') || '/' || updated_at FROM plan_store_prefs WHERE owner_id = ?
          UNION ALL SELECT 'research:' || id || '=' || revision || '/' || updated_at FROM research_reports WHERE owner_id = ?
+         UNION ALL SELECT 'snap:' || id || '=' || status || '/' || IFNULL(fetched_at, '') FROM store_snapshots WHERE owner_id = ?
+         UNION ALL SELECT 'want:' || id || '=' || IFNULL(retired_at, '') FROM shopping_wants WHERE owner_id = ?
          ORDER BY 1",
     )
+    .bind(owner)
+    .bind(owner)
     .bind(owner)
     .bind(owner)
     .bind(owner)
@@ -383,6 +388,11 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     for w in &wishlist {
         names.add(Some(&w.card));
     }
+    // Cards and sealed products added to the shopping list by hand (`wants.rs`).
+    let shopping_wants = super::wants::list(pool, owner).await?;
+    for w in shopping_wants.iter().filter(|w| w["kind"] == "card") {
+        names.add(w["name"].as_str());
+    }
 
     // Decks and their current lists
     let deck_rows: Vec<DeckRow> = sqlx::query_as(
@@ -670,6 +680,16 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         );
     }
 
+    // Store snapshots (`stock.rs`) for every card the plan buys or proposes to buy and the
+    // wishlist: the trip reads them beside the plan's own checks.
+    let mut wanted: Vec<String> = swaps.iter().filter(|x| x["src"] == "buy" && x["retired"] != true).filter_map(|x| x["in"].as_str().map(String::from)).collect();
+    wanted.extend(wishlist.iter().map(|w| w.card.clone()));
+    wanted.extend(shopping_wants.iter().filter(|w| w["kind"] == "card").filter_map(|w| w["name"].as_str().map(String::from)));
+    let store_quotes = super::stock::store_quotes(pool, owner, &wanted).await?;
+    for q in &store_quotes {
+        printings.add(None, q["set"].as_str(), q["num"].as_str());
+    }
+
     // Each named printing's own latest price, for comparing a listing with its printing.
     let pairs: Vec<&(String, String)> = printings.pairs.iter().collect();
     let pair_ids: Vec<(i64, Option<String>)> = sqlx::query_as(
@@ -748,7 +768,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     let unresolved: Vec<&String> = names.0.iter().filter(|n| !resolved.contains_key(*n)).collect();
     let names_map: BTreeMap<&String, &String> = resolved.iter().collect();
 
-    Ok(json!({
+    let mut bundle = json!({
         "rev": rev, "revision": revision, "head": head,
         "notes": parse_or(&plan_notes, json!([])), "game_changers": parse(game_changers.as_deref()), "library": parse(library.as_deref()),
         "settings": settings, "stores": stores, "decks": decks, "swaps": swaps, "aliases": aliases,
@@ -758,7 +778,11 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         "market": market, "market_by_printing": market_by_printing, "printing_ids": printing_ids,
         "prices_as_of": prices_as_of,
         "store_prefs": store_prefs, "wishlist": wishlist,
-    }))
+    });
+    bundle["store_quotes"] = json!(store_quotes);
+    bundle["shopping_wants"] = json!(shopping_wants);
+    bundle["snapshots"] = json!(super::stock::snapshots(pool, owner, 40).await?);
+    Ok(bundle)
 }
 
 /// One card on the owner's real-card wishlist.

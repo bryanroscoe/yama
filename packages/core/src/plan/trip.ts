@@ -2,9 +2,10 @@
 // using as few stores as possible, judged by your local buy rule. A store listing is a dated quote,
 // not a purchase or a promise that the card is still there; a missing price is unknown, never $0.
 //
-// What drives the choice of stores ("needed"): planned buys with no order yet and proposals you
-// said you want. What comes along if a chosen store has it ("along the way"): proposals you haven't
-// decided on and your real-card wishlist. Neither ever makes you visit one more store.
+// What drives the choice of stores ("needed"): planned buys with no order yet, proposals you said
+// you want, and cards you added to your list as needed. What comes along if a chosen store has it
+// ("along the way"): proposals you haven't decided on, cards you added as along the way, and your
+// real-card wishlist. Neither ever makes you visit one more store.
 //
 // server/src/plan/trip.rs is a port of this for Claude's `shopping_trip` tool. Keep them in step:
 // both are checked against fixtures/trip.json.
@@ -134,10 +135,10 @@ export function hassleOrder(b: Pick<PlanBundle, "store_prefs" | "stores">): Map<
 
 // ── the plan ───────────────────────────────────────────────────────────────
 
-export type WantSource = "plan" | "proposal" | "wishlist";
+export type WantSource = "plan" | "proposal" | "want" | "wishlist";
 
 export interface Want {
-  /** The swap key, or `wish:` and the card for a wishlist entry. */
+  /** The swap key; `want:` and the id (and `#2`... for more copies) for a card you added; `wish:` and the card for a wishlist entry. */
   id: string;
   card: string;
   source: WantSource;
@@ -251,7 +252,7 @@ export interface TripOptions {
   stores?: string[] | null;
 }
 
-export type TripData = Pick<PlanBundle, "decks" | "swaps" | "quotes" | "stores" | "settings" | "aliases" | "reviews" | "marks" | "store_prefs" | "wishlist"> & PriceData;
+export type TripData = Pick<PlanBundle, "decks" | "swaps" | "quotes" | "stores" | "settings" | "aliases" | "reviews" | "marks" | "store_prefs" | "wishlist" | "store_quotes" | "shopping_wants"> & PriceData;
 
 /** At most this many stores are searched exhaustively; more are cut to those covering the most. */
 const MAX_SEARCH = 12;
@@ -260,7 +261,10 @@ const norm = (s: string) => s.trim().toLowerCase();
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const cents = (x: number) => Math.round(x * 100) / 100;
 
-/** The wants: planned buys with no order, proposals to buy not answered no, and the wishlist. */
+/**
+ * The wants: planned buys with no order, proposals to buy not answered no, cards you added (one
+ * want a copy, also when the plan buys the card for another deck), and the wishlist.
+ */
 export function tripWants(b: TripData, answers: Map<string, Review>, bought: (key: string) => boolean): Want[] {
   const decks = new Map(b.decks.map((d) => [d.key, d]));
   const out: Want[] = [];
@@ -287,6 +291,24 @@ export function tripWants(b: TripData, answers: Map<string, Review>, bought: (ke
       reason: s.why,
     });
     seen.add(norm(s.in));
+  }
+  for (const w of b.shopping_wants ?? []) {
+    // Each is a copy you asked for, so a card the plan also buys is wanted twice (another deck).
+    if (w.kind !== "card") continue;
+    seen.add(norm(w.name));
+    for (let n = 1; n <= Math.max(1, w.qty); n++) {
+      out.push({
+        id: n === 1 ? `want:${w.id}` : `want:${w.id}#${n}`,
+        card: w.name,
+        source: "want",
+        needed: w.priority === "need",
+        deck: w.deck_id,
+        deckName: w.deck_name,
+        replaces: null,
+        decision: null,
+        reason: w.why,
+      });
+    }
   }
   for (const w of b.wishlist ?? []) {
     if (seen.has(norm(w.card))) continue;
@@ -324,8 +346,9 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const wants = tripWants(b, answers, bought);
   const stores = new Map(b.stores.filter((s) => !s.retired).map((s) => [s.key, s]));
 
+  // The plan's own checks and the store snapshots' (server/src/plan/stock.rs), read alike.
   const quotesByCard = new Map<string, Quote[]>();
-  for (const q of b.quotes) {
+  for (const q of [...b.quotes, ...(b.store_quotes ?? [])]) {
     const k = norm(q.card);
     quotesByCard.set(k, [...(quotesByCard.get(k) ?? []), q]);
   }
@@ -359,7 +382,7 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       // Only your stores' own checks count: not a printer's price, a retired store or an unmatched label.
       if (!store || store.kind === "printer") continue;
       checks++;
-      checked.add(q.checked);
+      checked.add(q.checked.slice(0, 10)); // a snapshot's check is a time; the day is what's shown
       if (q.in_stock === false) continue;
       // A check that didn't say whether it's in stock isn't a reason to go: ask the store.
       if (q.in_stock !== true) {

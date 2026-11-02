@@ -410,6 +410,23 @@ fn wants(b: &Value, answers: &HashMap<String, &Value>, bought: &HashSet<String>)
         });
         seen.insert(norm(&card));
     }
+    // Cards they added: one want a copy, also when the plan buys the card for another deck
+    // (`trip.ts` `tripWants`). Sealed products aren't for the card trip.
+    for w in arr(b, "shopping_wants") {
+        let Some(card) = s(w, "name").filter(|_| s(w, "kind") == Some("card")) else { continue };
+        let id = s(w, "id").unwrap_or_default();
+        seen.insert(norm(card));
+        for n in 1..=w["qty"].as_i64().unwrap_or(1).max(1) {
+            out.push(Want {
+                id: if n == 1 { format!("want:{id}") } else { format!("want:{id}#{n}") },
+                card: card.to_string(),
+                source: "want",
+                needed: s(w, "priority") == Some("need"),
+                deck_name: s(w, "deck_name").map(String::from),
+                replaces: None,
+            });
+        }
+    }
     for w in arr(b, "wishlist") {
         let Some(card) = s(w, "card") else { continue };
         if !seen.insert(norm(card)) {
@@ -538,6 +555,14 @@ fn urlencoding(v: &str) -> String {
 
 /// Plan the trip from a bundle (`bundle::load_bundle`). `today` is YYYY-MM-DD; `going` is the
 /// stores they're going to this time (None: every store they'll go to).
+/// The cards the trip plans for, needed or along the way (`trip.ts` `tripWants`).
+pub fn trip_wants(b: &Value) -> Vec<Want> {
+    let live: HashSet<&str> = arr(b, "swaps").iter().filter(|x| x["retired"] != true).filter_map(|x| s(x, "key")).collect();
+    let answers = answers(b, &live);
+    let bought = bought(b, &live);
+    wants(b, &answers, &bought)
+}
+
 pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a> {
     let live: HashSet<&str> = arr(b, "swaps").iter().filter(|x| x["retired"] != true).filter_map(|x| s(x, "key")).collect();
     let answers = answers(b, &live);
@@ -568,8 +593,9 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
     let place = |k: &str| hassle.get(k).copied().unwrap_or(usize::MAX);
     let premium_cents = |o: &Offer| -> i64 { ((o.price - store_premium(b, o.key())) * 100.0).round().max(0.0) as i64 };
 
+    // The plan's own checks and the store snapshots' (`stock.rs`), read alike.
     let mut by_card: HashMap<String, Vec<&Value>> = HashMap::new();
-    for q in arr(b, "quotes") {
+    for q in arr(b, "quotes").iter().chain(arr(b, "store_quotes")) {
         by_card.entry(norm(s(q, "card").unwrap_or_default())).or_default().push(q);
     }
     let mut checked = BTreeSet::new();
@@ -588,7 +614,8 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
             }
             checks += 1;
             if let Some(c) = s(q, "checked") {
-                checked.insert(c.to_string());
+                // A snapshot's check is a time; the day is what's shown.
+                checked.insert(c.get(..10).unwrap_or(c).to_string());
             }
             if q["in_stock"] == false {
                 continue;
@@ -955,6 +982,10 @@ fn row_line(r: &Row) -> String {
     let what = match r.want.source {
         "wishlist" => " (real-card wishlist)".to_string(),
         "proposal" if !r.want.needed => format!(" (proposal for {}, not decided)", r.want.deck_name.as_deref().unwrap_or("?")),
+        "want" => match &r.want.deck_name {
+            Some(d) => format!(" (added to their list, for {d}{})", if r.want.needed { "" } else { ", if it's on the way" }),
+            None => format!(" (added to their list{})", if r.want.needed { "" } else { ", if it's on the way" }),
+        },
         _ => format!(" for {}", r.want.deck_name.as_deref().unwrap_or("?")),
     };
     let replaces = r.want.replaces.as_deref().map(|x| format!(", replacing {x}")).unwrap_or_default();
@@ -966,6 +997,23 @@ fn row_line(r: &Row) -> String {
         date(s(r.offer.quote, "checked").unwrap_or_default()),
         market_words(&r.offer.market)
     )
+}
+
+/// Why a needed card isn't on the trip, in words.
+fn print_why(p: &PrintRow) -> String {
+    let at = p.offer.as_ref().map(|o| format!("{} at {}", usd(Some(o.price)), store_name(o.store))).unwrap_or_default();
+    match p.reason {
+        "never-store" => format!("only at {}, where they won't go ({at})", p.stores.join(", ")),
+        "not-local" => format!("only at {}, which isn't local, and their rule is to buy locally ({at})", p.stores.join(", ")),
+        "left-out" => format!("only at {}, which they left off this trip ({at})", p.stores.join(", ")),
+        "over-max" => format!("over the rule's limit ({at}): print it, and keep it on the real-card wishlist"),
+        "over-market" => format!("above the rule for its market ({at}; {})", market_words(&p.offer.as_ref().and_then(|o| o.market.clone()))),
+        "no-market" => format!("no market price to judge it by ({at})"),
+        "no-price" => format!("in stock with no listed price at {}: ask the store", p.stores.join(", ")),
+        "unknown-stock" => format!("listed at {}, but the check didn't say whether it's in stock: ask the store", p.stores.join(", ")),
+        "not-stocked" => "not in stock at the last check".into(),
+        _ => "no store check recorded".into(),
+    }
 }
 
 /// The trip in words, for the `shopping_trip` tool.
@@ -1047,19 +1095,7 @@ pub fn text(t: &Trip) -> String {
     if !t.print.is_empty() {
         let _ = writeln!(out, "\nNot covered ({}): print these, or check the stores by hand.", t.print.len());
         for p in &t.print {
-            let at = p.offer.as_ref().map(|o| format!("{} at {}", usd(Some(o.price)), store_name(o.store))).unwrap_or_default();
-            let why = match p.reason {
-                "never-store" => format!("only at {}, where they won't go ({at})", p.stores.join(", ")),
-                "not-local" => format!("only at {}, which isn't local, and their rule is to buy locally ({at})", p.stores.join(", ")),
-                "left-out" => format!("only at {}, which they left off this trip ({at})", p.stores.join(", ")),
-                "over-max" => format!("over the rule's limit ({at}): print it, and keep it on the real-card wishlist"),
-                "over-market" => format!("above the rule for its market ({at}; {})", market_words(&p.offer.as_ref().and_then(|o| o.market.clone()))),
-                "no-market" => format!("no market price to judge it by ({at})"),
-                "no-price" => format!("in stock with no listed price at {}: ask the store", p.stores.join(", ")),
-                "unknown-stock" => format!("listed at {}, but the check didn't say whether it's in stock: ask the store", p.stores.join(", ")),
-                "not-stocked" => "not in stock at the last check".into(),
-                _ => "no store check recorded".into(),
-            };
+            let why = print_why(p);
             let _ = writeln!(out, "- {} for {}: {why}", p.want.card, p.want.deck_name.as_deref().unwrap_or("?"));
         }
         if let Some(u) = &t.print_mass_entry {
@@ -1094,3 +1130,62 @@ pub fn text(t: &Trip) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// Every want on their one shopping list, with where the trip puts it, for the `shopping_list` tool.
+pub fn list_text(b: &Value, today: &str) -> String {
+    let wants = trip_wants(b);
+    let t = plan(b, today, None);
+    let mut status: HashMap<&str, String> = HashMap::new();
+    for st in &t.stops {
+        for r in st.rows.iter().chain(&st.along) {
+            status.insert(r.want.id.as_str(), format!("{} at {}", usd(Some(r.offer.price)), store_name(st.store)));
+        }
+    }
+    for p in &t.print {
+        status.insert(p.want.id.as_str(), format!("not on the trip: {}", print_why(p)));
+    }
+    for (st, rows) in &t.elsewhere {
+        for r in rows {
+            status.insert(r.want.id.as_str(), format!("only at {} ({}), not on this trip", store_name(st), usd(Some(r.offer.price))));
+        }
+    }
+    let source = |w: &Want| -> String {
+        let deck = w.deck_name.as_deref().unwrap_or("no deck named");
+        match w.source {
+            "plan" => format!("planned buy for {deck}"),
+            "proposal" if w.needed => format!("proposal for {deck} they want"),
+            "proposal" => format!("proposal for {deck}, not decided"),
+            "want" => format!("added to their list, for {deck}"),
+            _ => "real-card wishlist".into(),
+        }
+    };
+    let mut out = String::new();
+    let _ = writeln!(out, "Their shopping list on {} (each card's place on the store trip; listings are dated quotes, not purchases).", date(today));
+    for (title, needed) in [("To buy (these decide the stores)", true), ("Along the way (only from a store already on the trip)", false)] {
+        let rows: Vec<&Want> = wants.iter().filter(|w| w.needed == needed && w.source != "wishlist").collect();
+        let _ = writeln!(out, "\n{title}: {}", rows.len());
+        for w in rows {
+            let at = status.get(w.id.as_str()).cloned().unwrap_or_else(|| "no store has it under their rule".into());
+            let replaces = w.replaces.as_deref().map(|x| format!(", replacing {x}")).unwrap_or_default();
+            let _ = writeln!(out, "- {} ({}{replaces}): {at}", w.card, source(w));
+        }
+    }
+    let sealed: Vec<&Value> = arr(b, "shopping_wants").iter().filter(|w| s(w, "kind") == Some("sealed")).collect();
+    if !sealed.is_empty() {
+        let _ = writeln!(out, "\nSealed products on their list: {}", sealed.len());
+        for w in sealed {
+            let _ = writeln!(
+                out,
+                "- {}{}{}",
+                s(w, "name").unwrap_or_default(),
+                if w["qty"].as_i64().unwrap_or(1) > 1 { format!(" ×{}", w["qty"]) } else { String::new() },
+                s(w, "why").map(|x| format!(": {x}")).unwrap_or_default()
+            );
+        }
+    }
+    let wish = wants.iter().filter(|w| w.source == "wishlist").count();
+    if wish > 0 {
+        let _ = writeln!(out, "\nReal-card wishlist: {wish} cards (by price tier in shopping_trip).");
+    }
+    out
+}

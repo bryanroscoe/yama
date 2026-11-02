@@ -1577,6 +1577,117 @@ async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppRes
     Ok(json!({"label": format!("Saved your setting for {key}.")}))
 }
 
+/// `check_stores`: read their stores' stock (`plan/stock.rs`) when they apply it, for the cards
+/// named (default: every card the trip plans for).
+pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    use crate::plan::stock;
+    let cards = names_arg(args, "cards")?;
+    let mut stores: Vec<(String, String)> = Vec::new();
+    if let Some(v) = args.get("stores").filter(|v| !v.is_null()) {
+        let list = v.as_array().ok_or_else(|| AppError::bad("stores must be a list of store keys or names"))?;
+        for x in list {
+            let found = their_store(&st.pool, &user.id, x.as_str().ok_or_else(|| AppError::bad("stores must be a list of store keys or names"))?).await?;
+            if !stores.contains(&found) {
+                stores.push(found);
+            }
+        }
+    }
+    let yestcg = args.get("yestcg").and_then(Value::as_bool).unwrap_or(false);
+    // Say now which stores Yama can't read, so Claude doesn't stage a check that reads nothing.
+    let checkable = stock::checkable(&st.pool, &user.id).await?;
+    let readable = |key: &str| checkable.iter().any(|c| c.0 == key && (c.2.is_some() || (yestcg && c.3.is_some())));
+    let named: Vec<&(String, String)> = stores.iter().collect();
+    if let Some((_, name)) = named.iter().find(|(k, _)| !readable(k)) {
+        return Err(AppError::bad(format!(
+            "Yama can't read {name}'s stock{}. It reads Shopify stores on its list (Pat's Games, Mothership) and TCGplayer Pro storefronts; YesTCG covers some others. Nothing was staged.",
+            if yestcg { "" } else { " (try yestcg: true)" }
+        )));
+    }
+    let which = if named.is_empty() { "every store they'll go to that Yama can read".to_string() } else { named.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", ") };
+    let what = if cards.is_empty() { "every card the trip plans for".to_string() } else if cards.len() == 1 { cards[0].clone() } else { format!("{} cards", cards.len()) };
+    let summary = format!("Check stock: {which}");
+    let detail = format!(
+        "Reads {which} for {what}{} when applied, in the background, as dated snapshots. The trip then uses the newest answer for each card. At most {} store reads a day.",
+        if yestcg { ", also through YesTCG's Austin search" } else { "" },
+        stock::DAILY_SNAPSHOTS
+    );
+    let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (!cards.is_empty()).then_some(&cards), "yestcg": yestcg});
+    stage(st, user, via, Staged { kind: "check_stores", summary, detail, payload }).await
+}
+
+async fn apply_check_stores(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let body = crate::plan::stock::CheckBody {
+        stores: p["stores"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+        cards: p["cards"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+        yestcg: p["yestcg"] == true,
+    };
+    let started = crate::plan::stock::start(st, &user.id, &body, "assistant").await?;
+    let n = started["snapshots"].as_array().map_or(0, Vec::len);
+    if n == 0 {
+        return Err(AppError::Conflict("None of those stores can be read now.".into()));
+    }
+    Ok(json!({"label": format!("Reading {n} {} now; the Trip page shows each when it's done.", if n == 1 { "store" } else { "stores" }), "snapshots": started["snapshots"]}))
+}
+
+/// `add_wish`: a card or sealed product on their shopping list (`plan/wants.rs`), when they apply it.
+pub async fn add_wish(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let mut w = crate::plan::wants::NewWant {
+        kind: opt_text(args, "kind", 10)?,
+        name: text_arg(args, "name")?.to_string(),
+        qty: match args.get("qty").filter(|v| !v.is_null()) {
+            None => None,
+            Some(v) => Some(v.as_i64().ok_or_else(|| AppError::bad("qty must be a whole number from 1 to 99"))?),
+        },
+        priority: opt_text(args, "priority", 10)?,
+        deck_id: None,
+        deck_name: None,
+        why: opt_text(args, "why", 500)?,
+    };
+    // A deck by name: one of their Yama decks when it matches, else a label (a deck not in Yama yet).
+    if let Some(d) = opt_text(args, "deck", 200)? {
+        let found: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND archived = 0 AND (id = ? OR name = ? COLLATE NOCASE) ORDER BY parent_id IS NOT NULL LIMIT 1")
+            .bind(&user.id)
+            .bind(&d)
+            .bind(&d)
+            .fetch_optional(&st.pool)
+            .await?;
+        match found {
+            Some(id) => w.deck_id = Some(id),
+            None => w.deck_name = Some(d),
+        }
+    }
+    let (kind, name, qty, priority, _, deck_name, why) = crate::plan::wants::check(&st.pool, &user.id, &w).await?;
+    let summary = format!("Add {}{name} to their shopping list", if qty > 1 { format!("{qty}× ") } else { String::new() });
+    let mut parts = vec![if kind == "sealed" { "A sealed product".to_string() } else { "A card".to_string() }];
+    parts.push(if priority == "need" { "to buy (it can decide which stores they visit)".into() } else { "only along the way, from a store already on the trip".into() });
+    if let Some(d) = &deck_name {
+        parts.push(format!("for {d}{}", if w.deck_id.is_none() { " (not a Yama deck; kept as a label)" } else { "" }));
+    }
+    if let Some(y) = &why {
+        parts.push(format!("why: {y}"));
+    }
+    let payload = json!({"kind": kind, "name": name, "qty": qty, "priority": priority, "deck_id": w.deck_id, "deck_name": w.deck_name, "why": why});
+    stage(st, user, via, Staged { kind: "add_wish", summary, detail: parts.join(", ") + ".", payload }).await
+}
+
+async fn apply_add_wish(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let text = |k: &str| p[k].as_str().map(String::from);
+    let w = crate::plan::wants::NewWant {
+        kind: text("kind"),
+        name: text("name").unwrap_or_default(),
+        qty: p["qty"].as_i64(),
+        priority: text("priority"),
+        deck_id: text("deck_id"),
+        deck_name: text("deck_name"),
+        why: text("why"),
+    };
+    let saved = crate::plan::wants::add(&st.pool, &user.id, &w, "assistant").await.map_err(|e| match e {
+        AppError::NotFound(_) => AppError::Conflict("That deck is gone.".into()),
+        other => other,
+    })?;
+    Ok(json!({"label": format!("Added {} to your shopping list.", saved["name"].as_str().unwrap_or_default()), "id": saved["id"]}))
+}
+
 fn apply_lock() -> &'static tokio::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(Default::default)
@@ -1603,6 +1714,8 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "swap_in_prints" => apply_swap_in(st, user, &p).await,
         "set_shopping_rules" => apply_shopping_rules(st, user, &p).await,
         "set_store_preference" => apply_store_preference(st, user, &p).await,
+        "check_stores" => apply_check_stores(st, user, &p).await,
+        "add_wish" => apply_add_wish(st, user, &p).await,
         other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
     };
     let at = now();
