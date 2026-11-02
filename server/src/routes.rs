@@ -105,6 +105,8 @@ pub fn app(state: AppState) -> Router {
     }
     // Admin "View as" stays read only: checked for every request, before routing (view_as.rs).
     router = router.layer(axum::middleware::from_fn_with_state(state.clone(), crate::view_as::guard));
+    // Every request's time, by the route it matched (perf.rs; Admin, Server).
+    router = router.layer(axum::middleware::from_fn(crate::perf::track));
     router.layer(CompressionLayer::new()).layer(TraceLayer::new_for_http()).with_state(state)
 }
 
@@ -128,6 +130,14 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
             tracing::info!("open sign-up: anyone with a verified Google account can make an account");
         }
     }
+    // Table statistics for SQLite's planner now, then daily (db.rs).
+    let stats = pool.clone();
+    tokio::spawn(async move {
+        loop {
+            crate::db::optimize(&stats).await;
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+        }
+    });
     if cfg.auto_import {
         crate::cards::import::spawn_scheduler(pool.clone(), cfg.data_dir.clone());
         crate::calendar::spawn_scheduler(pool.clone(), http_client());

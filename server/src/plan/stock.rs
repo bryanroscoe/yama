@@ -915,6 +915,8 @@ pub struct Job {
 
 /// Run a check: each direct store on its own (hosts differ), YesTCG once for all the stores it covers.
 pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Option<Duration>) {
+    let timing = crate::perf::Job::start("store check", Duration::from_secs(180));
+    let note = format!("{} stores, {} cards", job.targets.len(), job.cards.len());
     let mut tasks = tokio::task::JoinSet::new();
     let yes: Vec<Target> = job.targets.iter().filter(|t| t.kind == Kind::YesTcg).cloned().collect();
     for t in job.targets.iter().filter(|t| t.kind != Kind::YesTcg).cloned() {
@@ -954,10 +956,13 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
     }
     while tasks.join_next().await.is_some() {}
     // Finished, failed or panicked: no longer being fetched.
-    let mut a = active().lock().expect("active");
-    for t in &job.targets {
-        a.remove(&t.snapshot);
+    {
+        let mut a = active().lock().expect("active");
+        for t in &job.targets {
+            a.remove(&t.snapshot);
+        }
     }
+    timing.done(true, note);
 }
 
 #[derive(Debug, Default, Deserialize)]

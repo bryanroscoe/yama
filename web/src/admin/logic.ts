@@ -21,6 +21,18 @@ export function ago(iso: string | null | undefined, now: Date = new Date()): str
   return t.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** A duration in milliseconds: "4 ms", "180 ms", "1.4 s", "25 s", "3 min 20 s". */
+export function duration(ms: number): string {
+  if (ms < 10) return `${Math.max(0, Math.round(ms * 10) / 10)} ms`;
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const s = ms / 1000;
+  if (s < 10) return `${s.toFixed(1)} s`;
+  if (s < 60) return `${Math.round(s)} s`;
+  const m = Math.floor(s / 60);
+  const rest = Math.round(s - m * 60);
+  return rest ? `${m} min ${rest} s` : `${m} min`;
+}
+
 /** "820 KB", "1.2 MB", "3.4 GB". */
 export function bytes(n: number | null | undefined): string {
   if (n == null) return "unknown";

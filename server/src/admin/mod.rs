@@ -24,6 +24,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/admin/usage", get(usage))
         .route("/api/admin/server", get(server))
+        .route("/api/admin/perf", get(perf))
         .route("/api/admin/watch/{id}/stop", post(stop_watch))
         .route("/api/admin/lab-runs", get(lab_runs))
         .route("/api/admin/lab-runs/{id}", delete_route(delete_lab_run).patch(rename_lab_run))
@@ -534,6 +535,11 @@ async fn server(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResul
             admin_emails: cfg.admin_emails.len(),
         },
     }))
+}
+
+/// Request, statement and job timings since the server started (`perf.rs`), for Admin, Server.
+async fn perf(AdminUser(_): AdminUser) -> Json<crate::perf::Summary> {
+    Json(crate::perf::summary())
 }
 
 async fn stop_watch(State(st): State<AppState>, AdminUser(admin): AdminUser, Path(id): Path<String>) -> AppResult<StatusCode> {

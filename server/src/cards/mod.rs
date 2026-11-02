@@ -391,7 +391,7 @@ async fn data_status(State(st): State<AppState>, _user: CurrentUser) -> AppResul
     Ok(Json(DataStatus {
         cards: sqlx::query_scalar("SELECT COUNT(*) FROM cards").fetch_one(&st.pool).await?,
         printings: sqlx::query_scalar("SELECT COUNT(*) FROM printings").fetch_one(&st.pool).await?,
-        latest_price_date: sqlx::query_scalar("SELECT MAX(date) FROM price_snapshots").fetch_one(&st.pool).await?,
+        latest_price_date: import::latest_price_date(&st.pool).await?,
         last_imports: sqlx::query_as(
             "SELECT kind, source_updated_at, finished_at, rows, error FROM import_runs ORDER BY started_at DESC LIMIT 5",
         )
@@ -474,7 +474,7 @@ struct OfflineBundle {
 
 async fn offline_cards(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<OfflineBundle>> {
     st.limits.offline_cards.check_user(&user)?;
-    let version: Option<String> = sqlx::query_scalar("SELECT MAX(updated_at) FROM cards").fetch_one(&st.pool).await?;
+    let version = import::cards_changed_at(&st.pool).await?;
     let cards = sqlx::query_as::<_, OfflineCard>(
         "SELECT oracle_id AS i, name AS n, mana_cost AS m, cmc AS v, type_line AS t, oracle_text AS o, colors AS c,
                 color_identity AS ci, power AS p, toughness AS th, loyalty AS l, rarity AS r,

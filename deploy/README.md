@@ -187,6 +187,40 @@ ssh saget 'docker logs --tail 50 yama'
 ./deploy/health.sh   # reads saget's LAN address from deploy/.env or the environment
 ```
 
+## Finding slowness
+
+The server times every request, slow SQL statement and background job (2026-11-02,
+`server/src/perf.rs`). Nothing logged names a person: a request is its method and route
+template (`GET /api/decks/{id}`, never the path or query string), a statement its SQL text with
+`?` for every value, a job its name and a count.
+
+```sh
+ssh saget 'docker logs --since 24h yama 2>&1 | grep -E "slow request|slow statement|slow job|job failed"'
+ssh saget 'docker logs --since 24h yama 2>&1 | grep "job finished"'   # every import, deck check, rebuild, backup
+```
+
+- `slow request method=GET route=/api/decks/{id} status=200 ms=812.4`: a request over
+  `YAMA_SLOW_REQUEST_MS` (500 by default). Status 499 means the client gave up first. A WebSocket
+  counts only its handshake (`websocket=true`). Every request is a `request` line at debug level,
+  which saget's `RUST_LOG=info` leaves out.
+- `slow statement: execution time exceeded alert threshold summary="SELECT MAX(date) FROM ..."
+  db.statement="..." elapsed_secs=0.41`: one SQL statement over `YAMA_SLOW_QUERY_MS` (200 by
+  default), including any wait for the database's one writer. The SQL is on one line, cut at 300
+  characters; bound values are never logged.
+- `job finished job="Scryfall import" ms=108003.1 note="default_cards, 117178 rows"`, and
+  `slow job` or `job failed` for one over its own limit or ending in an error. Lab results are
+  `lab result store`, logged only when slow.
+
+Admin, Server, **Response times** shows the same in a table: each route's requests, median, 95th
+percentile and slowest over the last hour, the background jobs, and the last 200 slow requests and
+statements. It's in memory and starts empty after each restart. Both thresholds are set in
+`yama.env` (`YAMA_SLOW_REQUEST_MS=500`, `YAMA_SLOW_QUERY_MS=200`) and apply after a restart.
+
+SQLite keeps table statistics for its query planner: the server runs `PRAGMA optimize` at start,
+daily and after each card import, and folds the write-ahead log back in after an import
+(`SQLite optimize` and `SQLite checkpoint` job lines). Each connection has a 32 MB page cache and
+reads through a 256 MB memory map (`server/src/db.rs`).
+
 ## Debugging with real data
 
 `./deploy/pull-db.sh` copies saget's newest verified daily snapshot to the local `data/yama.db`, or the newest deploy copy when there is no snapshot (read-only on saget; `--fresh` writes a new backup first and copies that one, which changes the server). See "Signing in locally" in the main README.

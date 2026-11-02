@@ -768,7 +768,10 @@ pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String) {
                         tokio::time::sleep_until(t + MIN_GAP).await;
                     }
                     last_request = Some(tokio::time::Instant::now());
-                    match run_one(&pool, &http, &url, &version).await {
+                    let job = crate::perf::Job::start("deck check", Duration::from_secs(30));
+                    let result = run_one(&pool, &http, &url, &version).await;
+                    job.finish(&result, "Commander Spellbook");
+                    match result {
                         Ok(()) => tracing::debug!(version, "checked a deck with Commander Spellbook"),
                         Err(CheckError::RateLimited(wait)) => {
                             tracing::warn!(secs = wait.as_secs(), "Commander Spellbook rate limit; pausing deck checks");

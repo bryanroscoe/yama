@@ -524,9 +524,12 @@ pub fn spawn_scheduler(pool: SqlitePool, http: reqwest::Client) {
     tokio::spawn(async move {
         let src = Sources::default();
         loop {
-            if let Err(e) = run_due(&pool, &http, &src).await {
+            let job = crate::perf::Job::frequent("release calendar", Duration::from_secs(120));
+            let result = run_due(&pool, &http, &src).await;
+            if let Err(e) = &result {
                 tracing::warn!(error = %format!("{e:#}"), "release calendar pass failed");
             }
+            job.finish(&result, "hourly pass");
             tokio::time::sleep(Duration::from_secs(3600)).await;
         }
     });

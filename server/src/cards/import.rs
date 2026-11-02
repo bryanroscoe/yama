@@ -41,7 +41,9 @@ pub async fn run(
     default: Option<PathBuf>,
     rulings: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    run_from(pool, &cfg.data_dir, BULK_INDEX, oracle, default, rulings).await
+    let result = run_from(pool, &cfg.data_dir, BULK_INDEX, oracle, default, rulings).await;
+    crate::db::after_import(pool).await;
+    result
 }
 
 /// [`run`] against any bulk index, so tests can serve one locally.
@@ -130,6 +132,20 @@ async fn import_date_since(pool: &SqlitePool, kind: &str, min_version: i64) -> s
     .flatten())
 }
 
+/// The date of the newest prices (YYYY-MM-DD): the Scryfall file of the newest successful printings
+/// import, which is the date its prices are stored under. From `import_runs`: `MAX(date)` over
+/// price_snapshots reads that table's whole index (0.4 s on saget at 1.6 million rows, 2026-11-02).
+pub async fn latest_price_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
+    import_date_since(pool, "default_cards", 1).await
+}
+
+/// When the card table last changed: the newest rules-text import's end, or its start while it
+/// runs, so a cache built mid-import is rebuilt once it ends. From `import_runs`, where
+/// `MAX(updated_at)` over cards reads every card.
+pub async fn cards_changed_at(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar("SELECT MAX(COALESCE(finished_at, started_at)) FROM import_runs WHERE kind = 'oracle_cards'").fetch_one(pool).await
+}
+
 /// Download and import the latest file of one kind, unless we already have that exact file
 /// (`force` imports it anyway). Returns whether anything was imported.
 pub async fn refresh(pool: &SqlitePool, data_dir: &Path, kind: &str, force: bool) -> anyhow::Result<bool> {
@@ -178,7 +194,10 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                 let behind = matches!(current_import_date(&pool, kind).await, Ok(None));
                 if behind || age.is_none_or(|h| h >= max_age_hours) {
                     match refresh(&pool, &data_dir, kind, behind).await {
-                        Ok(true) => tracing::info!(kind, "imported fresh Scryfall data"),
+                        Ok(true) => {
+                            tracing::info!(kind, "imported fresh Scryfall data");
+                            crate::db::after_import(&pool).await;
+                        }
                         Ok(false) => tracing::debug!(kind, "Scryfall data unchanged"),
                         Err(e) => tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed"),
                     }
@@ -567,6 +586,16 @@ async fn start_run(pool: &SqlitePool, kind: &str, meta: Option<&BulkItem>) -> an
     Ok(id)
 }
 
+/// An import slower than this is a warning in the log (perf.rs). The daily printings and prices
+/// take about two minutes on saget.
+const SLOW_IMPORT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Time one import: one log line at its end, and a row in Admin, Server.
+fn timed(kind: &str, job: crate::perf::Job, result: &anyhow::Result<usize>) {
+    let rows = result.as_ref().map(|n| format!(", {n} rows")).unwrap_or_default();
+    job.finish(result, format!("{kind}{rows}"));
+}
+
 async fn finish_run(pool: &SqlitePool, id: &str, result: &anyhow::Result<usize>) -> anyhow::Result<()> {
     let (rows, error) = match result {
         Ok(n) => (Some(*n as i64), None),
@@ -583,9 +612,11 @@ async fn finish_run(pool: &SqlitePool, id: &str, result: &anyhow::Result<usize>)
 }
 
 pub async fn import_oracle(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
+    let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "oracle_cards", meta).await?;
     let result = import_oracle_inner(pool, path).await;
     finish_run(pool, &run, &result).await?;
+    timed("oracle_cards", job, &result);
     result
 }
 
@@ -671,11 +702,13 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
 }
 
 pub async fn import_default(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
+    let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "default_cards", meta).await?;
     // Prices belong to the day Scryfall generated the file, not the day we imported it.
     let price_date = meta.map(|m| m.updated_at[..10].to_string()).unwrap_or_else(|| now()[..10].to_string());
     let result = import_default_inner(pool, path, &price_date).await;
     finish_run(pool, &run, &result).await?;
+    timed("default_cards", job, &result);
     result
 }
 
@@ -770,9 +803,11 @@ struct ScryRuling {
 }
 
 pub async fn import_rulings(pool: &SqlitePool, path: &Path, meta: Option<&BulkItem>) -> anyhow::Result<usize> {
+    let job = crate::perf::Job::start("Scryfall import", SLOW_IMPORT);
     let run = start_run(pool, "rulings", meta).await?;
     let result = import_rulings_inner(pool, path).await;
     finish_run(pool, &run, &result).await?;
+    timed("rulings", job, &result);
     result
 }
 

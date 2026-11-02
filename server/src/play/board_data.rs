@@ -150,7 +150,7 @@ fn build(rows: Vec<CardRow>) -> serde_json::Map<String, serde_json::Value> {
 static SCRYFALL_DATA: OnceLock<tokio::sync::Mutex<Option<(String, Arc<[u8]>)>>> = OnceLock::new();
 
 async fn scryfall_data(State(st): State<AppState>, _u: CurrentUser) -> AppResult<Response> {
-    let changed: Option<String> = sqlx::query_scalar("SELECT MAX(updated_at) FROM cards").fetch_one(&st.pool).await?;
+    let changed = crate::cards::import::cards_changed_at(&st.pool).await?;
     let changed = changed.unwrap_or_default();
     let mut cached = SCRYFALL_DATA.get_or_init(Default::default).lock().await;
     let body = match &*cached {

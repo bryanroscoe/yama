@@ -69,6 +69,12 @@ pub struct Config {
     /// comma-separated; `claude.ai,claude.com` when unset). Loopback `http` redirects (Claude Code)
     /// are always allowed; everything else is refused at registration (`oauth/redirect.rs`).
     pub oauth_redirect_hosts: Vec<String>,
+    /// Requests slower than this many milliseconds are logged as warnings and listed in Admin,
+    /// Server (YAMA_SLOW_REQUEST_MS, default 500; `perf.rs`).
+    pub slow_request_ms: u64,
+    /// SQL statements slower than this many milliseconds are logged as warnings and listed there
+    /// too (YAMA_SLOW_QUERY_MS, default 200).
+    pub slow_query_ms: u64,
 }
 
 /// The https hosts OAuth apps may redirect to when YAMA_OAUTH_REDIRECT_HOSTS isn't set: claude.ai's
@@ -323,6 +329,8 @@ impl Config {
             forge,
             public_url,
             oauth_redirect_hosts,
+            slow_request_ms: number("YAMA_SLOW_REQUEST_MS", crate::perf::SLOW_REQUEST_MS as i64)? as u64,
+            slow_query_ms: number("YAMA_SLOW_QUERY_MS", crate::perf::SLOW_QUERY_MS as i64)? as u64,
         })
     }
 }

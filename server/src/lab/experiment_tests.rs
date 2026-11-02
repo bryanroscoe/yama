@@ -878,7 +878,7 @@ async fn a_server_restart_settles_experiments_cancelled_with_games_in_flight() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancel_and_a_finishing_game_never_lose_a_result() {
     let dir = tempfile::tempdir().unwrap();
-    let pool = crate::db::connect(&format!("sqlite://{}", dir.path().join("t.db").display())).await.unwrap();
+    let pool = crate::db::connect(&format!("sqlite://{}", dir.path().join("t.db").display()), std::time::Duration::from_millis(crate::perf::SLOW_QUERY_MS)).await.unwrap();
     add_user(&pool, "bryan", false).await;
     let sim = FakeSim::new();
     for round in 0..30u64 {

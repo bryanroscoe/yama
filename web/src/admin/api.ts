@@ -115,6 +115,32 @@ export interface ServerInfo {
   sign_in: { google: boolean; open_signup: boolean; password: boolean; dev_login: boolean; cloudflare_access: boolean; admin_emails: number };
 }
 
+/** Request, statement and job timings (server/src/perf.rs), in milliseconds. Routes are templates
+ *  ("/api/decks/{id}"); nothing here names an account. */
+export interface PerfRoute {
+  method: string;
+  route: string;
+  /** Requests in the window (the newest 1,000 at most). */
+  count: number;
+  /** Requests since the server started. */
+  total: number;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+}
+
+export interface PerfSummary {
+  window_minutes: number;
+  slow_request_ms: number;
+  slow_query_ms: number;
+  /** Slowest first. */
+  routes: PerfRoute[];
+  /** Newest first, at most 200 each. */
+  slow_requests: { at: string; method: string; route: string; status: number; ms: number }[];
+  slow_statements: { at: string; ms: number; rows: number; sql: string }[];
+  jobs: { at: string; job: string; ms: number; ok: boolean; slow: boolean; note: string }[];
+}
+
 /** One account's grant of the shared API key (server/src/advisor/shared.rs). */
 export interface SharedGrant {
   user_id: string;
@@ -174,6 +200,7 @@ export interface DeleteReport {
 export const adminApi = {
   usage: () => api<Usage>("/api/admin/usage"),
   server: () => api<ServerInfo>("/api/admin/server"),
+  perf: () => api<PerfSummary>("/api/admin/perf"),
   labRuns: () => api<LabRun[]>("/api/admin/lab-runs"),
   renameRun: (id: string, name: string) => api(`/api/admin/lab-runs/${encodeURIComponent(id)}`, { method: "PATCH", json: { name } }),
   deleteRun: (id: string) => api(`/api/admin/lab-runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
