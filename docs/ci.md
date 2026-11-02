@@ -20,10 +20,14 @@ variable, means off:
 
 - PR runs and main-push runs start no gate, web or Rust job, so they use no runner time.
   Automatic Android PR builds (`android.yml`) are off too.
-- A push to main runs one job, **Tests are off (checked locally before merge)**, on saget's
-  free `yama-ci` runner. It runs no checks. It exists because the deploy workflow and saget's
-  release gate (`deploy/host.py`) both require a *successful* push CI run, and a run whose
-  jobs are all skipped concludes "skipped". It waits for saget CI capacity like any job there.
+- A push to main runs one job, **Tests are off (checked locally before merge)**. It runs no
+  checks. It exists because the deploy workflow and saget's release gate (`deploy/host.py`)
+  both require a *successful* push CI run, and a run whose jobs are all skipped concludes
+  "skipped". It runs where `CI_LINUX_RUNNER` points: free on saget (where it waits for CI
+  capacity like any job), about one billed minute per main push on a hosted runner. It was
+  meant for saget, but on 2 Nov 2026 saget's CI hook rejected every job ("Invalid CI pool
+  capacity": sagetserver's `ci/hooks/slot.py` still requires the old 12 GiB pool after the
+  pool grew to 20 GiB), so it runs hosted until saget CI is fixed and routed back.
 - A manual run (`gh workflow run CI --ref <branch>`, or an Android build from the Actions tab)
   still tests or builds in full on the runner `CI_LINUX_RUNNER` picks. Start one only when
   Bryan asks.

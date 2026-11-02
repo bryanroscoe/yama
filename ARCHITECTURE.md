@@ -227,7 +227,7 @@ remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 minutes in two days, so the repository variable `CI_TESTS` now switches the test jobs and is off.
 PR and main-push runs then start no hosted job; agents run the full local checks
 (`scripts/local-ci.sh --no-amend`) on the final head before merging and report them as local
-evidence. A no-op marker job on saget's free CI runner keeps push CI on main successful,
+evidence. A no-op marker job (on the `CI_LINUX_RUNNER` backend) keeps push CI on main successful,
 so automatic deployment and the host release gate work unchanged. Setting `CI_TESTS` to `on`
 restores the test CI described above. See `docs/ci.md`, "Tests on or off".
 
