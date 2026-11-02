@@ -216,6 +216,8 @@ def apply(conn, owner, request, dry_run=False):
                 else:
                     expected = requested['before']
                     account = check_identity(conn, requested['after'], g, requested['seat'], proposed)
+                    if account and requested['after']['user_id'] is None:
+                        raise ValueError('new account assignments require an explicit user_id; member-only identities are supported for undo')
                     new = {**requested['after'], 'deck_version_id': now['deck_version_id']}
                     # A guest may have borrowed the recorder's deck. Linking an account must
                     # not expose a different account's private deck version to it.

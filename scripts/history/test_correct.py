@@ -315,6 +315,17 @@ class Corrections(unittest.TestCase):
             self.apply(req)
         self.assertEqual(self.logs(), 0)
 
+    def test_new_account_assignment_requires_explicit_user_id(self):
+        self.req['changes'][1]['after']['user_id'] = None
+        with self.assertRaisesRegex(ValueError, 'explicit user_id'):
+            self.apply()
+        self.assertEqual(self.logs(), 0)
+        self.assertIsNone(self.scalar("SELECT win_condition FROM games WHERE id='g1'"))
+        self.assertEqual(self.scalar('SELECT count(*) FROM history_correction_targets'), 0)
+        self.req['changes'][1]['after']['user_id'] = 'chelsey'
+        self.apply()
+        self.assertEqual(self.scalar("SELECT count(*) FROM game_seats WHERE user_id='chelsey'"), 1)
+
     def test_validation_duplicate_targets_and_bad_types(self):
         bad = [[], {'id': 'x'}, {**self.req, 'extra': 1}, {**self.req, 'changes': []},
                {**self.req, 'changes': [self.req['changes'][0]] * 2}]
