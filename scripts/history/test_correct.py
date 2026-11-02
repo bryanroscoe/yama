@@ -242,6 +242,34 @@ class Corrections(unittest.TestCase):
         self.c.commit()
         self.assertEqual(self.logs(), 0)
 
+    def test_multi_game_purge_does_not_reopen_stale_undo(self):
+        self.apply()
+        for op, before, after, g2before, g2after in [
+                ('b', 'combat', 'combo', None, 'combat'), ('c', 'combo', 'combat', 'combat', 'combo')]:
+            self.apply({**self.req, 'id': op, 'changes': [
+                {'kind': 'win_condition', 'game_id': 'g1', 'before': before, 'after': after},
+                {'kind': 'win_condition', 'game_id': 'g2', 'before': g2before, 'after': g2after}]})
+        self.c.execute("DELETE FROM games WHERE id='g2'")
+        self.c.commit()
+        self.assertEqual(self.logs(), 1)
+        with self.assertRaisesRegex(correct.Conflict, 'later correction'):
+            self.apply(self.undo())
+        self.assertEqual(self.scalar("SELECT win_condition FROM games WHERE id='g1'"), 'combat')
+
+    def test_atomic_swap_players_and_undo_validate_final_state(self):
+        self.apply()
+        changes = []
+        for seat, target in [(0, 'chelsey'), (1, 'bryan')]:
+            c = {'kind': 'player', 'game_id': 'g1', 'seat': seat}
+            c['before'] = correct.current(self.c, c)
+            c['after'] = dict(member_id=target+'-member', user_id=target, guest_name=None)
+            changes.append(c)
+        self.apply({**self.req, 'id': 'swap', 'changes': changes})
+        self.assertEqual(self.scalar("SELECT user_id FROM game_seats WHERE game_id='g1' AND seat=0"), 'chelsey')
+        self.apply({**self.undo(), 'reverts': 'swap'})
+        self.assertEqual(self.scalar("SELECT user_id FROM game_seats WHERE game_id='g1' AND seat=0"), 'bryan')
+        self.assertEqual(self.scalar("SELECT user_id FROM game_seats WHERE game_id='g1' AND seat=1"), 'chelsey')
+
     def test_validation_duplicate_targets_and_bad_types(self):
         bad = [[], {'id': 'x'}, {**self.req, 'extra': 1}, {**self.req, 'changes': []},
                {**self.req, 'changes': [self.req['changes'][0]] * 2}]

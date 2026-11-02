@@ -15,6 +15,16 @@ CREATE TABLE history_corrections (
 );
 CREATE INDEX history_corrections_owner ON history_corrections(owner_id, created_at);
 
+-- Privacy-safe counters survive audit-batch purges for other games/accounts. Otherwise
+-- deleting one target of a multi-game batch could reopen an older undo on surviving games.
+CREATE TABLE history_correction_targets (
+    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('player', 'win_condition')),
+    seat INTEGER NOT NULL, -- -1 for a game-level win condition
+    revision INTEGER NOT NULL,
+    PRIMARY KEY (game_id, kind, seat)
+);
+
 -- Audit retention follows privacy/deletion, including accounts mentioned in another
 -- recorder's batch. Keep batches atomic: purge the entire batch if any target goes away.
 CREATE TRIGGER history_corrections_forget_user BEFORE DELETE ON users BEGIN

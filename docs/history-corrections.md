@@ -79,7 +79,9 @@ Preview and apply it using the same commands. Undo refuses any batch whose targe
 the original batch's `after` values, validates membership and deck access again, and restores
 the old values atomically. If any value differs, or a needed member/deck no longer exists,
 the whole undo is refused; inspect and prepare a new targeted correction. Other fields are
-not overwritten. The log fences newer corrections even if values later return to the same answer. For writes
+not overwritten. Per-target revision counters fence newer corrections even if values later return to the same
+answer or a multi-target audit batch is purged. These counters contain only game/seat keys
+and numbers, and disappear when their game is deleted. For writes
 made outside this command, conflict detection compares current values; it cannot detect such
 external changes if they were subsequently changed back. Undo never assigns a win reason to a draw. Each batch can be undone once; undo entries cannot themselves be
 undone. A deliberate redo is a new correction with current expected values.
@@ -90,7 +92,8 @@ The command only inserts audit entries. It never edits a past entry or captures 
 rows, credentials, or a database snapshot. The audit is private operator data and is not
 exposed in group statistics, exports, or public pages. Account/game deletion takes precedence
 over history retention: a batch is removed if its owner, an account mentioned in its stored
-request/changes, or any affected game is deleted. Undo is unavailable after that purge.
+request/changes, or any affected game is deleted. Undo is unavailable after that purge; revision counters for
+surviving games remain so older undo requests cannot overwrite their newer corrections.
 
 This first command covers future operator corrections. It does not backdate today’s earlier
 manual edits, import the old rollback files, delete old backups, add an in-app edit screen,

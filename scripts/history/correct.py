@@ -90,7 +90,7 @@ def game(conn, game_id, owner):
     return row
 
 
-def check_identity(conn, value, g, seat):
+def check_identity(conn, value, g, seat, proposed):
     """Only an existing member of this group, or a named unlinked guest, may occupy a seat."""
     identity(value)
     mid, uid, guest = (value[k] for k in IDENTITY)
@@ -109,10 +109,11 @@ def check_identity(conn, value, g, seat):
         raise ValueError('an unlinked guest needs a name')
     if uid and conn.execute('SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL', (uid,)).fetchone() is None:
         raise ValueError('target account is missing or disabled')
-    if conn.execute('SELECT 1 FROM game_seats WHERE game_id=? AND seat<>? AND '
-                    '((? IS NOT NULL AND member_id=?) OR (? IS NOT NULL AND user_id=?))',
-                    (g['id'], seat, mid, mid, uid, uid)).fetchone():
-        raise Conflict('that player already occupies another seat in this game')
+    for other in conn.execute('SELECT seat,member_id,user_id FROM game_seats WHERE game_id=? AND seat<>?',
+                              (g['id'], seat)):
+        final = proposed.get((g['id'], other['seat']), other)
+        if (mid and final['member_id'] == mid) or (uid and final['user_id'] == uid):
+            raise Conflict('that player already occupies another seat in the final game state')
 
 
 def current(conn, change):
@@ -128,6 +129,12 @@ def current(conn, change):
     return {key: row[key] for key in (*IDENTITY, 'deck_version_id')}
 
 
+def revision(conn, change):
+    row = conn.execute('SELECT revision FROM history_correction_targets WHERE game_id=? AND kind=? AND seat=?',
+                       (change['game_id'], change['kind'], change.get('seat', -1))).fetchone()
+    return row[0] if row else 0
+
+
 def write(conn, change, value):
     if change['kind'] == 'win_condition':
         conn.execute('UPDATE games SET win_condition=? WHERE id=?', (value['win_condition'], change['game_id']))
@@ -135,6 +142,11 @@ def write(conn, change, value):
         conn.execute('UPDATE game_seats SET member_id=?,user_id=?,guest_name=?,deck_version_id=? '
                      'WHERE game_id=? AND seat=?',
                      tuple(value[k] for k in (*IDENTITY, 'deck_version_id')) + (change['game_id'], change['seat']))
+
+    conn.execute('INSERT INTO history_correction_targets(game_id,kind,seat,revision) VALUES (?,?,?,1) '
+                 'ON CONFLICT(game_id,kind,seat) DO UPDATE SET revision=revision+1',
+                 (change['game_id'], change['kind'], change.get('seat', -1)))
+    change['revision'] = revision(conn, change)
 
 
 def apply(conn, owner, request, dry_run=False):
@@ -159,16 +171,12 @@ def apply(conn, owner, request, dry_run=False):
                 raise ValueError('undo must name an original correction owned by this recorder')
             if conn.execute('SELECT 1 FROM history_corrections WHERE reverts=?', (reverts,)).fetchone():
                 raise Conflict('batch has already been undone')
-            for old in reversed(json.loads(original['changes'])):
+            original_changes = json.loads(original['changes'])
+            proposed = {(c['game_id'], c['seat']): c['before'] for c in original_changes if c['kind'] == 'player'}
+            for old in reversed(original_changes):
                 g = game(conn, old['game_id'], owner)
                 now = current(conn, old)
-                later = conn.execute(
-                    'SELECT 1 FROM history_corrections h,json_each(h.changes) j '
-                    'WHERE h.seq>? AND h.owner_id=? '
-                    "AND json_extract(j.value,'$.game_id')=? AND json_extract(j.value,'$.kind')=? "
-                    "AND json_extract(j.value,'$.seat') IS ? LIMIT 1",
-                    (original['seq'], owner, old['game_id'], old['kind'], old.get('seat'))).fetchone()
-                if later:
+                if revision(conn, old) != old['revision']:
                     raise Conflict('undo refused: a later correction touched this target')
                 if now != old['after']:
                     raise Conflict('undo refused: target has changed since this correction')
@@ -176,7 +184,7 @@ def apply(conn, owner, request, dry_run=False):
                 if old['kind'] == 'win_condition' and new['win_condition'] is not None and g['winner_seat'] is None:
                     raise Conflict('undo refused: a draw has no win condition')
                 if old['kind'] == 'player':
-                    check_identity(conn, {k: new[k] for k in IDENTITY}, g, old['seat'])
+                    check_identity(conn, {k: new[k] for k in IDENTITY}, g, old['seat'], proposed)
                     version = new['deck_version_id']
                     if version:
                         deck = conn.execute('SELECT d.owner_id FROM decks d JOIN deck_versions v '
@@ -187,6 +195,7 @@ def apply(conn, owner, request, dry_run=False):
                 write(conn, change, new)
                 changes.append(change)
         else:
+            proposed = {(c['game_id'], c['seat']): c['after'] for c in request['changes'] if c['kind'] == 'player'}
             for requested in request['changes']:
                 g = game(conn, requested['game_id'], owner)
                 now = current(conn, requested)
@@ -197,7 +206,7 @@ def apply(conn, owner, request, dry_run=False):
                     new = {'win_condition': requested['after']}
                 else:
                     expected = requested['before']
-                    check_identity(conn, requested['after'], g, requested['seat'])
+                    check_identity(conn, requested['after'], g, requested['seat'], proposed)
                     new = {**requested['after'], 'deck_version_id': now['deck_version_id']}
                     # A guest may have borrowed the recorder's deck. Linking an account must
                     # not expose a different account's private deck version to it.
