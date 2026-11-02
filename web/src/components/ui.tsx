@@ -59,7 +59,11 @@ export function ZoomableCard({ src, name, className = "card-img" }: { src: strin
   );
 }
 
-export function Sheet({ onClose, children, label }: { onClose: () => void; children: ReactNode; label: string }) {
+/**
+ * A drawer from the bottom on phones and a side panel on laptops. `centered` puts a short
+ * question in the middle of the screen instead, where everyone round a table phone can see it.
+ */
+export function Sheet({ onClose, children, label, centered = false }: { onClose: () => void; children: ReactNode; label: string; centered?: boolean }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -68,7 +72,7 @@ export function Sheet({ onClose, children, label }: { onClose: () => void; child
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={label}>
+      <div className={centered ? "sheet sheet-centered" : "sheet"} role="dialog" aria-modal="true" aria-label={label}>
         {children}
       </div>
     </>

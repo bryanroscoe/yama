@@ -317,12 +317,12 @@ function GuestGame({ gameId }: { gameId: string }) {
           </Sheet>
         )}
         {knockSeat !== null && (
-          <Sheet label="Knock out" onClose={() => setKnockSeat(null)}>
+          <Sheet centered label="Knock out" onClose={() => setKnockSeat(null)}>
             <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
           </Sheet>
         )}
         {lethal.ask && sheetSeat === null && knockSeat === null && !busy && (
-          <Sheet label="Out of the game?" onClose={lethal.dismiss}>
+          <Sheet centered label="Out of the game?" onClose={lethal.dismiss}>
             <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
           </Sheet>
         )}
