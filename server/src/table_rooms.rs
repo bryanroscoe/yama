@@ -47,7 +47,8 @@ pub struct Rooms {
     rooms: Mutex<HashMap<String, Room>>,
     /// Games shared through the Cloudflare relay, by game id.
     edge: Mutex<HashMap<String, EdgeShare>>,
-    /// Accounts deleted while connected: each of their table sockets ends (`end_for`).
+    /// Accounts deleted while connected (their ids), and the tables they hosted (`room:<game id>`):
+    /// each socket of that account, or following that table, ends (`end_for`).
     ended: broadcast::Sender<String>,
 }
 
@@ -63,14 +64,30 @@ impl Rooms {
     pub fn end_for(&self, user_id: &str) {
         self.edge.lock().unwrap().retain(|_, e| e.user != user_id);
         let _ = self.ended.send(user_id.to_string());
-        self.rooms.lock().unwrap().retain(|_, r| r.host_user.as_deref() != Some(user_id));
+        let mut closed = Vec::new();
+        self.rooms.lock().unwrap().retain(|game, r| {
+            let hosted = r.host_user.as_deref() == Some(user_id);
+            if hosted {
+                closed.push(game.clone());
+            }
+            !hosted
+        });
+        for game in closed {
+            let _ = self.ended.send(room_end(&game));
+        }
     }
 }
 
-/// Whether `user_id`'s account was just deleted (`Rooms::end_for`), for a socket's loop.
-fn ended_for(gone: Result<String, broadcast::error::RecvError>, user_id: &str) -> bool {
+/// The `ended` message that closes every socket following a table.
+fn room_end(game_id: &str) -> String {
+    format!("room:{game_id}")
+}
+
+/// Whether a socket's loop should end on this `ended` message: it names one of `ids` (its account,
+/// or for a guest its table too; `Rooms::end_for`).
+fn ended_for(gone: Result<String, broadcast::error::RecvError>, ids: &[&str]) -> bool {
     match gone {
-        Ok(id) => id == user_id,
+        Ok(id) => ids.contains(&id.as_str()),
         Err(broadcast::error::RecvError::Lagged(_)) => false,
         Err(broadcast::error::RecvError::Closed) => true,
     }
@@ -265,7 +282,7 @@ async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, mut ended
     loop {
         let msg = tokio::select! {
             msg = stream.next() => msg,
-            gone = ended.recv() => if ended_for(gone, &user_id) { break } else { continue },
+            gone = ended.recv() => if ended_for(gone, &[user_id.as_str()]) { break } else { continue },
         };
         let Some(Ok(msg)) = msg else { break };
         if let Message::Text(text) = msg {
@@ -297,6 +314,7 @@ async fn run_guest(
     mut ended: broadcast::Receiver<String>,
     socket: WebSocket,
 ) {
+    let table = room_end(&game_id);
     let (mut sink, mut stream) = socket.split();
     let (mut updates, snapshot, host_connected) = {
         let mut map = rooms.rooms.lock().unwrap();
@@ -327,7 +345,7 @@ async fn run_guest(
     loop {
         let msg = tokio::select! {
             msg = stream.next() => msg,
-            gone = ended.recv() => if ended_for(gone, &user_id) { break } else { continue },
+            gone = ended.recv() => if ended_for(gone, &[user_id.as_str(), table.as_str()]) { break } else { continue },
         };
         let Some(Ok(msg)) = msg else { break };
         let Message::Text(text) = msg else { continue };
@@ -383,8 +401,12 @@ mod tests {
         assert!(!map.contains_key("ann-game") && map.contains_key("bob-game"), "only the deleted account's table closes");
         assert!(rooms.edge.lock().unwrap().is_empty());
         let gone = ended.try_recv().unwrap();
-        assert!(ended_for(Ok(gone.clone()), "ann"), "ann's sockets end");
-        assert!(!ended_for(Ok(gone), "bob"), "bob's don't");
-        assert!(!ended_for(Err(broadcast::error::RecvError::Lagged(3)), "bob"));
+        assert!(ended_for(Ok(gone.clone()), &["ann"]), "ann's sockets end");
+        assert!(!ended_for(Ok(gone), &["bob"]), "bob's don't");
+        // Then her table closes for whoever follows it, and only hers.
+        let table = ended.try_recv().unwrap();
+        assert!(ended_for(Ok(table.clone()), &["sam", room_end("ann-game").as_str()]), "sam, following ann's table, leaves");
+        assert!(!ended_for(Ok(table), &["sam", room_end("bob-game").as_str()]), "bob's table carries on");
+        assert!(!ended_for(Err(broadcast::error::RecvError::Lagged(3)), &["bob"]));
     }
 }
