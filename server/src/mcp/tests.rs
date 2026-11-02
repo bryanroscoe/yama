@@ -583,6 +583,9 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
     sqlx::query("DELETE FROM plan_store_prefs WHERE owner_id = ?").bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["card gurus"], "cards": ["Sol Ring"]})).await;
     assert!(err && text.contains("can't read Card Gurus's stock") && text.contains("Nothing was staged"), "{text}");
+    // With no cards named and none on the trip, a card search reads nothing: refused.
+    let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["pats"]})).await;
+    assert!(err && text.contains("Nothing to read"), "{text}");
     // Up to 300 cards, as the tool says.
     let many: Vec<String> = (0..250).map(|i| format!("Card {i}")).collect();
     let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["pats"], "cards": many})).await;

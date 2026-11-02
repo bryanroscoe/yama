@@ -21,6 +21,8 @@ fn suggest(card: &str) -> Value {
         // Ten products, none the card itself: the in-stock search that follows fails in the mock.
         // Full both times: the in-stock search is saturated too, and none of these is the card.
         "\"Lots\"" | "title:\"Lots\" available:true" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Lots More {i}"), "handle": format!("lots-{i}")})).collect::<Vec<_>>()}}}),
+        "\"Popular\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Popular Things {i}"), "handle": format!("popthing-{i}")})).collect::<Vec<_>>()}}}),
+        "\"Neg\"" => json!({"resources": {"results": {"products": [{"title": "Neg [NEG - 1]", "handle": "neg-1"}]}}}),
         "\"Odd\"" => json!({"resources": {"results": {"products": [{"title": "Odd [ODD - 1]", "handle": "odd-1"}]}}}),
         "\"Untitled\"" => json!({"resources": {"results": {"products": [{"title": "Untitled [U - 1]", "handle": "untitled-1"}]}}}),
         "\"Many\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Many Things {i}"), "handle": format!("many-{i}")})).collect::<Vec<_>>()}}}),
@@ -40,6 +42,10 @@ fn product(handle: &str) -> Option<Value> {
             {"id": 121, "title": "Near Mint / English", "price": 250, "available": true},
         ]}),
         // Variants without availability: unreadable, so the card is unknown.
+        "popular-a.js" => json!({"title": "Popular [PP - 1]", "variants": [{"id": 7, "title": "Near Mint / English / Normal", "price": 50, "available": true}]}),
+        "popular-b.js" => json!({"title": "Popular [PP - 2]", "variants": [{"id": 8, "title": "Near Mint / English / Normal", "price": 30, "available": false}]}),
+        // A negative price is no price: unreadable.
+        "neg-1.js" => json!({"title": "Neg [NEG - 1]", "variants": [{"id": 9, "title": "Near Mint", "price": -100, "available": true}]}),
         "untitled-1.js" => json!({"variants": [{"id": 2, "title": "Near Mint", "price": 100, "available": true}]}),
         "odd-1.js" => json!({"title": "Odd [ODD - 1]", "variants": [{"id": 1, "title": "Near Mint", "price": 100}]}),
         "fellwar-stone-drk.js" => json!({"title": "Fellwar Stone [DRK - 103]", "variants": [
@@ -78,10 +84,27 @@ async fn mock() -> String {
         .route(
             "/search/suggest.json",
             get(|Query(q): Query<HashMap<String, String>>| async move {
-                if q["q"].contains("Fail Me") || q["q"] == "title:\"Many\" available:true" {
+                if q["q"].contains("Fail Me") {
                     return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
                 }
                 Ok(Json(suggest(&q["q"])))
+            }),
+        )
+        .route(
+            "/search",
+            get(|Query(q): Query<HashMap<String, String>>| async move {
+                let page: usize = q["page"].parse().unwrap();
+                match q["q"].as_str() {
+                    // The search pages fail: the card is unknown.
+                    "\"Many\"" => Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+                    // Every page adds more: past the page cap, the card is unknown.
+                    "\"Lots\"" => Ok(axum::response::Html(format!("<a href=\"/products/lots-p{page}-a\">x</a>"))),
+                    // Two printings on page 1 (one in stock), nothing new on page 2: complete.
+                    "\"Popular\"" => Ok(axum::response::Html(
+                        "<a href=\"/products/popular-a\">a</a> <a href=\"/products/popular-b?variant=8\">b</a> <a href=\"/products/other-thing\">c</a>".to_string(),
+                    )),
+                    _ => Ok(axum::response::Html(String::new())),
+                }
             }),
         )
         .route("/products/{h}", get(|AxPath(h): AxPath<String>| async move { product(&h).map(Json).ok_or(axum::http::StatusCode::NOT_FOUND) }))
@@ -131,6 +154,11 @@ fn titles_and_variants_parse() {
     let (n, found) = shopify_suggest(&suggest("\"Sol Ring\""), "Sol Ring").unwrap();
     assert_eq!(shopify_suggest(&json!({"errors": "nope"}), "Sol Ring"), None, "an unreadable answer isn't \"none found\"");
     assert_eq!(shopify_suggest(&json!({"resources": {"results": {"products": [{"title": "Sol Ring [C21 - 263]"}]}}}), "Sol Ring"), None, "a product without a handle");
+    assert_eq!(
+        search_page_handles("<a href=\"/products/sol-ring-c21?x=1\"></a><a href=\"/products/sol-ring-c21\"></a><a href=\"/products/mana-crypt\"></a><a href=\"/products/urzas-saga-mh2\"></a>", "Sol Ring"),
+        ["sol-ring-c21"]
+    );
+    assert_eq!(search_page_handles("<a href=\"/products/urzas-saga-mh2\">", "Urza’s Saga"), ["urzas-saga-mh2"]);
     assert_eq!(n, 4);
     assert_eq!(found.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["sol-ring-c21-263", "sol-ring-etched-cmm-410"]);
     let l = shopify_product(&product("sol-ring-c21-263.js").unwrap(), "Sol Ring", "https://patsgames.com", "sol-ring-c21-263");
@@ -193,7 +221,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let base = mock().await;
     let (_app, pool) = app().await;
     let (owner, _) = user(&pool, "bryan@example.com").await;
-    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots", "Odd", "Untitled"].map(String::from).to_vec();
+    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots", "Odd", "Untitled", "Popular", "Neg"].map(String::from).to_vec();
     let refs: Vec<&str> = cards.iter().map(String::as_str).collect();
     snapshot(&pool, &owner, "s-pats", "pats", "shopify", Some(&refs)).await;
     snapshot(&pool, &owner, "s-bc", "black-castle", "tcgplayer_pro", None).await;
@@ -210,8 +238,8 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let by = |s: &str| snaps.iter().find(|x| x["id"] == s).unwrap().clone();
     // Pat's: Fail Me couldn't be read, so it's partial; only available variants are kept.
     assert_eq!(by("s-pats")["status"], "partial", "{snaps:?}");
-    assert_eq!(by("s-pats")["failed"], 5, "Fail Me; Many, whose in-stock search failed; Lots, whose in-stock search was full too; Odd, unreadable variants; Untitled, no title");
-    assert_eq!(by("s-pats")["listings"], 4, "three available Sol Ring variants and the etched one");
+    assert_eq!(by("s-pats")["failed"], 6, "Fail Me; Many, whose search pages failed; Lots, past the page cap; Odd, unreadable variants; Untitled, no title; Neg, a negative price");
+    assert_eq!(by("s-pats")["listings"], 5, "three available Sol Ring variants, the etched one, and Popular's one in stock");
     assert!(by("s-pats")["raw"] == true);
     assert_eq!(by("s-bc")["status"], "ok");
     assert_eq!(by("s-bc")["listings"], 3);
@@ -236,7 +264,11 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     assert_eq!((fellwar.len(), &fellwar[0]["in_stock"]), (1, &json!(false)));
     assert!(at("pats", "Fail Me").is_empty());
     assert!(at("pats", "Many").is_empty(), "a failed follow-up search leaves the card unknown");
-    assert!(at("pats", "Lots").is_empty(), "a full follow-up search with no copy found leaves the card unknown");
+    assert!(at("pats", "Lots").is_empty(), "more printings than Yama reads leaves the card unknown");
+    assert!(at("pats", "Neg").is_empty());
+    // Suggest was full, so the search pages found both printings; the one in stock is the answer.
+    let popular = at("pats", "Popular");
+    assert_eq!((popular.len(), popular[0]["price"].as_f64(), popular[0]["set"].as_str()), (1, Some(0.5), Some("pp")), "{popular:?}");
     // Black Castle's catalog: Exotic Orchard "from" its lowest price, Fellwar Stone not in the catalog.
     let orchard = at("black-castle", "Exotic Orchard");
     assert_eq!((orchard[0]["price"].as_f64(), orchard[0]["in_stock"].as_bool()), (Some(0.5), Some(true)));

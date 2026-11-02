@@ -1615,6 +1615,16 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
             if yestcg { "" } else { " (try yestcg: true)" }
         )));
     }
+    // Something must actually be read: a whole catalog, or a card search with cards to look for
+    // (the trip's when none are named).
+    let cards_now = if cards.is_empty() { stock::trip_cards(&crate::plan::bundle::load_bundle(&st.pool, &user.id).await?) } else { cards.clone() };
+    let target = |c: &(String, String, Option<(stock::Kind, String)>, Option<String>, String)| {
+        matches!(c.2, Some((stock::Kind::Pro, _))) || (!cards_now.is_empty() && (c.2.is_some() || (yestcg && c.3.is_some())))
+    };
+    let any = checkable.iter().any(|c| if named.is_empty() { c.4 != "never" && target(c) } else { named.iter().any(|(k, _)| *k == c.0) && target(c) });
+    if !any {
+        return Err(AppError::bad("Nothing to read: there are no cards to look for (the trip has none and none were named), and none of those stores has a whole catalog Yama can read. Nothing was staged."));
+    }
     let which = if named.is_empty() { "every store they'll go to that Yama can read".to_string() } else { named.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", ") };
     let what = if cards.is_empty() { "every card the trip plans for".to_string() } else if cards.len() == 1 { cards[0].clone() } else { format!("{} cards", cards.len()) };
     let summary = format!("Check stock: {which}");

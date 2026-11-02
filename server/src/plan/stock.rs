@@ -56,6 +56,9 @@ fn active() -> &'static std::sync::Mutex<HashSet<String>> {
     static ACTIVE: OnceLock<std::sync::Mutex<HashSet<String>>> = OnceLock::new();
     ACTIVE.get_or_init(Default::default)
 }
+/// Storefront search pages read for one card when `suggest.json` is full, and products read for one card.
+const SHOP_PAGES: usize = 12;
+const SHOP_PRODUCTS: usize = 60;
 /// Pages of 5,000 products read from a TCGplayer Pro catalog.
 const PRO_PAGES: usize = 8;
 /// Listings in an imported file.
@@ -212,6 +215,22 @@ pub fn shopify_suggest(body: &Value, card: &str) -> Option<(usize, Vec<(String, 
         })
         .collect();
     Some((items.len(), found))
+}
+
+/// The product handles a Shopify storefront search page links to whose handle holds the card's
+/// name (as commander-decks' `search.py` reads them), in page order.
+pub fn search_page_handles(html: &str, card: &str) -> Vec<String> {
+    let front = card.split(" // ").next().unwrap_or(card).to_lowercase().replace(['\'', '’', ',', '.', '!'], "");
+    let slug = front.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join("-");
+    let mut out: Vec<String> = Vec::new();
+    for part in html.split("href=\"/products/").skip(1) {
+        let h: String = part.chars().take_while(|c| !matches!(c, '"' | '?' | '#' | '/')).collect();
+        let ok = !h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') && h.contains(&slug);
+        if ok && !out.contains(&h) {
+            out.push(h);
+        }
+    }
+    out
 }
 
 /// Every variant of a Shopify product (`/products/<handle>.js`) as listings for the card.
@@ -395,13 +414,23 @@ impl Fetcher {
 
     /// GET or POST with a browser's headers, retrying 429 and 5xx twice. Records every answer.
     async fn send(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw) -> Result<Value, String> {
+        let text = self.fetch(kind, method, url, body, raw, "application/json").await?;
+        serde_json::from_str(&text).map_err(|_| format!("{url}: the answer wasn't JSON"))
+    }
+
+    /// A page's text (a storefront's search page).
+    async fn page(&mut self, kind: Kind, url: &str, raw: &mut Raw) -> Result<String, String> {
+        self.fetch(kind, "GET", url, None, raw, "text/html").await
+    }
+
+    async fn fetch(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw, accept: &str) -> Result<String, String> {
         let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(String::from)).ok_or("bad url")?;
         let pause = if self.pause.is_zero() { Duration::ZERO } else { kind.pause().max(self.pause) };
         let mut last = String::new();
         for attempt in 0..3u32 {
             let guard = pace(&host, pause).await;
             let mut req = if method == "POST" { self.http.post(url) } else { self.http.get(url) };
-            req = req.header("User-Agent", BROWSER_UA).header("Accept", "application/json").timeout(Duration::from_secs(60));
+            req = req.header("User-Agent", BROWSER_UA).header("Accept", accept).timeout(Duration::from_secs(60));
             if let Some(b) = body {
                 let origin = url::Url::parse(url).map(|u| u.origin().ascii_serialization()).unwrap_or_default();
                 req = req.header("Content-Type", "application/json").header("Origin", &origin).header("Referer", format!("{origin}/")).body(b.to_string());
@@ -422,7 +451,7 @@ impl Fetcher {
                     let text = resp.text().await.unwrap_or_default();
                     raw.add(method, url, status, &text);
                     if (200..300).contains(&status) {
-                        return serde_json::from_str(&text).map_err(|_| format!("{url}: the answer wasn't JSON"));
+                        return Ok(text);
                     }
                     last = format!("{url}: HTTP {status}");
                     if status != 429 && status < 500 {
@@ -472,76 +501,89 @@ pub struct Found {
     pub total: Option<i64>,
 }
 
-/// Every printing a Shopify store lists for each card.
+/// Every printing a Shopify store lists for each card: `suggest.json`, and when that's full (it
+/// stops at 10 products) the storefront's search pages, then each product's variants. A card any of
+/// whose reads failed, or with more printings than Yama reads, is unknown: a printing not read may
+/// be the cheapest in stock.
 async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut Raw) -> Found {
     let mut out = Found::default();
     for card in cards {
         let front = card.split(" // ").next().unwrap_or(card).trim();
-        let mut handles: Vec<(String, String)> = Vec::new();
-        let mut ok = false;
-        let mut missed = false;
-        let mut saturated = false;
-        let mut queries = vec![format!("\"{front}\"")];
-        let mut i = 0;
-        while i < queries.len() {
-            let mut u = url::Url::parse(&format!("{base}/search/suggest.json")).expect("base");
-            u.query_pairs_mut().append_pair("q", &queries[i]).append_pair("resources[type]", "product").append_pair("resources[limit]", "10");
-            match f.send(Kind::Shopify, "GET", u.as_str(), None, raw).await {
-                Ok(body) => {
-                    let Some((n, found)) = shopify_suggest(&body, card) else {
-                        out.errors.push(format!("{}: an answer without a product list", u.as_str()));
-                        missed = true;
-                        i += 1;
-                        continue;
-                    };
-                    ok = true;
-                    for h in found {
-                        if !handles.iter().any(|x| x.0 == h.0) {
-                            handles.push(h);
+        let mut u = url::Url::parse(&format!("{base}/search/suggest.json")).expect("base");
+        u.query_pairs_mut().append_pair("q", &format!("\"{front}\"")).append_pair("resources[type]", "product").append_pair("resources[limit]", "10");
+        let (n, mut handles): (usize, Vec<String>) = match f.send(Kind::Shopify, "GET", u.as_str(), None, raw).await {
+            Ok(body) => match shopify_suggest(&body, card) {
+                Some((n, found)) => (n, found.into_iter().map(|h| h.0).collect()),
+                None => {
+                    out.errors.push(format!("{}: an answer without a product list", u.as_str()));
+                    out.failed.push(card.clone());
+                    continue;
+                }
+            },
+            Err(e) => {
+                out.errors.push(e);
+                out.failed.push(card.clone());
+                continue;
+            }
+        };
+        let mut incomplete = false;
+        if n >= 10 {
+            // Suggest is full: read the storefront's search pages until one adds nothing.
+            let mut done = false;
+            for page in 1..=SHOP_PAGES {
+                let mut p = url::Url::parse(&format!("{base}/search")).expect("base");
+                p.query_pairs_mut().append_pair("q", &format!("\"{front}\"")).append_pair("type", "product").append_pair("page", &page.to_string());
+                match f.page(Kind::Shopify, p.as_str(), raw).await {
+                    Ok(html) => {
+                        let new: Vec<String> = search_page_handles(&html, card).into_iter().filter(|h| !handles.contains(h)).collect();
+                        if new.is_empty() {
+                            done = true;
+                            break;
                         }
+                        handles.extend(new);
                     }
-                    // Suggest stops at 10 products; ask again for those in stock only. If that's
-                    // full too, some in-stock printings may be missing.
-                    if i == 0 && n >= 10 {
-                        queries.push(format!("title:\"{front}\" available:true"));
-                    } else if n >= 10 {
-                        saturated = true;
+                    Err(e) => {
+                        out.errors.push(e);
+                        break;
                     }
                 }
-                Err(e) => {
-                    out.errors.push(e);
-                    missed = true;
+            }
+            incomplete = !done;
+        }
+        if handles.len() > SHOP_PRODUCTS {
+            incomplete = true;
+        }
+        let mut found = Vec::new();
+        if !incomplete {
+            for handle in &handles {
+                match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
+                    // A title, and every variant's availability and price (a sum of money), or the product is unreadable.
+                    Ok(body)
+                        if body["title"].is_string()
+                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && x["price"].as_f64().is_some_and(|p| p.is_finite() && p >= 0.0))) =>
+                    {
+                        found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
+                    }
+                    Ok(_) => {
+                        out.errors.push(format!("{base}/products/{handle}.js: an answer without readable variants"));
+                        incomplete = true;
+                        break;
+                    }
+                    Err(e) => {
+                        out.errors.push(e);
+                        incomplete = true;
+                        break;
+                    }
                 }
             }
-            i += 1;
         }
-        if !ok {
-            out.failed.push(card.clone());
-            continue;
-        }
-        // A search or printing that couldn't be read may be the one in stock: the card is unknown
-        // unless a copy was found anyway.
-        let mut product_failed = missed;
-        for (handle, _) in &handles {
-            match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
-                // Every variant must say whether it's available and its price, or the product is unreadable.
-                Ok(body) if body["title"].is_string() && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && x["price"].is_number())) => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
-                Ok(_) => {
-                    out.errors.push(format!("{base}/products/{handle}.js: an answer without readable variants"));
-                    product_failed = true;
-                }
-                Err(e) => {
-                    out.errors.push(e);
-                    product_failed = true;
-                }
+        if incomplete {
+            if handles.len() > SHOP_PRODUCTS {
+                out.errors.push(format!("{card}: more than {SHOP_PRODUCTS} printings listed; Yama didn't read them all"));
             }
-        }
-        let found_any = out.listings.iter().any(|l| l.card == *card);
-        if (product_failed || saturated) && !found_any {
             out.failed.push(card.clone());
-        } else if saturated {
-            // The copies found are real; a cheaper printing may be among those not shown.
-            out.errors.push(format!("{card}: more than 10 printings in stock; Yama read the first 10"));
+        } else {
+            out.listings.extend(found);
         }
     }
     out
