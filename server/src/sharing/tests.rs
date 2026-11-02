@@ -724,7 +724,9 @@ async fn shared_notes_price_the_cards_to_get() {
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("3 cards to get across 1 deck<") && body.contains("About $0.80 to get") && body.contains("<td class=\"dim\">Party Time</td>"), "{body}");
     assert!(body.contains("id=\"lists-head\">Deck lists</h2>") && body.contains("// Party Time: Bracket 3 · Upgraded\nCommander\n"), "{body}");
-    assert_eq!(page(&app, &format!("/r/{token}?get=print")).await.0, StatusCode::OK);
+    let printed = page(&app, &format!("/r/{token}?get=print")).await.2;
+    assert!(printed.contains(&format!("<a href=\"/r/{token}/party?get=print\">Party Time</a>")), "deck rows keep the choice");
+    assert!(page(&app, &format!("/r/{token}?build=b3&get=print")).await.2.contains(&format!("<a href=\"/r/{token}/party?build=b3&amp;get=print\">Party Time</a>")));
     assert_eq!(page(&app, &format!("/r/{token}?get=steal")).await.0, StatusCode::NOT_FOUND);
     assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
     // One build across the decks; one no deck has is not found.

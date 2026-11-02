@@ -919,9 +919,13 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
             Some(l) => e(l),
             None => "<span class=\"dim\">No such build</span>".into(),
         };
+        // The deck's page at this build, keeping how the cards are got.
         let link = match which {
-            Which::Build(id) if label.is_some() => deck_href(token, text(d, "key"), Some(id)),
-            _ => deck_href(token, text(d, "key"), None),
+            Which::Build(id) if label.is_some() => compare_href(token, text(d, "key"), id, None, how),
+            _ => match how.param() {
+                Some(g) => format!("{}?get={g}", deck_href(token, text(d, "key"), None)),
+                None => deck_href(token, text(d, "key"), None),
+            },
         };
         write!(s, "<tr><td><a href=\"{link}\">{}</a></td><td>{build}</td>{}</tr>", e(text(d, "name")), row(&t)).unwrap();
     }
