@@ -658,13 +658,25 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
     }
 
     let needed: Vec<&Want> = wants.iter().filter(|w| w.needed).collect();
-    // A "maybe" store is only for needed cards no other store they'll go to has under the rule
-    // (`trip.ts` `usable`).
-    let elsewhere_too: HashSet<String> = needed
-        .iter()
-        .filter(|w| offers_of[&w.id].iter().any(|o| o.verdict == Verdict::Ok && eligible(o.store) && o.preference != "maybe"))
-        .map(|w| w.id.clone())
-        .collect();
+    // A "maybe" store is only for needed cards no other store they'll go to has under the rule; when
+    // the other stores' listings have fewer copies than wanted, the copies past those may come from a
+    // maybe (`trip.ts` `usable`).
+    let mut same_card: Vec<(String, Vec<&Want>)> = Vec::new();
+    for w in &needed {
+        let k = norm(&w.card);
+        match same_card.iter_mut().find(|(c, _)| *c == k) {
+            Some((_, ws)) => ws.push(w),
+            None => same_card.push((k, vec![w])),
+        }
+    }
+    let mut elsewhere_too: HashSet<String> = HashSet::new();
+    for (_, ws) in &same_card {
+        let regular: Vec<&Offer> = offers_of[&ws[0].id].iter().filter(|o| o.verdict == Verdict::Ok && eligible(o.store) && o.preference != "maybe").collect();
+        let copies = if regular.iter().any(|o| o.quote["qty"].as_i64().is_none()) { usize::MAX } else { regular.iter().map(|o| o.quote["qty"].as_i64().unwrap_or(0).max(0) as usize).sum() };
+        for w in ws.iter().take(copies) {
+            elsewhere_too.insert(w.id.clone());
+        }
+    }
     let usable = |w: &Want, o: &Offer| o.verdict == Verdict::Ok && !(o.preference == "maybe" && elsewhere_too.contains(&w.id));
     // A listing that says how many copies it has (`qty`) covers at most that many wants (`trip.ts`
     // `take`); listings are told apart by address.
@@ -1214,7 +1226,8 @@ pub fn list_text(b: &Value, today: &str) -> String {
             );
         }
     }
-    let wish = wants.iter().filter(|w| w.source == "wishlist").count();
+    // Every wishlist entry, also those the plan buys or that are on their list now.
+    let wish = arr(b, "wishlist").iter().filter_map(|w| s(w, "card")).map(norm).collect::<HashSet<_>>().len();
     if wish > 0 {
         let _ = writeln!(out, "\nReal-card wishlist: {wish} cards (by price tier in shopping_trip).");
     }

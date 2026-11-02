@@ -409,10 +409,16 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   const eligible = (s: Store) => skipWhy(s) == null;
   const needed = wants.filter((w) => w.needed);
   // A "maybe" store is only for needed cards no other store you'll go to has under your rule: for
-  // the rest it neither decides the stores nor takes the card.
-  const elsewhereToo = new Set(
-    needed.filter((w) => (offersOf.get(w.id) ?? []).some((o) => o.verdict === "ok" && eligible(o.store) && o.preference !== "maybe")).map((w) => w.id),
-  );
+  // the rest it neither decides the stores nor takes the card. Copies count: when the other stores'
+  // listings say they have fewer copies than you want, the copies past those may come from a maybe.
+  const elsewhereToo = new Set<string>();
+  const sameCard = new Map<string, Want[]>();
+  for (const w of needed) sameCard.set(norm(w.card), [...(sameCard.get(norm(w.card)) ?? []), w]);
+  for (const ws of sameCard.values()) {
+    const regular = (offersOf.get(ws[0]!.id) ?? []).filter((o) => o.verdict === "ok" && eligible(o.store) && o.preference !== "maybe");
+    const copies = regular.some((o) => o.quote.qty == null) ? Infinity : regular.reduce((n, o) => n + (o.quote.qty ?? 0), 0);
+    for (const w of ws.slice(0, Math.min(ws.length, copies))) elsewhereToo.add(w.id);
+  }
   const usable = (w: Want, o: TripOffer) => o.verdict === "ok" && !(o.preference === "maybe" && elsewhereToo.has(w.id));
   const okAt = (w: Want, keys: Set<string>) => (offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && keys.has(o.store.key));
   // A listing that says how many copies it has (`qty`) covers at most that many wants; one that
