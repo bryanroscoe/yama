@@ -226,11 +226,12 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     snapshot(&pool, &owner, "s-pats", "pats", "shopify", Some(&refs)).await;
     snapshot(&pool, &owner, "s-bc", "black-castle", "tcgplayer_pro", None).await;
     snapshot(&pool, &owner, "s-mv", "multiverse-hobbies", "yestcg", Some(&refs)).await;
+    snapshot(&pool, &owner, "s-mv2", "multiverse-too", "yestcg", Some(&refs)).await;
     let t = |id: &str, store: &str, kind: Kind, host: Option<&str>| Target { snapshot: id.into(), store: store.into(), kind, base: base.clone(), host: host.map(String::from) };
     let job = Job {
         owner: owner.clone(),
         cards: cards.clone(),
-        targets: vec![t("s-pats", "pats", Kind::Shopify, None), t("s-bc", "black-castle", Kind::Pro, None), t("s-mv", "multiverse-hobbies", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com"))],
+        targets: vec![t("s-pats", "pats", Kind::Shopify, None), t("s-bc", "black-castle", Kind::Pro, None), t("s-mv", "multiverse-hobbies", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com")), t("s-mv2", "multiverse-too", Kind::YesTcg, Some("mversetcg.tcgplayerpro.com"))],
     };
     run(pool.clone(), crate::routes::http_client(), job, None).await;
 
@@ -276,6 +277,10 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     assert_eq!(at("black-castle", "Fellwar Stone")[0]["result"], "Not in the store's catalog");
     // Multiverse through YesTCG, with quantities.
     assert!(at("multiverse-hobbies", "Sol Ring").iter().any(|q| q["result"].as_str().unwrap().contains("3 in stock")));
+    // A second store with the same homepage gets the same answer.
+    assert!(at("multiverse-too", "Sol Ring").iter().any(|q| q["result"].as_str().unwrap().contains("3 in stock")));
+    assert_eq!(at("multiverse-too", "Sol Ring").len(), at("multiverse-hobbies", "Sol Ring").len(), "and not twice over");
+    assert_eq!(by("s-mv")["listings"], 2);
 
     // A newer snapshot of the same store supersedes the older one for the cards it covers only.
     snapshot(&pool, &owner, "s-pats2", "pats", "shopify", Some(&["Sol Ring"])).await;

@@ -493,7 +493,7 @@ impl Fetcher {
 }
 
 /// What a connector found: listings, the cards whose answer is unknown, and errors.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Found {
     pub listings: Vec<Listing>,
     pub failed: Vec<String>,
@@ -815,11 +815,14 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
         tasks.spawn(async move {
             let mut f = Fetcher::new(http, pause);
             let mut raw = Raw::default();
-            let hosts: Vec<String> = yes.iter().filter_map(|t| t.host.clone()).collect();
-            let mut found = fetch_yestcg(&mut f, &first.base, &cards, &hosts, &mut raw).await;
+            let mut hosts: Vec<String> = yes.iter().filter_map(|t| t.host.clone()).collect();
+            hosts.sort();
+            hosts.dedup();
+            let found = fetch_yestcg(&mut f, &first.base, &cards, &hosts, &mut raw).await;
             let gz = raw.gz();
             for t in &yes {
-                let one = t.host.as_ref().and_then(|h| found.remove(h)).unwrap_or_default();
+                // Two stores with one homepage share YesTCG's answer for it.
+                let one = t.host.as_ref().and_then(|h| found.get(h).cloned()).unwrap_or_default();
                 // One YesTCG answer covers every store: the raw record goes with the first.
                 let r = if t.snapshot == first.snapshot { gz.clone() } else { None };
                 if let Err(e) = finish(&pool, &owner, &t.snapshot, &one, Some(cards.len()), r).await {
