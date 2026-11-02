@@ -149,7 +149,9 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
             tracing::info!("open sign-up: anyone with a verified Google account can make an account");
         }
     }
-    // The public rankings and the Lab's precon list, built before anyone asks (derived.rs).
+    // The public rankings and the Lab's precon list, built before the server listens so no
+    // request waits for one (derived.rs), then kept up to date.
+    crate::derived::prewarm(&pool).await;
     crate::derived::spawn_prewarmer(pool.clone());
     // Table statistics for SQLite's planner now, then daily (db.rs).
     let stats = pool.clone();

@@ -4,9 +4,10 @@
 //! Each kept value has a key: a cheap fingerprint of everything its build reads, plus the UTC day
 //! for builds that read today's date. A request whose key no longer matches gets the kept value at
 //! once while one rebuild runs in the background, so nobody waits for a rebuild (`/precons` took
-//! 7 s on saget when its cache ran out). Only a build with nothing kept yet is waited for, and the
-//! prewarmer ([`spawn_prewarmer`]) does that at startup, every minute after (which also catches
-//! imports and publications from the command line) and right after an import here ([`nudge`]).
+//! 7 s on saget when its cache ran out). Only a build with nothing kept yet is waited for: the
+//! server builds them all ([`prewarm`]) before it listens, then the prewarmer ([`spawn_prewarmer`])
+//! looks every minute (which also catches imports and publications from the command line) and
+//! right after an import here ([`nudge`]).
 //!
 //! Tests build every time: their in-memory databases share one name, so a key can't tell them apart.
 
@@ -60,12 +61,13 @@ impl<T: Send + Sync + 'static> Kept<T> {
         match self.kept() {
             Some((k, v)) if k == key => Ok(v),
             Some((_, v)) => {
-                // A rebuild already running is followed by the next request if it was for an
-                // older key.
-                if self.building.try_lock().is_ok() {
+                // The background rebuild holds the lock from here, so a burst of requests starts
+                // one. A rebuild already running is followed by the next request if it was for
+                // an older key.
+                if let Ok(one) = self.building.try_lock() {
                     let pool = pool.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = self.rebuild(pool, key, build).await {
+                        if let Err(e) = self.build_locked(one, pool, key, build).await {
                             tracing::warn!(page = self.name, error = %e, "rebuilding a kept page failed; the old one is still served");
                         }
                     });
@@ -93,7 +95,16 @@ impl<T: Send + Sync + 'static> Kept<T> {
         F: FnOnce(SqlitePool) -> Fut,
         Fut: Future<Output = AppResult<T>>,
     {
-        let _one = self.building.lock().await;
+        let one = self.building.lock().await;
+        self.build_locked(one, pool, key, build).await
+    }
+
+    /// Build while holding the one-build lock (`_one`).
+    async fn build_locked<F, Fut>(&'static self, _one: tokio::sync::MutexGuard<'static, ()>, pool: SqlitePool, key: String, build: F) -> AppResult<Arc<T>>
+    where
+        F: FnOnce(SqlitePool) -> Fut,
+        Fut: Future<Output = AppResult<T>>,
+    {
         if let Some((k, v)) = self.kept()
             && k == key
         {
@@ -120,20 +131,22 @@ pub fn nudge() {
     NUDGE.notify_one();
 }
 
-/// Build every kept page now, then look at their keys every minute and on [`nudge`].
+/// Look at every kept page's key every minute and on [`nudge`], building those that changed. The
+/// server awaits [`prewarm`] once before it listens, so no request after a start waits for a build.
 pub fn spawn_prewarmer(pool: SqlitePool) {
     tokio::spawn(async move {
         loop {
-            prewarm(&pool).await;
             tokio::select! {
                 _ = tokio::time::sleep(PREWARM_EVERY) => {}
                 _ = NUDGE.notified() => {}
             }
+            prewarm(&pool).await;
         }
     });
 }
 
-async fn prewarm(pool: &SqlitePool) {
+/// Build every kept page whose key changed (all of them at startup).
+pub async fn prewarm(pool: &SqlitePool) {
     let results = [
         ("public precons", crate::public_precons::prewarm(pool).await),
         ("public commanders", crate::public_commanders::prewarm(pool).await),
@@ -173,9 +186,11 @@ mod tests {
         // don't start another.
         let v = PAGE.serve(&pool, "k2".into(), |p| build(p, "two", Duration::from_millis(200))).await.unwrap();
         assert_eq!(*v, "one");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        let v = PAGE.serve(&pool, "k2".into(), |p| build(p, "again", Duration::ZERO)).await.unwrap();
-        assert_eq!(*v, "one");
+        // A burst before the first rebuild has even started: still one rebuild.
+        for _ in 0..5 {
+            let v = PAGE.serve(&pool, "k2".into(), |p| build(p, "again", Duration::ZERO)).await.unwrap();
+            assert_eq!(*v, "one");
+        }
         tokio::time::sleep(Duration::from_millis(400)).await;
         let v = PAGE.serve(&pool, "k2".into(), |p| build(p, "never", Duration::ZERO)).await.unwrap();
         assert_eq!(*v, "two");
