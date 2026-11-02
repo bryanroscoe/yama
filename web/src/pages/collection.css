@@ -387,8 +387,15 @@
 }
 
 /* Sell list (SellSheet): the current view, narrowed and ticked, in a store's buylist format. */
+/* The three formats share the row on a phone; the track sits on the ground, not the sheet's surface. */
 .sell-sheet .sell-formats {
-  flex-wrap: wrap;
+  display: flex;
+  background: var(--ground);
+}
+.sell-sheet .sell-formats > button {
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 0 0.6rem;
 }
 .sell-filters {
   display: flex;
@@ -412,6 +419,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  font-weight: 400;
+}
+/* Fields are full width by default; a tick box keeps its own size. */
+.sell-check input,
+.sell-row input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
 }
 .sell-total {
   margin: 0;

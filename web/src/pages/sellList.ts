@@ -43,21 +43,21 @@ export interface SellFormatInfo {
 
 export const SELL_FORMATS: Record<SellFormat, SellFormatInfo> = {
   sortswift: {
-    label: "SortSwift CSV",
-    how: "For buylists that say Powered by SortSwift. Upload the file from the buylist's CSV upload; it matches each card by its Scryfall ID and keeps its condition, finish and language.",
+    label: "SortSwift",
+    how: "For buylists that say Powered by SortSwift. Upload the file from the buylist's CSV upload; it matches each card by its Scryfall ID and keeps its condition, finish and language. The platform's name is at the foot of the store's buylist page.",
     file: "yama-sell-sortswift.csv",
     mime: "text/csv",
     paste: false,
   },
   storepass: {
-    label: "Storepass list",
-    how: "For buylists that say Powered by Storepass. Paste it into Bulk Submission, then pick each card's printing and condition on the store's page: the list carries only names.",
+    label: "Storepass",
+    how: "For buylists that say Powered by Storepass. Paste it into Bulk Submission, then pick each card's printing and condition on the store's page: the list carries only names. The platform's name is at the foot of the store's buylist page.",
     file: "yama-sell-list.txt",
     mime: "text/plain",
     paste: true,
   },
   cardkingdom: {
-    label: "Card Kingdom CSV",
+    label: "Card Kingdom",
     how: "For Card Kingdom's sell list import. It takes English cards by name, set name and foil, up to 500 lines and 5,000 cards; condition is graded when they arrive.",
     file: "yama-sell-cardkingdom.csv",
     mime: "text/csv",

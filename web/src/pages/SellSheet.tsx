@@ -88,7 +88,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             <button key={f} aria-pressed={format === f} onClick={() => setFormat(f)}>{SELL_FORMATS[f].label}</button>
           ))}
         </div>
-        <p className="small">{info.how} Look for the platform's name at the foot of the store's buylist page.</p>
+        <p className="small">{info.how}</p>
 
         <div className="sell-filters">
           <label className="sell-min">
