@@ -158,7 +158,7 @@ fn figure(f: Option<&Figure>, alone: bool) -> String {
 /// How much the score rests on: the games behind it and which sources they come from.
 fn evidence_cell(c: &Commander, sources: &[Source]) -> String {
     let from = if c.sources.len() > 1 && c.sources.len() == sources.len() {
-        "Both sources".to_string()
+        if sources.len() == 2 { "Both sources".to_string() } else { format!("All {} sources", sources.len()) }
     } else {
         format!("{} only", c.sources.iter().map(|f| e(&f.source)).collect::<Vec<_>>().join(" and "))
     };
@@ -273,7 +273,13 @@ pub(super) async fn index(
         count(games as i64)
     );
     let ranked = filters.min_games();
-    if let Some(top) = r.commanders.iter().find(|c| c.games >= ranked.max(DEFAULT_MIN_GAMES)) {
+    // The best-ranked commander the filters leave, with enough games to lead.
+    let top = rows
+        .iter()
+        .filter(|(_, c)| c.games >= ranked.max(DEFAULT_MIN_GAMES))
+        .min_by_key(|(rank, _)| *rank)
+        .map(|(_, c)| *c);
+    if let Some(top) = top {
         body.push_str("<div class=\"featured\">");
         if let Some(a) = &top.art {
             write!(body, "<img src=\"{}\" alt=\"\" fetchpriority=\"high\"><span class=\"art-wash\"></span>", e(&a.url)).unwrap();
@@ -288,8 +294,10 @@ pub(super) async fn index(
             top.art.as_ref().map(|a| format!("Art by {}, © Wizards of the Coast.", e(a.artist.as_deref().unwrap_or("")))).unwrap_or_default()
         )
         .unwrap();
-    } else {
+    } else if r.sources.is_empty() {
         body.push_str("<div class=\"hero-note\"><h2>No real-game sources yet.</h2><p>Commander scores appear here once a real-game source is enabled.</p></div>");
+    } else {
+        write!(body, "<div class=\"hero-note\"><h2>Nothing to feature here.</h2><p>No commander these filters list has {} games yet.</p></div>", DEFAULT_MIN_GAMES).unwrap();
     }
     body.push_str("</section><div class=\"source-strip\">");
     // Each source shows what it covers and lists just those commanders.
