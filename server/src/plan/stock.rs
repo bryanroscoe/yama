@@ -172,6 +172,42 @@ fn set_and_number(title: &str) -> (Option<String>, Option<String>) {
 
 const LANGUAGES: [&str; 12] = ["english", "japanese", "german", "french", "italian", "spanish", "portuguese", "korean", "chinese", "russian", "phyrexian", "foreign"];
 
+/// A language a store's title names in brackets or parentheses ("Sol Ring (Japanese)", "[JP]").
+fn title_language(title: &str) -> Option<String> {
+    let lower = title.to_lowercase();
+    let mut parts = Vec::new();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        let mut rest = lower.as_str();
+        while let Some(i) = rest.find(open) {
+            let after = &rest[i + 1..];
+            let Some(j) = after.find(close) else { break };
+            parts.push(after[..j].to_string());
+            rest = &after[j + 1..];
+        }
+    }
+    for part in parts {
+        for word in part.split(|c: char| !c.is_ascii_alphabetic()).filter(|w| !w.is_empty()) {
+            let lang = match word {
+                "jp" | "jpn" | "ja" => Some("japanese"),
+                "de" | "ger" => Some("german"),
+                "fr" | "fre" => Some("french"),
+                "it" | "ita" => Some("italian"),
+                "es" | "sp" | "spa" => Some("spanish"),
+                "pt" | "por" => Some("portuguese"),
+                "ko" | "kor" => Some("korean"),
+                "zh" | "cs" | "ct" | "chs" | "cht" => Some("chinese"),
+                "ru" | "rus" => Some("russian"),
+                w => LANGUAGES.iter().find(|l| **l == w && **l != "english").copied(),
+            };
+            if let Some(l) = lang {
+                let mut c = l.chars();
+                return Some(c.next().map(|f| f.to_ascii_uppercase().to_string() + c.as_str()).unwrap_or_default());
+            }
+        }
+    }
+    None
+}
+
 /// Condition, language and finish from a variant's options ("Near Mint / English / Foil").
 fn variant_parts(text: &str) -> (Option<String>, Option<String>, &'static str) {
     let lower = text.to_lowercase();
@@ -250,6 +286,7 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
         .map(|v| {
             let vt = v["title"].as_str().or_else(|| v["public_title"].as_str()).unwrap_or_default();
             let (condition, language, mut finish) = variant_parts(vt);
+            let language = language.or_else(|| title_language(title));
             if finish == "nonfoil" && style_foil {
                 finish = if lower.contains("etched") { "etched" } else { "foil" };
             }
@@ -308,6 +345,7 @@ pub fn pro_catalog(body: &Value, base: &str) -> Option<(i64, Vec<Listing>)> {
                 card: card.to_string(),
                 title: Some(name.to_string()),
                 set_name: p["setName"].as_str().map(String::from),
+                language: title_language(name),
                 finish,
                 price: p["lowestPrice"].as_f64().filter(|x| x.is_finite() && *x >= 0.0),
                 available: Some(true),
@@ -345,6 +383,7 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
             }
             let cond = h["condition"].as_str().unwrap_or_default();
             let (condition, language, mut finish) = variant_parts(cond);
+            let language = language.or_else(|| title_language(name));
             if finish == "nonfoil" && name.to_lowercase().contains("foil") {
                 finish = "foil";
             }

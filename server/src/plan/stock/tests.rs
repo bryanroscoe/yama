@@ -57,10 +57,11 @@ fn product(handle: &str) -> Option<Value> {
 }
 
 fn catalog() -> Value {
-    json!({"filters": [], "products": {"totalItems": 3, "items": [
+    json!({"filters": [], "products": {"totalItems": 4, "items": [
         {"id": 1, "name": "Sol Ring", "lowestPrice": 1.25, "setName": "Commander Masters", "setUrlName": "commander-masters", "productUrlName": "sol-ring", "productLineName": "Magic: The Gathering"},
         {"id": 2, "name": "Exotic Orchard (Borderless)", "lowestPrice": 0.5, "setName": "Foundations", "setUrlName": "foundations", "productUrlName": "exotic-orchard-borderless", "productLineName": "Magic: The Gathering"},
         {"id": 3, "name": "Shared Roots", "lowestPrice": null, "setName": "Mystical Archive", "productLineName": "Magic: The Gathering"},
+        {"id": 4, "name": "Fellwar Stone (Japanese)", "lowestPrice": 0.1, "setName": "Promos", "productLineName": "Magic: The Gathering"},
     ]}})
 }
 
@@ -151,6 +152,10 @@ fn titles_and_variants_parse() {
     assert_eq!(variant_parts("Lightly Played / Japanese / Normal"), (Some("Lightly Played".into()), Some("Japanese".into()), "nonfoil"));
     assert_eq!(variant_parts("Normal / Near Mint"), (Some("Near Mint".into()), None, "nonfoil"));
     assert_eq!(variant_parts("Foil / Near Mint"), (Some("Near Mint".into()), None, "foil"));
+    assert_eq!(title_language("Sol Ring (Japanese)").as_deref(), Some("Japanese"));
+    assert_eq!(title_language("Sol Ring [C21 - 263] (JP)").as_deref(), Some("Japanese"));
+    assert_eq!(title_language("Sol Ring [C21 - 263]"), None, "a set code isn't a language");
+    assert_eq!(title_language("Sol Ring (Borderless)"), None);
     assert_eq!(card_key("Brazen Borrower // Petty Theft"), "brazen borrower");
     assert_eq!(card_key("  Urza’s  Saga "), "urza's saga");
 
@@ -174,7 +179,8 @@ fn titles_and_variants_parse() {
     let (total, l) = pro_catalog(&catalog(), "https://bc.tcgplayerpro.com").unwrap();
     assert!(pro_catalog(&json!({"products": {}}), "https://bc.tcgplayerpro.com").is_none(), "an unreadable answer isn't an empty catalog");
     assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"id": 1, "lowestPrice": 1.0}]}}), "https://bc.tcgplayerpro.com").is_none(), "a product without a name");
-    assert_eq!((total, l.len()), (3, 3));
+    assert_eq!((total, l.len()), (4, 4));
+    assert_eq!(l[3].language.as_deref(), Some("Japanese"));
     assert_eq!((l[1].card.as_str(), l[1].price, l[1].from_price), ("Exotic Orchard", Some(0.5), true));
     assert_eq!(l[0].url.as_deref(), Some("https://bc.tcgplayerpro.com/catalog/magic/commander-masters/sol-ring/1"));
     assert_eq!(l[2].price, None, "a missing price stays missing");
@@ -246,7 +252,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     assert_eq!(by("s-pats")["listings"], 5, "three available Sol Ring variants, the etched one, and Popular's one in stock");
     assert!(by("s-pats")["raw"] == true);
     assert_eq!(by("s-bc")["status"], "ok");
-    assert_eq!(by("s-bc")["listings"], 3);
+    assert_eq!(by("s-bc")["listings"], 4);
     assert_eq!(by("s-bc")["cards"], Value::Null, "a whole catalog");
     assert_eq!(by("s-mv")["status"], "ok");
     // The raw answers are kept, gzipped, with every request.

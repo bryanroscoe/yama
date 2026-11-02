@@ -98,6 +98,9 @@ pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: 
         return Ok(done);
     }
     let (kind, name, qty, priority, deck_id, deck_name, why) = check(pool, owner, w).await?;
+    // The caps are checked and the row written under one lock, so requests at once can't pass both.
+    static ADD: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _one = ADD.get_or_init(Default::default).lock().await;
     let (open, copies): (i64, i64) = sqlx::query_as("SELECT COUNT(*), IFNULL(SUM(qty), 0) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL")
         .bind(owner)
         .fetch_one(pool)
