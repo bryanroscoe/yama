@@ -175,10 +175,6 @@ pub async fn add_route(State(st): State<AppState>, CurrentUser(user): CurrentUse
 pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Value>> {
     let mut tx = st.pool.begin().await?;
     let gone = sqlx::query("DELETE FROM shopping_wants WHERE id = ? AND owner_id = ? AND source = 'page'").bind(&id).bind(&user.id).execute(&mut *tx).await?;
-    if gone.rows_affected() > 0 {
-        // Its recorded store prices (a sealed product's) go with it.
-        sqlx::query("DELETE FROM sealed_quotes WHERE want_id = ? AND owner_id = ?").bind(&id).bind(&user.id).execute(&mut *tx).await?;
-    }
     let done = if gone.rows_affected() > 0 {
         gone
     } else {
@@ -189,10 +185,12 @@ pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): Current
             .execute(&mut *tx)
             .await?
     };
-    tx.commit().await?;
     if done.rows_affected() == 0 {
         return Err(AppError::NotFound("want"));
     }
+    // Its recorded store prices (a sealed product's) go with it, whichever way it was added.
+    sqlx::query("DELETE FROM sealed_quotes WHERE want_id = ? AND owner_id = ?").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(Json(json!({"removed": id})))
 }
 

@@ -572,8 +572,13 @@ mod tests {
         let (other, other_token) = user(&pool, "other@example.com").await;
         assert_eq!(view(&pool, &other, "2026-11-01", &Scope::default()).await.unwrap()["items"], json!([]));
         assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"checked_on": today(), "id": crate::util::new_id(), "store": "pats", "price": 1}))).await.0.as_u16(), 404);
+        // Taking a product a change from Claude added off the list removes its prices too.
+        sqlx::query("UPDATE shopping_wants SET source = 'assistant' WHERE id = ?").bind(want).execute(&pool).await.unwrap();
         let qid = quotes[0]["id"].as_str().unwrap();
         assert_eq!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&other_token), None).await.0.as_u16(), 404);
         assert!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&token), None).await.0.is_success());
+        assert!(send(&app, Method::DELETE, &format!("/api/plan/wants/{want}"), Some(&token), None).await.0.is_success());
+        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE want_id = ?").bind(want).fetch_one(&pool).await.unwrap();
+        assert_eq!(left, 0);
     }
 }
