@@ -2479,6 +2479,247 @@
      ]
     ]
    }
+  },
+  {
+   "today": "2026-11-01",
+   "with": {
+    "store_quotes": [
+     {
+      "swap": null,
+      "kind": "stock_check",
+      "store_label": null,
+      "price_from_text": false,
+      "currency": "USD",
+      "printing_from_text": false,
+      "scryfall_id": null,
+      "card": "Exotic Orchard",
+      "store": "multiverse-hobbies",
+      "checked": "2026-11-01T18:00:00Z",
+      "result": "Not in the store's catalog",
+      "in_stock": false,
+      "price": null,
+      "printing": null,
+      "set": null,
+      "num": null,
+      "variant": null,
+      "url": null,
+      "source": "the store's TCGplayer Pro catalog (fetched by Yama), read 2026-11-01T18:00:00Z",
+      "origin": "snapshot:s1"
+     },
+     {
+      "swap": null,
+      "kind": "stock_check",
+      "store_label": null,
+      "price_from_text": false,
+      "currency": "USD",
+      "printing_from_text": false,
+      "scryfall_id": null,
+      "card": "Command Tower",
+      "store": "mothership",
+      "checked": "2026-11-01T18:00:00Z",
+      "result": "Command Tower [CMR - 350] - Near Mint / English / Normal (Near Mint, non-foil)",
+      "in_stock": true,
+      "price": 0.25,
+      "printing": "CMR 350",
+      "set": "cmr",
+      "num": "350",
+      "variant": "4242",
+      "url": "https://mothershipatx.com/products/command-tower-cmr-350",
+      "source": "the store's website (fetched by Yama), read 2026-11-01T18:00:00Z",
+      "origin": "snapshot:s2",
+      "qty": 1
+     },
+     {
+      "swap": null,
+      "kind": "stock_check",
+      "store_label": null,
+      "price_from_text": false,
+      "currency": "USD",
+      "printing_from_text": false,
+      "scryfall_id": null,
+      "card": "Command Tower",
+      "store": "mothership",
+      "checked": "2026-11-01T18:00:00Z",
+      "result": "Command Tower [CMR - 350] - Near Mint / English / Foil (Near Mint, foil)",
+      "in_stock": true,
+      "price": 0.2,
+      "printing": "CMR 350",
+      "set": "cmr",
+      "num": "350",
+      "variant": "4243",
+      "url": "https://mothershipatx.com/products/command-tower-cmr-350",
+      "source": "the store's website (fetched by Yama), read 2026-11-01T18:00:00Z",
+      "origin": "snapshot:s2"
+     }
+    ],
+    "shopping_wants": [
+     {
+      "id": "w1",
+      "kind": "card",
+      "name": "Command Tower",
+      "qty": 2,
+      "priority": "need",
+      "deck_id": null,
+      "deck_name": "Kraum & Tymna (cEDH)",
+      "why": null,
+      "source": "page",
+      "added_at": "2026-11-01T18:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "rule_from": "2026-10-28",
+    "derived": false,
+    "stops": [
+     {
+      "store": "black-castle",
+      "rows": [
+       [
+        "Fellwar Stone",
+        0.5
+       ],
+       [
+        "Sol Ring",
+        1.5
+       ]
+      ],
+      "along": [],
+      "total": 2
+     },
+     {
+      "store": "mothership",
+      "rows": [
+       [
+        "Command Tower",
+        0.25
+       ],
+       [
+        "Swords to Plowshares",
+        1
+       ]
+      ],
+      "along": [
+       [
+        "Dark Ritual",
+        0.5
+       ],
+       [
+        "Path to Exile",
+        0.4
+       ]
+      ],
+      "total": 1.25
+     }
+    ],
+    "needed": 13,
+    "covered": 4,
+    "total": 3.25,
+    "alternatives": [
+     [
+      [
+       "black-castle"
+      ],
+      2,
+      2
+     ],
+     [
+      [
+       "black-castle",
+       "mothership"
+      ],
+      4,
+      3.25
+     ]
+    ],
+    "print": [
+     [
+      "Command Tower",
+      "too-few"
+     ],
+     [
+      "Command Tower",
+      "too-few"
+     ],
+     [
+      "Arcane Signet",
+      "over-market"
+     ],
+     [
+      "Exotic Orchard",
+      "not-stocked"
+     ],
+     [
+      "Mana Vault",
+      "over-max"
+     ],
+     [
+      "Mind Stone",
+      "no-price"
+     ],
+     [
+      "Ponder",
+      "no-market"
+     ],
+     [
+      "Strike It Rich",
+      "never-store"
+     ],
+     [
+      "Thought Vessel",
+      "no-check"
+     ]
+    ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=2%20Command%20Tower||1%20Arcane%20Signet||1%20Exotic%20Orchard||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Fellwar%20Stone&productLineName=Magic%3A%20The%20Gathering&sort=price-asc",
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     []
+    ],
+    "elsewhere": [
+     [
+      "multiverse-hobbies",
+      [
+       "Brainstorm"
+      ]
+     ]
+    ],
+    "skipped": [
+     [
+      "alpha-strike",
+      1,
+      "never"
+     ]
+    ],
+    "wishlist": [
+     [
+      "$200 and up",
+      [
+       "Mox Diamond"
+      ]
+     ],
+     [
+      "$50 to $200",
+      [
+       "Mana Vault",
+       "Rhystic Study"
+      ]
+     ],
+     [
+      "Under $2",
+      [
+       "Dark Ritual"
+      ]
+     ],
+     [
+      "No market price",
+      [
+       "Unknown Card"
+      ]
+     ]
+    ]
+   }
   }
  ]
 }

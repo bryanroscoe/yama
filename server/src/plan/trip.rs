@@ -666,8 +666,18 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
         .map(|w| w.id.clone())
         .collect();
     let usable = |w: &Want, o: &Offer| o.verdict == Verdict::Ok && !(o.preference == "maybe" && elsewhere_too.contains(&w.id));
-    let ok_at = |w: &Want, keys: &HashSet<String>| -> Option<Offer<'a>> {
-        offers_of[&w.id].iter().find(|o| usable(w, o) && keys.contains(o.key())).cloned()
+    // A listing that says how many copies it has (`qty`) covers at most that many wants (`trip.ts`
+    // `take`); listings are told apart by address.
+    let take = |w: &Want, keys: &HashSet<String>, used: &mut HashMap<usize, i64>| -> Option<Offer<'a>> {
+        let id = |o: &Offer| o.quote as *const Value as usize;
+        let o = offers_of[&w.id]
+            .iter()
+            .find(|o| usable(w, o) && keys.contains(o.key()) && o.quote["qty"].as_i64().is_none_or(|n| used.get(&id(o)).copied().unwrap_or(0) < n))
+            .cloned()?;
+        if o.quote["qty"].as_i64().is_some() {
+            *used.entry(id(&o)).or_default() += 1;
+        }
+        Some(o)
     };
     let mut coverage: HashMap<String, HashSet<&str>> = HashMap::new();
     for w in &needed {
@@ -746,8 +756,9 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
         let keys: Vec<String> = picked.iter().map(|x| key_of(x)).collect();
         let set: HashSet<String> = keys.iter().cloned().collect();
         let (mut covered, mut total) = (0, 0.0);
+        let mut used = HashMap::new();
         for w in &needed {
-            if let Some(o) = ok_at(w, &set) {
+            if let Some(o) = take(w, &set, &mut used) {
                 covered += 1;
                 total += o.price;
             }
@@ -781,9 +792,11 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
     let mut rows_of: HashMap<String, (Vec<Row>, Vec<Row>)> = chosen.iter().map(|k| (k.clone(), (vec![], vec![]))).collect();
     let mut print = Vec::new();
     let mut elsewhere: Vec<(String, Vec<Row>)> = Vec::new();
-    for w in &wants {
+    // Needed cards first, so a listing's last copies go to them.
+    let mut used = HashMap::new();
+    for w in needed.iter().copied().chain(wants.iter().filter(|w| !w.needed)) {
         let offers = &offers_of[&w.id];
-        if let Some(here) = ok_at(w, &chosen) {
+        if let Some(here) = take(w, &chosen, &mut used) {
             let slot = rows_of.get_mut(here.key()).unwrap();
             let row = Row { want: w.clone(), offer: here };
             if w.needed { slot.0.push(row) } else { slot.1.push(row) }
@@ -813,7 +826,18 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
         // A price that fails the rule says so wherever it's listed (`trip.ts`).
         let first = |v: Verdict| offers.iter().find(|o| o.verdict == v).cloned();
         let (checks, unpriced, unknown) = seen_of[&w.id].clone();
-        let row = if let Some(o) = banned.first() {
+        // The stores on the trip have it, but their listings have fewer copies than wanted.
+        let short: Vec<&Offer> = offers.iter().filter(|o| usable(w, o) && chosen.contains(o.key())).collect();
+        let row = if let Some(o) = short.first() {
+            let mut names: Vec<String> = Vec::new();
+            for x in &short {
+                let n = s(x.store, "name").unwrap_or_default().to_string();
+                if !names.contains(&n) {
+                    names.push(n);
+                }
+            }
+            PrintRow { want: w.clone(), reason: "too-few", offer: Some((*o).clone()), stores: names }
+        } else if let Some(o) = banned.first() {
             let mut names: Vec<String> = Vec::new();
             for x in &banned {
                 let n = s(x.store, "name").unwrap_or_default().to_string();
@@ -1003,6 +1027,7 @@ fn row_line(r: &Row) -> String {
 fn print_why(p: &PrintRow) -> String {
     let at = p.offer.as_ref().map(|o| format!("{} at {}", usd(Some(o.price)), store_name(o.store))).unwrap_or_default();
     match p.reason {
+        "too-few" => format!("not enough copies: {} lists fewer than they want ({at})", p.stores.join(", ")),
         "never-store" => format!("only at {}, where they won't go ({at})", p.stores.join(", ")),
         "not-local" => format!("only at {}, which isn't local, and their rule is to buy locally ({at})", p.stores.join(", ")),
         "left-out" => format!("only at {}, which they left off this trip ({at})", p.stores.join(", ")),

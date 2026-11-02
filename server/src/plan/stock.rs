@@ -47,6 +47,8 @@ const RAW_KEEP: i64 = 10;
 const RAW_MAX: usize = 16 << 20;
 /// A snapshot still "running" after this long was cut off (a restart): it's shown as failed.
 const STALE_MINUTES: i64 = 30;
+/// Pages of 5,000 products read from a TCGplayer Pro catalog.
+const PRO_PAGES: usize = 8;
 /// Listings in an imported file.
 pub const IMPORT_MAX_LISTINGS: usize = 20000;
 
@@ -184,9 +186,9 @@ fn variant_parts(text: &str) -> (Option<String>, Option<String>, &'static str) {
 }
 
 /// The products a Shopify `suggest.json` answer lists under the card's exact name: (handle, title).
-pub fn shopify_suggest(body: &Value, card: &str) -> (usize, Vec<(String, String)>) {
-    let empty = vec![];
-    let items = body["resources"]["results"]["products"].as_array().unwrap_or(&empty);
+pub fn shopify_suggest(body: &Value, card: &str) -> Option<(usize, Vec<(String, String)>)> {
+    // An answer without the product list isn't "none found": it's an answer we can't read.
+    let items = body["resources"]["results"]["products"].as_array()?;
     let found = items
         .iter()
         .filter_map(|p| {
@@ -196,7 +198,7 @@ pub fn shopify_suggest(body: &Value, card: &str) -> (usize, Vec<(String, String)
             ok.then(|| (handle.to_string(), title.to_string()))
         })
         .collect();
-    (items.len(), found)
+    Some((items.len(), found))
 }
 
 /// Every variant of a Shopify product (`/products/<handle>.js`) as listings for the card.
@@ -241,10 +243,10 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
 }
 
 /// A TCGplayer Pro catalog answer: (total products, listings, one per product at its lowest price).
-pub fn pro_catalog(body: &Value, base: &str) -> (i64, Vec<Listing>) {
-    let total = body["products"]["totalItems"].as_i64().unwrap_or(0);
-    let empty = vec![];
-    let items = body["products"]["items"].as_array().unwrap_or(&empty);
+pub fn pro_catalog(body: &Value, base: &str) -> Option<(i64, Vec<Listing>)> {
+    // An answer without the catalog's fields isn't an empty catalog: it's one we can't read.
+    let total = body["products"]["totalItems"].as_i64()?;
+    let items = body["products"]["items"].as_array()?;
     let out = items
         .iter()
         .filter(|p| p["productLineName"].as_str().is_none_or(|l| l == "Magic: The Gathering"))
@@ -279,7 +281,7 @@ pub fn pro_catalog(body: &Value, base: &str) -> (i64, Vec<Listing>) {
             })
         })
         .collect();
-    (total, out)
+    Some((total, out))
 }
 
 /// One store's part of a YesTCG answer: `None` when YesTCG says that store failed (unknown stock).
@@ -461,8 +463,12 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
             u.query_pairs_mut().append_pair("q", &queries[i]).append_pair("resources[type]", "product").append_pair("resources[limit]", "10");
             match f.send(Kind::Shopify, "GET", u.as_str(), None, raw).await {
                 Ok(body) => {
+                    let Some((n, found)) = shopify_suggest(&body, card) else {
+                        out.errors.push(format!("{}: an answer without a product list", u.as_str()));
+                        i += 1;
+                        continue;
+                    };
                     ok = true;
-                    let (n, found) = shopify_suggest(&body, card);
                     for h in found {
                         if !handles.iter().any(|x| x.0 == h.0) {
                             handles.push(h);
@@ -484,7 +490,11 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
         let mut product_failed = false;
         for (handle, _) in &handles {
             match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
-                Ok(body) => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
+                Ok(body) if body["variants"].is_array() => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
+                Ok(_) => {
+                    out.errors.push(format!("{base}/products/{handle}.js: an answer without variants"));
+                    product_failed = true;
+                }
                 Err(e) => {
                     out.errors.push(e);
                     product_failed = true;
@@ -503,11 +513,14 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
 async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
     let mut out = Found::default();
     let mut from = 0i64;
-    for _ in 0..8 {
+    for _ in 0..PRO_PAGES {
         let body = json!({"query": "", "context": {"productLineName": "Magic: The Gathering"}, "filters": {}, "from": from, "size": 5000});
         match f.send(Kind::Pro, "POST", &format!("{base}/api/catalog/search"), Some(&body), raw).await {
             Ok(answer) => {
-                let (total, listings) = pro_catalog(&answer, base);
+                let Some((total, listings)) = pro_catalog(&answer, base) else {
+                    out.errors.push(format!("{base}/api/catalog/search: an answer without the catalog"));
+                    break;
+                };
                 let n = answer["products"]["items"].as_array().map_or(0, Vec::len) as i64;
                 out.total = Some(total);
                 out.listings.extend(listings);
@@ -521,6 +534,10 @@ async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
                 break;
             }
         }
+    }
+    // Stopped before the end (the page cap): the rest of the catalog is unknown, not absent.
+    if out.errors.is_empty() && out.total.is_some_and(|t| from < t) {
+        out.errors.push(format!("read {from} of {} products (at most {PRO_PAGES} pages)", out.total.unwrap_or(0)));
     }
     out
 }
@@ -1210,6 +1227,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             q["num"] = json!(r.number.as_ref().filter(|_| r.set_code.is_some()));
             q["variant"] = json!(r.variant);
             q["url"] = json!(r.url);
+            q["qty"] = json!(r.qty);
             out.push(q);
         }
     }

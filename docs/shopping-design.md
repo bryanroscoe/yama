@@ -151,6 +151,8 @@ and it has a qualifying copy of a needed card.
   store's place, so the order is entirely his.
 
 **What's left, and why** (each needed card not on the trip, first reason that applies):
+not enough copies at the stores on the trip (a snapshot listing that gives a quantity covers at
+most that many wants; needed cards take them first, and the search counts them too);
 only at stores he left off this trip (named); only at a store he won't go to (named); over the rule's limit (print it, keep it on the wishlist);
 above the rule for its market; no market to judge it by; in stock with no price (ask); not in
 stock at the last check; no check recorded. "Won't go" stores with cards he needs are listed with

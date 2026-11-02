@@ -119,7 +119,8 @@ fn titles_and_variants_parse() {
     assert_eq!(card_key("Brazen Borrower // Petty Theft"), "brazen borrower");
     assert_eq!(card_key("  Urza’s  Saga "), "urza's saga");
 
-    let (n, found) = shopify_suggest(&suggest("\"Sol Ring\""), "Sol Ring");
+    let (n, found) = shopify_suggest(&suggest("\"Sol Ring\""), "Sol Ring").unwrap();
+    assert_eq!(shopify_suggest(&json!({"errors": "nope"}), "Sol Ring"), None, "an unreadable answer isn't \"none found\"");
     assert_eq!(n, 4);
     assert_eq!(found.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["sol-ring-c21-263", "sol-ring-etched-cmm-410"]);
     let l = shopify_product(&product("sol-ring-c21-263.js").unwrap(), "Sol Ring", "https://patsgames.com", "sol-ring-c21-263");
@@ -129,7 +130,8 @@ fn titles_and_variants_parse() {
     let etched = shopify_product(&product("sol-ring-etched-cmm-410.js").unwrap(), "Sol Ring", "https://patsgames.com", "x");
     assert_eq!(etched[0].finish, Some("etched"), "the product title says etched");
 
-    let (total, l) = pro_catalog(&catalog(), "https://bc.tcgplayerpro.com");
+    let (total, l) = pro_catalog(&catalog(), "https://bc.tcgplayerpro.com").unwrap();
+    assert!(pro_catalog(&json!({"products": {}}), "https://bc.tcgplayerpro.com").is_none(), "an unreadable answer isn't an empty catalog");
     assert_eq!((total, l.len()), (3, 3));
     assert_eq!((l[1].card.as_str(), l[1].price, l[1].from_price), ("Exotic Orchard", Some(0.5), true));
     assert_eq!(l[0].url.as_deref(), Some("https://bc.tcgplayerpro.com/catalog/magic/commander-masters/sol-ring/1"));

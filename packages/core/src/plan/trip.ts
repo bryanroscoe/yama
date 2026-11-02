@@ -185,14 +185,14 @@ export interface TripStop {
   search: { card: string; url: string }[];
 }
 
-export type PrintReason = "never-store" | "not-local" | "left-out" | "over-max" | "over-market" | "no-market" | "no-price" | "unknown-stock" | "not-stocked" | "no-check";
+export type PrintReason = "too-few" | "never-store" | "not-local" | "left-out" | "over-max" | "over-market" | "no-market" | "no-price" | "unknown-stock" | "not-stocked" | "no-check";
 
 export interface PrintRow {
   want: Want;
   reason: PrintReason;
   /** The cheapest listing that explains the reason, when there is one. */
   offer: TripOffer | null;
-  /** For "never-store", "not-local" and "left-out": the stores off this trip that have it under your rule; for "no-price" and "unknown-stock": the stores to ask. */
+  /** For "never-store", "not-local" and "left-out": the stores off this trip that have it under your rule; for "too-few": the trip's stores whose copies ran out; for "no-price" and "unknown-stock": the stores to ask. */
   stores: string[];
 }
 
@@ -415,6 +415,13 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   );
   const usable = (w: Want, o: TripOffer) => o.verdict === "ok" && !(o.preference === "maybe" && elsewhereToo.has(w.id));
   const okAt = (w: Want, keys: Set<string>) => (offersOf.get(w.id) ?? []).filter((o) => usable(w, o) && keys.has(o.store.key));
+  // A listing that says how many copies it has (`qty`) covers at most that many wants; one that
+  // doesn't say is taken at its word for each.
+  const take = (w: Want, keys: Set<string>, used: Map<Quote, number>) => {
+    const o = okAt(w, keys).find((x) => x.quote.qty == null || (used.get(x.quote) ?? 0) < x.quote.qty);
+    if (o && o.quote.qty != null) used.set(o.quote, (used.get(o.quote) ?? 0) + 1);
+    return o;
+  };
 
   // Stores worth searching: eligible ones with a qualifying copy of a needed card. A favourite with
   // one is on every trip; the rest are searched.
@@ -470,8 +477,9 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     const set = new Set(keys);
     let covered = 0;
     let total = 0;
+    const used = new Map<Quote, number>();
     for (const w of needed) {
-      const o = okAt(w, set)[0];
+      const o = take(w, set, used);
       if (o) {
         covered++;
         total += o.price;
@@ -500,13 +508,15 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
   }
   const chosen = new Set(alternatives[alternatives.length - 1]?.stores ?? []);
 
-  // Assign each card to its cheapest qualifying copy among the chosen stores.
+  // Assign each card to its cheapest qualifying copy among the chosen stores, needed cards first
+  // so a listing's last copies go to them.
   const stopRows = new Map<string, { rows: TripRow[]; along: TripRow[] }>([...chosen].map((k) => [k, { rows: [], along: [] }]));
   const print: PrintRow[] = [];
   const elsewhere = new Map<string, TripRow[]>();
-  for (const w of wants) {
+  const used = new Map<Quote, number>();
+  for (const w of [...needed, ...wants.filter((x) => !x.needed)]) {
     const offers = offersOf.get(w.id) ?? [];
-    const here = okAt(w, chosen)[0];
+    const here = take(w, chosen, used);
     if (here) {
       stopRows.get(here.store.key)![w.needed ? "rows" : "along"].push({ want: w, offer: here });
       continue;
@@ -524,7 +534,10 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
     // A price that fails the rule says so wherever it's listed: the store doesn't change the reason.
     const firstOf = (v: Verdict) => offers.find((o) => o.verdict === v) ?? null;
     const seen = seenOf.get(w.id)!;
-    if (why) print.push({ want: w, reason: why === "never" ? "never-store" : why, offer: banned[0]!, stores: [...new Set(banned.map((o) => o.store.name))] });
+    // The stores on the trip have it, but their listings have fewer copies than you want.
+    const short = okAt(w, chosen)[0];
+    if (short) print.push({ want: w, reason: "too-few", offer: short, stores: [...new Set(okAt(w, chosen).map((o) => o.store.name))] });
+    else if (why) print.push({ want: w, reason: why === "never" ? "never-store" : why, offer: banned[0]!, stores: [...new Set(banned.map((o) => o.store.name))] });
     else if (firstOf("over-max") || firstOf("over-market") || firstOf("no-market")) {
       // The order the design note gives: over the limit (print it) first.
       const o = (firstOf("over-max") ?? firstOf("over-market") ?? firstOf("no-market"))!;

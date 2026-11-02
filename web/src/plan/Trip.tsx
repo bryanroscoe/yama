@@ -38,6 +38,8 @@ const SKIP_TEXT: Record<SkipReason, string> = { never: "you won't go", "not-loca
 function printReason(p: PrintRow): string {
   const at = p.offer ? `${usd(p.offer.price)} at ${p.offer.store.name}` : "";
   switch (p.reason) {
+    case "too-few":
+      return `Not enough copies: ${p.stores.join(", ")} ${p.stores.length === 1 ? "lists" : "list"} fewer than you want (${at}).`;
     case "never-store":
       return `Only at ${p.stores.join(", ")}, where you won't go (${at}).`;
     case "not-local":
@@ -444,8 +446,8 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
   const add = useMutation({ mutationFn: addWant, onSuccess: () => setName(""), onSettled: done });
   const remove = useMutation({ mutationFn: removeWant, onSettled: done });
   const deckName = decks.data?.find((d) => d.id === deckId)?.name ?? null;
-  const submit = (card: string, n: number) =>
-    add.mutate({ kind, name: card.trim(), qty: n, priority, deck_id: deckId || null, deck_name: null, why: why.trim() || null });
+  const submit = (card: string, n: number, as: ShoppingWant["kind"] = kind) =>
+    add.mutate({ kind: as, name: card.trim(), qty: n, priority, deck_id: deckId || null, deck_name: null, why: why.trim() || null });
   return (
     <section className="plan-section" aria-labelledby="trip-list">
       <h2 id="trip-list" className="plan-section-head">
@@ -532,7 +534,7 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
                   {c.real ? `${c.real} of ${c.need} real` : c.need > 1 ? `${c.need} needed` : "none real"}
                   {c.proxy ? `, ${c.proxy} ${c.proxy === 1 ? "proxy" : "proxies"}` : ""}
                 </span>{" "}
-                <button type="button" className="button outline small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real))}>
+                <button type="button" className="button outline small" disabled={add.isPending} onClick={() => submit(c.name, Math.max(1, c.need - c.real), "card")}>
                   Add
                 </button>
               </li>
