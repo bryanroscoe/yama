@@ -1615,13 +1615,15 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
     stage(st, user, via, Staged { kind: "check_stores", summary, detail, payload }).await
 }
 
-async fn apply_check_stores(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+async fn apply_check_stores(st: &AppState, user: &User, change: &str, p: &Value) -> AppResult<Value> {
     let body = crate::plan::stock::CheckBody {
         stores: p["stores"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
         cards: p["cards"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
         yestcg: p["yestcg"] == true,
     };
-    let started = crate::plan::stock::start(st, &user.id, &body, "assistant").await?;
+    // The snapshots carry the change's id, so applying it again (after a crash between the two
+    // writes) reads nothing.
+    let started = crate::plan::stock::start(st, &user.id, &body, "assistant", Some(change)).await?;
     let n = started["snapshots"].as_array().map_or(0, Vec::len);
     if n == 0 {
         return Err(AppError::Conflict("None of those stores can be read now.".into()));
@@ -1719,7 +1721,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "swap_in_prints" => apply_swap_in(st, user, &p).await,
         "set_shopping_rules" => apply_shopping_rules(st, user, &p).await,
         "set_store_preference" => apply_store_preference(st, user, &p).await,
-        "check_stores" => apply_check_stores(st, user, &p).await,
+        "check_stores" => apply_check_stores(st, user, &row.id, &p).await,
         "add_wish" => apply_add_wish(st, user, &row.id, &p).await,
         other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
     };

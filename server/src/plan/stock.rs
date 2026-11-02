@@ -510,9 +510,10 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
         let mut product_failed = missed;
         for (handle, _) in &handles {
             match f.send(Kind::Shopify, "GET", &format!("{base}/products/{handle}.js"), None, raw).await {
-                Ok(body) if body["variants"].is_array() => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
+                // Every variant must say whether it's available and its price, or the product is unreadable.
+                Ok(body) if body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && x["price"].is_number())) => out.listings.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true))),
                 Ok(_) => {
-                    out.errors.push(format!("{base}/products/{handle}.js: an answer without variants"));
+                    out.errors.push(format!("{base}/products/{handle}.js: an answer without readable variants"));
                     product_failed = true;
                 }
                 Err(e) => {
@@ -815,11 +816,24 @@ pub fn trip_cards(bundle: &Value) -> Vec<String> {
 
 /// Start a check for the owner: one snapshot per store (marked running), fetched in the background.
 /// Returns the snapshot ids and anything that couldn't be checked.
-pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str) -> AppResult<Value> {
+/// With `change` (a staged check_stores), a check that change already started is returned as it
+/// is, so applying it again reads nothing.
+pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, change: Option<&str>) -> AppResult<Value> {
     let pool = &st.pool;
     // One admission at a time, so two checks can't both see none running.
     static ADMIT: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     let _admit = ADMIT.get_or_init(Default::default).lock().await;
+    if let Some(c) = change {
+        let done: Vec<(String, String, String)> = sqlx::query_as("SELECT id, store_key, source FROM store_snapshots WHERE owner_id = ? AND change_id = ? ORDER BY id")
+            .bind(owner)
+            .bind(c)
+            .fetch_all(pool)
+            .await?;
+        if !done.is_empty() {
+            let ids: Vec<Value> = done.into_iter().map(|(id, store, source)| json!({"id": id, "store": store, "source": source})).collect();
+            return Ok(json!({"snapshots": ids, "skipped": [], "cards": Value::Null, "already": true}));
+        }
+    }
     expire_stale(pool, owner).await?;
     let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND status = 'running'").bind(owner).fetch_one(pool).await?;
     if running > 0 {
@@ -913,7 +927,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str) -> A
             Kind::YesTcg => format!("GET {base}/api/decksearch?q=<card>&market=austin&game=mtg (this store's part, {})", host.as_deref().unwrap_or("?")),
         };
         let cards = (kind != Kind::Pro).then(|| json!(uniq).to_string());
-        sqlx::query("INSERT INTO store_snapshots (id, owner_id, store_key, source, cards, query, requested_at, status, via) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)")
+        sqlx::query("INSERT INTO store_snapshots (id, owner_id, store_key, source, cards, query, requested_at, status, via, change_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)")
             .bind(&id)
             .bind(owner)
             .bind(&key)
@@ -922,6 +936,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str) -> A
             .bind(&query)
             .bind(&at)
             .bind(via)
+            .bind(change)
             .execute(&mut *tx)
             .await?;
         job.targets.push(Target { snapshot: id, store: key, kind, base, host });
@@ -934,7 +949,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str) -> A
 
 /// `POST /api/plan/stock/check`: read the stores' stock now, in the background.
 pub async fn check_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<CheckBody>) -> AppResult<Json<Value>> {
-    Ok(Json(start(&st, &user.id, &body, "page").await?))
+    Ok(Json(start(&st, &user.id, &body, "page", None).await?))
 }
 
 /// A check cut off by a restart (or a task that died) is over: it shows as failed.

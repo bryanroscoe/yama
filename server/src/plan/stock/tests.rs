@@ -21,6 +21,7 @@ fn suggest(card: &str) -> Value {
         // Ten products, none the card itself: the in-stock search that follows fails in the mock.
         // Full both times: the in-stock search is saturated too, and none of these is the card.
         "\"Lots\"" | "title:\"Lots\" available:true" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Lots More {i}"), "handle": format!("lots-{i}")})).collect::<Vec<_>>()}}}),
+        "\"Odd\"" => json!({"resources": {"results": {"products": [{"title": "Odd [ODD - 1]", "handle": "odd-1"}]}}}),
         "\"Many\"" => json!({"resources": {"results": {"products": (0..10).map(|i| json!({"title": format!("Many Things {i}"), "handle": format!("many-{i}")})).collect::<Vec<_>>()}}}),
         _ => json!({"resources": {"results": {"products": []}}}),
     }
@@ -37,6 +38,8 @@ fn product(handle: &str) -> Option<Value> {
         "sol-ring-etched-cmm-410.js" => json!({"title": "Sol Ring (Etched Foil) [CMM - 410]", "vendor": "Commander Masters", "variants": [
             {"id": 121, "title": "Near Mint / English", "price": 250, "available": true},
         ]}),
+        // Variants without availability: unreadable, so the card is unknown.
+        "odd-1.js" => json!({"title": "Odd [ODD - 1]", "variants": [{"id": 1, "title": "Near Mint", "price": 100}]}),
         "fellwar-stone-drk.js" => json!({"title": "Fellwar Stone [DRK - 103]", "variants": [
             {"id": 131, "title": "Damaged / English / Normal", "price": 975, "available": false},
         ]}),
@@ -182,7 +185,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let base = mock().await;
     let (_app, pool) = app().await;
     let (owner, _) = user(&pool, "bryan@example.com").await;
-    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots"].map(String::from).to_vec();
+    let cards: Vec<String> = ["Sol Ring", "Fellwar Stone", "Fail Me", "Exotic Orchard", "Many", "Lots", "Odd"].map(String::from).to_vec();
     let refs: Vec<&str> = cards.iter().map(String::as_str).collect();
     snapshot(&pool, &owner, "s-pats", "pats", "shopify", Some(&refs)).await;
     snapshot(&pool, &owner, "s-bc", "black-castle", "tcgplayer_pro", None).await;
@@ -199,7 +202,7 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     let by = |s: &str| snaps.iter().find(|x| x["id"] == s).unwrap().clone();
     // Pat's: Fail Me couldn't be read, so it's partial; only available variants are kept.
     assert_eq!(by("s-pats")["status"], "partial", "{snaps:?}");
-    assert_eq!(by("s-pats")["failed"], 3, "Fail Me; Many, whose in-stock search failed; Lots, whose in-stock search was full too");
+    assert_eq!(by("s-pats")["failed"], 4, "Fail Me; Many, whose in-stock search failed; Lots, whose in-stock search was full too; Odd, unreadable variants");
     assert_eq!(by("s-pats")["listings"], 4, "three available Sol Ring variants and the etched one");
     assert!(by("s-pats")["raw"] == true);
     assert_eq!(by("s-bc")["status"], "ok");
@@ -353,4 +356,19 @@ async fn the_check_route_picks_connectors_limits_and_imports() {
     assert_eq!(send(&app, Method::POST, "/api/plan/stock/import", Some(&other), Some(file)).await.0.as_u16(), 400);
     let (_, v) = send(&app, Method::GET, "/api/plan/stock", Some(&other), None).await;
     assert_eq!(v["snapshots"], json!([]));
+}
+
+#[tokio::test]
+async fn a_staged_check_applied_again_reads_nothing() {
+    let st = crate::testutil::state().await;
+    let (owner, _) = user(&st.pool, "bryan@example.com").await;
+    store_row(&st.pool, &owner, "pats", "Pat's Games", "https://patsgames.com", 1).await;
+    snapshot(&st.pool, &owner, "s-done", "pats", "shopify", Some(&["Sol Ring"])).await;
+    sqlx::query("UPDATE store_snapshots SET status = 'ok', fetched_at = requested_at, change_id = 'chg-1' WHERE id = 's-done'").execute(&st.pool).await.unwrap();
+    let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
+    let again = start(&st, &owner, &body, "assistant", Some("chg-1")).await.unwrap();
+    assert_eq!(again["already"], true);
+    assert_eq!(again["snapshots"][0]["id"], "s-done");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ?").bind(&owner).fetch_one(&st.pool).await.unwrap();
+    assert_eq!(n, 1, "nothing new was started");
 }
