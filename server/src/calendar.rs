@@ -940,6 +940,9 @@ pub async fn precon_list(pool: &SqlitePool, http: &reqwest::Client, base: &str, 
 }
 
 async fn precon(State(st): State<AppState>, _user: CurrentUser, Path(file_name): Path<String>) -> AppResult<Json<PreconList>> {
+    if st.cfg.offline && list_row(&st.pool, &file_name).await?.list_text.is_none() {
+        return Err(crate::error::offline("MTGJSON"));
+    }
     Ok(Json(precon_list(&st.pool, &st.http, MTGJSON_API, &file_name).await?))
 }
 

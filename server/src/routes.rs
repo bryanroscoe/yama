@@ -1,10 +1,14 @@
 use crate::auth::GoogleKeys;
 use crate::config::Config;
+use axum::extract::{Request, State};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use axum::http::{header, HeaderValue, Method};
+use tower::ServiceExt;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
@@ -88,26 +92,41 @@ pub fn app(state: AppState) -> Router {
         let index = dist.join("index.html");
         router = router.nest_service("/board", ServeDir::new(dist).fallback(ServeFile::new(index)));
     }
-    // Serve the built web app, falling back to index.html for client-side routes.
-    if let Some(dist) = &state.cfg.web_dist {
-        let index = dist.join("index.html");
-        router = router.fallback_service(ServeDir::new(dist).fallback(ServeFile::new(index)));
-    }
-    // The phone apps call the API from their own origin with a bearer token (no cookies).
+    // The phone apps call the API from their own origin with a bearer token (no cookies). Only
+    // the API: pages and files don't need CORS, and its `Vary: Origin` kept the service worker's
+    // saved files from matching (web PR #110).
     if !state.cfg.cors_origins.is_empty() {
         let origins: Vec<HeaderValue> = state.cfg.cors_origins.iter().filter_map(|o| o.parse().ok()).collect();
-        router = router.layer(
-            CorsLayer::new()
-                .allow_origin(origins)
-                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
-        );
+        let cors = CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+        router = router.layer(axum::middleware::from_fn_with_state(cors, api_cors));
     }
     // Admin "View as" stays read only: checked for every request, before routing (view_as.rs).
     router = router.layer(axum::middleware::from_fn_with_state(state.clone(), crate::view_as::guard));
     // Every request's time, by the route it matched (perf.rs; Admin, Server).
     router = router.layer(axum::middleware::from_fn(crate::perf::track));
-    router.layer(CompressionLayer::new()).layer(TraceLayer::new_for_http()).with_state(state)
+    router = router.layer(CompressionLayer::new()).layer(TraceLayer::new_for_http());
+    // The built web app, after the layers above: its files are precompressed and cached by
+    // their own rules (web_files.rs), with no CORS. Still timed.
+    if let Some(dist) = &state.cfg.web_dist {
+        let files = crate::web_files::WebFiles::new(dist);
+        let files = tower::service_fn(move |req: Request| files.clone().serve(req));
+        router = router.fallback_service(tower::ServiceBuilder::new().layer(axum::middleware::from_fn(crate::perf::track)).service(files));
+    }
+    router.with_state(state)
+}
+
+/// CORS for `/api/` only.
+async fn api_cors(State(cors): State<CorsLayer>, req: Request, next: Next) -> Response {
+    if !req.uri().path().starts_with("/api/") {
+        return next.run(req).await;
+    }
+    match tower::Layer::layer(&cors, next).oneshot(req).await {
+        Ok(res) => res,
+        Err(never) => match never {},
+    }
 }
 
 pub fn http_client() -> reqwest::Client {
@@ -130,6 +149,8 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
             tracing::info!("open sign-up: anyone with a verified Google account can make an account");
         }
     }
+    // The public rankings and the Lab's precon list, built before anyone asks (derived.rs).
+    crate::derived::spawn_prewarmer(pool.clone());
     // Table statistics for SQLite's planner now, then daily (db.rs).
     let stats = pool.clone();
     tokio::spawn(async move {
@@ -160,6 +181,10 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
     };
     let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), cfg.engine_card_data.clone(), forge);
     let bind = cfg.bind.clone();
+    let offline = cfg.offline;
+    if offline {
+        tracing::warn!("YAMA_OFFLINE is on: no imports, deck checks, previews, store checks, Ask Claude or research fetches reach outside services");
+    }
     let cf_keys = match (&cfg.cf_access_team, &cfg.cf_access_aud) {
         (Some(team), Some(_)) => {
             tracing::info!(team, "signing people in through Cloudflare Access");
@@ -178,7 +203,7 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         lab,
         watch: Arc::default(),
         limits: Arc::default(),
-        research: Arc::default(),
+        research: Arc::new(crate::mcp::research::client::Research::new(offline)),
     };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");
@@ -259,5 +284,61 @@ mod tests {
         let (status, body) = send(&app, Method::GET, "/api/no-such-route", Some(&token), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "API route not found");
+    }
+
+    #[tokio::test]
+    async fn offline_requests_say_so_instead_of_reaching_out() {
+        let mut cfg = crate::testutil::config();
+        cfg.offline = true;
+        let st = crate::testutil::state_with(cfg, crate::db::test_pool().await).await;
+        let pool = st.pool.clone();
+        let app = crate::routes::app(st);
+        let (id, token) = user(&pool, "bryan@example.com").await;
+        sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+        // A precon list Yama has never downloaded.
+        sqlx::query("INSERT INTO calendar_precons (file_name, set_code, name, first_seen_at) VALUES ('Test_TST', 'tst', 'Test', '2026-11-02')").execute(&pool).await.unwrap();
+        for (method, path, body) in [
+            (Method::GET, "/api/cards/preview?name=Sol%20Ring", None),
+            (Method::GET, "/api/calendar/precons/Test_TST", None),
+            (Method::POST, "/api/plan/stock/check", Some(json!({}))),
+            (Method::POST, "/api/advisor/ask", Some(json!({"question": "Is Sol Ring good?"}))),
+        ] {
+            let (status, answer) = send(&app, method.clone(), path, Some(&token), body).await;
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{method} {path}: {answer}");
+            assert!(answer["error"].as_str().unwrap().starts_with("Unavailable offline"), "{method} {path}: {answer}");
+        }
+        let (status, bundle) = send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(bundle["error"].as_str().unwrap().starts_with("Unavailable offline"), "{bundle}");
+    }
+
+    #[tokio::test]
+    async fn the_web_apps_files_have_their_own_caching_and_only_the_api_has_cors() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+        std::fs::write(dir.path().join("index.html"), "<title>Yama</title>").unwrap();
+        std::fs::write(dir.path().join("assets/app-1a2b.js"), "app").unwrap();
+        let mut cfg = crate::testutil::config();
+        cfg.web_dist = Some(dir.path().to_path_buf());
+        cfg.cors_origins = vec!["https://localhost".into()];
+        let app = crate::routes::app(crate::testutil::state_with(cfg, crate::db::test_pool().await).await);
+        let get = |path: &str| {
+            let req = Request::builder().uri(path).header(header::ORIGIN, "https://localhost").body(Body::empty()).unwrap();
+            app.clone().oneshot(req)
+        };
+        let vary = |res: &axum::response::Response| res.headers().get_all(header::VARY).iter().map(|v| v.to_str().unwrap().to_lowercase()).collect::<Vec<_>>().join(",");
+        let res = get("/assets/app-1a2b.js").await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[header::CACHE_CONTROL], crate::web_files::IMMUTABLE);
+        assert!(!vary(&res).contains("origin") && res.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+        let res = get("/assets/gone-0000.js").await.unwrap();
+        assert_eq!((res.status(), res.headers()[header::CACHE_CONTROL].to_str().unwrap()), (StatusCode::NOT_FOUND, crate::web_files::NO_STORE));
+        let res = get("/decks/123").await.unwrap();
+        assert_eq!((res.status(), res.headers()[header::CACHE_CONTROL].to_str().unwrap()), (StatusCode::OK, crate::web_files::REVALIDATE));
+        assert!(!vary(&res).contains("origin"));
+        // The API still answers the phone apps' origin.
+        let res = get("/api/health").await.unwrap();
+        assert_eq!(res.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "https://localhost");
+        assert!(vary(&res).contains("origin"));
     }
 }

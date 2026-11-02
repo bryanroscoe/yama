@@ -46,6 +46,7 @@ pub fn config() -> Config {
         oauth_redirect_hosts: crate::config::DEFAULT_OAUTH_REDIRECT_HOSTS.iter().map(|h| h.to_string()).collect(),
         slow_request_ms: crate::perf::SLOW_REQUEST_MS,
         slow_query_ms: crate::perf::SLOW_QUERY_MS,
+        offline: false,
     }
 }
 
@@ -61,6 +62,7 @@ pub async fn state() -> AppState {
 pub async fn state_with(cfg: Config, pool: SqlitePool) -> AppState {
     let play = crate::play::PlayHub::start(None, pool.clone());
     let lab = crate::lab::worker::LabWorker::start(pool.clone(), cfg.lab_threads, play.clone(), None, None);
+    let research = Arc::new(crate::mcp::research::client::Research::new(cfg.offline));
     AppState {
         pool,
         cfg: Arc::new(cfg),
@@ -72,7 +74,7 @@ pub async fn state_with(cfg: Config, pool: SqlitePool) -> AppState {
         lab,
         watch: Arc::default(),
         limits: Arc::default(),
-        research: Arc::default(),
+        research,
     }
 }
 

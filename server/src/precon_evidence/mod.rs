@@ -1433,11 +1433,13 @@ async fn report_route(State(st): State<AppState>, _a: AdminUser) -> AppResult<Js
 
 async fn enable_route(State(st): State<AppState>, AdminUser(user): AdminUser, Path(source): Path<String>) -> AppResult<Json<Report>> {
     enable(&st.pool, &user.id, &source).await?;
+    crate::derived::nudge();
     Ok(Json(load(&st.pool, Utc::now()).await?.report))
 }
 
 async fn disable_route(State(st): State<AppState>, AdminUser(user): AdminUser, Path(source): Path<String>) -> AppResult<Json<Report>> {
     disable(&st.pool, &user.id, &source).await?;
+    crate::derived::nudge();
     Ok(Json(load(&st.pool, Utc::now()).await?.report))
 }
 

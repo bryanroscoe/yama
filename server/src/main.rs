@@ -13,6 +13,7 @@ mod deck_prices;
 mod deck_research;
 mod deck_scan;
 mod deck_stats;
+mod derived;
 mod deck_import;
 mod decks;
 mod error;
@@ -48,6 +49,7 @@ mod view_as;
 #[cfg(test)]
 mod view_as_tests;
 mod watch;
+mod web_files;
 
 use anyhow::Context;
 use std::io::IsTerminal;

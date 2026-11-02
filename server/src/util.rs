@@ -20,6 +20,14 @@ pub fn short_code(len: usize) -> String {
     bytes.iter().take(len).map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char).collect()
 }
 
+/// Whether a request's `If-None-Match` names `etag` (strong or weak, or `*`).
+pub fn etag_matches(headers: &axum::http::HeaderMap, etag: &str) -> bool {
+    headers
+        .get(axum::http::header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').map(str::trim).any(|t| t == "*" || t == etag || t.strip_prefix("W/") == Some(etag)))
+}
+
 pub fn sha256_hex(s: &str) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(Sha256::digest(s.as_bytes()))

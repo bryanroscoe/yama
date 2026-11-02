@@ -472,9 +472,57 @@ struct OfflineBundle {
     cards: Vec<OfflineCard>,
 }
 
-async fn offline_cards(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<OfflineBundle>> {
+/// The offline bundle's validator (web PR #111): its format, the card data's version and whether
+/// the Game Changer flags were loaded, which is everything that changes the bundle.
+fn offline_etag(version: &str, game_changers: bool) -> String {
+    format!("\"{OFFLINE_FORMAT}-{version}-{}\"", u8::from(game_changers))
+}
+
+/// The last bundle sent, encoded, by its ETag: building one reads every card (24 MB of JSON).
+static OFFLINE: std::sync::Mutex<Option<(String, axum::body::Bytes)>> = std::sync::Mutex::new(None);
+/// One build at a time.
+static OFFLINE_BUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn offline_kept(etag: &str) -> Option<axum::body::Bytes> {
+    // Test databases are all in memory under one name: an ETag can't tell them apart.
+    if cfg!(test) {
+        return None;
+    }
+    OFFLINE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|(k, _)| k == etag).map(|(_, b)| b.clone())
+}
+
+/// `GET /api/cards/offline`. A copy the device already has (`If-None-Match`) is a 304, decided
+/// before anything is built, and doesn't count against the hourly limit.
+async fn offline_cards(State(st): State<AppState>, CurrentUser(user): CurrentUser, headers: axum::http::HeaderMap) -> AppResult<axum::response::Response> {
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+    let version = import::cards_changed_at(&st.pool).await?.unwrap_or_default();
+    let game_changers = import::game_changers_date(&st.pool).await?.is_some();
+    let etag = offline_etag(&version, game_changers);
+    let validators = [(header::ETAG, etag.clone()), (header::CACHE_CONTROL, "private, no-cache".to_string())];
+    if crate::util::etag_matches(&headers, &etag) {
+        return Ok((StatusCode::NOT_MODIFIED, validators).into_response());
+    }
     st.limits.offline_cards.check_user(&user)?;
-    let version = import::cards_changed_at(&st.pool).await?;
+    let body = match offline_kept(&etag) {
+        Some(b) => b,
+        None => {
+            let _building = OFFLINE_BUILD.lock().await;
+            match offline_kept(&etag) {
+                Some(b) => b,
+                None => {
+                    let bundle = offline_bundle(&st.pool, version, game_changers).await?;
+                    let b = axum::body::Bytes::from(serde_json::to_vec(&bundle).map_err(anyhow::Error::from)?);
+                    *OFFLINE.lock().unwrap_or_else(|e| e.into_inner()) = Some((etag.clone(), b.clone()));
+                    b
+                }
+            }
+        }
+    };
+    Ok((validators, [(header::CONTENT_TYPE, "application/json".to_string())], body).into_response())
+}
+
+async fn offline_bundle(pool: &SqlitePool, version: String, game_changers: bool) -> AppResult<OfflineBundle> {
     let cards = sqlx::query_as::<_, OfflineCard>(
         "SELECT oracle_id AS i, name AS n, mana_cost AS m, cmc AS v, type_line AS t, oracle_text AS o, colors AS c,
                 color_identity AS ci, power AS p, toughness AS th, loyalty AS l, rarity AS r,
@@ -490,10 +538,9 @@ async fn offline_cards(State(st): State<AppState>, CurrentUser(user): CurrentUse
                 layout AS y, image_normal AS img, edhrec_rank AS e, game_changer AS g
          FROM cards ORDER BY name",
     )
-    .fetch_all(&st.pool)
+    .fetch_all(pool)
     .await?;
-    let game_changers = import::game_changers_date(&st.pool).await?.is_some();
-    Ok(Json(OfflineBundle { format: OFFLINE_FORMAT, version: version.unwrap_or_default(), game_changers, cards }))
+    Ok(OfflineBundle { format: OFFLINE_FORMAT, version, game_changers, cards })
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -549,6 +596,52 @@ mod tests {
             .execute(pool)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_offline_list_carries_its_version_as_an_etag_and_an_unchanged_copy_is_a_304() {
+        use axum::body::Body;
+        use axum::http::{Request, header};
+        use tower::ServiceExt;
+        let (app, pool) = app().await;
+        sqlx::query(
+            "INSERT INTO cards (oracle_id, name, mana_cost, cmc, type_line, oracle_text, colors, color_identity, keywords, legalities, updated_at)
+             VALUES ('o1', 'Sol Ring', '{1}', 1, 'Artifact', '{T}: Add {C}{C}.', '', '', '[]', '{\"commander\":\"legal\",\"standard\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"vintage\":\"legal\",\"pauper\":\"legal\",\"brawl\":\"legal\"}', 'now')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let import = |id: &str, at: &str| {
+            sqlx::query("INSERT INTO import_runs (id, kind, started_at, finished_at, rows) VALUES (?, 'oracle_cards', ?, ?, 1)").bind(id.to_string()).bind(at.to_string()).bind(at.to_string())
+        };
+        import("r1", "2026-11-01T00:02:00Z").execute(&pool).await.unwrap();
+        let (_, token) = user(&pool, "bryan@example.com").await;
+        let get = |etag: Option<String>| {
+            let mut req = Request::builder().uri("/api/cards/offline").header(header::AUTHORIZATION, format!("Bearer {token}"));
+            if let Some(e) = etag {
+                req = req.header(header::IF_NONE_MATCH, e);
+            }
+            app.clone().oneshot(req.body(Body::empty()).unwrap())
+        };
+        let res = get(None).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let etag = res.headers()[header::ETAG].to_str().unwrap().to_string();
+        assert_eq!(etag, format!("\"{OFFLINE_FORMAT}-2026-11-01T00:02:00Z-0\""));
+        assert_eq!(res.headers()[header::CACHE_CONTROL], "private, no-cache");
+        let body: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!((body["version"].as_str(), body["cards"][0]["n"].as_str()), (Some("2026-11-01T00:02:00Z"), Some("Sol Ring")));
+        // The copy the device has: a 304 with no body, as often as it likes (the hourly limit is 10).
+        for _ in 0..15 {
+            let again = get(Some(format!("W/{etag}"))).await.unwrap();
+            assert_eq!(again.status(), StatusCode::NOT_MODIFIED);
+            assert_eq!(again.headers()[header::ETAG], etag.as_str());
+            assert!(axum::body::to_bytes(again.into_body(), usize::MAX).await.unwrap().is_empty());
+        }
+        // New card data: a new version, and the old copy gets the new list.
+        import("r2", "2026-11-02T00:02:00Z").execute(&pool).await.unwrap();
+        let res = get(Some(etag.clone())).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_ne!(res.headers()[header::ETAG], etag.as_str());
     }
 
     #[tokio::test]

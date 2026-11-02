@@ -78,3 +78,9 @@ impl IntoResponse for AppError {
         res
     }
 }
+
+/// What a request gets when the server runs with YAMA_OFFLINE=1 and answering would mean reaching
+/// `whom` (a 503 that says why).
+pub fn offline(whom: &str) -> AppError {
+    AppError::Unavailable(format!("Unavailable offline: this server runs with YAMA_OFFLINE=1, so it doesn't reach {whom}."))
+}

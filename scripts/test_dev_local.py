@@ -22,6 +22,7 @@ OFF = {
     "YAMA_FORGE_URL": "",
     "YAMA_ADVISOR_URL": "",
     "YAMA_CF_ACCESS_TEAM": "",
+    "YAMA_OFFLINE": "1",
 }
 
 

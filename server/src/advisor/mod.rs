@@ -552,6 +552,9 @@ async fn history(pool: &SqlitePool, owner: &str, conversation: &str) -> AppResul
 }
 
 async fn ask_route(State(st): State<AppState>, PowerUser(user): PowerUser, Json(body): Json<AskBody>) -> AppResult<Response> {
+    if st.cfg.offline {
+        return Err(crate::error::offline("Claude"));
+    }
     let question = body.question.trim().to_string();
     if question.is_empty() {
         return Err(AppError::bad("Ask a question first."));

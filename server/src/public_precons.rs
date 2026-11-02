@@ -20,8 +20,7 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path as FilePath;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
 pub const NOTICE: &str = include_str!("../../web/public/site-notice.html");
 const METHOD: &str = "stock-precons-v1";
@@ -405,8 +404,8 @@ async fn snapshot(pool: &SqlitePool) -> AppResult<Option<Snapshot>> {
 }
 
 /// The catalog before rating v2 and the default order, which are cheap and keep their own freshness.
-/// Building it prices every stock list, which is most of a page's time, so it is kept for
-/// [`FRESH`] while its inputs stay the same.
+/// Building it prices every stock list, which is most of a page's time, so it is kept until its
+/// inputs change (derived.rs).
 #[derive(Clone)]
 struct Built {
     publication: Option<Publication>,
@@ -415,15 +414,11 @@ struct Built {
     precons: Vec<Precon>,
 }
 
-/// Prices change daily; nothing else here changes without changing the fingerprint.
-const FRESH: Duration = Duration::from_secs(600);
-static BUILT: Mutex<Option<(Instant, String, Arc<Built>)>> = Mutex::new(None);
-/// One rebuild at a time: requests arriving during it wait for its result rather than repeat it.
-static REBUILD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static BUILT: crate::derived::Kept<Built> = crate::derived::Kept::new("public precons rebuild");
 
 /// Cheap evidence of a change to anything [`build`] reads: the catalog rows, the published
 /// snapshot, sealed prices, new price snapshots (rowids only grow) and card data imports (names, art).
-async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
+pub(crate) async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || imported_at || ':' || length(cards) || ':' || IFNULL(length(engine_support), 0)
                     || ':' || IFNULL(length(playgroup), 0) || ':' || name || ':' || IFNULL(set_name, '') || ':' || IFNULL(released, '') || ':' || color_identity AS k FROM precons ORDER BY id))
@@ -437,31 +432,16 @@ async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     Ok(format!("{}#{inputs}", pool.connect_options().get_filename().display()))
 }
 
-fn fresh(key: &str) -> Option<Arc<Built>> {
-    BUILT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .filter(|(at, k, _)| k == key && at.elapsed() < FRESH)
-        .map(|(_, _, b)| b.clone())
+async fn built(pool: &SqlitePool) -> AppResult<Arc<Built>> {
+    let key = fingerprint(pool).await?;
+    BUILT.get(pool, key, |pool| async move { build(&pool).await }).await
 }
 
-async fn built(pool: &SqlitePool) -> AppResult<Arc<Built>> {
-    // Test databases are all in memory under one name, so the fingerprint can't tell them apart.
-    if cfg!(test) {
-        return Ok(Arc::new(build(pool).await?));
-    }
+/// Build the catalog and its rating now if their inputs changed (derived.rs).
+pub async fn prewarm(pool: &SqlitePool) -> AppResult<()> {
     let key = fingerprint(pool).await?;
-    if let Some(b) = fresh(&key) {
-        return Ok(b);
-    }
-    let _rebuilding = REBUILD.lock().await;
-    if let Some(b) = fresh(&key) {
-        return Ok(b);
-    }
-    let b = Arc::new(build(pool).await?);
-    *BUILT.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, b.clone()));
-    Ok(b)
+    BUILT.refresh(pool, key, |pool| async move { build(&pool).await }).await?;
+    v2::prewarm(pool).await
 }
 
 pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {

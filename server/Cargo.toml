@@ -38,11 +38,10 @@ chacha20poly1305 = "0.10"
 # form bodies. Both were already in the tree (jsonwebtoken, reqwest).
 base64 = "0.22"
 url = "2.5"
+# Middleware composition for the web app's files and the API's CORS (routes.rs; already in the
+# tree through axum).
+tower = { version = "0.5.3", features = ["util"] }
 # The allocator the lab's batch runner uses (already in the tree through phase-ai); see main.rs.
 mimalloc = "0.1"
 libc = "0.2"
 tempfile = "3.27.0"
-
-[dev-dependencies]
-# Router tests: `ServiceExt::oneshot` sends one request through the whole app.
-tower = { version = "0.5.3", features = ["util"] }

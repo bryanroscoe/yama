@@ -171,6 +171,7 @@ async fn preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Jso
         Some(l) => {
             if l.site == Site::Archidekt
                 && links::enabled(Site::Archidekt)
+                && !st.cfg.offline
                 && let Some(id) = &l.id
             {
                 st.limits.imports.check_user(&user)?;

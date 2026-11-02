@@ -1022,6 +1022,9 @@ pub fn trip_cards(bundle: &Value) -> Vec<String> {
 /// With `change` (a staged check_stores), a check that change already started is returned as it
 /// is, so applying it again reads nothing.
 pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, change: Option<&str>) -> AppResult<Value> {
+    if st.cfg.offline {
+        return Err(crate::error::offline("the stores' sites"));
+    }
     let pool = &st.pool;
     // One admission at a time, so two checks can't both see none running.
     static ADMIT: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
