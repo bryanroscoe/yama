@@ -46,6 +46,7 @@ pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
          UNION ALL SELECT 'snap:' || id || '=' || status || '/' || IFNULL(fetched_at, '') FROM store_snapshots WHERE owner_id = ?
          UNION ALL SELECT 'want:' || id || '=' || IFNULL(retired_at, '') || '/' || IFNULL(precon_id, '') FROM shopping_wants WHERE owner_id = ?
          UNION ALL SELECT 'sq:' || id FROM sealed_quotes WHERE owner_id = ?
+         UNION ALL SELECT 'sealed-prices:' || checked_at || '/' || source_updated_at FROM deck_price_imports WHERE id = 'sealed'
          ORDER BY 1",
     )
     .bind(owner)

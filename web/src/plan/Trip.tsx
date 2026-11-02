@@ -606,7 +606,11 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
   const [inStock, setInStock] = useState(true);
   const [date, setDate] = useState(today);
   const [note, setNote] = useState("");
-  const done = () => void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });
+  // The live view, and the plan bundle that keeps the offline copy.
+  const done = () => {
+    void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });
+    void qc.invalidateQueries({ queryKey: ["plan", userId] });
+  };
   const add = useMutation({
     mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: note.trim() || null }),
     onSuccess: () => {
