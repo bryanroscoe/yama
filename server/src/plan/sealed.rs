@@ -62,14 +62,23 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
     .await?;
     let cap = cap_at(pool, owner, date).await?;
     let market = crate::deck_prices::sealed(pool).await?;
-    let stores: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT s.key, s.name, p.preference FROM plan_stores s LEFT JOIN plan_store_prefs p ON p.owner_id = s.owner_id AND p.store_key = s.key WHERE s.owner_id = ?",
+    // Each store with whether it can be chosen now: a live store that isn't a printer.
+    let stores: Vec<(String, String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT s.key, s.name, p.preference, s.retired_at IS NULL AND s.kind != 'printer'
+         FROM plan_stores s LEFT JOIN plan_store_prefs p ON p.owner_id = s.owner_id AND p.store_key = s.key WHERE s.owner_id = ?",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
     let mut out = Vec::new();
-    for (id, name, qty, priority, why, precon) in wants {
+    for (id, name, qty, priority, why, mut precon) in wants {
+        // A sealed want saved before it could be matched (or before Yama knew the precon) is matched now.
+        if precon.is_none()
+            && let Some(found) = precon_for(pool, &name).await?
+        {
+            sqlx::query("UPDATE shopping_wants SET precon_id = ? WHERE id = ? AND owner_id = ? AND precon_id IS NULL").bind(&found).bind(&id).bind(owner).execute(pool).await?;
+            precon = Some(found);
+        }
         let p: Option<(String, String, Option<String>, Option<String>, String)> = match &precon {
             Some(pid) => sqlx::query_as("SELECT id, name, set_name, released, cards FROM precons WHERE id = ?").bind(pid).fetch_optional(pool).await?,
             None => None,
@@ -89,17 +98,23 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
                 )
             }
         };
+        // Each store's newest price: the latest date, then the one recorded last that day.
         #[allow(clippy::type_complexity)]
-        let quotes: Vec<(String, String, Option<f64>, bool, String, Option<String>)> = sqlx::query_as(
-            "SELECT q.id, q.store_key, q.price, q.in_stock, q.checked_on, q.note FROM sealed_quotes q
-             WHERE q.owner_id = ? AND q.want_id = ?
-               AND q.checked_on = (SELECT MAX(checked_on) FROM sealed_quotes WHERE owner_id = q.owner_id AND want_id = q.want_id AND store_key = q.store_key)
-             ORDER BY q.price IS NULL, q.price, q.store_key",
+        let all: Vec<(String, String, Option<f64>, bool, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, store_key, price, in_stock, checked_on, note FROM sealed_quotes WHERE owner_id = ? AND want_id = ?
+             ORDER BY checked_on DESC, created_at DESC, rowid DESC",
         )
         .bind(owner)
         .bind(&id)
         .fetch_all(pool)
         .await?;
+        let mut quotes: Vec<(String, String, Option<f64>, bool, String, Option<String>)> = Vec::new();
+        for q in all {
+            if !quotes.iter().any(|x| x.1 == q.1) {
+                quotes.push(q);
+            }
+        }
+        quotes.sort_by(|a, b| a.2.is_none().cmp(&b.2.is_none()).then(a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal)).then(a.1.cmp(&b.1)));
         let market_usd = sealed["usd"].as_f64();
         let singles_usd = singles["usd"].as_f64();
         let quotes: Vec<Value> = quotes
@@ -109,6 +124,8 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
                 json!({
                     "id": qid, "store": store, "store_name": s.map(|s| s.1.clone()).unwrap_or_else(|| store.clone()),
                     "preference": s.and_then(|s| s.2.clone()).unwrap_or_else(|| "ok".into()),
+                    // A store a later import retired (or that's gone) can't be chosen.
+                    "store_live": s.is_some_and(|s| s.3),
                     "price": price, "in_stock": in_stock, "checked_on": checked, "note": note,
                     "over_cap": match (price, cap) { (Some(p), Some(c)) => json!(p > c + 1e-9), _ => Value::Null },
                     "vs_market_pct": price.zip(market_usd).and_then(|(p, m)| pct(p, m)),
@@ -116,10 +133,12 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
                 })
             })
             .collect();
-        // The cheapest copy in stock within the cap at a store they'll go to.
+        // The cheapest copy in stock at a live store they'll go to, within the cap when one is set
+        // (with no cap: the cheapest, and the page and Claude say there's no cap).
         let best = quotes
             .iter()
-            .filter(|q| q["in_stock"] == true && q["over_cap"] != true && q["preference"] != "never" && q["price"].is_number())
+            .filter(|q| q["in_stock"] == true && q["store_live"] == true && q["preference"] != "never" && q["price"].is_number())
+            .filter(|q| cap.is_none() || q["over_cap"] == false)
             .min_by(|a, b| a["price"].as_f64().partial_cmp(&b["price"].as_f64()).unwrap_or(std::cmp::Ordering::Equal))
             .map(|q| q["id"].clone());
         out.push(json!({
@@ -252,8 +271,11 @@ pub fn text(v: &Value) -> String {
             if let Some(p) = q["vs_market_pct"].as_f64() {
                 notes.push(if p >= 0.0 { format!("{p}% above market") } else { format!("{}% below market", -p) });
             }
+            if q["store_live"] == false {
+                notes.push("a store no longer on their list".into());
+            }
             if q["id"] == it["best"] {
-                notes.push("the best choice".into());
+                notes.push(if cap.is_some() { "the best choice: cheapest in stock within the cap".into() } else { "the cheapest in stock (no cap set)".into() });
             }
             let _ = writeln!(out, "  - {}: {} on {}{}", q["store_name"].as_str().unwrap_or_default(), usd(q["price"].as_f64()), q["checked_on"].as_str().unwrap_or_default(), if notes.is_empty() { String::new() } else { format!(" ({})", notes.join(", ")) });
         }
@@ -328,7 +350,22 @@ mod tests {
         assert_eq!(it["best"], quotes[0]["id"]);
         assert_eq!(quotes[1]["vs_market_pct"], 4.2);
         let t = text(&v);
-        assert!(t.contains("their cap is $51.00 a deck") && t.contains("sealed market $48.00 on 2026-11-01") && t.contains("Mothership: $49.99 on 2026-10-31 (within their cap, 4.1% above market, the best choice)"), "{t}");
+        assert!(t.contains("their cap is $51.00 a deck") && t.contains("sealed market $48.00 on 2026-11-01") && t.contains("Mothership: $49.99 on 2026-10-31 (within their cap, 4.1% above market, the best choice: cheapest in stock within the cap)"), "{t}");
+        // Two prices from one store on one day: the one recorded last counts.
+        send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 45.0, "checked_on": "2026-11-01"}))).await;
+        send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 47.0, "checked_on": "2026-11-01"}))).await;
+        let v2 = view(&pool, &owner, "2026-11-01").await.unwrap();
+        let pats: Vec<&Value> = v2["items"][0]["quotes"].as_array().unwrap().iter().filter(|q| q["store"] == "pats").collect();
+        assert_eq!((pats.len(), pats[0]["price"].as_f64()), (1, Some(47.0)));
+        // A retired store is never the best choice.
+        sqlx::query("UPDATE plan_stores SET retired_at = 'now' WHERE owner_id = ? AND key = 'pats'").bind(&owner).execute(&pool).await.unwrap();
+        let v3 = view(&pool, &owner, "2026-11-01").await.unwrap();
+        let best = v3["items"][0]["best"].clone();
+        assert!(v3["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["id"] == best && q["store"] == "mothership"), "{v3}");
+        sqlx::query("UPDATE plan_stores SET retired_at = NULL WHERE owner_id = ? AND key = 'pats'").bind(&owner).execute(&pool).await.unwrap();
+        // A sealed want saved before it was matched is matched when read.
+        sqlx::query("UPDATE shopping_wants SET precon_id = NULL WHERE id = ?").bind(want).execute(&pool).await.unwrap();
+        assert_eq!(view(&pool, &owner, "2026-11-01").await.unwrap()["items"][0]["precon"]["id"], "federation-fleet");
         // A price over the cap is flagged; another account sees nothing and can't add a price.
         let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "mothership", "price": 59.99}))).await;
         let v = view(&pool, &owner, &today()).await.unwrap();

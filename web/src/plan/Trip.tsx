@@ -582,13 +582,13 @@ function Sealed({ stores, view, userId }: { stores: Store[]; view: PlanView; use
       </p>
       <ErrorText error={q.error} />
       {(q.data?.items ?? []).map((it) => (
-        <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} />
+        <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} capped={cap != null} />
       ))}
     </section>
   );
 }
 
-function SealedRow({ it, stores, userId, today }: { it: SealedItem; stores: Store[]; userId: string; today: string }) {
+function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stores: Store[]; userId: string; today: string; capped: boolean }) {
   const qc = useQueryClient();
   const [store, setStore] = useState(stores[0]?.key ?? "");
   const [price, setPrice] = useState("");
@@ -623,8 +623,9 @@ function SealedRow({ it, stores, userId, today }: { it: SealedItem; stores: Stor
             {x.store_name}: {usd(x.price)}, {fmtDate(x.checked_on)}
             {x.in_stock ? "" : ", not in stock"}
             {x.over_cap ? ", over your cap" : ""}
+            {x.store_live ? "" : ", a store no longer on your list"}
             {pct(x.vs_market_pct, "market")}
-            {it.best === x.id ? ". Best choice" : ""}{" "}
+            {it.best === x.id ? (capped ? ". Best choice" : ". Cheapest in stock") : ""}{" "}
             <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
               Remove
             </button>

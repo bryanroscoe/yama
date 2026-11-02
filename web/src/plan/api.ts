@@ -110,6 +110,8 @@ export interface SealedQuote {
   store: string;
   store_name: string;
   preference: StorePreference;
+  /** False when a later import retired the store: it's never the best choice. */
+  store_live: boolean;
   price: number | null;
   in_stock: boolean;
   checked_on: string;
@@ -131,7 +133,7 @@ export interface SealedItem {
   singles: { usd: number | null; priced_copies: number; unpriced_copies: number; oldest_date: string | null; newest_date: string | null; source: string } | null;
   /** Each store's newest price, cheapest first. */
   quotes: SealedQuote[];
-  /** The cheapest in stock within the cap at a store you'll go to. */
+  /** The cheapest in stock at a store you'll go to, within the cap when one is set. */
   best: string | null;
 }
 
