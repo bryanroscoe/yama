@@ -160,6 +160,15 @@ fn compare_href(token: &str, deck: &str, build: &str, vs: Option<&str>, how: How
     path
 }
 
+/// A deck's page at a build (else its default), keeping how the cards are got.
+fn deck_link(token: &str, deck: &str, build: Option<&str>, how: How) -> String {
+    match (build, how.param()) {
+        (Some(b), _) => compare_href(token, deck, b, None, how),
+        (None, Some(g)) => format!("{}?get={g}", deck_href(token, deck, None)),
+        (None, None) => deck_href(token, deck, None),
+    }
+}
+
 /// A swap's copies: `qty`, else one.
 fn qty(s: &Value) -> i64 {
     s.get("qty").and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or(1)
@@ -725,7 +734,7 @@ pub(super) async fn note(
         let builds = d["builds"].as_array().cloned().unwrap_or_default();
         let recommended = builds.iter().find(|b| text(b, "id") == text(d, "recommended_build"));
         body.push_str("<li class=\"share-deck\">");
-        write!(body, "<a class=\"share-deck-main\" href=\"{}\">", deck_href(&token, key, None)).unwrap();
+        write!(body, "<a class=\"share-deck-main\" href=\"{}\">", deck_link(&token, key, None, how)).unwrap();
         if let Some((url, _, _)) = &art {
             write!(body, "<img src=\"{}\" alt=\"\" loading=\"lazy\"><div class=\"art-wash\"></div>", e(url)).unwrap();
         }
@@ -744,7 +753,7 @@ pub(super) async fn note(
         if builds.len() > 1 {
             write!(body, "<nav class=\"share-deck-configs\" aria-label=\"Builds of {}\"><ul>", e(text(d, "name"))).unwrap();
             for b in &builds {
-                write!(body, "<li><a href=\"{}\">{}</a></li>", deck_href(&token, key, Some(text(b, "id"))), e(text(b, "label"))).unwrap();
+                write!(body, "<li><a href=\"{}\">{}</a></li>", deck_link(&token, key, Some(text(b, "id")), how), e(text(b, "label"))).unwrap();
             }
             body.push_str("</ul></nav>");
         }
@@ -919,13 +928,18 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
             Some(l) => e(l),
             None => "<span class=\"dim\">No such build</span>".into(),
         };
-        // The deck's page at this build, keeping how the cards are got.
+        // The deck's page at this build, keeping how the cards are got; every build counted
+        // links to its own page.
+        let key = text(d, "key");
         let link = match which {
-            Which::Build(id) if label.is_some() => compare_href(token, text(d, "key"), id, None, how),
-            _ => match how.param() {
-                Some(g) => format!("{}?get={g}", deck_href(token, text(d, "key"), None)),
-                None => deck_href(token, text(d, "key"), None),
-            },
+            Which::Build(id) if label.is_some() => deck_link(token, key, Some(id), how),
+            _ => deck_link(token, key, None, how),
+        };
+        let build = if which == Which::All {
+            let each: Vec<String> = which.builds(*d).iter().map(|b| format!("<a href=\"{}\">{}</a>", deck_link(token, key, Some(text(b, "id")), how), e(text(b, "label")))).collect();
+            format!("{build}<br><small>{}</small>", each.join(" · "))
+        } else {
+            build
         };
         write!(s, "<tr><td><a href=\"{link}\">{}</a></td><td>{build}</td>{}</tr>", e(text(d, "name")), row(&t)).unwrap();
     }

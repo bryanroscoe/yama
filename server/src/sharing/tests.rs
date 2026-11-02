@@ -726,6 +726,7 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(body.contains("id=\"lists-head\">Deck lists</h2>") && body.contains("// Party Time: Bracket 3 · Upgraded\nCommander\n"), "{body}");
     let printed = page(&app, &format!("/r/{token}?get=print")).await.2;
     assert!(printed.contains(&format!("<a href=\"/r/{token}/party?get=print\">Party Time</a>")), "deck rows keep the choice");
+    assert!(printed.contains(&format!("<a class=\"share-deck-main\" href=\"/r/{token}/party?get=print\">")), "deck tiles keep the choice");
     assert!(page(&app, &format!("/r/{token}?build=b3&get=print")).await.2.contains(&format!("<a href=\"/r/{token}/party?build=b3&amp;get=print\">Party Time</a>")));
     assert_eq!(page(&app, &format!("/r/{token}?get=steal")).await.0, StatusCode::NOT_FOUND);
     assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
@@ -747,7 +748,8 @@ async fn shared_notes_price_the_cards_to_get() {
     let all = page(&app, &format!("/r/{token}?builds=all")).await.2;
     assert_eq!(page(&app, &format!("/r/{token}?builds=some")).await.0, StatusCode::NOT_FOUND);
     // Nalia once more, two Signets, one Swords; the Stick Together b2 keeps is the precon's.
-    assert!(all.contains("4 cards to get across 1 deck<") && all.contains("<td>All 2 builds</td>") && all.contains("2 to buy locally: about $1.00"), "{all}");
+    assert!(all.contains("4 cards to get across 1 deck<") && all.contains("<td>All 2 builds<br><small>") && all.contains("2 to buy locally: about $1.00"), "{all}");
+    assert!(all.contains(&format!("<a href=\"/r/{token}/party?build=b2\">Bracket 2</a> · <a href=\"/r/{token}/party?build=b3\">Bracket 3</a>")), "each build counted links to its page");
     assert!(all.contains("id=\"shop-buy\" readonly rows=\"8\" aria-label=\"Buy locally (2 cards)\">2 Arcane Signet\n</textarea>"), "{all}");
     assert!(all.contains("// Party Time: Bracket 2\n") && all.contains("// Party Time: Bracket 3\n") && all.contains("aria-label=\"Every list (2)\""), "{all}");
     assert!(all.contains(">All builds</a>") && all.contains("aria-current=\"page\" href=\"/r/"), "{all}");
@@ -756,7 +758,7 @@ async fn shared_notes_price_the_cards_to_get() {
     let mut named = both.clone();
     named["decks"][0]["builds"][0]["id"] = json!("all");
     crate::deck_research::save(&pool, &bryan, &named).await.unwrap();
-    assert!(page(&app, &format!("/r/{token}?builds=all")).await.2.contains("<td>All 2 builds</td>"));
+    assert!(page(&app, &format!("/r/{token}?builds=all")).await.2.contains("<td>All 2 builds<br>"));
     assert!(page(&app, &format!("/r/{token}?build=all")).await.2.contains("<td>Bracket 2</td>"));
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
     // Nothing priced: worth and cost are unknown, never $0.
