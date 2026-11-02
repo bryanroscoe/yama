@@ -590,7 +590,9 @@ function Sealed({ stores, view, userId }: { stores: Store[]; view: PlanView; use
 
 function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stores: Store[]; userId: string; today: string; capped: boolean }) {
   const qc = useQueryClient();
-  const [store, setStore] = useState(stores[0]?.key ?? "");
+  const [picked, setStore] = useState(stores[0]?.key ?? "");
+  // Always a store that's still listed (an import may add the first one or retire the one picked).
+  const store = stores.some((s) => s.key === picked) ? picked : (stores[0]?.key ?? "");
   const [price, setPrice] = useState("");
   const [inStock, setInStock] = useState(true);
   const [date, setDate] = useState(today);
