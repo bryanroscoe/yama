@@ -64,8 +64,13 @@ const PRO_PAGES: usize = 8;
 /// Listings in an imported file.
 pub const IMPORT_MAX_LISTINGS: usize = 20000;
 
+/// Times to the millisecond, so two checks finishing in one second keep their order.
 fn now() -> String {
-    Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    stamp(Utc::now())
+}
+
+fn stamp(t: chrono::DateTime<Utc>) -> String {
+    t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
 /// The front face, trimmed and lowercased, with curly quotes straightened: how cards are matched.
@@ -228,12 +233,20 @@ fn qualifiers(title: &str) -> Vec<String> {
             rest = &after[j + 1..];
         }
     }
-    // The suffix after the last bracket or parenthesis, without a "MTG - " prefix.
+    // " - " segments outside brackets and parentheses, after the name ("Sol Ring - Foil [C21 - 263]"),
+    // without a "MTG - " prefix.
     let bare = lower.trim_start().strip_prefix("mtg - ").unwrap_or(&lower);
-    let tail = bare.rfind([']', ')']).map_or(bare, |i| &bare[i + 1..]);
-    if let Some((_, suffix)) = tail.rsplit_once(" - ") {
-        parts.push(suffix.to_string());
+    let mut outside = String::new();
+    let mut depth = 0i32;
+    for c in bare.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = (depth - 1).max(0),
+            _ if depth == 0 => outside.push(c),
+            _ => {}
+        }
     }
+    parts.extend(outside.split(" - ").skip(1).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()));
     parts
 }
 
@@ -846,7 +859,7 @@ async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l:
 /// from the last 24 hours always stay, since the daily cap counts them, and so do rows a pending
 /// check_stores change started (they're how applying it again knows it already ran).
 async fn prune(tx: &mut sqlx::SqliteConnection, owner: &str, store: &str) -> AppResult<()> {
-    let day = (Utc::now() - Days::hours(24)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let day = stamp(Utc::now() - Days::hours(24));
     let old: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM (SELECT id, requested_at, change_id FROM store_snapshots WHERE owner_id = ? AND store_key = ? AND status != 'running'
                          ORDER BY requested_at DESC, id DESC LIMIT -1 OFFSET ?)
@@ -1078,7 +1091,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
     if targets.is_empty() {
         return Ok(json!({"snapshots": [], "skipped": skipped, "cards": uniq.len()}));
     }
-    let since = (Utc::now() - Days::hours(24)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let since = stamp(Utc::now() - Days::hours(24));
     let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND source != 'import' AND requested_at >= ?")
         .bind(owner)
         .bind(&since)
@@ -1131,7 +1144,7 @@ pub async fn check_route(State(st): State<AppState>, CurrentUser(user): CurrentU
 
 /// A check cut off by a restart (or a task that died) is over: it shows as failed.
 async fn expire_stale(pool: &SqlitePool, owner: &str) -> AppResult<()> {
-    let stale = (Utc::now() - Days::minutes(STALE_MINUTES)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let stale = stamp(Utc::now() - Days::minutes(STALE_MINUTES));
     let running: Vec<String> = sqlx::query_scalar("SELECT id FROM store_snapshots WHERE owner_id = ? AND status = 'running' AND requested_at < ?")
         .bind(owner)
         .bind(&stale)
@@ -1271,7 +1284,7 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
         });
     }
     let id = crate::util::new_id();
-    let at = fetched.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let at = stamp(fetched);
     let query = format!("Imported ({}): {}", short(&f.source, 200).unwrap_or_else(|| "a file".into()), short(&f.query, 800).unwrap_or_default());
     let mut tx = pool.begin().await?;
     sqlx::query(
