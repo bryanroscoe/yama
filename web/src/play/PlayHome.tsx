@@ -138,8 +138,9 @@ function ContinueHero({ game }: { game: OnlineGame }) {
     queryFn: ({ signal }) => api<ViewMessage>(`/api/play/${game.id}/view`, { signal }),
     staleTime: 60_000,
     refetchInterval: 60_000,
-    // Keeps the last headline while the next one loads.
-    placeholderData: (prev) => prev,
+    // Keeps the last headline while the next one loads, for this game only: another game taking
+    // its place starts without one.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === game.id ? prev : undefined),
   });
   const v = view.data?.view;
   const seats = game.seats.slice(0, 4);
