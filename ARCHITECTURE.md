@@ -145,7 +145,12 @@ are explicitly unavailable with no saved-game mutation, and are never guessed fr
 or replay syntax. The first saved record before continuation is retained in
 `online_game_originals`, cascaded on game/account deletion; later writes are fenced by identity.
 Historical boards stay in their original JSON wire schema, avoiding reinterpretation of old
-engine actions by new types. A child-process/provenance/data failure pauses recovery and
+engine actions by new types. Historical recovery restores logged controls before applying account defaults;
+new continuations carry a versioned transport sidecar so temporary holds, standing preferences,
+scoped stops and payment settings survive separately. Legacy Full modes are retained conservatively
+because old logs did not distinguish a hold from a standing preference. Completed-board transport
+failures return retryable unavailability and allow a fresh verified child on the next read; permanent
+provenance/data/replay failures remain fail-closed. No uncertain action is automatically retried. A child-process/provenance/data failure pauses recovery and
 preserves records. Runtime packaging and executable validation are in
 [historical runtime](runtime/README.md). Shipping requires the historical binary and
 its verified card data, not merely the existence of Git history. Guard-only rejection is not

@@ -51,6 +51,9 @@ impl Engine {
     }
 }
 ''')
+(out/'yama/play/src/historical-controls.rs').write_bytes((root/'runtime/historical-controls.rs').read_bytes())
+with p.open('a') as stream:
+    stream.write('\ninclude!("historical-controls.rs");\n')
 for source, target in [('worker.rs','historical-runtime.rs'),('historical.json','historical.json')]:
     (out/'yama/play/src/bin'/target).write_bytes((root/'runtime'/source).read_bytes())
 (out/'yama/Cargo.lock').write_bytes((root/'runtime/historical.lock').read_bytes())

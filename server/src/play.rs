@@ -1870,7 +1870,9 @@ async fn final_view(
             .await
             .map_err(anyhow::Error::from)?
             .map_err(|e| {
-                if e.is::<history::Busy>() { return AppError::Unavailable(e.to_string()); }
+                if e.is::<history::Busy>() || e.is::<history::Retryable>() {
+                    return AppError::Unavailable(e.to_string());
+                }
                 tracing::error!(game_id=%id,error=%e,"historical final board unavailable");
                 let reason =
                     "The verified historical runtime or its data is unavailable for this final board. The game record is unchanged."

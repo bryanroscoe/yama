@@ -9,7 +9,7 @@ Both data hashes were verified locally on 30 October 2026.
 
 One historical process shares its verified card database across server-keyed game sessions.
 Commands are serialized through private stdin/stdout pipes. A full 64-request queue returns typed retryable `Busy`; admitted requests have up to 60 seconds to reach dispatch. A queued timeout atomically cancels the request before returning Busy, so it cannot execute later. Active I/O has its own 60-second deadline starting at dispatch; queue backlog cannot be mislabeled as a hung worker. A supervisor can kill/reap the process independently of blocked pipe I/O. Views and matches remain per session. Only a successfully opened session owes a close. Destruction admits that close immediately to a reserved FIFO cleanup lane, ahead of ordinary requests. Each preceding close/active operation has the same bounded I/O deadline, and later traffic cannot starve cleanup; overload never kills unrelated sessions.
-The process exits when its last server handle is dropped. Busy keeps live boards/receivers available; commands with replies receive a retry, while safe fire-and-forget commands such as concede are retained for admission. Restart recovery retries Busy and completed-board requests return retryable HTTP503 without permanently caching unavailability. A transport failure invalidates all sessions in that process; original records remain intact for restart recovery. An AI gameplay fault instead retains the paused filtered board and command receiver, including concede. It has no
+The process exits when its last server handle is dropped. Busy keeps live boards/receivers available; commands with replies receive a retry, while safe fire-and-forget commands such as concede are retained for admission. Restart recovery retries Busy and completed-board requests return retryable HTTP503 without permanently caching unavailability. A transport failure invalidates all sessions in that process; the next completed-board request starts a fresh verified child, even if old live handles still exist. Uncertain actions are never automatically resubmitted. Original records remain intact for restart recovery. Provenance, data and replay failures remain fail-closed. An AI gameplay fault instead retains the paused filtered board and command receiver, including concede. It has no
 HTTP listener, database handle, or inherited credentials. The authenticated server selects
 seats and spectator views, persists accepted continuations, and archives the original saved
 record before the first update. Completed boards are reconstructed by the original runtime;
@@ -31,8 +31,15 @@ cargo test --workspace historical_runtime_continues_live_games -- --ignored --no
 ```
 
 The source exporter uses Git objects, never changes either checkout, and refuses an existing
-export directory. It adds only the transport binary and a byte-verifying data loader to the
-frozen adapter. It uses the current checkout's target serially so common dependency artifacts
+export directory. It adds the transport binary, a byte-verifying data loader, and the
+`historical-controls.rs` host-control transport shim to the frozen adapter. The shim
+reconstructs logged passing modes and scoped stops without replaying new actions. Account
+defaults initialize only missing fields once per seat; explicit changes remain authoritative.
+New continuations store a versioned replay sidecar for full control, stops, payment, temporary
+hold and passing state. The original replay reducer ignores this transport field. Legacy
+logs cannot distinguish a temporary hold from standing Full control, so a logged Full mode
+is conservatively retained; unlogged legacy stops and payment use account defaults. Rules,
+reducers, AI and card data stay pinned. The exporter uses the current checkout's target serially so common dependency artifacts
 can be reused; the old and new engine artifacts remain distinct. Before compiling an existing export, run `python3 runtime/verify-source.py /absolute/task-directory/historical-runtime runtime/historical-source.json`. Prepared exports can
 be built with `CARGO_TARGET_DIR="$PWD/target" CARGO_BUILD_JOBS=1 cargo build --locked --manifest-path
 /absolute/task-directory/historical-runtime/yama/Cargo.toml -p yama-play-historical --bin historical-runtime`.
@@ -91,9 +98,9 @@ candidate image after checking the current data and packaged executable digest. 
 and digest overrides require independently verified packaging; the host refuses arbitrary
 overrides. Source tests and host mocks do not prove that the image probe actually ran.
 
-Ordinary CI runs the source-provenance tests without building a second engine. The two native
-preflight tests explicitly skip unless both historical-runtime/data environment variables are
-provided. Run the full four-test command above with the built worker, then the ignored real
+Ordinary CI runs the source-provenance tests without building a second engine. The native
+preflight and control-recovery tests explicitly skip unless both historical-runtime/data environment variables are
+provided. Run the full seven-test command above with the built worker, then the ignored real
 recovery test; a source-only CI pass does not stand in for either native or image validation.
 
 The exported Cargo package is `yama-play-historical`, with its Rust library still named

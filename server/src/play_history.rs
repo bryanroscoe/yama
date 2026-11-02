@@ -71,6 +71,12 @@ impl Config {
 #[error("The historical runtime is busy. No action was applied; please retry shortly.")]
 pub(super) struct Busy;
 
+/// The child or its transport stopped. Recovery can start a fresh verified child;
+/// this is not Busy and must never cause an uncertain action to be resubmitted.
+#[derive(Debug, thiserror::Error)]
+#[error("The historical runtime stopped temporarily; retry recovery. {0}")]
+pub(super) struct Retryable(#[source] anyhow::Error);
+
 const QUEUED: u8 = 0;
 const ACTIVE: u8 = 1;
 const CANCELLED: u8 = 2;
@@ -150,7 +156,8 @@ impl Process {
             .stderr(Stdio::null())
             .env_clear()
             .spawn()
-            .context("historical runtime is unavailable")?;
+            .context("historical runtime is unavailable")
+            .map_err(Retryable)?;
         let mut input = child.stdin.take().unwrap();
         let mut output = BufReader::new(child.stdout.take().unwrap());
         let (hello_tx, hello_rx) = mpsc::channel();
@@ -237,16 +244,22 @@ impl Process {
                         worker_schedule.changed.notify_all();
                     }
                     let fatal = result.as_ref().is_err_and(|e| closing || !e.is::<Rejected>());
-                    if let Some(reply) = reply { let _ = reply.send(Response::Finished(result)); }
+                    // Invalidate before notifying callers, so an immediate recovery
+                    // cannot attach to a child already known to have failed.
                     if fatal {
                         stop_process(&worker_child, &worker_alive, &worker_reaping, &worker_schedule);
+                    }
+                    if let Some(reply) = reply { let _ = reply.send(Response::Finished(result)); }
+                    if fatal {
                         return;
                     }
                 }
             })?;
         let hello = hello_rx
             .recv_timeout(config.deadline)
-            .context("historical runtime greeting timed out")??;
+            .context("historical runtime greeting timed out")
+            .and_then(|result| result)
+            .map_err(Retryable)?;
         let expected: Value = serde_json::from_str(MANIFEST)?;
         let source: Value = serde_json::from_str(SOURCE)?;
         ensure!(
@@ -359,14 +372,8 @@ impl Worker {
         let weak = cached
             .as_ref()
             .map_err(|error| anyhow::anyhow!("{error}"))?;
-        let process = match weak.upgrade() {
-            Some(process) => {
-                ensure!(
-                    process.alive.load(Ordering::SeqCst),
-                    "historical runtime stopped; restart recovery is required"
-                );
-                process
-            }
+        let process = match weak.upgrade().filter(|p| p.alive.load(Ordering::SeqCst)) {
+            Some(process) => process,
             None => match Process::start(config) {
                 Ok(process) => {
                     let process = Arc::new(process);
@@ -374,7 +381,9 @@ impl Worker {
                     process
                 }
                 Err(error) => {
-                    *cached = Err(format!("{error:#}"));
+                    if !error.is::<Retryable>() {
+                        *cached = Err(format!("{error:#}"));
+                    }
                     return Err(error);
                 }
             },
@@ -391,7 +400,10 @@ impl Worker {
     }
     pub fn call(&mut self, mut v: Value) -> anyhow::Result<Value> {
         v["session"] = json!(self.session);
-        self.process.call(v)
+        self.process.call(v).map_err(|error| {
+            if error.is::<Busy>() || error.is::<Rejected>() { error }
+            else { Retryable(error).into() }
+        })
     }
     #[cfg(test)]
     pub(super) fn test_backlog(&self) -> TestBacklog {
@@ -520,8 +532,11 @@ fn request(cmd: Cmd) -> Option<(Value, Option<oneshot::Sender<Result<(), String>
         Cmd::Act { seat, revision, action, reply } => (json!({"type":"act","seat":seat,"revision":revision,"action":action}), Some(reply)),
         Cmd::Passing { seat, revision, mode, reply } => (json!({"type":"pass","seat":seat,"revision":revision,"mode":mode}), Some(reply)),
         Cmd::Concede { seat } => (json!({"type":"concede","seat":seat}), None),
-        Cmd::Prefs { seat, prefs } | Cmd::AccountPrefs { seat, prefs } => {
+        Cmd::Prefs { seat, prefs } => {
             (json!({"type":"prefs","seat":seat,"stops":prefs.stops,"full_control":prefs.full_control,"tap_mana":prefs.tap_mana}), None)
+        }
+        Cmd::AccountPrefs { seat, prefs } => {
+            (json!({"type":"account_prefs","seat":seat,"stops":prefs.stops,"full_control":prefs.full_control,"tap_mana":prefs.tap_mana}), None)
         }
         Cmd::FullControl { seat, on } => (json!({"type":"full_control","seat":seat,"on":on}), None),
         Cmd::Stops { seat, stops } => (json!({"type":"stops","seat":seat,"stops":stops}), None),
@@ -584,7 +599,7 @@ fn run(
     rt: &tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
     let mut deferred: VecDeque<(Value, bool)> = prefs.into_iter()
-        .map(|(seat, prefs)| (request(Cmd::Prefs { seat, prefs }).unwrap().0, false)).collect();
+        .map(|(seat, prefs)| (request(Cmd::AccountPrefs { seat, prefs }).unwrap().0, false)).collect();
     // A command's hint can add work, but only a settled/faulted batch clears
     // outstanding work. Settings and rejections do not cancel a Busy retry.
     let mut advance = true;
@@ -803,12 +818,60 @@ mod supervision_tests {
         panic!("supervisor did not kill and reap the hung child");
     }
     #[test]
-    fn hung_greeting_is_bounded_and_failure_is_cached() {
+    fn hung_greeting_is_bounded_and_can_be_retried() {
         let (_dir, config) = script("exec /bin/sleep 30");
         let start = Instant::now();
-        assert!(Worker::start(&config).is_err());
-        assert!(Worker::start(&config).is_err());
+        assert!(Worker::start(&config).err().unwrap().is::<Retryable>());
+        assert!(Worker::start(&config).err().unwrap().is::<Retryable>());
+        assert!(config.process.lock().unwrap().is_ok());
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+    #[tokio::test]
+    async fn final_board_retries_a_failed_child_without_changing_saved_records() {
+        use crate::testutil::{send, user};
+        use axum::http::{Method, StatusCode};
+        let marker_dir = tempfile::tempdir().unwrap();
+        let marker = marker_dir.path().join("failed-once");
+        let response = json!({"closed":true,"view":{"over":true},"state":{
+            "views":[[null,{"over":true}],[0,{"over":true}]],
+            "replay":"{}","log":[],"answers":[],"revision":0,
+            "over":true,"winner":null,"turn":1,"first":0
+        }});
+        let (_dir, mut config) = script(&format!(
+            "{}\nwhile IFS= read -r request; do if [ ! -e '{}' ]; then : > '{}'; exit 0; fi; printf '%s\\n' '{}'; done",
+            hello(), marker.display(), marker.display(), response
+        ));
+        config.deadline = Duration::from_secs(5);
+        std::fs::write(&config.data, "fixture data").unwrap();
+        let mut st = crate::testutil::state().await;
+        let pool = st.pool.clone();
+        let (owner, token) = user(&pool, "retry-owner@example.com").await;
+        st.play = Arc::new(PlayHub {
+            engine: Mutex::new(EngineState::Failed("current engine deliberately absent".into())),
+            live: Mutex::new(HashMap::new()), historical: Some(config.clone()),
+            unavailable: Mutex::new(HashMap::new()),
+        });
+        let hub = st.play.clone();
+        let seats = json!([{"seat":0,"kind":"human","name":"Ana","user_id":owner,"color_identity":""}]);
+        sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('retry-over','online',?,'commander','finished',40,'original',?)")
+            .bind(&owner).bind(IDENTITY).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,revision,created_at,updated_at) VALUES ('retry-over','retry-over',?,'over',?,'opaque original replay',7,'original','original')")
+            .bind(&owner).bind(seats.to_string()).execute(&pool).await.unwrap();
+        let before: String = sqlx::query_scalar("SELECT json_object('replay',replay,'revision',revision,'stage',stage,'updated',updated_at) FROM online_games WHERE game_id='retry-over'")
+            .fetch_one(&pool).await.unwrap();
+        // Keep a strong handle to the failed process while the next GET recovers.
+        let previous = Worker::start(&config).unwrap();
+        let app = crate::routes::app(st);
+        let (status, body) = send(&app, Method::GET, "/api/play/retry-over/view", Some(&token), None).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert!(!hub.unavailable.lock().unwrap().contains_key("retry-over"));
+        let (status, body) = send(&app, Method::GET, "/api/play/retry-over/view", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["view"]["over"], true);
+        let after: String = sqlx::query_scalar("SELECT json_object('replay',replay,'revision',revision,'stage',stage,'updated',updated_at) FROM online_games WHERE game_id='retry-over'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(before, after);
+        assert!(!previous.process.alive.load(Ordering::SeqCst));
     }
     #[test]
     fn hung_request_invalidates_shared_sessions_and_drop_never_waits_on_io() {
@@ -819,7 +882,8 @@ mod supervision_tests {
         let start = Instant::now();
         assert!(first.call(json!({"op":"view"})).is_err());
         assert!(second.call(json!({"op":"view"})).is_err());
-        assert!(Worker::start(&config).is_err());
+        let replacement = Worker::start(&config).unwrap();
+        assert_ne!(replacement.process_id(), first.process_id());
         assert_reaped(&first.process);
         drop(first);
         drop(second);
@@ -902,6 +966,7 @@ mod supervision_tests {
         .unwrap();
         let error = Worker::start(&config).err().unwrap();
         assert!(error.to_string().contains("executable provenance mismatch"));
+        assert!(config.process.lock().unwrap().is_err());
     }
     #[test]
     fn bound_executable_with_wrong_export_greeting_is_rejected() {
@@ -909,5 +974,6 @@ mod supervision_tests {
         let (_dir, config) = script(&format!("printf '%s\\n' '{hello}'"));
         let error = Worker::start(&config).err().unwrap();
         assert!(error.to_string().contains("provenance mismatch"), "{error:#}");
+        assert!(config.process.lock().unwrap().is_err());
     }
 }

@@ -14,9 +14,16 @@ fn state(m: &Match, humans: &[u8]) -> Value {
     for &seat in humans {
         views.push((Some(seat), m.view(Some(seat))));
     }
-    json!({"views": views, "replay": m.replay_json(), "log": m.log_lines(),
+    let mut replay: Value = serde_json::from_str(&m.replay_json()).expect("serializable replay");
+    replay["yama_historical_controls_v1"] = json!(humans.iter().map(|seat| (*seat, m.saved_controls(*seat))).collect::<Vec<_>>());
+    json!({"views": views, "replay": replay.to_string(), "log": m.log_lines(),
         "answers": m.remembered(), "revision": m.revision, "over": m.is_over(),
         "winner": m.winner(), "turn": m.turn(), "first": m.starting_seat()})
+}
+struct Game {
+    matched: Match,
+    humans: Vec<u8>,
+    initialized: std::collections::HashSet<u8>,
 }
 fn command(m: &mut Match, v: &Value) -> anyhow::Result<bool> {
     let seat = field(v, "seat")?;
@@ -77,7 +84,7 @@ fn run() -> anyhow::Result<()> {
     )?;
     out.flush()?;
     let mut engine: Option<(String, Engine)> = None;
-    let mut games: std::collections::HashMap<String, (Match, Vec<u8>)> =
+    let mut games: std::collections::HashMap<String, Game> =
         std::collections::HashMap::new();
     for line in std::io::stdin().lock().lines() {
         let v: Value = serde_json::from_str(&line?)?;
@@ -111,7 +118,9 @@ fn run() -> anyhow::Result<()> {
                         .iter()
                         .map(|(s, d)| (*s, Difficulty::from_label(d)))
                         .collect();
-                    let mut m = engine.resume(&field::<String>(&v, "replay")?, &ai)?;
+                    let replay: String = field(&v, "replay")?;
+                    let mut m = engine.resume(&replay, &ai)?;
+                    m.restore_replayed_controls();
                     m.set_names(field(&v, "names")?);
                     if !v["log"].is_null() {
                         m.set_log_lines(field(&v, "log")?);
@@ -120,8 +129,17 @@ fn run() -> anyhow::Result<()> {
                         m.set_remembered(field(&v, "answers")?);
                     }
                     let humans: Vec<u8> = field(&v, "humans")?;
+                    let mut initialized = std::collections::HashSet::new();
+                    let replay: Value = serde_json::from_str(&replay)?;
+                    if let Some(controls) = replay.get("yama_historical_controls_v1") {
+                        let controls: Vec<(u8, yama_play::HistoricalControls)> = serde_json::from_value(controls.clone())?;
+                        for (seat, control) in controls {
+                            ensure!(humans.contains(&seat) && initialized.insert(seat), "invalid control owner");
+                            m.restore_game_controls(seat, control)?;
+                        }
+                    }
                     let result = json!({"state":state(&m,&humans)});
-                    games.insert(session, (m, humans));
+                    games.insert(session, Game { matched: m, humans, initialized });
                     Ok(result)
                 }
                 "close" => {
@@ -129,25 +147,46 @@ fn run() -> anyhow::Result<()> {
                     Ok(json!({"closed":true}))
                 }
                 "view" => Ok(
-                    json!({"view":games.get(&session).context("not open")?.0.view(field(&v,"viewer")?)}),
+                    json!({"view":games.get(&session).context("not open")?.matched.view(field(&v,"viewer")?)}),
                 ),
                 "preview" => Ok(
-                    json!({"sources":games.get(&session).context("not open")?.0.auto_tap_preview(field(&v,"seat")?,field(&v,"object")?)}),
+                    json!({"sources":games.get(&session).context("not open")?.matched.auto_tap_preview(field(&v,"seat")?,field(&v,"object")?)}),
                 ),
                 "command" => {
-                    let (m, humans) = games.get_mut(&session).context("not open")?;
-                    let advance = command(m, &v)?;
+                    let game = games.get_mut(&session).context("not open")?;
+                    let m = &mut game.matched;
+                    let humans = &game.humans;
+                    let seat: u8 = field(&v, "seat")?;
+                    ensure!(humans.contains(&seat), "unknown human control owner");
+                    let advance = if v["type"] == "account_prefs" {
+                        if !game.initialized.contains(&seat) {
+                            let stops = field(&v, "stops")?;
+                            let full = field(&v, "full_control")?;
+                            let tap = field(&v, "tap_mana")?;
+                            m.initialize_prefs(seat, stops, full, tap);
+                            game.initialized.insert(seat);
+                        }
+                        false
+                    } else {
+                        let advance = command(m, &v)?;
+                        if matches!(v["type"].as_str(), Some("prefs" | "full_control" | "stops")) {
+                            game.initialized.insert(seat);
+                        }
+                        advance
+                    };
                     if advance {
-                        m.auto_pass(&humans);
+                        m.auto_pass(humans);
                     }
-                    Ok(json!({"state":state(m,&humans),"advance":advance}))
+                    Ok(json!({"state":state(m,humans),"advance":advance}))
                 }
                 "batch" => {
-                    let (m, humans) = games.get_mut(&session).context("not open")?;
+                    let game = games.get_mut(&session).context("not open")?;
+                    let m = &mut game.matched;
+                    let humans = &game.humans;
                     let mut moved = 0;
                     let mut fault = None;
                     let settled = loop {
-                        let passed = m.auto_pass(&humans);
+                        let passed = m.auto_pass(humans);
                         moved += passed;
                         let acted = match m.run_ai(40usize.saturating_sub(moved).max(1)) {
                             Ok(n) => n,
@@ -159,12 +198,12 @@ fn run() -> anyhow::Result<()> {
                         moved += acted;
                         let settled = passed + acted == 0 || m.is_over();
                         if settled || moved >= 40 {
-                            moved += m.auto_pass(&humans);
+                            moved += m.auto_pass(humans);
                             break settled;
                         }
                     };
                     Ok(
-                        json!({"state":state(m,&humans),"moved":moved,"settled":settled,"fault":fault}),
+                        json!({"state":state(m,humans),"moved":moved,"settled":settled,"fault":fault}),
                     )
                 }
                 _ => bail!("unsupported runtime operation"),
@@ -202,8 +241,20 @@ fn fixture(path: &str) -> anyhow::Result<()> {
     m.set_names(vec!["Ana".into(), "Ben".into()]);
     m.run_ai(40)?;
     let live = state(&m, &[0]);
+    let mut controlled = engine.resume(&m.replay_json(), &[(1, Difficulty::Easy)])?;
+    controlled.set_prefs(0, Some(yama_play::Stops {
+        own: ["PreCombatMain".into()].into(),
+        others: ["EndStep".into()].into(),
+    }), true);
+    controlled.set_tap_mana(0, yama_play::PayMode::Manual);
+    let full = state(&controlled, &[0]);
+    let mut legacy: Value = serde_json::from_str(full["replay"].as_str().unwrap())?;
+    legacy.as_object_mut().unwrap().remove("yama_historical_controls_v1");
+    let mut held = engine.resume(&m.replay_json(), &[(1, Difficulty::Easy)])?;
+    held.set_hold(0, true);
     m.concede(0)?;
-    println!("{}", json!({"live":live,"over":state(&m,&[0])}));
+    println!("{}", json!({"live":live,"over":state(&m,&[0]),"full":full,
+        "legacy_full_replay":legacy.to_string(),"hold":state(&held,&[0])}));
     Ok(())
 }
 fn main() -> anyhow::Result<()> {
