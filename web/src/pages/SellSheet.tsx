@@ -53,7 +53,11 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   const chosen = cards.filter((c) => qty(c) > 0);
   const value = chosen.reduce((v, c) => v + (c.unit_price_usd ?? 0) * qty(c), 0);
   const valueless = chosen.filter((c) => c.unit_price_usd == null).reduce((n, c) => n + qty(c), 0);
-  const day = shortDate(chosen.map((c) => c.price_date).filter((d): d is string => !!d).sort().at(-1)) ?? null;
+  // Each price is its printing's newest snapshot, so the sum can span days: say the range.
+  const days = chosen.filter((c) => c.unit_price_usd != null).map((c) => c.price_date).filter((d): d is string => !!d).sort();
+  const oldest = shortDate(days[0]);
+  const newest = shortDate(days.at(-1));
+  const dates = !newest ? "date unknown" : oldest === newest ? newest : `${oldest} to ${newest}`;
   const flagged = chosen.filter((c) => special(c).length > 0).reduce((n, c) => n + qty(c), 0);
   const limitNote = overLimit(format, text);
   const info = SELL_FORMATS[format];
@@ -120,7 +124,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           {text.copies > 0 && (
             <span className="dim">
               {" "}
-              {valueless < text.copies ? `${usd(value)} market value${day ? ` on ${day}` : ""}${valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}.` : "No market price for any of them."} A buylist pays less than market; each store sets its own offer.
+              {valueless < text.copies ? `${usd(value)} market value (TCGplayer market via Scryfall, ${dates})${valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}.` : "No market price for any of them."} A buylist pays less than market; each store sets its own offer.
             </span>
           )}
         </p>

@@ -32,7 +32,9 @@ describe("the sell list sheet", () => {
 
   it("totals known prices with their date and counts the rest", () => {
     const h = html([item({ unit_price_usd: 1.5, price_date: "2026-11-01", qty: 2 }), item({ id: "i2", name: "Arcane Signet" })]);
-    expect(h).toContain("$3.00 market value on Nov 1, 1 with no price.");
+    expect(h).toContain("$3.00 market value (TCGplayer market via Scryfall, Nov 1), 1 with no price.");
+    const span = html([item({ unit_price_usd: 1, price_date: "2026-10-30" }), item({ id: "i2", unit_price_usd: 2, price_date: "2026-11-01" })]);
+    expect(span).toContain("$3.00 market value (TCGplayer market via Scryfall, Oct 30 to Nov 1).");
   });
 
   it("leaves deck boxes and proxies out by default, and says how many a deck box would add", () => {
