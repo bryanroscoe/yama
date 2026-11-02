@@ -252,6 +252,49 @@ async fn the_delete_route_needs_the_email_and_spares_admins() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+#[tokio::test]
+async fn people_delete_their_own_account_with_their_email_but_admins_cannot() {
+    let (app, pool) = app().await;
+    let (_, admin_token) = admin(&pool, "bryan@example.com").await;
+    let (pat, pat_token) = user(&pool, "pat@example.com").await;
+    let (_, sam_token) = user(&pool, "sam@example.com").await;
+    deck(&pool, &pat, "Pat's deck").await;
+
+    let (status, _) = send(&app, Method::DELETE, "/api/me", None, Some(json!({"confirm_email": "pat@example.com"}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "signed out");
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&admin_token), Some(json!({"confirm_email": "bryan@example.com"}))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an admin comes back from YAMA_ADMIN_EMAILS");
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&sam_token), Some(json!({"confirm_email": "pat@example.com"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "only your own email confirms");
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&pat_token), Some(json!({"confirm_email": "pat@exampel.com"}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a typo doesn't delete");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&pat_token), None).await.0, StatusCode::OK);
+
+    let (status, report) = send(&app, Method::DELETE, "/api/me", Some(&pat_token), Some(json!({"confirm_email": " PAT@example.com "}))).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["email"], "pat@example.com");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&pat_token), None).await.0, StatusCode::UNAUTHORIZED);
+    let left: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM users WHERE id = ?1) + (SELECT COUNT(*) FROM decks WHERE owner_id = ?1)")
+        .bind(&pat)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0, "the account and its decks are gone");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&sam_token), None).await.0, StatusCode::OK, "nobody else is touched");
+}
+
+#[tokio::test]
+async fn behind_cloudflare_access_only_an_admin_deletes_accounts() {
+    let pool = crate::db::test_pool().await;
+    let mut cfg = crate::testutil::config();
+    cfg.cf_access_team = Some("team".into());
+    let app = crate::routes::app(crate::testutil::state_with(cfg, pool.clone()).await);
+    let (_, token) = user(&pool, "pat@example.com").await;
+    let (status, _) = send(&app, Method::DELETE, "/api/me", Some(&token), Some(json!({"confirm_email": "pat@example.com"}))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "Access would sign the account straight back in");
+    assert_eq!(send(&app, Method::GET, "/api/me", Some(&token), None).await.0, StatusCode::OK);
+}
+
 /// Every column in the schema that can hold an account id: foreign keys to `users`, and columns
 /// whose names say they hold one.
 async fn schema_user_columns(pool: &SqlitePool) -> BTreeSet<(String, String)> {
@@ -378,6 +421,103 @@ async fn scalar(pool: &SqlitePool, sql: &str, bind: &str) -> Option<String> {
 fn seat_json(seat: u8, user: &str, name: &str) -> Value {
     json!({"seat": seat, "kind": "human", "user_id": user, "name": name, "deck_id": null, "deck_version_id": null,
            "deck_name": null, "color_identity": "", "commander": null, "difficulty": null})
+}
+
+#[tokio::test]
+async fn games_that_stay_keep_no_name_of_the_deleted_account_in_their_history() {
+    let pool = crate::db::test_pool().await;
+    let (v, _) = user(&pool, "victim@example.com").await;
+    let (b, _) = user(&pool, "bystander@example.com").await;
+    let g = fill(&pool, "games", &[("created_by", t(&b)), ("mode", t("in_person")), ("status", t("finished"))]).await;
+    // Seat 0 was the victim's, logged under a typed name; seat 1 is a bystander who happens to share
+    // the victim's display name; seat 2 was the victim's ("Vix") until Pat, a guest, took it.
+    fill(&pool, "game_seats", &[("game_id", t(&g)), ("seat", V::I(0)), ("user_id", t(&v)), ("guest_name", t("Vic T"))]).await;
+    fill(&pool, "game_seats", &[("game_id", t(&g)), ("seat", V::I(1)), ("user_id", t(&b)), ("guest_name", t("victim"))]).await;
+    fill(&pool, "game_seats", &[("game_id", t(&g)), ("seat", V::I(2)), ("guest_name", t("Pat"))]).await;
+    let event = |seq: i64, seat: i64, payload: Value| {
+        let pool = pool.clone();
+        let g = g.clone();
+        async move {
+            sqlx::query("INSERT INTO game_events (game_id, seq, actor_seat, kind, payload, created_at) VALUES (?, ?, ?, ?, ?, '2026-11-01T00:00:00Z')")
+                .bind(&g)
+                .bind(seq)
+                .bind(seat)
+                .bind(payload["type"].as_str().unwrap_or("life"))
+                .bind(payload.to_string())
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    event(1, 0, json!({"type": "player", "seat": 0, "name": "Vee", "userId": v, "was": {"name": "Seat 1"}})).await;
+    event(2, 0, json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Vee"}})).await;
+    event(3, 1, json!({"type": "player", "seat": 1, "name": "victim", "userId": b})).await;
+    event(4, 0, json!({"type": "life", "seat": 0, "delta": -3})).await;
+    event(5, 2, json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Vix", "userId": v}})).await;
+    // Later the bystander, also called Vix, took that seat: their name is theirs.
+    event(6, 2, json!({"type": "player", "seat": 2, "name": "Vix", "userId": b, "was": {"name": "Pat"}})).await;
+    // And a guest who happens to be called Vee took seat 0 from the victim.
+    event(7, 0, json!({"type": "player", "seat": 0, "name": "Vee", "was": {"name": "Vic T", "userId": v}})).await;
+
+    let mut tx = pool.begin().await.unwrap();
+    delete_rows(&mut tx, &v).await.unwrap();
+    tx.commit().await.unwrap();
+
+    let payload = |seq: i64| {
+        let pool = pool.clone();
+        let g = g.clone();
+        async move {
+            let p: String = sqlx::query_scalar("SELECT payload FROM game_events WHERE game_id = ? AND seq = ?").bind(&g).bind(seq).fetch_one(&pool).await.unwrap();
+            serde_json::from_str::<Value>(&p).unwrap()
+        }
+    };
+    assert_eq!(payload(1).await, json!({"type": "player", "seat": 0, "name": "Former player", "was": {"name": "Seat 1"}}));
+    assert_eq!(payload(2).await, json!({"type": "player", "seat": 0, "name": "Former player", "was": {"name": "Former player"}}));
+    assert_eq!(payload(3).await, json!({"type": "player", "seat": 1, "name": "victim", "userId": b}), "another seat keeps its name");
+    assert_eq!(payload(4).await, json!({"type": "life", "seat": 0, "delta": -3}));
+    assert_eq!(payload(5).await, json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Former player"}}), "a seat it left");
+    assert_eq!(payload(6).await, json!({"type": "player", "seat": 2, "name": "Vix", "userId": b, "was": {"name": "Pat"}}), "a namesake keeps their name");
+    assert_eq!(payload(7).await, json!({"type": "player", "seat": 0, "name": "Vee", "was": {"name": "Former player"}}), "so does a guest after it");
+    // A phone retrying an upload whose answer was lost still holds the original events.
+    use super::delete::is_scrubbed_player_event;
+    let sent2 = json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
+    let deleted = |u: &str| u == v;
+    assert!(is_scrubbed_player_event(&payload(2).await, &sent2, &deleted));
+    let sent5 = json!({"type": "player", "seat": 2, "name": "Pat", "was": {"name": "Vix", "userId": v}});
+    assert!(is_scrubbed_player_event(&payload(5).await, &sent5, &deleted));
+    let other = json!({"type": "player", "seat": 0, "name": "Somebody", "userId": v, "was": {"name": "Vee"}});
+    assert!(!is_scrubbed_player_event(&payload(3).await, &other, &deleted), "an unscrubbed event matches only exactly");
+    let moved = json!({"type": "player", "seat": 1, "name": "Vic T", "userId": v, "was": {"name": "Vee"}});
+    assert!(!is_scrubbed_player_event(&payload(2).await, &moved, &deleted), "another seat is another event");
+    // Another device's change under the same number names a living account: never a retry.
+    let elsewhere = json!({"type": "player", "seat": 0, "name": "Bo", "userId": b, "was": {"name": "Vee"}});
+    assert!(!is_scrubbed_player_event(&payload(2).await, &elsewhere, &deleted));
+    assert!(!is_scrubbed_player_event(&payload(2).await, &sent2, &|_: &str| false), "only a deleted account may be missing");
+    // An event the phone recorded before the deletion and uploads after is stored scrubbed, and its
+    // retry still matches.
+    let mut late = json!({"type": "player", "seat": 0, "name": "Vic T", "userId": v, "was": {"name": "Seat 1"}});
+    let original = late.clone();
+    assert!(super::delete::scrub_departed(&mut late, &deleted));
+    assert_eq!(late, json!({"type": "player", "seat": 0, "name": "Former player", "was": {"name": "Seat 1"}}));
+    assert!(is_scrubbed_player_event(&late, &original, &deleted));
+    let mut alive = json!({"type": "player", "seat": 1, "name": "victim", "userId": b});
+    assert!(!super::delete::scrub_departed(&mut alive, &deleted), "a living account is left alone");
+    let seat = |n: i64| {
+        let pool = pool.clone();
+        let g = g.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<String>>("SELECT guest_name FROM game_seats WHERE game_id = ? AND seat = ?").bind(&g).bind(n).fetch_one(&pool).await.unwrap()
+        }
+    };
+    assert_eq!(seat(0).await.as_deref(), Some("Former player"), "even a name typed in when it was logged");
+    assert_eq!(seat(1).await.as_deref(), Some("victim"));
+    assert_eq!(seat(2).await.as_deref(), Some("Pat"));
+    let leaks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM game_events WHERE payload LIKE '%' || ? || '%' OR payload LIKE '%Vic T%' OR (payload LIKE '%Vee%' AND seq <> 7) OR (payload LIKE '%Vix%' AND seq <> 6)")
+        .bind(&v)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(leaks, 0);
 }
 
 #[tokio::test]

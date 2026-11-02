@@ -100,6 +100,47 @@ export function useLogout() {
   };
 }
 
+/**
+ * Delete the signed-in account and everything it owns (`DELETE /api/me`), and forget it on this
+ * device as signing out does: plan data and unsent answers, the token and the cached user. The
+ * person types their email to confirm; the server checks it too. A refused deletion (a typo, an
+ * expired sign-in) leaves everything on the phone. One whose answer is lost on the way back may
+ * have happened, so the plan data (prices paid) leaves then; trying again gets 401 (the session
+ * went with the account), which finishes the rest. A 401 on a first try is only an expired
+ * sign-in, and the account is still there.
+ */
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  const answerLost = useRef(false);
+  return useMutation({
+    mutationFn: async (confirmEmail: string) => {
+      const userId = qc.getQueryData<User | null>(["me"])?.id;
+      const clearPlans = async () => {
+        await clearPlanData(userId);
+        qc.removeQueries({ queryKey: ["plan"] });
+        qc.removeQueries({ queryKey: ["plan-cache"] });
+      };
+      try {
+        await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
+      } catch (e) {
+        if (!(e instanceof ApiError)) {
+          answerLost.current = true;
+          await clearPlans();
+          throw new Error("Couldn't reach Yama. Try again when you're online; if your account was already deleted, that finishes signing this phone out.");
+        }
+        if (e.status !== 401) throw e;
+        if (!answerLost.current) throw new Error("Your sign-in has run out. Sign in again to delete your account.");
+      }
+      await clearPlans();
+      setToken(null);
+      localStorage.removeItem(ME_KEY);
+      qc.setQueryData(["me"], null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      window.location.replace("/");
+    },
+  });
+}
+
 /** The sign-in page, coming back to `from` (a path on Yama) once signed in. */
 export function signInPath(from?: string): string {
   return from && from !== "/" && from !== "/signin" ? `/signin?next=${encodeURIComponent(from)}` : "/signin";

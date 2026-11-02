@@ -14,6 +14,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-delete-account",
+    date: "2026-11-01",
+    title: "Delete your account yourself",
+    items: [
+      "Group, You now has Delete account. It deletes your account and everything in it once you type your email to confirm. Games you played with other people stay in their history without your name.",
+    ],
+    link: { to: "/group#delete-account", label: "Open Group, You" },
+  },
+  {
     id: "2026-11-01-table-first-spin",
     date: "2026-11-01",
     title: "Picking who goes first, with a spin",
