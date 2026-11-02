@@ -16,6 +16,16 @@
 - CI minutes are paid: keep PRs in draft until ready (drafts run no CI). On the final commit, `scripts/local-ci.sh` runs CI's checks and, only if all pass, records a `Local-CI` trailer so PR CI skips them (docs/ci.md). Never write the trailer by hand; the checks must actually pass. CI runs on GitHub-hosted runners (Bryan, 1 Nov 2026) with a cached Rust build; web-only PRs skip the Rust job, and push CI on main skips re-testing a tree a PR run already passed. If PR CI is backed up (jobs still queued after 10 minutes), GitHub is out of minutes or billing-blocked, or a run has taken over 30 minutes, don't wait (Bryan, 1 Nov 2026): run the checks locally, treat that as good enough, `scripts/ci/skip.sh <pr> "<what you ran>"`, and merge.
 - To see the site (a polish pass, checking a UI change at every size), use `npm run polish` (docs/polish.md): screenshots of every page, press and size with layout and copy checks, read-only even on production.
 
+## Machine-wide rules
+
+These are also in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`; they're here so an agent sees them whichever tool or checkout it starts from.
+
+- Rules that cross projects (Bryan, 2 Nov 2026): a rule Bryan gives that applies beyond one repository goes in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and the AGENTS.md of the repositories it touches (at least `yama` and `commander-decks`).
+- Credentials agents reuse (Bryan, 2 Nov 2026: "Let's store that token locally. I'm tired of having to do it."): keep each one in 1Password and in a local file under `~/.config/<service>/` (directory 700, file 600, outside every repository), so a run never waits on a 1Password prompt. Read the local file first; fall back to `op read` only if it's missing or refused, then refresh the local copy. When one rotates, update both. Never commit, print, paste, log or put one on a command line. Mythic Tools refresh token: `~/.config/mythic-tools/refresh-token`.
+- Git identity: commit, tag and push only as `Bryan Roscoe <bryanroscoe@gmail.com>`. Check `git config user.email` and any `GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_EMAIL` before committing; never bypass the pre-push hook (`--no-verify`). If a wrong address is already on GitHub, stop and tell Bryan.
+- Bounded waits (Bryan, 1 Nov 2026): never end a turn with CI, a deploy or a review pending unless something armed will wake you. Every wait gets a deadline of at most 2 hours; when it runs out, check the real state, act on it, and tell Bryan what is stuck.
+- Disk and builds: follow `~/.config/agent-hygiene/RULES.md` (check free space first, one compiler job, clean your own output and retire your worktree when done).
+
 ## Code
 
 - Server: Rust 2024, Axum 0.8, sqlx 0.9 on SQLite. sqlx 0.9 requires `sqlx::AssertSqlSafe(..)` around SQL built at runtime; only ever interpolate constants or compiled search clauses, and bind every value.
