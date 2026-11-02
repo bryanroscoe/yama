@@ -90,7 +90,8 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str, scope: &Scope) -> 
         // Matched by name on every read, so a want saved before Yama knew the precon, or a newer
         // release with the same name, is picked up; the match is saved when it changes.
         let found = precon_for(pool, &name).await?;
-        if found.is_some() && found != precon {
+        if found != precon {
+            // Also cleared when the name no longer matches (a precon renamed or removed).
             sqlx::query("UPDATE shopping_wants SET precon_id = ? WHERE id = ? AND owner_id = ?").bind(&found).bind(&id).bind(owner).execute(pool).await?;
             precon = found;
         }
@@ -253,13 +254,22 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
             #[allow(clippy::type_complexity)]
             let had: Option<(String, String, String, Option<f64>, bool, String, Option<String>)> =
                 sqlx::query_as("SELECT owner_id, want_id, store_key, price, in_stock, checked_on, note FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
-            match had {
+            let used: Option<String> = sqlx::query_scalar("SELECT owner_id FROM sealed_quote_ids WHERE id = ?").bind(i).fetch_optional(pool).await?;
+            match (had, used) {
                 // The same price sent again: already recorded.
-                Some((o, w, st, p, s, c, n)) if o == user.id && w == want && st == b.store && p == b.price && s == b.in_stock && c == checked && n.as_deref() == note => {
+                (Some((o, w, st, p, s, c, n)), _) if o == user.id && w == want && st == b.store && p == b.price && s == b.in_stock && c == checked && n.as_deref() == note => {
                     return Ok(Json(json!({"id": i})));
                 }
-                Some(_) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
-                None => i.to_string(),
+                (Some(_), _) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
+                // Saved before and since pruned from the history: saved already, nothing to add.
+                (None, Some(o)) if o == user.id => return Ok(Json(json!({"id": i}))),
+                (None, Some(_)) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
+                (None, None) => {
+                    sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, created_at) VALUES (?, ?, ?)").bind(i).bind(&user.id).bind(now()).execute(pool).await?;
+                    let month = (Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                    sqlx::query("DELETE FROM sealed_quote_ids WHERE owner_id = ? AND created_at < ?").bind(&user.id).bind(&month).execute(pool).await?;
+                    i.to_string()
+                }
             }
         }
         Some(_) => return Err(AppError::bad("id: 8 to 64 letters, digits or dashes")),
@@ -519,6 +529,12 @@ mod tests {
         // The same id with another price is refused, not silently dropped.
         let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 43.0, "id": "retry-0001"}))).await;
         assert_eq!(s.as_u16(), 409);
+        // A late retry of a price the history has since pruned still saves nothing.
+        sqlx::query("DELETE FROM sealed_quotes WHERE id = 'retry-0001'").execute(&pool).await.unwrap();
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
+        assert!(s.is_success());
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE id = 'retry-0001'").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0);
         // A short history per product and store.
         for i in 0..(HISTORY + 3) {
             send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;

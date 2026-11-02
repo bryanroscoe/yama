@@ -17,3 +17,12 @@ CREATE TABLE sealed_quotes (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX sealed_quotes_owner ON sealed_quotes (owner_id, want_id, checked_on);
+
+-- Every price id the page sent (kept 30 days), so a late retry of a price the history has since
+-- pruned still saves nothing.
+CREATE TABLE sealed_quote_ids (
+    id          TEXT PRIMARY KEY,
+    owner_id    TEXT NOT NULL REFERENCES users(id),
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX sealed_quote_ids_owner ON sealed_quote_ids (owner_id, created_at);
