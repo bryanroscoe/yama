@@ -37,7 +37,8 @@ import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { announceNext, JoinSheet, ShareCard, startHosting, useHosting } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable } from "./store";
 import { history } from "./history";
-import { DiceSheet } from "./DiceSheet";
+import { DiceSheet, roll as rollDie } from "./DiceSheet";
+import { spinSchedule } from "./spin";
 import { LayoutPicker } from "./LayoutPicker";
 import { EditSeat } from "./SeatEditor";
 import { setCountTurns, useCountTurns } from "./turns";
@@ -193,7 +194,7 @@ export function TablePlay() {
         </Sheet>
       )}
       {knockSeat !== null && (
-        <Sheet label="Knock out" onClose={() => setKnockSeat(null)}>
+        <Sheet centered label="Knock out" onClose={() => setKnockSeat(null)}>
           <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
         </Sheet>
       )}
@@ -231,17 +232,17 @@ export function TablePlay() {
         </Sheet>
       )}
       {dice && (
-        <Sheet label="Dice and coin" onClose={() => setDice(false)}>
+        <Sheet centered label="Dice and coin" onClose={() => setDice(false)}>
           <DiceSheet players={state.players} onDone={() => setDice(false)} />
         </Sheet>
       )}
       {askFirst && !joining && !finishing && (
-        <Sheet label="Who goes first?" onClose={() => setAskFirst(false)}>
+        <Sheet centered label="Who goes first?" onClose={() => setAskFirst(false)}>
           <FirstSheet state={state} artFor={artFor} onDone={() => setAskFirst(false)} />
         </Sheet>
       )}
       {lethal.ask && !menu && !finishing && !attack && taking === null && !askFirst && !joining && !dice && sheetSeat === null && knockSeat === null && (
-        <Sheet label="Out of the game?" onClose={lethal.dismiss}>
+        <Sheet centered label="Out of the game?" onClose={lethal.dismiss}>
           <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
         </Sheet>
       )}
@@ -1376,16 +1377,37 @@ function GameLog({ state, log }: { state: TableState; log: LoggedEvent[] }) {
  */
 function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtFor; onDone: () => void }) {
   const [rolled, setRolled] = useState<number | null>(null);
+  // While "Pick at random" spins: the lit tile, and whether the light has stopped on it.
+  const [lit, setLit] = useState<{ index: number; landed: boolean } | null>(null);
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const spinning = lit !== null;
   const pick = (seat: number) => {
+    if (spinning) return;
     dispatch({ type: "set_first", seat });
     onDone();
   };
+  const land = (seat: number) => {
+    dispatch({ type: "set_first", seat, rolled: true });
+    setLit(null);
+    setRolled(seat);
+  };
   const roll = () => {
-    const r = new Uint32Array(1);
-    crypto.getRandomValues(r);
-    const p = state.players[r[0]! % state.players.length]!;
-    dispatch({ type: "set_first", seat: p.seat, rolled: true });
-    setRolled(p.seat);
+    if (spinning) return;
+    const players = state.players;
+    // Drawn first; the spin only shows it. Recorded once the light stops, so closing mid-spin records nothing.
+    const to = rollDie(players.length) - 1;
+    const seat = players[to]!.seat;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return land(seat);
+    const from = Math.max(0, players.findIndex((p) => p.seat === rolled));
+    const steps = spinSchedule(players.length, from, to);
+    const end = steps.at(-1)!.at;
+    setRolled(null);
+    setLit({ index: from, landed: false });
+    timers.current = [
+      ...steps.map(({ index, at }) => window.setTimeout(() => setLit({ index, landed: at === end }), at)),
+      window.setTimeout(() => land(seat), end + 550),
+    ];
   };
   const winner = state.players.find((p) => p.seat === rolled);
   if (winner) {
@@ -1408,15 +1430,20 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
         <h2>Who goes first?</h2>
         <button className="quiet" onClick={onDone}>Skip</button>
       </div>
-      <div className="tm-winners">
-        {state.players.map((p) => (
-          <button key={p.seat} className="tm-winner" onClick={() => pick(p.seat)}>
+      <div className="tm-winners" aria-busy={spinning}>
+        {state.players.map((p, i) => (
+          <button
+            key={p.seat}
+            className={`tm-winner${lit?.index === i ? (lit.landed ? " lit landed" : " lit") : ""}`}
+            aria-disabled={spinning}
+            onClick={() => pick(p.seat)}
+          >
             <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-winner-dot" />
             <span>{p.name}</span>
           </button>
         ))}
       </div>
-      <button className="primary" onClick={roll}>Pick at random</button>
+      <button className="primary" aria-disabled={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</button>
       <p className="small dim" style={{ margin: 0 }}>Saved with the game for the playgroup's turn-order stats. Change it any time from the menu.</p>
     </div>
   );
