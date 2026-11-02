@@ -7,6 +7,7 @@ Only published main with successful push CI reaches Docker. Importing is inert.
 import base64
 from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
+import errno
 import fcntl
 import hashlib
 import json
@@ -35,6 +36,8 @@ LOCK_WAIT_SECONDS = 110 * 60
 RELEASE_SECONDS = 105 * 60
 COMMAND_DEADLINE = None
 MAX_TOKEN_LENGTH = 16_384
+BACKUP_RETENTION_SECONDS = 48 * 60 * 60
+BACKUP_KEEP_NEWEST = 3
 
 
 class Refused(Exception):
@@ -615,7 +618,8 @@ def activate(source, revision, images, record, record_path, token):
         if not (APP / 'data/backups' / backup).is_file():
             raise Refused('Backup command did not produce a database')
         previous['backup'] = str(APP / 'data/backups' / backup)
-    # Keep every attempt's recovery inputs, including superseded backups.
+    # Each attempt keeps its own recovery inputs. prune_backups keeps the copies that
+    # previous.json and current.json name, so a rollback never loses its backup.
     write_json(record_path.with_suffix('.previous.json'), previous)
     record.update(backup=previous['backup'], images=dict(zip(SERVICES, images)))
     write_json(record_path, record)
@@ -646,6 +650,83 @@ def activate(source, revision, images, record, record_path, token):
         time.sleep(5)
     raise Refused('Release health failed; previous images and pre-release backup are in previous.json. '
                   'Do not restore a database or reverse migrations automatically.')
+
+
+def rollback_backup(name):
+    """The backup file name that BASE/<name> records, or None."""
+    value = json.loads((BASE / name).read_text()).get('backup')
+    if value is not None and not isinstance(value, str):
+        raise Refused(name + ' names an invalid backup path')
+    return Path(value).name if value else None
+
+
+@contextmanager
+def real_directory(path, dir_fd=None):
+    """Open a directory by descriptor without following a symlink at its last component.
+
+    Holding the descriptor pins the directory itself: a rename or symlink swap of the path
+    afterwards cannot redirect what is later listed or deleted through it.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused('Backup directory must be a real directory') from None
+        raise
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def prune_backups(release_backup, now=None):
+    """Delete old deploy copies from data/backups. Call only after a healthy activation.
+
+    Candidates are regular *.db files directly in that directory. Symlinks, subdirectories
+    and other files are never touched. Kept: the newest few by mtime, anything younger than
+    the window, this release's copy, and the copies named by the rollback inputs.
+    """
+    now = time.time() if now is None else now
+    with ExitStack() as held:
+        try:
+            data = held.enter_context(real_directory(APP / 'data'))
+            backups = held.enter_context(real_directory('backups', dir_fd=data))
+        except FileNotFoundError:
+            return  # first installation: no data folder or no deploy copies yet
+        # Read the rollback inputs before deleting anything: if one is unreadable, keep every copy.
+        kept = {rollback_backup('previous.json'), rollback_backup('current.json')}
+        if release_backup:
+            kept.add(Path(release_backup).name)
+        copies = []
+        # Scan and delete through the held descriptor, never through the path again.
+        with os.scandir(backups) as entries:
+            for entry in entries:
+                if entry.name.startswith('.') or not entry.name.endswith('.db') or not entry.is_file(follow_symlinks=False):
+                    continue
+                status = entry.stat(follow_symlinks=False)
+                copies.append((status.st_mtime, entry.name, status.st_size))
+        copies.sort(reverse=True)
+        kept.update(name for _, name, _ in copies[:BACKUP_KEEP_NEWEST])
+        freed = removed = 0
+        for modified, name, size in copies:
+            if name in kept or now - modified < BACKUP_RETENTION_SECONDS:
+                continue
+            os.unlink(name, dir_fd=backups)
+            freed += size
+            removed += 1
+            log('Removed old backup ' + name + ' (' + str(size) + ' bytes)')
+        log('Backup retention freed ' + str(freed) + ' bytes; ' + str(len(copies) - removed) + ' copies kept')
+
+
+def retain_backups(release_backup):
+    # Housekeeping after a verified release: a failure is logged, never recorded as a failed release.
+    try:
+        prune_backups(release_backup)
+    except Refused as error:
+        log('Backup retention skipped: ' + str(error))
+    except Exception as error:
+        # Only the type: library messages are not printed or persisted here.
+        log('Backup retention failed: ' + type(error).__name__)
 
 
 def release(revision, token, check_only=False):
@@ -750,6 +831,7 @@ def release(revision, token, check_only=False):
                 record.update(status='success', stage='complete')
                 write_json(BASE / 'current.json', record)
                 log('Production verified at ' + revision + '; HTTP health ok, all image IDs match.')
+                retain_backups(record.get('backup'))
                 return 'success'
         except Exception as error:
             record['status'] = 'failed'

@@ -310,6 +310,52 @@ class HostGate(unittest.TestCase):
         self.assertEqual(compose.call_args.args[2:], ('up', '-d', '--no-deps', '--pull', 'never', *host.SERVICES))
         self.assertEqual(calls[1:], [['docker', 'tag', s + ':' + SHA, s + ':latest'] for s in host.SERVICES])
 
+    def release_steps(self, activate):
+        """Stub release()'s steps around activation; return the retention mock."""
+        repo = self.root / 'repo'
+        repo.mkdir(exist_ok=True)
+        patches = {'log': {}, 'verify_ci': {'return_value': True}, 'checkout': {'return_value': repo},
+                   'phase_checkout': {'return_value': (repo, OTHER)}, 'bootstrap_sidecars': {},
+                   'export': {}, 'run': {'return_value': 'image-id'},
+                   'activate': {'side_effect': activate}, 'prune_backups': {}}
+        mocks = {}
+        for name, options in patches.items():
+            p = patch.object(host, name, **options)
+            mocks[name] = p.start()
+            self.addCleanup(p.stop)
+        return mocks['prune_backups']
+
+    def test_retention_runs_after_a_healthy_activation_with_this_release_copy(self):
+        release_copy = str(self.app / 'data/backups/release.db')
+
+        def activated(source, revision, images, record, record_path, token):
+            record['backup'] = release_copy
+            return True
+        prune = self.release_steps(activated)
+        self.assertEqual(host.release(SHA, 'token'), 'success')
+        prune.assert_called_once_with(release_copy)
+
+    def test_superseded_activation_never_prunes(self):
+        prune = self.release_steps(lambda *args: False)
+        self.assertEqual(host.release(SHA, 'token'), 'superseded')
+        prune.assert_not_called()
+
+    def test_refused_activation_never_prunes(self):
+        prune = self.release_steps(host.Refused('Release health failed'))
+        with self.assertRaisesRegex(host.Refused, 'Release health failed'):
+            host.release(SHA, 'token')
+        prune.assert_not_called()
+
+    def test_retention_failure_never_fails_a_verified_release(self):
+        def activated(source, revision, images, record, record_path, token):
+            record['backup'] = None
+            return True
+        prune = self.release_steps(activated)
+        prune.side_effect = ValueError('bad rollback input')
+        self.assertEqual(host.release(SHA, 'token'), 'success')
+        self.assertEqual(json.loads((self.base / 'current.json').read_text())['status'], 'success')
+        host.log.assert_any_call('Backup retention failed: ValueError')
+
     def test_supersession_after_build_preserves_running_service_and_cleans_exports(self):
         repo = self.root / 'repo'
         repo.mkdir()
@@ -797,6 +843,140 @@ with host.release_lock():
              patch.object(host, 'release', side_effect=host.Refused('CI pending')), patch.object(host, 'log') as log:
             self.assertEqual(host.main(), 1)
             log.assert_called_once_with('Release refused: CI pending')
+
+
+class BackupRetention(unittest.TestCase):
+    NOW = 1_800_000_000.0
+    HOUR = 3600
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='yama-retention-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.base = self.root / 'release'
+        self.base.mkdir()
+        self.app = self.root / 'app'
+        self.backups = self.app / 'data/backups'
+        self.backups.mkdir(parents=True)
+        for key, value in (('BASE', self.base), ('APP', self.app)):
+            p = patch.object(host, key, value)
+            p.start()
+            self.addCleanup(p.stop)
+        log = patch.object(host, 'log')
+        self.log = log.start()
+        self.addCleanup(log.stop)
+        self.write_rollback(previous=None, current=None)
+
+    def copy(self, name, hours_old, size=10):
+        path = self.backups / name
+        path.write_bytes(b'x' * size)
+        os.utime(path, (self.NOW - hours_old * self.HOUR,) * 2)
+        return path
+
+    def write_rollback(self, previous, current):
+        (self.base / 'previous.json').write_text(json.dumps({'backup': previous}))
+        (self.base / 'current.json').write_text(json.dumps({'backup': current}))
+
+    def remaining(self):
+        return sorted(p.name for p in self.backups.iterdir())
+
+    def test_keeps_the_newest_three_even_when_all_are_old(self):
+        for name, hours in (('a.db', 100), ('b.db', 200), ('c.db', 300), ('d.db', 400)):
+            self.copy(name, hours)
+        host.prune_backups(None, now=self.NOW)
+        self.assertEqual(self.remaining(), ['a.db', 'b.db', 'c.db'])
+
+    def test_keeps_copies_younger_than_48_hours(self):
+        for name, hours in (('a.db', 1), ('b.db', 2), ('c.db', 3), ('d.db', 4), ('e.db', 47),
+                            ('f.db', 49), ('g.db', 200)):
+            self.copy(name, hours)
+        host.prune_backups(None, now=self.NOW)
+        self.assertEqual(self.remaining(), ['a.db', 'b.db', 'c.db', 'd.db', 'e.db'])
+
+    def test_keeps_this_release_and_the_rollback_copies_named_by_previous_and_current(self):
+        self.write_rollback(previous=str(self.backups / 'rollback-previous.db'),
+                            current=str(self.backups / 'rollback-current.db'))
+        for name, hours in (('old.db', 500), ('rollback-previous.db', 300), ('rollback-current.db', 400),
+                            ('this-release.db', 600), ('new-1.db', 1), ('new-2.db', 2), ('new-3.db', 3)):
+            self.copy(name, hours)
+        host.prune_backups(str(self.backups / 'this-release.db'), now=self.NOW)
+        self.assertEqual(self.remaining(), ['new-1.db', 'new-2.db', 'new-3.db', 'rollback-current.db',
+                                            'rollback-previous.db', 'this-release.db'])
+
+    def test_deletes_old_copies_and_logs_each_name_and_the_total(self):
+        self.copy('old.db', 500, size=1000)
+        for name, hours in (('a.db', 1), ('b.db', 2), ('c.db', 3)):
+            self.copy(name, hours)
+        host.prune_backups(None, now=self.NOW)
+        self.assertEqual(self.remaining(), ['a.db', 'b.db', 'c.db'])
+        self.log.assert_any_call('Removed old backup old.db (1000 bytes)')
+        self.log.assert_any_call('Backup retention freed 1000 bytes; 3 copies kept')
+
+    def test_only_regular_db_files_directly_in_backups_are_candidates(self):
+        outside = self.root / 'outside.db'
+        outside.write_bytes(b'not a backup')
+        os.utime(outside, (self.NOW - 500 * self.HOUR,) * 2)
+        self.copy('evidence.json', 500)
+        self.copy('yama.db-wal', 500)
+        (self.backups / 'nested.db').mkdir()
+        self.copy('nested.db/old.db', 500)
+        os.symlink(outside, self.backups / 'linked.db')
+        os.utime(self.backups / 'linked.db', (self.NOW - 500 * self.HOUR,) * 2, follow_symlinks=False)
+        self.copy('old.db', 500)
+        for name, hours in (('a.db', 1), ('b.db', 2), ('c.db', 3)):
+            self.copy(name, hours)
+        host.prune_backups(None, now=self.NOW)
+        self.assertEqual(self.remaining(), ['a.db', 'b.db', 'c.db', 'evidence.json', 'linked.db',
+                                            'nested.db', 'yama.db-wal'])
+        self.assertEqual(outside.read_bytes(), b'not a backup')
+        self.assertTrue((self.backups / 'nested.db/old.db').is_file())
+
+    def test_symlinked_backup_directory_is_refused_without_deleting(self):
+        elsewhere = self.root / 'elsewhere'
+        elsewhere.mkdir()
+        (elsewhere / 'old.db').write_bytes(b'x')
+        os.utime(elsewhere / 'old.db', (self.NOW - 500 * self.HOUR,) * 2)
+        self.backups.rmdir()
+        os.symlink(elsewhere, self.backups)
+        with self.assertRaisesRegex(host.Refused, 'real directory'):
+            host.prune_backups(None, now=self.NOW)
+        self.assertTrue((elsewhere / 'old.db').is_file())
+
+    def test_directory_swapped_after_scanning_cannot_redirect_deletion(self):
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (outside / 'old.db').write_bytes(b'not a backup')
+        os.utime(outside / 'old.db', (self.NOW - 900 * self.HOUR,) * 2)
+        self.copy('old-1.db', 500)
+        self.copy('old.db', 501)  # same name as the file outside the folder
+        for name, hours in (('a.db', 1), ('b.db', 2), ('c.db', 3)):
+            self.copy(name, hours)
+        moved = self.root / 'moved'
+        swapped = []
+
+        def swap_after_first_deletion(message):
+            # The folder is renamed and replaced by a symlink while pruning is under way.
+            if message.startswith('Removed old backup') and not swapped:
+                swapped.append(message)
+                os.rename(self.backups, moved)
+                os.symlink(outside, self.backups)
+        self.log.side_effect = swap_after_first_deletion
+        host.prune_backups(None, now=self.NOW)
+        self.assertEqual(len(swapped), 1)
+        self.assertEqual((outside / 'old.db').read_bytes(), b'not a backup')
+        self.assertEqual(sorted(p.name for p in moved.iterdir()), ['a.db', 'b.db', 'c.db'])
+
+    def test_missing_backup_directory_is_a_quiet_no_op(self):
+        self.backups.rmdir()
+        host.prune_backups(None, now=self.NOW)
+        self.assertFalse(os.path.lexists(self.backups))
+
+    def test_unreadable_rollback_input_keeps_every_copy(self):
+        (self.base / 'previous.json').write_text('{not json')
+        self.copy('old.db', 500)
+        with self.assertRaises(ValueError):
+            host.prune_backups(None, now=self.NOW)
+        self.assertEqual(self.remaining(), ['old.db'])
 
 
 class EngineDataPreflight(unittest.TestCase):
