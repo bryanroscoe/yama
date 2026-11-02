@@ -677,7 +677,7 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
       >
         <label>
           Store{" "}
-          <select value={store} onChange={(e) => setStore(e.target.value)}>
+          <select value={store} disabled={add.isPending} onChange={(e) => setStore(e.target.value)}>
             {stores.map((s) => (
               <option key={s.key} value={s.key}>
                 {s.short ?? s.name}
@@ -686,16 +686,16 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
           </select>
         </label>
         <label>
-          Price $<input type="number" min={0} step={0.01} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="unknown" />
+          Price $<input type="number" min={0} step={0.01} value={price} disabled={add.isPending} onChange={(e) => setPrice(e.target.value)} placeholder="unknown" />
         </label>
         <label>
-          <input type="checkbox" checked={inStock} onChange={(e) => setInStock(e.target.checked)} /> In stock
+          <input type="checkbox" checked={inStock} disabled={add.isPending} onChange={(e) => setInStock(e.target.checked)} /> In stock
         </label>
         <label>
-          On <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+          On <input type="date" value={date} disabled={add.isPending} max={today} onChange={(e) => setDate(e.target.value)} />
         </label>
         <label>
-          Note <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
+          Note <input value={note} disabled={add.isPending} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
         </label>
         <button type="submit" className="button outline" disabled={add.isPending}>
           Record the price
