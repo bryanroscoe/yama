@@ -551,6 +551,13 @@ textarea {
   display:flex;
   gap:10px
 }
+/* public-list-v1.js filters as you type and loads the next page on scroll. */
+.public-filters.is-live>button[type=submit] {
+  display:none
+}
+.pagination a[aria-disabled=true] {
+  pointer-events:none
+}
 .reading-note {
   border-top:1px solid var(--line);
   padding:28px 0 8px;
