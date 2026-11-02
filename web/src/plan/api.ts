@@ -114,7 +114,7 @@ export const sealedView = (today: string, going: string[] | null, trip: string[]
   );
 
 /** A store's dated price for a sealed product on your list. */
-export const addSealedQuote = (want: string, body: { store: string; price: number | null; in_stock: boolean; checked_on: string; note: string | null }) =>
+export const addSealedQuote = (want: string, body: { store: string; price: number | null; in_stock: boolean; checked_on: string; note: string | null; id: string }) =>
   api<{ id: string }>(`/api/plan/sealed/${encodeURIComponent(want)}/quotes`, { method: "POST", json: body });
 
 export const removeSealedQuote = (id: string) => api<{ removed: string }>(`/api/plan/sealed/quotes/${encodeURIComponent(id)}`, { method: "DELETE" });

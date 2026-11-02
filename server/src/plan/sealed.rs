@@ -211,6 +211,8 @@ pub struct QuoteBody {
     /// YYYY-MM-DD; default today.
     checked_on: Option<String>,
     note: Option<String>,
+    /// The page's id for this price, so a retried request records it once.
+    id: Option<String>,
 }
 
 fn yes() -> bool {
@@ -241,7 +243,19 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     if note.is_some_and(|n| n.chars().count() > 500) {
         return Err(AppError::bad("note: at most 500 characters"));
     }
-    let id = crate::util::new_id();
+    // A retry with the same id adds nothing; another account's id is refused without saying more.
+    let id = match b.id.as_deref() {
+        None => crate::util::new_id(),
+        Some(i) if (8..=64).contains(&i.len()) && i.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
+            let owner: Option<String> = sqlx::query_scalar("SELECT owner_id FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
+            match owner {
+                Some(o) if o == user.id => return Ok(Json(json!({"id": i}))),
+                Some(_) => return Err(AppError::Conflict("That id is taken; send another.".into())),
+                None => i.to_string(),
+            }
+        }
+        Some(_) => return Err(AppError::bad("id: 8 to 64 letters, digits or dashes")),
+    };
     sqlx::query("INSERT INTO sealed_quotes (id, owner_id, want_id, store_key, price, in_stock, checked_on, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&user.id)
@@ -477,6 +491,13 @@ mod tests {
         assert_eq!(send(&app, Method::GET, "/api/plan/sealed?today=1999-01-01", Some(&token), None).await.0.as_u16(), 400);
         let (s, v) = send(&app, Method::GET, &format!("/api/plan/sealed?today={}", today()), Some(&token), None).await;
         assert!(s.is_success() && v["cap_usd"] == 51.0, "{v}");
+        // A retried request with the page's id records the price once.
+        for _ in 0..2 {
+            let (s, v) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 44.0, "id": "retry-0001"}))).await;
+            assert!(s.is_success() && v["id"] == "retry-0001", "{v}");
+        }
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE id = 'retry-0001'").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 1);
         // A short history per product and store.
         for i in 0..(HISTORY + 3) {
             send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;

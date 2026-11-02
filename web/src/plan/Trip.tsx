@@ -512,7 +512,7 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
         </label>
         <label>
           <select value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
-            <option value="need">To buy: worth a trip</option>
+            <option value="need">{kind === "sealed" ? "Worth a trip for it" : "To buy: worth a trip"}</option>
             <option value="along">Only along the way</option>
           </select>
         </label>
@@ -590,17 +590,18 @@ function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: 
       {saved && <p className="small">Showing the prices saved with your plan; reconnect for the latest.</p>}
       <p className="dim small">
         {!data ? "" : cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
-        Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate.
+        Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate. Sealed
+        products don't change the card trip above: a pick at a store the trip doesn't visit is an extra stop.
       </p>
       {!data && <ErrorText error={q.error} />}
       {(data?.items ?? []).map((it) => (
-        <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} capped={cap != null} />
+        <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} capped={cap != null} trip={trip} />
       ))}
     </section>
   );
 }
 
-function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stores: Store[]; userId: string; today: string; capped: boolean }) {
+function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem; stores: Store[]; userId: string; today: string; capped: boolean; trip: string[] }) {
   const qc = useQueryClient();
   const [picked, setStore] = useState(stores[0]?.key ?? "");
   // Always a store that's still listed (an import may add the first one or retire the one picked).
@@ -609,16 +610,19 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
   const [inStock, setInStock] = useState(true);
   const [date, setDate] = useState(today);
   const [note, setNote] = useState("");
+  // One id per price entered, so a retried save records it once.
+  const [entry, setEntry] = useState(() => crypto.randomUUID());
   // The live view, and the plan bundle that keeps the offline copy.
   const done = () => {
     void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });
     void qc.invalidateQueries({ queryKey: ["plan", userId] });
   };
   const add = useMutation({
-    mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: note.trim() || null }),
+    mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: note.trim() || null, id: entry }),
     onSuccess: () => {
       setPrice("");
       setNote("");
+      setEntry(crypto.randomUUID());
     },
     onSettled: done,
   });
@@ -655,6 +659,7 @@ function SealedRow({ it, stores, userId, today, capped }: { it: SealedItem; stor
             {x.store_live ? "" : ", a store no longer on your list"}
             {pct(x.vs_market_pct, "market")}
             {it.best === x.id ? (capped ? ". Best choice" : ". Cheapest in stock") : ""}
+            {it.best === x.id && !trip.includes(x.store) ? ", an extra stop" : ""}
             {x.note ? <span className="dim">. {x.note}</span> : null}{" "}
             <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
               Remove

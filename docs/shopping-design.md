@@ -266,5 +266,8 @@ label).
 - Should a "maybe" store need more than one card to be worth the trip? Today one card is enough,
   and "with fewer stores" shows what skipping it costs.
 - Should a favourite's premium be per card (today) or a percentage of the price?
+- Should a sealed product he marks "worth a trip" help decide the stores (today the card trip is
+  planned from cards only, and a sealed pick at a store it doesn't visit is shown as an extra stop)?
+  Sealed prices sit far above the card buy rule, so it would need its own rule in the store search.
 - The trip uses today's rule for every listing. Is that right for listings checked under an older
   rule (the buy list keeps judging those by their own day)?
