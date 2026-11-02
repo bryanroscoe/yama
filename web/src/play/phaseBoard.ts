@@ -29,7 +29,9 @@ export function phaseSession(gameId: string, seat: number, loc: { protocol: stri
 
 /** Where phase's board shows a game it resumes. */
 export function phaseBoardUrl(gameId: string): string {
-  return `/board/game/${encodeURIComponent(gameId)}?mode=online`;
+  // Phase maps `host` to its network provider; without a join code the
+  // saved session above selects reconnect. `online` falls back to local play.
+  return `/board/game/${encodeURIComponent(gameId)}?mode=host`;
 }
 
 /** Open `gameId` for `seat` on phase's board, in place of this page. */

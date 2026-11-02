@@ -15,6 +15,6 @@ describe("phase's board", () => {
   });
 
   it("opens phase's game page in reconnect mode", () => {
-    expect(phaseBoardUrl("g 1")).toBe("/board/game/g%201?mode=online");
+    expect(phaseBoardUrl("g 1")).toBe("/board/game/g%201?mode=host");
   });
 });
