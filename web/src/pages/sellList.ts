@@ -2,7 +2,9 @@
 // own documentation, read 2026-11-02:
 // - SortSwift (https://sortswift.com/docs/buylist/csv-format-requirements): a CSV with a Scryfall
 //   ID (matched directly) or a Card Name, plus Quantity; optional Condition (NM, LP, MP, HP, DM),
-//   Printing (Normal, Foil, Etched), Language (EN, JP, ...) and Notes.
+//   Printing (Normal, Foil, Etched), Language and Notes. Its languages
+//   (https://sortswift.com/docs/inventory/can-i-import-non-english-cards-via-csv): EN, ES, FR, DE,
+//   IT, PT, JP, KR, RU, ZH-S, ZH-T.
 // - Storepass (https://admin.storepass.co/support/documentation/6U6oso1E2f): Bulk Submission takes
 //   pasted lines with the quantity first ("2 Lightning Bolt"); printing and condition are chosen on
 //   the store's page.
@@ -72,11 +74,11 @@ export const CARD_KINGDOM_MAX_CARDS = 5000;
 const SORTSWIFT_CONDITION: Record<string, string> = { NM: "NM", LP: "LP", MP: "MP", HP: "HP", DMG: "DM" };
 const SORTSWIFT_PRINTING: Record<string, string> = { nonfoil: "Normal", foil: "Foil", etched: "Etched" };
 
-/** Scryfall's language codes as SortSwift writes them ("EN", "JP"); the rest upper-cased. */
-function sortswiftLanguage(lang: string): string {
-  const l = lang.toLowerCase();
-  return l === "ja" ? "JP" : l.toUpperCase();
-}
+/** Scryfall's language codes as SortSwift writes them. Languages it doesn't list (Phyrexian,
+ *  Hebrew, Latin and the other Scryfall-only ones) can't go in its file. */
+const SORTSWIFT_LANGUAGE: Record<string, string> = {
+  en: "EN", es: "ES", fr: "FR", de: "DE", it: "IT", pt: "PT", ja: "JP", ko: "KR", ru: "RU", zhs: "ZH-S", zht: "ZH-T",
+};
 
 /** One CSV cell: quoted when it has to be, or always. */
 function cell(v: string | number, quote = false): string {
@@ -111,7 +113,7 @@ export function sellText(format: SellFormat, cards: SellCard[], qty: (c: SellCar
         qty(c),
         SORTSWIFT_CONDITION[c.condition] ?? c.condition,
         SORTSWIFT_PRINTING[c.finish] ?? c.finish,
-        sortswiftLanguage(c.lang),
+        SORTSWIFT_LANGUAGE[c.lang.toLowerCase()] ?? c.lang,
         special(c).join(", "),
       ]
         .map((v) => cell(v))
@@ -143,6 +145,7 @@ export function leftOut(format: SellFormat, cards: SellCard[]): { card: SellCard
     if (c.proxy) out.push({ card: c, why: "a proxy" });
     else if (!c.name) out.push({ card: c, why: "not in Yama's card data yet" });
     else if (format === "cardkingdom" && c.lang !== "en") out.push({ card: c, why: "not English" });
+    else if (format === "sortswift" && !SORTSWIFT_LANGUAGE[c.lang.toLowerCase()]) out.push({ card: c, why: `a language SortSwift doesn't list (${c.lang})` });
   }
   return out;
 }

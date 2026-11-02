@@ -33,6 +33,11 @@ describe("sell lists", () => {
     expect(t).toMatchObject({ lines: 2, copies: 3 });
   });
 
+  it("writes SortSwift's language codes, Chinese and Korean included", () => {
+    const langs = ["es", "ko", "zhs", "zht"].map((lang, n) => card({ id: `l${n}`, lang, qty: 1 }));
+    expect(sellText("sortswift", langs).text.split("\n").slice(1, 5).map((l) => l.split(",")[7])).toEqual(["ES", "KR", "ZH-S", "ZH-T"]);
+  });
+
   it("quotes CSV cells that need it", () => {
     const t = sellText("sortswift", [card({ name: 'Borrowing 100,000 Arrows', signed: true, altered: true })]);
     expect(t.text.split("\n")[1]).toBe('3c8f6e62-0000-4000-8000-000000000001,"Borrowing 100,000 Arrows",C21,263,2,NM,Normal,EN,"Signed, Altered"');
@@ -62,6 +67,7 @@ describe("sell lists", () => {
       ["u", "not in Yama's card data yet"],
     ]);
     expect(sellable("sortswift", cards).map((c) => c.id)).toEqual(["i1", "j"]);
+    expect(leftOut("sortswift", [card({ id: "ph", lang: "ph" })]).map((x) => x.why)).toEqual(["a language SortSwift doesn't list (ph)"]);
     expect(sellable("cardkingdom", cards).map((c) => c.id)).toEqual(["i1"]);
   });
 
