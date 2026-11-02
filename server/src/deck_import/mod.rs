@@ -169,9 +169,12 @@ async fn preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Jso
     let mut link = None;
     let parsed: Parsed = match links::find_link(&req.text) {
         Some(l) => {
+            // A link Yama would fetch: offline, say so rather than as if links were off.
+            if st.cfg.offline && l.site == Site::Archidekt && links::enabled(Site::Archidekt) && l.id.is_some() {
+                return Err(crate::error::offline("Archidekt"));
+            }
             if l.site == Site::Archidekt
                 && links::enabled(Site::Archidekt)
-                && !st.cfg.offline
                 && let Some(id) = &l.id
             {
                 st.limits.imports.check_user(&user)?;
