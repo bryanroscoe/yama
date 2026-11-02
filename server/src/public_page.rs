@@ -347,7 +347,7 @@ pub(crate) fn sim_panel(run: &RunListItem, key: &str, shown: &[String], matches:
         when(r.analysed_at.as_deref().unwrap_or(&r.created_at)),
     )
     .unwrap();
-    s.push_str("<p class=\"dim\">Lists from the owner's upgrade plan, as simulated on that date. A simulated rate is evidence about these AI pods, not a forecast for a real table; read differences with their intervals.</p></section>");
+    s.push_str("<p class=\"dim\">AI results for these plan lists on that date, not a real-table forecast.</p></section>");
     s
 }
 
@@ -359,7 +359,7 @@ pub(crate) fn singles_panel(v: &SinglesValue) -> String {
         _ => "date unavailable".into(),
     };
     format!(
-        "<section class=\"public-panel\" aria-labelledby=\"value-head\"><h2 id=\"value-head\">Market value</h2><span class=\"result-value\">{}</span><small>in singles{}. {}, {dates}</small><p class=\"dim\">Each card's cheapest eligible nonfoil paper printing, commander and basics included, sideboard excluded. Actual printings, finishes and condition change the value. A market reference isn't a store quote or a sale price.</p></section>",
+        "<section class=\"public-panel\" aria-labelledby=\"value-head\"><h2 id=\"value-head\">Market value</h2><span class=\"result-value\">{}</span><small>in singles{}. {}, {dates}</small><p class=\"dim\">Cheapest eligible nonfoil printings; commanders and basics included, sideboard excluded. Replacement market value, not a store quote or resale offer.</p></section>",
         usd(v.usd),
         if v.unpriced_copies > 0 { format!(" (partial: {} without a price)", plural(v.unpriced_copies, "copy", "copies")) } else { String::new() },
         e(v.source),

@@ -392,7 +392,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       <div className="ng-head">
         <div className="ng-title">
           <h1>New game</h1>
-          <p className="dim ng-sub">{restored ? sameSeatsLine(restored.at) : "Pick who's playing and what they brought."}</p>
+          {restored && <p className="dim ng-sub">{sameSeatsLine(restored.at)}</p>}
         </div>
         {wide && (
           <span className="ng-start-wide">
@@ -409,7 +409,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         {!guest && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
       </div>
       {phones === "everyone" && (
-        <p className="small dim ng-note">The join code shows as soon as the game starts. Friends scan it, pick their seat and keep their own total.</p>
+        <p className="small dim ng-note">Join code available when the game starts.</p>
       )}
       {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
       {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
@@ -437,7 +437,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           </ol>
           {seats.length > 2 && <button className="quiet small ng-shuffle" onClick={shuffle}>Shuffle the seats</button>}
           <p className="small dim ng-note">
-            Seats go clockwise from you. Tap a seat to change the player{format === "commander" ? " or commander" : ""}.
+            Seats go clockwise from you.
             {artists.length > 0 && ` ${artCredits(artists)}`}
           </p>
           <button className="primary ng-start" onClick={() => void start()} disabled={starting}>
@@ -492,7 +492,7 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
       )}
       <span id={headId} className="field-label">Who's playing</span>
       {!groupReady ? (
-        <p className="small dim" style={{ margin: 0 }}>Loading the playgroup's members. The seats below keep who you picked last time.</p>
+        <p className="small dim" style={{ margin: 0 }}>Loading players…</p>
       ) : people.length > 0 ? (
         <div className="who-chips">
           {shown.map((p) => {
@@ -509,10 +509,10 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
           )}
         </div>
       ) : (
-        <p className="small dim" style={{ margin: 0 }}>People from your playgroups and past games show up here.</p>
+        <p className="small dim" style={{ margin: 0 }}>No recent players.</p>
       )}
       <p className="small dim" style={{ margin: 0 }}>
-        {groupId ? "Tap who's here; each takes the next seat. The game goes in the playgroup's stats." : "Tap who's here; each takes the next seat. Friends play as guests; pick a playgroup to put the game in its stats."}
+        {groupId ? "Counts toward this playgroup's stats." : "Choose a playgroup to record stats."}
         {full ? ` ${MAX_SEATS} seats is the most.` : ""}
       </p>
     </section>

@@ -133,8 +133,7 @@ export function Trip() {
           {trip.rule.text}
         </p>
         <p className="small">
-          A listing is a dated quote, not a purchase. Cards in the plan and proposals you want decide the stores; undecided proposals and your wishlist only come
-          along from stores you're visiting anyway.
+          Planned buys and proposals you want decide the stops. Wishlist cards come along if stocked there.
         </p>
       </div>
 
@@ -199,7 +198,6 @@ export function Trip() {
                 </a>
               )}
             </header>
-            {st.cartUrl && <p className="buy-store-note">The cart link fills that store's cart with these cards; check it before you pay.</p>}
             {st.noCartLine > 0 && !st.search.length && (
               <p className="buy-store-note">{st.noCartLine === 1 ? "1 card has" : `${st.noCartLine} cards have`} no cart line: ask at the counter.</p>
             )}
@@ -283,7 +281,6 @@ export function Trip() {
       {trip.elsewhere.length > 0 && (
         <section className="plan-section" aria-labelledby="trip-elsewhere">
           <h2 id="trip-elsewhere" className="plan-section-head">Only at stores not on this trip</h2>
-          <p className="dim small">Undecided proposals and wishlist cards. Not worth a trip on their own.</p>
           <ul className="small">
             {trip.elsewhere.map((e) => (
               <li key={e.store.key}>
@@ -303,7 +300,7 @@ export function Trip() {
       {trip.wishlist.length > 0 && (
         <section className="plan-section" aria-labelledby="trip-wishlist">
           <h2 id="trip-wishlist" className="plan-section-head">Real-card wishlist</h2>
-          <p className="dim small">Cards you print for now and want real copies of someday, by cheapest non-foil market. A watchlist, not a purchase.</p>
+          <p className="dim small">Real copies to watch for, by cheapest nonfoil market price.</p>
           {trip.wishlist.map((t) => (
             <details key={t.label} className="plan-fold">
               <summary>
@@ -413,8 +410,7 @@ function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: s
     <section className="plan-section" aria-labelledby="trip-stock">
       <h2 id="trip-stock" className="plan-section-head">Store stock</h2>
       <p className="dim small">
-        Yama reads Pat's and Mothership's websites and TCGplayer Pro storefronts (Black Castle, Multiverse) only when you ask, for the cards on this page. Each read is a
-        dated snapshot; the newest answer for a card counts. Stores without an online list need a stock check by hand.
+        Checks online stock when you ask. Stores without an online list need a check by hand.
       </p>
       <p className="trip-copy">
         <button type="button" className="button outline" disabled={start.isPending || running} onClick={() => start.mutate()}>
@@ -470,7 +466,6 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
       <h2 id="trip-list" className="plan-section-head">
         Your list <span className="num dim">{wants.length}</span>
       </h2>
-      <p className="dim small">Cards you want that aren't in a plan, such as a deck you built in Yama. A card here is a wish, not a purchase; it stays until you remove it.</p>
       {wants.length > 0 && (
         <ul className="small">
           {wants.map((w) => (
@@ -590,8 +585,7 @@ function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: 
       {saved && <p className="small">Showing the prices saved with your plan; reconnect for the latest.</p>}
       <p className="dim small">
         {!data ? "" : cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
-        Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate. Sealed
-        products don't change the card trip above: a pick at a store the trip doesn't visit is an extra stop.
+        Store quotes are entered by hand. Singles show replacement market value. Sealed picks may add a stop.
       </p>
       {!data && <ErrorText error={q.error} />}
       {(data?.items ?? []).map((it) => (
@@ -737,9 +731,7 @@ function StorePrefs({ stores, view, userId, skipped }: { stores: Store[]; view: 
     <section className="plan-section trip-prefs" aria-labelledby="trip-prefs">
       <h2 id="trip-prefs" className="plan-section-head">Your stores</h2>
       <p className="dim small">
-        Easiest to get to first. A favourite is on every trip it has a card for and gets a card whenever its price qualifies and is no more than your premium
-        above the cheapest. The trip never sends you to a store you won't go to, and visits a "maybe" store only for cards no other store has. Among stores
-        that cover the same cards, it picks the easier ones.
+        Order stores by convenience. Favourites get qualifying cards within your premium; maybe stores fill gaps only.
       </p>
       {sorted.map((s, i) => {
         const missed = skipped.find((x) => x.store.key === s.key);

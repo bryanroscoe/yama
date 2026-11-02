@@ -34,7 +34,7 @@ describe("pages that need an account", () => {
     const html = page("/decks", null);
     expect(html).not.toContain("My decks");
     expect(html).toContain("<h1>Decks</h1>");
-    expect(html).toContain("Sign in to continue");
+    expect(html).toContain("Sign in to save your decks");
     expect(html).toContain("Free with a verified Google account.");
     // Inside a page the way back to the counter is the nav, not a button.
     expect(html).not.toContain("Count life without an account");

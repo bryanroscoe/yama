@@ -27,8 +27,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
         {!focused && (
           <ArtPanel as="section" className="landing-hero" art={LANDING_ART} artist="Craig Elliott" wash="bottom" credit={false}>
             <p className="landing-kicker">Yet Another Magic App</p>
-            <h1>Commander decks,<br />from the list to the table.</h1>
-            <p className="landing-intro">Compare precons, plan your upgrades, and keep your cards and game nights together.</p>
+            <h1>Commander,<br />at your table.</h1>
             <p className="landing-art-credit">Éowyn, Shieldmaiden. Art by Craig Elliott, ™ &amp; © Wizards of the Coast.</p>
           </ArtPanel>
         )}
@@ -36,32 +35,28 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
         {!focused && (
           <section className="landing-explore" aria-labelledby="explore-title">
             <div className="landing-section-head">
-              <h2 id="explore-title">Explore without an account</h2>
+              <h2 id="explore-title">No account needed</h2>
             </div>
             <div className="landing-public-links">
               {/* The life counter is Yama's home page, signed in or not (guest.ts). */}
               <a className="landing-destination landing-counter" href="/">
-                <span className="landing-destination-kind">Life counter</span>
                 <h3>Count life at the table</h3>
-                <p>Commander damage, poison and turns for up to six players. No account needed: games stay on this phone.</p>
+                <p>Up to six players. Games stay on this phone.</p>
                 <span className="landing-destination-action">Start a game <span aria-hidden="true">→</span></span>
               </a>
               <a className="landing-destination" href="/precons">
-                <span className="landing-destination-kind">Public reference</span>
                 <h3>Find your next precon</h3>
-                <p>Stock lists, upgrade potential and rankings with sources.</p>
+                <p>Stock lists, rankings and upgrades.</p>
                 <span className="landing-destination-action">Browse precons <span aria-hidden="true">↗</span></span>
               </a>
               <a className="landing-destination" href="/docs/mcp/">
-                <span className="landing-destination-kind">MCP guide</span>
                 <h3>Connect Claude or Codex</h3>
                 <p>Research cards and plan upgrades with your assistant.</p>
                 <span className="landing-destination-action">Read the guide <span aria-hidden="true">↗</span></span>
               </a>
             </div>
-            <p className="landing-method"><a href="/precons/methodology">Ranking methodology</a></p>
             <div className="landing-shared">
-              <h3 id="shared-title">Got a link from a friend?</h3>
+              <h3 id="shared-title">Find a friend</h3>
               <form className="landing-handle" action="/u" method="get" aria-labelledby="shared-title" onSubmit={(e) => {
                 e.preventDefault();
                 const h = new FormData(e.currentTarget).get("handle")?.toString().trim().replace(/^@/, "").toLowerCase();
@@ -81,14 +76,14 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
         {!focused && (
           <section className="landing-account" aria-labelledby="account-title">
             <div className="landing-section-head">
-              <h2 id="account-title">Make room for your own decks</h2>
+              <h2 id="account-title">With an account</h2>
             </div>
             <dl className="landing-account-features">
-              <div><dt>Decks and upgrades</dt><dd>Save versions, check your lists and review research and suggested changes.</dd></div>
-              <div><dt>Share with friends</dt><dd>Share decks and collection by link or profile, with Moxfield and Arena exports.</dd></div>
-              <div><dt>Your collection</dt><dd>Keep track of owned cards, proxies and where each copy lives.</dd></div>
-              <div><dt>Game night</dt><dd>Count life, record your playgroup's results and play Commander online.</dd></div>
-              <div><dt>Simulation lab</dt><dd>Compare lists in simulated games, with the engine's limits shown alongside the results.</dd></div>
+              <div><dt>Decks</dt><dd>Save lists, versions and upgrade plans.</dd></div>
+              <div><dt>Sharing</dt><dd>Share decks and collection with friends.</dd></div>
+              <div><dt>Collection</dt><dd>Track cards, proxies and deck boxes.</dd></div>
+              <div><dt>Game night</dt><dd>Record results and play online.</dd></div>
+              <div><dt>Lab</dt><dd>Test lists in simulated games.</dd></div>
             </dl>
           </section>
         )}

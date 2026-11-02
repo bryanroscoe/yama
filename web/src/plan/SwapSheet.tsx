@@ -126,7 +126,6 @@ export function SwapSheetPage() {
           <label><input type="checkbox" checked={pictures} onChange={() => togglePart("pictures")} /> Card pictures</label>
           <label><input type="checkbox" checked={reasons} onChange={() => change("reasons", reasons ? "" : "1")} /> Add and cut reasons</label>
         </fieldset>
-        <p className="small dim">The sheet below previews what will print. Choose a sheet and check the decks you want above.</p>
         {!hasContent && <p role="status">Choose at least one section to print.</p>}
         <form className="ss-lookup" onSubmit={(e) => { e.preventDefault(); setChecked(name.trim()); }}>
           <label>Check either card by name<input list="ss-card-names" value={name} onChange={(e) => setName(e.target.value)} placeholder="Card coming in or going out" /></label>
@@ -140,7 +139,7 @@ export function SwapSheetPage() {
         <p className="empty">{selectedKeys.size === 0 ? "Choose at least one deck to print." : "No now-to-after-prints changes for the selected decks."}</p>
       ) : mode !== "full" ? (
         <>
-          <p className="ss-lead">{takeouts.length} cards to take out{selected ? ` of ${selected.name}` : ` across ${shown.length} decks`}. One row per copy, alphabetized by the card coming out. Installed marks reflect what's recorded in Yama.</p>
+          <p className="ss-lead">{takeouts.length} cards to take out{selected ? ` of ${selected.name}` : ` across ${shown.length} decks`}.</p>
           {mode === "alphabetical" ? <TakeoutTable rows={takeouts} view={view} pictures={pictures} reasons={reasons} withDeck /> : shown.map((d) => (
             <section className="ss-deck ss-takeout-deck" key={d.deck.key}>
               <h2>{d.deck.name}</h2>
@@ -151,8 +150,7 @@ export function SwapSheetPage() {
       ) : (
         <>
           {hasContent && <p className="ss-lead">
-            {shown.reduce((n, d) => n + d.prints, 0)} printed cards for {shown.length} {shown.length === 1 ? "deck" : "decks"}. Each deck goes from what's in it now to its
-            after-prints list.
+            {shown.reduce((n, d) => n + d.prints, 0)} printed cards for {shown.length} {shown.length === 1 ? "deck" : "decks"}.
           </p>}
           {include("instructions") && <ol className="ss-how">
             <li>
@@ -234,7 +232,7 @@ function DeckSection({ d, view, onSwap, pictures, reasons }: { d: SheetDeck; vie
       </div>
       <p className="ss-lead">
         {d.prints} {d.prints === 1 ? "print" : "prints"}
-        {d.moves ? ` and ${d.moves} ${d.moves === 1 ? "card" : "cards"} from another deck` : ""}. Put the left card in, take the right card out.
+        {d.moves ? ` and ${d.moves} ${d.moves === 1 ? "card" : "cards"} from another deck` : ""}.
         {d.installed > 0 ? ` ${d.installed} of ${d.steps.length} ticked installed.` : ""}
       </p>
       <table className="ss-steps">

@@ -28,7 +28,7 @@ export function BuildChoicesPage() {
   return <main className="page build-choices">
     <div className="bc-controls">
       <AreaHead title="Bracket builds and swap cards" back={{ to: "/decks", label: "Decks" }} />
-      <p>Choose two complete versions to see the exact changes and print a reversible card for the deck box. Current stays separate from proposed builds. Original lists and older snapshots remain available.</p>
+      <p>Choose two lists to print a double-sided swap card.</p>
       <ErrorText error={index.error || plan.error || decks.error || notes.find((r) => r.error)?.error} />
       {plan.offline && <p role="status">No connection. Showing the plan copy saved on this device.</p>}
       {loading ? <p>Loading your saved builds…</p> : <label>Deck <select value={family?.key ?? ""} onChange={(e) => setParams({ deck: e.target.value })}>
@@ -116,11 +116,11 @@ function FamilyChoices({ family }: { family: BuildFamily }) {
       </div>
       <div className="bc-selects">{[from, to].map((c, i) => <section key={i}><h2>{c.label}</h2><p className="small">{c.source}</p><Link to={c.href}>Review full list, guide and source</Link>{c.warnings.length > 0 && <details><summary>Build notes and limits ({c.warnings.length})</summary><ul>{c.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}</section>)}</div>
       {family.choices.some((c) => c.kind === "bracket" && c.track === "unverified") && <details><summary>Other saved plans (availability not audited)</summary><ul>{family.choices.filter((c) => c.kind === "bracket" && c.track === "unverified").map((c) => <li key={c.id}><Link to={c.href}>{c.label}</Link></li>)}</ul></details>}
-      <p className="small">Bracket labels are saved assessments, not a fresh legality or combo check. Plan builds and research alternatives retain their own sources. Selecting or printing one does not mark a physical swap as installed.</p>
+      <p className="small">Saved bracket assessments; legality hasn't been rechecked. Printing doesn't mark swaps installed.</p>
       <ErrorText error={left.error || right.error} />
       {comparison.error && <p role="alert" className="error">{comparison.error}</p>}
       {!left.text || !right.text ? <p>Loading complete lists…</p> : comparison.swaps && <>
-        <p><b>100 → 100 cards. {comparison.swaps.length} out, {comparison.swaps.length} in.</b> {parts} two-sided insert{parts === 1 ? "" : "s"}. Rows are checklist pairs; all swaps together produce the target list.</p>
+        <p><b>100 → 100 cards. {comparison.swaps.length} out, {comparison.swaps.length} in.</b> {parts} two-sided insert{parts === 1 ? "" : "s"}.</p>
         <p>Print on US Letter, double-sided, <b>flip on long edge</b>, actual size (100%), headers and footers off. Cut on the lines. Each insert is 2.5 × 3.5 inches; the back reverses the same swaps. Test one sheet for your printer’s alignment first.</p>
         <div className="row bc-print"><label>Swaps per insert <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><button className="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</button></div>
         {overflow && <p className="error" role="alert">Some text does not fit. Choose fewer swaps per insert before printing.</p>}

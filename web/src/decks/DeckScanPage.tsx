@@ -57,14 +57,13 @@ export function DeckScanPage() {
       {step === "scan" && (
         <>
           <p className="dim">
-            Scan every card in the deck, the commander too. Yama compares the scan with the deck's list before anything is saved, and saves it as a new version: the list it replaces stays in History.
+            Scan the full deck, including the commander. Review before saving; earlier versions stay in History.
           </p>
           <ScanProgress draft={draft} setDraft={setDraft} />
           <div className="row deck-scan-start">
             <button className="primary" onClick={() => setCamera(true)}>{p.count ? "Scan more cards" : "Scan with the camera"}</button>
             <NameEntry placeholder="Or type a card's name" onPick={(name) => setDraft((x) => addCard(x, name, { typed: true }))} />
           </div>
-          <p className="small dim">No camera, or it won't read a card? The camera screen also takes a photo, and any card can be typed by name.</p>
           <ScannedList draft={draft} setDraft={setDraft} />
           <div className="row">
             <button className="primary" disabled={!p.count} onClick={() => setStep("review")}>Check the changes</button>
@@ -433,7 +432,7 @@ function Saved({ deck, saved }: { deck: DeckView; saved: ScanSaved }) {
       </p>
       {saved.changed && saved.current && (
         <p className="small dim">
-          Scanning doesn't change your collection. Add to my collection shows what the deck's box is missing before it adds anything, and never adds a card the box already holds.
+          Scanning doesn't change your collection.
         </p>
       )}
       <div className="row">

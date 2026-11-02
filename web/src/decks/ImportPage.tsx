@@ -187,7 +187,6 @@ export function ImportPage() {
       <div className="import-grid">
         <section className="import-get" aria-labelledby="imp-get">
           <h2 id="imp-get">Get your list</h2>
-          <p className="dim import-lede">Where's your deck now? Pick it for the steps, then paste the list, choose a file, or share it to Yama from your phone.</p>
           <div className="import-sources" role="tablist" aria-label="Where your deck is">
             {GUIDES.map((g) => (
               <button
@@ -346,7 +345,7 @@ export function ImportPage() {
 function Batch({ drafts, active, setActive }: { drafts: Draft[]; active: number; setActive: (i: number) => void }) {
   return (
     <div className="import-batch">
-      <p className="small dim">{drafts.length} decks found. Pick one to check it; Add all adds the ones that are ready.</p>
+      <p className="small dim">{drafts.length} decks found.</p>
       <ul>
         {drafts.map((d, i) => {
           const c = checks(d);

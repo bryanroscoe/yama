@@ -70,7 +70,7 @@ export function DeckLists({ deck }: { deck: DeckView }) {
       {here === "main" ? (
         <>
           <p>
-            <b>This is the list in your deck.</b> <span className="dim">Plans read their installed swaps from it.</span>
+            <b>Current deck list.</b>
           </p>
           <ul className="deck-lists-others">
             {others.map((c) => (
@@ -83,14 +83,13 @@ export function DeckLists({ deck }: { deck: DeckView }) {
             ))}
           </ul>
           {use.data && !use.data.changed && <p className="small dim">That list is already the one in the deck.</p>}
-          <p className="small dim">To go back to an earlier list, open History and restore it.</p>
         </>
       ) : (
         <>
           <p>
-            <b>This is a saved list, not the one in your deck.</b>{" "}
+            <b>Alternative list.</b>{" "}
             <span className="dim">
-              <Link to={`/decks/${main.id}`}>{mainName}</Link> holds the list in your deck.
+              Current deck: <Link to={`/decks/${main.id}`}>{mainName}</Link>.
             </span>
           </p>
           <button className="outline" onClick={() => ask(deck.configurations.find((c) => c.id === deck.id)!)}>

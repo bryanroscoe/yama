@@ -8,24 +8,12 @@ import { api, type DeckSummary } from "../api";
  * state for you to base, like an MCP context"; it is). Notes are yama-research/1 documents agents
  * keep with `save_research`; they change no deck, plan, collection or order.
  */
-export function AgentNotesAbout({ short = false }: { short?: boolean }) {
+export function AgentNotesAbout() {
   return (
     <div className="research-about" role="note">
       <p>
-        <b>Agent notes are what Claude and other agents save while they research your decks</b>, so the next agent can pick up where the last one stopped.
-        Nothing here changes your decks, plans, collection or orders, and nothing here needs you to do anything.
+        Research saved by your agents. Decisions go to <Link to="/decks/plan/review">Review</Link>.
       </p>
-      {!short && (
-        <p className="small dim">
-          A note names your decks. When one of those decks has changed since the note was saved, the note says so, and an agent reads the current list again
-          before relying on it. Anything you should decide shows up in <Link to="/decks/plan/review">Review</Link>.
-        </p>
-      )}
-      {short && (
-        <p className="small dim">
-          Anything you should decide shows up in <Link to="/decks/plan/review">Review</Link>.
-        </p>
-      )}
     </div>
   );
 }

@@ -56,7 +56,7 @@ export function DeckStatsPanel({ cards }: { cards: DeckEntry[] }) {
       )}
       <details className="dstat-notes">
         <summary className="small">How these stats are counted</summary>
-        <p className="note">Computed from this deck and its loaded card data, using fixed rules. Commander and main deck count; the sideboard doesn't. Double-faced cards count by their front face, except that a land on either face counts as potential land access. Hybrid pips appear in both colors but can be paid with either. These are counts, not a recommendation for how many sources to run.</p>
+        <p className="note">Commander and main deck count; sideboard excluded. Double-faced cards use the front face, with either land face counted for land access. Hybrid pips count in both colors.</p>
       </details>
     </section>
   );
@@ -189,8 +189,8 @@ function PipTable({ s }: { s: Stats }) {
       </table>
       <Details label="About mana colors and consistency">
         <p>Pips in spell costs and potential land access. Bars compare colors within each column; each column has its own scale.</p>
-        <p>A land can supply mana repeatedly; you don't need a different land for each pip in the deck. Access includes fetch lands with matching targets in this list, land back faces and conditional producers. It doesn't mean untapped mana available on a particular turn; one land may appear in several colors. Mana rocks, creatures and spell abilities aren't included.</p>
-        <p className="note">Look at a specific spell's colored symbols and the turn you want to cast it. Two white symbols on turn two demand more white access than one white symbol on turn five. A reliable estimate must state its draw and mulligan assumptions and account for tapped lands, conditional mana, shared sources, ramp and alternative costs. Total pip ratios alone can't establish a shortage. See <a href="https://www.tcgplayer.com/content/article/How-Many-Sources-Do-You-Need-to-Consistently-Cast-Your-Spells-A-2022-Update/dc23a7d2-0a16-4c0b-ad36-586fcca03ad8/" target="_blank" rel="noreferrer">Frank Karsten's source-requirement method</a>.</p>
+        <p>Access includes fetch lands with matching targets, land back faces and conditional producers. Shared sources count in each color, without guaranteeing mana on a given turn. Mana rocks, creatures and spell abilities aren't included.</p>
+        <p className="note">Total pip ratios alone can't establish a shortage. Casting estimates need a target turn, draw and mulligan assumptions, and a model of tapped lands, shared sources and ramp. See <a href="https://www.tcgplayer.com/content/article/How-Many-Sources-Do-You-Need-to-Consistently-Cast-Your-Spells-A-2022-Update/dc23a7d2-0a16-4c0b-ad36-586fcca03ad8/" target="_blank" rel="noreferrer">Frank Karsten's source-requirement method</a>.</p>
       </Details>
       {s.landsWithoutManaData.length > 0 && <p className="note">
         {

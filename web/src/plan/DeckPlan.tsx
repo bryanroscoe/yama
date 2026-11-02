@@ -178,7 +178,7 @@ export function DeckPlan() {
         <p className="small dim plan-deck-about">
           {deck.product ? `${deck.product}. ` : ""}
           {deck.source === "import" ? "Planned outside Yama; read-only here." : "Made in Yama."}
-          {deck.status === "proposals_only" ? " Proposals only: no swaps are approved yet, so stock, now and after prints are the same list." : ""}
+          {deck.status === "proposals_only" ? " Proposals only; no approved swaps." : ""}
           {deck.status === "archived" ? " The latest import didn't include this deck." : ""}
         </p>
         <div className="row">
@@ -295,7 +295,7 @@ function LabTab({ deck, sim, loading, error }: { deck: PlanDeck; sim: PlanSim | 
     return (
       <div className="stack">
         <p className="empty">No simulated runs for this plan yet.</p>
-        <p className="small dim">Paired runs from your planner's batches show here once they're imported.{power && " You can also try a change yourself in the lab."}</p>
+        <p className="small dim">Imported paired runs appear here.{power && " You can also try a change yourself in the lab."}</p>
         {power && (
           <div className="row">
             <Link className="button" to={deck.deck_id ? `/lab/try?deck=${encodeURIComponent(deck.deck_id)}` : "/lab/try"}>Try a change</Link>
@@ -391,7 +391,7 @@ function CopyAfter({ deck }: { deck: PlanDeck }) {
 export function InstallSource({ deck }: { deck: PlanDeck }) {
   const yd = deck.yama_deck;
   if (!yd) {
-    return <p className="small dim plan-install-source">No Yama deck is linked to this plan, so tick each swap as you put it in. Link a deck and Yama reads it from the deck's list instead.</p>;
+    return <p className="small dim plan-install-source">No linked deck. Mark swaps as you install them.</p>;
   }
   return (
     <p className="small plan-install-source">
@@ -926,7 +926,7 @@ function LinkDeck({ deck }: { deck: PlanDeck }) {
           <button className="quiet small" onClick={() => link.mutate(null)} disabled={link.isPending}>Unlink</button>
         </p>
       ) : (
-        <p className="dim small">Link the Yama deck you play this as, so games logged with it sit next to the plan.</p>
+        <p className="dim small">Link a deck to see its game results here.</p>
       )}
       {open ? (
         <div className="row">
@@ -987,7 +987,7 @@ function Ideas({ deck, view }: { deck: PlanDeck; view: PlanView }) {
       <h3>Ideas for your planner</h3>
       <p className="dim small">
         {deck.source === "import"
-          ? `This plan is managed by your ${view.app} export, so it can't be changed here. Suggest a change and it goes to that inbox, for you and your planner to decide.`
+          ? `Suggestions go to your ${view.app} inbox; they don't edit the plan.`
           : "Suggest a change to come back to."}
       </p>
       {(sent.length > 0 || local.length > 0) && (

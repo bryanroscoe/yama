@@ -66,7 +66,7 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
             <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" required />
           </label>
           <p className="small dim">
-            Make one at console.anthropic.com. Yama stores it encrypted, uses it only for your questions, and never shows it again. Remove it here at any time.
+            From console.anthropic.com. Stored encrypted for your questions; removable anytime.
           </p>
           <div className="row">
             <button className="primary" disabled={!key.trim() || save.isPending}>Save key</button>

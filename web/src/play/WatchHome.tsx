@@ -37,7 +37,7 @@ export function WatchHome() {
       <div className="ph-head">
         <h1>Watch AIs play</h1>
         <p className="dim">
-          Seat 2 to 4 decks, yours or precons, and give each a computer player. They play it out while you watch, at your speed. These games don't count in anyone's stats.
+          AI games don't count toward your playgroup's stats.
         </p>
       </div>
       {status.data && !status.data.enabled && <p className="dim">The rules engine isn't running on this server: {status.data.reason}</p>}
@@ -51,7 +51,7 @@ export function WatchHome() {
           <section className="ph-games" aria-labelledby="wh-games-h">
             <h2 id="wh-games-h">Your watched games</h2>
             <ErrorText error={games.error} />
-            {games.data && games.data.length === 0 && <p className="dim">None yet. A finished game stays here for half an hour after you last look at it.</p>}
+            {games.data && games.data.length === 0 && <p className="dim">No games to watch.</p>}
             <ul className="ph-game-list">
               {(games.data ?? []).map((g) => {
                 const left = Object.values(g.missing_cards).reduce((n, c) => n + c.length, 0);

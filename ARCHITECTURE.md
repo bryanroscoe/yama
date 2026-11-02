@@ -70,8 +70,12 @@ Getting off Mythic Tools has to be painless. Mythic Tools has no API, but its CS
 
 ## 2. Apps and code layout
 
-**Interface polish (2026-10-28):** routine guidance, calculation methods and extended caveats
-belong in labeled, collapsed disclosures. Keep field labels, errors, result confidence,
+**Interface copy (2026-11-02):** use direct, plain language. Delete redundant explanations
+before adding help; headings and controls should explain routine actions. Keep necessary
+action consequences beside the decision, and useful methods in labeled, collapsed disclosures.
+The copy guidance lives in `design/tokens.md`.
+
+**Interface polish (2026-10-28):** keep field labels, errors, result confidence,
 missing-data states and dated source attribution visible. The React app and public HTML
 share `web/src/controls.css` for inset native-select chevrons and 44 px disclosure targets;
 public content-addressed styles include those rules. Public result panels keep figures, sample
