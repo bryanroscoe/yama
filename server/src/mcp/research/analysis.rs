@@ -245,11 +245,10 @@ pub async fn cheapest(
     id: &str,
 ) -> AppResult<(Option<f64>, Option<String>, Option<String>)> {
     Ok(sqlx::query_as("WITH eligible AS MATERIALIZED (
-        SELECT ps.usd, ps.date, p.scryfall_id FROM printings p JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
+        SELECT ps.usd, ps.date, p.scryfall_id FROM printings p JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
         WHERE p.oracle_id = ? AND p.finishes LIKE '%nonfoil%' AND IFNULL(p.digital,0) = 0
         AND p.set_code NOT IN ('wc97','wc98','wc99','wc00','wc01','wc02','wc03','wc04','ptc','ced','cei','30a','olgc','ovnt')
-        AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%'
-        AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id))
+        AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%')
         SELECT usd,date,scryfall_id FROM eligible WHERE usd IS NOT NULL
         AND date >= date((SELECT MAX(date) FROM eligible), '-3 days')
         ORDER BY usd, date DESC, scryfall_id LIMIT 1").bind(id).fetch_optional(&st.pool).await?.unwrap_or((None,None,None)))

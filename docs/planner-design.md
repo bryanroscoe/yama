@@ -59,7 +59,7 @@ Yama gets a **Plan** area under the Decks tab. Every user has the same per-user 
 12. **Script keys live in their own `api_tokens` table, with a scope (`plan:sync`), behind a new `SyncUser` extractor.** `CurrentUser` never accepts them, and they are never admin. Reason: today `CurrentUser` accepts any session token as Bearer and on WebSocket `?token=` (auth.rs:50-73), so a session-row key would carry the whole account, including Bryan's admin rights. Session rows are also wiped by `yama-server user add` and `remove-password` (auth.rs:245, 256).
 
 13. **Prices stay separate by meaning.** NULL never becomes 0, and every price shows its date and source.
-    - Market prices are read only from `price_snapshots`.
+    - Market prices are read only from Yama's price tables (`price_latest` since 2026-11-02; `price_snapshots` before).
     - Store stock checks and recorded benchmarks go in `plan_quotes`.
     - Paid prices go on `plan_order_items`.
     - Proxy cost comes from settings.
@@ -565,7 +565,7 @@ The new module is `server/src/plan/`, with `mod.rs` (router), `import.rs`, `bund
  prices_as_of}
 ```
 
-- **Market prices** are read-only from `price_snapshots`.
+- **Market prices** are read-only from Yama's price tables (`price_latest` since 2026-11-02; `price_snapshots` before).
   - Selection uses `json_each(?)` over a bound JSON array of ids, plus `ROW_NUMBER()` to get the latest snapshot per printing. No SQL is built at runtime, so no `AssertSqlSafe` is needed.
   - `market` is the cheapest non-foil `usd` across real, tournament-legal paper printings: World Championship Decks, Pro Tour Collector Set, Collectors' Edition, 30th Anniversary Edition and oversized sets are excluded by a constant set list in the static SQL (review of slices 0-2, 2026-10-19).
   - `market_by_printing` covers the printings named by quotes and order items.

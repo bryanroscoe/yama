@@ -292,6 +292,7 @@ struct ServerInfo {
     scryfall: Vec<ImportInfo>,
     calendar: CalendarInfo,
     database: DatabaseInfo,
+    prices: PricesInfo,
     backups: Vec<FileInfo>,
     lab: LabInfo,
     /// The Forge worker (Forge as a second Lab engine).
@@ -344,6 +345,19 @@ struct DatabaseInfo {
     file: Option<String>,
     bytes: Option<u64>,
     wal_bytes: Option<u64>,
+}
+
+/// The price history (prices/): the newest day read, its size, and how it compares with the old
+/// daily table it replaced.
+#[derive(Serialize)]
+struct PricesInfo {
+    newest_day: Option<String>,
+    /// Days read.
+    days: i64,
+    /// The one replay of the old table, when it ran: rows compared, mismatches, stale prices.
+    backfill: Option<serde_json::Value>,
+    /// The newest day's check against the old table.
+    newest_check: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -447,6 +461,21 @@ async fn server(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResul
     let sets_checked_at: Option<String> = sqlx::query_scalar("SELECT MAX(checked_at) FROM calendar_sets").fetch_one(pool).await?;
     let (precons, precons_fetched_at): (i64, Option<String>) =
         sqlx::query_as("SELECT COUNT(*), MAX(list_fetched_at) FROM calendar_precons").fetch_one(pool).await?;
+    let days: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM price_observation").fetch_one(pool).await?;
+    let newest_day = crate::prices::latest_date(pool).await?;
+    let meta = |key: String| async move {
+        let text: Option<String> = sqlx::query_scalar("SELECT value FROM price_meta WHERE key = ?").bind(key).fetch_optional(pool).await?;
+        AppResult::Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
+    };
+    let prices = PricesInfo {
+        backfill: meta("backfill".into()).await?,
+        newest_check: match &newest_day {
+            Some(d) => meta(format!("verify:{d}")).await?,
+            None => None,
+        },
+        newest_day,
+        days,
+    };
     let db_file = database_path(&st.cfg.database_url);
     let database = DatabaseInfo {
         bytes: db_file.as_deref().and_then(file_info).map(|f| f.0),
@@ -514,6 +543,7 @@ async fn server(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResul
         scryfall,
         calendar: CalendarInfo { sets_checked_at, precons, precons_fetched_at },
         database,
+        prices,
         backups: backups(&cfg.data_dir),
         lab: LabInfo {
             threads: st.lab.threads(),

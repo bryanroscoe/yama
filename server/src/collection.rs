@@ -592,8 +592,7 @@ const ITEM_SELECT: &str = "SELECT i.id, i.scryfall_id, i.qty, i.condition, i.fin
     LEFT JOIN containers ct ON ct.id = i.container_id
     LEFT JOIN printings p ON p.scryfall_id = i.scryfall_id
     LEFT JOIN cards c ON c.oracle_id = p.oracle_id
-    LEFT JOIN price_snapshots ps ON ps.scryfall_id = i.scryfall_id
-      AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = i.scryfall_id)";
+    LEFT JOIN price_latest ps ON ps.scryfall_id = i.scryfall_id";
 
 #[derive(Deserialize)]
 struct ListParams {

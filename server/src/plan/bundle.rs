@@ -5,7 +5,7 @@
 //! decks) resolves without a new import. The cache key (`rev`) covers the plan revision and the
 //! latest card import run, so a daily price import or a new card makes phones refetch.
 //!
-//! Market prices are read from `price_snapshots` and never written. A missing price is `null`
+//! Market prices are read from `price_latest` (prices/) and never written. A missing price is `null`
 //! with no date, never 0; every price carries its date and source. All SQL here is static, with
 //! id lists bound as JSON arrays (`json_each`).
 
@@ -653,8 +653,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
             AND p.set_code NOT IN ('wc97', 'wc98', 'wc99', 'wc00', 'wc01', 'wc02', 'wc03', 'wc04', 'ptc',
                                    'ced', 'cei', '30a', 'olgc', 'ovnt')
             AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%'
-           JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-            AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
+           JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
          ),
          fresh AS (SELECT oracle_id, MAX(date) AS newest FROM cur GROUP BY oracle_id),
          ranked AS (
@@ -718,8 +717,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     let printing_rows: Vec<PrintingPrice> = sqlx::query_as(
         "SELECT p.scryfall_id, p.set_code, p.collector_number, ps.date, ps.usd, ps.usd_foil
          FROM printings p
-         LEFT JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-          AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
+         LEFT JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
          WHERE p.scryfall_id IN (SELECT value FROM json_each(?))",
     )
     .bind(serde_json::to_string(&all_ids).map_err(anyhow::Error::from)?)

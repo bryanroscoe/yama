@@ -89,6 +89,22 @@ pub async fn test_pool() -> SqlitePool {
     // One connection: each in-memory connection is its own database.
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    // Until price_snapshots goes, most tests seed prices the old way, one row per printing and
+    // day. Keep `price_latest` (what the pages read) as the import would: each printing's newest
+    // row. The price history's own tests write through prices::write instead.
+    sqlx::query(
+        "CREATE TEMP TRIGGER price_snapshots_latest AFTER INSERT ON main.price_snapshots
+         WHEN NOT EXISTS (SELECT 1 FROM main.price_latest WHERE scryfall_id = NEW.scryfall_id AND date > NEW.date)
+         BEGIN
+           INSERT INTO price_latest (scryfall_id, date, usd, usd_foil, usd_etched, eur, eur_foil, tix)
+           VALUES (NEW.scryfall_id, NEW.date, NEW.usd, NEW.usd_foil, NEW.usd_etched, NEW.eur, NEW.eur_foil, NEW.tix)
+           ON CONFLICT (scryfall_id) DO UPDATE SET date = excluded.date, usd = excluded.usd, usd_foil = excluded.usd_foil,
+             usd_etched = excluded.usd_etched, eur = excluded.eur, eur_foil = excluded.eur_foil, tix = excluded.tix;
+         END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     pool
 }
 

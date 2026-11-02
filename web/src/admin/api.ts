@@ -91,6 +91,13 @@ export interface ServerInfo {
   scryfall: { kind: string; started_at: string; finished_at: string | null; source_updated_at: string | null; rows: number | null; error: string | null }[];
   calendar: { sets_checked_at: string | null; precons: number; precons_fetched_at: string | null };
   database: { file: string | null; bytes: number | null; wal_bytes: number | null };
+  /** The price history (missing on servers from before it). */
+  prices?: {
+    newest_day: string | null;
+    days: number;
+    backfill: PriceCheck | null;
+    newest_check: PriceCheck | null;
+  };
   backups: { name: string; bytes: number; modified: string | null }[];
   lab: { threads: number; unavailable: string | null; queued: number; running: number; games_waiting: number; global_runs: number };
   watch: WatchItem[];
@@ -139,6 +146,16 @@ export interface PerfSummary {
   slow_requests: { at: string; method: string; route: string; status: number; ms: number }[];
   slow_statements: { at: string; ms: number; rows: number; sql: string }[];
   jobs: { at: string; job: string; ms: number; ok: boolean; slow: boolean; note: string }[];
+}
+
+/** The price history compared with the old daily table (server/src/prices/backfill.rs). */
+export interface PriceCheck {
+  rows: number;
+  mismatches: number;
+  pairs: number;
+  stale: number;
+  /** Days of the old table the history doesn't have (the whole check only). */
+  unobserved_days?: number;
 }
 
 /** One account's grant of the shared API key (server/src/advisor/shared.rs). */

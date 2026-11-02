@@ -50,8 +50,7 @@ async fn query_prices(pool: &SqlitePool, only: Option<String>) -> AppResult<Pric
     let sql = format!(
         "WITH cur AS MATERIALIZED (
            SELECT p.oracle_id, ps.usd, ps.date, p.scryfall_id FROM printings p
-           JOIN price_snapshots ps ON ps.scryfall_id = p.scryfall_id
-            AND ps.date = (SELECT MAX(date) FROM price_snapshots WHERE scryfall_id = p.scryfall_id)
+           JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
            WHERE p.set_code NOT IN ('wc97','wc98','wc99','wc00','wc01','wc02','wc03','wc04','ptc','ced','cei','30a','olgc','ovnt')
             AND p.set_name NOT LIKE '%Oversized%' AND p.set_name NOT LIKE '%Display Commanders%' {filter}
          ), fresh AS (SELECT oracle_id, MAX(date) AS newest FROM cur GROUP BY oracle_id),
