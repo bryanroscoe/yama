@@ -1,5 +1,5 @@
 // The planner's server calls. Types live in @yama/core/plan, next to the logic that reads them.
-import type { ImportReport, LocalBuyRule, PlanBundle, ShoppingWant, StateName, StorePreference, StoreSnapshot } from "@yama/core/plan";
+import type { ImportReport, LocalBuyRule, PlanBundle, SealedItem, SealedView, ShoppingWant, StateName, StorePreference, StoreSnapshot } from "@yama/core/plan";
 import { api } from "../api";
 
 export type BundleReply = PlanBundle | { unchanged: true; rev: string };
@@ -104,6 +104,20 @@ export const removeWant = (id: string) => api<{ removed: string }>(`/api/plan/wa
 /** A deck's cards your collection doesn't hold enough real copies of (basic lands left out). */
 export const deckGaps = (deck: string) =>
   api<{ deck: string; name: string; cards: { name: string; need: number; real: number; proxy: number }[] }>(`/api/plan/wants/deck-gaps/${encodeURIComponent(deck)}`);
+
+/** The sealed products on your list with store prices, the sealed market and the singles inside. */
+export type { SealedItem };
+
+export const sealedView = (today: string, going: string[] | null, trip: string[]) =>
+  api<SealedView>(
+    `/api/plan/sealed?today=${encodeURIComponent(today)}&trip=${encodeURIComponent(JSON.stringify(trip))}${going ? `&going=${encodeURIComponent(JSON.stringify(going))}` : ""}`,
+  );
+
+/** A store's dated price for a sealed product on your list. */
+export const addSealedQuote = (want: string, body: { store: string; price: number | null; in_stock: boolean; checked_on: string; note: string | null; id: string }) =>
+  api<{ id: string }>(`/api/plan/sealed/${encodeURIComponent(want)}/quotes`, { method: "POST", json: body });
+
+export const removeSealedQuote = (id: string) => api<{ removed: string }>(`/api/plan/sealed/quotes/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 /** Save your buy rule and sealed cap as a new rule set from `effective_from` (today). */
 export const saveShoppingRules = (body: { effective_from: string; local_buy: LocalBuyRule; sealed_max_usd: number | null; note: string | null }) =>

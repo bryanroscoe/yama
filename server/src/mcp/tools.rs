@@ -255,7 +255,9 @@ const TOOLS: &[Tool] = &[
         description: "Everything on their one shopping list and where the store trip puts each card: planned buys with no \
                       order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), \
                       and a count of their real-card wishlist. Each card says the store and price the trip picks, or why it \
-                      isn't on the trip (print it, ask the store, no check). Listings are dated quotes, not purchases.",
+                      isn't on the trip (print it, ask the store, no check). Sealed products show each store's newest price \
+                      against their sealed cap, the sealed market and the singles inside at market. Listings are dated quotes, \
+                      not purchases.",
         schema: || obj(&[("today", "string", "Optional YYYY-MM-DD; picks the rule set. Default: today (UTC).")], &[]),
         does: Does::Read,
     },
@@ -909,7 +911,13 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
                 None => chrono::Utc::now().format("%Y-%m-%d").to_string(),
             };
             let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
-            Ok(crate::plan::trip::list_text(&bundle, &today))
+            let mut text = crate::plan::trip::list_text(&bundle, &today);
+            // Sealed products along the way only from stores the card trip visits.
+            let trip = crate::plan::trip::plan(&bundle, &today, None);
+            let on_trip = trip.stops.iter().filter_map(|st| st.store["key"].as_str().map(String::from)).collect();
+            let scope = crate::plan::sealed::Scope { going: None, trip: Some(on_trip) };
+            text.push_str(&crate::plan::sealed::text(&crate::plan::sealed::view(pool, &user.id, &today, &scope).await?));
+            Ok(text)
         }
         "store_stock" => {
             let wanted = text_arg(args, "store")?;

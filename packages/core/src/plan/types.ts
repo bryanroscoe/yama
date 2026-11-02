@@ -457,6 +457,11 @@ export interface PlanBundle {
   snapshots?: StoreSnapshot[];
   /** Cards (and sealed products) you added to your shopping list by hand. Missing from older bundles. */
   shopping_wants?: ShoppingWant[];
+  /**
+   * The sealed products on your list as of the bundle (every store; no pick for those along the
+   * way), so the Trip page has them offline. Missing from older bundles.
+   */
+  sealed?: SealedView;
 }
 
 /** A card or sealed product you want, added by hand in Yama or by a change from Claude you applied. */
@@ -473,6 +478,48 @@ export interface ShoppingWant {
   why: string | null;
   source: "page" | "assistant";
   added_at: string;
+  /** For a sealed product: the precon Yama matched it to by name, when there is one. */
+  precon_id?: string | null;
+}
+
+/** A store's dated price for a sealed product on your list (server/src/plan/sealed.rs). */
+export interface SealedQuote {
+  id: string;
+  store: string;
+  store_name: string;
+  preference: StorePreference;
+  /** False when a later import retired the store: it's never the best choice. */
+  store_live: boolean;
+  price: number | null;
+  in_stock: boolean;
+  checked_on: string;
+  note: string | null;
+  /** Null when there's no price or no cap. */
+  over_cap: boolean | null;
+  vs_market_pct: number | null;
+  vs_singles_pct: number | null;
+}
+
+export interface SealedItem {
+  want: string;
+  name: string;
+  qty: number;
+  priority: "need" | "along";
+  why: string | null;
+  precon: { id: string; name: string; set_name: string | null; released: string | null } | null;
+  market: { usd: number | null; price_date: string; source: string; url: string; product_name: string } | null;
+  singles: { usd: number | null; priced_copies: number; unpriced_copies: number; oldest_date: string | null; newest_date: string | null; source: string } | null;
+  /** Each store's newest price, cheapest first. */
+  quotes: SealedQuote[];
+  /** The cheapest in stock at a store you're going to (along the way: one the trip visits), within the cap when one is set. */
+  best: string | null;
+}
+
+/** Your sealed products with store prices, the sealed market and the singles inside. */
+export interface SealedView {
+  date: string;
+  cap_usd: number | null;
+  items: SealedItem[];
 }
 
 /** One dated read of one store's stock (server/src/plan/stock.rs). */

@@ -5,10 +5,12 @@ import {
   hassleOrder,
   planTrip,
   PREFERENCE_TEXT,
+  sealedFor,
   storePreference,
   storePremium,
   usd,
   type PrintRow,
+  type RuleSet,
   type SkipReason,
   type Store,
   type StorePreference,
@@ -23,7 +25,20 @@ import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { ErrorText } from "../components/ui";
-import { addWant, checkStores, deckGaps, removeWant, setStoreOrder, setStorePreference, storeSnapshots, type StorePrefBody } from "./api";
+import {
+  addSealedQuote,
+  addWant,
+  checkStores,
+  deckGaps,
+  removeSealedQuote,
+  removeWant,
+  sealedView,
+  setStoreOrder,
+  setStorePreference,
+  storeSnapshots,
+  type SealedItem,
+  type StorePrefBody,
+} from "./api";
 import { api, type DeckSummary } from "../api";
 import { marketSentence } from "./marks";
 import { CopyButton } from "./parts";
@@ -281,6 +296,8 @@ export function Trip() {
 
       <MyList view={view} userId={userId} />
 
+      <Sealed stores={stores} view={view} userId={userId} going={going} trip={trip.stops.map((st) => st.store.key)} />
+
       <StorePrefs stores={stores} view={view} userId={userId} skipped={trip.skipped} />
 
       {trip.wishlist.length > 0 && (
@@ -495,7 +512,7 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
         </label>
         <label>
           <select value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
-            <option value="need">To buy: worth a trip</option>
+            <option value="need">{kind === "sealed" ? "Worth a trip for it" : "To buy: worth a trip"}</option>
             <option value="along">Only along the way</option>
           </select>
         </label>
@@ -543,6 +560,149 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * Sealed precons on your list: each store's newest price against your sealed cap, the sealed market
+ * and the singles inside at market. A store price is a dated quote you typed, not a purchase; the
+ * singles value is an estimate of the cards, not what they'd sell for.
+ */
+function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: PlanView; userId: string; going: string[] | null; trip: string[] }) {
+  const any = (view.b.shopping_wants ?? []).some((w) => w.kind === "sealed");
+  const q = useQuery({
+    queryKey: ["plan-sealed", userId, view.b.rev, view.today, going, trip],
+    queryFn: () => sealedView(view.today, going, trip),
+    enabled: any,
+  });
+  if (!any) return null;
+  // Offline (or the request failed): the copy saved with your plan, which picks no store for
+  // products along the way.
+  // Judged again for your day and this trip, as the server would.
+  const saved = !q.data && view.b.sealed ? sealedFor(view.b.sealed, view.b.settings as unknown as RuleSet[], view.today, going, trip) : null;
+  const data = q.data ?? saved;
+  const cap = data?.cap_usd ?? null;
+  return (
+    <section className="plan-section" aria-labelledby="trip-sealed">
+      <h2 id="trip-sealed" className="plan-section-head">
+        Sealed precons <span className="num dim">{q.data?.items.length ?? ""}</span>
+      </h2>
+      {saved && <p className="small">Showing the prices saved with your plan; reconnect for the latest.</p>}
+      <p className="dim small">
+        {!data ? "" : cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
+        Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate. Sealed
+        products don't change the card trip above: a pick at a store the trip doesn't visit is an extra stop.
+      </p>
+      {!data && <ErrorText error={q.error} />}
+      {(data?.items ?? []).map((it) => (
+        <SealedRow key={it.want} it={it} stores={stores} userId={userId} today={view.today} capped={cap != null} trip={trip} />
+      ))}
+    </section>
+  );
+}
+
+function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem; stores: Store[]; userId: string; today: string; capped: boolean; trip: string[] }) {
+  const qc = useQueryClient();
+  const [picked, setStore] = useState(stores[0]?.key ?? "");
+  // Always a store that's still listed (an import may add the first one or retire the one picked).
+  const store = stores.some((s) => s.key === picked) ? picked : (stores[0]?.key ?? "");
+  const [price, setPrice] = useState("");
+  const [inStock, setInStock] = useState(true);
+  const [date, setDate] = useState(today);
+  const [note, setNote] = useState("");
+  // One id per price entered, so a retried save records it once; a changed form is a new price.
+  const [entry, setEntry] = useState(() => crypto.randomUUID());
+  useEffect(() => setEntry(crypto.randomUUID()), [store, price, inStock, date, note]);
+  // The live view, and the plan bundle that keeps the offline copy.
+  const done = () => {
+    void qc.invalidateQueries({ queryKey: ["plan-sealed", userId] });
+    void qc.invalidateQueries({ queryKey: ["plan", userId] });
+  };
+  const add = useMutation({
+    mutationFn: () => addSealedQuote(it.want, { store, price: price.trim() === "" ? null : Number(price), in_stock: inStock, checked_on: date, note: note.trim() || null, id: entry }),
+    onSuccess: () => {
+      setPrice("");
+      setNote("");
+      setEntry(crypto.randomUUID());
+    },
+    onSettled: done,
+  });
+  const remove = useMutation({ mutationFn: removeSealedQuote, onSettled: done });
+  const pct = (p: number | null, what: string) => (p == null ? "" : p >= 0 ? `, ${p}% above ${what}` : `, ${-p}% below ${what}`);
+  return (
+    <div className="buy-store">
+      <p>
+        <b>{it.name}</b>
+        {it.qty > 1 ? ` ×${it.qty}` : ""}
+        {it.precon ? <span className="dim">{it.precon.set_name ? `, ${it.precon.set_name}` : ""}</span> : <span className="dim">, not matched to a precon Yama knows</span>}
+      </p>
+      {it.precon && (
+        <p className="small">
+          Sealed market {it.market ? `${it.market.usd != null ? usd(it.market.usd) : "unknown"}, ${fmtDate(it.market.price_date)} (${it.market.source})` : "unknown"}. Singles inside{" "}
+          {it.singles?.usd != null ? usd(it.singles.usd) : "unknown"}
+          {it.singles
+            ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""}; ${it.singles.source}${
+                it.singles.oldest_date
+                  ? `, ${fmtDate(it.singles.oldest_date)}${it.singles.newest_date && it.singles.newest_date !== it.singles.oldest_date ? ` to ${fmtDate(it.singles.newest_date)}` : ""}`
+                  : ""
+              })`
+            : ""}
+          .
+        </p>
+      )}
+      <ul className="small">
+        {it.quotes.length === 0 && <li className="dim">No store price recorded.</li>}
+        {it.quotes.map((x) => (
+          <li key={x.id}>
+            {x.store_name}: {usd(x.price)}, {fmtDate(x.checked_on)}
+            {x.in_stock ? "" : ", not in stock"}
+            {x.over_cap ? ", over your cap" : ""}
+            {x.store_live ? "" : ", a store no longer on your list"}
+            {pct(x.vs_market_pct, "market")}
+            {it.best === x.id ? (capped ? ". Best choice" : ". Cheapest in stock") : ""}
+            {it.best === x.id && !trip.includes(x.store) ? ", an extra stop" : ""}
+            {x.note ? <span className="dim">. {x.note}</span> : null}{" "}
+            <button type="button" className="button outline small" disabled={remove.isPending} onClick={() => remove.mutate(x.id)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="trip-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (store) add.mutate();
+        }}
+      >
+        <label>
+          Store{" "}
+          <select value={store} disabled={add.isPending} onChange={(e) => setStore(e.target.value)}>
+            {stores.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.short ?? s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Price $<input type="number" min={0} step={0.01} value={price} disabled={add.isPending} onChange={(e) => setPrice(e.target.value)} placeholder="unknown" />
+        </label>
+        <label>
+          <input type="checkbox" checked={inStock} disabled={add.isPending} onChange={(e) => setInStock(e.target.checked)} /> In stock
+        </label>
+        <label>
+          On <input type="date" value={date} disabled={add.isPending} max={today} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label>
+          Note <input value={note} disabled={add.isPending} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
+        </label>
+        <button type="submit" className="button outline" disabled={add.isPending}>
+          Record the price
+        </button>
+      </form>
+      <ErrorText error={add.error ?? remove.error} />
+    </div>
   );
 }
 

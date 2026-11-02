@@ -12,6 +12,7 @@ pub mod import;
 pub mod inputs;
 pub mod installed;
 pub mod model;
+pub mod sealed;
 pub mod shopping;
 pub mod stock;
 pub mod swap_in;
@@ -59,6 +60,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/plan/wants", post(wants::add_route))
         .route("/api/plan/wants/{id}", delete(wants::remove_route))
         .route("/api/plan/wants/deck-gaps/{deck}", get(wants::gaps_route))
+        .route("/api/plan/sealed", get(sealed::view_route))
+        .route("/api/plan/sealed/{want}/quotes", post(sealed::quote_route))
+        .route("/api/plan/sealed/quotes/{id}", delete(sealed::remove_quote_route))
         .merge(inputs::router())
         .merge(tokens::router())
 }

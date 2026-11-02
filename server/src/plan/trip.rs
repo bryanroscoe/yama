@@ -1221,19 +1221,7 @@ pub fn list_text(b: &Value, today: &str) -> String {
             let _ = writeln!(out, "- {} ({}{replaces}): {at}", w.card, source(w));
         }
     }
-    let sealed: Vec<&Value> = arr(b, "shopping_wants").iter().filter(|w| s(w, "kind") == Some("sealed")).collect();
-    if !sealed.is_empty() {
-        let _ = writeln!(out, "\nSealed products on their list: {}", sealed.len());
-        for w in sealed {
-            let _ = writeln!(
-                out,
-                "- {}{}{}",
-                s(w, "name").unwrap_or_default(),
-                if w["qty"].as_i64().unwrap_or(1) > 1 { format!(" ×{}", w["qty"]) } else { String::new() },
-                s(w, "why").map(|x| format!(": {x}")).unwrap_or_default()
-            );
-        }
-    }
+    // Sealed products: `sealed.rs` `text`, with their prices and market.
     // Every wishlist entry, also those the plan buys or that are on their list now.
     let wish = arr(b, "wishlist").iter().filter_map(|w| s(w, "card")).map(norm).collect::<HashSet<_>>().len();
     if wish > 0 {

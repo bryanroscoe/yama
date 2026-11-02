@@ -100,7 +100,7 @@ force (its `local_buy`, else the rule read from its older fields).
 | Real-card wishlist | Research scenarios with `purpose: permanent_real_wishlist` (`research_reports`), one entry per card | Exists; the bundle now carries it as `wishlist` |
 | **Stock snapshots** | `store_snapshots (id, owner_id, store_key, source, cards, failed, query, requested_at, fetched_at, status, error, raw_gz, item_count, via, change_id, check_id)` and `store_listings (snapshot_id, owner_id, card_name, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, price_kind, variant, url)`, migration 0055. One snapshot is one dated read of one store (a whole catalog when `cards` is null, or the answers for a card list; `failed` lists cards whose answer is unknown). Listings are never edited; for each card and store the newest answer counts (`stock.rs` `store_quotes`): a check's snapshots (one `check_id`) count from when the last of them finished, an import from when it was read, and within one check YesTCG's comes before the store's own. A whole catalog read only in part answers for nothing. The raw responses are kept gzipped (newest 10 per store, newest 20 snapshots kept) so a parse bug can be fixed without fetching again. | Built (slice 2) |
 | **Shopping list** | Derived from the bundle (the trip's wants), plus `shopping_wants (id, owner_id, kind: card/sealed, name, qty, priority: need/along, deck_id, deck_name, why, source: page/assistant, added_at, retired_at)`, migration 0055, for cards and sealed products added by hand on the Trip page or by an applied `add_wish`. A card is checked against Yama's cards (the canonical name is kept); a deck is one of theirs by id, or a label for a deck not in Yama. Removing one retires it. | Built (slice 3) |
-| Sealed products | `sealed_products`/sealed prices already in `deck_prices.rs`; store listings of sealed product go in `store_listings` with `product_id` | Slice 4 |
+| Sealed products | The market and singles from `deck_prices.rs`; a store's price for one on the list is a `sealed_quotes` row (migration 0056), typed in Yama | Built (slice 4) |
 
 Everything is owner-only, like the rest of the planner: stores, preferences, quotes and
 snapshots are never shown to a playgroup.
@@ -247,7 +247,18 @@ label).
    means to print, so only the ones he picks (its four local buys) go on the list. Claude reads the
    list with `shopping_list` and stages `add_wish`. The acquisition count from proposal review is
    still on its unmerged branch.
-4. Sealed: store sealed prices against market and singles, and the $51 rule.
+4. **Built:** sealed precons (`server/src/plan/sealed.rs`, migration 0056). A sealed product on
+   the list (`kind: sealed`) is matched to a precon by name (" Commander Deck" dropped; the newest
+   release when a name was reused) and stored as `precon_id`. Store prices are `sealed_quotes`
+   (store, price or unknown, in stock, date, note) recorded on the Trip page's "Sealed precons"
+   section: no store Yama reads lists sealed product online (Multiverse's catalog has none; Pat's
+   has sealed switched off online), so they're typed after a call or a visit. `GET
+   /api/plan/sealed` gives each product's newest price per store with "over your cap" (the
+   `sealed_max_usd` in force today), the percent over or under the sealed market, the sealed
+   market and the singles inside at market (priced and unpriced copies apart), and the best choice
+   (cheapest in stock within the cap at a store they're going to this time; for an "along the
+   way" product, only a store the card trip visits). `shopping_list` says the same in
+   words.
 5. Staged MCP writes (`set_store_preference`, `check_stores`, `add_wish`).
 
 ## Open questions for Bryan
@@ -255,5 +266,8 @@ label).
 - Should a "maybe" store need more than one card to be worth the trip? Today one card is enough,
   and "with fewer stores" shows what skipping it costs.
 - Should a favourite's premium be per card (today) or a percentage of the price?
+- Should a sealed product he marks "worth a trip" help decide the stores (today the card trip is
+  planned from cards only, and a sealed pick at a store it doesn't visit is shown as an extra stop)?
+  Sealed prices sit far above the card buy rule, so it would need its own rule in the store search.
 - The trip uses today's rule for every listing. Is that right for listings checked under an older
   rule (the buy list keeps judging those by their own day)?
