@@ -114,33 +114,22 @@ class HostGate(unittest.TestCase):
                 with self.assertRaises(host.Refused):
                     host.verify_ci(SHA, 'token')
 
-    def test_moved_main_supersedes_only_before_building(self):
-        pending = {**self.good_run, 'head_sha': OTHER, 'status': 'in_progress', 'conclusion': None}
-        # Main moved to OTHER, whose CI is still running: SHA (on main, CI passed) deploys.
-        with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
-                                                    {'workflow_runs': [pending]}, {'workflow_runs': [self.good_run]}]):
-            self.assertTrue(host.verify_ci(SHA, 'token'))
-        # OTHER's CI passed: before building, its own request deploys it, so SHA's is superseded.
-        done = {**self.good_run, 'head_sha': OTHER}
-        with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
-                                                    {'workflow_runs': [done]}]):
-            self.assertFalse(host.verify_ci(SHA, 'token'))
-        # Once built, SHA still activates: OTHER's request deploys after it. OTHER's CI isn't consulted.
+    def test_moved_main_still_deploys_while_the_commit_stays_on_main(self):
+        # Main moved to OTHER: SHA (still on main, CI passed) deploys whatever OTHER's CI says;
+        # OTHER's own request deploys after it. OTHER's CI isn't even consulted.
         with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
                                                     {'workflow_runs': [self.good_run]}]) as api:
-            self.assertTrue(host.verify_ci(SHA, 'token', built=True))
+            self.assertTrue(host.verify_ci(SHA, 'token'))
             self.assertNotIn('head_sha=' + OTHER, ' '.join(c.args[0] for c in api.call_args_list))
-        # SHA's own CI must still pass after building.
+        # SHA's own push CI must still pass.
         with patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': 'ahead'},
                                                     {'workflow_runs': [{**self.good_run, 'conclusion': 'failure'}]}]):
             with self.assertRaises(host.Refused):
-                host.verify_ci(SHA, 'token', built=True)
-        # A commit that isn't on main never deploys, built or not.
-        for built in (False, True):
-            for status in ('diverged', 'behind', 'identical'):
-                with self.subTest(status=status, built=built), \
-                     patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': status}]):
-                    self.assertFalse(host.verify_ci(SHA, 'token', built=built))
+                host.verify_ci(SHA, 'token')
+        # A commit that isn't on main never deploys.
+        for status in ('diverged', 'behind', 'identical'):
+            with self.subTest(status=status), patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': status}]):
+                self.assertFalse(host.verify_ci(SHA, 'token'))
 
     def test_checkout_failures_are_errors_not_supersessions(self):
         repo = self.base / 'yama'
@@ -374,15 +363,13 @@ class HostGate(unittest.TestCase):
         repo.mkdir()
         def export(repo, revision, destination, *paths):
             destination.mkdir()
-        with patch.object(host, 'verify_ci', side_effect=[True, True, False]) as verify, \
+        with patch.object(host, 'verify_ci', side_effect=[True, True, False]), \
              patch.object(host, 'checkout', return_value=repo), \
              patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
              patch.object(host, 'export', side_effect=export), \
              patch.object(host, 'run', return_value='image-id'), patch.object(host, 'activate') as activate:
             self.assertEqual(host.release(SHA, 'token'), 'superseded')
             activate.assert_not_called()
-            # Only the checks before building let a newer passed main commit supersede.
-            self.assertEqual([c.kwargs.get('built', False) for c in verify.call_args_list], [False, False, True])
         self.assertEqual(list((self.base / 'builds').iterdir()), [])
         records = list((self.base / 'history').glob('*.json'))
         self.assertEqual(len(records), 1)
@@ -405,13 +392,21 @@ class HostGate(unittest.TestCase):
             return {'workflow_runs': [{**self.good_run, 'head_sha': revision}] if revision in passed_ci else []}
         return api
 
-    def test_main_advancing_with_passed_ci_during_build_still_activates_the_built_commit(self):
+    def test_main_advancing_with_passed_ci_never_stops_a_release(self):
         # 2026-11-02: production sat on one commit while main moved through four. Each merge's
         # minute-long push CI passed during the ~20-minute build and discarded it.
-        newer, newest = OTHER, 'c' * 40
+        waiting, newer, newest = 'd' * 40, OTHER, 'c' * 40
         line, passed_ci = [SHA], {SHA}
         repo = self.root / 'repo'
         repo.mkdir()
+        real_lock = host.release_lock
+
+        @contextmanager
+        def lock():
+            line.append(waiting)  # merged and passed push CI while this request waited
+            passed_ci.add(waiting)
+            with real_lock():
+                yield
 
         def export(repo, revision, destination, *paths):
             (destination / 'deploy').mkdir(parents=True)
@@ -427,7 +422,7 @@ class HostGate(unittest.TestCase):
                 passed_ci.add(newest)
             return 'image-id' if args[:3] == ['docker', 'image', 'inspect'] else ''
         with patch.object(host, 'api', side_effect=self.fake_github(line, passed_ci)), \
-             patch.object(host, 'checkout', return_value=repo), \
+             patch.object(host, 'release_lock', lock), patch.object(host, 'checkout', return_value=repo), \
              patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
              patch.object(host, 'bootstrap_sidecars'), patch.object(host, 'export', side_effect=export), \
              patch.object(host, 'run', side_effect=execute), \
@@ -436,26 +431,30 @@ class HostGate(unittest.TestCase):
              patch.object(host.os, 'chown'), patch.object(host, 'healthy', return_value=True):
             self.assertEqual(host.release(SHA, 'token'), 'success')
             self.assertEqual(compose.call_args.args[2], 'up')
-        self.assertEqual(line, [SHA, newer, newest])
+        self.assertEqual(line, [SHA, waiting, newer, newest])
         self.assertEqual((self.app / 'compose.yaml').read_text(), 'candidate compose\n')
         self.assertEqual(json.loads((self.base / 'current.json').read_text())['revision'], SHA)
 
-    def test_newer_passed_main_while_waiting_for_the_lock_supersedes_before_building(self):
+    def test_force_pushed_main_stops_a_built_release_before_activation(self):
         line, passed_ci = [SHA], {SHA}
-        real_lock = host.release_lock
+        repo = self.root / 'repo'
+        repo.mkdir()
 
-        @contextmanager
-        def lock():
-            line.append(OTHER)  # merged and passed push CI while this request waited
-            passed_ci.add(OTHER)
-            with real_lock():
-                yield
+        def export(repo, revision, destination, *paths):
+            destination.mkdir()
+
+        def execute(args, **kwargs):
+            if args[:2] == ['docker', 'build']:
+                line[:] = [OTHER]  # main rewritten without SHA, its replacement already passed
+                passed_ci.add(OTHER)
+            return 'image-id' if args[:3] == ['docker', 'image', 'inspect'] else ''
         with patch.object(host, 'api', side_effect=self.fake_github(line, passed_ci)), \
-             patch.object(host, 'release_lock', lock), patch.object(host, 'checkout') as checkout, \
-             patch.object(host, 'run') as run:
+             patch.object(host, 'checkout', return_value=repo), \
+             patch.object(host, 'phase_checkout', return_value=(repo, OTHER)), \
+             patch.object(host, 'bootstrap_sidecars'), patch.object(host, 'export', side_effect=export), \
+             patch.object(host, 'run', side_effect=execute), patch.object(host, 'activate') as activate:
             self.assertEqual(host.release(SHA, 'token'), 'superseded')
-            checkout.assert_not_called()
-            run.assert_not_called()
+            activate.assert_not_called()
         self.assertFalse((self.base / 'current.json').exists())
 
     def test_actions_timeout_covers_host_wait_and_release_with_cleanup_margin(self):
@@ -503,9 +502,8 @@ class HostGate(unittest.TestCase):
             path.write_text('backup')
             backup_created.append(path)
             return ''
-        def recheck(revision, token, built=False):
+        def recheck(revision, token):
             self.assertEqual(revision, SHA)
-            self.assertTrue(built)
             self.assertTrue(backup_created[0].is_file())
             return False
         with patch.object(host, 'compose', return_value=self.resolved()) as compose, \

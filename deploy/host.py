@@ -87,24 +87,20 @@ def ahead(base, head, token):
     return base == head or api('compare/' + base + '...' + head, token).get('status') == 'ahead'
 
 
-def verify_ci(revision, token, built=False):
+def verify_ci(revision, token):
     main = api('git/ref/heads/main', token)['object']['sha']
-    if main != revision:
-        # Main moved on while this request waited, built or activated. With merges every few
-        # minutes and a slower CI and build, requiring the exact tip starved every release.
-        # A commit off main never deploys; release() separately refuses anything older than
-        # production, and the release lock keeps production from changing during a build.
-        if not ahead(revision, main, token):
-            log('Superseded: ' + revision + ' is no longer on main.')
-            return False
-        # Before building, a newer main commit whose push CI passed supersedes this one: main's
-        # push CI runs one at a time in merge order, so that commit's own request is queued
-        # behind this one and gets the lock without waiting for a wasted build. Once built, a
-        # release activates anyway (Bryan, 2026-11-02): push CI passes in about a minute, so
-        # superseding finished builds let every merge discard the ~20-minute build in progress.
-        if not built and passed(push_ci(main, token), main):
-            log('Superseded before building: newer main ' + main + ' already passed push CI.')
-            return False
+    # Main may have moved on while this request waited, built or activated. A commit still on
+    # main deploys, and newer commits' requests deploy after it. Requiring the exact tip starved
+    # every release, and so did yielding to a newer main commit whose push CI passed (Bryan,
+    # 2026-11-02): that CI passes in about a minute, so every merge discarded the ~20-minute
+    # build in progress. Yielding before building isn't safe either: the deploy workflow keeps
+    # one pending run, and any CI completion on main (a manual run, say) can replace the newer
+    # commit's request with one that skips its jobs. At most one extra build runs instead.
+    # A commit off main never deploys; release() separately refuses anything older than
+    # production, and the release lock keeps production from changing during a build.
+    if main != revision and not ahead(revision, main, token):
+        log('Superseded: ' + revision + ' is no longer on main.')
+        return False
     run = push_ci(revision, token)
     if run is None:
         raise Refused('No push CI exists for this main revision')
@@ -637,7 +633,7 @@ def activate(source, revision, images, record, record_path, token):
     try:
         # Resolve and validate Compose, inspect containers, and back up before
         # this last remote check. A commit that left main must never replace live config.
-        if not verify_ci(revision, token, built=True):
+        if not verify_ci(revision, token):
             record['status'] = 'superseded'
             log('Superseded before activation; running production was preserved.')
             return False
@@ -828,7 +824,7 @@ def release(revision, token, check_only=False):
                             raise
                 images = [run(['docker', 'image', 'inspect', s + ':' + revision,
                                '--format', '{{.Id}}']) for s in SERVICES]
-                if not verify_ci(revision, token, built=True):
+                if not verify_ci(revision, token):
                     record['status'] = 'superseded'
                     log('Superseded during build; running production was preserved.')
                     return 'superseded'
