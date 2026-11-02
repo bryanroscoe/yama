@@ -74,8 +74,10 @@ The engine checkout's files are dated to its commit first, because Cargo
 rebuilds a path dependency whose files look newer than its cached build. Yama is checked
 out as `app`, not `yama`: rust-cache saves dependency builds only from paths outside the
 workspace root, and `yama-phase` begins with `yama`, so the engine was silently dropped from
-every saved cache. The key leaves out rust-cache's environment hash, which also covered every
-toolchain on the image and `CARGO_BUILD_JOBS`, so image updates missed the cache. Hosted Rust jobs also
+every saved cache. rust-cache's key hashes every installed toolchain, so hosted jobs uninstall
+the image's own toolchains first; otherwise each image update missed the cache. Its key also
+covers `CARGO_*`/`RUST*` settings, manifests and `Cargo.lock`; a workflow change makes main
+test in full, so it saves under the new key. Hosted Rust jobs also
 delete unused preinstalled toolsets (.NET, Android, GHC, CodeQL) because the image leaves
 about 4 GiB free. Play's integration tests (`play/tests/*.rs`) build as one binary, `integration`
 (`tests/integration.rs` lists each file as a module), because every test binary links the

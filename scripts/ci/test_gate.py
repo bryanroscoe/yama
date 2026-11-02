@@ -219,9 +219,11 @@ class Workflow(unittest.TestCase):
         self.assertFalse('yama-phase'.startswith(checkout))
         self.assertIn(f'working-directory: {checkout}\n', rust)
         self.assertIn(f'workspaces: {checkout} -> target', rust)
-        # A toolchain added to the image or a job count change must not miss the cache.
-        self.assertIn("add-rust-environment-hash-key: 'false'", rust)
-        self.assertIn('key: phase-${{ steps.phase.outputs.sha }}-rust-1.98.1', rust)
+        # The key keeps rust-cache's hash of the lockfile, manifests and settings, which
+        # also covers every installed toolchain: only the pinned one may remain.
+        self.assertNotIn('add-rust-environment-hash-key', rust)
+        self.assertIn('rustup toolchain uninstall', rust)
+        self.assertLess(rust.index('rustup toolchain uninstall'), rust.index('Swatinem/rust-cache'))
 
 
 class LocalScript(unittest.TestCase):
