@@ -614,4 +614,9 @@ async fn add_wish_is_staged_then_on_the_shopping_list() {
     assert!(text.contains("- Sol Ring (added to their list, for Kraum & Tymna (cEDH)): not on the trip: no store check recorded"), "{text}");
     let source: String = sqlx::query_scalar("SELECT source FROM shopping_wants WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(source, "assistant");
+    // Applying it again (a crash between the want and the change's status) adds nothing.
+    let w = crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() };
+    crate::plan::wants::add(&pool, &a, &w, "assistant", Some(&id)).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(n, 1);
 }

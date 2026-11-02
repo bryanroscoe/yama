@@ -87,14 +87,20 @@ pub async fn check(pool: &SqlitePool, owner: &str, w: &NewWant) -> AppResult<(St
     Ok((kind, name, qty, priority, deck_id, deck_name, why))
 }
 
-/// Add a want for the owner. `source` is "page" or "assistant".
-pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str) -> AppResult<Value> {
+/// Add a want for the owner. `source` is "page" or "assistant". With `id` (a staged change's), a
+/// want already saved under it is returned as it is, so applying the change again adds nothing.
+pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: Option<&str>) -> AppResult<Value> {
+    if let Some(id) = id
+        && let Some(done) = list_all(pool, owner).await?.into_iter().find(|x| x["id"] == id)
+    {
+        return Ok(done);
+    }
     let (kind, name, qty, priority, deck_id, deck_name, why) = check(pool, owner, w).await?;
     let open: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL").bind(owner).fetch_one(pool).await?;
     if open >= MAX_WANTS {
         return Err(AppError::bad(format!("Your list has {open} cards and products, the most Yama keeps. Remove some first.")));
     }
-    let id = crate::util::new_id();
+    let id = id.map_or_else(crate::util::new_id, String::from);
     let at = now();
     sqlx::query(
         "INSERT INTO shopping_wants (id, owner_id, kind, name, qty, priority, deck_id, deck_name, why, source, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -117,13 +123,23 @@ pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str) -> A
 
 /// The owner's wants on the list now, oldest first. A deck that's gone keeps its label.
 pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Value>> {
+    rows(pool, owner, false).await
+}
+
+/// Every want, also those taken off the list.
+async fn list_all(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Value>> {
+    rows(pool, owner, true).await
+}
+
+async fn rows(pool: &SqlitePool, owner: &str, all: bool) -> AppResult<Vec<Value>> {
     #[allow(clippy::type_complexity)]
     let rows: Vec<(String, String, String, i64, String, Option<String>, Option<String>, Option<String>, String, String)> = sqlx::query_as(
         "SELECT w.id, w.kind, w.name, w.qty, w.priority, w.deck_id, COALESCE(d.name, w.deck_name), w.why, w.source, w.added_at
          FROM shopping_wants w LEFT JOIN decks d ON d.id = w.deck_id AND d.owner_id = w.owner_id
-         WHERE w.owner_id = ? AND w.retired_at IS NULL ORDER BY w.added_at, w.id",
+         WHERE w.owner_id = ? AND (? OR w.retired_at IS NULL) ORDER BY w.added_at, w.id",
     )
     .bind(owner)
+    .bind(all)
     .fetch_all(pool)
     .await?;
     Ok(rows
@@ -136,7 +152,7 @@ pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Value>> {
 
 /// `POST /api/plan/wants`: add a card or sealed product to your list.
 pub async fn add_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(w): Json<NewWant>) -> AppResult<Json<Value>> {
-    Ok(Json(add(&st.pool, &user.id, &w, "page").await?))
+    Ok(Json(add(&st.pool, &user.id, &w, "page", None).await?))
 }
 
 /// `DELETE /api/plan/wants/{id}`: take it off your list (kept, retired, for the record).

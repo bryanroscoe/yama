@@ -45,8 +45,17 @@ const KEEP: i64 = 20;
 const RAW_KEEP: i64 = 10;
 /// Raw responses kept per snapshot, before gzip; past this the bodies are left out (the listings stay).
 const RAW_MAX: usize = 16 << 20;
-/// A snapshot still "running" after this long was cut off (a restart): it's shown as failed.
-const STALE_MINUTES: i64 = 30;
+/// A "running" snapshot this server isn't fetching, older than this, was cut off (a restart): it's
+/// shown as failed. (Inserted rows are registered as active before they're written; the margin only
+/// covers a clock step.)
+const STALE_MINUTES: i64 = 2;
+
+/// The snapshots this server process is fetching now. A restart empties it, so a row still
+/// "running" that isn't here was cut off, however long a live check takes.
+fn active() -> &'static std::sync::Mutex<HashSet<String>> {
+    static ACTIVE: OnceLock<std::sync::Mutex<HashSet<String>>> = OnceLock::new();
+    ACTIVE.get_or_init(Default::default)
+}
 /// Pages of 5,000 products read from a TCGplayer Pro catalog.
 const PRO_PAGES: usize = 8;
 /// Listings in an imported file.
@@ -755,6 +764,11 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
         });
     }
     while tasks.join_next().await.is_some() {}
+    // Finished, failed or panicked: no longer being fetched.
+    let mut a = active().lock().expect("active");
+    for t in &job.targets {
+        a.remove(&t.snapshot);
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -892,6 +906,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str) -> A
     let mut tx = pool.begin().await?;
     for (key, kind, base, host) in targets {
         let id = crate::util::new_id();
+        active().lock().expect("active").insert(id.clone());
         let query = match kind {
             Kind::Shopify => format!("GET {base}/search/suggest.json?q=\"<card>\"&resources[type]=product&resources[limit]=10, then /products/<handle>.js"),
             Kind::Pro => format!("POST {base}/api/catalog/search {{\"query\":\"\",\"context\":{{\"productLineName\":\"Magic: The Gathering\"}},\"size\":5000}}"),
@@ -925,11 +940,22 @@ pub async fn check_route(State(st): State<AppState>, CurrentUser(user): CurrentU
 /// A check cut off by a restart (or a task that died) is over: it shows as failed.
 async fn expire_stale(pool: &SqlitePool, owner: &str) -> AppResult<()> {
     let stale = (Utc::now() - Days::minutes(STALE_MINUTES)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    sqlx::query("UPDATE store_snapshots SET status = 'error', error = 'Cut off before it finished (the server restarted).' WHERE owner_id = ? AND status = 'running' AND requested_at < ?")
+    let running: Vec<String> = sqlx::query_scalar("SELECT id FROM store_snapshots WHERE owner_id = ? AND status = 'running' AND requested_at < ?")
         .bind(owner)
         .bind(&stale)
-        .execute(pool)
+        .fetch_all(pool)
         .await?;
+    let cut: Vec<String> = {
+        let a = active().lock().expect("active");
+        running.into_iter().filter(|id| !a.contains(id)).collect()
+    };
+    for id in cut {
+        sqlx::query("UPDATE store_snapshots SET status = 'error', error = 'Cut off before it finished (the server restarted).' WHERE id = ? AND owner_id = ? AND status = 'running'")
+            .bind(&id)
+            .bind(owner)
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 

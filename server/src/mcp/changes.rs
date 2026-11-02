@@ -1673,7 +1673,7 @@ pub async fn add_wish(st: &AppState, user: &User, via: &Via, args: &Value) -> Ap
     stage(st, user, via, Staged { kind: "add_wish", summary, detail: parts.join(", ") + ".", payload }).await
 }
 
-async fn apply_add_wish(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+async fn apply_add_wish(st: &AppState, user: &User, change: &str, p: &Value) -> AppResult<Value> {
     let text = |k: &str| p[k].as_str().map(String::from);
     let w = crate::plan::wants::NewWant {
         kind: text("kind"),
@@ -1684,7 +1684,9 @@ async fn apply_add_wish(st: &AppState, user: &User, p: &Value) -> AppResult<Valu
         deck_name: text("deck_name"),
         why: text("why"),
     };
-    let saved = crate::plan::wants::add(&st.pool, &user.id, &w, "assistant").await.map_err(|e| match e {
+    // The want takes the change's id, so applying it again (after a crash between the two writes)
+    // adds nothing.
+    let saved = crate::plan::wants::add(&st.pool, &user.id, &w, "assistant", Some(change)).await.map_err(|e| match e {
         AppError::NotFound(_) => AppError::Conflict("That deck is gone.".into()),
         other => other,
     })?;
@@ -1718,7 +1720,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "set_shopping_rules" => apply_shopping_rules(st, user, &p).await,
         "set_store_preference" => apply_store_preference(st, user, &p).await,
         "check_stores" => apply_check_stores(st, user, &p).await,
-        "add_wish" => apply_add_wish(st, user, &p).await,
+        "add_wish" => apply_add_wish(st, user, &row.id, &p).await,
         other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
     };
     let at = now();

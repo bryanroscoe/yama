@@ -276,8 +276,14 @@ async fn a_check_reads_each_store_and_the_bundle_quotes_the_newest_answer() {
     // A check left running by a restart shows as failed when read.
     snapshot(&pool, &owner, "s-old", "pats", "shopify", Some(&["Sol Ring"])).await;
     sqlx::query("UPDATE store_snapshots SET requested_at = '2026-01-01T00:00:00Z' WHERE id = 's-old'").execute(&pool).await.unwrap();
+    // One this server is still fetching stays running, however long it takes.
+    snapshot(&pool, &owner, "s-long", "pats", "shopify", Some(&["Sol Ring"])).await;
+    sqlx::query("UPDATE store_snapshots SET requested_at = '2026-01-01T00:00:00Z' WHERE id = 's-long'").execute(&pool).await.unwrap();
+    active().lock().unwrap().insert("s-long".into());
     let all = snapshots(&pool, &owner, 50).await.unwrap();
     assert_eq!(all.iter().find(|x| x["id"] == "s-old").unwrap()["status"], "error");
+    assert_eq!(all.iter().find(|x| x["id"] == "s-long").unwrap()["status"], "running");
+    active().lock().unwrap().remove("s-long");
 
     // Someone else sees none of it.
     let (other, _) = user(&pool, "other@example.com").await;
