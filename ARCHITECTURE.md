@@ -308,7 +308,10 @@ affected audit batches. This replaces ad hoc rollback files for these correction
 backups and gameplay events remain separate. The detail page projects corrected terminal
 result facts into its displayed history without rewriting the stored events. Recorder account
 seats without a group membership remain valid through correction and undo. It is not a public
-editing API or a log of all SQL.
+editing API or a log of all SQL. Durable correction counters also fence legacy game resaves,
+finish retries and event uploads inside their writing transactions (409). Corrected games
+remain viewable/deletable; further editing uses the audited command rather than the old log
+form, even after undo or a privacy purge.
 
 ## 5. Offline-first data (Table, Collection, Cards)
 

@@ -89,6 +89,21 @@ made outside this command, conflict detection compares current values; it cannot
 external changes if they were subsequently changed back. Undo never assigns a win reason to a draw. Each batch can be undone once; undo entries cannot themselves be
 undone. A deliberate redo is a new correction with current expected values.
 
+## Delayed phone sync
+
+A correction supersedes the phone's original saved snapshot. Once a game has any correction
+revision, the legacy create/resave, finish and event-upload endpoints refuse writes with 409;
+this also covers Mythic bridge resaves. The check runs inside the writing transaction. A late
+retry cannot replace the corrected result, player attribution, decks or event log.
+
+Corrected games remain viewable and deletable, but the detail page no longer offers the old
+Log a game edit form or resume action. Further changes use this audited command. Protection
+remains after undo and after private audit details are purged; only deletion of the game
+removes its revision counters. A phone with a stale finished upload keeps its rejected local
+copy/error and can sync later games; an active stale table keeps its sync error until locally
+resolved. Refresh shows the saved record but does not restore legacy editability. The
+corrected server record stays intact.
+
 ## Retention and scope
 
 The command only inserts audit entries. It never edits a past entry or captures unrelated
