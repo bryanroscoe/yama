@@ -161,6 +161,14 @@ preserves records. Runtime packaging and executable validation are in
 its verified card data, not merely the existence of Git history. Guard-only rejection is not
 compatibility for a known supported historical identity.
 
+**Game startup (2 November 2026):** loading the selected decks and account defaults
+precedes the write transaction. The lobby claim, runtime identity, seed, seats and
+initial replay commit together, so readers see a lobby until the saved game is
+complete. A failed or interrupted preparation rolls the claim back. The claim
+still compares the selected seats and only its winner constructs the match.
+An owned task finishes the commit and publishes the live game even if the HTTP
+request disconnects; no account-preference query separates those two operations.
+
 The [simulator investigation](docs/simulator-performance-2026-10-27.md) separates database
 loading, game elapsed time and whole-process CPU/wall time. `Engine::load` reads the complete
 export into a temporary string and uses Phase's existing string deserializer; this avoids
