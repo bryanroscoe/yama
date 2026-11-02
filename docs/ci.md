@@ -67,10 +67,18 @@ Since 1 November 2026 yama routes to GitHub-hosted runners (`["ubuntu-24.04"]`);
 switch back to saget only when hosted jobs can't run (billing), and back again after.
 Hosted jobs install Node 22 and Rust 1.98.1, with eight GiB of swap on their
 one-use VM for the engine compiler. They restore npm downloads and the Rust build
-(dependencies and the pinned engine, keyed by `deploy/phase-rev`) from the Actions cache.
-Only push CI on main saves the Rust cache, so a PR reuses main's warm build and never
-evicts it. The engine checkout's files are dated to its commit first, because Cargo
-rebuilds a path dependency whose files look newer than its cached build. Hosted Rust jobs also
+(dependencies and the pinned engine, keyed by `deploy/phase-rev` and the Rust version) from
+the Actions cache. Only push CI on main saves the Rust cache, so a PR reuses main's warm build
+and never evicts it. A warm build compiles only Yama's own crates (a few minutes); a
+change to `deploy/phase-rev` compiles the engine again (about 25 minutes) until main saves it.
+The engine checkout's files are dated to its commit first, because Cargo
+rebuilds a path dependency whose files look newer than its cached build. Yama is checked
+out as `app`, not `yama`: rust-cache saves dependency builds only from paths outside the
+workspace root, and `yama-phase` begins with `yama`, so the engine was silently dropped from
+every saved cache. rust-cache's key hashes every installed toolchain, so hosted jobs uninstall
+the image's own toolchains first; otherwise each image update missed the cache. Its key also
+covers `CARGO_*`/`RUST*` settings, manifests and `Cargo.lock`; a workflow change makes main
+test in full, so it saves under the new key. Hosted Rust jobs also
 delete unused preinstalled toolsets (.NET, Android, GHC, CodeQL) because the image leaves
 about 4 GiB free. Play's integration tests (`play/tests/*.rs`) build as one binary, `integration`
 (`tests/integration.rs` lists each file as a module), because every test binary links the
@@ -193,7 +201,7 @@ The trees match when nothing reached main between the PR's last CI run and its m
 commit of an up-to-date PR, or a squash with nothing new on main). Otherwise, or when the PR
 skipped CI on local checks or skipped the Rust job, main tests in full. Main also tests in
 full when the push changes what keys the Rust cache (`Cargo.lock`, a `Cargo.toml`,
-`deploy/phase-rev`, `rust-toolchain*`) or `package-lock.json`, because only main's push CI saves
+`deploy/phase-rev`, `rust-toolchain*`, the CI workflow itself) or `package-lock.json`, because only main's push CI saves
 the caches every PR restores. Artifacts are kept for
 14 days. Any error reading GitHub runs the jobs.
 
