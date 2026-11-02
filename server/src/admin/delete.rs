@@ -5,8 +5,8 @@
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
 //! lab runs, experiments and usage, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
-//! watches, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
-//! ends.
+//! watches, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, any live online game it is in
+//! ends, and its shared-table sockets close (tables it hosts end for their guests).
 //!
 //! **What stays, anonymised, because other people's records depend on it:**
 //! - A playgroup it owns passes to the longest-standing other account member. A playgroup with no
@@ -17,8 +17,10 @@
 //! - A game it logged stays when another account sat in it or it belongs to a playgroup that
 //!   lives on; the game passes to that other account (else the group's owner). Other games it
 //!   logged are deleted.
-//! - In every game that stays, its seat loses the account (named "Former player" unless it was a
-//!   member seat), and seats lose links to its deck versions (the commander name stays).
+//! - In every game that stays, its seat loses the account and its name ("Former player", or
+//!   "Former member" for a member seat), the history's "player" events on its seats lose their tie
+//!   to it and every name it went by there, and seats lose links to its deck versions (the
+//!   commander name stays).
 //! - Online games it hosted or sat in lose their lobby, replay and log (`online_games`); a game
 //!   kept for others that was still going is marked abandoned.
 //! - Invites it sent stay, without its name on them; so do shared-key grants it made as an admin.
@@ -208,8 +210,119 @@ pub async fn delete_account(st: &AppState, id: &str) -> AppResult<DeleteReport> 
     let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     let mut report = delete_rows(&mut tx, id).await?;
     tx.commit().await?;
+    // After the commit, so a table socket that subscribes too late to hear this finds the account
+    // gone instead (`table_rooms::connect`).
+    st.rooms.end_for(id);
     report.email = email;
     Ok(report)
+}
+
+/// The name a deleted account's seat goes by in the games that stay.
+const FORMER_PLAYER: &str = "Former player";
+
+/// In the games that stay, the history's "player" events (someone took a seat, or changed name)
+/// stop naming the account, only while it held the seat: walking each seat's events in order, one
+/// that seats it loses the tie and its name, and one that takes the seat from it (`was.userId`,
+/// recorded by the table since 2026-11-02, or following an event that seated it) loses the old
+/// name. Anyone else keeps their name, even someone who shares its name, before or after it.
+async fn scrub_game_history(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResult<()> {
+    let games: Vec<String> = sqlx::query_scalar(
+        "SELECT game_id FROM game_events
+          WHERE kind = 'player' AND (json_extract(payload, '$.userId') = ?1 OR json_extract(payload, '$.was.userId') = ?1)",
+    )
+    .bind(id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let games: std::collections::BTreeSet<String> = games.into_iter().collect();
+    for game in games {
+        let events: Vec<(i64, String)> =
+            sqlx::query_as("SELECT seq, payload FROM game_events WHERE game_id = ? AND kind = 'player' ORDER BY seq").bind(&game).fetch_all(&mut **tx).await?;
+        // Whether it holds each seat as the history reaches each event.
+        let mut holds: std::collections::HashMap<i64, bool> = std::collections::HashMap::new();
+        for (seq, payload) in events {
+            let Ok(mut e) = serde_json::from_str::<serde_json::Value>(&payload) else { continue };
+            let Some(seat) = e.get("seat").and_then(|v| v.as_i64()) else { continue };
+            let Some(obj) = e.as_object_mut() else { continue };
+            let arrives = obj.get("userId").and_then(|v| v.as_str()) == Some(id);
+            let leaves = match obj.get("was").and_then(|w| w.get("userId")).and_then(|v| v.as_str()) {
+                Some(user) => user == id,
+                None => holds.get(&seat).copied().unwrap_or(false),
+            };
+            let mut changed = false;
+            if arrives {
+                obj.remove("userId");
+                obj.remove("handle");
+                obj.insert("name".into(), FORMER_PLAYER.into());
+                changed = true;
+            }
+            if leaves && let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
+                was.remove("userId");
+                was.insert("name".into(), FORMER_PLAYER.into());
+                changed = true;
+            }
+            holds.insert(seat, arrives);
+            if changed {
+                sqlx::query("UPDATE game_events SET payload = ? WHERE game_id = ? AND seq = ?")
+                    .bind(e.to_string())
+                    .bind(&game)
+                    .bind(seq)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Take deleted accounts out of one "player" event: one it seats (`userId`) loses the tie and its
+/// name, one it says left the seat (`was.userId`) loses the old name. For events that arrive after
+/// the deletion (`games::insert_events`). Returns whether anything changed.
+pub fn scrub_departed(payload: &mut serde_json::Value, deleted: &dyn Fn(&str) -> bool) -> bool {
+    let Some(obj) = payload.as_object_mut() else { return false };
+    let mut changed = false;
+    if obj.get("userId").and_then(|v| v.as_str()).is_some_and(deleted) {
+        obj.remove("userId");
+        obj.remove("handle");
+        obj.insert("name".into(), FORMER_PLAYER.into());
+        changed = true;
+    }
+    if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut())
+        && was.get("userId").and_then(|v| v.as_str()).is_some_and(deleted)
+    {
+        was.remove("userId");
+        was.insert("name".into(), FORMER_PLAYER.into());
+        changed = true;
+    }
+    changed
+}
+
+/// Whether `stored` is the "player" event `sent` after a deletion scrubbed it (`scrub_game_history`):
+/// a phone retrying an upload whose answer was lost still holds the original, and that's the same
+/// event, not another device's. Only an account `deleted` says is gone (the one `sent` names, or the
+/// one it says left the seat) may have been taken out; anything else must match exactly.
+pub fn is_scrubbed_player_event(stored: &serde_json::Value, sent: &serde_json::Value, deleted: &dyn Fn(&str) -> bool) -> bool {
+    let former = |v: Option<&serde_json::Value>| v.and_then(|n| n.as_str()) == Some(FORMER_PLAYER);
+    let gone = |pointer: &str| sent.pointer(pointer).and_then(|v| v.as_str()).is_some_and(deleted);
+    let (self_gone, was_gone) = (gone("/userId"), gone("/was/userId"));
+    if !self_gone && !was_gone {
+        return false;
+    }
+    let mut sent = sent.clone();
+    let Some(obj) = sent.as_object_mut() else { return false };
+    if self_gone {
+        obj.insert("name".into(), FORMER_PLAYER.into());
+        obj.remove("userId");
+        obj.remove("handle");
+    }
+    if let Some(was) = obj.get_mut("was").and_then(|w| w.as_object_mut()) {
+        if was_gone {
+            was.remove("userId");
+        }
+        if former(stored.pointer("/was/name")) && !was.contains_key("userId") {
+            was.insert("name".into(), FORMER_PLAYER.into());
+        }
+    }
+    &sent == stored
 }
 
 /// Online games the account hosts or has a seat in.
@@ -303,8 +416,11 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
     }
 
     // ── seats and online games in the games that stay ──────────────────────
+    scrub_game_history(tx, id).await?;
+    // Its own seats lose its name too, even one typed in when the game was logged.
     r.seats_anonymised = sqlx::query(
-        "UPDATE game_seats SET guest_name = CASE WHEN member_id IS NULL THEN COALESCE(guest_name, 'Former player') ELSE guest_name END, user_id = NULL
+        "UPDATE game_seats SET guest_name = CASE WHEN member_id IS NULL THEN 'Former player' WHEN guest_name IS NULL THEN NULL ELSE 'Former member' END,
+                user_id = NULL
           WHERE user_id = ?",
     )
     .bind(id)

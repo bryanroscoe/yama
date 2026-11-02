@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
-import { useLogout, useMe } from "../auth";
+import { useAuthConfig, useLogout, useMe } from "../auth";
 import { Details, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats, pct } from "../components/GroupStats";
@@ -13,6 +13,8 @@ import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { SharingSettings } from "../decks/SharingSettings";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
+import { DeleteAccount } from "./DeleteAccount";
+import { exportLink } from "../download";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -353,7 +355,7 @@ function ExportGames({ group }: { group?: Playgroup }) {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const offset = -new Date().getTimezoneOffset();
   const link = (ext: "json" | "csv", playgroup?: string) =>
-    `${API_BASE}/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`;
+    exportLink(`/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`, `yama-games.${ext}`);
   return (
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
       <h2 style={{ margin: 0 }}>Export games</h2>
@@ -366,13 +368,13 @@ function ExportGames({ group }: { group?: Playgroup }) {
         {group && (
           <>
             <span>{group.name}</span>
-            <a className="button" href={link("json", group.id)} download>JSON</a>
-            <a className="button" href={link("csv", group.id)} download>CSV</a>
+            <a className="button" {...link("json", group.id)} download>JSON</a>
+            <a className="button" {...link("csv", group.id)} download>CSV</a>
           </>
         )}
         <span>Every game you played or recorded</span>
-        <a className="button" href={link("json")} download>JSON</a>
-        <a className="button" href={link("csv")} download>CSV</a>
+        <a className="button" {...link("json")} download>JSON</a>
+        <a className="button" {...link("csv")} download>CSV</a>
       </div>
     </section>
   );
@@ -404,6 +406,7 @@ function GroupActions() {
 function Account() {
   const me = useMe();
   const logout = useLogout();
+  const authConfig = useAuthConfig();
   const [signOutError, setSignOutError] = useState<unknown>(null);
   return (
     <section className="grp-section" aria-labelledby="grp-you">
@@ -433,6 +436,8 @@ function Account() {
           <Link className="grp-new" to="/new">What's new in Yama</Link>
         </div>
         <ErrorText error={signOutError} />
+        {/* Not while an admin views as you (read only), nor for an admin or behind Cloudflare Access, which would make the account again. */}
+        {me.data && !me.data.viewing && !me.data.is_admin && !authConfig.data?.cf_access && <DeleteAccount email={me.data.email} />}
       </div>
       <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
     </section>

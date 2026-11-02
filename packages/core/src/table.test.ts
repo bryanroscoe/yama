@@ -4,6 +4,7 @@ import {
   apply,
   commanderSources,
   commanderTax,
+  dangerOf,
   initialState,
   lossOf,
   lossesOf,
@@ -50,6 +51,40 @@ describe("table", () => {
     expect(lossOf(s, s.players[1]!)).toBeNull();
     s = apply(s, { type: "poison", seat: 2, delta: 10 });
     expect(lossOf(s, s.players[2]!)).toMatchObject({ kind: "poison", key: "poison" });
+  });
+
+  it("warns as a player nears a loss, most urgent cause first", () => {
+    const pair: TableSetup = { ...setup, players: [{ ...setup.players[0]!, commanderName: "Atraxa, Praetors' Voice" }, setup.players[1]!, setup.players[2]!] };
+    let s = initialState(pair);
+    const sam = () => dangerOf(s, s.players[1]!);
+    expect(sam()).toBeNull();
+    s = apply(s, { type: "life", seat: 1, delta: -30 });
+    expect(sam()).toEqual({ kind: "life", level: "low", text: "Low life" });
+    s = apply(s, { type: "life", seat: 1, delta: -6 });
+    expect(sam()).toMatchObject({ kind: "life", level: "critical" });
+    s = apply(s, { type: "life", seat: 1, delta: 25 });
+    s = apply(s, { type: "poison", seat: 1, delta: 7 });
+    expect(sam()).toMatchObject({ kind: "poison", level: "low", text: "Lethal in 3 poison" });
+    s = apply(s, { type: "commander_damage", seat: 1, source: "0", delta: 19 });
+    expect(sam()).toEqual({ kind: "commander_damage", level: "critical", text: "Lethal in 2 from Atraxa" });
+    s = apply(s, { type: "poison", seat: 1, delta: 2 });
+    expect(sam()).toMatchObject({ kind: "poison", level: "critical", text: "Lethal in 1 poison" });
+    // At a loss the out prompt takes over; once out, no warning either.
+    s = apply(s, { type: "poison", seat: 1, delta: 1 });
+    expect(sam()).toBeNull();
+    s = apply(s, { type: "poison", seat: 1, delta: -1 });
+    s = apply(s, { type: "eliminate", seat: 1, bySeat: 0 });
+    expect(sam()).toBeNull();
+  });
+
+  it("scales low life to the game's starting life", () => {
+    let s = initialState({ ...setup, format: "standard", startingLife: 20 });
+    s = apply(s, { type: "life", seat: 2, delta: -14 });
+    expect(dangerOf(s, s.players[2]!)).toBeNull();
+    s = apply(s, { type: "life", seat: 2, delta: -1 });
+    expect(dangerOf(s, s.players[2]!)).toMatchObject({ level: "low" });
+    s = apply(s, { type: "life", seat: 2, delta: -2 });
+    expect(dangerOf(s, s.players[2]!)).toMatchObject({ level: "critical" });
   });
 
   it("a seat event swaps the commander and drops a partner it doesn't name", () => {

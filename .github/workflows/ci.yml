@@ -124,9 +124,9 @@ jobs:
     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
     defaults:
       run:
-        working-directory: yama
+        working-directory: app
     env:
-      CARGO_BUILD_JOBS: '2'
+      CARGO_BUILD_JOBS: '4'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_INCREMENTAL: '0'
@@ -138,19 +138,16 @@ jobs:
         run: |
           test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
           python3 /run/saget-ci/slot.py --step
+      # Not "yama": rust-cache saves the workspace's dependencies only from packages whose
+      # path lies outside the workspace root, and ".../yama-phase" starts with ".../yama",
+      # so the engine build was dropped from every saved cache and rebuilt (12 minutes).
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          path: yama
+          path: app
           persist-credentials: false
       - name: Read the published Phase pin
         id: phase
-        env:
-          PHASE_KEY: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
         run: |
-          if [ -z "$PHASE_KEY" ]; then
-            echo '::error::Configure YAMA_PHASE_DEPLOY_KEY with read-only access to bryanroscoe/yama-phase; see docs/ci.md.'
-            exit 1
-          fi
           test "$(cat deploy/phase-repo)" = 'https://github.com/bryanroscoe/yama-phase.git'
           revision="$(cat deploy/phase-rev)"
           if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
@@ -158,19 +155,29 @@ jobs:
             exit 1
           fi
           echo "sha=$revision" >> "$GITHUB_OUTPUT"
-      - name: Check out the private pinned engine
+      - name: Check out the public pinned engine
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: bryanroscoe/yama-phase
           ref: ${{ steps.phase.outputs.sha }}
           path: yama-phase
-          ssh-key: ${{ secrets.YAMA_PHASE_DEPLOY_KEY }}
           persist-credentials: false
       - name: Prepare GitHub-hosted Rust and build memory
         if: runner.environment == 'github-hosted'
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           echo 'RUSTUP_TOOLCHAIN=1.98.1' >> "$GITHUB_ENV"
+          # rust-cache's key hashes every installed toolchain, so the image's own (whose
+          # version moves with image updates) would miss the cache. Keep only 1.98.1, made
+          # the default first: rustup reinstalls a removed toolchain that is still active.
+          rustup default 1.98.1
+          for toolchain in $(rustup toolchain list --quiet); do
+            case "$toolchain" in
+              1.98.1-*) ;;
+              *) rustup toolchain uninstall "$toolchain" ;;
+            esac
+          done
+          rustup toolchain list
           # The hosted image leaves ~4 GiB free; drop toolsets CI never uses so the
           # restored cache, the build and the swapfile fit.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -194,11 +201,10 @@ jobs:
         if: runner.environment == 'github-hosted'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: yama -> target
+          workspaces: app -> target
+          # rust-cache adds hashes of the toolchain, CARGO_*/RUST* settings and the
+          # manifests and lockfile; a changed lockfile still restores the older build.
           key: phase-${{ steps.phase.outputs.sha }}
-          # rust-cache counts ../yama-phase as a workspace crate (its path starts with
-          # this workspace's path), so keep workspace crates or the engine is dropped.
-          cache-workspace-crates: 'true'
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Check Rust and dedicated cache
         run: |

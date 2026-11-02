@@ -1,6 +1,7 @@
 import { EXPORT_FORMATS, exportDeck, exportFileName, type ExportFormat } from "@yama/core";
 import { useMemo, useState } from "react";
 import type { DeckView } from "../api";
+import { saveFile } from "../download";
 import { Sheet } from "./ui";
 import "./decks.css";
 
@@ -45,14 +46,7 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
       setCopied("Couldn't copy here; select the text and copy it instead.");
     }
   };
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = exportFileName(deck.name, format);
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const download = () => void saveFile(new Blob([text], { type: "text/plain;charset=utf-8" }), exportFileName(deck.name, format));
 
   return (
     <Sheet label="Export deck" onClose={onClose}>

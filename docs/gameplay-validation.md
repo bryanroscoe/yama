@@ -8,12 +8,22 @@ rules correctness, AI correctness, or throughput.
 For game-related acceptance, explicitly run these targets with the pinned card data:
 
 ```sh
-export CARGO_BUILD_JOBS=4
+export CARGO_BUILD_JOBS=1
 export RUST_MIN_STACK=33554432
-export YAMA_ENGINE_CARD_DATA="$PWD/data/engine/card-data-1e5608e61683de41.json"
-cargo test --release -p yama-play --test integration -- --ignored --nocapture --test-threads=1 determinism::
-cargo test --release -p yama-play --test integration -- --ignored --nocapture --test-threads=1 lab_regressions::
+export YAMA_ENGINE_CARD_DATA="$PWD/data/engine/card-data-cbd552b41f962f5b.json"
+cargo test --release -p yama-play --test integration determinism:: -- --ignored --nocapture --test-threads=1
+cargo test -p yama-play --test integration lab_regressions_candidate:: -- --ignored --nocapture --test-threads=1
 ```
+
+The original `lab_regressions` fixtures and historical control (winner 3, turn 54, 2,072 actions)
+remain unchanged. They are seeded scenario inputs, not serialized action replays. The new
+`lab_regressions_candidate` module in the consolidated integration target uses those exact decks, seats, seed, difficulty and limits
+with `candidate-v0119.json` provenance and a full SHA-256 check of the loaded `cbd552b4` bytes.
+It requires normal error-free completion of all four failure scenarios. Its control expectation
+is independent; a changed result must be investigated before being accepted. Every candidate
+result prints the compiled Yama runner identity. Running the old target against new Phase fails
+at the old Morph schema; that is not a valid upgrade check. Use the frozen historical sources
+in [runtime/README](../runtime/README.md) for historical-only checks. The [30 October investigation](engine-upgrade-acceptance-2026-10-30.md) records the independent candidate control and the two scenarios that still fail.
 
 Both targets fail when explicitly requested without card data. The determinism target requires
 normal progress through every AI decision, comparing full action logs, views and final states

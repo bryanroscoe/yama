@@ -22,7 +22,7 @@ cd "$DEPLOY_DIR/.."
 . "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama-lab
 CARDS=/mnt/user/appdata/yama/data/engine
-CARD_FILE=card-data-1e5608e61683de41.json
+CARD_FILE=card-data-cbd552b41f962f5b.json
 
 cmd=${1:-}
 case "$cmd" in
@@ -33,11 +33,13 @@ build)
   PHASE_DIR=$(sh ./deploy/check-phase.sh HEAD)
   PHASE_SRC=$(mktemp -d "${TMPDIR:-/tmp}/yama-lab-phase.XXXXXX")
   trap 'rm -rf "$PHASE_SRC"' EXIT
-  git -C "$PHASE_DIR" archive "$PHASE_REV" Cargo.toml crates | tar -x -C "$PHASE_SRC"
+  git -C "$PHASE_DIR" archive "$PHASE_REV" Cargo.toml crates protocol | tar -x -C "$PHASE_SRC"
   # The source goes over without .git, so the runner stamp (play/build.rs) gets the commit and
   # whether the runner's sources differ from it as build args; build.rs adds the source hash.
   DIRTY=0
-  if [ -n "$(git status --porcelain -- play Cargo.toml Cargo.lock)" ]; then DIRTY=1; fi
+  if [ -n "$(git status --porcelain -- play Cargo.toml Cargo.lock server/src server/resources \
+    server/migrations server/build.rs server/Cargo.toml runtime/historical.json \
+    runtime/historical-source.json deploy/phase-rev)" ]; then DIRTY=1; fi
   ssh "$HOST" "mkdir -p $DIR/build/yama $DIR/build/yama-phase $DIR/decks $DIR/runs && chown 99:100 $DIR/runs"
   rsync -a --delete --exclude target --exclude node_modules --exclude data --exclude .git \
     --exclude web --exclude .env ./ "$HOST:$DIR/build/yama/"
@@ -45,7 +47,8 @@ build)
   echo "Building yama-lab:$REV on saget (log: $DIR/build/build.log)…"
   ssh "$HOST" "cd $DIR/build && rm -f build.status && \
     nohup sh -c 'docker build -f yama/deploy/Dockerfile.lab --build-context phase=yama-phase \
-      --build-arg YAMA_LAB_GIT_SHA=$FULL_REV --build-arg YAMA_LAB_GIT_DIRTY=$DIRTY -t yama-lab:latest -t yama-lab:$REV yama \
+      --build-arg YAMA_LAB_GIT_SHA=$FULL_REV --build-arg YAMA_LAB_GIT_DIRTY=$DIRTY \
+      --build-arg YAMA_PHASE_SOURCE_REV=$PHASE_REV -t yama-lab:latest -t yama-lab:$REV yama \
       > build.log 2>&1; echo \$? > build.status' > /dev/null 2>&1 &"
   while ! ssh "$HOST" "test -f $DIR/build/build.status"; do sleep 20; done
   if [ "$(ssh "$HOST" "cat $DIR/build/build.status")" != "0" ]; then

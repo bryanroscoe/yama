@@ -1,6 +1,7 @@
 import {
   commanderSources,
   commanderTax,
+  dangerOf,
   keySeat,
   sourceName,
   COMMANDER_LETHAL,
@@ -36,11 +37,13 @@ import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { announceNext, JoinSheet, ShareCard, startHosting, useHosting } from "./share";
 import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable } from "./store";
 import { history } from "./history";
-import { DiceSheet } from "./DiceSheet";
+import { DiceSheet, roll as rollDie } from "./DiceSheet";
+import { spinSchedule } from "./spin";
 import { LayoutPicker } from "./LayoutPicker";
 import { EditSeat } from "./SeatEditor";
 import { setCountTurns, useCountTurns } from "./turns";
 import { useFullscreen, useInstall } from "../install";
+import { useScreenAwake } from "./wakeLock";
 import { isGuest } from "../guest";
 
 /** Where panel taps go: this device's game, or the host's game for a guest phone. */
@@ -81,12 +84,7 @@ export function TablePlay() {
   const landscape = useLandscape();
 
   // Keep the screen on during a game where supported.
-  useEffect(() => {
-    let lock: { release(): Promise<void> } | null = null;
-    const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } };
-    nav.wakeLock?.request("screen").then((l) => (lock = l)).catch(() => {});
-    return () => void lock?.release();
-  }, []);
+  useScreenAwake();
 
   const artFor = useTableArt(state?.players ?? []);
   const lethal = useLethalPrompt(state);
@@ -196,7 +194,7 @@ export function TablePlay() {
         </Sheet>
       )}
       {knockSeat !== null && (
-        <Sheet label="Knock out" onClose={() => setKnockSeat(null)}>
+        <Sheet centered label="Knock out" onClose={() => setKnockSeat(null)}>
           <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
         </Sheet>
       )}
@@ -234,17 +232,17 @@ export function TablePlay() {
         </Sheet>
       )}
       {dice && (
-        <Sheet label="Dice and coin" onClose={() => setDice(false)}>
+        <Sheet centered label="Dice and coin" onClose={() => setDice(false)}>
           <DiceSheet players={state.players} onDone={() => setDice(false)} />
         </Sheet>
       )}
       {askFirst && !joining && !finishing && (
-        <Sheet label="Who goes first?" onClose={() => setAskFirst(false)}>
+        <Sheet centered label="Who goes first?" onClose={() => setAskFirst(false)}>
           <FirstSheet state={state} artFor={artFor} onDone={() => setAskFirst(false)} />
         </Sheet>
       )}
       {lethal.ask && !menu && !finishing && !attack && taking === null && !askFirst && !joining && !dice && sheetSeat === null && knockSeat === null && (
-        <Sheet label="Out of the game?" onClose={lethal.dismiss}>
+        <Sheet centered label="Out of the game?" onClose={lethal.dismiss}>
           <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
         </Sheet>
       )}
@@ -453,6 +451,8 @@ export function Panel(props: {
   const base = MANA[fill];
   const out = !!p.eliminated;
   const loss = lossOf(state, p);
+  // Close to a loss (low life, poison or commander damage nearly lethal): the panel's edge glows.
+  const danger = dangerOf(state, p);
   const commanderGame = state.setup.format === "commander" && state.players.length > 1;
   const attacker = attack ? state.players.find((x) => x.seat === attack.seat) : undefined;
   const attackKey = attack ? (`${attack.seat}${attack.partner ? "b" : ""}` as CommanderKey) : null;
@@ -497,9 +497,9 @@ export function Panel(props: {
 
   return (
     <section
-      className={`panel${active ? " active" : ""}${out ? " out" : ""}${attack?.seat === p.seat || taking === p.seat ? " attacker" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}`}
+      className={`panel${active ? " active" : ""}${out ? " out" : ""}${attack?.seat === p.seat || taking === p.seat ? " attacker" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}${danger ? ` danger danger-${danger.level} danger-${danger.kind}` : ""}`}
       style={style}
-      aria-label={`${p.name}, ${p.life} life`}
+      aria-label={`${p.name}, ${p.life} life${danger ? `, ${danger.text}` : ""}`}
     >
       <div className={`panel-inner${sideways ? " sideways" : ""}${vertical ? " vertical" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
         {art && partnerArt ? (
@@ -511,6 +511,7 @@ export function Panel(props: {
           art && <ArtPanel className="panel-art" art={art.art} artist={art.artist} wash="center" credit={false} />
         )}
         <div className="bands" />
+        {danger && <div className="danger-glow" />}
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: -n })} className="tap minus" label={`${p.name} loses 1 life`}>
           <span aria-hidden="true">−</span>
         </Hold>
@@ -522,8 +523,14 @@ export function Panel(props: {
           <span key={p.life} className="life-value">{p.life}</span>
           {pending !== null && <span key={pending > 0 ? "up" : "down"} className="pending">{pending > 0 ? `+${pending}` : `−${-pending}`}</span>}
         </div>
+        <span className="visually-hidden" aria-live="polite">{danger ? `${p.name}: ${danger.text}` : ""}</span>
         <div className="panel-top">
           <div className="badges">
+            {danger && (
+              <span key={danger.text} className="badge danger-badge">
+                <WarningIcon /> {danger.text}
+              </span>
+            )}
             {state.monarch === p.seat && <span className="badge">Monarch</span>}
             {state.initiative === p.seat && <span className="badge">Initiative</span>}
             {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
@@ -719,6 +726,14 @@ const SwordsIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
     <path d="m13 19 6-6M16 16l4 4M19 21l2-2" />
+  </svg>
+);
+
+/** A warning triangle, beside the word for how close a player is to out. */
+const WarningIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    <path d="M12 9v4M12 17h.01" />
   </svg>
 );
 
@@ -1362,27 +1377,53 @@ function GameLog({ state, log }: { state: TableState; log: LoggedEvent[] }) {
  */
 function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtFor; onDone: () => void }) {
   const [rolled, setRolled] = useState<number | null>(null);
+  // While "Pick at random" spins: the lit player's seat, and whether the light has stopped on it.
+  const [lit, setLit] = useState<{ seat: number; landed: boolean } | null>(null);
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const spinning = lit !== null;
   const pick = (seat: number) => {
+    if (spinning) return;
     dispatch({ type: "set_first", seat });
     onDone();
   };
+  const land = (seat: number) => {
+    dispatch({ type: "set_first", seat, rolled: true });
+    setLit(null);
+    setRolled(seat);
+  };
   const roll = () => {
-    const r = new Uint32Array(1);
-    crypto.getRandomValues(r);
-    const p = state.players[r[0]! % state.players.length]!;
-    dispatch({ type: "set_first", seat: p.seat, rolled: true });
-    setRolled(p.seat);
+    if (spinning) return;
+    const players = state.players;
+    // Drawn first; the spin only shows it. Recorded once the light stops, so closing mid-spin records nothing.
+    const to = rollDie(players.length) - 1;
+    const seat = players[to]!.seat;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return land(seat);
+    const from = Math.max(0, players.findIndex((p) => p.seat === rolled));
+    const steps = spinSchedule(players.length, from, to);
+    const end = steps.at(-1)!.at;
+    setRolled(null);
+    setLit({ seat: players[from]!.seat, landed: false });
+    timers.current = [
+      ...steps.map(({ index, at }) => window.setTimeout(() => setLit({ seat: players[index]!.seat, landed: at === end }), at)),
+      window.setTimeout(() => land(seat), end + 550),
+    ];
   };
   const winner = state.players.find((p) => p.seat === rolled);
+  // One status line for both views, so a screen reader hears each result even though the view
+  // around it is swapped out for the spin.
+  const status = <span className="visually-hidden" role="status">{winner ? `${winner.name} goes first` : spinning ? "Picking a player" : ""}</span>;
   if (winner) {
     return (
       <div className="stack first-sheet">
-        <div className="first-rolled" role="status">
+        {status}
+        <div className="first-rolled">
           <SeatDot art={artFor(winner.seat)} colorIdentity={winner.colorIdentity} className="first-rolled-dot" />
           <h2>{winner.name} goes first</h2>
         </div>
         <div className="row">
-          <button className="primary" onClick={onDone}>Start</button>
+          {/* The button tapped is gone by now; keyboard focus lands here instead of the page. */}
+          <button className="primary" autoFocus onClick={onDone}>Start</button>
           <button className="quiet" onClick={roll}>Roll again</button>
         </div>
       </div>
@@ -1390,19 +1431,25 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
   }
   return (
     <div className="stack first-sheet">
+      {status}
       <div className="sheet-head">
         <h2>Who goes first?</h2>
         <button className="quiet" onClick={onDone}>Skip</button>
       </div>
-      <div className="tm-winners">
+      <div className="tm-winners" aria-busy={spinning}>
         {state.players.map((p) => (
-          <button key={p.seat} className="tm-winner" onClick={() => pick(p.seat)}>
+          <button
+            key={p.seat}
+            className={`tm-winner${lit?.seat === p.seat ? (lit.landed ? " lit landed" : " lit") : ""}`}
+            aria-disabled={spinning}
+            onClick={() => pick(p.seat)}
+          >
             <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-winner-dot" />
             <span>{p.name}</span>
           </button>
         ))}
       </div>
-      <button className="primary" onClick={roll}>Pick at random</button>
+      <button className="primary" aria-disabled={spinning} autoFocus={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</button>
       <p className="small dim" style={{ margin: 0 }}>Saved with the game for the playgroup's turn-order stats. Change it any time from the menu.</p>
     </div>
   );

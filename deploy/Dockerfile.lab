@@ -1,23 +1,35 @@
 # syntax=docker/dockerfile:1.7
 # The simulation lab runner (play/src/bin/lab.rs) on its own, for batch runs on saget.
 # Build from the repo root with the phase fork as a named context:
-#   docker build -f deploy/Dockerfile.lab --build-context phase=../yama-phase -t yama-lab:latest .
+#   docker build -f deploy/Dockerfile.lab --build-context phase=<verified export> \
+#     --build-arg YAMA_PHASE_SOURCE_REV=<export's full SHA> -t yama-lab:latest .
 # The target cache is shared with deploy/Dockerfile, so the engine crates usually come prebuilt.
 
 FROM rust:1-bookworm AS build
 WORKDIR /src/yama
 COPY --from=phase Cargo.toml /src/yama-phase/Cargo.toml
 COPY --from=phase crates /src/yama-phase/crates
+COPY --from=phase protocol /src/yama-phase/protocol
 COPY Cargo.toml Cargo.lock ./
 COPY server server
 COPY play play
+COPY deploy/phase-rev deploy/phase-rev
+COPY runtime/historical.json runtime/historical-source.json runtime/
 # The runner stamp (play/build.rs): there is no .git here, so deploy/lab.sh passes the commit
 # and whether the runner's sources differ from it.
 ARG YAMA_LAB_GIT_SHA=
 ARG YAMA_LAB_GIT_DIRTY=
+ARG YAMA_PHASE_SOURCE_REV=
 ENV YAMA_LAB_GIT_SHA=$YAMA_LAB_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_LAB_GIT_DIRTY
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/yama/target \
+# The target cache is shared by every build on this host, including other branches'. Cargo
+# judges path crates fresh by file timestamps, so a source this tree shares with an older or
+# other-branch build can look already compiled and its stale artifact (or build script) ships.
+# Touch this tree's Yama and Phase sources so they always compile from what was copied in;
+# crates.io dependencies stay cached. The cache is locked: one build writes it at a time.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/yama/target,sharing=locked \
+    find /src/yama-phase/crates server play \( -name '*.rs' -o -name Cargo.toml \) -exec touch {} + \
+ && YAMA_PHASE_SOURCE_REV=$YAMA_PHASE_SOURCE_REV \
     CARGO_BUILD_JOBS=4 cargo build --release -p yama-play --bin lab \
  && cp target/release/lab /usr/local/bin/lab
 

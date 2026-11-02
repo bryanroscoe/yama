@@ -4,7 +4,7 @@
 import { RELAY_TOKEN, relayShareKey, type TableEvent } from "@yama/core";
 import QRCode from "qrcode";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { api, API_BASE } from "../api";
+import { api, API_BASE, publicOrigin } from "../api";
 import { dispatch, getGame, isPosted, subscribeTable, sync } from "./store";
 
 /**
@@ -118,10 +118,7 @@ const GUEST_EVENTS = new Set<TableEvent["type"]>([
   "life", "poison", "commander_damage", "counter", "commander_cast", "monarch", "initiative", "day_night", "pass_turn", "eliminate", "revive", "seat",
 ]);
 
-/** Links people open on their own phones always point at the web app. */
-export function publicOrigin() {
-  return (import.meta.env.VITE_PUBLIC_URL as string | undefined) ?? (API_BASE || location.origin);
-}
+export { publicOrigin } from "../api";
 
 type Status = { gameId: string | null; connected: boolean };
 let status: Status = { gameId: null, connected: false };

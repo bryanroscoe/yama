@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { api } from "../api";
+import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
@@ -19,13 +19,14 @@ export function PlayGame() {
   const game = useQuery({
     queryKey: ["play", id],
     queryFn: () => api<OnlineGame>(`/api/play/${id}`),
-    refetchInterval: (q) => (q.state.data?.status === "lobby" ? 2000 : false),
+    refetchInterval: (q) => (q.state.data?.status === "lobby" || q.state.data?.runtime_error ? 2000 : false),
   });
   if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
+  if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
   if (game.data.status === "lobby") return <Lobby game={game.data} />;
   // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
-  return <Board key={id} id={id} live={game.data.status === "in_progress"} />;
+  return <Board key={id} id={id} live={game.data.status === "in_progress"} phaseBoard={game.data.phase_board === true} />;
 }
 
 const BackArrow = () => (
@@ -48,7 +49,7 @@ function Lobby({ game }: { game: OnlineGame }) {
   const lookups = useCardArt(game.seats.filter((s) => !s.commander_art).map((s) => s.commander));
   const artOf = (s: OnlineGame["seats"][number]) =>
     s.commander_art ? { art: s.commander_art, artist: s.commander_artist ?? null } : s.commander ? lookups.get(s.commander) : undefined;
-  const link = `${location.origin}/play?code=${encodeURIComponent(game.code)}`;
+  const link = `${publicOrigin()}/play?code=${encodeURIComponent(game.code)}`;
   const share = async () => {
     const text = `Join my Yama game with the code ${game.code}`;
     try {

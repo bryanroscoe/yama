@@ -587,6 +587,17 @@ async fn html_pagination_preserves_encoded_filters_and_clamps_large_pages() {
     assert!(last.contains("Fleet &amp; 25"));
     assert!(last.contains("Page 2 of 2"));
     assert!(!last.contains("Fleet &amp; 00"));
+    // public-list-v1.js swaps and extends #results: the count, the rows and the Next link
+    // all sit inside it, and the form says it can be filtered live.
+    assert!(first.contains(&format!("<script defer src=\"{}\"></script>", html::list_script().1)));
+    assert!(first.contains("action=\"/precons\" data-live"));
+    let results = first.split("<div id=\"results\" data-matched=\"26\">").nth(1).expect("results container");
+    assert!(results.starts_with("<p class=\"table-note\">26 of "));
+    assert!(results.contains("</div></nav></div></main>"));
+    assert!(results.split("</main>").next().unwrap().contains("rel=\"next\""));
+    let (_, _, none) = request(&app, "/precons?q=nothing-matches", &[]).await;
+    assert!(none.contains("<div id=\"results\" data-matched=\"0\"><p class=\"table-note\">"));
+    assert!(none.contains("No matching precons"));
 }
 
 #[tokio::test]
@@ -667,6 +678,19 @@ async fn changed_layout_bypasses_a_still_fresh_legacy_stylesheet_cache() {
         "public, max-age=31536000, immutable"
     );
     let bad = format!("/precons/assets/style-{}.css", "0".repeat(64));
+    assert_eq!(request(&app, &bad, &[]).await.0, StatusCode::NOT_FOUND);
+
+    // The live-list script is content-addressed the same way: Cloudflare once cached the app
+    // shell under the fixed /public-list-v1.js before that file was deployed.
+    let (_, _, page) = request(&app, "/precons", &[]).await;
+    let script = page.split("<script defer src=\"/precons/assets/list-").nth(1).and_then(|s| s.split('"').next()).expect("hashed list script");
+    let (status, headers, js) = request(&app, &format!("/precons/assets/list-{script}"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(script, format!("{}.js", sha256_hex(&js)));
+    assert_eq!(headers[header::CONTENT_TYPE], "text/javascript; charset=utf-8");
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=31536000, immutable");
+    assert!(js.contains("form.public-filters[data-live]"));
+    let bad = format!("/precons/assets/list-{}.js", "0".repeat(64));
     assert_eq!(request(&app, &bad, &[]).await.0, StatusCode::NOT_FOUND);
 }
 

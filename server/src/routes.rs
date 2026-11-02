@@ -83,6 +83,11 @@ pub fn app(state: AppState) -> Router {
     if state.cfg.mythic_bridge {
         router = router.merge(crate::bridges::mythic::router());
     }
+    // phase's own board (play/board.rs), a separate app with its own client-side routes.
+    if let Some(dist) = &state.cfg.board_dist {
+        let index = dist.join("index.html");
+        router = router.nest_service("/board", ServeDir::new(dist).fallback(ServeFile::new(index)));
+    }
     // Serve the built web app, falling back to index.html for client-side routes.
     if let Some(dist) = &state.cfg.web_dist {
         let index = dist.join("index.html");

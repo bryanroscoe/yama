@@ -82,8 +82,8 @@ PASSED_ARTIFACT = 'ci-passed-tree-'
 CI_WORKFLOW = '.github/workflows/ci.yml'
 REQUIRED_JOBS = ('Web checks', 'Rust and Python tests')
 # Only main's push CI saves the Rust and npm caches PRs restore, so a push that changes
-# their keys tests (and saves) in full.
-CACHE_KEYS = ('Cargo.lock', 'package-lock.json', 'deploy/phase-rev')
+# their keys tests (and saves) in full. The workflow sets the keys and cache paths.
+CACHE_KEYS = ('Cargo.lock', 'package-lock.json', 'deploy/phase-rev', '.github/workflows/ci.yml')
 
 
 def changes_cache_key(files):

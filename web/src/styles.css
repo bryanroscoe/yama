@@ -869,6 +869,12 @@ button.list-row:hover {
   inset: 0;
   background: rgb(0 0 0 / 0.6);
   z-index: 40;
+  animation: scrim-in 180ms ease-out;
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
 }
 .sheet {
   position: fixed;
@@ -897,6 +903,24 @@ button.list-row:hover {
     border-top: none;
     border-left: 1px solid var(--line);
     padding: 28px;
+  }
+}
+/* A short question, centered on every screen. Two classes, so it beats the laptop side panel.
+   `translate` centers it and `scale` animates it, so the two never fight over `transform`. */
+.sheet.sheet-centered {
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  width: min(30rem, calc(100% - 24px));
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  border: 1px solid var(--line);
+  border-radius: var(--r-sheet);
+  padding: 22px 20px;
+  animation: sheet-pop 220ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+@keyframes sheet-pop {
+  from {
+    scale: 0.92;
+    opacity: 0;
   }
 }
 .sheet-head {

@@ -118,9 +118,10 @@ export type TableEvent =
     } & CommanderPick)
   /**
    * Someone else sits here, or the same person under another name or tied to their member row or
-   * account. Every field is replaced. `was` keeps the old name for the game's history.
+   * account. Every field is replaced. `was` keeps the old name for the game's history, and the old
+   * account so deleting it can take its name out of the history too (server/src/admin/delete.rs).
    */
-  | ({ type: "player"; seat: Seat; was?: { name: string } } & PlayerPick)
+  | ({ type: "player"; seat: Seat; was?: { name: string; userId?: string } } & PlayerPick)
   | ({ type: "finish"; winnerSeat: Seat | null; endedAt: string } & FinishDetails);
 
 export interface LoggedEvent {
@@ -390,6 +391,38 @@ export function lossesOf(state: TableState, p: PlayerState): Loss[] {
   if (p.poison >= POISON_LETHAL) out.push({ kind: "poison", text: `${p.poison} poison counters`, key: "poison" });
   if (p.life <= 0) out.push({ kind: "life", text: `Life at ${p.life}`, key: "life" });
   return out;
+}
+
+export interface Danger {
+  kind: Loss["kind"];
+  /** "low" is worth a look; "critical" is about one hit from out. */
+  level: "low" | "critical";
+  /** "Low life", "Lethal in 1 poison", "Lethal in 3 from Atraxa". */
+  text: string;
+}
+
+/**
+ * How close a player still in the game is to a loss, the most urgent cause first; null when
+ * they're comfortable or already at a loss (`lossOf` asks about that). Life counts against the
+ * game's starting life: a quarter left is low and an eighth is critical (10 and 5 in Commander).
+ */
+export function dangerOf(state: TableState, p: PlayerState): Danger | null {
+  if (p.eliminated || lossesOf(state, p).length) return null;
+  const found: (Danger & { left: number })[] = [];
+  for (const [source, dmg] of Object.entries(p.commanderDamage) as [CommanderKey, number | undefined][]) {
+    const left = COMMANDER_LETHAL - (dmg ?? 0);
+    if (left > 5) continue;
+    const from = state.players.find((x) => x.seat === keySeat(source));
+    const name = (sourceName(state, source) ?? (from ? `${from.name}'s commander` : "one commander")).split(",")[0]!;
+    found.push({ kind: "commander_damage", level: left <= 3 ? "critical" : "low", text: `Lethal in ${left} from ${name}`, left });
+  }
+  const poisonLeft = POISON_LETHAL - p.poison;
+  if (poisonLeft <= 3) found.push({ kind: "poison", level: poisonLeft <= 1 ? "critical" : "low", text: `Lethal in ${poisonLeft} poison`, left: poisonLeft });
+  const start = state.setup.startingLife;
+  if (p.life <= Math.ceil(start / 4)) found.push({ kind: "life", level: p.life <= Math.ceil(start / 8) ? "critical" : "low", text: "Low life", left: p.life });
+  // Critical before low; among equals, the fewest points from out.
+  const best = found.sort((a, b) => (a.level === b.level ? a.left - b.left : a.level === "critical" ? -1 : 1))[0];
+  return best ? { kind: best.kind, level: best.level, text: best.text } : null;
 }
 
 /** The name of the commander behind a key, retired ones included; undefined if it has none. */

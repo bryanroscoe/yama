@@ -33,7 +33,7 @@ use engine::types::ability::{
 use engine::types::events::GameEvent;
 use engine::types::actions::{AlternativeCastDecision, CastChoice, GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
 use engine::types::game_state::{
-    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CostResume, CounterCostChoice, CounterMoveChoice, CounterRemoveChoice, DistributionUnit, GameState, ManaChoice,
+    ActionResult, AutoMayChoice, CombatDamageAssignmentMode, CombatTaxContext, CounterCostChoice, CounterMoveChoice, CounterRemoveChoice, DistributionUnit, GameState, ManaChoice,
     ManaChoiceContext, ManaChoicePrompt, MayTriggerAutoChoiceScope, MayTriggerAutoChoiceSelector, MulliganDecisionPhase, PayCostKind,
     ReplacementAutoChoiceId, ReplacementCandidateSummary, ReplacementChoiceKind, RetargetScope, ShardChoice, ShardOptions, WaitingFor,
     YieldScope, YieldTarget,
@@ -964,6 +964,10 @@ impl Pending {
                     .from(vs, entry.map(|e| e.source_id));
                 p.zone = common_zone(&p.options);
                 p.default_answer = in_pool.then(|| json!([current.clone()]));
+                // CR 115.7d: None keeps this target only when the engine issues that
+                // exact response. "Change the target" prompts may require a new target.
+                p.none_ok = candidates.iter().any(|a| matches!(a,
+                    GameAction::RetargetSpell { new_targets } if matches!(new_targets.as_slice(), [None])));
                 p.current = Some(current);
                 p
             }
@@ -1386,20 +1390,11 @@ impl Pending {
                     PayCostKind::RemoveCounter { .. } => return crate::ways::counter_cost(vs, kind, choices, *n, resume),
                     _ => return None,
                 };
-                let source = match resume {
-                    CostResume::Spell { spell } | CostResume::SpellCost { spell, .. } => Some((spell.object_id, spell.activation_ability_index.is_some())),
-                    CostResume::ManaAbility { mana_ability } => Some((mana_ability.source_id, true)),
-                    CostResume::Resolution => None,
-                };
+                let (source, why) = crate::ways::cost_for(vs, resume);
                 // An exact count, or at least `min_count` (CR 118.3).
                 let (lo, up) = if *min_count > 0 && *min_count < *n { (*min_count, true) } else { (*n, false) };
                 let what = if up { format!("up to {}", count(*n, one, many)) } else { a_or(*n, one, many) };
-                let why = match source {
-                    Some((id, false)) => format!(" to cast {}", Match::name_in(vs, &id)),
-                    Some((id, true)) => format!(" to activate {}", Match::name_in(vs, &id)),
-                    None => String::new(),
-                };
-                Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("{verb} {what}{why}"), cards(vs, choices)).range(lo, *n, up).from(vs, source.map(|s| s.0))
+                Pending::new(Kind::Pick, Answer::SelectCards, "cost", format!("{verb} {what}{why}"), cards(vs, choices)).range(lo, *n, up).from(vs, source)
             }
             WaitingFor::WardDiscardChoice { player, cards: ids, pending_effect, remaining, .. } if *player == me => {
                 // Ward is being paid (the yes came first): the card to discard, one at a time.
@@ -1611,6 +1606,7 @@ impl Pending {
                 if self.keep_rest { Ok(()) } else { Err("The copy's targets can't all be kept.".into()) }
             }
             (Answer::RetargetSpell, Act::RetargetSpell { new_targets }) => match new_targets.as_slice() {
+                [None] if self.none_ok => Ok(()),
                 [Some(t)] if self.eligible(&target_id(t)) => Ok(()),
                 [Some(_)] => Err("That isn't a legal target.".into()),
                 _ => Err("Choose one new target.".into()),

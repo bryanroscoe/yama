@@ -16,7 +16,7 @@
 //! games must also handle the same way every time.
 //!
 //! These play whole games on phase's full card data (YAMA_ENGINE_CARD_DATA, else
-//! data/engine/card-data-1e5608e61683de41.json at the repo root), so they're ignored by default.
+//! data/engine/card-data-cbd552b41f962f5b.json at the repo root), so they're ignored by default.
 //! Missing card data fails an explicitly requested run. Run them in release:
 //!   YAMA_ENGINE_CARD_DATA=... cargo test --release -p yama-play --test integration -- --ignored --nocapture determinism::
 
@@ -32,7 +32,7 @@ const MAX_TURNS: u32 = 60;
 fn card_data() -> PathBuf {
     let path = std::env::var("YAMA_ENGINE_CARD_DATA")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/engine/card-data-1e5608e61683de41.json"));
+        .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/engine/card-data-cbd552b41f962f5b.json"));
     assert!(path.is_file(), "no card data at {} (set YAMA_ENGINE_CARD_DATA)", path.display());
     path
 }

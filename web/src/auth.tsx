@@ -10,6 +10,7 @@ import "./auth.css";
 import { noteViewing } from "./viewing";
 import { Landing } from "./pages/Landing";
 import { chooseGuest } from "./guest";
+import { isNative, nativeGoogleCredential } from "./native";
 
 const ME_KEY = "yama.me";
 
@@ -97,6 +98,47 @@ export function useLogout() {
     });
     return result !== "cancelled";
   };
+}
+
+/**
+ * Delete the signed-in account and everything it owns (`DELETE /api/me`), and forget it on this
+ * device as signing out does: plan data and unsent answers, the token and the cached user. The
+ * person types their email to confirm; the server checks it too. A refused deletion (a typo, an
+ * expired sign-in) leaves everything on the phone. One whose answer is lost on the way back may
+ * have happened, so the plan data (prices paid) leaves then; trying again gets 401 (the session
+ * went with the account), which finishes the rest. A 401 on a first try is only an expired
+ * sign-in, and the account is still there.
+ */
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  const answerLost = useRef(false);
+  return useMutation({
+    mutationFn: async (confirmEmail: string) => {
+      const userId = qc.getQueryData<User | null>(["me"])?.id;
+      const clearPlans = async () => {
+        await clearPlanData(userId);
+        qc.removeQueries({ queryKey: ["plan"] });
+        qc.removeQueries({ queryKey: ["plan-cache"] });
+      };
+      try {
+        await api("/api/me", { method: "DELETE", json: { confirm_email: confirmEmail } });
+      } catch (e) {
+        if (!(e instanceof ApiError)) {
+          answerLost.current = true;
+          await clearPlans();
+          throw new Error("Couldn't reach Yama. Try again when you're online; if your account was already deleted, that finishes signing this phone out.");
+        }
+        if (e.status !== 401) throw e;
+        if (!answerLost.current) throw new Error("Your sign-in has run out. Sign in again to delete your account.");
+      }
+      await clearPlans();
+      setToken(null);
+      localStorage.removeItem(ME_KEY);
+      qc.setQueryData(["me"], null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      window.location.replace("/");
+    },
+  });
 }
 
 /** The sign-in page, coming back to `from` (a path on Yama) once signed in. */
@@ -213,8 +255,17 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
   });
 
   const clientId = config.data?.google_client_id;
+  const native = isNative();
+  // Inside the Android app Google's web button doesn't work; its own sign-in sends the same ID token.
+  const nativeGoogle = useMutation({
+    mutationFn: async () => {
+      const credential = await nativeGoogleCredential(clientId!);
+      if (credential) google.mutate(credential);
+    },
+    onError: setError,
+  });
   useEffect(() => {
-    if (!clientId || !googleRef.current) return;
+    if (!clientId || !googleRef.current || native) return;
     let cancelled = false;
     loadGoogle()
       .then(() => {
@@ -228,7 +279,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
     };
     // google.mutate is stable enough for a one-time button render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId]);
+  }, [clientId, native]);
 
   return (
     <>
@@ -245,7 +296,12 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
       </div>
       {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
-      {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {clientId && !native && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {clientId && native && (
+        <button className="primary" disabled={nativeGoogle.isPending || google.isPending} onClick={() => nativeGoogle.mutate()}>
+          {nativeGoogle.isPending || google.isPending ? "Signing in…" : "Sign in with Google"}
+        </button>
+      )}
       {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
       {countLife && (
         <button className="login-secondary" onClick={() => navigate("/", { replace: true })}>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Yama's peaks (web/public/icon.svg) inside the adaptive icon's 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.62"
+        android:scaleY="0.62"
+        android:translateX="23.62"
+        android:translateY="22.38">
+        <path
+            android:fillColor="#A9ADB3"
+            android:pathData="M44,84L68,36L92,84H76L68,66L60,84Z" />
+        <path
+            android:strokeColor="#0B0C0E"
+            android:strokeWidth="6"
+            android:pathData="M6,84L34,18L62,84H44L34,58L24,84Z" />
+        <path
+            android:fillColor="#F2EFE8"
+            android:pathData="M6,84L34,18L62,84H44L34,58L24,84Z" />
+    </group>
+</vector>

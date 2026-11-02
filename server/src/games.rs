@@ -433,9 +433,33 @@ fn names_player(asked: &Seat, event: &serde_json::Value) -> bool {
     member.is_some() || user.is_some() || asked.guest_name.as_deref() == field("name")
 }
 
+/// The accounts a "player" event names (`userId`, `was.userId`) that don't exist: deleted since the
+/// phone recorded it.
+async fn departed_accounts(tx: &mut sqlx::SqliteConnection, payload: &serde_json::Value) -> AppResult<std::collections::HashSet<String>> {
+    let mut gone = std::collections::HashSet::new();
+    for pointer in ["/userId", "/was/userId"] {
+        if let Some(id) = payload.pointer(pointer).and_then(|v| v.as_str()) {
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ?)").bind(id).fetch_one(&mut *tx).await?;
+            if !exists {
+                gone.insert(id.to_string());
+            }
+        }
+    }
+    Ok(gone)
+}
+
 async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Event]) -> AppResult<u64> {
     let mut n = 0;
     for e in events {
+        // A "player" event recorded before the account it names was deleted, arriving after:
+        // stored as the deletion would have left it (admin/delete.rs).
+        let mut payload = e.payload.clone();
+        if e.kind == "player" {
+            let gone = departed_accounts(&mut *tx, &e.payload).await?;
+            if !gone.is_empty() {
+                crate::admin::delete::scrub_departed(&mut payload, &|id: &str| gone.contains(id));
+            }
+        }
         let added = sqlx::query(
             "INSERT INTO game_events (game_id, seq, actor_seat, kind, payload, created_at) VALUES (?,?,?,?,?,?)
              ON CONFLICT(game_id, seq) DO NOTHING",
@@ -444,7 +468,7 @@ async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Ev
         .bind(e.seq)
         .bind(e.actor_seat)
         .bind(&e.kind)
-        .bind(e.payload.to_string())
+        .bind(payload.to_string())
         .bind(e.created_at.clone().unwrap_or_else(now))
         .execute(&mut *tx)
         .await?
@@ -460,9 +484,16 @@ async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Ev
                 .await?;
             // The time travels with the event, so two devices making the same tap under the same
             // number (both "life -1") still differ, and only an exact resend is a retry.
-            let same = kind == e.kind
-                && serde_json::from_str::<serde_json::Value>(&payload).ok().as_ref() == Some(&e.payload)
-                && e.created_at.as_ref().is_none_or(|t| *t == created_at);
+            let stored = serde_json::from_str::<serde_json::Value>(&payload).ok();
+            let mut same = kind == e.kind && stored.as_ref() == Some(&e.payload) && e.created_at.as_ref().is_none_or(|t| *t == created_at);
+            // A "player" event a deletion has since scrubbed is still that event, provided the
+            // account it no longer names really is gone.
+            if !same && kind == "player" && kind == e.kind && e.created_at.as_ref().is_none_or(|t| *t == created_at)
+                && let Some(stored) = &stored
+            {
+                let gone = departed_accounts(&mut *tx, &e.payload).await?;
+                same = crate::admin::delete::is_scrubbed_player_event(stored, &e.payload, &|id: &str| gone.contains(id));
+            }
             if !same {
                 return Err(AppError::Conflict(
                     "another device already saved different changes to this game. Keep the game going on one device".into(),

@@ -7,10 +7,11 @@ the same checks locally on its exact tree and contains `main`, or when they carr
 `skip-ci` label; see [Skip CI on a PR](#skip-ci-on-a-pr).
 A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
-successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
+successful push CI on a main commit authorizes release, and only until a newer main commit's
+push CI passes; production never goes back to an older commit. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
-`[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. The separate
-`saget-yama-ci` runner executes one job at a time; it has no deployment credential, Docker
+`[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. Two listeners,
+`saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each has no deployment credential, Docker
 socket, production data/env mounts, or production runner state. Only its own runner state and
 dedicated Cargo/npm cache are mounted. This is a persistent runner for this private
 repository's trusted branches, not a sandbox for arbitrary untrusted code.
@@ -25,11 +26,13 @@ backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.
-- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with two build
+- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with four build
   jobs and low debug information, release/host guards, portable worker/build identity,
   commander evidence/list validation (also under Python optimization), and dataset recovery.
-  Resource usage, process timing and tested Yama/Phase revisions are recorded. The runner
-  has two CPUs, 12 GiB RAM and no extra swap; jobs cannot change host swap or use sudo.
+  Resource usage, process timing and tested Yama/Phase revisions are recorded. Each saget
+  runner has four CPUs and a 12 GiB memory limit inside the shared CI pool (eight CPUs, 20 GiB;
+  Bryan, 2026-11-02), so both Yama listeners can run a Rust job at once; jobs cannot change
+  host swap or use sudo. The pool lives in sagetserver's `ci/` fleet controller.
 
 `deploy/ci-runner/` defines the pinned official runner/toolchain image, startup, Compose
 limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci-runner`.
@@ -64,10 +67,18 @@ Since 1 November 2026 yama routes to GitHub-hosted runners (`["ubuntu-24.04"]`);
 switch back to saget only when hosted jobs can't run (billing), and back again after.
 Hosted jobs install Node 22 and Rust 1.98.1, with eight GiB of swap on their
 one-use VM for the engine compiler. They restore npm downloads and the Rust build
-(dependencies and the pinned engine, keyed by `deploy/phase-rev`) from the Actions cache.
-Only push CI on main saves the Rust cache, so a PR reuses main's warm build and never
-evicts it. The engine checkout's files are dated to its commit first, because Cargo
-rebuilds a path dependency whose files look newer than its cached build. Hosted Rust jobs also
+(dependencies and the pinned engine, keyed by `deploy/phase-rev` and the Rust version) from
+the Actions cache. Only push CI on main saves the Rust cache, so a PR reuses main's warm build
+and never evicts it. A warm build compiles only Yama's own crates (a few minutes); a
+change to `deploy/phase-rev` compiles the engine again (about 25 minutes) until main saves it.
+The engine checkout's files are dated to its commit first, because Cargo
+rebuilds a path dependency whose files look newer than its cached build. Yama is checked
+out as `app`, not `yama`: rust-cache saves dependency builds only from paths outside the
+workspace root, and `yama-phase` begins with `yama`, so the engine was silently dropped from
+every saved cache. rust-cache's key hashes every installed toolchain, so hosted jobs uninstall
+the image's own toolchains first; otherwise each image update missed the cache. Its key also
+covers `CARGO_*`/`RUST*` settings, manifests and `Cargo.lock`; a workflow change makes main
+test in full, so it saves under the new key. Hosted Rust jobs also
 delete unused preinstalled toolsets (.NET, Android, GHC, CodeQL) because the image leaves
 about 4 GiB free. Play's integration tests (`play/tests/*.rs`) build as one binary, `integration`
 (`tests/integration.rs` lists each file as a module), because every test binary links the
@@ -90,7 +101,8 @@ Do not start a second standalone worker from the legacy Compose example while
 the fleet controller owns this worker. Its state/cache stay at
 `/mnt/user/appdata/yama-ci-runner`; the deployment runner remains separate.
 
-Pooled CI has an aggregate four-CPU/12-GiB limit and two execution slots, with
+Pooled CI has an aggregate eight-CPU/20-GiB limit (four CPUs and 12 GiB per worker; Bryan,
+2026-11-02) and two execution slots, with
 root-selected memory reservations. It shares Yama's host release gate; production
 takes that gate exclusively. Each repository has separate state, cache and network.
 Only read-only hooks, nonsecret settings and empty coordination locks are
@@ -102,16 +114,13 @@ Image IDs are immutable; refresh tools/OS packages through reviewed profile
 changes. If CI is compromised, stop this worker and rotate its registration and
 read-only Phase key before rebuilding its state/cache.
 
-Rust CI checks out Yama and the private `bryanroscoe/yama-phase` side by side, at the exact
+Rust CI checks out Yama and the public `bryanroscoe/yama-phase` side by side, at the exact
 40-character revision in `deploy/phase-rev`. It uses the real Cargo manifests and lockfile;
 no local cache path substitutions are used on GitHub. The expected engine repository is
-checked before checkout. A missing key or invalid pin fails the job explicitly.
+checked before checkout. An invalid pin fails the job explicitly.
 
-The repository secret `YAMA_PHASE_DEPLOY_KEY` holds a dedicated SSH private key whose public
-key is installed as a **read-only deploy key on yama-phase**. It grants no account-wide or
-write access. Both checkouts disable credential persistence. To rotate it, install a new
-read-only deploy key on yama-phase, replace the Actions secret on Yama, verify a CI run, then
-remove the old deploy key. Never put private key material in the repository or logs. Both jobs
+Phase has been public since 31 October 2026, so its checkout no longer needs the legacy
+`YAMA_PHASE_DEPLOY_KEY` secret. Both checkouts disable credential persistence. Both jobs
 refuse fork PRs before scheduling on the persistent runner. Copy reviewed fork work into a
 trusted branch in this private repository before running CI; skipped fork jobs are not passing
 acceptance evidence.
@@ -192,7 +201,7 @@ The trees match when nothing reached main between the PR's last CI run and its m
 commit of an up-to-date PR, or a squash with nothing new on main). Otherwise, or when the PR
 skipped CI on local checks or skipped the Rust job, main tests in full. Main also tests in
 full when the push changes what keys the Rust cache (`Cargo.lock`, a `Cargo.toml`,
-`deploy/phase-rev`, `rust-toolchain*`) or `package-lock.json`, because only main's push CI saves
+`deploy/phase-rev`, `rust-toolchain*`, the CI workflow itself) or `package-lock.json`, because only main's push CI saves
 the caches every PR restores. Artifacts are kept for
 14 days. Any error reading GitHub runs the jobs.
 

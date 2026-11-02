@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type Sharing, type Visibility } from "../api";
+import { api, publicOrigin, type Sharing, type Visibility } from "../api";
 import { ErrorText } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
@@ -29,7 +29,7 @@ export function SharingSettings() {
   });
   const s = sharing.data;
   if (!s) return <ErrorText error={sharing.error} />;
-  const profile = s.handle ? `${location.origin}/u/${s.handle}` : null;
+  const profile = s.handle ? `${publicOrigin()}/u/${s.handle}` : null;
   const total = s.decks.private + s.decks.link + s.decks.public;
   const shareAll = (v: Visibility, ask: string) => confirm(ask) && all.mutate(v);
 

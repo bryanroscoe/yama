@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { api, type DeckView } from "../../api";
+import { api, publicOrigin, type DeckView } from "../../api";
 import { Details, ErrorText, Sheet } from "../../components/ui";
 import { sendCards, useMythicBridge, type MythicDeckLink } from "./mythic";
 import { mythicSendSnippet } from "./snippet";
@@ -40,7 +40,7 @@ export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => v
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["mythic-deck", deck.id] }),
   });
   const snippet = send.data
-    ? mythicSendSnippet({ code: send.data.code, mythic_id: send.data.mythic_id, name: deck.name, privacy, cards, back: `${window.location.origin}/mythic/sent` })
+    ? mythicSendSnippet({ code: send.data.code, mythic_id: send.data.mythic_id, name: deck.name, privacy, cards, back: `${publicOrigin()}/mythic/sent` })
     : null;
   const copy = async () => {
     if (!snippet) return;

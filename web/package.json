@@ -8,10 +8,16 @@
     "preview": "vite preview",
     "predev": "node scripts/copy-ocr.mjs && node scripts/copy-public-fonts.mjs",
     "prebuild": "node scripts/copy-ocr.mjs && node scripts/copy-public-fonts.mjs",
-    "polish": "node scripts/polish/polish.mjs"
+    "polish": "node scripts/polish/polish.mjs",
+    "android:sync": "VITE_API_BASE=https://yama.ing VITE_PUBLIC_URL=https://yama.ing npm run build && cap sync android"
   },
   "dependencies": {
-    "@capacitor/core": "^8.5.3",
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "@capgo/capacitor-social-login": "^8.7.5",
     "@fontsource/atkinson-hyperlegible-mono": "^5.3.0",
     "@fontsource/atkinson-hyperlegible-next": "^5.3.0",
     "@fontsource/big-shoulders-display": "^5.3.0",
@@ -27,7 +33,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.3",
+    "@capacitor/cli": "^8.6.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

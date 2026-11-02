@@ -43,11 +43,56 @@ pub fn router() -> Router<AppState> {
         .route("/api/table/{game_id}/live", get(live).put(set_live).delete(clear_live))
 }
 
-#[derive(Default)]
 pub struct Rooms {
     rooms: Mutex<HashMap<String, Room>>,
     /// Games shared through the Cloudflare relay, by game id.
     edge: Mutex<HashMap<String, EdgeShare>>,
+    /// Accounts deleted while connected (their ids), and the tables they hosted (`room:<game id>`):
+    /// each socket of that account, or following that table, ends (`end_for`).
+    ended: broadcast::Sender<String>,
+}
+
+impl Default for Rooms {
+    fn default() -> Self {
+        Self { rooms: Mutex::default(), edge: Mutex::default(), ended: broadcast::channel(BACKLOG).0 }
+    }
+}
+
+impl Rooms {
+    /// An account was deleted: the tables it hosts close for their guests, it stops following
+    /// other people's, and the relay share keys it left here are forgotten.
+    pub fn end_for(&self, user_id: &str) {
+        self.edge.lock().unwrap().retain(|_, e| e.user != user_id);
+        let _ = self.ended.send(user_id.to_string());
+        let mut closed = Vec::new();
+        self.rooms.lock().unwrap().retain(|game, r| {
+            let hosted = r.host_user.as_deref() == Some(user_id);
+            if hosted {
+                closed.push(game.clone());
+            }
+            !hosted
+        });
+        for game in closed {
+            let _ = self.ended.send(room_end(&game));
+        }
+    }
+}
+
+/// The `ended` message that closes every socket following a table.
+fn room_end(game_id: &str) -> String {
+    format!("room:{game_id}")
+}
+
+/// Whether a socket's loop should end on this `ended` message: it names one of `ids` (its account,
+/// or for a guest its table too; `Rooms::end_for`).
+fn ended_for(gone: Result<String, broadcast::error::RecvError>, ids: &[&str]) -> bool {
+    match gone {
+        Ok(id) => ids.contains(&id.as_str()),
+        // Notices were missed (many deletions at once): one may have been for this socket. End it;
+        // a phone that's still allowed reconnects, and `connect` refuses a deleted account.
+        Err(broadcast::error::RecvError::Lagged(_)) => true,
+        Err(broadcast::error::RecvError::Closed) => true,
+    }
 }
 
 /// A game its creator's phone is sharing on the Cloudflare relay.
@@ -172,6 +217,13 @@ async fn connect(
     if host && p.key.len() < 16 {
         return Err(AppError::bad("missing share key"));
     }
+    // Hear a deletion of this account from now on, then check it still exists: a deletion that
+    // committed before this subscribed (`Rooms::end_for` runs after the commit) is caught here.
+    let ended = st.rooms.ended.subscribe();
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ?)").bind(&user.id).fetch_one(&st.pool).await?;
+    if !exists {
+        return Err(AppError::Unauthorized);
+    }
     if host {
         let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
             .bind(&game_id)
@@ -202,14 +254,14 @@ async fn connect(
     let rooms = st.rooms.clone();
     Ok(ws.max_message_size(MAX_MESSAGE).on_upgrade(move |socket| async move {
         if host {
-            run_host(rooms, game_id, socket).await
+            run_host(rooms, game_id, user.id, ended, socket).await
         } else {
-            run_guest(rooms, game_id, user.display_name, socket).await
+            run_guest(rooms, game_id, user.id, user.display_name, ended, socket).await
         }
     }))
 }
 
-async fn run_host(rooms: Arc<Rooms>, game_id: String, socket: WebSocket) {
+async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, mut ended: broadcast::Receiver<String>, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let (conn, guests) = {
@@ -229,7 +281,12 @@ async fn run_host(rooms: Arc<Rooms>, game_id: String, socket: WebSocket) {
             }
         }
     });
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        let msg = tokio::select! {
+            msg = stream.next() => msg,
+            gone = ended.recv() => if ended_for(gone, &[user_id.as_str()]) { break } else { continue },
+        };
+        let Some(Ok(msg)) = msg else { break };
         if let Message::Text(text) = msg {
             let text = text.to_string();
             if text.contains(r#""type":"state""#) {
@@ -251,7 +308,15 @@ async fn run_host(rooms: Arc<Rooms>, game_id: String, socket: WebSocket) {
     }
 }
 
-async fn run_guest(rooms: Arc<Rooms>, game_id: String, name: String, socket: WebSocket) {
+async fn run_guest(
+    rooms: Arc<Rooms>,
+    game_id: String,
+    user_id: String,
+    name: String,
+    mut ended: broadcast::Receiver<String>,
+    socket: WebSocket,
+) {
+    let table = room_end(&game_id);
     let (mut sink, mut stream) = socket.split();
     let (mut updates, snapshot, host_connected) = {
         let mut map = rooms.rooms.lock().unwrap();
@@ -279,7 +344,12 @@ async fn run_guest(rooms: Arc<Rooms>, game_id: String, name: String, socket: Web
             }
         }
     });
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        let msg = tokio::select! {
+            msg = stream.next() => msg,
+            gone = ended.recv() => if ended_for(gone, &[user_id.as_str(), table.as_str()]) { break } else { continue },
+        };
+        let Some(Ok(msg)) = msg else { break };
         let Message::Text(text) = msg else { continue };
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
         if value.get("type").and_then(|t| t.as_str()) != Some("event") {
@@ -319,5 +389,26 @@ mod tests {
         // A short key never matches, even a short stored one.
         let short = room("abc", "bryan");
         assert!(!guest_may_join(Some(&short), "sam", "abc"));
+    }
+
+    #[test]
+    fn deleting_an_account_closes_its_tables_and_ends_its_sockets() {
+        let rooms = Rooms::default();
+        rooms.rooms.lock().unwrap().insert("ann-game".into(), room("0123456789abcdef0123", "ann"));
+        rooms.rooms.lock().unwrap().insert("bob-game".into(), room("0123456789abcdef0123", "bob"));
+        rooms.edge.lock().unwrap().insert("ann-edge".into(), EdgeShare { user: "ann".into(), key: "k".into(), at: Instant::now() });
+        let mut ended = rooms.ended.subscribe();
+        rooms.end_for("ann");
+        let map = rooms.rooms.lock().unwrap();
+        assert!(!map.contains_key("ann-game") && map.contains_key("bob-game"), "only the deleted account's table closes");
+        assert!(rooms.edge.lock().unwrap().is_empty());
+        let gone = ended.try_recv().unwrap();
+        assert!(ended_for(Ok(gone.clone()), &["ann"]), "ann's sockets end");
+        assert!(!ended_for(Ok(gone), &["bob"]), "bob's don't");
+        // Then her table closes for whoever follows it, and only hers.
+        let table = ended.try_recv().unwrap();
+        assert!(ended_for(Ok(table.clone()), &["sam", room_end("ann-game").as_str()]), "sam, following ann's table, leaves");
+        assert!(!ended_for(Ok(table), &["sam", room_end("bob-game").as_str()]), "bob's table carries on");
+        assert!(ended_for(Err(broadcast::error::RecvError::Lagged(3)), &["bob"]), "missed notices end the socket to be safe");
     }
 }

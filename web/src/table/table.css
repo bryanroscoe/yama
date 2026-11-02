@@ -60,6 +60,77 @@
     inset 0 0 0 5px var(--ground);
   pointer-events: none;
 }
+/* Close to out (dangerOf): a --bad glow around the panel's edge. It's an overlay above the art,
+   which is never filtered, and below the badges, name and art credit. It beats slowly while low
+   and like a racing heart when one hit from out; with reduced motion it stays lit, still. */
+.danger-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: var(--r-panel);
+  box-shadow:
+    inset 0 0 0 2px var(--bad),
+    inset 0 0 22px 2px rgb(240 122 98 / 0.4);
+  pointer-events: none;
+  animation: danger-beat 2.6s ease-in-out infinite;
+}
+.panel.danger-critical .danger-glow {
+  box-shadow:
+    inset 0 0 0 3px var(--bad),
+    inset 0 0 32px 6px rgb(240 122 98 / 0.5);
+  animation: danger-heart 1.1s ease-in-out infinite;
+}
+@keyframes danger-beat {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes danger-heart {
+  0%,
+  45%,
+  100% {
+    opacity: 0.5;
+  }
+  12%,
+  32% {
+    opacity: 1;
+  }
+  22% {
+    opacity: 0.7;
+  }
+}
+/* Critically low life: the number beats with the glow. It stays the panel's own ink, which reads
+   on every mana fill; the warning color doesn't. */
+.panel.danger-critical.danger-life .life {
+  animation: life-heart 1.1s ease-in-out infinite;
+}
+@keyframes life-heart {
+  0%,
+  45%,
+  100% {
+    scale: 1;
+  }
+  12%,
+  32% {
+    scale: 1.05;
+  }
+}
+/* The word for it, first in the badge row: dark ground and --bad text on every fill. */
+.panel .badge.danger-badge {
+  gap: 5px;
+  padding-left: 7px;
+  background: var(--ground);
+  color: var(--bad);
+  box-shadow: inset 0 0 0 1px var(--bad);
+}
+.danger-badge svg {
+  flex: none;
+}
+
 /* Out of the game: a dark veil over the panel (an overlay, so art could sit under it unfiltered). */
 .panel.out .panel-inner::before {
   content: "";
@@ -1702,12 +1773,53 @@
   margin: 0;
   font-family: var(--display);
   font-size: 2.25rem;
+  animation: first-name 320ms 120ms ease-out both;
 }
 .first-rolled-dot {
   width: 96px;
   height: 96px;
   border-radius: 50%;
   object-fit: cover;
+  animation:
+    first-reveal 420ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both,
+    first-ring 900ms 160ms ease-out both;
+}
+/* Pick at random: a light runs round the tiles and slows onto the player the draw chose, which
+   bumps once; then their art pops in, full strength, with a ring spreading out from it. */
+.tm-winner.lit,
+.tm-winner.lit:hover {
+  background: var(--text);
+  color: var(--ground);
+}
+.tm-winner.landed {
+  animation: first-landed 420ms ease-out;
+}
+@keyframes first-landed {
+  40% {
+    scale: 1.06;
+  }
+}
+/* Scale only: the dot is often the commander's art, and card images never fade. */
+@keyframes first-reveal {
+  from {
+    scale: 0.4;
+  }
+}
+@keyframes first-ring {
+  from {
+    outline: 3px solid rgb(242 239 232 / 0.9);
+    outline-offset: 0;
+  }
+  to {
+    outline: 3px solid rgb(242 239 232 / 0);
+    outline-offset: 20px;
+  }
+}
+@keyframes first-name {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
 }
 
 /* ── player sheet: poison out of ten, the name opens the seat, who won ── */

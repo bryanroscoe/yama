@@ -2,6 +2,7 @@ import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useRef, useState } from "react";
+import { exportLink } from "../download";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
@@ -124,7 +125,7 @@ export function CollectionPage() {
             <span className="coll-wide">Import from Mythic Tools</span>
             <span className="coll-narrow">Import</span>
           </button>
-          <a className="button outline coll-export" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
+          <a className="button outline coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</a>
           <button className="primary coll-scan" onClick={() => setScanning(true)}>Scan cards</button>
         </div>
       </div>
@@ -254,7 +255,7 @@ export function CollectionPage() {
         {!!items.data?.length && <Details label="About collection prices">
           <p>Prices are per copy in its finish. Market values are not store quotes or resale offers. Proxies are excluded from collection value; missing prices stay unpriced.</p>
         </Details>}
-        <a className="button outline coll-export-narrow" href={`${API_BASE}/api/collection/export.csv`}>Export CSV</a>
+        <a className="button outline coll-export-narrow" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</a>
       </section>
 
       {open && (

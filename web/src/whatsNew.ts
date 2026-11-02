@@ -14,6 +14,40 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-delete-account",
+    date: "2026-11-01",
+    title: "Delete your account yourself",
+    items: [
+      "Group, You now has Delete account. It deletes your account and everything in it once you type your email to confirm. Games you played with other people stay in their history without your name.",
+    ],
+    link: { to: "/group#delete-account", label: "Open Group, You" },
+  },
+  {
+    id: "2026-11-01-table-first-spin",
+    date: "2026-11-01",
+    title: "Picking who goes first, with a spin",
+    items: [
+      "Pick at random now runs a light round the players and slows onto the one it picked, then shows their art. The pick is made the moment you tap; the spin only shows it.",
+      "Who goes first, the dice, and the out-of-the-game and knock-out questions open in the middle of the screen, where everyone round the phone can see them.",
+    ],
+  },
+  {
+    id: "2026-11-01-table-danger",
+    date: "2026-11-01",
+    title: "The life counter warns when someone is close to out",
+    items: [
+      "A player's panel glows red around the edge when they're close to losing: a quarter of their starting life left (10 in Commander), 7 poison, or 16 damage from one commander. It beats faster once they're one hit from out, and a badge says why.",
+    ],
+  },
+  {
+    id: "2026-11-01-table-awake",
+    date: "2026-11-01",
+    title: "The life counter keeps your screen on",
+    items: [
+      "Your phone no longer goes to sleep during a game. Yama asks again to keep the screen on each time you come back from another app or unlock the phone, and phones following a shared table stay awake too.",
+    ],
+  },
+  {
     id: "2026-11-01-shopping-settings",
     date: "2026-11-01",
     title: "Your buy rule, your favourite store, and lists to paste",
@@ -52,7 +86,7 @@ export const NEWS: NewsEntry[] = [
     date: "2026-11-01",
     title: "Count life without an account",
     items: [
-      "Friends without a Yama account can use the life counter on their own phone: \"Count life without an account\" on the sign-in page. Their games stay on that phone.",
+      "Anyone can use the life counter without an account: Yama opens on it, with the usual nav, and the sign-in page links to it. Games counted that way stay on that phone.",
       "If they sign in later, the Table page asks whether to save those games to their account. Sharing a table with everyone's phones still needs an account; joining one by its code doesn't.",
     ],
   },

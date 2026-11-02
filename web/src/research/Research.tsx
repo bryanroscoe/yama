@@ -1,3 +1,4 @@
+import { saveFile } from "../download";
 import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
@@ -91,8 +92,7 @@ function AcquisitionGroups({ deck, build }: { deck: ResearchDeck; build: Build }
 function BuildView({ bundle, deck, build }: { bundle: ResearchBundle; deck: ResearchDeck; build: Build }) {
   const [copy, setCopy] = useState("");
   const download = () => {
-    const url = URL.createObjectURL(new Blob([build.list], { type: "text/plain" }));
-    const a = document.createElement("a");a.href = url;a.download = `${deck.key}-${build.id}.txt`;a.click();URL.revokeObjectURL(url);
+    void saveFile(new Blob([build.list], { type: "text/plain" }), `${deck.key}-${build.id}.txt`);
   };
   const combos = resolvedCombos(deck,build);
   const present = combos.filter((c) => c.present !== false);

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ArtPanel } from "../components/ArtPanel";
 import { SiteNotice } from "../components/SiteNotice";
 import { Wordmark } from "../components/Wordmark";
+import { openPage } from "../native";
 import "./landing.css";
 
 /** Runtime Scryfall art, with the credit beside the crop. */
@@ -15,6 +16,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
       <header className="landing-head">
         <a className="landing-brand" href="/" aria-label="Yama home"><Wordmark /></a>
         <nav aria-label="Public pages">
+          <a href="/">Life counter</a>
           <a href="/precons">Precons</a>
           <a href="/docs/mcp/">MCP guide</a>
           <a className="landing-signin-link" href="#sign-in">Sign in</a>
@@ -37,6 +39,13 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               <h2 id="explore-title">Explore without an account</h2>
             </div>
             <div className="landing-public-links">
+              {/* The life counter is Yama's home page, signed in or not (guest.ts). */}
+              <a className="landing-destination landing-counter" href="/">
+                <span className="landing-destination-kind">Life counter</span>
+                <h3>Count life at the table</h3>
+                <p>Commander damage, poison and turns for up to six players. No account needed: games stay on this phone.</p>
+                <span className="landing-destination-action">Start a game <span aria-hidden="true">→</span></span>
+              </a>
               <a className="landing-destination" href="/precons">
                 <span className="landing-destination-kind">Public reference</span>
                 <h3>Find your next precon</h3>
@@ -56,7 +65,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               <form className="landing-handle" action="/u" method="get" aria-labelledby="shared-title" onSubmit={(e) => {
                 e.preventDefault();
                 const h = new FormData(e.currentTarget).get("handle")?.toString().trim().replace(/^@/, "").toLowerCase();
-                if (h) location.assign(`/u/${encodeURIComponent(h)}`);
+                if (h) openPage(`/u/${encodeURIComponent(h)}`);
               }}>
                 <input name="handle" aria-label="Handle" placeholder="@handle" autoCapitalize="none" spellCheck={false} maxLength={31} required />
                 <button type="submit">Open profile</button>

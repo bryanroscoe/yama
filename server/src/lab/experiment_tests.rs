@@ -2404,6 +2404,83 @@ async fn tournament_progress_is_exact_between_summary_batches_and_cancel_flushes
 }
 
 #[tokio::test]
+async fn retry_only_tail_exposes_owned_counts_and_hides_fast_pace_eta() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let bryan = user("bryan", false);
+    let first = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    // Exclude the untouched fast fixture results: on a busy debug CI runner their
+    // timestamps can otherwise fill the recent-40 window ahead of our paced sample.
+    sqlx::query("UPDATE lab_experiment_games SET finished_at='2026-01-01T00:00:00Z' WHERE experiment_id=?")
+        .bind(&first.item.id).execute(&pool).await.unwrap();
+    let now = chrono::Utc::now();
+    for (i, age) in [30, 20, 10, 0].into_iter().enumerate() {
+        let at = (now - chrono::Duration::seconds(age)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        sqlx::query("UPDATE lab_experiment_games SET finished_at=? WHERE experiment_id=? AND ord=?")
+            .bind(at).bind(&first.item.id).bind(i as i64).execute(&pool).await.unwrap();
+    }
+    let mine = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    let other = create(&pool, &user("other", false), swap_req(100), sim.as_ref()).await.unwrap();
+    sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=?")
+        .bind(&other.item.id).execute(&pool).await.unwrap();
+    let initial = detail(&pool, "bryan", &mine.item.id).await.unwrap();
+    assert_eq!((initial.item.progress.phase_pending, initial.item.progress.phase_retries), (100, 0));
+    assert!(initial.item.progress.eta_seconds.is_some());
+    // A later normal run cannot use fast-game pace through someone else's retry tail.
+    let behind = create(&pool, &bryan, swap_req(100), sim.as_ref()).await.unwrap();
+    assert_eq!(behind.item.progress.phase_retries, 0);
+    assert_eq!(behind.item.progress.eta_seconds, None);
+    // Mixed first attempts and retries still show counts without presenting other owners' counts.
+    sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=? AND ord<2")
+        .bind(&mine.item.id).execute(&pool).await.unwrap();
+    let mixed = detail(&pool, "bryan", &mine.item.id).await.unwrap();
+    assert_eq!((mixed.item.progress.phase_pending, mixed.item.progress.phase_retries), (100, 2));
+    sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=?")
+        .bind(&mine.item.id).execute(&pool).await.unwrap();
+    let tail = detail(&pool, "bryan", &mine.item.id).await.unwrap();
+    assert_eq!((tail.item.progress.phase_pending, tail.item.progress.phase_retries), (100, 100));
+    assert_eq!(tail.item.progress.eta_seconds, None);
+    assert!(detail(&pool, "other", &mine.item.id).await.is_err());
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    let done = detail(&pool, "bryan", &mine.item.id).await.unwrap();
+    assert_eq!((done.item.progress.phase_pending, done.item.progress.phase_retries), (0, 0));
+}
+
+#[tokio::test]
+async fn retry_counts_are_not_lost_for_remotely_scheduled_experiments() {
+    let pool = fixture().await;
+    let d = create(&pool, &user("bryan", false), swap_req(100), FakeSim::new().as_ref()).await.unwrap();
+    sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=?")
+        .bind(&d.item.id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO lab_execution_runs (id,experiment_id,owner_id,request_hash,comparison,target,created_at) VALUES ('remote-retries',?,'bryan','hash',0,'saget','now')")
+        .bind(&d.item.id).execute(&pool).await.unwrap();
+    let remote = detail(&pool, "bryan", &d.item.id).await.unwrap();
+    assert_eq!((remote.item.progress.phase_pending, remote.item.progress.phase_retries), (100, 100));
+    assert_eq!(remote.item.progress.eta_seconds, None);
+}
+
+#[tokio::test]
+async fn cancelled_retry_tail_is_not_described_as_ongoing_in_advisor_context() {
+    let pool = fixture().await;
+    let bryan = user("bryan", false);
+    let d = create(&pool, &bryan, swap_req(100), FakeSim::new().as_ref()).await.unwrap();
+    sqlx::query("UPDATE lab_experiment_games SET retried=1 WHERE experiment_id=?")
+        .bind(&d.item.id).execute(&pool).await.unwrap();
+    let active = crate::advisor::context::build(&pool, &bryan, "experiment", Some(&d.item.id)).await.unwrap();
+    assert!(active.contains("100 slow retries"));
+    assert!(active.contains("retry-only tail"));
+    for status in ["cancelled", "failed", "done"] {
+        sqlx::query("UPDATE lab_experiments SET status=? WHERE id=?")
+            .bind(status).bind(&d.item.id).execute(&pool).await.unwrap();
+        let ended = crate::advisor::context::build(&pool, &bryan, "experiment", Some(&d.item.id)).await.unwrap();
+        assert!(ended.contains(&format!("({status})")));
+        assert!(!ended.contains("slow retries"));
+        assert!(!ended.contains("retry-only tail"));
+    }
+}
+
+#[tokio::test]
 async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_at_a_time() {
     use crate::precon_evidence::{choose_simulation, chosen_simulation, clear_simulation};
     let pool = fixture().await;
