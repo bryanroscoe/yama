@@ -5,10 +5,12 @@ import {
   hassleOrder,
   planTrip,
   PREFERENCE_TEXT,
+  sealedFor,
   storePreference,
   storePremium,
   usd,
   type PrintRow,
+  type RuleSet,
   type SkipReason,
   type Store,
   type StorePreference,
@@ -576,7 +578,8 @@ function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: 
   if (!any) return null;
   // Offline (or the request failed): the copy saved with your plan, which picks no store for
   // products along the way.
-  const saved = !q.data && view.b.sealed ? view.b.sealed : null;
+  // Judged again for your day and this trip, as the server would.
+  const saved = !q.data && view.b.sealed ? sealedFor(view.b.sealed, view.b.settings as unknown as RuleSet[], view.today, going, trip) : null;
   const data = q.data ?? saved;
   const cap = data?.cap_usd ?? null;
   return (
@@ -584,7 +587,7 @@ function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: 
       <h2 id="trip-sealed" className="plan-section-head">
         Sealed precons <span className="num dim">{q.data?.items.length ?? ""}</span>
       </h2>
-      {saved && <p className="small">Showing the copy saved with your plan on {fmtDate(saved.date)}; reconnect for the latest prices.</p>}
+      {saved && <p className="small">Showing the prices saved with your plan; reconnect for the latest.</p>}
       <p className="dim small">
         {!data ? "" : cap != null ? `Your cap: ${usd(cap)} a deck before tax. ` : "No sealed cap set (Plan settings). "}
         Store prices are dated quotes you record here. The singles value is the cards at market, not what they'd sell for; gameplay value is separate.
