@@ -537,8 +537,27 @@ impl LabWorker {
         }
     }
 
+    /// Finish runs whose every game is stored but which still say queued or running: their last
+    /// summary failed, and summaries are written outside the results' transactions, so no later
+    /// result would. Recounts inside an immediate transaction, as a cancel does.
+    pub(crate) async fn finish_complete(&self) -> AppResult<usize> {
+        let ids: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM lab_experiments WHERE status IN ('queued','running') AND games_total > 0 AND games_done >= games_total")
+                .fetch_all(&self.pool)
+                .await?;
+        for id in &ids {
+            let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+            refresh(&mut tx, id, false).await?;
+            tx.commit().await?;
+        }
+        Ok(ids.len())
+    }
+
     pub async fn run(self: Arc<Self>) {
         loop {
+            if let Err(e) = self.finish_complete().await {
+                tracing::error!(error = %e, "lab: finishing runs whose games are all in failed; trying again shortly");
+            }
             if let Err(e) = self.tick().await {
                 tracing::error!(error = %e, "lab worker pass failed; trying again shortly");
             }
@@ -552,6 +571,9 @@ impl LabWorker {
     /// Hand Forge games to the Forge worker until the server stops (`forge.rs`).
     pub async fn run_forge(self: Arc<Self>) {
         loop {
+            if let Err(e) = self.finish_complete().await {
+                tracing::error!(error = %e, "lab: finishing runs whose games are all in failed; trying again shortly");
+            }
             if let Err(e) = self.forge_tick().await {
                 tracing::error!(error = %e, "lab: Forge pass failed; trying again shortly");
             }
@@ -1138,7 +1160,17 @@ async fn store_result(pool: &SqlitePool, experiment: &str, game: &str, result: &
 
 /// Rewrite a run's summary after a result, when one is due ([`BATCH_GAMES`]).
 async fn summarize_batched(pool: &SqlitePool, experiment: &str, s: &Stored) -> AppResult<()> {
-    let must = s.done >= s.total || !s.engine_left || !matches!(s.status.as_str(), "queued" | "running");
+    // A cancelled run only gets results from games that were already playing, so its summary
+    // isn't final yet (`settle` makes it so once the last is in). Rewrite it inside an immediate
+    // transaction, as the cancel does, never from a read made before some other change.
+    if !matches!(s.status.as_str(), "queued" | "running") {
+        lock(&BATCHES).remove(experiment);
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        refresh(&mut tx, experiment, false).await?;
+        tx.commit().await?;
+        return Ok(());
+    }
+    let must = s.done >= s.total || !s.engine_left;
     let batch = Arc::clone(lock(&BATCHES).entry(experiment.to_string()).or_default());
     let mut b = if must {
         batch.lock().await
@@ -1149,10 +1181,12 @@ async fn summarize_batched(pool: &SqlitePool, experiment: &str, s: &Stored) -> A
     };
     let due = must || b.at.is_none_or(|at| s.done - b.done >= BATCH_GAMES || at.elapsed() >= BATCH_INTERVAL.max(b.took * 10));
     if due {
+        // Every attempt counts toward the wait, written or not, so a busy run isn't summarized
+        // again with every result.
         let started = Instant::now();
-        if summarize(pool, experiment).await? {
-            *b = Batch { at: Some(Instant::now()), done: s.done, took: started.elapsed() };
-        }
+        let written = summarize(pool, experiment).await;
+        *b = Batch { at: Some(Instant::now()), done: s.done, took: started.elapsed() };
+        written?;
     }
     drop(b);
     if must && s.done >= s.total {
@@ -1161,17 +1195,18 @@ async fn summarize_batched(pool: &SqlitePool, experiment: &str, s: &Stored) -> A
     Ok(())
 }
 
-/// Rewrite a run's summary from its games as they are now, without holding the database's writer
-/// while it's worked out: read the games, summarize them on a low-priority thread, then write in a
-/// short transaction, unless a result was stored or cleared, games were added, or the status
-/// changed in between (a later summary covers those). Returns whether it wrote.
+/// Rewrite a queued or running run's summary from its games as they are now, without holding the
+/// database's writer while it's worked out: read the games, summarize them on a low-priority
+/// thread, then write in a short transaction ([`write_summary`] says when it's written). Returns
+/// whether it wrote.
 pub(crate) async fn summarize(pool: &SqlitePool, experiment: &str) -> AppResult<bool> {
     let timing = crate::perf::Job::frequent("lab summary", Duration::from_secs(2));
     let wrote = async {
         let mut read = pool.begin().await?;
         let inputs = summary_inputs(&mut read, experiment).await?;
         read.rollback().await?;
-        let Some(inputs) = inputs else { return Ok(false) };
+        // Only a run still playing: a cancelled one's summary is settled in its own transaction.
+        let Some(inputs) = inputs.filter(|i| matches!(i.status.as_str(), "queued" | "running")) else { return Ok(false) };
         let seen = Seen { status: inputs.status.clone(), counted: inputs.counted, total: inputs.total };
         let made = summarize_off_thread(inputs, false).await?;
         let mut tx = pool.begin().await?;
@@ -1355,28 +1390,29 @@ pub(super) fn make_summary(i: &SummaryInputs, settled: bool) -> AppResult<Made> 
     })
 }
 
-/// Write a summary. One made outside a transaction (`seen`) is written only while the run is as
-/// it was read: same status, results counted and games planned. Returns whether it wrote.
+/// Write a summary. One made outside a transaction (`seen`) is written only while the run has the
+/// status and games planned it was read with and no result has been cleared since (a replayed
+/// pod); later results may have come in, so it never touches the exact progress count. Finishing
+/// a run needs exactly the results it was read with. Returns whether it wrote.
 pub(super) async fn write_summary(conn: &mut SqliteConnection, experiment: &str, m: &Made, seen: Option<&Seen>) -> AppResult<bool> {
-    let stamp = now();
     let n = sqlx::query(
-        "UPDATE lab_experiments SET games_done = ?, summary = ?, summary_forge = ?, status = ?, error = IFNULL(?, error), updated_at = ?,
-            finished_at = CASE WHEN ? AND finished_at IS NULL THEN ? ELSE finished_at END
-         WHERE id = ? AND (? OR (status = ? AND games_done = ? AND games_total = ?))",
+        "UPDATE lab_experiments SET summary = ?1, summary_forge = ?2, status = ?3, error = IFNULL(?4, error), updated_at = ?5,
+            finished_at = CASE WHEN ?6 AND finished_at IS NULL THEN ?5 ELSE finished_at END,
+            games_done = CASE WHEN ?9 OR ?6 THEN ?7 ELSE games_done END
+         WHERE id = ?8 AND (?9 OR (status = ?10 AND games_total = ?11 AND (games_done = ?12 OR (NOT ?6 AND games_done > ?12))))",
     )
-    .bind(m.done)
     .bind(&m.summary)
     .bind(&m.summary_forge)
     .bind(&m.status)
     .bind(&m.error)
-    .bind(&stamp)
+    .bind(now())
     .bind(m.finishes)
-    .bind(&stamp)
+    .bind(m.done)
     .bind(experiment)
     .bind(seen.is_none())
     .bind(seen.map(|s| s.status.as_str()))
-    .bind(seen.map(|s| s.counted))
     .bind(seen.map(|s| s.total))
+    .bind(seen.map(|s| s.counted))
     .execute(&mut *conn)
     .await?
     .rows_affected();

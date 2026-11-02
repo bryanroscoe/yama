@@ -781,8 +781,9 @@ function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { i
 /** Your experiment that's playing now, if any: its progress and its answer so far. */
 export function RunningNow() {
   const exps = useQuery({
-    queryKey: ["lab", "experiments"],
-    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments"),
+    // Asked for directly: an older run still playing can be past the list's first page.
+    queryKey: ["lab", "experiments", "active"],
+    queryFn: () => api<ExperimentItem[]>("/api/lab/experiments?active=true"),
     refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 5000 : false),
   });
   const e = exps.data?.find((x) => x.status === "running") ?? exps.data?.find((x) => x.status === "queued");

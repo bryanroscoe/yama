@@ -2463,6 +2463,9 @@ pub const MAX_PAGE: i64 = 100;
 pub struct ListPage {
     pub limit: Option<i64>,
     pub before: Option<String>,
+    /// Only runs still queued or playing (Try a change's "Running now"), however old.
+    #[serde(default)]
+    pub active: bool,
 }
 
 /// The owner's experiments, newest first, a page at a time (`before`: the id of the last run on
@@ -2478,11 +2481,13 @@ pub async fn list(pool: &SqlitePool, owner: &str, page: &ListPage) -> AppResult<
         "SELECT {columns} FROM lab_experiments e
           WHERE e.owner_id = ?1 AND (?2 IS NULL OR NOT EXISTS (SELECT 1 FROM lab_experiments b WHERE b.id = ?2 AND b.owner_id = ?1)
                 OR (e.created_at, e.rowid) < (SELECT b.created_at, b.rowid FROM lab_experiments b WHERE b.id = ?2))
+            AND (NOT ?4 OR e.status IN ('queued','running'))
           ORDER BY e.created_at DESC, e.rowid DESC LIMIT ?3"
     )))
     .bind(owner)
     .bind(page.before.as_deref())
     .bind(limit)
+    .bind(page.active)
     .fetch_all(pool)
     .await?;
     let q = queue(pool, owner).await?;

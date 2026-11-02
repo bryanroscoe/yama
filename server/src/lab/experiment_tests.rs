@@ -2405,11 +2405,18 @@ async fn tournament_progress_is_exact_between_summary_batches_and_cancel_flushes
     result.end=End::Win; result.winner=Some(0); result.placements=vec![vec![0],vec![1,2,3]];
     assert!(store(&pool,&d.item.id,&game,&result).await.unwrap());
     assert!(!store(&pool,&d.item.id,&game,&result).await.unwrap());
+    // A second game moments later is counted, but its summary waits for the batch.
+    let (game2, text2): (String,String) = sqlx::query_as("SELECT game,spec FROM lab_experiment_games WHERE experiment_id=? ORDER BY ord LIMIT 1 OFFSET 1").bind(&d.item.id).fetch_one(&pool).await.unwrap();
+    let spec2: GameSpec = serde_json::from_str(&text2).unwrap();
+    let mut result2 = GameResult::new(&spec2,"fake");
+    result2.end=End::Win; result2.winner=Some(0); result2.placements=vec![vec![0],vec![1,2,3]];
+    assert!(store(&pool,&d.item.id,&game2,&result2).await.unwrap());
     let pending=detail(&pool,"admin",&d.item.id).await.unwrap();
-    assert_eq!(pending.item.progress.done,1);
+    assert_eq!(pending.item.progress.done,2);
+    assert_eq!(pending.item.summary.unwrap().versus.unwrap().games,1,"the summary is behind until its batch");
     let cancelled=cancel(&pool,"admin",&d.item.id,&idle).await.unwrap();
-    assert_eq!(cancelled.item.progress.done,1);
-    assert_eq!(cancelled.item.summary.unwrap().versus.unwrap().games,1,"cancel flushes the last partial summary batch");
+    assert_eq!(cancelled.item.progress.done,2);
+    assert_eq!(cancelled.item.summary.unwrap().versus.unwrap().games,2,"cancel flushes the last partial summary batch");
 }
 
 #[tokio::test]
@@ -2576,7 +2583,7 @@ async fn progress_counts_every_game_while_summaries_are_rewritten_in_batches() {
 }
 
 #[tokio::test]
-async fn a_summary_made_before_another_result_came_in_isnt_written() {
+async fn a_summary_made_from_older_results_never_undoes_progress_a_cancel_or_a_replay() {
     use super::worker::{Seen, make_summary, summary_inputs, write_summary};
     let pool = fixture().await;
     let sim = FakeSim::new();
@@ -2584,6 +2591,7 @@ async fn a_summary_made_before_another_result_came_in_isnt_written() {
     let id = d.item.id.clone();
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT game, spec FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord").bind(&id).fetch_all(&pool).await.unwrap();
     let play = |i: usize| sim.play(&serde_json::from_str(&rows[i].1).unwrap(), &[], &LIMITS);
+    sqlx::query("UPDATE lab_experiments SET status = 'running' WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
     assert!(store(&pool, &id, &rows[0].0, &play(0)).await.unwrap());
     // Read and summarize, as `summarize` does outside a transaction...
     let read = || async {
@@ -2597,19 +2605,46 @@ async fn a_summary_made_before_another_result_came_in_isnt_written() {
         async move { write_summary(&mut *pool.acquire().await.unwrap(), &id, &made, Some(&seen)).await.unwrap() }
     };
     let (made, seen) = read().await;
-    // ...while another result is stored.
+    // ...while another result is stored: it's still written (a busy run gets summaries), and the
+    // progress count keeps the newer result.
     assert!(store(&pool, &id, &rows[1].0, &play(1)).await.unwrap());
-    assert!(!write(made, seen).await, "a stale summary is dropped");
-    let (done, _) = stored_summary(&pool, &id).await;
-    assert_eq!(done, 2, "progress isn't put back");
-    // A cancel in between is kept too.
-    let (made, seen) = read().await;
-    sqlx::query("UPDATE lab_experiments SET status = 'cancelled' WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
-    assert!(!write(made, seen).await);
-    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.status, "cancelled");
-    // Nothing changed: it's written.
-    let (made, seen) = read().await;
     assert!(write(made, seen).await);
+    let (done, s) = stored_summary(&pool, &id).await;
+    assert_eq!(done, 2, "progress isn't put back");
+    assert_eq!(s["base"]["pending"].as_i64().unwrap() + s["variant"]["pending"].as_i64().unwrap(), 99);
+    // A replayed pod clears a result: one read before that isn't written.
+    let (made, seen) = read().await;
+    sqlx::query("UPDATE lab_experiment_games SET result = NULL WHERE experiment_id = ? AND game = ?").bind(&id).bind(&rows[1].0).execute(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    super::worker::refresh(&mut tx, &id, false).await.unwrap();
+    tx.commit().await.unwrap();
+    assert!(!write(made, seen).await);
+    assert_eq!(stored_summary(&pool, &id).await.0, 1);
+    // Nor is one read before a cancel, and a cancelled run isn't summarized out here at all.
+    let (made, seen) = read().await;
+    cancel(&pool, "bryan", &id, &idle).await.unwrap();
+    let settled = stored_summary(&pool, &id).await.1;
+    assert!(!write(made, seen).await);
+    assert!(!super::worker::summarize(&pool, &id).await.unwrap());
+    assert_eq!(stored_summary(&pool, &id).await.1, settled, "the cancel's final summary stays");
+    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.status, "cancelled");
+}
+
+#[tokio::test]
+async fn a_run_whose_games_are_all_in_is_finished_even_if_its_last_summary_failed() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("admin", true), swap_req(4), sim.as_ref()).await.unwrap();
+    let worker = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    worker.drain().await;
+    assert_eq!(detail(&pool, "admin", &d.item.id).await.unwrap().item.status, "done");
+    // As if the last summary had failed after the last result was stored.
+    sqlx::query("UPDATE lab_experiments SET status = 'running', finished_at = NULL WHERE id = ?").bind(&d.item.id).execute(&pool).await.unwrap();
+    assert_eq!(worker.finish_complete().await.unwrap(), 1);
+    let done = detail(&pool, "admin", &d.item.id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 4));
+    assert!(done.item.label.finished_at.is_some());
+    assert_eq!(worker.finish_complete().await.unwrap(), 0);
 }
 
 #[tokio::test]
@@ -2622,12 +2657,16 @@ async fn the_run_list_comes_a_page_at_a_time() {
         ids.push(create(&pool, &admin, swap_req(4), sim.as_ref()).await.unwrap().item.id);
     }
     ids.reverse(); // newest first
-    let page = |limit: i64, before: Option<&str>| ListPage { limit: Some(limit), before: before.map(str::to_string) };
+    let page = |limit: i64, before: Option<&str>| ListPage { limit: Some(limit), before: before.map(str::to_string), active: false };
     let first: Vec<String> = list(&pool, "admin", &page(2, None)).await.unwrap().into_iter().map(|e| e.id).collect();
     assert_eq!(first, ids[..2]);
     let next: Vec<String> = list(&pool, "admin", &page(2, Some(&first[1]))).await.unwrap().into_iter().map(|e| e.id).collect();
     assert_eq!(next, ids[2..]);
     assert!(list(&pool, "admin", &page(2, Some(&ids[2]))).await.unwrap().is_empty());
+    // Runs still to play, however old, for "Running now".
+    sqlx::query("UPDATE lab_experiments SET status = 'done' WHERE id IN (?, ?)").bind(&ids[0]).bind(&ids[1]).execute(&pool).await.unwrap();
+    let active: Vec<String> = list(&pool, "admin", &ListPage { limit: Some(1), active: true, ..ListPage::default() }).await.unwrap().into_iter().map(|e| e.id).collect();
+    assert_eq!(active, ids[2..]);
     // Someone else's run, or one that's gone, starts from the newest again.
     assert_eq!(list(&pool, "admin", &page(2, Some("not-a-run"))).await.unwrap().len(), 2);
     assert_eq!(list(&pool, "admin", &ListPage::default()).await.unwrap().len(), 3);
