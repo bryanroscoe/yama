@@ -115,8 +115,9 @@ mod tests {
         after_import(&pool).await;
         let stats: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_stat1 WHERE tbl = 'users'").fetch_one(&pool).await.unwrap();
         assert!(stats > 0);
-        // A second run finds nothing to do.
+        // A second run leaves an analysed table alone. (An empty one, like the card search's
+        // shadow tables here, is always looked at again; that costs nothing.)
         let due: Vec<String> = sqlx::query_scalar("PRAGMA optimize=0x10003").fetch_all(&pool).await.unwrap();
-        assert!(due.is_empty(), "{due:?}");
+        assert!(!due.iter().any(|d| d.contains("\"users\"")), "{due:?}");
     }
 }
