@@ -428,7 +428,7 @@ export interface ExperimentItem {
   status: ExperimentStatus;
   error: string | null;
   label: SimLabel;
-  progress: { done: number; total: number; eta_seconds: number | null; games_ahead: number | null };
+  progress: { done: number; total: number; eta_seconds: number | null; games_ahead: number | null; phase_pending?: number; phase_retries?: number };
   /** Missing on runs from before the modes: a change. */
   mode?: ExperimentMode;
   base: ListDisplay | null;

@@ -1334,3 +1334,7 @@ retaining its original Rust library name. This prevents its Git-less build-scrip
 aliasing the current package in the single shared target. Candidate acceptance rejects missing
 or mismatched compiled Yama revision provenance before simulation. Historical rules/replay
 source and both control expectations remain unchanged.
+
+### Phase retry-tail progress (2026-10-28)
+
+Experiment progress exposes only that experiment's remaining Phase count and deferred retry count. When all remaining Phase games are retries of machine timeouts/hangs, suppress the ordinary recent-completion ETA: easy first attempts do not predict this tail. Web and MCP explain that retries can take minutes and remain unscored; the web labels a finished Phase half separately while Forge continues. This changes reporting only, preserving seeds, budgets, retry policy and scores.

@@ -14,6 +14,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-table-first-spin",
+    date: "2026-11-01",
+    title: "Picking who goes first, with a spin",
+    items: [
+      "Pick at random now runs a light round the players and slows onto the one it picked, then shows their art. The pick is made the moment you tap; the spin only shows it.",
+      "Who goes first, the dice, and the out-of-the-game and knock-out questions open in the middle of the screen, where everyone round the phone can see them.",
+    ],
+  },
+  {
     id: "2026-11-01-table-danger",
     date: "2026-11-01",
     title: "The life counter warns when someone is close to out",
