@@ -1022,9 +1022,6 @@ pub fn trip_cards(bundle: &Value) -> Vec<String> {
 /// With `change` (a staged check_stores), a check that change already started is returned as it
 /// is, so applying it again reads nothing.
 pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, change: Option<&str>) -> AppResult<Value> {
-    if st.cfg.offline {
-        return Err(crate::error::offline("the stores' sites"));
-    }
     let pool = &st.pool;
     // One admission at a time, so two checks can't both see none running.
     static ADMIT: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -1039,6 +1036,10 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
             let ids: Vec<Value> = done.into_iter().map(|(id, store, source)| json!({"id": id, "store": store, "source": source})).collect();
             return Ok(json!({"snapshots": ids, "skipped": [], "cards": Value::Null, "already": true}));
         }
+    }
+    // A staged change already carried out answers above, offline too; a new check would fetch.
+    if st.cfg.offline {
+        return Err(crate::error::offline("the stores' sites"));
     }
     expire_stale(pool, owner).await?;
     let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND status = 'running'").bind(owner).fetch_one(pool).await?;
