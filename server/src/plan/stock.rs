@@ -1289,6 +1289,13 @@ pub async fn stock_text(pool: &SqlitePool, owner: &str, store: &str, store_name:
             let price = q["price"].as_f64().map_or("price unknown".to_string(), |p| format!("${p:.2}"));
             if q["in_stock"] == true {
                 let _ = writeln!(out, "- {c}: {price}, {} [{}]", q["result"].as_str().unwrap_or_default(), q["checked"].as_str().unwrap_or_default());
+            } else if q["in_stock"].is_null() {
+                let _ = writeln!(
+                    out,
+                    "- {c}: {price}, {}; the listing didn't say whether it's in stock, so ask the store [{}]",
+                    q["result"].as_str().unwrap_or_default(),
+                    q["checked"].as_str().unwrap_or_default()
+                );
             } else {
                 let _ = writeln!(out, "- {c}: {} [{}]", q["result"].as_str().unwrap_or("not in stock"), q["checked"].as_str().unwrap_or_default());
             }

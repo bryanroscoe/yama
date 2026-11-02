@@ -566,6 +566,14 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
     assert!(!err, "{text}");
     assert!(text.contains("- Sol Ring: $1.00, Sol Ring [C21 - 263] (Near Mint, non-foil, 2 in stock)"), "{text}");
     assert!(text.contains("- Mana Vault: Not found in stock"), "{text}");
+    // A listing that didn't say whether it's available is said to be unknown, with its price.
+    let quiet = json!({
+        "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T17:00:00Z", "cards": ["Sol Ring"],
+        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "price": 0.9}],
+    });
+    assert!(send(&app, Method::POST, "/api/plan/stock/import", Some(&a_session), Some(quiet)).await.0.is_success());
+    let (_, text) = call(&app, &mcp, "store_stock", json!({"store": "pats", "cards": ["Sol Ring"]})).await;
+    assert!(text.contains("- Sol Ring: $0.90, Sol Ring [C21 - 263]; the listing didn't say whether it's in stock, so ask the store"), "{text}");
 
     // A store Yama can't read is refused at once; a readable one is only staged.
     let (err, text) = call(&app, &mcp, "check_stores", json!({"stores": ["card gurus"], "cards": ["Sol Ring"]})).await;
