@@ -65,9 +65,10 @@ use crate::{DeckLine, Engine, SeatDeck};
 /// plus Yama's fixes ("phase-rs v0.113.0+aifix+tempo+endgame+stallfix+cardfix+recovery1": AI,
 /// stall, card and recovery fixes; docs/engine-recovery-2026-10-25.md). Since 29 Oct 2026 it is
 /// upstream phase v0.119.0 with Yama's commits rebased on top (bryanroscoe/yama-phase at
-/// deploy/phase-rev, "+yama-dd276b0f"). Results under an earlier label are another engine and
-/// must not be pooled with these.
-pub const ENGINE: &str = "phase-rs v0.119.0+yama-dd276b0f";
+/// deploy/phase-rev). Use the full source revision verified by build.rs, so every pin
+/// gets a distinct label. Earlier labels remain on their original results and must
+/// not be pooled with these.
+pub const ENGINE: &str = concat!("phase-rs v0.119.0+yama-", env!("YAMA_PLAY_PHASE_REV"));
 /// Added to [`ENGINE`] on result lines of games played with the engine's loop detection on
 /// ([`GameOptions::loops`]), so they're never pooled with the usual results.
 pub const LOOPS_SUFFIX: &str = "+loops";
@@ -1419,7 +1420,7 @@ mod tests {
         r.eliminations = vec![Elimination { seat: 1, turn: 3 }];
         let line = r.to_line();
         let expected = format!(
-            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"phase-rs v0.119.0+yama-dd276b0f","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
+            r#"{{"game":"g","seed":7,"difficulty":"Easy","decks":["a","b"],"first_seat":null,"winner":null,"placements":[[0,1]],"eliminations":[{{"seat":1,"turn":3}}],"end":"turn_cap","turns":0,"actions":0,"ms":0,"final_life":[],"engine":"{ENGINE}","card_data":"eb309108eb0df708","runner":"{RUNNER}","error":null}}"#
         );
         assert_eq!(line, expected);
         assert_eq!(serde_json::from_str::<GameResult>(&line).unwrap(), r);
@@ -1530,6 +1531,10 @@ mod tests {
     #[test]
     fn loop_detection_is_off_unless_asked_for_and_labels_its_results() {
         assert!(!GameOptions::default().loops, "the lab stays without loop detection");
+        // The independently versioned release pin must identify both CLI results
+        // and server experiment builds, including pins changed after this test.
+        let pinned = include_str!("../../deploy/phase-rev").trim();
+        assert_eq!(ENGINE.strip_prefix("phase-rs v0.119.0+yama-"), Some(pinned));
         assert_eq!(engine_label(false), ENGINE);
         assert_eq!(engine_label(true), format!("{ENGINE}+loops"));
     }
