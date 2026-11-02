@@ -243,6 +243,9 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     if note.is_some_and(|n| n.chars().count() > 500) {
         return Err(AppError::bad("note: at most 500 characters"));
     }
+    // The id check, the insert and the pruning under one lock, so identical retries at once save once.
+    static SAVE: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _one = SAVE.get_or_init(Default::default).lock().await;
     // A retry with the same id adds nothing; another account's id is refused without saying more.
     let id = match b.id.as_deref() {
         None => crate::util::new_id(),
