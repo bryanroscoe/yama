@@ -9,8 +9,8 @@
 //   pasted lines with the quantity first ("2 Lightning Bolt"); printing and condition are chosen on
 //   the store's page.
 // - Card Kingdom (https://www.cardkingdom.com/static/csvImport): "Title" (in quotes), Edition (the
-//   set's name), Foil (1 or 0) and Quantity, no header row; English cards only; at most 500 lines
-//   and 5,000 cards.
+//   set's name), Foil (1 or 0) and Quantity, no header row; English cards only (and no etched
+//   foils, which the file can't tell from foils); at most 500 lines and 5,000 cards.
 // The store's page matches each line and shows its offer before anything is sent.
 
 export type SellFormat = "sortswift" | "storepass" | "cardkingdom";
@@ -60,7 +60,7 @@ export const SELL_FORMATS: Record<SellFormat, SellFormatInfo> = {
   },
   cardkingdom: {
     label: "Card Kingdom",
-    how: "For Card Kingdom's sell list import. It takes English cards by name, set name and foil, up to 500 lines and 5,000 cards; condition is graded when they arrive.",
+    how: "For Card Kingdom's sell list import. It takes English cards by name, set name and foil (not etched), up to 500 lines and 5,000 cards; condition is graded when they arrive.",
     file: "yama-sell-cardkingdom.csv",
     mime: "text/csv",
     paste: false,
@@ -145,6 +145,8 @@ export function leftOut(format: SellFormat, cards: SellCard[]): { card: SellCard
     if (c.proxy) out.push({ card: c, why: "a proxy" });
     else if (!c.name) out.push({ card: c, why: "not in Yama's card data yet" });
     else if (format === "cardkingdom" && c.lang !== "en") out.push({ card: c, why: "not English" });
+    // Card Kingdom's file says only foil or not, so an etched copy would be quoted as a plain foil.
+    else if (format === "cardkingdom" && c.finish === "etched") out.push({ card: c, why: "etched, which Card Kingdom's file can't say" });
     else if (format === "sortswift" && !SORTSWIFT_LANGUAGE[c.lang.toLowerCase()]) out.push({ card: c, why: `a language SortSwift doesn't list (${c.lang})` });
   }
   return out;

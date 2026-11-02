@@ -50,8 +50,11 @@ describe("sell lists", () => {
   });
 
   it("writes Card Kingdom's headerless CSV by set name and foil", () => {
-    const t = sellText("cardkingdom", [card(), card({ id: "i2", qty: 1, condition: "LP" }), card({ id: "i3", qty: 1, finish: "foil" }), card({ id: "i4", qty: 1, finish: "etched", set_name: "Commander Masters" })]);
+    const t = sellText("cardkingdom", [card(), card({ id: "i2", qty: 1, condition: "LP" }), card({ id: "i3", qty: 1, finish: "foil" }), card({ id: "i4", qty: 1, finish: "foil", set_name: "Commander Masters" })]);
     expect(t.text).toBe('"Sol Ring",Commander 2021,0,3\n"Sol Ring",Commander 2021,1,1\n"Sol Ring",Commander Masters,1,1\n');
+    const etched = card({ id: "e", finish: "etched" });
+    expect(leftOut("cardkingdom", [etched]).map((x) => x.why)).toEqual(["etched, which Card Kingdom's file can't say"]);
+    expect(sellable("cardkingdom", [card({ finish: "foil" }), etched]).map((c) => c.id)).toEqual(["i1"]);
   });
 
   it("sells only the copies asked for", () => {
