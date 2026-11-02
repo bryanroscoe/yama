@@ -568,7 +568,7 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
  */
 function Sealed({ stores, view, userId }: { stores: Store[]; view: PlanView; userId: string }) {
   const any = (view.b.shopping_wants ?? []).some((w) => w.kind === "sealed");
-  const q = useQuery({ queryKey: ["plan-sealed", userId, view.b.rev], queryFn: sealedView, enabled: any });
+  const q = useQuery({ queryKey: ["plan-sealed", userId, view.b.rev, view.today], queryFn: () => sealedView(view.today), enabled: any });
   if (!any) return null;
   const cap = q.data?.cap_usd ?? null;
   return (

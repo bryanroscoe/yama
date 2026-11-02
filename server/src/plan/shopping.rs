@@ -166,7 +166,7 @@ pub struct RulesBody {
 }
 
 /// The device's today may be a day either side of the server's.
-fn near_today(date: &str) -> bool {
+pub(crate) fn near_today(date: &str) -> bool {
     let Ok(d) = NaiveDate::parse_from_str(date, "%Y-%m-%d") else { return false };
     let today = Utc::now().date_naive();
     (today - Duration::days(1)..=today + Duration::days(1)).contains(&d)

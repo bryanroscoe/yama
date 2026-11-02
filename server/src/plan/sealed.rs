@@ -149,9 +149,21 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
     Ok(json!({"date": date, "cap_usd": cap, "items": out}))
 }
 
-/// `GET /api/plan/sealed`: the sealed products on your list, with store prices and their market.
-pub async fn view_route(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Value>> {
-    Ok(Json(view(&st.pool, &user.id, &today()).await?))
+#[derive(Deserialize)]
+pub struct ViewQuery {
+    /// The device's today (a day either side of the server's), for the cap in force.
+    today: Option<String>,
+}
+
+/// `GET /api/plan/sealed?today=YYYY-MM-DD`: the sealed products on your list, with store prices and
+/// their market, judged by the cap in force on your day.
+pub async fn view_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, axum::extract::Query(q): axum::extract::Query<ViewQuery>) -> AppResult<Json<Value>> {
+    let date = match q.today {
+        Some(d) if super::model::is_date(&d) && super::shopping::near_today(&d) => d,
+        Some(_) => return Err(AppError::bad("today must be your date (YYYY-MM-DD), a day either side of the server's")),
+        None => today(),
+    };
+    Ok(Json(view(&st.pool, &user.id, &date).await?))
 }
 
 #[derive(Deserialize)]
@@ -184,7 +196,9 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
         return Err(AppError::bad("price: $0 to $100,000, or null when the store didn't say"));
     }
     let checked = b.checked_on.clone().unwrap_or_else(today);
-    if !super::model::is_date(&checked) || checked > today() {
+    // Not after the device's today, which may be a day ahead of the server's.
+    let latest = (Utc::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    if !super::model::is_date(&checked) || checked > latest {
         return Err(AppError::bad("checked_on: a YYYY-MM-DD date, not in the future"));
     }
     let note = b.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
@@ -370,6 +384,10 @@ mod tests {
         let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "mothership", "price": 59.99}))).await;
         let v = view(&pool, &owner, &today()).await.unwrap();
         assert!(v["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["store"] == "mothership" && q["over_cap"] == true));
+        // The page sends the device's today; one far from the server's is refused.
+        assert_eq!(send(&app, Method::GET, "/api/plan/sealed?today=1999-01-01", Some(&token), None).await.0.as_u16(), 400);
+        let (s, v) = send(&app, Method::GET, &format!("/api/plan/sealed?today={}", today()), Some(&token), None).await;
+        assert!(s.is_success() && v["cap_usd"] == 51.0, "{v}");
         let (other, other_token) = user(&pool, "other@example.com").await;
         assert_eq!(view(&pool, &other, "2026-11-01").await.unwrap()["items"], json!([]));
         assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"store": "pats", "price": 1}))).await.0.as_u16(), 404);

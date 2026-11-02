@@ -138,7 +138,8 @@ export interface SealedItem {
 }
 
 /** The sealed products on your list with store prices, the sealed market and the singles inside. */
-export const sealedView = () => api<{ date: string; cap_usd: number | null; items: SealedItem[] }>("/api/plan/sealed");
+export const sealedView = (today: string) =>
+  api<{ date: string; cap_usd: number | null; items: SealedItem[] }>(`/api/plan/sealed?today=${encodeURIComponent(today)}`);
 
 /** A store's dated price for a sealed product on your list. */
 export const addSealedQuote = (want: string, body: { store: string; price: number | null; in_stock: boolean; checked_on: string; note: string | null }) =>
