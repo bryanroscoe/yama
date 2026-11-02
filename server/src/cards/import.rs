@@ -1055,6 +1055,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_price_the_old_table_cant_hold_isnt_stale() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bulk.json");
+        // Fable has only a Cardmarket etched price, which the old table has no column for.
+        std::fs::write(&path, SAMPLE.replace("\"prices\":{\"usd\":null}", "\"prices\":{\"usd\":null,\"eur_etched\":\"3.00\"}")).unwrap();
+        let item = BulkItem { kind: "default_cards".into(), jsonl_download_uri: None, download_uri: None, updated_at: "2026-11-01T09:05:00Z".into(), compressed_size: None, size: None };
+        import_default(&pool, &path, Some(&item)).await.unwrap();
+        let etched: Option<f64> = sqlx::query_scalar("SELECT eur_etched FROM price_latest WHERE scryfall_id = 'p2'").fetch_one(&pool).await.unwrap();
+        assert_eq!(etched, Some(3.0));
+        let old: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM price_snapshots WHERE scryfall_id = 'p2'").fetch_one(&pool).await.unwrap();
+        assert_eq!(old, 0);
+        let check = crate::prices::backfill::verify(&pool, Some("2026-11-01")).await.unwrap();
+        assert_eq!((check.rows, check.mismatches, check.stale), (1, 0, 0));
+        assert!(check.clean());
+    }
+
+    #[tokio::test]
     async fn a_writer_that_lost_its_lease_writes_no_prices() {
         let pool = crate::db::test_pool().await;
         let dir = tempfile::tempdir().unwrap();

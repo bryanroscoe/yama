@@ -196,7 +196,9 @@ async fn compare(conn: &mut SqliteConnection, day: Option<i64>) -> anyhow::Resul
     .bind(day)
     .fetch_one(&mut *conn)
     .await?;
-    let priced = super::SCRYFALL_SERIES.iter().map(|(series, _)| format!("{} IS NOT NULL", as_of(*series))).collect::<Vec<_>>().join(" OR ");
+    // Only the series the old table holds: a printing priced only in Cardmarket etched has no
+    // old row, rightly.
+    let priced = OLD_COLUMNS.iter().map(|(series, _)| format!("{} IS NOT NULL", as_of(*series))).collect::<Vec<_>>().join(" OR ");
     let (pairs, stale): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*), IFNULL(SUM({priced}), 0) FROM {days} d JOIN price_printing k
           WHERE NOT EXISTS (SELECT 1 FROM price_snapshots ps WHERE ps.scryfall_id = k.scryfall_id AND ps.date = d.date)
