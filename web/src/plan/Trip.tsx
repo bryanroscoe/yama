@@ -641,9 +641,9 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
           Sealed market {it.market ? `${it.market.usd != null ? usd(it.market.usd) : "unknown"}, ${fmtDate(it.market.price_date)} (${it.market.source})` : "unknown"}. Singles inside{" "}
           {it.singles?.usd != null ? usd(it.singles.usd) : "unknown"}
           {it.singles
-            ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""}${
+            ? ` (${it.singles.priced_copies} priced${it.singles.unpriced_copies ? `, ${it.singles.unpriced_copies} without a price` : ""}; ${it.singles.source}${
                 it.singles.oldest_date
-                  ? `; ${it.singles.source}, ${fmtDate(it.singles.oldest_date)}${it.singles.newest_date && it.singles.newest_date !== it.singles.oldest_date ? ` to ${fmtDate(it.singles.newest_date)}` : ""}`
+                  ? `, ${fmtDate(it.singles.oldest_date)}${it.singles.newest_date && it.singles.newest_date !== it.singles.oldest_date ? ` to ${fmtDate(it.singles.newest_date)}` : ""}`
                   : ""
               })`
             : ""}
