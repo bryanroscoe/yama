@@ -37,7 +37,7 @@ git() { command git -C "$target" "$@"; }
 [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$target" ] || die "$target is not the top of a git checkout."
 
 # Half-finished work in the checkout is somebody's; leave it alone.
-for state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply; do
+for state in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply sequencer; do
   if [ -e "$(git rev-parse --path-format=absolute --git-path "$state")" ]; then
     die "$target is in the middle of a merge, rebase, cherry-pick, revert or bisect ($state). Finish or abort it first."
   fi
@@ -61,13 +61,17 @@ old="$(git rev-parse HEAD)"
 branch="$(git symbolic-ref --quiet --short HEAD || true)"
 case "$branch" in
   main)
-    git merge --ff-only --quiet origin/main \
-      || die "main in $target has commits origin/main lacks, so it can't fast-forward. Keep that work on a branch (git branch NAME main), then reset main to origin/main yourself."
+    git merge-base --is-ancestor HEAD origin/main \
+      || die "main in $target has commits origin/main lacks (it is ahead or has diverged). Keep that work on a branch (git branch NAME main), then reset main to origin/main yourself."
+    # Ignored files are somebody's too: if origin/main now tracks a path one sits on, stop.
+    git merge --ff-only --no-overwrite-ignore --quiet origin/main \
+      || die "origin/main can't be fast-forwarded into $target: it would overwrite an ignored file. Move that file aside, then run this again."
     ;;
   '')
     git merge-base --is-ancestor HEAD origin/main \
       || die "$target is detached at $(git rev-parse --short HEAD), which origin/main does not contain. Switching would leave those commits only in the reflog: put them on a branch first."
-    git switch --quiet --detach origin/main
+    git switch --quiet --detach --no-overwrite-ignore origin/main \
+      || die "origin/main can't be checked out in $target: it would overwrite an ignored file. Move that file aside, then run this again."
     ;;
   *)
     die "$target is on branch '$branch'. The primary checkout stays on main (or detached at origin/main); I won't move it off a branch. Finish or push that work from a worktree, then switch it back yourself."

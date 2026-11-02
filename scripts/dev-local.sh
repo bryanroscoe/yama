@@ -85,8 +85,12 @@ server_env=(
   YAMA_TRUSTED_PROXIES=
   YAMA_CORS_ORIGINS=
   YAMA_OAUTH_REDIRECT_HOSTS=
+  YAMA_DECK_LINK_SOURCES=  # no deck-link fetching (Archidekt)
 )
-show_env() { for kv in "${server_env[@]}"; do printf '    %s\n' "$kv"; done; }
+# The web app must talk to this server only: a stray production API, public or relay address in the
+# shell or a Vite env file would send requests, or shared-table game setup, to production.
+web_env=(VITE_API_BASE= "VITE_PUBLIC_URL=http://localhost:$web_port" VITE_RELAY_URL=)
+show_env() { for kv in "${server_env[@]}" "${web_env[@]}"; do printf '    %s\n' "$kv"; done; }
 
 need_db=0
 if [ ! -f data/yama.db ] || [ "$refresh" = 1 ]; then need_db=1; fi
@@ -127,11 +131,15 @@ if [ "$need_db" = 1 ] && [ -z "${YAMA_DEPLOY_HOST:-}" ] && [ ! -f deploy/.env ];
 fi
 # Rule of thumb from the machine's hygiene rules: keep 20 GiB free after a build; a first build in a
 # checkout adds roughly 5 GiB.
-floor=20
-[ -d "$tdir" ] || floor=25
-if [ "$(free_int)" -lt "$floor" ]; then
-  die "only $free GiB free (need $floor GiB before building). Free space first, e.g. agent-clean on a retired worktree; don't build into a nearly full disk."
-fi
+# An existing target/ may be empty or cleaned, so the larger floor applies until a binary exists.
+floor=25
+[ -x "$bin" ] && floor=20
+check_disk() {
+  if [ "$(free_int)" -lt "$floor" ]; then
+    die "only $(free_gb) GiB free (need $floor GiB before building). Free space first, e.g. agent-clean on a retired worktree; don't build into a nearly full disk."
+  fi
+}
+check_disk
 
 if [ ! -d node_modules ]; then
   say 'npm ci (no node_modules in this checkout)'
@@ -147,6 +155,7 @@ if [ "$need_db" = 1 ]; then
   fi
 fi
 
+check_disk # npm ci and the database copy used space too
 say 'building yama-server with CARGO_BUILD_JOBS=1 (agent-build-guard applies; "waiting for the shared compiler slot" is normal)'
 if ! CARGO_BUILD_JOBS=1 cargo build -p yama-server; then
   die 'the build failed or the build guard stopped it. A memory cutoff is a failed check: do not retry it unchanged or work around the guard.'
@@ -178,8 +187,9 @@ env "${server_env[@]}" "$bin" serve > "$logs/server.log" 2>&1 &
 server_pid=$!
 
 wait_for() { # URL PID LOG NAME
-  for _ in $(seq 1 120); do
-    if curl -fsS -o /dev/null "$1" 2> /dev/null; then return 0; fi
+  local deadline=$((SECONDS + 120))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if curl -fsS --connect-timeout 2 --max-time 5 -o /dev/null "$1" 2> /dev/null; then return 0; fi
     if ! kill -0 "$2" 2> /dev/null; then
       echo "dev-local: $4 stopped while starting. Its log:" >&2
       tail -n 30 "$3" >&2
@@ -193,7 +203,7 @@ wait_for() { # URL PID LOG NAME
 }
 wait_for "http://127.0.0.1:$api_port/api/health" "$server_pid" "$logs/server.log" 'the server' || exit 1
 
-npm run dev -w web -- --strictPort > "$logs/web.log" 2>&1 &
+env "${web_env[@]}" npm run dev -w web -- --strictPort > "$logs/web.log" 2>&1 &
 web_pid=$!
 wait_for "http://localhost:$web_port/" "$web_pid" "$logs/web.log" 'the web app' || exit 1
 

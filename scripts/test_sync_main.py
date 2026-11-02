@@ -163,7 +163,36 @@ class SyncMain(unittest.TestCase):
         self.publish("second")
         done = self.sync(str(self.primary))
         self.assertNotEqual(done.returncode, 0)
-        self.assertIn("fast-forward", done.stderr)
+        self.assertIn("origin/main lacks", done.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_main_ahead_of_origin_is_not_reported_as_synced(self):
+        self.commit(self.primary, "unpublished")
+        before = self.head()
+        done = self.sync(str(self.primary))
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("origin/main lacks", done.stderr)
+        self.assertNotIn("already at origin/main", done.stdout)
+        self.assertEqual(self.head(), before)
+
+    def test_an_ignored_file_is_not_overwritten(self):
+        (self.primary / ".git" / "info" / "exclude").write_text("notes.md\n")
+        (self.primary / "notes.md").write_text("private\n")
+        self.publish("tracks it", name="notes.md", text="upstream\n")
+        before = self.head()
+        done = self.sync(str(self.primary))
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("ignored file", done.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertEqual((self.primary / "notes.md").read_text(), "private\n")
+
+    def test_an_unfinished_cherry_pick_sequence_is_refused(self):
+        (self.primary / ".git" / "sequencer").mkdir()
+        before = self.head()
+        self.publish("second")
+        done = self.sync(str(self.primary))
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("sequencer", done.stderr)
         self.assertEqual(self.head(), before)
 
     def test_unreachable_origin_stops(self):
