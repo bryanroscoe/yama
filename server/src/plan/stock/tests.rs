@@ -179,6 +179,8 @@ fn titles_and_variants_parse() {
     let (total, l) = pro_catalog(&catalog(), "https://bc.tcgplayerpro.com").unwrap();
     assert!(pro_catalog(&json!({"products": {}}), "https://bc.tcgplayerpro.com").is_none(), "an unreadable answer isn't an empty catalog");
     assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"id": 1, "lowestPrice": 1.0}]}}), "https://bc.tcgplayerpro.com").is_none(), "a product without a name");
+    assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"name": "Sol Ring", "lowestPrice": -1.0}]}}), "https://bc.tcgplayerpro.com").is_none(), "a negative price");
+    assert!(pro_catalog(&json!({"products": {"totalItems": 1, "items": [{"name": "Sol Ring", "lowestPrice": "1.00"}]}}), "https://bc.tcgplayerpro.com").is_none(), "a price that isn't a number");
     assert_eq!((total, l.len()), (4, 4));
     assert_eq!(l[3].language.as_deref(), Some("Japanese"));
     assert_eq!((l[1].card.as_str(), l[1].price, l[1].from_price), ("Exotic Orchard", Some(0.5), true));
@@ -196,6 +198,8 @@ fn titles_and_variants_parse() {
     let nameless = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"price": 1.0, "condition": "Near Mint"}]}]});
     let no_condition = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "price": 1.0}]}]});
     assert_eq!(yestcg_store(&no_condition, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a condition is unknown");
+    let negative = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "condition": "Near Mint", "price": -2.0}]}]});
+    assert_eq!(yestcg_store(&negative, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a negative price is unknown");
     assert_eq!(yestcg_store(&nameless, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a hit without a name is unknown");
     let bad_qty = json!({"results": [{"store": "M", "base": "https://mversetcg.tcgplayerpro.com", "ok": true, "hits": [{"name": "Sol Ring", "condition": "Near Mint", "price": 1.0, "qty": "3"}]}]});
     assert_eq!(yestcg_store(&bad_qty, "mversetcg.tcgplayerpro.com", "Sol Ring"), Some(None), "a quantity that isn't a whole number is unknown");

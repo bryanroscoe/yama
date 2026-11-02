@@ -144,6 +144,11 @@ pub struct Listing {
     pub url: Option<String>,
 }
 
+/// A store's price as given: missing, or a sum of money. Anything else makes the answer unreadable.
+fn price_ok(v: &Value) -> bool {
+    v.is_null() || v.as_f64().is_some_and(|p| p.is_finite() && p >= 0.0)
+}
+
 /// A store's product title before ` [` or ` (`, without a "MTG - " prefix.
 fn title_name(title: &str) -> &str {
     let t = title.trim();
@@ -316,8 +321,8 @@ pub fn pro_catalog(body: &Value, base: &str) -> Option<(i64, Vec<Listing>)> {
     // An answer without the catalog's fields isn't an empty catalog: it's one we can't read.
     let total = body["products"]["totalItems"].as_i64()?;
     let items = body["products"]["items"].as_array()?;
-    // So is a page with a product that has no name: it may be the card wanted.
-    if !items.iter().all(|p| p["name"].is_string()) {
+    // So is a page with a product that has no name (it may be the card wanted) or an unreadable price.
+    if !items.iter().all(|p| p["name"].is_string() && price_ok(&p["lowestPrice"])) {
         return None;
     }
     let out = items
@@ -372,7 +377,7 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
     // isn't a number, or with a bad quantity.
     // A quantity, when given, must be a whole number of copies: a bad one isn't "any number".
     let qty_ok = |q: &Value| q.is_null() || q.as_u64().is_some_and(|n| n <= 100_000);
-    if !hits.iter().all(|h| h["name"].is_string() && h["condition"].is_string() && (h["price"].is_number() || h["price"].is_null()) && qty_ok(&h["qty"])) {
+    if !hits.iter().all(|h| h["name"].is_string() && h["condition"].is_string() && price_ok(&h["price"]) && qty_ok(&h["qty"])) {
         return Some(None);
     }
     let listings = hits
@@ -621,7 +626,7 @@ async fn fetch_shopify(f: &mut Fetcher, base: &str, cards: &[String], raw: &mut 
                     // A title, and every variant's availability and price (a sum of money), or the product is unreadable.
                     Ok(body)
                         if body["title"].is_string()
-                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (x["title"].is_string() || x["public_title"].is_string()) && x["price"].as_f64().is_some_and(|p| p.is_finite() && p >= 0.0))) =>
+                            && body["variants"].as_array().is_some_and(|v| v.iter().all(|x| x["available"].is_boolean() && (x["title"].is_string() || x["public_title"].is_string()) && x["price"].is_number() && price_ok(&x["price"]))) =>
                     {
                         found.extend(shopify_product(&body, card, base, handle).into_iter().filter(|l| l.available == Some(true)))
                     }
