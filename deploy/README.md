@@ -209,7 +209,8 @@ ssh saget 'docker logs --since 24h yama 2>&1 | grep "job finished"'   # every im
   characters; bound values are never logged.
 - `job finished job="Scryfall import" ms=108003.1 note="default_cards, 117178 rows"`, and
   `slow job` or `job failed` for one over its own limit or ending in an error. Lab results are
-  `lab result store`, logged only when slow.
+  `lab result store` (over 1 s) and their runs' summaries `lab summary` (over 2 s), logged only
+  when slow or failed.
 
 Admin, Server, **Response times** shows the same in a table: each route's requests, median, 95th
 percentile and slowest over the last hour, the background jobs, and the last 200 slow requests and

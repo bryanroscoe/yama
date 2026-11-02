@@ -438,8 +438,8 @@ async fn other_users_experiments_and_decks_are_not_found() {
     let sim = FakeSim::new();
     let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
     let id = d.item.id.clone();
-    assert!(list(&pool, "other").await.unwrap().is_empty());
-    assert_eq!(list(&pool, "bryan").await.unwrap().len(), 1);
+    assert!(list(&pool, "other", &ListPage::default()).await.unwrap().is_empty());
+    assert_eq!(list(&pool, "bryan", &ListPage::default()).await.unwrap().len(), 1);
     assert!(matches!(detail(&pool, "other", &id).await, Err(AppError::NotFound(_))));
     assert!(matches!(cancel(&pool, "other", &id, &idle).await, Err(AppError::NotFound(_))));
     assert!(matches!(delete(&pool, "other", &id).await, Err(AppError::NotFound(_))));
@@ -599,6 +599,10 @@ async fn a_restarted_server_resumes_without_replaying_stored_games() {
     }
     sqlx::query("UPDATE lab_experiments SET status = 'running', started_at = 'earlier' WHERE id = ?").bind(&d.item.id).execute(&pool).await.unwrap();
     let before: Vec<(String, String)> = sqlx::query_as("SELECT game, result FROM lab_experiment_games WHERE result IS NOT NULL ORDER BY game").fetch_all(&pool).await.unwrap();
+    // Progress counts every stored game; the summary is rewritten in batches, so it can be behind
+    // until the next start brings it up to date.
+    assert_eq!(detail(&pool, "bryan", &d.item.id).await.unwrap().item.progress.done, 37);
+    LabWorker::new(pool.clone(), 0, SimState::Ready(FakeSim::new())).catch_up().await.unwrap();
     let partial = detail(&pool, "bryan", &d.item.id).await.unwrap();
     assert_eq!(partial.item.progress.done, 37);
     let s = partial.item.summary.unwrap();
@@ -1115,7 +1119,7 @@ async fn the_queue_ahead_is_shown_to_admins_only() {
     let mine = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
     // Bryan doesn't learn how many games other people have queued.
     assert_eq!(mine.item.progress.games_ahead, None);
-    assert_eq!(list(&pool, "bryan").await.unwrap()[0].progress.games_ahead, None);
+    assert_eq!(list(&pool, "bryan", &ListPage::default()).await.unwrap()[0].progress.games_ahead, None);
     let admins = create(&pool, &user("admin", true), swap_req(100), sim.as_ref()).await.unwrap();
     assert_eq!(admins.item.progress.games_ahead, Some(500));
 }
@@ -1466,6 +1470,11 @@ async fn decks_head_to_head_rotate_seats_and_count_who_finished_ahead() {
     assert!(wins[0] > 60 && wins[1] > 0 && wins[2] == 0, "{wins:?}");
     let ab = v.meetings.iter().find(|m| (m.a, m.b) == (0, 1)).unwrap();
     assert_eq!((ab.a_ahead, ab.b_ahead, ab.ties), (wins[0], wins[1], 0));
+    // The list leaves the meetings out: by far the biggest part of a big run's summary, shown on
+    // the run's own page only.
+    let listed = list(&pool, "bryan", &ListPage::default()).await.unwrap();
+    let lv = listed.iter().find(|e| e.id == d.item.id).unwrap().summary.as_ref().unwrap().versus.as_ref().unwrap();
+    assert!(lv.meetings.is_empty() && lv.games == 100 && lv.entrants.len() == 3);
     assert_eq!(v.entrants.iter().map(|e| e.games).collect::<Vec<_>>(), [100, 100, 100]);
     assert_eq!(v.avg_turns, Some(9.0));
     assert!(s.verdict.text.contains("Elf ball wins most often"), "{}", s.verdict.text);
@@ -2531,4 +2540,95 @@ async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_
     assert!(fewer.precons <= 4, "the altered list has no strength");
     clear_simulation(&pool).await.unwrap();
     assert!(chosen_simulation(&pool).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn progress_counts_every_game_while_summaries_are_rewritten_in_batches() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let id = d.item.id.clone();
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT game, spec FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord").bind(&id).fetch_all(&pool).await.unwrap();
+    let play = |i: usize| sim.play(&serde_json::from_str(&rows[i].1).unwrap(), &[], &LIMITS);
+    let pending = |s: &Value| s["base"]["pending"].as_i64().unwrap() + s["variant"]["pending"].as_i64().unwrap();
+    // The first result writes a summary; the next few, moments later, only count.
+    for i in 0..10 {
+        assert!(store(&pool, &id, &rows[i].0, &play(i)).await.unwrap());
+    }
+    let (done, s) = stored_summary(&pool, &id).await;
+    assert_eq!(done, 10);
+    assert_eq!(pending(&s), 99, "the summary is from the first result");
+    // Twenty-five more since the last summary write another.
+    for i in 10..26 {
+        assert!(store(&pool, &id, &rows[i].0, &play(i)).await.unwrap());
+    }
+    let (done, s) = stored_summary(&pool, &id).await;
+    assert_eq!((done, pending(&s)), (26, 74));
+    // The last result always finishes the run.
+    for i in 26..100 {
+        assert!(store(&pool, &id, &rows[i].0, &play(i)).await.unwrap());
+    }
+    let done = detail(&pool, "bryan", &id).await.unwrap();
+    assert_eq!((done.item.status.as_str(), done.item.progress.done), ("done", 100));
+    let s = done.item.summary.unwrap();
+    assert!(s.verdict.is_final);
+    assert_eq!(s.base.pending + s.variant.pending, 0);
+}
+
+#[tokio::test]
+async fn a_summary_made_before_another_result_came_in_isnt_written() {
+    use super::worker::{Seen, make_summary, summary_inputs, write_summary};
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let d = create(&pool, &user("bryan", false), swap_req(100), sim.as_ref()).await.unwrap();
+    let id = d.item.id.clone();
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT game, spec FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord").bind(&id).fetch_all(&pool).await.unwrap();
+    let play = |i: usize| sim.play(&serde_json::from_str(&rows[i].1).unwrap(), &[], &LIMITS);
+    assert!(store(&pool, &id, &rows[0].0, &play(0)).await.unwrap());
+    // Read and summarize, as `summarize` does outside a transaction...
+    let read = || async {
+        let inputs = summary_inputs(&mut *pool.acquire().await.unwrap(), &id).await.unwrap().unwrap();
+        let seen = Seen { status: inputs.status.clone(), counted: inputs.counted, total: inputs.total };
+        (make_summary(&inputs, false).unwrap(), seen)
+    };
+    let write = |made, seen| {
+        let pool = pool.clone();
+        let id = id.clone();
+        async move { write_summary(&mut *pool.acquire().await.unwrap(), &id, &made, Some(&seen)).await.unwrap() }
+    };
+    let (made, seen) = read().await;
+    // ...while another result is stored.
+    assert!(store(&pool, &id, &rows[1].0, &play(1)).await.unwrap());
+    assert!(!write(made, seen).await, "a stale summary is dropped");
+    let (done, _) = stored_summary(&pool, &id).await;
+    assert_eq!(done, 2, "progress isn't put back");
+    // A cancel in between is kept too.
+    let (made, seen) = read().await;
+    sqlx::query("UPDATE lab_experiments SET status = 'cancelled' WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    assert!(!write(made, seen).await);
+    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.status, "cancelled");
+    // Nothing changed: it's written.
+    let (made, seen) = read().await;
+    assert!(write(made, seen).await);
+}
+
+#[tokio::test]
+async fn the_run_list_comes_a_page_at_a_time() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        ids.push(create(&pool, &admin, swap_req(4), sim.as_ref()).await.unwrap().item.id);
+    }
+    ids.reverse(); // newest first
+    let page = |limit: i64, before: Option<&str>| ListPage { limit: Some(limit), before: before.map(str::to_string) };
+    let first: Vec<String> = list(&pool, "admin", &page(2, None)).await.unwrap().into_iter().map(|e| e.id).collect();
+    assert_eq!(first, ids[..2]);
+    let next: Vec<String> = list(&pool, "admin", &page(2, Some(&first[1]))).await.unwrap().into_iter().map(|e| e.id).collect();
+    assert_eq!(next, ids[2..]);
+    assert!(list(&pool, "admin", &page(2, Some(&ids[2]))).await.unwrap().is_empty());
+    // Someone else's run, or one that's gone, starts from the newest again.
+    assert_eq!(list(&pool, "admin", &page(2, Some("not-a-run"))).await.unwrap().len(), 2);
+    assert_eq!(list(&pool, "admin", &ListPage::default()).await.unwrap().len(), 3);
 }

@@ -2305,11 +2305,14 @@ struct ExpRow {
     phase_retries: i64,
 }
 
+/// An experiment's columns. Every count reads an index (`lab_experiment_games_engine`, and the
+/// pending ones), never the games' own rows: on 2026-11-02 the list read every game of every run.
 const EXP_COLUMNS: &str = "e.id, e.name, e.status, e.games_total, e.games_done, e.engine, e.card_data, e.runner, e.difficulty, e.summary, \
     e.error, e.created_at, e.started_at, e.finished_at, e.updated_at, json_extract(e.spec, '$.display') AS display, json_extract(e.spec, '$.pod') AS pod, \
     e.summary_forge, json_extract(e.spec, '$.engines') AS engines, \
     (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge') AS forge_total, \
-    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge' AND g.result IS NOT NULL) AS forge_done, \
+    (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id = e.id AND g.engine = 'forge')
+      - (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.engine = 'forge' AND g.experiment_id = e.id AND g.result IS NULL) AS forge_done, \
     (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id=e.id AND g.engine='phase' AND g.result IS NULL) AS phase_pending, \
     (SELECT COUNT(*) FROM lab_experiment_games g WHERE g.experiment_id=e.id AND g.engine='phase' AND g.result IS NULL AND g.retried=1) AS phase_retries";
 
@@ -2451,12 +2454,37 @@ impl ExpRow {
     }
 }
 
-/// The owner's experiments, newest first.
-pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Vec<ExperimentItem>> {
-    let rows: Vec<ExpRow> = sqlx::query_as(AssertSqlSafe(format!("SELECT {EXP_COLUMNS} FROM lab_experiments e WHERE e.owner_id = ? ORDER BY e.created_at DESC, e.rowid DESC")))
-        .bind(owner)
-        .fetch_all(pool)
-        .await?;
+/// Runs on one page of the list, unless the page asks for another number (at most [`MAX_PAGE`]).
+pub const PAGE: i64 = 20;
+pub const MAX_PAGE: i64 = 100;
+
+/// One page of the list: how many, and the run the previous page ended with.
+#[derive(Debug, Default, Deserialize)]
+pub struct ListPage {
+    pub limit: Option<i64>,
+    pub before: Option<String>,
+}
+
+/// The owner's experiments, newest first, a page at a time (`before`: the id of the last run on
+/// the page before). A versus run's summary comes without its meetings, by far the biggest part of
+/// it (2.1 MB of a 2.2 MB tournament summary on 2026-11-02), which only the run's own page shows.
+pub async fn list(pool: &SqlitePool, owner: &str, page: &ListPage) -> AppResult<Vec<ExperimentItem>> {
+    let limit = page.limit.unwrap_or(PAGE).clamp(1, MAX_PAGE);
+    let columns = EXP_COLUMNS
+        .replacen("e.summary, ", "json_replace(e.summary, '$.versus.meetings', json('[]')) AS summary, ", 1)
+        .replacen("e.summary_forge, ", "json_replace(e.summary_forge, '$.versus.meetings', json('[]')) AS summary_forge, ", 1);
+    // A run that isn't the owner's (or is gone) starts the list again from the newest.
+    let rows: Vec<ExpRow> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT {columns} FROM lab_experiments e
+          WHERE e.owner_id = ?1 AND (?2 IS NULL OR NOT EXISTS (SELECT 1 FROM lab_experiments b WHERE b.id = ?2 AND b.owner_id = ?1)
+                OR (e.created_at, e.rowid) < (SELECT b.created_at, b.rowid FROM lab_experiments b WHERE b.id = ?2))
+          ORDER BY e.created_at DESC, e.rowid DESC LIMIT ?3"
+    )))
+    .bind(owner)
+    .bind(page.before.as_deref())
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
     let q = queue(pool, owner).await?;
     Ok(rows.into_iter().map(|r| r.item(&q)).collect())
 }
@@ -3176,9 +3204,13 @@ async fn pace_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser
     Ok(Json(p))
 }
 
-async fn list_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ExperimentItem>>> {
+async fn list_handler(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    axum::extract::Query(page): axum::extract::Query<ListPage>,
+) -> AppResult<Json<Vec<ExperimentItem>>> {
     st.lab.check_available()?;
-    let mut items = list(&st.pool, &user.id).await?;
+    let mut items = list(&st.pool, &user.id, &page).await?;
     let view = st.lab.forge_view();
     for i in &mut items {
         i.with_forge(&view);

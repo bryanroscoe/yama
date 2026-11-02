@@ -8,11 +8,13 @@
 //! - First in, first out across users, by experiment: every free thread takes the oldest
 //!   experiment's next game. A user who isn't an admin has one experiment playing at a time; their
 //!   next one waits even when a thread is free, and someone else's runs instead.
-//! - Every game's result line is stored as it finishes, with the experiment's progress and summary,
-//!   in one transaction. A game with no stored result is played (again) by the next pass, so after
-//!   a restart the worker resumes queued and running experiments where they stopped, replaying only
-//!   the games that were in flight. Storing is conditional (`result IS NULL`), so a game's result
-//!   is never written twice, and a result for a deleted experiment is dropped.
+//! - Every game's result line is stored as it finishes, with the experiment's progress, in one
+//!   short transaction. The summary is rewritten in batches outside it, on a low-priority thread
+//!   ([`store`], 2026-11-02), and brought up to date at startup ([`LabWorker::catch_up`]). A game
+//!   with no stored result is played (again) by the next pass, so after a restart the worker
+//!   resumes queued and running experiments where they stopped, replaying only the games that were
+//!   in flight. Storing is conditional (`result IS NULL`), so a game's result is never written
+//!   twice, and a result for a deleted experiment is dropped.
 //! - Every start is counted (`attempts`). External server stops before a result is stored still
 //!   use MAX_ATTEMPTS. A game's abort, memory failure or stack overflow instead ends only its
 //!   child and is stored as an unscored error, leaving the server and other games available.
@@ -45,8 +47,8 @@ use crate::util::now;
 use sqlx::{SqliteConnection, SqlitePool};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::Duration;
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, RwLock};
+use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 use yama_play::lab::{self, DECK_ERRORS, ENGINE, End, GameOptions, GameReport, GameResult, GameSpec, Live, RUNNER, STACK};
 use yama_play::{DeckLine, Engine};
@@ -484,11 +486,26 @@ impl LabWorker {
         Ok(ids.len())
     }
 
+    /// Bring every queued or running experiment's summary up to date. Summaries are rewritten in
+    /// batches ([`store`]), so a stopped server can leave one behind its results, or a run whose
+    /// last game was stored still running; this finishes it. Returns how many it looked at.
+    pub async fn catch_up(&self) -> AppResult<usize> {
+        let ids: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM lab_experiments WHERE status IN ('queued','running') AND games_done > 0").fetch_all(&self.pool).await?;
+        for id in &ids {
+            summarize(&self.pool, id).await?;
+        }
+        Ok(ids.len())
+    }
+
     fn spawn_settle_left_over(self: &Arc<Self>) {
         let w = Arc::clone(self);
         tokio::spawn(async move {
             if let Err(e) = w.settle_left_over().await {
                 tracing::error!(error = %e, "lab: settling cancelled experiments failed");
+            }
+            if let Err(e) = w.catch_up().await {
+                tracing::error!(error = %e, "lab: bringing summaries up to date failed");
             }
             match w.resummarize_old().await {
                 Ok(0) => {}
@@ -1037,19 +1054,54 @@ pub async fn defer(pool: &SqlitePool, experiment: &str, game: &str) -> AppResult
     Ok(n > 0)
 }
 
-/// Store one game's result line, then the experiment's progress and summary, and finish the
-/// experiment with its last game. One transaction; only a game with no result yet is written, so
-/// a repeat is a no-op. Returns whether anything was written (false: stored before, or the
-/// experiment was deleted).
-pub async fn store(pool: &SqlitePool, experiment: &str, game: &str, result: &GameResult) -> AppResult<bool> {
-    // How long storing a result holds the database's one writer (perf.rs).
-    let job = crate::perf::Job::frequent("lab result store", std::time::Duration::from_secs(1));
-    let stored = store_result(pool, experiment, game, result).await;
-    job.finish(&stored, "one game, with its run's summary");
-    stored
+/// When a run's summary is rewritten as its results come in (2026-11-02). Rewriting it reads and
+/// parses every game of the run (and fits strengths for a versus run), so doing that for every
+/// result made a long run quadratic, and it held the database's one writer while it worked.
+/// Progress (`games_done`) is still counted exactly with each result. The summary is rewritten
+/// after [`BATCH_GAMES`] more results, or once [`BATCH_INTERVAL`] has passed since the last one
+/// (or ten times what that one took, for a big run), and always at an engine's last game, the
+/// run's last game and for a run no longer queued or running.
+const BATCH_GAMES: i64 = 25;
+const BATCH_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The last summary this process wrote for a run.
+#[derive(Default)]
+struct Batch {
+    at: Option<Instant>,
+    done: i64,
+    took: Duration,
 }
 
-async fn store_result(pool: &SqlitePool, experiment: &str, game: &str, result: &GameResult) -> AppResult<bool> {
+/// One per run, so a run's summaries are worked out one at a time.
+static BATCHES: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<Batch>>>>> = LazyLock::new(Default::default);
+
+/// Where a run stood just after a result was stored.
+struct Stored {
+    done: i64,
+    total: i64,
+    status: String,
+    /// Games of the stored game's engine still without a result.
+    engine_left: bool,
+}
+
+/// Store one game's result line and count it in the run's progress, in one short transaction;
+/// then rewrite the run's summary when one is due, outside it ([`summarize`]), finishing the run
+/// with its last game. Only a game with no result yet is written, so a repeat is a no-op. Returns
+/// whether anything was written (false: stored before, or the experiment was deleted).
+pub async fn store(pool: &SqlitePool, experiment: &str, game: &str, result: &GameResult) -> AppResult<bool> {
+    // How long storing a result holds the database's one writer (perf.rs).
+    let timing = crate::perf::Job::frequent("lab result store", Duration::from_secs(1));
+    let stored = store_result(pool, experiment, game, result).await;
+    timing.finish(&stored, "one game");
+    let Some(stored) = stored? else { return Ok(false) };
+    // The result is in either way; a summary that fails is caught up by the next, or at startup.
+    if let Err(e) = summarize_batched(pool, experiment, &stored).await {
+        tracing::warn!(experiment, error = %e, "lab: rewriting a run's summary failed; the next result tries again");
+    }
+    Ok(true)
+}
+
+async fn store_result(pool: &SqlitePool, experiment: &str, game: &str, result: &GameResult) -> AppResult<Option<Stored>> {
     let mut tx = pool.begin().await?;
     let written = sqlx::query("UPDATE lab_experiment_games SET result = ?, end_kind = ?, finished_at = ? WHERE experiment_id = ? AND game = ? AND result IS NULL")
         .bind(result.to_line())
@@ -1061,29 +1113,75 @@ async fn store_result(pool: &SqlitePool, experiment: &str, game: &str, result: &
         .await?
         .rows_affected();
     if written == 0 {
-        return Ok(false);
+        return Ok(None);
     }
-    // A large tournament must not parse its whole history after every single result. Progress
-    // remains exact; rank summaries refresh in batches, at either engine's finish, and on cancel.
     let progress: Option<(i64, i64, String)> = sqlx::query_as(
-        "UPDATE lab_experiments SET games_done=games_done+1, updated_at=?
-         WHERE id=? AND json_extract(spec, '$.mode')='tournament'
-         RETURNING games_done, games_total, status",
-    ).bind(now()).bind(experiment).fetch_optional(&mut *tx).await?;
-    if let Some((done, total, status)) = progress
-        && done < total && done % 25 != 0 && matches!(status.as_str(), "queued" | "running")
-    {
-        let engine_pending: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM lab_experiment_games WHERE experiment_id=? AND result IS NULL
-             AND engine=(SELECT engine FROM lab_experiment_games WHERE experiment_id=? AND game=?))",
-        ).bind(experiment).bind(experiment).bind(game).fetch_one(&mut *tx).await?;
-        if engine_pending { tx.commit().await?; return Ok(true); }
-    }
-    // The game being stored is still claimed, so a cancelled experiment's summary stays open
-    // here; the worker settles it once the claim is dropped.
-    refresh(&mut tx, experiment, false).await?;
+        "UPDATE lab_experiments SET games_done = games_done + 1, updated_at = ? WHERE id = ? RETURNING games_done, games_total, status",
+    )
+    .bind(now())
+    .bind(experiment)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((done, total, status)) = progress else { return Ok(None) };
+    let engine_left: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM lab_experiment_games WHERE experiment_id = ? AND result IS NULL
+         AND engine = (SELECT engine FROM lab_experiment_games WHERE experiment_id = ? AND game = ?))",
+    )
+    .bind(experiment)
+    .bind(experiment)
+    .bind(game)
+    .fetch_one(&mut *tx)
+    .await?;
     tx.commit().await?;
-    Ok(true)
+    Ok(Some(Stored { done, total, status, engine_left }))
+}
+
+/// Rewrite a run's summary after a result, when one is due ([`BATCH_GAMES`]).
+async fn summarize_batched(pool: &SqlitePool, experiment: &str, s: &Stored) -> AppResult<()> {
+    let must = s.done >= s.total || !s.engine_left || !matches!(s.status.as_str(), "queued" | "running");
+    let batch = Arc::clone(lock(&BATCHES).entry(experiment.to_string()).or_default());
+    let mut b = if must {
+        batch.lock().await
+    } else {
+        // One is being worked out now; a later result catches up.
+        let Ok(b) = batch.try_lock() else { return Ok(()) };
+        b
+    };
+    let due = must || b.at.is_none_or(|at| s.done - b.done >= BATCH_GAMES || at.elapsed() >= BATCH_INTERVAL.max(b.took * 10));
+    if due {
+        let started = Instant::now();
+        if summarize(pool, experiment).await? {
+            *b = Batch { at: Some(Instant::now()), done: s.done, took: started.elapsed() };
+        }
+    }
+    drop(b);
+    if must && s.done >= s.total {
+        lock(&BATCHES).remove(experiment);
+    }
+    Ok(())
+}
+
+/// Rewrite a run's summary from its games as they are now, without holding the database's writer
+/// while it's worked out: read the games, summarize them on a low-priority thread, then write in a
+/// short transaction, unless a result was stored or cleared, games were added, or the status
+/// changed in between (a later summary covers those). Returns whether it wrote.
+pub(crate) async fn summarize(pool: &SqlitePool, experiment: &str) -> AppResult<bool> {
+    let timing = crate::perf::Job::frequent("lab summary", Duration::from_secs(2));
+    let wrote = async {
+        let mut read = pool.begin().await?;
+        let inputs = summary_inputs(&mut read, experiment).await?;
+        read.rollback().await?;
+        let Some(inputs) = inputs else { return Ok(false) };
+        let seen = Seen { status: inputs.status.clone(), counted: inputs.counted, total: inputs.total };
+        let made = summarize_off_thread(inputs, false).await?;
+        let mut tx = pool.begin().await?;
+        let wrote = write_summary(&mut tx, experiment, &made, Some(&seen)).await?;
+        tx.commit().await?;
+        AppResult::Ok(wrote)
+    }
+    .await;
+    timing.finish(&wrote, "one run");
+    wrote
 }
 
 /// Clears an experiment's stored phase games (bind 2, and again bind 3) that came from a build other
@@ -1113,30 +1211,51 @@ const SPLIT_PODS: &str = "WITH b AS MATERIALIZED (
           AND (p.pending OR (p.readable AND (p.engine IS NOT x.engine OR p.card_data IS NOT x.card_data OR p.runner IS NOT x.runner)))
       )";
 
-/// Recount an experiment's games and rewrite its summary; a queued or running experiment whose
-/// last game is in becomes done (or failed, when no game could be scored). `settled`: no game of
-/// the experiment is claimed or playing, so a cancelled experiment's summary is final. A summary
-/// is final only when no later game can change it.
+/// Recount an experiment's games and rewrite its summary, inside the caller's transaction; a
+/// queued or running experiment whose last game is in becomes done (or failed, when no game could
+/// be scored). `settled`: no game of the experiment is claimed or playing, so a cancelled
+/// experiment's summary is final. A summary is final only when no later game can change it.
 pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: bool) -> AppResult<()> {
-    let Some((total, status)): Option<(i64, String)> =
-        sqlx::query_as("SELECT games_total, status FROM lab_experiments WHERE id = ?").bind(experiment).fetch_optional(&mut *conn).await?
-    else {
-        return Ok(());
-    };
+    let Some(inputs) = summary_inputs(conn, experiment).await? else { return Ok(()) };
+    let made = summarize_off_thread(inputs, settled).await?;
+    write_summary(conn, experiment, &made, None).await?;
+    Ok(())
+}
+
+/// A run's settings and games as they stood at one moment.
+pub(super) struct SummaryInputs {
+    pub total: i64,
+    pub status: String,
+    /// `games_done` as stored.
+    pub counted: i64,
+    mode: Option<String>,
+    pod: usize,
+    engines: Option<String>,
+    entrants: Vec<(String, String)>,
+    rows: Vec<(i64, String, Option<String>, String)>,
+}
+
+/// What a summary made outside a transaction was made from; it's written only if these still hold.
+pub(super) struct Seen {
+    pub status: String,
+    pub counted: i64,
+    pub total: i64,
+}
+
+pub(super) async fn summary_inputs(conn: &mut SqliteConnection, experiment: &str) -> AppResult<Option<SummaryInputs>> {
+    let row: Option<(i64, String, i64, Option<String>, Option<i64>, Option<String>)> = sqlx::query_as(
+        "SELECT games_total, status, games_done, json_extract(spec, '$.mode'), json_extract(spec, '$.pod'), json_extract(spec, '$.engines.mode')
+           FROM lab_experiments WHERE id = ?",
+    )
+    .bind(experiment)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((total, status, counted, mode, pod, engines)) = row else { return Ok(None) };
     let rows: Vec<(i64, String, Option<String>, String)> =
         sqlx::query_as("SELECT ord, spec, result, engine FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord")
             .bind(experiment)
             .fetch_all(&mut *conn)
             .await?;
-    let done = rows.iter().filter(|r| r.2.is_some()).count() as i64;
-    let complete = done >= total;
-    let cancelled_settled = status == "cancelled" && settled;
-    let (mode, pod, engines): (Option<String>, Option<i64>, Option<String>) =
-        sqlx::query_as("SELECT json_extract(spec, '$.mode'), json_extract(spec, '$.pod'), json_extract(spec, '$.engines.mode') FROM lab_experiments WHERE id = ?")
-            .bind(experiment)
-            .fetch_one(&mut *conn)
-            .await?;
-    let pod = usize::try_from(pod.unwrap_or(4)).unwrap_or(4);
     let entrants: Vec<(String, String)> = if matches!(mode.as_deref(), Some("versus" | "tournament")) {
         sqlx::query_as(
             "SELECT json_extract(value, '$.id'), json_extract(value, '$.label') FROM lab_experiments, json_each(lab_experiments.spec, '$.entrants')
@@ -1148,31 +1267,66 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
     } else {
         vec![]
     };
+    Ok(Some(SummaryInputs { total, status, counted, mode, pod: usize::try_from(pod.unwrap_or(4)).unwrap_or(4), engines, entrants, rows }))
+}
+
+/// A summary worked out, ready to write.
+pub(super) struct Made {
+    done: i64,
+    summary: String,
+    summary_forge: Option<String>,
+    status: String,
+    error: Option<String>,
+    /// The run's last game is in: it finishes now.
+    finishes: bool,
+}
+
+/// Work a summary out on its own thread, below the server's priority, so neither the async
+/// runtime nor requests wait on it.
+async fn summarize_off_thread(inputs: SummaryInputs, settled: bool) -> AppResult<Made> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("lab summary".into())
+        .spawn(move || {
+            lower_priority();
+            let _ = tx.send(make_summary(&inputs, settled));
+        })
+        .map_err(anyhow::Error::from)?;
+    rx.await.map_err(|_| anyhow::anyhow!("working out a lab summary stopped part way"))?
+}
+
+pub(super) fn make_summary(i: &SummaryInputs, settled: bool) -> AppResult<Made> {
+    let done = i.rows.iter().filter(|r| r.2.is_some()).count() as i64;
+    let complete = done >= i.total;
+    let cancelled_settled = i.status == "cancelled" && settled;
+    let mode = i.mode.as_deref();
     // One engine's games, summarized as the mode wants; final when none of them can still change.
     let summarize_part = |part: &[&(i64, String, Option<String>, String)]| -> Summary {
         let part_final = part.iter().all(|r| r.2.is_some()) || cancelled_settled;
-        match mode.as_deref() {
+        match mode {
             Some("versus" | "tournament") => {
                 let games: Vec<(String, Option<String>)> = part.iter().map(|(_, spec, result, _)| (spec.clone(), result.clone())).collect();
-                let mut summary = stats::summarize_versus(&games, &entrants, pod, part_final);
-                if mode.as_deref() == Some("tournament") { summary.method = stats::TOURNAMENT_METHOD.into(); }
+                let mut summary = stats::summarize_versus(&games, &i.entrants, i.pod, part_final);
+                if mode == Some("tournament") {
+                    summary.method = stats::TOURNAMENT_METHOD.into();
+                }
                 summary
             }
             other => {
                 let outcomes: Vec<Outcome> = part.iter().filter_map(|(ord, spec, result, _)| Outcome::from_row(*ord, spec, result.as_deref())).collect();
                 let mut s = stats::summarize(&outcomes, part_final);
                 if other == Some("solo") {
-                    s.verdict = stats::solo_verdict(&s.base, pod, part_final);
+                    s.verdict = stats::solo_verdict(&s.base, i.pod, part_final);
                     s.method = stats::SOLO_METHOD.into();
                 }
                 s
             }
         }
     };
-    let all: Vec<&(i64, String, Option<String>, String)> = rows.iter().collect();
+    let all: Vec<&(i64, String, Option<String>, String)> = i.rows.iter().collect();
     // A "both" experiment keeps its phase half in `summary` and its Forge half in `summary_forge`;
     // any other keeps its one engine's games in `summary`.
-    let (summary, summary_forge) = if engines.as_deref() == Some("both") {
+    let (summary, summary_forge) = if i.engines.as_deref() == Some("both") {
         let phase: Vec<_> = all.iter().copied().filter(|r| r.3 == "phase").collect();
         let forge: Vec<_> = all.iter().copied().filter(|r| r.3 == "forge").collect();
         (summarize_part(&phase), Some(summarize_part(&forge)))
@@ -1180,40 +1334,67 @@ pub async fn refresh(conn: &mut SqliteConnection, experiment: &str, settled: boo
         (summarize_part(&all), None)
     };
     let scored = summary.scored_games() + summary_forge.as_ref().map_or(0, Summary::scored_games);
-    let active = status == "queued" || status == "running";
+    let active = i.status == "queued" || i.status == "running";
     let (status, error) = if active && complete {
         if scored == 0 {
-            let first = rows.iter().filter_map(|(_, _, r, _)| serde_json::from_str::<yama_play::lab::GameResult>(r.as_deref()?).ok()?.error).next();
+            let first = i.rows.iter().filter_map(|(_, _, r, _)| serde_json::from_str::<yama_play::lab::GameResult>(r.as_deref()?).ok()?.error).next();
             ("failed".to_string(), Some(format!("No game ended with a scored result{}", first.map(|e| format!(". First error: {e}")).unwrap_or_default())))
         } else {
             ("done".to_string(), None)
         }
     } else {
-        (status, None)
+        (i.status.clone(), None)
     };
+    Ok(Made {
+        done,
+        summary: serde_json::to_string(&summary).map_err(anyhow::Error::from)?,
+        summary_forge: summary_forge.as_ref().map(serde_json::to_string).transpose().map_err(anyhow::Error::from)?,
+        status,
+        error,
+        finishes: active && complete,
+    })
+}
+
+/// Write a summary. One made outside a transaction (`seen`) is written only while the run is as
+/// it was read: same status, results counted and games planned. Returns whether it wrote.
+pub(super) async fn write_summary(conn: &mut SqliteConnection, experiment: &str, m: &Made, seen: Option<&Seen>) -> AppResult<bool> {
     let stamp = now();
-    let forge_text = match &summary_forge {
-        Some(s) => Some(serde_json::to_string(s).map_err(anyhow::Error::from)?),
-        None => None,
-    };
-    sqlx::query(
+    let n = sqlx::query(
         "UPDATE lab_experiments SET games_done = ?, summary = ?, summary_forge = ?, status = ?, error = IFNULL(?, error), updated_at = ?,
             finished_at = CASE WHEN ? AND finished_at IS NULL THEN ? ELSE finished_at END
-         WHERE id = ?",
+         WHERE id = ? AND (? OR (status = ? AND games_done = ? AND games_total = ?))",
     )
-    .bind(done)
-    .bind(serde_json::to_string(&summary).map_err(anyhow::Error::from)?)
-    .bind(forge_text)
-    .bind(&status)
-    .bind(error)
+    .bind(m.done)
+    .bind(&m.summary)
+    .bind(&m.summary_forge)
+    .bind(&m.status)
+    .bind(&m.error)
     .bind(&stamp)
-    .bind(active && complete)
+    .bind(m.finishes)
     .bind(&stamp)
     .bind(experiment)
+    .bind(seen.is_none())
+    .bind(seen.map(|s| s.status.as_str()))
+    .bind(seen.map(|s| s.counted))
+    .bind(seen.map(|s| s.total))
     .execute(&mut *conn)
-    .await?;
-    Ok(())
+    .await?
+    .rows_affected();
+    Ok(n > 0)
 }
+
+/// Run the calling thread below the server's own priority (nice 10), so lab work never takes CPU
+/// from requests. On Linux a thread's niceness is its own; the threads it starts inherit it.
+#[cfg(target_os = "linux")]
+pub(crate) fn lower_priority() {
+    // SAFETY: setpriority only reads its arguments; `who` 0 is the calling thread on Linux.
+    if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
+        tracing::debug!(error = %std::io::Error::last_os_error(), "lab: couldn't lower a thread's priority");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn lower_priority() {}
 
 #[cfg(test)]
 mod tests {

@@ -200,7 +200,11 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                             crate::db::after_import(&pool).await;
                         }
                         Ok(false) => tracing::debug!(kind, "Scryfall data unchanged"),
-                        Err(e) => tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed"),
+                        // Batches committed before the failure still changed the tables.
+                        Err(e) => {
+                            tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed");
+                            crate::db::after_import(&pool).await;
+                        }
                     }
                 }
             }
