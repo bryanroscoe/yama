@@ -1,7 +1,8 @@
 /* Live filters and endless scrolling for the public precon and commander lists. The server still
    renders every list: without this script the form's Apply button and the Next link work as before.
-   Typing or changing a filter fetches the same page and swaps in its #results; reaching the
-   bottom fetches the next page and appends its rows. Nothing but the filters is sent. */
+   Typing or changing a filter fetches the same page and swaps in its #results and its featured
+   deck or commander; reaching the bottom fetches the next page and appends its rows. Nothing but
+   the filters is sent. */
 (() => {
   "use strict";
   const form = document.querySelector("form.public-filters[data-live]");
@@ -26,12 +27,12 @@
     for (const [k, v] of new FormData(form)) if (typeof v === "string" && v !== "") u.searchParams.append(k, v);
     return u.pathname + u.search;
   };
-  const fetchResults = async (href, signal) => {
+  const fetchPage = async (href, signal) => {
     const res = await fetch(href, { signal, credentials: "same-origin", headers: { Accept: "text/html" } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const next = new DOMParser().parseFromString(await res.text(), "text/html").getElementById("results");
-    if (!next) throw new Error("no results");
-    return next;
+    const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+    if (!doc.getElementById("results")) throw new Error("no results");
+    return doc;
   };
   const shown = () => results.querySelectorAll("tbody > tr").length;
   // After rows are appended the server's "Page 2 of 8" no longer describes the list.
@@ -47,12 +48,13 @@
 
   const loadMore = async () => {
     const link = results.querySelector(".pagination a[rel=next]");
-    if (!link || paging) return;
+    // While a filter change is loading, the Next link still belongs to the old list.
+    if (!link || paging || searching) return;
     const mine = generation;
     paging = new AbortController();
     link.setAttribute("aria-disabled", "true");
     try {
-      const next = await fetchResults(link.href, paging.signal);
+      const next = (await fetchPage(link.href, paging.signal)).getElementById("results");
       if (mine !== generation) return;
       const body = results.querySelector("tbody");
       if (body) body.append(...next.querySelectorAll("tbody > tr"));
@@ -66,9 +68,9 @@
       if (error.name === "AbortError") return;
       // Leave the Next link for an ordinary page load.
       observer?.disconnect();
-      link.removeAttribute("aria-disabled");
       failed("load more");
     } finally {
+      link.removeAttribute("aria-disabled");
       if (mine === generation) paging = null;
     }
   };
@@ -90,13 +92,19 @@
     searching?.abort();
     paging?.abort();
     paging = null;
+    observer?.disconnect();
     searching = new AbortController();
     results.setAttribute("aria-busy", "true");
     try {
-      const next = await fetchResults(href, searching.signal);
+      const doc = await fetchPage(href, searching.signal);
       if (mine !== generation) return;
+      const next = doc.getElementById("results");
       results.dataset.matched = next.dataset.matched || "";
       results.replaceChildren(...next.childNodes);
+      // The featured deck or commander is the filtered list's best, so it follows the filters.
+      const hero = document.querySelector(".public-hero");
+      const nextHero = doc.querySelector(".public-hero");
+      if (hero && nextHero && hero.innerHTML !== nextHero.innerHTML) hero.replaceWith(nextHero);
       history.replaceState(history.state, "", href);
       form.classList.add("is-live");
       status.textContent = results.querySelector(".table-note")?.textContent || "";
@@ -106,7 +114,10 @@
       last = "";
       failed("update the list");
     } finally {
-      if (mine === generation) results.removeAttribute("aria-busy");
+      if (mine === generation) {
+        searching = null;
+        results.removeAttribute("aria-busy");
+      }
     }
   };
   const soon = (wait) => { clearTimeout(timer); timer = setTimeout(refresh, wait); };
