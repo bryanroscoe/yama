@@ -87,12 +87,12 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str, scope: &Scope) -> 
     .await?;
     let mut out = Vec::new();
     for (id, name, qty, priority, why, mut precon) in wants {
-        // A sealed want saved before it could be matched (or before Yama knew the precon) is matched now.
-        if precon.is_none()
-            && let Some(found) = precon_for(pool, &name).await?
-        {
-            sqlx::query("UPDATE shopping_wants SET precon_id = ? WHERE id = ? AND owner_id = ? AND precon_id IS NULL").bind(&found).bind(&id).bind(owner).execute(pool).await?;
-            precon = Some(found);
+        // Matched by name on every read, so a want saved before Yama knew the precon, or a newer
+        // release with the same name, is picked up; the match is saved when it changes.
+        let found = precon_for(pool, &name).await?;
+        if found.is_some() && found != precon {
+            sqlx::query("UPDATE shopping_wants SET precon_id = ? WHERE id = ? AND owner_id = ?").bind(&found).bind(&id).bind(owner).execute(pool).await?;
+            precon = found;
         }
         let p: Option<(String, String, Option<String>, Option<String>, String)> = match &precon {
             Some(pid) => sqlx::query_as("SELECT id, name, set_name, released, cards FROM precons WHERE id = ?").bind(pid).fetch_optional(pool).await?,
@@ -481,6 +481,16 @@ mod tests {
         // A sealed want saved before it was matched is matched when read.
         sqlx::query("UPDATE shopping_wants SET precon_id = NULL WHERE id = ?").bind(want).execute(&pool).await.unwrap();
         assert_eq!(view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap()["items"][0]["precon"]["id"], "federation-fleet");
+        // A newer release with the same name takes over.
+        sqlx::query(
+            "INSERT INTO precons (id, lab_id, name, set_code, released, commanders, cards, source, content_sha256, imported_at)
+             VALUES ('federation-fleet-2', 'precons/federation-fleet-2', 'Federation Fleet', 'TRK2', '2027-01-01', '[]', '[]', 'test', 'y', 'now')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap()["items"][0]["precon"]["id"], "federation-fleet-2");
+        sqlx::query("DELETE FROM precons WHERE id = 'federation-fleet-2'").execute(&pool).await.unwrap();
         // A price over the cap is flagged; another account sees nothing and can't add a price.
         let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "mothership", "price": 59.99}))).await;
         let v = view(&pool, &owner, &today(), &Scope::default()).await.unwrap();
