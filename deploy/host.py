@@ -192,11 +192,16 @@ def checkout(revision, token):
          '+refs/heads/main:refs/remotes/origin/main'], env=git_auth(token))
 
     def contains(older, newer):
+        # A nonzero exit is "no": 1 when not an ancestor, 128 when the commit was never fetched
+        # with main (so it isn't on main). A timeout or the release deadline is a failed
+        # release, never a quiet supersession.
         try:
             run(['git', '-C', repo, 'merge-base', '--is-ancestor', older, newer])
             return True
-        except Refused:
-            return False
+        except Refused as error:
+            if str(error).startswith('Command failed: '):
+                return False
+            raise
 
     # The revision must be on main (main may have moved past it), and never older than what
     # this checkout last deployed: fast-forward only.

@@ -110,6 +110,19 @@ class HostGate(unittest.TestCase):
             with self.subTest(status=status), patch.object(host, 'api', side_effect=[{'object': {'sha': OTHER}}, {'status': status}]):
                 self.assertFalse(host.verify_ci(SHA, 'token'))
 
+    def test_checkout_failures_are_errors_not_supersessions(self):
+        repo = self.base / 'yama'
+        repo.mkdir()
+        def fake(args, **_):
+            if 'merge-base' in args:
+                raise host.Refused('Host command timed out: git')
+            if 'get-url' in args:
+                return 'https://github.com/' + host.REPO + '.git'
+            return 'main' if 'symbolic-ref' in args else ''
+        with patch.object(host, 'run', side_effect=fake), patch.object(host, 'git_auth', return_value={}):
+            with self.assertRaisesRegex(host.Refused, 'timed out'):
+                host.checkout(SHA, 'token')
+
     def test_production_never_goes_back_to_an_older_main_commit(self):
         (self.base / 'current.json').write_text(json.dumps({
             'revision': OTHER, 'images': {s: 'id' for s in host.SERVICES}}))
