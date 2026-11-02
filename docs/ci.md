@@ -10,7 +10,7 @@ a separate concurrency group and cannot cancel the push CI required for deployme
 successful push CI on current main authorizes release. Bryan authorized a dedicated CI runner on
 saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
 `[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. Two listeners,
-`saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each it has no deployment credential, Docker
+`saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each has no deployment credential, Docker
 socket, production data/env mounts, or production runner state. Only its own runner state and
 dedicated Cargo/npm cache are mounted. This is a persistent runner for this private
 repository's trusted branches, not a sandbox for arbitrary untrusted code.
