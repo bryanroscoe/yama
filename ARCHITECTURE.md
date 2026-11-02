@@ -153,8 +153,9 @@ remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
 reviewed work to main now requests production release. The runner has no Docker socket,
 production data/env mounts or general server shell. A restricted SSH command invokes the
-server-owned `deploy/host.py`, which independently verifies current main and successful
-push CI, fetches a dedicated clean main checkout and the published Phase pin, and builds
+server-owned `deploy/host.py`, which independently verifies a main commit and its successful
+push CI (main may have moved on, unless a newer main commit already passed; never older than
+production), fetches a dedicated clean main checkout and the published Phase pin, and builds
 committed exports on saget. The repository variable `DEPLOY_BACKEND` can move that request
 from the saget runner to a one-use GitHub-hosted job that reaches the same gate over
 Cloudflare Access SSH (deploy/RUNNER.md). Saget's address and deploy credentials live only in

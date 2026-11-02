@@ -18,8 +18,11 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
   in root's authorized keys. The host validates the complete original command; only
   `host.py deploy|check FULL_SHA` is accepted. No shell, SCP, forwarding, or PTY is allowed.
 - The host entrypoint lives outside runner-writable paths. It checks GitHub itself:
-  exact current main, latest push CI for that SHA, the CI workflow identity, success,
-  branch, event and source repository. A PR job cannot grant itself deployment access
+  a commit on main, latest push CI for that SHA, the CI workflow identity, success,
+  branch, event and source repository. If main moved on after the request, the commit still
+  deploys unless a newer main commit's push CI has already passed (that one deploys instead);
+  a commit off main, or older than production, never deploys (Bryan, 2026-11-02: requiring the
+  exact tip starved every release while merges landed every few minutes). A PR job cannot grant itself deployment access
   merely by selecting the runner label. Ordinary CI uses a separate `yama-ci` runner,
   state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
