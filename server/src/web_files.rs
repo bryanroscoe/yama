@@ -4,9 +4,10 @@
 //! - `/assets/*` and `/ocr/<version>/*` are content-addressed: kept for a year, never revalidated.
 //! - Everything else (the shell, `sw.js`, the manifest, icons, the fixed-name public files and
 //!   pages) is `no-cache`: kept, but checked with its ETag or Last-Modified before each use.
-//! - Only an address with no file extension is an app route that falls back to `index.html`. A
-//!   missing file (any extension, and anything under `/assets/` or `/ocr/`) is a 404 that nothing
-//!   keeps, so a build file missing after a release is never answered with the shell.
+//! - Only an address that isn't a file is an app route that falls back to `index.html`. A missing
+//!   file (a name with one of [`FILE_EXTENSIONS`], and anything under `/assets/` or `/ocr/`) is a
+//!   404 that nothing keeps, so a build file missing after a release is never answered with the
+//!   shell. Other dots stay routes: a plan's deck key may be `deck.v1`.
 //! - The build writes `.br` and `.gz` beside each compressible file; they're served as they are,
 //!   by `Accept-Encoding`, instead of compressing on every request.
 //!
@@ -35,6 +36,13 @@ pub struct WebFiles {
     index: ServeFile,
 }
 
+/// The extensions of files the web build and its public folder ship (and their sourcemaps): a
+/// last segment ending in one is a file. Any other dot is part of an app route.
+const FILE_EXTENSIONS: &[&str] = &[
+    "js", "mjs", "css", "map", "json", "webmanifest", "html", "txt", "xml", "svg", "png", "jpg", "jpeg", "gif", "webp", "ico", "avif",
+    "woff", "woff2", "ttf", "otf", "wasm", "onnx", "br", "gz", "pdf",
+];
+
 /// What an address is, by its path alone.
 #[derive(Debug, PartialEq, Eq)]
 enum Kind {
@@ -51,7 +59,8 @@ fn kind(path: &str) -> Kind {
         return Kind::Hashed;
     }
     let last = path.rsplit('/').next().unwrap_or_default();
-    if last.contains('.') { Kind::File } else { Kind::Route }
+    let extension = last.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    if extension.is_some_and(|e| FILE_EXTENSIONS.contains(&e.as_str())) { Kind::File } else { Kind::Route }
 }
 
 fn with_cache(mut res: Response, value: &'static str) -> Response {
@@ -147,6 +156,10 @@ mod tests {
         assert_eq!(kind("/about/"), Kind::Route);
         assert_eq!(kind("/sw.js"), Kind::File);
         assert_eq!(kind("/precon-fonts/a.woff2"), Kind::File);
+        assert_eq!(kind("/Icon.PNG"), Kind::File);
+        // A plan's deck key may have a dot in it.
+        assert_eq!(kind("/decks/plan/d/deck.v1"), Kind::Route);
+        assert_eq!(kind("/u/j.doe"), Kind::Route);
     }
 
     #[tokio::test]
@@ -189,7 +202,7 @@ mod tests {
     async fn routes_get_the_shell_and_other_files_are_revalidated() {
         let dir = dist();
         let files = WebFiles::new(dir.path());
-        for path in ["/", "/decks/123", "/cards"] {
+        for path in ["/", "/decks/123", "/cards", "/decks/plan/d/deck.v1"] {
             let res = get(&files, path, &[(header::ACCEPT_ENCODING, "br")]).await;
             assert_eq!(res.status(), StatusCode::OK, "{path}");
             assert_eq!(cache(&res), REVALIDATE, "{path}");
