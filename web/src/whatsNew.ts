@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-02-sharing-navigation",
+    date: "2026-11-02",
+    title: "Find your shared decks and builds again",
+    items: [
+      "Open Sharing at the top of the main app pages to find your public profile, shared decks, alternate configurations and shared build notes. Open what your friends see, copy a link or return to edit it.",
+      "Sharing settings live there too. Precons, Commanders and the MCP guide are always reachable from the same row.",
+    ],
+    link: { to: "/sharing", label: "Open Sharing" },
+  },
+  {
     id: "2026-11-01-delete-account",
     date: "2026-11-01",
     title: "Delete your account yourself",
@@ -307,7 +317,7 @@ export const NEWS: NewsEntry[] = [
       "Pick a handle under Group, You for your profile at /u/handle. New decks can start shared, one button shares them all, and you can show your collection too. Everything stays private until you share it.",
       "Configurations: other builds of one deck (stock, after prints, high power) now sit under its main deck, with a switcher on the deck page and New configuration to start another.",
     ],
-    link: { to: "/group#sharing", label: "Set up sharing" },
+    link: { to: "/sharing", label: "Set up sharing" },
   },
   {
     id: "2026-10-28-complete-precon-commanders", date: "2026-10-28",

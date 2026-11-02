@@ -877,12 +877,8 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
 }
 
 async fn sources(st: &AppState) -> AppResult<Value> {
-    let latest: Option<String> = sqlx::query_scalar("SELECT MAX(updated_at) FROM cards")
-        .fetch_one(&st.pool)
-        .await?;
-    let prices: Option<String> = sqlx::query_scalar("SELECT MAX(date) FROM price_snapshots")
-        .fetch_one(&st.pool)
-        .await?;
+    let latest = crate::cards::import::cards_changed_at(&st.pool).await?;
+    let prices = crate::cards::import::latest_price_date(&st.pool).await?;
     Ok(
         json!({"cards_updated_at":latest,"latest_price_date":prices,"spellbook_list_sharing_enabled":st.cfg.deck_checks,
         "sources":[{"name":"Scryfall","url":"https://scryfall.com/docs/api","data":"Card facts, full search, printings, rulings and market observations"},

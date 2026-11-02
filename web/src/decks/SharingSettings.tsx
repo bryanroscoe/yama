@@ -1,21 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, publicOrigin, type Sharing, type Visibility } from "../api";
+import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 
-/** Group, You: your handle and profile, what new decks start as, and the collection. */
+/** Sharing: your handle and profile, what new decks start as, and the collection. */
 export function SharingSettings() {
   const qc = useQueryClient();
-  const sharing = useQuery({ queryKey: ["sharing"], queryFn: () => api<Sharing>("/api/me/sharing") });
+  const userId = useMe().data?.id;
+  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: () => api<Sharing>("/api/me/sharing"), enabled: !!userId });
   const [handle, setHandle] = useState("");
   useEffect(() => {
     if (sharing.data) setHandle(sharing.data.handle ?? "");
   }, [sharing.data]);
   const [copied, copy] = useCopy();
   const done = (s: Sharing) => {
-    qc.setQueryData(["sharing"], s);
+    qc.setQueryData(["sharing", userId], s);
     void qc.invalidateQueries({ queryKey: ["decks"] });
     void qc.invalidateQueries({ queryKey: ["deck"] });
   };

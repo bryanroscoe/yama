@@ -1042,6 +1042,14 @@ pub async fn defer(pool: &SqlitePool, experiment: &str, game: &str) -> AppResult
 /// a repeat is a no-op. Returns whether anything was written (false: stored before, or the
 /// experiment was deleted).
 pub async fn store(pool: &SqlitePool, experiment: &str, game: &str, result: &GameResult) -> AppResult<bool> {
+    // How long storing a result holds the database's one writer (perf.rs).
+    let job = crate::perf::Job::frequent("lab result store", std::time::Duration::from_secs(1));
+    let stored = store_result(pool, experiment, game, result).await;
+    job.finish(&stored, "one game, with its run's summary");
+    stored
+}
+
+async fn store_result(pool: &SqlitePool, experiment: &str, game: &str, result: &GameResult) -> AppResult<bool> {
     let mut tx = pool.begin().await?;
     let written = sqlx::query("UPDATE lab_experiment_games SET result = ?, end_kind = ?, finished_at = ? WHERE experiment_id = ? AND game = ? AND result IS NULL")
         .bind(result.to_line())

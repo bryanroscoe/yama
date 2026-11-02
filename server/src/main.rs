@@ -25,6 +25,7 @@ mod oauth;
 mod play;
 mod plan;
 mod people;
+mod perf;
 mod playgroups;
 mod precon_evidence;
 mod public_page;
@@ -49,8 +50,11 @@ mod view_as_tests;
 mod watch;
 
 use anyhow::Context;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// mimalloc, as the lab's batch runner uses. On glibc's malloc the server held 2.5 GB with one lab
 /// game playing (it starts at 0.7 GB), reached its 3 GB container cap, and every allocation then
@@ -173,12 +177,17 @@ async fn main() -> anyhow::Result<()> {
         let path = args.get(1).context("usage: yama-server lab-game CARD_DATA < request.json")?;
         return lab::process::child_main(PathBuf::from(path));
     }
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,yama_server=debug".into()))
+    // Plain text when the log isn't a terminal (`docker logs`), so it can be searched; sqlx's slow
+    // statements on one line, and copied into the perf summary (`perf.rs`).
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,yama_server=debug".into()))
+        .with(tracing_subscriber::fmt::layer().fmt_fields(perf::LogFields).with_ansi(std::io::stdout().is_terminal()))
+        .with(perf::SlowStatements)
         .init();
 
     let cfg = config::Config::from_env()?;
-    let pool = db::connect(&cfg.database_url).await?;
+    perf::configure(cfg.slow_request_ms, cfg.slow_query_ms);
+    let pool = db::connect(&cfg.database_url, std::time::Duration::from_millis(cfg.slow_query_ms)).await?;
 
     match args.first().map(String::as_str) {
         Some("serve") | None => routes::serve(cfg, pool).await,
@@ -319,7 +328,10 @@ async fn main() -> anyhow::Result<()> {
         Some("backup") => {
             // A consistent copy of the live database (safe while the server runs).
             let to = args.get(1).context("usage: yama-server backup FILE")?;
-            sqlx::query("VACUUM INTO ?").bind(to).execute(&pool).await?;
+            let job = perf::Job::start("backup", std::time::Duration::from_secs(60));
+            let r = sqlx::query("VACUUM INTO ?").bind(to).execute(&pool).await;
+            job.finish(&r, "");
+            r?;
             println!("backed up to {to}");
             Ok(())
         }

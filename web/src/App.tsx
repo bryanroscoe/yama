@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { afterSignIn, Login, useMe } from "./auth";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe } from "./components/RailMe";
+import { SiteLinks } from "./components/SiteLinks";
 import { SiteNotice } from "./components/SiteNotice";
 import { StandIn } from "./components/StandIn";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, LabIcon, PlayIcon, TableIcon } from "./components/icons";
@@ -32,6 +33,7 @@ const decks = area(() => import("./decks/pages"));
 const mythic = area(() => import("./bridges/mythic/pages"));
 const collection = area(() => import("./pages/Collection"));
 const group = area(() => import("./pages/Group"));
+const sharing = area(() => import("./pages/Sharing"));
 const changes = area(() => import("./advisor/Changes"));
 const research = area(() => import("./research/Research"));
 const datasets = area(() => import("./datasets/Datasets"));
@@ -79,6 +81,7 @@ const MythicImportPage = mythic.page("MythicImportPage");
 const MythicSentPage = mythic.page("MythicSentPage");
 const CollectionPage = collection.page("CollectionPage");
 const GroupPage = group.page("GroupPage");
+const SharingPage = sharing.page("SharingPage");
 const ChangesPage = changes.page("ChangesPage");
 const ResearchPage = research.page("ResearchPage");
 const DatasetsPage = datasets.page("DatasetsPage");
@@ -130,6 +133,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
       </nav>
       {/* What's new is for people using Yama, not someone looking around. */}
       {me.data && <NewsNotice />}
+      <SiteLinks />
       {pending ? <StandIn /> : <Outlet />}
       <div className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></div>
     </div>
@@ -148,7 +152,7 @@ export function App() {
   // tab's cache, so nothing of that account shows.
   useEffect(() => {
     if (!signedOutNow) return;
-    const accountLists = new Set(["games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
+    const accountLists = new Set(["sharing", "games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
     // Card searches carry the account's copies; the guest's own (keyed `true`, Cards.tsx) stay,
     // since the Cards page may already be running one.
     const accountSearch = (key: readonly unknown[]) => key[0] === "search" && key[4] !== true;
@@ -262,6 +266,7 @@ export function App() {
           <Route path="decks/:id" element={<Paged page={DeckPage} kind="detail" />} />
           <Route path="decks/:id/scan" element={<Paged page={DeckScanPage} kind="detail" />} />
           <Route path="decks/:id/check" element={<Paged page={DeckCheckPage} kind="detail" />} />
+          <Route path="sharing" element={<Paged page={SharingPage} title="Sharing" />} />
           <Route path="group" element={<Paged page={GroupPage} title="Playgroup" />} />
           <Route path="group/mythic" element={<Paged page={MythicImportPage} />} />
           <Route path="mythic/sent" element={<Paged page={MythicSentPage} />} />

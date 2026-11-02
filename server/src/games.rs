@@ -640,9 +640,12 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(
             .fetch_all(&st.pool)
             .await?
         }
+        // An IN rather than a join, so each side can use its index (games_created_by,
+        // game_seats_user) and no game repeats.
         None => sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT DISTINCT {GAME_COLUMNS} FROM games g LEFT JOIN game_seats s ON s.game_id = g.id
-             WHERE g.created_by = ? OR s.user_id = ? ORDER BY g.started_at DESC LIMIT 200"
+            "SELECT {GAME_COLUMNS} FROM games g
+             WHERE g.created_by = ? OR g.id IN (SELECT s.game_id FROM game_seats s WHERE s.user_id = ?)
+             ORDER BY g.started_at DESC LIMIT 200"
         )))
         .bind(&user.id)
         .bind(&user.id)

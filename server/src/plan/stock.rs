@@ -915,6 +915,8 @@ pub struct Job {
 
 /// Run a check: each direct store on its own (hosts differ), YesTCG once for all the stores it covers.
 pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Option<Duration>) {
+    let timing = crate::perf::Job::start("store check", Duration::from_secs(180));
+    let note = format!("{} stores, {} cards", job.targets.len(), job.cards.len());
     let mut tasks = tokio::task::JoinSet::new();
     let yes: Vec<Target> = job.targets.iter().filter(|t| t.kind == Kind::YesTcg).cloned().collect();
     for t in job.targets.iter().filter(|t| t.kind != Kind::YesTcg).cloned() {
@@ -928,7 +930,9 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
             };
             if let Err(e) = finish(&pool, &owner, &t.snapshot, &found, asked, raw.gz()).await {
                 tracing::warn!(error = %e, "store snapshot not saved");
+                return 1;
             }
+            0
         });
     }
     if let Some(first) = yes.first().cloned() {
@@ -941,6 +945,7 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
             hosts.dedup();
             let found = fetch_yestcg(&mut f, &first.base, &cards, &hosts, &mut raw).await;
             let gz = raw.gz();
+            let mut unsaved = 0;
             for t in &yes {
                 // Two stores with one homepage share YesTCG's answer for it.
                 let one = t.host.as_ref().and_then(|h| found.get(h).cloned()).unwrap_or_default();
@@ -948,16 +953,26 @@ pub async fn run(pool: SqlitePool, http: reqwest::Client, job: Job, pause: Optio
                 let r = if t.snapshot == first.snapshot { gz.clone() } else { None };
                 if let Err(e) = finish(&pool, &owner, &t.snapshot, &one, Some(cards.len()), r).await {
                     tracing::warn!(error = %e, "store snapshot not saved");
+                    unsaved += 1;
                 }
             }
+            unsaved
         });
     }
-    while tasks.join_next().await.is_some() {}
-    // Finished, failed or panicked: no longer being fetched.
-    let mut a = active().lock().expect("active");
-    for t in &job.targets {
-        a.remove(&t.snapshot);
+    // Snapshots not saved; a task that panicked counts as one.
+    let mut unsaved = 0;
+    while let Some(done) = tasks.join_next().await {
+        unsaved += done.unwrap_or(1);
     }
+    // Finished, failed or panicked: no longer being fetched.
+    {
+        let mut a = active().lock().expect("active");
+        for t in &job.targets {
+            a.remove(&t.snapshot);
+        }
+    }
+    let note = if unsaved > 0 { format!("{note}, {unsaved} not saved") } else { note };
+    timing.done(unsaved == 0, note);
 }
 
 #[derive(Debug, Default, Deserialize)]

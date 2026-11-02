@@ -497,25 +497,33 @@ async fn due(pool: &SqlitePool, kind: &str) -> sqlx::Result<bool> {
     Ok(is_due(last_ok.as_deref().and_then(parse_time), last_try.as_deref().and_then(parse_time), Utc::now()))
 }
 
-/// One pass: refresh what's due, then download watched sets' new lists.
-pub async fn run_due(pool: &SqlitePool, http: &reqwest::Client, src: &Sources) -> anyhow::Result<()> {
+/// One pass: refresh what's due, then download watched sets' new lists. Returns how many of the
+/// two refreshes failed (each is logged; the pass goes on).
+pub async fn run_due(pool: &SqlitePool, http: &reqwest::Client, src: &Sources) -> anyhow::Result<usize> {
+    let mut failed = 0;
     if due(pool, SETS_KIND).await? {
         match refresh_sets(pool, http, &src.sets_url, Utc::now().date_naive()).await {
             Ok(n) => tracing::info!(sets = n, "release calendar refreshed from Scryfall"),
-            Err(e) => tracing::warn!(error = %format!("{e:#}"), "release calendar refresh failed"),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "release calendar refresh failed");
+                failed += 1;
+            }
         }
     }
     if due(pool, DECKLIST_KIND).await? {
         match refresh_decklist(pool, http, &src.mtgjson).await {
             Ok(n) => tracing::info!(decks = n, "Commander precon index refreshed from MTGJSON"),
-            Err(e) => tracing::warn!(error = %format!("{e:#}"), "MTGJSON precon index refresh failed"),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "MTGJSON precon index refresh failed");
+                failed += 1;
+            }
         }
     }
     let n = fetch_watched_lists(pool, http, &src.mtgjson).await?;
     if n > 0 {
         tracing::info!(lists = n, "downloaded watched precon lists from MTGJSON");
     }
-    Ok(())
+    Ok(failed)
 }
 
 /// Background refresh for a running server (with `YAMA_AUTO_IMPORT=1`): wakes hourly, does
@@ -524,9 +532,16 @@ pub fn spawn_scheduler(pool: SqlitePool, http: reqwest::Client) {
     tokio::spawn(async move {
         let src = Sources::default();
         loop {
-            if let Err(e) = run_due(&pool, &http, &src).await {
+            let job = crate::perf::Job::frequent("release calendar", Duration::from_secs(120));
+            let result = run_due(&pool, &http, &src).await;
+            if let Err(e) = &result {
                 tracing::warn!(error = %format!("{e:#}"), "release calendar pass failed");
             }
+            match result {
+                Ok(0) => job.done(true, "hourly pass"),
+                Ok(n) => job.done(false, format!("hourly pass, {n} of its refreshes failed")),
+                Err(_) => job.done(false, "hourly pass"),
+            };
             tokio::time::sleep(Duration::from_secs(3600)).await;
         }
     });

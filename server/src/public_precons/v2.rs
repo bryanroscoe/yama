@@ -190,7 +190,10 @@ async fn table(pool: &SqlitePool) -> AppResult<Table> {
     if let Some(t) = cached(&key) {
         return Ok(t);
     }
-    let t = derive(pool).await?;
+    let job = crate::perf::Job::start("public precons rebuild", std::time::Duration::from_secs(2));
+    let t = derive(pool).await;
+    job.finish(&t, t.as_ref().map(|t| format!("{} precons ranked", t.0.ranked)).unwrap_or_default());
+    let t = t?;
     *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), key, t.clone()));
     Ok(t)
 }

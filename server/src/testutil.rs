@@ -44,6 +44,8 @@ pub fn config() -> Config {
         // OAuth is off unless a test turns it on (oauth/tests.rs).
         public_url: None,
         oauth_redirect_hosts: crate::config::DEFAULT_OAUTH_REDIRECT_HOSTS.iter().map(|h| h.to_string()).collect(),
+        slow_request_ms: crate::perf::SLOW_REQUEST_MS,
+        slow_query_ms: crate::perf::SLOW_QUERY_MS,
     }
 }
 

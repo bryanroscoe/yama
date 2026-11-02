@@ -4,6 +4,7 @@ import { SignInForm, useMe } from "../auth";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
+  sharing: { title: "Sharing", lede: "Sign in to manage your public profile, shared decks and build notes." },
   decks: { title: "Decks", lede: "Sign in to save your decks." },
   collection: { title: "Collection", lede: "Sign in to track your cards." },
   play: { title: "Play online", lede: "Sign in to play Commander online." },

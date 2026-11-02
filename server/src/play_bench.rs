@@ -251,7 +251,7 @@ fn bench() {
     let engine = Engine::load(&path).unwrap();
     let dir = tempfile::tempdir().unwrap();
     // A file database with the server's own settings (WAL), not an in-memory one.
-    let pool = rt.block_on(crate::db::connect(&format!("sqlite://{}", dir.path().join("bench.db").display()))).unwrap();
+    let pool = rt.block_on(crate::db::connect(&format!("sqlite://{}", dir.path().join("bench.db").display()), std::time::Duration::from_millis(crate::perf::SLOW_QUERY_MS))).unwrap();
     rt.block_on(sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('bench', 'bench@example.com', 'bench', ?)").bind(now()).execute(&pool))
         .unwrap();
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../play/tests/fixtures/decks");
