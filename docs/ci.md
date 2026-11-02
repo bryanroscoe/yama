@@ -25,11 +25,13 @@ backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.
-- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with two build
+- **Rust and Python tests:** preinstalled Rust 1.98.1, `cargo test --locked` with four build
   jobs and low debug information, release/host guards, portable worker/build identity,
   commander evidence/list validation (also under Python optimization), and dataset recovery.
-  Resource usage, process timing and tested Yama/Phase revisions are recorded. The runner
-  has two CPUs, 12 GiB RAM and no extra swap; jobs cannot change host swap or use sudo.
+  Resource usage, process timing and tested Yama/Phase revisions are recorded. Each saget
+  runner has four CPUs and a 12 GiB memory limit inside the shared CI pool (eight CPUs, 20 GiB;
+  Bryan, 2026-11-02), so both Yama listeners can run a Rust job at once; jobs cannot change
+  host swap or use sudo. The pool lives in sagetserver's `ci/` fleet controller.
 
 `deploy/ci-runner/` defines the pinned official runner/toolchain image, startup, Compose
 limits and a completion hook. Its server directory is `/mnt/user/appdata/yama-ci-runner`.
