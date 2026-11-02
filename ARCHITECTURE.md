@@ -22,9 +22,10 @@ identity and immutable data hash.
 
 Local Cargo builds verify the sibling Phase checkout is clean and its HEAD equals the pin
 before stamping that identity. Git-less committed-source builds must explicitly supply the
-exported Phase revision; the production exporter supplies the exact published source. Both
-original-board connection defaults and game-thread startup preserve replay-restored controls;
-explicit player preference changes remain authoritative. Accepted Phase-board Full control
+exported Phase revision; the production exporter supplies the exact published source.
+Both board interfaces load account defaults for player connections while preserving controls
+restored from the game's replay. Phase spectator attachment does not initialize a player's
+controls. Explicit player preference changes remain authoritative. Accepted Phase-board Full control
 and stop changes also update that seat's account defaults for later games. Each write changes
 only the chosen field, preserving mana settings and concurrent changes to other controls;
 temporary passing, holds and game-specific yields are not account defaults.

@@ -144,10 +144,11 @@ pub(super) async fn connect(
     }
     let you = r.seats().iter().find(|s| s.user_id.as_deref() == Some(user.id.as_str())).map(|s| s.seat);
     let live = st.play.live(&id).ok_or_else(|| AppError::Conflict("that game isn't running".into()))?;
-    Ok(ws.max_message_size(1_048_576).max_frame_size(1_048_576).on_upgrade(move |socket| run(socket, live, id, you)))
+    let prefs = if you.is_some() { load_prefs(&st.pool, &user.id).await? } else { None };
+    Ok(ws.max_message_size(1_048_576).max_frame_size(1_048_576).on_upgrade(move |socket| run(socket, live, id, you, prefs)))
 }
 
-async fn run(socket: WebSocket, live: LiveGame, game_id: String, you: Option<u8>) {
+async fn run(socket: WebSocket, live: LiveGame, game_id: String, you: Option<u8>, prefs: Option<PlayPrefs>) {
     let (mut sink, mut stream) = socket.split();
     // A slow socket must not accumulate an unbounded history of whole boards.
     let (out, mut outbox) = outbox();
@@ -190,13 +191,13 @@ async fn run(socket: WebSocket, live: LiveGame, game_id: String, you: Option<u8>
                 let _ = out.send(text(&ServerMessage::TerminalBootstrapResult { delivery: None })).await;
             }
             Wire::Reconnect { game_code, .. } => {
-                if !attach(&live, &out, &game_id, &game_code, you, &mut attached).await {
+                if !attach(&live, &out, &game_id, &game_code, you, prefs.as_ref(), &mut attached).await {
                     break;
                 }
             }
             // A seated account may still choose to watch.
             Wire::SpectatorJoin { game_code } => {
-                if !attach(&live, &out, &game_id, &game_code, None, &mut attached).await {
+                if !attach(&live, &out, &game_id, &game_code, None, None, &mut attached).await {
                     break;
                 }
             }
@@ -236,12 +237,14 @@ type Attached = Option<(Option<u8>, tokio::task::JoinHandle<()>)>;
 
 /// Open the board on this game for `viewer`: its `GameStarted`, then every change. False when
 /// the game thread has gone.
+#[allow(clippy::too_many_arguments)]
 async fn attach(
     live: &LiveGame,
     out: &Outbox,
     game_id: &str,
     game_code: &str,
     viewer: Option<u8>,
+    prefs: Option<&PlayPrefs>,
     attached: &mut Attached,
 ) -> bool {
     if game_code != game_id {
@@ -250,6 +253,14 @@ async fn attach(
     }
     if attached.is_some() {
         return true;
+    }
+    // Initialize only a valid player attachment, never a spectator or a wrong
+    // game code. FIFO admission puts refreshed defaults before its first frame;
+    // initialize_prefs still preserves controls recovered from this replay.
+    if let (Some(seat), Some(prefs)) = (viewer, prefs) {
+        if live.cmds.send(Cmd::AccountPrefs { seat, prefs: prefs.clone() }).is_err() {
+            return false;
+        }
     }
     // The game thread subscribes while capturing the first frame, so this
     // receiver contains every later publication and no older snapshots.
@@ -352,7 +363,7 @@ mod tests {
         });
         let (out, mut received) = outbox();
         let mut attached = None;
-        assert!(attach(&live, &out, "g", "g", viewer, &mut attached).await);
+        assert!(attach(&live, &out, "g", "g", viewer, None, &mut attached).await);
         assert!(matches!(received.recv().await, Some(SocketFrame::Text(frame)) if &*frame == "opening frame"));
         TestBoard { live, attached, out, received, commands: opener.await.unwrap() }
     }
@@ -433,6 +444,61 @@ mod tests {
         let other = SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Grizzly Bears".into(); 99] };
         let m = e.new_match_first(7, vec![deck, other], &[], Some(0)).unwrap();
         (e, m)
+    }
+
+    #[tokio::test]
+    async fn direct_player_reconnect_refreshes_defaults_but_spectators_and_replays_keep_their_controls() {
+        async fn opening(live: &LiveGame, id: &str, code: &str, viewer: Option<u8>, prefs: Option<&PlayPrefs>) -> serde_json::Value {
+            let (out, mut received) = outbox();
+            let mut attached = None;
+            assert!(attach(live, &out, id, code, viewer, prefs, &mut attached).await);
+            let Some(SocketFrame::Text(frame)) = received.recv().await else { panic!("opening frame") };
+            let value = serde_json::from_str(&frame).unwrap();
+            if let Some((viewer, follower)) = attached {
+                follower.abort();
+                live.cmds.send(Cmd::BoardClosed { viewer }).unwrap();
+            }
+            value
+        }
+        for restored in [false, true] {
+            let pool = crate::db::test_pool().await;
+            let (owner, _) = crate::testutil::user(&pool, "direct-board@example.com").await;
+            let (engine, mut matched) = ordinary_game();
+            if restored {
+                matched.set_full_control(0, true);
+                matched = engine.resume(&matched.replay_json(), &[]).unwrap();
+            }
+            let id = format!("direct-board-{restored}");
+            let seats: Vec<_> = (0..2).map(|seat| SeatCfg {
+                seat, kind: "human".into(), user_id: (seat == 0).then(|| owner.clone()), name: format!("Seat {seat}"),
+                deck_id: None, deck_version_id: None, deck_name: None, color_identity: String::new(),
+                commander: None, difficulty: None, bracket: None,
+            }).collect();
+            sqlx::query("INSERT INTO games(id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES (?,'online',?,'commander','in_progress',40,'original',?)")
+                .bind(&id).bind(&owner).bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,replay,revision,created_at,updated_at) VALUES (?,?,?,'live',?,?,0,'original','original')")
+                .bind(&id).bind(&id).bind(&owner).bind(serde_json::to_string(&seats).unwrap()).bind(matched.replay_json()).execute(&pool).await.unwrap();
+            let hub = Arc::new(PlayHub {
+                engine: Mutex::new(EngineState::Ready(Arc::new(engine))), live: Mutex::new(HashMap::new()),
+                historical: None, unavailable: Mutex::new(HashMap::new()),
+            });
+            hub.spawn_game(id.clone(), matched, seats, HashMap::new(), pool.clone());
+            let live = hub.live(&id).unwrap();
+            // Another device changed the account after this game started.
+            let account = PlayPrefs { stops: None, full_control: !restored, tap_mana: PayMode::Manual };
+            save_prefs(&pool, &owner, &account).await.unwrap();
+            let prefs = load_prefs(&pool, &owner).await.unwrap();
+            let refused = opening(&live, &id, "another-game", Some(0), prefs.as_ref()).await;
+            assert_eq!(refused["type"], "Error");
+            let spectator = opening(&live, &id, &id, None, prefs.as_ref()).await;
+            assert!(spectator["gameplay_preferences"].is_null());
+            let unchanged = opening(&live, &id, &id, Some(0), None).await;
+            assert_eq!(unchanged["gameplay_preferences"]["full_control"], restored, "wrong-code and spectator attachments never initialize a seat");
+            let refreshed = opening(&live, &id, &id, Some(0), prefs.as_ref()).await;
+            assert_eq!(refreshed["gameplay_preferences"]["full_control"], true, "new defaults apply, while replay-restored Full control wins over account false");
+            assert_eq!(load_prefs(&pool, &owner).await.unwrap(), Some(account));
+            hub.stop(&id);
+        }
     }
 
     fn offered_submission(frame: &str) -> InteractionSubmission {
