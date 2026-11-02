@@ -734,17 +734,28 @@ struct DeleteMe {
 /// `DELETE /api/me`: the signed-in person deletes their own account and everything it owns, as
 /// an admin's deletion does (`admin/delete.rs` says what goes and what stays, anonymised, for
 /// other people's records). Google Play wants this in the app and at a web link (`/account/`).
-/// It takes a session (script keys and OAuth tokens can't), never runs while an admin views as
-/// someone, and refuses an admin account, which YAMA_ADMIN_EMAILS would only make again.
+/// It takes a Yama session (script keys, OAuth tokens and Cloudflare Access alone can't), never
+/// runs while an admin views as someone, and refuses an admin account, which YAMA_ADMIN_EMAILS
+/// would only make again.
 async fn delete_me(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     crate::view_as::MaybeView(view): crate::view_as::MaybeView,
+    headers: HeaderMap,
     jar: CookieJar,
     Json(body): Json<DeleteMe>,
 ) -> AppResult<(CookieJar, Json<crate::admin::delete::DeleteReport>)> {
     if view.is_some() {
         return Err(AppError::Forbidden("stop viewing as someone to delete an account".into()));
+    }
+    // A Yama session of this account, not Cloudflare Access alone: Access would sign the
+    // account straight back in, making it again (`upsert_user`).
+    let session = match bearer_token(&headers).or_else(|| cookie_token(&headers)) {
+        Some(token) => user_for_token(&st, &token).await?.is_some_and(|u| u.id == user.id),
+        None => false,
+    };
+    if !session {
+        return Err(AppError::Forbidden("this sign-in can't delete its account; ask an admin to delete it".into()));
     }
     if user.is_admin {
         return Err(AppError::Forbidden("an admin account can't be deleted here; remove it from YAMA_ADMIN_EMAILS first".into()));
