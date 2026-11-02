@@ -128,14 +128,16 @@ export function PlayHome() {
 
 /**
  * Your game in progress, on every seat's commander art. The headline needs the game's board (25 to
- * 100 KB), which used to be asked for every 10 s: now it's asked once, and again only when the
- * games list says the game moved on (`updated_at`), with no timer of its own.
+ * 100 KB), which used to be asked for every 10 s: now it's asked when the games list says the game
+ * moved on (`updated_at`), and otherwise once a minute, since `updated_at` counts whole seconds and
+ * two moves in one second look like one.
  */
 function ContinueHero({ game }: { game: OnlineGame }) {
   const view = useQuery({
     queryKey: ["play-view", game.id, game.updated_at ?? game.created_at],
     queryFn: ({ signal }) => api<ViewMessage>(`/api/play/${game.id}/view`, { signal }),
-    staleTime: Infinity,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     // Keeps the last headline while the next one loads.
     placeholderData: (prev) => prev,
   });
