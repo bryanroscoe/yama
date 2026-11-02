@@ -40,6 +40,14 @@ pub async fn precon_for(pool: &SqlitePool, name: &str) -> AppResult<Option<Strin
     Ok(sqlx::query_scalar("SELECT id FROM precons WHERE name = ? COLLATE NOCASE ORDER BY released DESC, id LIMIT 1").bind(n).fetch_optional(pool).await?)
 }
 
+/// Price ids are remembered 30 days, for every account (run on reads and saves, so an account
+/// that never saves again doesn't keep them).
+async fn expire_ids(pool: &SqlitePool) -> AppResult<()> {
+    let month = (Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    sqlx::query("DELETE FROM sealed_quote_ids WHERE created_at < ?").bind(&month).execute(pool).await?;
+    Ok(())
+}
+
 /// The sealed cap in the rule set in force on `date` (USD per deck, before tax), when one is set.
 pub async fn cap_at(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Option<f64>> {
     let rules: Option<String> = sqlx::query_scalar("SELECT rules FROM plan_settings WHERE owner_id = ? AND effective_from <= ? ORDER BY effective_from DESC LIMIT 1")
@@ -65,6 +73,7 @@ pub struct Scope {
 
 /// Every sealed product on the owner's list with its precon, market, singles, cap and store prices.
 pub async fn view(pool: &SqlitePool, owner: &str, date: &str, scope: &Scope) -> AppResult<Value> {
+    expire_ids(pool).await?;
     #[allow(clippy::type_complexity)]
     let wants: Vec<(String, String, i64, String, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT id, name, qty, priority, why, precon_id FROM shopping_wants WHERE owner_id = ? AND kind = 'sealed' AND retired_at IS NULL ORDER BY added_at, id",
@@ -212,8 +221,8 @@ pub struct QuoteBody {
     /// YYYY-MM-DD; default today.
     checked_on: Option<String>,
     note: Option<String>,
-    /// The page's id for this price, so a retried request records it once.
-    id: Option<String>,
+    /// The page's id for this price (required), so a retried request records it once.
+    id: String,
 }
 
 fn yes() -> bool {
@@ -249,35 +258,30 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     // The id check, the insert and the pruning under one lock, so identical retries at once save once.
     static SAVE: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     let _one = SAVE.get_or_init(Default::default).lock().await;
+    expire_ids(pool).await?;
     // A retry with the same id adds nothing; another account's id is refused without saying more.
-    let id = match b.id.as_deref() {
-        None => crate::util::new_id(),
-        Some(i) if (8..=64).contains(&i.len()) && i.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
-            #[allow(clippy::type_complexity)]
-            let had: Option<(String, String, String, Option<f64>, bool, String, Option<String>)> =
-                sqlx::query_as("SELECT owner_id, want_id, store_key, price, in_stock, checked_on, note FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
-            let used: Option<(String, String)> = sqlx::query_as("SELECT owner_id, payload FROM sealed_quote_ids WHERE id = ?").bind(i).fetch_optional(pool).await?;
-            match (had, used) {
-                // The same price sent again: already recorded.
-                (Some((o, w, st, p, s, c, n)), _) if o == user.id && w == want && st == b.store && p == b.price && s == b.in_stock && c == checked && n.as_deref() == note => {
-                    return Ok(Json(json!({"id": i})));
-                }
-                (Some(_), _) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
-                // Saved before and since pruned from the history: saved already, nothing to add.
-                (None, Some((o, p))) if o == user.id && p == payload => return Ok(Json(json!({"id": i}))),
-                (None, Some(_)) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
-                (None, None) => i.to_string(),
-            }
+    let i = b.id.as_str();
+    if !((8..=64).contains(&i.len()) && i.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
+        return Err(AppError::bad("id: 8 to 64 letters, digits or dashes"));
+    }
+    #[allow(clippy::type_complexity)]
+    let had: Option<(String, String, String, Option<f64>, bool, String, Option<String>)> =
+        sqlx::query_as("SELECT owner_id, want_id, store_key, price, in_stock, checked_on, note FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
+    let used: Option<(String, String)> = sqlx::query_as("SELECT owner_id, payload FROM sealed_quote_ids WHERE id = ?").bind(i).fetch_optional(pool).await?;
+    let id = match (had, used) {
+        // The same price sent again: already recorded.
+        (Some((o, w, st, p, s, c, n)), _) if o == user.id && w == want && st == b.store && p == b.price && s == b.in_stock && c == checked && n.as_deref() == note => {
+            return Ok(Json(json!({"id": i})));
         }
-        Some(_) => return Err(AppError::bad("id: 8 to 64 letters, digits or dashes")),
+        (Some(_), _) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
+        // Saved before and since pruned from the history: saved already, nothing to add.
+        (None, Some((o, p))) if o == user.id && p == payload => return Ok(Json(json!({"id": i}))),
+        (None, Some(_)) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
+        (None, None) => i.to_string(),
     };
     // The id's record, the price and the pruning are one write: a failed save leaves no record.
     let mut tx = pool.begin().await?;
-    if b.id.is_some() {
-        sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, payload, created_at) VALUES (?, ?, ?, ?)").bind(&id).bind(&user.id).bind(&payload).bind(now()).execute(&mut *tx).await?;
-        let month = (Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        sqlx::query("DELETE FROM sealed_quote_ids WHERE owner_id = ? AND created_at < ?").bind(&user.id).bind(&month).execute(&mut *tx).await?;
-    }
+    sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, payload, created_at) VALUES (?, ?, ?, ?)").bind(&id).bind(&user.id).bind(&payload).bind(now()).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO sealed_quotes (id, owner_id, want_id, store_key, price, in_stock, checked_on, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&user.id)
@@ -456,10 +460,12 @@ mod tests {
         assert_eq!(w["precon_id"], "federation-fleet", "matched by name");
         let want = w["id"].as_str().unwrap();
         for (store, price, date) in [("pats", json!(54.99), "2026-10-30"), ("mothership", json!(49.99), "2026-10-31"), ("pats", json!(50.0), "2026-11-01")] {
-            let (s, v) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": store, "price": price, "checked_on": date}))).await;
+            let (s, v) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": store, "price": price, "checked_on": date}))).await;
             assert!(s.is_success(), "{v}");
         }
-        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "nowhere", "price": 1}))).await.0.as_u16(), 400);
+        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "nowhere", "price": 1}))).await.0.as_u16(), 400);
+        // Every price carries the page's id.
+        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 1}))).await.0.as_u16(), 422);
         let v = view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap();
         assert_eq!(v["cap_usd"], 51.0);
         let it = &v["items"][0];
@@ -474,8 +480,8 @@ mod tests {
         let t = text(&v);
         assert!(t.contains("their cap is $51.00 a deck") && t.contains("sealed market $48.00 on 2026-11-01 (TCGplayer market via TCGCSV)") && t.contains("TCGplayer market via Scryfall, prices of 2026-10-31") && t.contains("Mothership: $49.99 on 2026-10-31 (within their cap, 4.1% above market, the best choice: cheapest in stock within the cap)"), "{t}");
         // Two prices from one store on one day: the one recorded last counts.
-        send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 45.0, "checked_on": "2026-11-01"}))).await;
-        send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 47.0, "checked_on": "2026-11-01"}))).await;
+        send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 45.0, "checked_on": "2026-11-01"}))).await;
+        send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 47.0, "checked_on": "2026-11-01"}))).await;
         let v2 = view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap();
         let pats: Vec<&Value> = v2["items"][0]["quotes"].as_array().unwrap().iter().filter(|q| q["store"] == "pats").collect();
         assert_eq!((pats.len(), pats[0]["price"].as_f64()), (1, Some(47.0)));
@@ -510,11 +516,11 @@ mod tests {
         assert_eq!(view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap()["items"][0]["precon"]["id"], "federation-fleet-2");
         sqlx::query("DELETE FROM precons WHERE id = 'federation-fleet-2'").execute(&pool).await.unwrap();
         // A price over the cap is flagged; another account sees nothing and can't add a price.
-        let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "mothership", "price": 59.99}))).await;
+        let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "mothership", "price": 59.99}))).await;
         let v = view(&pool, &owner, &today(), &Scope::default()).await.unwrap();
         assert!(v["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["store"] == "mothership" && q["over_cap"] == true));
         // A note is kept and said; the bundle carries the sealed view for the page offline.
-        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 50.0, "note": "Behind the counter"}))).await;
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 50.0, "note": "Behind the counter"}))).await;
         assert!(s.is_success());
         assert!(text(&view(&pool, &owner, &today(), &Scope::default()).await.unwrap()).contains("Note: Behind the counter"));
         let b = crate::plan::bundle::load_bundle(&pool, &owner).await.unwrap();
@@ -545,13 +551,13 @@ mod tests {
         assert_eq!(s.as_u16(), 409);
         // A short history per product and store.
         for i in 0..(HISTORY + 3) {
-            send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;
+            send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;
         }
         let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE owner_id = ? AND want_id = ? AND store_key = 'pats'").bind(&owner).bind(want).fetch_one(&pool).await.unwrap();
         assert_eq!(kept, HISTORY);
         let (other, other_token) = user(&pool, "other@example.com").await;
         assert_eq!(view(&pool, &other, "2026-11-01", &Scope::default()).await.unwrap()["items"], json!([]));
-        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"store": "pats", "price": 1}))).await.0.as_u16(), 404);
+        assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"id": crate::util::new_id(), "store": "pats", "price": 1}))).await.0.as_u16(), 404);
         let qid = quotes[0]["id"].as_str().unwrap();
         assert_eq!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&other_token), None).await.0.as_u16(), 404);
         assert!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&token), None).await.0.is_success());

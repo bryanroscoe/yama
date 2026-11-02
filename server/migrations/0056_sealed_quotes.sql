@@ -29,3 +29,4 @@ CREATE TABLE sealed_quote_ids (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX sealed_quote_ids_owner ON sealed_quote_ids (owner_id, created_at);
+CREATE INDEX sealed_quote_ids_created ON sealed_quote_ids (created_at);
