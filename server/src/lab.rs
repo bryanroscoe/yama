@@ -790,17 +790,15 @@ pub async fn precon_list(pool: &SqlitePool) -> AppResult<PreconList> {
 static PRECON_LIST: crate::derived::Kept<Bytes> = crate::derived::Kept::new("Lab precon list rebuild");
 
 /// Everything the list reads: the catalog, prices and imports (the public catalog's fingerprint),
-/// the evidence behind rating v2 and the day (its fingerprint), and the latest ratings run.
+/// the evidence behind rating v2 and the day (its fingerprint), and the latest ratings run with
+/// every field its label shows (an admin can rename it).
 async fn precon_list_key(pool: &SqlitePool) -> AppResult<String> {
-    let run: Option<(String, String)> =
-        sqlx::query_as("SELECT id, imported_at FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings' ORDER BY created_at DESC, imported_at DESC LIMIT 1")
-            .fetch_optional(pool)
-            .await?;
+    let run = serde_json::to_string(&latest_global_ratings_run(pool).await?).map_err(anyhow::Error::from)?;
     Ok(format!(
         "{}#{}#{}",
         crate::public_precons::fingerprint(pool).await?,
         crate::public_precons::v2::key(pool).await?,
-        run.map(|(id, at)| format!("{id}:{at}")).unwrap_or_default()
+        run
     ))
 }
 
