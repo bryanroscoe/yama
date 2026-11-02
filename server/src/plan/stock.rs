@@ -485,6 +485,36 @@ const SHARED_BYTES: usize = 32 << 20;
 /// The longest a store's Retry-After is waited out inside a check; longer, and it gives up.
 const MAX_ASKED: Duration = Duration::from_secs(60);
 
+/// How long each host asked every check to wait (its Retry-After), in full: a check that would
+/// wait longer than [`MAX_ASKED`] stops without asking again.
+fn holds() -> &'static std::sync::Mutex<HashMap<String, Instant>> {
+    static HOLDS: OnceLock<std::sync::Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    HOLDS.get_or_init(Default::default)
+}
+
+fn held(host: &str) -> Duration {
+    holds().lock().expect("holds").get(host).map_or(Duration::ZERO, |until| until.saturating_duration_since(Instant::now()))
+}
+
+fn hold(host: &str, wait: Duration) {
+    let mut holds = holds().lock().expect("holds");
+    let until = Instant::now() + wait;
+    let entry = holds.entry(host.to_string()).or_insert(until);
+    *entry = (*entry).max(until);
+}
+
+/// Wait out a host's hold if it's short; an error saying how long if not.
+async fn wait_hold(host: &str, url: &str) -> Result<(), String> {
+    let left = held(host);
+    if left > MAX_ASKED {
+        return Err(format!("{url}: the store asked Yama to wait {} s", left.as_secs()));
+    }
+    if !left.is_zero() {
+        tokio::time::sleep(left).await;
+    }
+    Ok(())
+}
+
 struct Shared {
     text: std::sync::Arc<String>,
     at: Instant,
@@ -604,6 +634,7 @@ impl Fetcher {
         let pause = if self.pause.is_zero() { Duration::ZERO } else { kind.pause().max(self.pause) };
         let mut last = String::new();
         for attempt in 0..3u32 {
+            wait_hold(&host, url).await?;
             let guard = pace(&host, pause).await;
             let mut req = if method == "POST" { self.http.post(url) } else { self.http.get(url) };
             req = req.header("User-Agent", BROWSER_UA).header("Accept", accept).timeout(Duration::from_secs(60));
@@ -633,14 +664,17 @@ impl Fetcher {
                 }
                 Err(e) => Err(e),
             };
-            // The next request to this host, from any check, waits its pause from now, or as long
+            // The next request to this host, from any check, waits its pause from now, and as long
             // as the store asked.
             let asked = match &read {
                 Ok((429, Some(asked), _)) => *asked,
                 _ => Duration::ZERO,
             };
-            *guard = Instant::now() + asked.min(MAX_ASKED);
+            *guard = Instant::now();
             drop(guard);
+            if !asked.is_zero() {
+                hold(&host, asked);
+            }
             match read {
                 Ok((status, _, text)) => {
                     raw.add(method, url, status, &text);
@@ -670,6 +704,9 @@ impl Fetcher {
     /// YesTCG answers its API only with the session cookie its home page sets.
     async fn yestcg_cookie(&mut self, base: &str, raw: &mut Raw) {
         let host = host_of(base).unwrap_or_default();
+        if wait_hold(&host, base).await.is_err() {
+            return;
+        }
         let mut guard = pace(&host, if self.pause.is_zero() { Duration::ZERO } else { Kind::YesTcg.pause() }).await;
         let sent = self.http.get(format!("{base}/")).header("User-Agent", BROWSER_UA).timeout(Duration::from_secs(30)).send().await;
         // The next request waits its pause from now.

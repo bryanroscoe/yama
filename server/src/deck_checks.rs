@@ -91,56 +91,78 @@ pub fn list_hash(cards: &[DeckCard]) -> String {
 /// owner's [`PER_OWNER_HOUR`]). Does nothing if it's already queued or checked.
 pub async fn queue(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard]) -> sqlx::Result<()> {
     let hash = list_hash(cards);
-    let reused = sqlx::query(
-        "INSERT INTO deck_version_checks (version_id, source, requested_at, checked_at, bracket_tag, game_changers, mld, extra_turns,
-            combos, unrecognized, last_attempt_at, list_hash)
-         SELECT ?1, source, checked_at, checked_at, bracket_tag, game_changers, mld, extra_turns, combos, unrecognized, NULL, list_hash
-           FROM deck_version_checks WHERE source = ?2 AND list_hash = ?3 AND checked_at >= ?4 ORDER BY checked_at DESC LIMIT 1
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(version_id)
-    .bind(SPELLBOOK)
-    .bind(&hash)
-    .bind(stamp_of(Utc::now() - chrono::Duration::days(REUSE_DAYS)))
-    .execute(&mut *conn)
-    .await?;
-    if reused.rows_affected() == 0 {
-        sqlx::query("INSERT INTO deck_version_checks (version_id, source, requested_at, list_hash) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
-            .bind(version_id)
-            .bind(SPELLBOOK)
-            .bind(stamp())
-            .bind(&hash)
-            .execute(&mut *conn)
-            .await?;
+    let queued = sqlx::query("INSERT INTO deck_version_checks (version_id, source, requested_at, list_hash) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
+        .bind(version_id)
+        .bind(SPELLBOOK)
+        .bind(stamp())
+        .bind(&hash)
+        .execute(&mut *conn)
+        .await?;
+    if queued.rows_affected() > 0 {
+        reuse(conn, version_id, cards, &hash, &stamp_of(Utc::now() - chrono::Duration::days(REUSE_DAYS))).await?;
     }
     Ok(())
 }
 
-/// Give a pending check the answer another version with the same list got since this one was
-/// requested (identical lists queued together, or checked again elsewhere). True if it did.
-async fn reuse_answer(pool: &SqlitePool, version_id: &str, hash: &str) -> sqlx::Result<bool> {
-    let done = sqlx::query(
-        "UPDATE deck_version_checks AS c SET list_hash = ?2, checked_at = s.checked_at, bracket_tag = s.bracket_tag,
-             game_changers = s.game_changers, mld = s.mld, extra_turns = s.extra_turns, combos = s.combos,
-             unrecognized = s.unrecognized, attempts = 0, error = NULL
-           FROM (SELECT * FROM deck_version_checks WHERE source = ?3 AND list_hash = ?2 AND version_id != ?1 AND checked_at IS NOT NULL
-                   AND checked_at >= (SELECT requested_at FROM deck_version_checks WHERE version_id = ?1 AND source = ?3)
-                 ORDER BY checked_at DESC LIMIT 1) AS s
-          WHERE c.version_id = ?1 AND c.source = ?3",
+/// Give `version_id`'s check Spellbook's answer for the same list, if one came back since
+/// `since`, summarized against this version's own `cards`: the names shown come from this deck
+/// or from Spellbook, never from whichever deck asked first (another account's included). The
+/// row is answered, not pending, and records no try of its own. True if there was one.
+async fn reuse(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard], hash: &str, since: &str) -> sqlx::Result<bool> {
+    let source: Option<(String, String)> = sqlx::query_as(
+        "SELECT estimate, checked_at FROM deck_version_checks
+          WHERE source = ? AND list_hash = ? AND version_id != ? AND estimate IS NOT NULL AND checked_at >= ?
+          ORDER BY checked_at DESC LIMIT 1",
     )
-    .bind(version_id)
-    .bind(hash)
     .bind(SPELLBOOK)
-    .execute(pool)
+    .bind(hash)
+    .bind(version_id)
+    .bind(since)
+    .fetch_optional(&mut *conn)
     .await?;
-    if done.rows_affected() > 0 {
+    let Some((raw, at)) = source else { return Ok(false) };
+    let Ok(est) = serde_json::from_str::<Estimate>(&raw) else { return Ok(false) };
+    let r = summarize(est, cards, &at);
+    sqlx::query(
+        "UPDATE deck_version_checks SET requested_at = MIN(requested_at, ?), checked_at = ?, bracket_tag = ?, game_changers = ?, mld = ?,
+            extra_turns = ?, combos = ?, unrecognized = ?, estimate = ?, list_hash = ?, attempts = 0, error = NULL
+         WHERE version_id = ? AND source = ?",
+    )
+    .bind(&r.checked_at)
+    .bind(&r.checked_at)
+    .bind(&r.bracket_tag)
+    .bind(json(&r.game_changers))
+    .bind(json(&r.mld))
+    .bind(json(&r.extra_turns))
+    .bind(json(&r.combos))
+    .bind(json(&r.unrecognized))
+    .bind(&raw)
+    .bind(hash)
+    .bind(version_id)
+    .bind(SPELLBOOK)
+    .execute(&mut *conn)
+    .await?;
+    Ok(true)
+}
+
+/// For the worker: a pending check takes the answer for the same list if one came back since it
+/// was requested (identical lists queued together, or checked again elsewhere). True if it did.
+async fn reuse_answer(pool: &SqlitePool, version_id: &str, cards: &[DeckCard], hash: &str) -> sqlx::Result<bool> {
+    let mut conn = pool.acquire().await?;
+    let requested: Option<String> = sqlx::query_scalar("SELECT requested_at FROM deck_version_checks WHERE version_id = ? AND source = ?")
+        .bind(version_id)
+        .bind(SPELLBOOK)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(requested) = requested else { return Ok(false) };
+    if reuse(&mut conn, version_id, cards, hash, &requested).await? {
         return Ok(true);
     }
     sqlx::query("UPDATE deck_version_checks SET list_hash = ? WHERE version_id = ? AND source = ?")
         .bind(hash)
         .bind(version_id)
         .bind(SPELLBOOK)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     Ok(false)
 }
@@ -705,7 +727,7 @@ async fn next_pending(pool: &SqlitePool) -> sqlx::Result<Next> {
 /// the request waits for Spellbook's shared turn and a 429 holds everyone off.
 pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id: &str, pacer: Option<&Research>) -> Result<(), CheckError> {
     let cards = load_version_cards(pool, version_id).await.map_err(|e| CheckError::Failed(format!("couldn't read the deck: {e}")))?;
-    let reused = reuse_answer(pool, version_id, &list_hash(&cards)).await.map_err(|e| CheckError::Failed(format!("couldn't read the checks: {e}")))?;
+    let reused = reuse_answer(pool, version_id, &cards, &list_hash(&cards)).await.map_err(|e| CheckError::Failed(format!("couldn't read the checks: {e}")))?;
     if reused {
         return Ok(());
     }
@@ -718,7 +740,7 @@ pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, versi
         pacer.hold_off(Provider::Spellbook, *wait);
     }
     let stored = match &outcome {
-        Ok(result) => store(pool, version_id, result).await,
+        Ok((result, raw)) => store(pool, version_id, result, Some(raw)).await,
         Err(e) => record_failure(pool, version_id, &started, &e.to_string()).await,
     };
     if let Err(e) = stored {
@@ -727,7 +749,9 @@ pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, versi
     outcome.map(|_| ())
 }
 
-async fn fetch(http: &reqwest::Client, url: &str, cards: &[DeckCard], version_id: &str, started: &str) -> Result<CheckResult, CheckError> {
+/// Spellbook's answer for `cards`, summarized, with the answer as sent (kept, so the same list
+/// elsewhere can be summarized from it).
+async fn fetch(http: &reqwest::Client, url: &str, cards: &[DeckCard], version_id: &str, started: &str) -> Result<(CheckResult, String), CheckError> {
     if !cards.iter().any(|c| c.board != Board::Side) {
         return Err(CheckError::Failed("the deck has no cards to check".into()));
     }
@@ -753,14 +777,16 @@ async fn fetch(http: &reqwest::Client, url: &str, cards: &[DeckCard], version_id
     if !status.is_success() {
         return Err(CheckError::Failed(format!("Commander Spellbook answered {status}")));
     }
-    let est: Estimate = res
-        .json()
+    let raw = res
+        .text()
         .await
         .map_err(|e| CheckError::Failed(format!("Commander Spellbook's answer didn't read as expected ({})", short_error(&e))))?;
+    let est: Estimate = serde_json::from_str(&raw)
+        .map_err(|_| CheckError::Failed("Commander Spellbook's answer didn't read as expected (unexpected data)".into()))?;
     if !is_known_tag(&est.bracket_tag) {
         tracing::warn!(tag = %est.bracket_tag, version_id, "Commander Spellbook sent a bracket tag Yama doesn't know; shown as unknown");
     }
-    Ok(summarize(est, cards, started))
+    Ok((summarize(est, cards, started), raw))
 }
 
 fn short_error(e: &reqwest::Error) -> String {
@@ -779,10 +805,10 @@ fn json<T: Serialize>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "[]".into())
 }
 
-async fn store(pool: &SqlitePool, version_id: &str, r: &CheckResult) -> sqlx::Result<()> {
+async fn store(pool: &SqlitePool, version_id: &str, r: &CheckResult, raw: Option<&str>) -> sqlx::Result<()> {
     sqlx::query(
         "UPDATE deck_version_checks SET checked_at = ?, bracket_tag = ?, game_changers = ?, mld = ?, extra_turns = ?,
-            combos = ?, unrecognized = ?, attempts = 0, last_attempt_at = ?, error = NULL
+            combos = ?, unrecognized = ?, attempts = 0, last_attempt_at = ?, error = NULL, estimate = ?
          WHERE version_id = ? AND source = ?",
     )
     .bind(&r.checked_at)
@@ -793,6 +819,7 @@ async fn store(pool: &SqlitePool, version_id: &str, r: &CheckResult) -> sqlx::Re
     .bind(json(&r.combos))
     .bind(json(&r.unrecognized))
     .bind(&r.checked_at)
+    .bind(raw)
     .bind(version_id)
     .bind(SPELLBOOK)
     .execute(pool)
@@ -1071,7 +1098,7 @@ mod tests {
             versions.push(current_version(&pool, &deck).await);
         }
         for v in &versions[..PER_OWNER_HOUR as usize] {
-            store(&pool, v, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp())).await.unwrap();
+            store(&pool, v, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp()), None).await.unwrap();
         }
         // u1's 21st waits, even though it was queued before u2's deck (another list: the same one
         // would take u1's answer at once)...
@@ -1081,7 +1108,7 @@ mod tests {
         let theirs = current_version(&pool, &theirs).await;
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(v) if v == theirs));
         // ...and with nothing else due the worker looks again in a few minutes.
-        store(&pool, &theirs, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp())).await.unwrap();
+        store(&pool, &theirs, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp()), None).await.unwrap();
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Later(d) if d == OWNER_WAIT));
         // An hour on, it goes.
         sqlx::query("UPDATE deck_version_checks SET last_attempt_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
@@ -1144,39 +1171,59 @@ mod tests {
     async fn the_same_list_reuses_its_answer_instead_of_asking_again() {
         let pool = crate::db::test_pool().await;
         let owner = user(&pool).await;
-        let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Rohan", None, rohan_sample()).await.unwrap();
+        // The first deck's card names are ones its owner typed.
+        let typed: Vec<DeckCard> = rohan_sample().into_iter().map(|mut c| {
+            c.name = format!("PRIVATE {}", c.name);
+            c
+        }).collect();
+        let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Rohan", None, typed).await.unwrap();
         let v1 = current_version(&pool, &deck).await;
         let http = crate::routes::http_client();
         run_one(&pool, &http, &fake_spellbook(200).await, &v1, None).await.unwrap();
+        let mine = serde_json::to_string(&view(&pool, Some(&v1), true).await.unwrap().result).unwrap();
+        assert!(mine.contains("PRIVATE"), "the answer shows the deck's own names: {mine}");
         // Saved again with the same cards (a new printing changes no oracle card): answered at
-        // once, nothing queued.
+        // once, nothing queued, and no try counted toward the owner's hour.
         let cards = load_version_cards(&pool, &v1).await.unwrap();
         let v2 = crate::decks::insert_version(&pool, &deck, &cards, Some("new printing")).await.unwrap();
         let shown = view(&pool, Some(&v2), true).await.unwrap();
         assert!(!shown.pending && shown.result.is_some());
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Idle));
-        // No request was made, so it doesn't count toward the owner's hourly checks.
         let tried: Option<String> = sqlx::query_scalar("SELECT last_attempt_at FROM deck_version_checks WHERE version_id = ?").bind(&v2).fetch_one(&pool).await.unwrap();
         assert_eq!(tried, None);
 
-        // An answer too old isn't reused at save: the same list in another account is queued.
+        // Another account with the same list takes the answer at once, with its own names.
+        for (id, email) in [("u2", "b@example.com"), ("u3", "c@example.com")] {
+            sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, 'X', '2026-10-19T00:00:00Z')")
+                .bind(id)
+                .bind(email)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let theirs = crate::decks::create_deck_with_cards(&pool, "u2", "Rohan too", None, rohan_sample()).await.unwrap();
+        let t = current_version(&pool, &theirs).await;
+        let shown = view(&pool, Some(&t), true).await.unwrap();
+        assert!(!shown.pending);
+        assert_eq!(shown.result.as_ref().unwrap().bracket, Some(4));
+        let text = serde_json::to_string(&shown.result).unwrap();
+        assert!(!text.contains("PRIVATE"), "another account's typed names leaked: {text}");
+
+        // The worker: a check requested before an answer came back takes it when one does (this
+        // "Spellbook" would fail), summarized the same way.
         sqlx::query("UPDATE deck_version_checks SET requested_at = '2025-01-01T00:00:00.000Z', checked_at = '2025-01-01T00:00:00.000Z'")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u2', 'b@example.com', 'B', '2026-10-19T00:00:00Z')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let theirs = crate::decks::create_deck_with_cards(&pool, "u2", "Rohan too", None, rohan_sample()).await.unwrap();
-        let t = current_version(&pool, &theirs).await;
-        assert!(view(&pool, Some(&t), true).await.unwrap().pending);
-        // The first deck is checked again after that request: the worker gives the second its
-        // answer without a request (this "Spellbook" would fail).
+        let third = crate::decks::create_deck_with_cards(&pool, "u3", "Rohan three", None, rohan_sample()).await.unwrap();
+        let t3 = current_version(&pool, &third).await;
+        assert!(view(&pool, Some(&t3), true).await.unwrap().pending, "too old an answer isn't reused at save");
         sqlx::query("UPDATE deck_version_checks SET checked_at = ? WHERE version_id = ?").bind(stamp()).bind(&v1).execute(&pool).await.unwrap();
-        run_one(&pool, &http, &fake_spellbook(500).await, &t, None).await.unwrap();
-        let shown = view(&pool, Some(&t), true).await.unwrap();
+        run_one(&pool, &http, &fake_spellbook(500).await, &t3, None).await.unwrap();
+        let shown = view(&pool, Some(&t3), true).await.unwrap();
         assert!(!shown.pending && shown.error.is_none());
+        let text = serde_json::to_string(&shown.result).unwrap();
+        assert!(!text.contains("PRIVATE"), "{text}");
         assert_eq!(shown.result.unwrap().bracket, Some(4));
     }
 

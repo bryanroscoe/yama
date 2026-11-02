@@ -295,18 +295,17 @@ impl Research {
         Ok(wait)
     }
 
-    /// Sleep `wait` for a reserved turn, then honour any 429 that came in meanwhile: wait it out
-    /// too, or with `max_wait`, refuse if it's longer than that.
+    /// Sleep `wait` for a reserved turn. If a 429 came in meanwhile, take a new turn after it, in
+    /// order with everyone else's (so the requests held off don't all go the moment it ends), or
+    /// with `max_wait`, refuse if that's further off.
     async fn take_turn(&self, provider: Provider, mut wait: Duration, max_wait: Option<Duration>) -> AppResult<()> {
         loop {
             tokio::time::sleep(wait).await;
-            wait = self.lanes[&provider].lock().expect("lane").held.saturating_duration_since(Instant::now());
-            if wait.is_zero() {
+            let held = self.lanes[&provider].lock().expect("lane").held;
+            if held <= Instant::now() {
                 return Ok(());
             }
-            if max_wait.is_some_and(|max| wait > max) {
-                return Err(cooling(wait));
-            }
+            wait = self.reserve(provider, max_wait)?;
         }
     }
 
@@ -443,15 +442,16 @@ impl Research {
         if self.offline {
             return Err(crate::error::offline(provider.name()));
         }
-        // Charged only once a turn is secured: a refusal sends nothing.
+        // Charged only when the request is about to go: a refusal, here or after waiting for its
+        // turn, sends nothing and costs nothing.
         if let Some(who) = who {
             self.spend(who, true)?;
         }
         let wait = self.reserve(provider, Some(MAX_WAIT))?;
+        self.take_turn(provider, wait, Some(MAX_WAIT)).await?;
         if let Some(who) = who {
             self.spend(who, false)?;
         }
-        self.take_turn(provider, wait, Some(MAX_WAIT)).await?;
         let mut req = if let Some(body) = &body {
             self.http.post(url.clone()).json(body)
         } else {
@@ -610,10 +610,22 @@ mod tests {
         research.hold_off(Provider::Scryfall, Duration::from_secs(30));
         assert!(research.reserve(Provider::Scryfall, Some(MAX_WAIT)).is_err());
         assert!(research.take_turn(Provider::Scryfall, reserved, Some(MAX_WAIT)).await.is_err());
-        research.hold_off(Provider::Edhrec, Duration::from_millis(300));
+        // Turns reserved before a short hold wait it out and then still go a turn apart, not
+        // together the moment it ends.
+        let fresh = Research::default();
+        let first = fresh.reserve(Provider::Edhrec, Some(MAX_WAIT)).unwrap();
+        let second = fresh.reserve(Provider::Edhrec, Some(MAX_WAIT)).unwrap();
+        fresh.hold_off(Provider::Edhrec, Duration::from_millis(300));
         let started = Instant::now();
-        research.take_turn(Provider::Edhrec, Duration::ZERO, Some(MAX_WAIT)).await.unwrap();
-        assert!(started.elapsed() >= Duration::from_millis(250));
+        let fresh = &fresh;
+        let go = |wait| async move {
+            fresh.take_turn(Provider::Edhrec, wait, Some(MAX_WAIT)).await.unwrap();
+            Instant::now()
+        };
+        let (a, b) = tokio::join!(go(first), go(second));
+        let (early, late) = if a < b { (a, b) } else { (b, a) };
+        assert!(early - started >= Duration::from_millis(250), "{:?}", early - started);
+        assert!(late - early >= Duration::from_millis(900), "{:?}", late - early);
     }
 
     #[test]

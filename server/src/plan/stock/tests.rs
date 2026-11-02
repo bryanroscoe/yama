@@ -563,7 +563,12 @@ async fn store_answers_are_shared_between_checks_and_retry_after_is_honoured() {
     assert_eq!(challenges.load(Ordering::SeqCst), 4);
     // A store that asks for ten minutes isn't waited out inside a check.
     let started = Instant::now();
-    let err = Fetcher::new(http, None).page(Kind::Shopify, &format!("{base}/busy"), &mut raw_a).await.unwrap_err();
+    let err = Fetcher::new(http.clone(), None).page(Kind::Shopify, &format!("{base}/busy"), &mut raw_a).await.unwrap_err();
     assert!(err.contains("wait 600 s"), "{err}");
     assert!(started.elapsed() < Duration::from_secs(5));
+    // ...and the next check, any account's, stops without asking again for the whole ten minutes.
+    let asked = raw_a.items.len();
+    let err = Fetcher::new(http, None).send(Kind::Shopify, "GET", &format!("{base}/data2"), None, &mut raw_a).await.unwrap_err();
+    assert!(err.contains("wait 5") || err.contains("wait 6"), "{err}");
+    assert_eq!(raw_a.items.len(), asked, "no request was made");
 }
