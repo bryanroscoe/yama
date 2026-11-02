@@ -14,7 +14,7 @@ function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty 
   client.setQueryData(["me"], me);
   client.setQueryData(["auth-config"], {});
   client.setQueryData(["sharing", "u1"], { handle, new_deck_visibility: "private", collection_public: true, share_lab_results: false, decks: { private: 1, link: 1, public: 1 } });
-  client.setQueryData(["decks"], empty ? [] : [
+  client.setQueryData(["decks", "u1"], empty ? [] : [
     { id: "main", name: "Rohan", visibility: "public", share_token: "main-token" },
     { id: "alt", name: "Rohan", configuration: "Bracket 3", parent_id: "main", visibility: "link", share_token: "alt-token" },
     { id: "private", name: "Private deck", visibility: "private", share_token: "private-token" },
@@ -68,6 +68,9 @@ describe("returning to shared content", () => {
     expect(html).not.toContain("Open my public profile");
     expect(html).toContain("Loading profile");
     expect(html).not.toContain('value="saget"');
+    expect(html).not.toContain("Rohan");
+    expect(html).not.toContain("main-token");
+    expect(html).not.toContain("alt-token");
   });
 
   it("hides cached shared content when signed out or viewing another account", () => {

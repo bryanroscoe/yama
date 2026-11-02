@@ -32,7 +32,7 @@ export function SharingPage() {
     if (enabled && hash === "#sharing") document.getElementById("sharing-settings-title")?.scrollIntoView();
   }, [enabled, hash]);
   const sharing = useQuery({ queryKey: ["sharing", me?.id], queryFn: () => api<Sharing>("/api/me/sharing"), enabled });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled });
+  const decks = useQuery({ queryKey: ["decks", me?.id], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled });
   const notes = useQuery({ queryKey: ["research", me?.id, "list"], queryFn: reports, enabled });
   const [copied, copy] = useCopy();
   // A disabled query may still have cached data. Never render it outside the current account.
