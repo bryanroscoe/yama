@@ -70,7 +70,8 @@ static TABLE: crate::derived::Kept<Table> = crate::derived::Kept::new("public pr
 
 /// Everything the rating reads, so any change is seen on the next request: the sources, their
 /// datasets and links, the catalog, the chosen simulation and how far it has played (by 100
-/// games), and the day (recency weighting moves with the date).
+/// games), the global ratings runs it falls back to without one (the newest ten, as
+/// `precon_evidence` reads them), and the day (recency weighting moves with the date).
 async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT owner_id || ':' || source_name || ':' || enabled_at AS k FROM precon_evidence_sources ORDER BY k))
@@ -80,7 +81,9 @@ async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
              || '#' || (SELECT IFNULL(max(imported_at), '') || ':' || count(*) FROM precons)
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT experiment_id || ':' || engine || ':' || build || ':' || card_data || ':' || chosen_at AS k FROM precon_evidence_simulation ORDER BY k))
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || status || ':' || (games_done / 100) AS k FROM lab_experiments
-                    WHERE id IN (SELECT experiment_id FROM precon_evidence_simulation) ORDER BY k))",
+                    WHERE id IN (SELECT experiment_id FROM precon_evidence_simulation) ORDER BY k))
+             || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || name || ':' || imported_at || ':' || IFNULL(analysed_at, '') AS k
+                    FROM lab_runs WHERE owner_id IS NULL AND kind = 'precon-ratings' ORDER BY created_at DESC LIMIT 10))",
     )
     .fetch_one(pool)
     .await?;
