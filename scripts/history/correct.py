@@ -90,31 +90,39 @@ def game(conn, game_id, owner):
     return row
 
 
-def check_identity(conn, value, g, seat, proposed):
-    """Only an existing member of this group, or a named unlinked guest, may occupy a seat."""
-    identity(value)
+def effective_account(conn, value, g):
+    """Validate the stored identity, resolving account-backed legacy member-only seats."""
+    identity({k: value[k] for k in IDENTITY})
     mid, uid, guest = (value[k] for k in IDENTITY)
     if mid:
         member = conn.execute('SELECT * FROM playgroup_members WHERE id=? AND playgroup_id=?',
                               (mid, g['playgroup_id'])).fetchone()
-        if member is None or member['user_id'] != uid:
+        if member is None or (uid is not None and member['user_id'] != uid):
             raise ValueError('member/account must match this game\'s playgroup')
+        uid = member['user_id']
         if uid is None and guest != member['guest_name']:
             raise ValueError('guest name must match the selected member')
-        if uid is not None and guest is not None:
-            raise ValueError('account seats must not also have a guest name')
-    elif uid:
-        if uid != g['created_by'] or guest is not None:
-            raise ValueError('only the recorder may use an account seat without a playgroup member_id')
-    elif guest is None:
+    elif uid and uid != g['created_by']:
+        raise ValueError('only the recorder may use an account seat without a playgroup member_id')
+    elif uid is None and guest is None:
         raise ValueError('an unlinked guest needs a name')
     if uid and conn.execute('SELECT 1 FROM users WHERE id=? AND disabled_at IS NULL', (uid,)).fetchone() is None:
         raise ValueError('target account is missing or disabled')
-    for other in conn.execute('SELECT seat,member_id,user_id FROM game_seats WHERE game_id=? AND seat<>?',
-                              (g['id'], seat)):
-        final = proposed.get((g['id'], other['seat']), other)
-        if (mid and final['member_id'] == mid) or (uid and final['user_id'] == uid):
+    return uid
+
+
+def check_identity(conn, value, g, seat, proposed):
+    uid = effective_account(conn, value, g)
+    mid = value['member_id']
+    for other in conn.execute('SELECT s.seat,s.member_id,s.user_id,m.user_id member_user '
+                              'FROM game_seats s LEFT JOIN playgroup_members m ON m.id=s.member_id '
+                              'WHERE s.game_id=? AND s.seat<>?', (g['id'], seat)):
+        final = proposed.get((g['id'], other['seat']))
+        other_uid = effective_account(conn, final, g) if final is not None else (other['user_id'] or other['member_user'])
+        other_mid = final['member_id'] if final is not None else other['member_id']
+        if (mid and other_mid == mid) or (uid and other_uid == uid):
             raise Conflict('that player already occupies another seat in the final game state')
+    return uid
 
 
 def current(conn, change):
@@ -185,12 +193,12 @@ def apply(conn, owner, request, dry_run=False):
                 if old['kind'] == 'win_condition' and new['win_condition'] is not None and g['winner_seat'] is None:
                     raise Conflict('undo refused: a draw has no win condition')
                 if old['kind'] == 'player':
-                    check_identity(conn, {k: new[k] for k in IDENTITY}, g, old['seat'], proposed)
+                    account = check_identity(conn, {k: new[k] for k in IDENTITY}, g, old['seat'], proposed)
                     version = new['deck_version_id']
                     if version:
                         deck = conn.execute('SELECT d.owner_id FROM decks d JOIN deck_versions v '
                                             'ON v.deck_id=d.id WHERE v.id=?', (version,)).fetchone()
-                        if deck is None or deck[0] != (new['user_id'] or owner):
+                        if deck is None or deck[0] != (account or owner):
                             raise Conflict('undo refused: original deck version is missing or belongs to a different account')
                 change = {**old, 'before': now, 'after': new}
                 write(conn, change, new)
@@ -207,14 +215,14 @@ def apply(conn, owner, request, dry_run=False):
                     new = {'win_condition': requested['after']}
                 else:
                     expected = requested['before']
-                    check_identity(conn, requested['after'], g, requested['seat'], proposed)
+                    account = check_identity(conn, requested['after'], g, requested['seat'], proposed)
                     new = {**requested['after'], 'deck_version_id': now['deck_version_id']}
                     # A guest may have borrowed the recorder's deck. Linking an account must
                     # not expose a different account's private deck version to it.
                     if new['deck_version_id']:
                         version_owner = conn.execute('SELECT d.owner_id FROM decks d JOIN deck_versions v '
                                                      'ON v.deck_id=d.id WHERE v.id=?', (new['deck_version_id'],)).fetchone()
-                        if version_owner is None or version_owner[0] != (new['user_id'] or owner):
+                        if version_owner is None or version_owner[0] != (account or owner):
                             new['deck_version_id'] = None
                 actual = now
                 if actual != expected:

@@ -67,7 +67,8 @@ not create memberships or globally rename "Guest 1": attribution is per game sea
 Reassigning a player preserves the recorded deck label, commander and result. It detaches a
 private deck-version link if the newly seated account does not own that deck. A guest may
 retain the recorder's borrowed deck link. The detached ID is logged for guarded undo. The detail page reconciles its terminal outcome
-with the corrected game facts for display, while leaving the original stored events unchanged.
+with the corrected game facts for display. Each seat's last player event likewise uses its
+corrected final identity; earlier player changes and all original stored events stay intact.
 
 ## Undo
 

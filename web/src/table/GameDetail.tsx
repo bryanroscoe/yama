@@ -32,6 +32,20 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
   // Finished-game facts may have been corrected after the table uploaded its events.
   // Reconcile the displayed terminal result, keeping the persisted event log untouched.
   if (g.status === "finished") {
+    // Preserve mid-game player changes, but reconcile the final player at each seat.
+    // Earlier names (including `was`) still describe who was there at that point.
+    for (const seat of g.seats) {
+      const last = log.findLastIndex(({ event }) => event.type === "player" && event.seat === seat.seat);
+      const row = log[last];
+      if (row?.event.type === "player") {
+        log[last] = { ...row, event: {
+          ...row.event,
+          name: seatName(seat),
+          memberId: seat.member_id ?? undefined,
+          userId: seat.user_id ?? undefined,
+        } };
+      }
+    }
     const terminal = log.findLastIndex(({ event }) => event.type === "finish");
     const row = log[terminal];
     if (row?.event.type === "finish") {

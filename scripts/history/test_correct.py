@@ -288,6 +288,33 @@ class Corrections(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.apply({**self.req, 'id': op+'-foreign', 'changes': [change]})
 
+    def test_legacy_member_only_undo_resolves_account_and_private_deck_owner(self):
+        self.c.execute("INSERT INTO decks(id,owner_id,name,created_at,updated_at) VALUES ('d','chelsey','Riders','now','now')")
+        self.c.execute("INSERT INTO deck_versions(id,deck_id,cards,created_at) VALUES ('v','d','[]','now')")
+        self.c.execute("UPDATE game_seats SET member_id='chelsey-member',user_id=NULL,guest_name='Chelsey',deck_version_id='v' WHERE game_id='g1' AND seat=1")
+        self.c.commit()
+        change = self.req['changes'][1]
+        change['before'].update(member_id='chelsey-member', guest_name='Chelsey', deck_version_id='v')
+        change['after'] = dict(member_id=None, user_id=None, guest_name='Unknown')
+        self.apply()
+        self.assertIsNone(self.scalar("SELECT deck_version_id FROM game_seats WHERE game_id='g1' AND seat=1"))
+        self.apply(self.undo())
+        self.assertEqual(correct.current(self.c, change), change['before'])
+
+    def test_duplicate_and_disabled_accounts_resolve_legacy_memberships(self):
+        self.c.execute("UPDATE game_seats SET user_id=NULL WHERE game_id='g1' AND seat=0")
+        self.c.commit()
+        req = copy.deepcopy(self.req)
+        req['changes'][1]['after'] = dict(member_id=None, user_id='bryan', guest_name=None)
+        with self.assertRaises(correct.Conflict):
+            self.apply(req)
+        req['changes'][1]['after'] = dict(member_id='chelsey-member', user_id=None, guest_name='Chelsey')
+        self.c.execute("UPDATE users SET disabled_at='now' WHERE id='chelsey'")
+        self.c.commit()
+        with self.assertRaisesRegex(ValueError, 'disabled'):
+            self.apply(req)
+        self.assertEqual(self.logs(), 0)
+
     def test_validation_duplicate_targets_and_bad_types(self):
         bad = [[], {'id': 'x'}, {**self.req, 'extra': 1}, {**self.req, 'changes': []},
                {**self.req, 'changes': [self.req['changes'][0]] * 2}]
