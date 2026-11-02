@@ -264,16 +264,18 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
                 // Saved before and since pruned from the history: saved already, nothing to add.
                 (None, Some(o)) if o == user.id => return Ok(Json(json!({"id": i}))),
                 (None, Some(_)) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
-                (None, None) => {
-                    sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, created_at) VALUES (?, ?, ?)").bind(i).bind(&user.id).bind(now()).execute(pool).await?;
-                    let month = (Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
-                    sqlx::query("DELETE FROM sealed_quote_ids WHERE owner_id = ? AND created_at < ?").bind(&user.id).bind(&month).execute(pool).await?;
-                    i.to_string()
-                }
+                (None, None) => i.to_string(),
             }
         }
         Some(_) => return Err(AppError::bad("id: 8 to 64 letters, digits or dashes")),
     };
+    // The id's record, the price and the pruning are one write: a failed save leaves no record.
+    let mut tx = pool.begin().await?;
+    if b.id.is_some() {
+        sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, created_at) VALUES (?, ?, ?)").bind(&id).bind(&user.id).bind(now()).execute(&mut *tx).await?;
+        let month = (Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        sqlx::query("DELETE FROM sealed_quote_ids WHERE owner_id = ? AND created_at < ?").bind(&user.id).bind(&month).execute(&mut *tx).await?;
+    }
     sqlx::query("INSERT INTO sealed_quotes (id, owner_id, want_id, store_key, price, in_stock, checked_on, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&user.id)
@@ -284,7 +286,7 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
         .bind(&checked)
         .bind(note)
         .bind(now())
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     // Only the newest prices count; keep a short history per product and store.
     sqlx::query(
@@ -298,8 +300,9 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     .bind(&want)
     .bind(&b.store)
     .bind(HISTORY)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(Json(json!({"id": id})))
 }
 
