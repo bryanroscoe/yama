@@ -864,6 +864,10 @@ export type ServerMessage =
   | { type: "preview"; revision: number; object: number; sources: number[] };
 
 export interface OnlineGame {
+  /** This live game can use the installed current-runtime Phase board. */
+  phase_board?: boolean;
+  /** Preserved game cannot currently run on its verified historical runtime. */
+  runtime_error?: string | null;
   id: string;
   code: string;
   status: "lobby" | "in_progress" | "finished" | "abandoned";

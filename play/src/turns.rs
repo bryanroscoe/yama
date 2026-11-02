@@ -64,7 +64,7 @@ impl PassMode {
 }
 
 /// A pass mode in force: which, and the turn it began in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Passing {
     pub mode: PassMode,
     pub turn: u32,
@@ -82,7 +82,7 @@ impl Passing {
 
 /// One person's turn controls in a game. Full control and stops are saved per account (the
 /// server keeps them); a pass mode and holding priority last only as long as they apply.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Controls {
     /// Stop at every priority, even with nothing to do (F).
     pub full_control: bool,

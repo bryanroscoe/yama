@@ -12,10 +12,10 @@ export function isNative(): boolean {
 
 /**
  * Pages the server renders rather than the app: the public reference, legal pages, shared decks,
- * profiles and notes, the MCP guide. Keep in step with the list in `web/public/sw.js`. Inside the
+ * profiles and notes, the MCP guide, phase's board. Keep in step with the list in `web/public/sw.js`. Inside the
  * app they'd fall through to the app shell, so they open on the server in the browser instead.
  */
-const SERVER_PAGES = /^\/(about|privacy|tos|delete-account|precons|commanders|docs|u|d|r|mcp)(\/|$)/;
+const SERVER_PAGES = /^\/(about|privacy|tos|delete-account|precons|commanders|docs|u|d|r|board|mcp)(\/|$)/;
 
 export function isServerPage(path: string): boolean {
   return SERVER_PAGES.test(path) || path === "/sitemap.xml";

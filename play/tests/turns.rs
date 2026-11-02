@@ -118,6 +118,153 @@ fn cast_opt(m: &mut Match) {
 }
 
 #[test]
+fn phase_board_full_control_holds_own_priority_and_standard_releases_it() {
+    use engine::types::actions::GameAction;
+    use engine::types::game_state::PriorityPassingMode;
+    let e = engine();
+    let mut m = e.new_match_first(4, vec![deck(&[("Island", 50), ("Opt", 49)]), deck(&[("Forest", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    keep(&mut m, 0);
+    opt_ready(&mut m, &[0]);
+    let logged = m.actions_logged();
+    m.submit(0, GameAction::SetPriorityPassingMode { mode: PriorityPassingMode::FullControl }).unwrap();
+    assert_eq!(m.actions_logged(), logged + 1, "syncing controls must not log another preference");
+    cast_opt(&mut m);
+    assert_eq!(m.auto_pass(&[0]), 0, "Full control keeps the response to one's own spell");
+    assert!(m.decision(0).is_some_and(|d| d.options.iter().any(|o| o.label == "Cast Opt")), "another instant is a legal response");
+    assert!(m.view(Some(0)).stack.iter().any(|s| s.name == "Opt" && s.controller == 0));
+    assert!(m.controls(0).full_control);
+    assert!(!m.controls(1).full_control, "preferences belong to the authenticated actor");
+    m.set_hold(0, true);
+    m.submit(0, GameAction::SetPriorityPassingMode { mode: PriorityPassingMode::Standard }).unwrap();
+    assert!(!m.controls(0).full_control);
+    assert!(!m.controls(0).hold, "the selected Phase mode replaces a previous hold");
+    assert!(m.auto_pass(&[0]) > 0, "Standard returns to ordinary automatic passing");
+}
+
+#[test]
+fn phase_board_scoped_stops_hold_the_requested_upkeep_and_can_be_cleared() {
+    use engine::types::actions::GameAction;
+    use engine::types::phase::{Phase, PhaseStop, PhaseStopScope};
+    for (scope, active) in [(PhaseStopScope::AllTurns, 1), (PhaseStopScope::OwnTurn, 0), (PhaseStopScope::OpponentsTurns, 1)] {
+        let e = engine();
+        let mut m = e.new_match_first(4, vec![deck(&[("Island", 50), ("Opt", 49)]), deck(&[("Forest", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+        keep(&mut m, 0);
+        opt_ready(&mut m, &[0]);
+        m.submit(0, GameAction::SetPhaseStops { stops: vec![PhaseStop { phase: Phase::Upkeep, scope }] }).unwrap();
+        let d = m.decision(0).unwrap();
+        m.choose(0, d.revision, option(&d, OptionKind::Pass).unwrap()).unwrap();
+        to_stop(&mut m, &[0], 0);
+        let (_, actual, phase) = at(&m);
+        assert_eq!((actual, phase.as_str()), (active, "Upkeep"), "{scope:?}");
+        assert!(m.decision(0).is_some_and(|d| d.options.iter().any(|o| o.label == "Cast Opt")));
+        m.submit(0, GameAction::SetPhaseStops { stops: vec![] }).unwrap();
+        assert!(m.controls(0).stops.is_none(), "clearing restores the usual smart stops");
+        assert!(m.auto_pass(&[0]) > 0, "the cleared Upkeep stop no longer holds");
+    }
+}
+
+#[test]
+fn phase_board_resume_preserves_preferences_over_account_defaults() {
+    use engine::types::actions::GameAction;
+    use engine::types::game_state::PriorityPassingMode;
+    use engine::types::phase::{Phase, PhaseStop, PhaseStopScope};
+    use yama_play::{PayMode, Stops};
+    let e = engine();
+    let mut m = e.new_match_first(4, vec![deck(&[("Island", 50), ("Opt", 49)]), deck(&[("Forest", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    keep(&mut m, 0);
+    opt_ready(&mut m, &[0]);
+    m.submit(0, GameAction::SetPriorityPassingMode { mode: PriorityPassingMode::FullControl }).unwrap();
+    m.submit(0, GameAction::SetPhaseStops { stops: vec![PhaseStop { phase: Phase::Upkeep, scope: PhaseStopScope::OpponentsTurns }] }).unwrap();
+    cast_opt(&mut m);
+    for legacy in [false, true] {
+        let mut saved: serde_json::Value = serde_json::from_str(&m.replay_json()).unwrap();
+        if legacy { saved.as_object_mut().unwrap().remove("yama_turn_controls"); }
+        let mut resumed = e.resume(&saved.to_string(), &[(1, Difficulty::Easy)]).unwrap();
+        let logged = resumed.actions_logged();
+        let stale = Stops { own: ["Draw".into()].into(), others: ["End".into()].into() };
+        resumed.initialize_prefs(0, Some(stale), false, PayMode::Manual);
+        let c = resumed.controls(0);
+        assert!(c.full_control, "saved Full control must win over stale defaults (legacy={legacy})");
+        let stops = c.stops.unwrap();
+        assert!(stops.own.is_empty());
+        assert_eq!(stops.others.into_iter().collect::<Vec<_>>(), vec!["Upkeep"]);
+        assert_eq!(resumed.actions_logged(), logged, "restoring controls must not add engine actions");
+        assert_eq!(resumed.auto_pass(&[0]), 0, "the resumed own-spell window stays held");
+        assert!(resumed.view(Some(0)).stack.iter().any(|s| s.name == "Opt"));
+    }
+}
+
+#[test]
+fn phase_board_resume_preserves_explicitly_cleared_preferences() {
+    use engine::types::actions::GameAction;
+    use engine::types::game_state::PriorityPassingMode;
+    use engine::types::phase::{Phase, PhaseStop, PhaseStopScope};
+    use yama_play::{PayMode, Stops};
+    let e = engine();
+    let mut m = e.new_match_first(4, vec![deck(&[("Island", 50), ("Opt", 49)]), deck(&[("Forest", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    keep(&mut m, 0);
+    opt_ready(&mut m, &[0]);
+    m.submit(0, GameAction::SetPriorityPassingMode { mode: PriorityPassingMode::FullControl }).unwrap();
+    m.submit(0, GameAction::SetPhaseStops { stops: vec![PhaseStop { phase: Phase::Upkeep, scope: PhaseStopScope::AllTurns }] }).unwrap();
+    m.submit(0, GameAction::SetPriorityPassingMode { mode: PriorityPassingMode::Standard }).unwrap();
+    m.submit(0, GameAction::SetPhaseStops { stops: vec![] }).unwrap();
+    cast_opt(&mut m);
+    for legacy in [false, true] {
+        let mut saved: serde_json::Value = serde_json::from_str(&m.replay_json()).unwrap();
+        if legacy { saved.as_object_mut().unwrap().remove("yama_turn_controls"); }
+        let mut resumed = e.resume(&saved.to_string(), &[(1, Difficulty::Easy)]).unwrap();
+        let logged = resumed.actions_logged();
+        resumed.initialize_prefs(0, Some(Stops { own: ["Upkeep".into()].into(), others: ["Upkeep".into()].into() }), true, PayMode::Manual);
+        let c = resumed.controls(0);
+        assert!(!c.full_control && c.stops.is_none(), "explicit clearing survives resume (legacy={legacy})");
+        assert_eq!(resumed.actions_logged(), logged);
+        assert!(resumed.auto_pass(&[0]) > 0, "the cleared mode still passes normally");
+    }
+}
+
+#[test]
+fn phase_board_resume_keeps_a_temporary_hold_temporary() {
+    let e = engine();
+    let mut m = e.new_match_first(4, vec![deck(&[("Island", 50), ("Opt", 49)]), deck(&[("Forest", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();
+    keep(&mut m, 0);
+    opt_ready(&mut m, &[0]);
+    m.set_hold(0, true);
+    cast_opt(&mut m);
+    let mut resumed = e.resume(&m.replay_json(), &[(1, Difficulty::Easy)]).unwrap();
+    resumed.initialize_prefs(0, None, true, yama_play::PayMode::Manual);
+    assert!(resumed.controls(0).hold && !resumed.controls(0).full_control);
+    assert_eq!(resumed.auto_pass(&[0]), 0);
+    let d = resumed.decision(0).unwrap();
+    resumed.choose(0, d.revision, option(&d, OptionKind::Pass).unwrap()).unwrap();
+    assert!(!resumed.controls(0).hold && !resumed.controls(0).full_control);
+    resumed.set_passing(0, Some(PassMode::Mine), 0).unwrap();
+    let again = e.resume(&resumed.replay_json(), &[(1, Difficulty::Easy)]).unwrap();
+    assert_eq!(again.controls(0).passing, resumed.controls(0).passing);
+}
+
+#[test]
+fn phase_board_saved_controls_validate_version_and_seats() {
+    let e = engine();
+    let m = quiet_game(21);
+    let mut saved: serde_json::Value = serde_json::from_str(&m.replay_json()).unwrap();
+    saved["yama_turn_controls"] = serde_json::json!({"version":2,"seats":{}});
+    assert!(e.resume(&saved.to_string(), &[(1, Difficulty::Easy)]).err().unwrap().to_string().contains("turn-controls version"));
+    saved["yama_turn_controls"] = serde_json::json!({"version":1,"seats":{"255":serde_json::to_value(yama_play::Controls::default()).unwrap()}});
+    assert!(e.resume(&saved.to_string(), &[(1, Difficulty::Easy)]).err().unwrap().to_string().contains("invalid seat"));
+}
+
+#[test]
+fn phase_board_new_games_still_apply_account_defaults() {
+    let mut m = quiet_game(21);
+    let stops = yama_play::Stops { own: ["Upkeep".into()].into(), others: Default::default() };
+    m.initialize_prefs(0, Some(stops.clone()), true, yama_play::PayMode::Manual);
+    let c = m.controls(0);
+    assert!(c.full_control);
+    assert_eq!(c.stops, Some(stops));
+    assert_eq!(c.tap_mana, yama_play::PayMode::Manual);
+}
+
+#[test]
 fn holding_priority_stops_you_for_your_own_spell_until_you_pass() {
     let e = engine();
     let mut m = e.new_match_first(4, vec![deck(&[("Island", 50), ("Opt", 49)]), deck(&[("Forest", 99)])], &[(1, Difficulty::Easy)], Some(0)).unwrap();

@@ -389,6 +389,8 @@ impl ImageUris {
 #[derive(Deserialize, Clone, serde::Serialize)]
 struct Face {
     name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    artist: Option<String>,
     #[serde(default)]
     mana_cost: Option<String>,
     #[serde(default)]

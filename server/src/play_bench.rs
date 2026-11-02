@@ -165,6 +165,7 @@ async fn play(engine: &Engine, pool: &SqlitePool, decks: &[SeatDeck], seed: u64,
             };
             if batch.moved > 0 {
                 let s = Instant::now();
+                m.take_board_tail();
                 let snap = snapshot(&m, &seats);
                 for (i, p) in humans.iter().enumerate() {
                     let _ = view_message(pool, &snap.views[&Some(*p)], Some(*p), &infos, &mut caches[i]).await;
@@ -208,6 +209,7 @@ async fn play(engine: &Engine, pool: &SqlitePool, decks: &[SeatDeck], seed: u64,
         t.feed.add(costs.feed);
         t.remark.add(costs.remark);
         let s = yama_play::Busy::start();
+        m.take_board_tail();
         let snap = snapshot(&m, &seats);
         t.views.add(s.elapsed());
         for (i, p) in humans.iter().enumerate() {

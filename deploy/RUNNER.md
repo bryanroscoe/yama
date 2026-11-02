@@ -18,12 +18,15 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
   in root's authorized keys. The host validates the complete original command; only
   `host.py deploy|check FULL_SHA` is accepted. No shell, SCP, forwarding, or PTY is allowed.
 - The host entrypoint lives outside runner-writable paths. It checks GitHub itself:
-  exact current main, latest push CI for that SHA, the CI workflow identity, success,
-  branch, event and source repository. A PR job cannot grant itself deployment access
+  a commit on main, latest push CI for that SHA, the CI workflow identity, success,
+  branch, event and source repository. If main moved on after the request, the commit still
+  deploys unless a newer main commit's push CI has already passed (that one deploys instead);
+  a commit off main, or older than production, never deploys (Bryan, 2026-11-02: requiring the
+  exact tip starved every release while merges landed every few minutes). A PR job cannot grant itself deployment access
   merely by selecting the runner label. Ordinary CI uses a separate `yama-ci` runner,
   state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
-  git configuration. Phase uses a separate server-only read-only deploy key. Tokens
+  git configuration. Phase is fetched over HTTPS from the public fork without a deploy key. Tokens
   never enter Docker contexts, application environments, logs, or command arguments.
 
 ## Server layout
@@ -32,11 +35,16 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 
 - `host.py`: the installed, reviewed entrypoint. Deployment does **not** overwrite it
   from repository code automatically. Update it deliberately after reviewing changes.
+  The historical-runtime upgrade in PR #29 requires the exporter that supplies the
+  `historical-source` Docker context and the engine-data preflight below. **Do not
+  merge that upgrade until this reviewed host version is installed and verified.**
+  The updated host still supports main revisions preceding the historical worker,
+  so the host can be installed before the application change. Repository tests do
+  not prove that the separately installed copy has been updated.
 - `release.lock`: one kernel lock for automated and manual releases. A lock file at
   rest is normal. Never delete it or kill another release to bypass contention.
 - `yama`: a clean, dedicated main checkout, freshly fetched per release.
-- `yama-phase`, `phase_ed25519`, `github_known_hosts`: published engine objects and
-  the dedicated read credential; private key mode 0600.
+- `yama-phase`: published public engine objects. No Phase deploy credential is needed.
 - `builds`: one temporary committed-source export per release, removed on exit.
 - `history`: per-attempt status records and build logs. Authorized attempts are recorded
   before Yama/Phase preparation, with their stage and sanitized failure reason. `current.json` records the
@@ -44,6 +52,35 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 - `previous.json`: the running image IDs and base Compose config before the last
   attempted activation, plus that attempt's database backup path. Every activation also retains its own
   `.previous.json` beside the history record, so retries preserve older rollback inputs.
+
+Before activation, the updated host resolves the candidate Compose configuration
+(including the server override and environment), then verifies the current and
+historical engine data bytes against `deploy/engine-data.json` and
+`runtime/historical.json`. Missing files, stale explicit overrides, wrong hashes,
+symlink paths, and unsupported mounts refuse activation before backup, Compose
+replacement, or restart. Stage both immutable artifacts before release; this gate
+does not download files or rewrite server configuration. An isolated candidate-image
+probe then runs as the configured runtime user with no network, credentials or
+database, and mounts only the two data files read-only. It checks the current file
+hash, verifies the packaged historical executable against its image-owned digest,
+and loads the historical data through that executable. Before this file-only probe,
+the host checks traversal permissions on every container-visible bind-mounted parent
+directory, using the configured numeric UID, primary GID and supplementary groups.
+Private parent directories therefore cannot be hidden by the probe's isolated mounts.
+This check requires Linux extended attributes and an unremapped Docker identity;
+directory ACLs, named IDs and unsupported user namespaces refuse activation instead
+of inferring access from incomplete metadata. The probe also uses the configured
+supplementary groups. A failed or timed-out probe
+refuses activation and removes its own container. This does not make plain
+`/api/health` an engine-readiness check. Install and verify the reviewed host exporter separately before merge;
+neither its production installation nor the data copy has been performed by PR #29.
+
+`first-time.sh` reuses an artifact only after its remote digest passes. An SSH
+transport failure aborts setup. Missing or incorrect artifacts are uploaded to a
+temporary sibling, verified and assigned the runtime owner there, then atomically
+renamed into place. Failed transfers or checks preserve the previous destination;
+setup attempts to remove its temporary file on exit. An interrupted SSH connection
+can leave that temporary sibling for explicit inspection, never a partial pinned file.
 
 `/mnt/user/appdata/yama-deploy-runner` contains the runner Compose file, image build
 context, persistent `state` (UID 1001), and `ssh` (UID 1001, mode 0700). Logs are capped
@@ -184,10 +221,9 @@ These steps set up the default `runner` backend.
    `deploy/runner/compose.yaml` to its server directory. Create `state` and `ssh` with
    UID/GID 1001; keep the SSH private key mode 0600.
 2. Install the reviewed `deploy/host.py` as the root-owned host entrypoint, mode 0700.
-   Generate the two dedicated keys on the server: runner-to-host and read-only Phase.
-   Add only the Phase public key to `bryanroscoe/yama-phase` deploy keys. Install verified
-   GitHub host keys and the already trusted saget host key in the appropriate known-hosts
-   files. Keep all existing authorized keys.
+   Generate the dedicated runner-to-host key on the server. The public Phase checkout
+   needs no deploy key. Install the already trusted saget host key in the runner's known-hosts
+   file. Keep all existing authorized keys.
 3. Register without exposing the short-lived registration token. From an authenticated
    admin terminal (run pipelines with `set -o pipefail`):
 
