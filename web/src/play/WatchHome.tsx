@@ -30,10 +30,14 @@ export function WatchHome() {
   const games = useQuery({
     queryKey: ["watch"],
     queryFn: ({ signal }) => api<WatchSummary[]>("/api/watch", { signal }),
-    // Every 15 s while one of them is playing and the page is on screen; nothing to follow once
-    // they're all paused or finished. It was every 5 s.
-    refetchInterval: (q) => (q.state.data?.some((g) => g.status.playing && !g.status.finished) ? 15_000 : false),
-    refetchOnWindowFocus: true,
+    // Every 15 s while one of them is playing and the page is on screen, once a minute while one is
+    // paused (another tab can resume it), and not at all once they've all finished. It was every
+    // 5 s. Coming back to the page always asks again.
+    refetchInterval: (q) => {
+      const live = q.state.data?.filter((g) => !g.status.finished) ?? [];
+      return live.some((g) => g.status.playing) ? 15_000 : live.length ? 60_000 : false;
+    },
+    refetchOnWindowFocus: "always",
   });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const precons = useQuery({ queryKey: ["precons"], queryFn: () => api<PreconList>("/api/precons") });

@@ -64,7 +64,7 @@ export function PlayHome() {
     // Every 10 s while one of your tables waits for players, otherwise every 30 s (only while the
     // page is on screen), and again on coming back to it. It was every 5 s.
     refetchInterval: (q) => (q.state.data?.some((g) => g.status === "lobby") ? 10_000 : 30_000),
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: "always",
   });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });

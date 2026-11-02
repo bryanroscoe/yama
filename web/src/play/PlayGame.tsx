@@ -23,7 +23,7 @@ export function PlayGame() {
     // The lobby fills as friends join: every 4 s while it's on screen (it was 2 s), and at once on
     // coming back to the tab. A game that can't run on its saved engine is asked about every 15 s.
     refetchInterval: (q) => (q.state.data?.runtime_error ? 15_000 : q.state.data?.status === "lobby" ? 4000 : false),
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: "always",
   });
   if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
