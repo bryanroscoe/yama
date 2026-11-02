@@ -46,6 +46,24 @@ describe("the offline card list", () => {
     expect(db.get(LIST_KEY)).toEqual([solRing]);
   });
 
+  it("answers a search that arrives while an old copy is being moved", async () => {
+    db.set("offline-cards", { format: 2, version: "v1", game_changers: true, savedAt: "2026-11-01T00:00:00.000Z", cards: [solRing, tower] });
+    const [m, found, one] = await Promise.all([readMeta(), search("sol", "name", 1), card("ct")]);
+    expect(m?.count).toBe(2);
+    expect(found.total).toBe(1);
+    expect(one?.name).toBe("Command Tower");
+    // The old entry was read once, and the list not read again after the move.
+    expect(reads.filter((k) => k === "offline-cards")).toHaveLength(1);
+    expect(reads).not.toContain(LIST_KEY);
+  });
+
+  it("reads the list once for searches that arrive together", async () => {
+    db.set(META_KEY, { format: 2, version: "v1", game_changers: true, count: 2, savedAt: "x", checkedAt: "x", etag: null, lastModified: null } satisfies Meta);
+    db.set(LIST_KEY, [solRing, tower]);
+    await Promise.all([search("sol", "name", 1), search("tower", "name", 1), card("sol")]);
+    expect(reads.filter((k) => k === LIST_KEY)).toHaveLength(1);
+  });
+
   it("reads only the small description until a search needs the list", async () => {
     db.set(META_KEY, { format: 2, version: "v1", game_changers: true, count: 2, savedAt: "x", checkedAt: "x", etag: null, lastModified: null } satisfies Meta);
     db.set(LIST_KEY, [solRing, tower]);

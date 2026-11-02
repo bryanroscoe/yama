@@ -54,28 +54,41 @@ export interface Access {
 
 let meta: Meta | null | undefined;
 let list: OfflineCard[] | null = null;
+/** Reads in progress, shared: requests arrive together (a search while the copy is being moved),
+ *  and none may see a half-done answer or read the 24 MB twice. */
+let metaLoad: Promise<Meta | null> | null = null;
+let listLoad: Promise<OfflineCard[] | null> | null = null;
 
-export async function readMeta(): Promise<Meta | null> {
-  if (meta !== undefined) return meta;
-  meta = (await idbGet<Meta>(META_KEY)) ?? null;
-  if (!meta) {
+export function readMeta(): Promise<Meta | null> {
+  if (meta !== undefined) return Promise.resolve(meta);
+  metaLoad ??= loadMeta().finally(() => (metaLoad = null));
+  return metaLoad;
+}
+
+async function loadMeta(): Promise<Meta | null> {
+  let found = (await idbGet<Meta>(META_KEY)) ?? null;
+  if (!found) {
     // A copy saved before the split: move it over once, then forget the old entry.
     const old = await idbGet<Bundle & { savedAt: string }>(OLD_KEY);
     if (old?.cards) {
-      const moved: Meta = { format: old.format, version: old.version, game_changers: old.game_changers, count: old.cards.length, savedAt: old.savedAt, checkedAt: old.savedAt, etag: null, lastModified: null };
-      await idbPutMany([[LIST_KEY, old.cards], [META_KEY, moved]], [OLD_KEY]);
-      meta = moved;
+      found = { format: old.format, version: old.version, game_changers: old.game_changers, count: old.cards.length, savedAt: old.savedAt, checkedAt: old.savedAt, etag: null, lastModified: null };
+      await idbPutMany([[LIST_KEY, old.cards], [META_KEY, found]], [OLD_KEY]);
       list = old.cards;
     }
   }
-  return meta;
+  // Only now, with any move finished, is the answer known.
+  meta = found;
+  return found;
 }
 
-async function readList(): Promise<OfflineCard[] | null> {
-  if (list) return list;
-  if (!(await readMeta())) return null;
-  list = (await idbGet<OfflineCard[]>(LIST_KEY)) ?? null;
-  return list;
+function readList(): Promise<OfflineCard[] | null> {
+  if (list) return Promise.resolve(list);
+  listLoad ??= (async () => {
+    if (!(await readMeta())) return null;
+    list ??= (await idbGet<OfflineCard[]>(LIST_KEY)) ?? null;
+    return list;
+  })().finally(() => (listLoad = null));
+  return listLoad;
 }
 
 /** Whether a saved copy is due a check with the server. */
@@ -193,4 +206,6 @@ export async function names(): Promise<Pick<OfflineCard, "i" | "n" | "y">[] | nu
 export function forget() {
   meta = undefined;
   list = null;
+  metaLoad = null;
+  listLoad = null;
 }
