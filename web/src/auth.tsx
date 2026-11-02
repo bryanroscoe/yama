@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
 import { Details, ErrorText } from "./components/ui";
 import { outbox } from "./plan/outbox";
@@ -99,6 +99,17 @@ export function useLogout() {
   };
 }
 
+/** The sign-in page, coming back to `from` (a path on Yama) once signed in. */
+export function signInPath(from?: string): string {
+  return from && from !== "/" && from !== "/signin" ? `/signin?next=${encodeURIComponent(from)}` : "/signin";
+}
+
+/** Where the sign-in page goes once signed in: its `next`, if that's a path on Yama, else home. */
+export function afterSignIn(search: string): string {
+  const next = new URLSearchParams(search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
+}
+
 /** A hairline either side of a few words, between two ways to sign in. */
 function Or({ children }: { children: string }) {
   return (
@@ -147,9 +158,28 @@ function loadGoogle(): Promise<void> {
   });
 }
 
+/**
+ * The sign-in page at /signin (the public landing page around the ways in), and the focused one
+ * in front of a full-screen address that needs an account (an app asking to connect, a shared
+ * table on Yama's own relay, an online game).
+ */
 export function Login() {
+  const focused = useLocation().pathname !== "/signin";
+  return (
+    <Landing focused={focused}>
+      <SignInForm heading={focused ? "h1" : "h2"} countLife />
+    </Landing>
+  );
+}
+
+/**
+ * The ways into Yama. On the sign-in page, and inside a page that needs an account
+ * (RequireAccount), which shows the page once the account is signed in.
+ */
+export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", countLife = false }: { heading: "h1" | "h2"; title?: string; countLife?: boolean }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const config = useAuthConfig();
   const googleRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<unknown>(null);
@@ -183,7 +213,6 @@ export function Login() {
   });
 
   const clientId = config.data?.google_client_id;
-  const SignInTitle = location.pathname === "/" ? "h2" : "h1";
   useEffect(() => {
     if (!clientId || !googleRef.current) return;
     let cancelled = false;
@@ -202,10 +231,10 @@ export function Login() {
   }, [clientId]);
 
   return (
-    <Landing focused={location.pathname !== "/"}>
+    <>
       <div>
-        <SignInTitle className="login-title">Sign in to Yama</SignInTitle>
-        {location.pathname === "/oauth/authorize" && (
+        <SignInTitle className="login-title">{title}</SignInTitle>
+        {pathname === "/oauth/authorize" && (
           <p style={{ margin: "0 0 8px" }}>An app wants to connect to your Yama. Sign in first; you'll see what it asks for before anything is shared.</p>
         )}
         {config.data?.open_signup ? (
@@ -218,16 +247,11 @@ export function Login() {
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
       {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
       {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
-      <button
-        className="login-secondary"
-        onClick={() => {
-          chooseGuest(true);
-          // Any other page here needs an account; counting without one starts at the Table page.
-          if (location.pathname !== "/") navigate("/", { replace: true });
-        }}
-      >
-        Count life without an account
-      </button>
+      {countLife && (
+        <button className="login-secondary" onClick={() => navigate("/", { replace: true })}>
+          Count life without an account
+        </button>
+      )}
       {config.data?.cf_access && (
         <div className="stack">
           <p className="dim">Yama signs you in with the email your host invited.</p>
@@ -294,6 +318,6 @@ export function Login() {
         <p>Your data stays private unless you choose to share a deck or collection.</p>
         <p>The life counter works offline on a phone that has signed in before.</p>
       </Details>
-    </Landing>
+    </>
   );
 }

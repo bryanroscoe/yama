@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api, priceSource, usd, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
+import { isGuest } from "../guest";
 import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
@@ -46,11 +47,13 @@ export function CardsPage() {
   const [draft, setDraft] = useState(q);
   useEffect(() => setDraft(q), [q]);
 
+  // Signed out, Yama's guest search (limited per address): the same cards, without ownership.
+  const guest = isGuest();
   const results = useQuery({
-    queryKey: ["search", q, order, page],
+    queryKey: ["search", q, order, page, guest],
     queryFn: async (): Promise<{ total: number; page: number; page_size: number; cards: Hit[]; offline?: boolean }> => {
       try {
-        return await api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(q)}&order=${order}&page=${page}`);
+        return await api<SearchResult>(`/api/${guest ? "guest/" : ""}cards/search?q=${encodeURIComponent(q)}&order=${order}&page=${page}`);
       } catch (e) {
         if (isNetworkError(e)) return offlineSearch(q, order, page);
         throw e;
@@ -133,7 +136,8 @@ export function CardsPage() {
                 <button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>
               ))}
             </div>
-            <ReleaseCalendar />
+            {/* The release calendar keeps watched sets for an account. */}
+            {!guest && <ReleaseCalendar />}
           </div>
         )}
 
@@ -170,9 +174,11 @@ export function CardsPage() {
                     </button>
                     {!results.data!.offline && (
                       <span className="cards-meta">
-                        <span className={owned ? "own good" : "own"}>
-                          {owned === 0 ? "Not owned" : c.owned_in ? `In ${c.owned_in}` : `You own ${owned}`}
-                        </span>
+                        {!guest && (
+                          <span className={owned ? "own good" : "own"}>
+                            {owned === 0 ? "Not owned" : c.owned_in ? `In ${c.owned_in}` : `You own ${owned}`}
+                          </span>
+                        )}
                         <span className="num price">{usd(c.usd)}</span>
                       </span>
                     )}
@@ -190,13 +196,13 @@ export function CardsPage() {
           </>
         )}
       </main>
-      {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} />}
+      {open && <CardPage oracleId={open} onClose={closeCard} backLabel={q ? "Search results" : "Cards"} hit={results.data?.cards.find((c) => c.oracle_id === open)} />}
     </>
   );
 }
 
 /** The Cards tab's card page: over the results, so closing it keeps their scroll. */
-function CardPage({ oracleId, onClose, backLabel }: { oracleId: string; onClose: () => void; backLabel: string }) {
+function CardPage({ oracleId, onClose, backLabel, hit }: { oracleId: string; onClose: () => void; backLabel: string; hit?: Card }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -204,7 +210,7 @@ function CardPage({ oracleId, onClose, backLabel }: { oracleId: string; onClose:
   }, [onClose]);
   return (
     <div className="card-page" role="dialog" aria-modal="true" aria-label="Card">
-      <CardView key={oracleId} oracleId={oracleId} onBack={onClose} backLabel={backLabel} />
+      <CardView key={oracleId} oracleId={oracleId} onBack={onClose} backLabel={backLabel} hit={hit} />
     </div>
   );
 }
