@@ -115,8 +115,11 @@ export function App() {
   // tab's cache, so nothing of that account shows.
   useEffect(() => {
     if (!signedOutNow) return;
-    const accountLists = new Set(["games", "playgroups", "decks", "people-search", "people-decks", "stats", "game", "search", "card"]);
-    qc.removeQueries({ predicate: (q) => accountLists.has(String(q.queryKey[0])) });
+    const accountLists = new Set(["games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
+    // Card searches carry the account's copies; the guest's own (keyed `true`, Cards.tsx) stay,
+    // since the Cards page may already be running one.
+    const accountSearch = (key: readonly unknown[]) => key[0] === "search" && key[4] !== true;
+    qc.removeQueries({ predicate: (q) => accountLists.has(String(q.queryKey[0])) || accountSearch(q.queryKey) });
   }, [signedOutNow, qc]);
   const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
