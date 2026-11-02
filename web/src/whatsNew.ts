@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-02-faster",
+    date: "2026-11-02",
+    title: "Yama opens faster",
+    items: [
+      "Each part of Yama now loads the first time you open it, so the first screen waits for a fifth of the code it used to. Until a page arrives you see its outline.",
+      "Yama opens as the account you last used here, without waiting for the server to say who you are.",
+      "Once you've opened Yama online, every page is saved on your device, so pages you haven't visited yet open offline too.",
+      "The card list on your phone is checked once a day and downloaded only when it has changed. It's read only when an offline search or scan needs it.",
+      "Collection shows 200 more cards at a time instead of every card at once, and the name filter waits for you to stop typing.",
+    ],
+  },
+  {
     id: "2026-11-02-sharing-navigation",
     date: "2026-11-02",
     title: "Find your shared decks and builds again",
