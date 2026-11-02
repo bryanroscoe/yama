@@ -15,6 +15,7 @@ describe("authenticated dataset exports", () => {
     const [url, options] = fetch.mock.calls[0]!;
     expect(url).toBe("https://yama.ing/api/datasets/playgroup/export?revision=3");
     expect(options.headers.get("Authorization")).toBe("Bearer native-session");
+    // The app's origin isn't the server's, which allows it without credentials (CORS).
     expect(options.credentials).toBe("omit");
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
     expect(blob.type).toBe("application/gzip");

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Details, ErrorText } from "../components/ui";
 import { ConnectedApps } from "../oauth/ConnectedApps";
+import { publicOrigin } from "../api";
 import { createKey, listImports, listKeys, removeShoppingRules, revokeKey, saveShoppingRules, type KeyScope, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
@@ -228,7 +229,7 @@ const KEY_NAMES: Record<KeyScope, string> = { "plan:sync": "commander-decks on t
 
 /** The command that connects Claude Code to Yama's tools with a new key. */
 function claudeCommand(token: string): string {
-  return `claude mcp add --transport http yama ${window.location.origin}/mcp --header "Authorization: Bearer ${token}"`;
+  return `claude mcp add --transport http yama ${publicOrigin()}/mcp --header "Authorization: Bearer ${token}"`;
 }
 
 /** Keys for publish.py and pull.py, and for Claude's tools: create (shown once), list and revoke. */

@@ -19,6 +19,9 @@ services:
       # The Mythic Tools import (server/src/bridges/mythic), on for everyone (Bryan, 2026-10-31:
       # "productionize it on the site so people who use this site can import data from there").
       YAMA_MYTHIC_BRIDGE: "1"
+      # The Android app (web/android) runs at https://localhost and calls the API with a bearer
+      # token, never cookies (docs/mobile.md).
+      YAMA_CORS_ORIGINS: https://localhost
     volumes:
       - ./data:/data
     ports:

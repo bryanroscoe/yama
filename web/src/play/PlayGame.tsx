@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { api } from "../api";
+import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
@@ -49,7 +49,7 @@ function Lobby({ game }: { game: OnlineGame }) {
   const lookups = useCardArt(game.seats.filter((s) => !s.commander_art).map((s) => s.commander));
   const artOf = (s: OnlineGame["seats"][number]) =>
     s.commander_art ? { art: s.commander_art, artist: s.commander_artist ?? null } : s.commander ? lookups.get(s.commander) : undefined;
-  const link = `${location.origin}/play?code=${encodeURIComponent(game.code)}`;
+  const link = `${publicOrigin()}/play?code=${encodeURIComponent(game.code)}`;
   const share = async () => {
     const text = `Join my Yama game with the code ${game.code}`;
     try {

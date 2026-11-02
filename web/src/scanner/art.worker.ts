@@ -27,7 +27,8 @@ async function file(url: string, size: number, onBytes: (n: number, total: numbe
     onBytes(bytes.length, bytes.length);
     return bytes;
   }
-  const res = await fetch(url, { credentials: "include" });
+  // The Android app fetches from the server's origin with no cookie (api.ts, FETCH_CREDENTIALS).
+  const res = await fetch(url, { credentials: new URL(url).origin === self.location.origin ? "include" : "omit" });
   if (!res.ok || !res.body) throw new Error(`Couldn't download ${url.split("/").pop()} (${res.status})`);
   // Content-Length is the zipped size when the server compresses; the manifest's is the real one.
   const total = size || Number(res.headers.get("content-length") ?? 0);

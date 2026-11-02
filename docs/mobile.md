@@ -11,8 +11,8 @@ Release ladder:
 1. **Server and web (done 2026-10-31):** power users. Starting simulations, watched AI games and Ask Claude are for admins and power users only, enforced by the server; results stay visible; MCP stays without the simulation-starting tools (ARCHITECTURE.md, "Power users and the semi-public release"). Grant friends in Admin, People.
 2. **Still to build before a Play submission:**
    - **Account deletion** in the app and at a web link that works without the app (a Play requirement for apps with sign-up). Today it's by email to Bryan, which isn't enough.
-   - **Native Google sign-in** (below) and an Android OAuth client registered with the Play signing key's SHA-1.
-   - **The Android project and build:** `npx cap add android`, the camera permission, the app origin in `YAMA_CORS_ORIGINS`, target API 36. Build the signed `.aab` in GitHub Actions rather than on the Mac: its disk is too full for the Android SDK and Gradle caches.
+   - **Native Google sign-in (built 2026-11-01):** the app's sign-in is done ("The Android app", below); Google Cloud still needs the Android OAuth clients.
+   - **The Android project and build (built 2026-11-01):** `web/android`, target API 36, built in GitHub Actions ("The Android app", below). Still to do: the upload key and its secrets.
    - **What goes in the Play build (Bryan's call, still open):** the full app, or the companion only (Table, Collection, Scanner, Decks, Lab results, Precons) with online Play left on the web. A full game client in a public listing is the bigger IP target (ARCHITECTURE.md §11); companion-only needs a build flag that drops the Play routes and navigation.
 3. **Closed testing track (the semi-public release):** friends opt in by email or Google Group; nobody else can find it. Data safety form, content rating, privacy policy link and listing assets first (below).
 4. **Open testing or production** later, if the beta goes well.
@@ -25,27 +25,32 @@ Release ladder:
 - **What works:** full screen, home-screen icon, offline life counter and card search, and the camera for the scanner (needs HTTPS, which the saget deployment has).
 - **What's not needed:** a store listing or an APK, unless the scanner needs native camera control (Google Play, below).
 
-The Capacitor notes below matter only if a real APK is ever wanted, for example for native OCR or background notifications. They need the Android SDK and a JDK, neither of which is on the Mac right now. Anything about iOS is shelved.
+Anything about iOS is shelved.
 
-## Status (2026-10-18)
+## The Android app (2026-11-01)
 
-- Done: `web/capacitor.config.ts`, a configurable server URL (`VITE_API_BASE`), bearer-token auth for API calls and WebSockets, and CORS for app origins (`YAMA_CORS_ORIGINS`).
-- Not done: the Android project. This machine has no Android SDK, so `npx cap add android` hasn't been run.
+`web/android` is the Capacitor project: package `ing.yama.app` (permanent once on Play), target and compile SDK 36, min SDK 24. It bundles the web build made for `https://yama.ing` and runs it at `https://localhost`.
 
-## Steps when the Android SDK and a JDK are installed
+- **Server:** `YAMA_CORS_ORIGINS: https://localhost` in `deploy/compose.yaml`, so releases set it (the app sends a bearer token, never cookies, so no credentialed CORS).
+- **Sign-in:** `web/src/native.ts` signs in through Android's Credential Manager (`@capgo/capacitor-social-login`, Google only; the other providers' SDKs are switched off in `capacitor.config.ts`). It asks for an ID token for the server's Web client ID from `/api/auth/config`, which `/api/auth/google` already accepts. Google Cloud also needs an **Android** OAuth client per signing key, with package `ing.yama.app` and that key's SHA-1, in the same project as the Web client; those client IDs never go in `YAMA_GOOGLE_CLIENT_IDS`:
+  - the debug key, `web/android/app/debug.keystore` (checked in, not a secret, so every debug build shares it): SHA-1 `6C:A1:81:95:06:8A:FA:72:F9:3F:FB:6F:52:0C:EB:F3:5F:0F:4F:F7`;
+  - the upload key, once made (below);
+  - Play's app signing key, from Play Console, Test and release, App integrity, after the first upload.
+- **Inside the app:** links to server-rendered pages (`/precons`, `/commanders`, `/about/`, `/privacy/`, `/tos/`, `/delete-account/`, `/docs/`, shared `/u/`, `/d/`, `/r/`) open on yama.ing in the browser; shared links and the MCP address use `publicOrigin()` (the server), never the app's origin; Android's back button goes back through the app's pages; downloads and exports (deck lists, collection CSV, game history, datasets) go to Android's share sheet from the app's cache (`web/src/download.ts`), fetched with the app's token; requests carry no cookies (`FETCH_CREDENTIALS`), since the server allows the app's origin without credentials; no service worker; app backups are off, since local storage holds the session token. Permissions: internet, camera (asked when the scanner opens), vibrate.
+- **Builds:** `.github/workflows/android.yml` (manual, and on PRs that touch the app) builds a debug APK and the release bundle on GitHub's runners and uploads both as an artifact for 14 days; the version code is the run number. Locally: JDK 21 (`brew install openjdk@21`; Capacitor 8 needs 21, and Gradle 8 can't run on Homebrew's default JDK 27) and the SDK at `~/Android/Sdk`:
 
 ```sh
-npm install -w web @capacitor/android
-VITE_API_BASE=https://<yama server> VITE_PUBLIC_URL=https://<yama server> npm run build -w web
-cd web && npx cap add android && npx cap sync
-npx cap open android    # build and run from Android Studio
+npm run android:sync -w web       # web build for https://yama.ing, copied into web/android
+cd web/android
+echo "sdk.dir=$HOME/Android/Sdk" > local.properties
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The server needs `YAMA_CORS_ORIGINS=capacitor://localhost,https://localhost`.
+- **Upload key (Bryan's to make and keep):** `keytool -genkeypair -keystore yama-upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10950`, saved in 1Password. Then set the repository secrets `ANDROID_UPLOAD_KEYSTORE_BASE64` (`base64 -i yama-upload.jks`), `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_KEY_PASSWORD`; the workflow then signs the bundle, and its log prints the SHA-1 for the Android OAuth client. With Play App Signing a lost upload key can be reset through Play support; the app signing key stays with Google.
 
 ## Still to decide or build
 
-- **Google sign-in on device:** Google's web button doesn't work inside the app's web view. Use a native sign-in plugin (Credential Manager) that asks for an ID token for the server's existing Web client ID, so the token's audience is the client ID `YAMA_GOOGLE_CLIENT_IDS` already holds. Also register an Android OAuth client (package name and signing-key SHA-1) in the same Google Cloud project; it identifies the app and does not go in `YAMA_GOOGLE_CLIENT_IDS`.
 - **Distribution:** Android can be a direct APK, or Google Play (below). iOS stays shelved: no Apple account.
 
 ## Google Play (Bryan can publish there, 2026-10-28)

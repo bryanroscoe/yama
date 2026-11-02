@@ -1,4 +1,4 @@
-import { api, type Visibility } from "../api";
+import { api, publicOrigin, type Visibility } from "../api";
 
 export interface Source { title: string; url: string; accessed?: string }
 export interface Power { range?: string; label?: string; confidence?: string; rationale?: string; speed?: string; vulnerabilities?: string[] }
@@ -68,7 +68,7 @@ export const saveReview = (id: string, op: ReviewOp) => api<Review>(`/api/resear
 export const setNoteSharing = (id: string, visibility: Visibility) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/sharing`, { method: "PUT", json: { visibility } });
 export const resetNoteLink = (id: string) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/share-link`, { method: "POST" });
 /** "https://yama.example/r/abc…" for a shared note, on this site. */
-export const noteShareUrl = (token: string) => `${location.origin}/r/${token}`;
+export const noteShareUrl = (token: string) => `${publicOrigin()}/r/${token}`;
 /** Saves a copy of a note shared by link into your own notes; never replaces one of yours. */
 export const copySharedNote = (token: string, op?: string) => api<{ id: string }>("/api/research/copy", { method: "POST", json: { token, op } });
 export const importReport = (document: unknown) => api<{ id: string; changed: boolean; revision: number }>("/api/research", { method: "POST", json: document });

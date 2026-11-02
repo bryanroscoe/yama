@@ -29,6 +29,19 @@ const TOKEN_KEY = "yama.token";
 /** Empty on the web (same origin). The phone apps load from the device, so they set the server URL. */
 export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
 
+/** Links people open elsewhere (shared decks, profiles, join links, the MCP address) always point at
+ * the web app on the server, never at the Android app's own origin. */
+export function publicOrigin(): string {
+  return (import.meta.env.VITE_PUBLIC_URL as string | undefined) ?? (API_BASE || location.origin);
+}
+
+/**
+ * The web app sends its session cookie. The Android app calls the server from its own origin with
+ * the bearer token alone: credentialed requests would need the server to allow credentials for
+ * that origin, which it deliberately doesn't (routes.rs).
+ */
+export const FETCH_CREDENTIALS: RequestCredentials = API_BASE ? "omit" : "include";
+
 /** Native apps can't share the web cookie, so they keep the bearer token. Web relies on the cookie. */
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -44,9 +57,7 @@ async function apiResponse(path: string, init: RequestInit & { json?: unknown } 
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  // Hosted web uses its same-origin cookie; remote/native builds authenticate
-  // with the bearer token above and use the server's cookie-free app CORS policy.
-  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: API_BASE ? "omit" : "include" });
+  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: FETCH_CREDENTIALS });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     let data: Record<string, unknown> | undefined;
@@ -313,7 +324,7 @@ export interface PublicDeck {
 
 /** "https://yama.example/d/abc…" for a share token, on this site. */
 export function shareUrl(token: string): string {
-  return `${location.origin}/d/${token}`;
+  return `${publicOrigin()}/d/${token}`;
 }
 
 /** An outside bracket estimate, shown beside the declared bracket and never instead of it. */

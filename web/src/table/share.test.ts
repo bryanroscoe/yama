@@ -13,7 +13,7 @@ vi.stubGlobal("localStorage", {
 });
 const location = { origin: "https://yama.ing", hash: "" };
 vi.stubGlobal("location", location);
-vi.mock("../api", () => ({ api: vi.fn(async () => ({})), API_BASE: "" }));
+vi.mock("../api", () => ({ api: vi.fn(async () => ({})), API_BASE: "", publicOrigin: () => location.origin }));
 
 /** share.tsx reads the relay address once, as it loads. */
 async function load(relay: string) {
