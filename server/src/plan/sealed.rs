@@ -289,19 +289,30 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     }
     // The id's record, the price and the pruning are one write: a failed save leaves no record.
     let mut tx = pool.begin().await?;
+    // Only while the product is still on the list, in the same statement, so a removal at the same
+    // time can't leave this price behind.
+    let saved = sqlx::query(
+        "INSERT INTO sealed_quotes (id, owner_id, want_id, store_key, price, in_stock, checked_on, note, created_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS
+           (SELECT 1 FROM shopping_wants WHERE id = ? AND owner_id = ? AND kind = 'sealed' AND retired_at IS NULL)",
+    )
+    .bind(&id)
+    .bind(&user.id)
+    .bind(&want)
+    .bind(&b.store)
+    .bind(b.price)
+    .bind(b.in_stock)
+    .bind(&checked)
+    .bind(note)
+    .bind(now())
+    .bind(&want)
+    .bind(&user.id)
+    .execute(&mut *tx)
+    .await?;
+    if saved.rows_affected() == 0 {
+        return Err(AppError::NotFound("sealed product on your list"));
+    }
     sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, payload, created_at) VALUES (?, ?, ?, ?)").bind(&id).bind(&user.id).bind(&payload).bind(now()).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO sealed_quotes (id, owner_id, want_id, store_key, price, in_stock, checked_on, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(&id)
-        .bind(&user.id)
-        .bind(&want)
-        .bind(&b.store)
-        .bind(b.price)
-        .bind(b.in_stock)
-        .bind(&checked)
-        .bind(note)
-        .bind(now())
-        .execute(&mut *tx)
-        .await?;
     // Only the newest prices count; keep a short history per product and store.
     sqlx::query(
         "DELETE FROM sealed_quotes WHERE owner_id = ? AND want_id = ? AND store_key = ? AND id NOT IN
