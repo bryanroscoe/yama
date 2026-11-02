@@ -1,5 +1,6 @@
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
+import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
@@ -80,6 +81,7 @@ export function CollectionPage() {
 
   const [newContainer, setNewContainer] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [selling, setSelling] = useState(false);
 
   const s = summary.data;
   const proxies = s?.proxies ?? 0;
@@ -209,6 +211,7 @@ export function CollectionPage() {
               <button aria-pressed={kind === "proxy"} onClick={() => setKind("proxy")}>Proxies</button>
             </div>
           )}
+          {!!items.data?.length && <button className="outline coll-sell" onClick={() => setSelling(true)}>Sell list</button>}
           <label className="coll-filter">
             <span className="visually-hidden">Filter by name</span>
             <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -287,6 +290,14 @@ export function CollectionPage() {
             setOpen(null);
             setDone(done ?? null);
           }}
+        />
+      )}
+      {selling && (
+        <SellSheet
+          items={sorted}
+          from={(chosen ? chosen.name : container === "none" ? "loose cards" : "every card") + (query ? ` called "${query}"` : "")}
+          inDeckBox={chosen?.kind === "deck"}
+          onClose={() => setSelling(false)}
         />
       )}
       {importing && <ImportSheet onClose={() => setImporting(false)} />}
