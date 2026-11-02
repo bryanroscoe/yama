@@ -583,10 +583,6 @@ fn produced_mana(colors: &[String]) -> String {
     "WUBRGC".chars().filter(|c| colors.iter().any(|x| x.len() == 1 && x.starts_with(*c))).collect()
 }
 
-fn price(s: &Option<String>) -> Option<f64> {
-    s.as_deref().and_then(|v| v.parse().ok())
-}
-
 async fn start_run(pool: &SqlitePool, kind: &str, meta: Option<&BulkItem>) -> anyhow::Result<String> {
     let id = new_id();
     sqlx::query(
@@ -742,9 +738,9 @@ async fn import_default_writing(pool: &SqlitePool, path: &Path, meta: Option<&Bu
     let newest = crate::prices::newest_observation(pool, crate::prices::SCRYFALL).await?;
     let history = newest.is_none_or(|n| day >= n);
     if !history {
-        tracing::warn!(price_date, newest = newest.map(crate::prices::date_of), "Scryfall's file is older than the newest prices; its prices go only to the old table");
+        tracing::warn!(price_date, newest = newest.map(crate::prices::date_of), "Scryfall's file is older than the newest prices; its prices aren't written");
     }
-    let file = HistoryFile { day, date: &price_date, run: &run, updated_at: meta.map(|m| m.updated_at.clone()), writer: history.then_some(writer) };
+    let file = HistoryFile { day, date: &price_date, run: &run, updated_at: meta.map(|m| m.updated_at.clone()), writer, prices: history };
     let result = import_default_inner(pool, path, &file).await;
     finish_timed(pool, &run, "default_cards", job, &result).await?;
     let count = result?;
@@ -754,14 +750,16 @@ async fn import_default_writing(pool: &SqlitePool, path: &Path, meta: Option<&Bu
     Ok(count)
 }
 
-/// Where a printings import's prices go in the history.
+/// Where a printings import's prices go.
 struct HistoryFile<'a> {
     day: i64,
     date: &'a str,
     run: &'a str,
     updated_at: Option<String>,
-    /// None for a file older than the newest observed day.
-    writer: Option<&'a crate::prices::Writer>,
+    writer: &'a crate::prices::Writer,
+    /// False for a file older than the newest observed day: no prices are written, in either
+    /// table.
+    prices: bool,
 }
 
 /// While `price_snapshots` is still written, check the day's history against it and keep the
@@ -793,8 +791,9 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
     let stamp = now();
     while let Some(batch) = rx.recv().await {
         let mut tx = pool.begin().await?;
-        let mut priced = false;
-        let mut history = Vec::new();
+        // A writer whose lease another process took stops before it writes anything more.
+        file.writer.fence(&mut tx).await?;
+        let mut prices = Vec::new();
         for c in batch? {
             if c.layout.as_deref().is_some_and(|l| SKIP_LAYOUTS.contains(&l)) {
                 continue;
@@ -850,42 +849,19 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
             .execute(&mut *tx)
             .await?;
 
-            let p = &c.prices;
-            history.push(crate::prices::write::ScryfallRow { scryfall_id: c.id.clone(), cents: p.cents() });
-            let values = [price(&p.usd), price(&p.usd_foil), price(&p.usd_etched), price(&p.eur), price(&p.eur_foil), price(&p.tix)];
-            if values.iter().any(Option::is_some) {
-                priced = true;
-                sqlx::query(
-                    "INSERT OR REPLACE INTO price_snapshots (scryfall_id, date, usd, usd_foil, usd_etched, eur, eur_foil, tix)
-                     VALUES (?,?,?,?,?,?,?,?)",
-                )
-                .bind(&c.id)
-                .bind(price_date)
-                .bind(values[0])
-                .bind(values[1])
-                .bind(values[2])
-                .bind(values[3])
-                .bind(values[4])
-                .bind(values[5])
-                .execute(&mut *tx)
-                .await?;
-            }
+            prices.push(crate::prices::write::ScryfallRow { scryfall_id: c.id.clone(), cents: c.prices.cents() });
             count += 1;
         }
-        // With the prices, so the newest date is right even if a later batch fails.
-        if priced {
-            sqlx::query("INSERT OR IGNORE INTO price_dates (date) VALUES (?)").bind(price_date).execute(&mut *tx).await?;
-        }
-        if file.writer.is_some() {
-            crate::prices::write::stage(&mut tx, file.run, &history).await?;
+        if file.prices {
+            crate::prices::write::stage(&mut tx, file.run, &prices).await?;
         }
         tx.commit().await?;
     }
     if count == 0 {
         bail!("no printings found in {}", path.display());
     }
-    // The whole file at once: its prices, and those of printings it left out gone.
-    if let Some(writer) = file.writer {
+    // The whole file at once, in both tables: its prices, and none for printings it left out.
+    if file.prices {
         let observation = crate::prices::write::Observation {
             file: file.run.to_string(),
             file_updated_at: file.updated_at.clone(),
@@ -893,21 +869,31 @@ async fn import_default_inner(pool: &SqlitePool, path: &Path, file: &HistoryFile
             printings: count as i64,
         };
         let mut tx = pool.begin().await?;
-        // In the old table too, a second file for the day replaces the first: a printing it
-        // doesn't price has no row that day, as if only this file had been read.
-        sqlx::query(
-            "DELETE FROM price_snapshots WHERE date = ?1 AND scryfall_id NOT IN (
-               SELECT st.scryfall_id FROM price_stage st WHERE st.file = ?2 AND (st.usd IS NOT NULL OR st.usd_foil IS NOT NULL
-                  OR st.usd_etched IS NOT NULL OR st.eur IS NOT NULL OR st.eur_foil IS NOT NULL OR st.tix IS NOT NULL))",
-        )
-        .bind(price_date)
-        .bind(file.run)
-        .execute(&mut *tx)
-        .await?;
-        crate::prices::write::publish(&mut tx, writer, file.day, price_date, &observation).await?;
+        file.writer.fence(&mut tx).await?;
+        replace_old_day(&mut tx, price_date, file.run).await?;
+        crate::prices::write::publish(&mut tx, file.writer, file.day, price_date, &observation).await?;
         tx.commit().await?;
     }
     Ok(count)
+}
+
+/// The old table's day becomes this staged file's, in the publish's transaction: a row for each
+/// printing it prices, and none for one it doesn't (a second file for the day replaces the
+/// first). The old table never kept Cardmarket's etched price, nor a row without one of its six
+/// prices. REAL = cents / 100.0, the same double as the decimal text it used to parse.
+async fn replace_old_day(conn: &mut sqlx::SqliteConnection, date: &str, file: &str) -> sqlx::Result<()> {
+    const PRICED: &str = "(st.usd IS NOT NULL OR st.usd_foil IS NOT NULL OR st.usd_etched IS NOT NULL OR st.eur IS NOT NULL
+        OR st.eur_foil IS NOT NULL OR st.tix IS NOT NULL)";
+    for template in [
+        "DELETE FROM price_snapshots WHERE date = ?1 AND scryfall_id NOT IN (SELECT st.scryfall_id FROM price_stage st WHERE st.file = ?2 AND {PRICED})",
+        "INSERT OR REPLACE INTO price_snapshots (scryfall_id, date, usd, usd_foil, usd_etched, eur, eur_foil, tix)
+         SELECT st.scryfall_id, ?1, st.usd / 100.0, st.usd_foil / 100.0, st.usd_etched / 100.0, st.eur / 100.0, st.eur_foil / 100.0, st.tix / 100.0
+           FROM price_stage st WHERE st.file = ?2 AND {PRICED}",
+        "INSERT OR IGNORE INTO price_dates (date) SELECT ?1 WHERE EXISTS (SELECT 1 FROM price_stage st WHERE st.file = ?2 AND {PRICED})",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(template.replace("{PRICED}", PRICED))).bind(date).bind(file).execute(&mut *conn).await?;
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -1060,11 +1046,32 @@ mod tests {
         // Cardmarket's etched price is read now too.
         let etched: Option<f64> = sqlx::query_scalar("SELECT eur_etched FROM price_latest WHERE scryfall_id = 'p1'").fetch_one(&pool).await.unwrap();
         assert_eq!(etched, Some(3.0));
-        // An older file still imports its printings, but writes no prices into the history.
+        // An older file still imports its printings, but writes no prices, in the history or the
+        // old table.
         import_default(&pool, &path, Some(&item("2026-10-30"))).await.unwrap();
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM price_point").fetch_one(&pool).await.unwrap(), points);
         let days: Vec<i64> = sqlx::query_scalar("SELECT day FROM price_observation ORDER BY day").fetch_all(&pool).await.unwrap();
         assert_eq!(days, vec![crate::prices::day_of("2026-11-01").unwrap()]);
+        let old: Vec<String> = sqlx::query_scalar("SELECT DISTINCT date FROM price_snapshots UNION SELECT date FROM price_dates").fetch_all(&pool).await.unwrap();
+        assert_eq!(old, ["2026-11-01"]);
+    }
+
+    #[tokio::test]
+    async fn a_writer_that_lost_its_lease_writes_no_prices() {
+        let pool = crate::db::test_pool().await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bulk.json");
+        std::fs::write(&path, SAMPLE).unwrap();
+        // It stalls past its lease, and another process takes it and carries on.
+        let writer = crate::prices::Writer::acquire(&pool).await.unwrap();
+        sqlx::query("UPDATE price_meta SET value = json_object('id', 'elsewhere', 'until', 0) WHERE key = 'writer'").execute(&pool).await.unwrap();
+        let err = import_default_writing(&pool, &path, None, &writer).await.unwrap_err();
+        writer.release().await;
+        assert!(err.to_string().contains("lease"), "{err}");
+        for table in ["price_snapshots", "price_dates", "price_stage", "price_point", "price_latest", "printings"] {
+            let rows: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}"))).fetch_one(&pool).await.unwrap();
+            assert_eq!(rows, 0, "{table}");
+        }
     }
 
     #[tokio::test]

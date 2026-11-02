@@ -5,7 +5,7 @@ use super::write::{self, Observation};
 use super::{SCRYFALL, Writer, date_of, day_of, newest_observation};
 use anyhow::Context;
 use serde::Serialize;
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 
 /// The old table's price columns, by series. It never kept Cardmarket's etched price.
 const OLD_COLUMNS: [(i64, &str); 6] = [(1, "usd"), (2, "usd_foil"), (3, "usd_etched"), (4, "eur"), (5, "eur_foil"), (7, "tix")];
@@ -14,14 +14,14 @@ const OLD_COLUMNS: [(i64, &str); 6] = [(1, "usd"), (2, "usd_foil"), (3, "usd_etc
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]
 pub struct Replayed {
     pub days: usize,
-    /// Days the old table has with no import that finished: possibly part of a file, so left
+    /// Days the old table has whose last import didn't finish: possibly part of a file, so left
     /// unobserved (a gap).
     pub skipped: Vec<String>,
 }
 
 /// Replay each day of the old table newer than the history's newest observed day, oldest first,
-/// each published whole in one transaction, then check the result ([`verify`]) and record it in
-/// `price_meta`. Only a day an import finished is replayed. Days already observed are skipped, so
+/// each published whole in one transaction and only if it gives back the old table's values,
+/// then check the result ([`verify`]) and record it in `price_meta`. Only a day whose last import finished is replayed. Days already observed are skipped, so
 /// it's safe to run again, and a stop part way resumes at the first unobserved day.
 pub async fn backfill_if_needed(pool: &SqlitePool, writer: &Writer) -> anyhow::Result<Replayed> {
     let newest = newest_observation(pool, SCRYFALL).await?;
@@ -78,16 +78,18 @@ async fn replay(pool: &SqlitePool, writer: &Writer, dates: &[String]) -> anyhow:
     let mut out = Replayed::default();
     for date in dates {
         let day = day_of(date).filter(|d| date_of(*d) == *date).with_context(|| format!("price_dates has {date:?}, not a date"))?;
-        // The import that finished this day's file. One that failed or stopped may have written
-        // part of a file.
-        let run: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT id, source_updated_at FROM import_runs WHERE kind = 'default_cards' AND error IS NULL AND finished_at IS NOT NULL
-               AND substr(COALESCE(source_updated_at, started_at), 1, 10) = ? ORDER BY started_at DESC LIMIT 1",
+        // The day's last import, which must have finished: before the history, an import wrote
+        // the old table batch by batch, so one that failed or stopped may have left part of its
+        // file over an earlier one's.
+        let run: Option<(String, Option<String>, bool)> = sqlx::query_as(
+            "SELECT id, source_updated_at, error IS NULL AND finished_at IS NOT NULL FROM import_runs
+              WHERE kind = 'default_cards' AND substr(COALESCE(source_updated_at, started_at), 1, 10) = ?
+              ORDER BY started_at DESC LIMIT 1",
         )
         .bind(date)
         .fetch_optional(pool)
         .await?;
-        let Some((import_run, file_updated_at)) = run else {
+        let Some((import_run, file_updated_at, true)) = run else {
             out.skipped.push(date.clone());
             continue;
         };
@@ -102,6 +104,12 @@ async fn replay(pool: &SqlitePool, writer: &Writer, dates: &[String]) -> anyhow:
         let mut tx = pool.begin().await?;
         let printings = sqlx::query(sqlx::AssertSqlSafe(stage.clone())).bind(&file).bind(date).execute(&mut *tx).await?.rows_affected();
         write::publish(&mut tx, writer, day, date, &Observation { file, file_updated_at, import_run: Some(import_run), printings: printings as i64 }).await?;
+        // Checked before it counts: a day that doesn't give back the old table's values isn't
+        // published, so it stays unobserved and every start stops at it.
+        let check = compare(&mut tx, Some(day)).await?;
+        if check.mismatches > 0 || check.stale > 0 {
+            anyhow::bail!("the replay of {date} doesn't match price_snapshots ({}); nothing from that day was published", serde_json::to_string(&check)?);
+        }
         tx.commit().await?;
         out.days += 1;
     }
@@ -157,17 +165,24 @@ fn as_of(series: i64) -> String {
 /// as of its day, no observed day without an old row reads as a price, and every day of the old
 /// table was observed. `date`: just that day, which must be an observed one.
 pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> anyhow::Result<Verified> {
+    let mut conn = pool.acquire().await?;
     let day = match date {
         None => None,
         Some(date) => {
             let day = day_of(date).filter(|d| date_of(*d) == date).with_context(|| format!("{date:?} isn't a date (YYYY-MM-DD)"))?;
-            let observed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM price_observation WHERE feed = ? AND day = ?)").bind(SCRYFALL).bind(day).fetch_one(pool).await?;
+            let observed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM price_observation WHERE feed = ? AND day = ?)").bind(SCRYFALL).bind(day).fetch_one(&mut *conn).await?;
             anyhow::ensure!(observed, "the price history has no file for {date}");
             Some(day)
         }
     };
+    compare(&mut conn, day).await
+}
+
+/// [`verify`] on one connection, inside a transaction if it's in one: every observed day, or
+/// `day`.
+async fn compare(conn: &mut SqliteConnection, day: Option<i64>) -> anyhow::Result<Verified> {
     let days = "(SELECT day, date(day * 86400, 'unixepoch') AS date FROM price_observation WHERE feed = 'scryfall' AND (?1 IS NULL OR day = ?1))";
-    let compared: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {days}"))).bind(day).fetch_one(pool).await?;
+    let compared: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {days}"))).bind(day).fetch_one(&mut *conn).await?;
     let differs = OLD_COLUMNS
         .iter()
         .map(|(series, col)| format!("{} IS NOT {}", as_of(*series), cents(&format!("ps.{col}"))))
@@ -179,7 +194,7 @@ pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> anyhow::Result<Ver
              LEFT JOIN price_printing k ON k.scryfall_id = ps.scryfall_id)"
     )))
     .bind(day)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     let priced = super::SCRYFALL_SERIES.iter().map(|(series, _)| format!("{} IS NOT NULL", as_of(*series))).collect::<Vec<_>>().join(" OR ");
     let (pairs, stale): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -188,7 +203,7 @@ pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> anyhow::Result<Ver
             AND EXISTS (SELECT 1 FROM price_point pp WHERE pp.printing = k.id AND pp.day <= d.day)"
     )))
     .bind(day)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     let (unobserved_days, unobserved_rows): (i64, i64) = if day.is_some() {
         (0, 0)
@@ -197,7 +212,7 @@ pub async fn verify(pool: &SqlitePool, date: Option<&str>) -> anyhow::Result<Ver
             "SELECT COUNT(DISTINCT date), COUNT(*) FROM price_snapshots
               WHERE date NOT IN (SELECT date(day * 86400, 'unixepoch') FROM price_observation WHERE feed = 'scryfall')",
         )
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?
     };
     Ok(Verified { days: compared, rows, mismatches, pairs, stale, unobserved_days, unobserved_rows })
