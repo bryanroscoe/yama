@@ -294,7 +294,7 @@ export function Trip() {
 
       <MyList view={view} userId={userId} />
 
-      <Sealed stores={stores} view={view} userId={userId} />
+      <Sealed stores={stores} view={view} userId={userId} going={going} trip={trip.stops.map((st) => st.store.key)} />
 
       <StorePrefs stores={stores} view={view} userId={userId} skipped={trip.skipped} />
 
@@ -566,9 +566,13 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
  * and the singles inside at market. A store price is a dated quote you typed, not a purchase; the
  * singles value is an estimate of the cards, not what they'd sell for.
  */
-function Sealed({ stores, view, userId }: { stores: Store[]; view: PlanView; userId: string }) {
+function Sealed({ stores, view, userId, going, trip }: { stores: Store[]; view: PlanView; userId: string; going: string[] | null; trip: string[] }) {
   const any = (view.b.shopping_wants ?? []).some((w) => w.kind === "sealed");
-  const q = useQuery({ queryKey: ["plan-sealed", userId, view.b.rev, view.today], queryFn: () => sealedView(view.today), enabled: any });
+  const q = useQuery({
+    queryKey: ["plan-sealed", userId, view.b.rev, view.today, going, trip],
+    queryFn: () => sealedView(view.today, going, trip),
+    enabled: any,
+  });
   if (!any) return null;
   const cap = q.data?.cap_usd ?? null;
   return (

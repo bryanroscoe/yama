@@ -133,13 +133,15 @@ export interface SealedItem {
   singles: { usd: number | null; priced_copies: number; unpriced_copies: number; oldest_date: string | null; newest_date: string | null; source: string } | null;
   /** Each store's newest price, cheapest first. */
   quotes: SealedQuote[];
-  /** The cheapest in stock at a store you'll go to, within the cap when one is set. */
+  /** The cheapest in stock at a store you're going to (along the way: one the trip visits), within the cap when one is set. */
   best: string | null;
 }
 
 /** The sealed products on your list with store prices, the sealed market and the singles inside. */
-export const sealedView = (today: string) =>
-  api<{ date: string; cap_usd: number | null; items: SealedItem[] }>(`/api/plan/sealed?today=${encodeURIComponent(today)}`);
+export const sealedView = (today: string, going: string[] | null, trip: string[]) =>
+  api<{ date: string; cap_usd: number | null; items: SealedItem[] }>(
+    `/api/plan/sealed?today=${encodeURIComponent(today)}&trip=${encodeURIComponent(JSON.stringify(trip))}${going ? `&going=${encodeURIComponent(JSON.stringify(going))}` : ""}`,
+  );
 
 /** A store's dated price for a sealed product on your list. */
 export const addSealedQuote = (want: string, body: { store: string; price: number | null; in_stock: boolean; checked_on: string; note: string | null }) =>

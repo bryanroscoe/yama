@@ -256,7 +256,8 @@ label).
    /api/plan/sealed` gives each product's newest price per store with "over your cap" (the
    `sealed_max_usd` in force today), the percent over or under the sealed market, the sealed
    market and the singles inside at market (priced and unpriced copies apart), and the best choice
-   (cheapest in stock within the cap at a store they'll go to). `shopping_list` says the same in
+   (cheapest in stock within the cap at a store they're going to this time; for an "along the
+   way" product, only a store the card trip visits). `shopping_list` says the same in
    words.
 5. Staged MCP writes (`set_store_preference`, `check_stores`, `add_wish`).
 

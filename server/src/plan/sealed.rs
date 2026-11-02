@@ -54,8 +54,17 @@ fn pct(a: f64, b: f64) -> Option<f64> {
     (b > 0.0).then(|| ((a / b - 1.0) * 1000.0).round() / 10.0)
 }
 
+/// Which stores a sealed product's pick may come from: `going`, the stores they're going to this
+/// time (None: every store they'll go to); `trip`, the stores the card trip visits, the only ones
+/// an "along the way" product may come from (None: unknown, so no pick for those).
+#[derive(Default)]
+pub struct Scope {
+    pub going: Option<std::collections::HashSet<String>>,
+    pub trip: Option<std::collections::HashSet<String>>,
+}
+
 /// Every sealed product on the owner's list with its precon, market, singles, cap and store prices.
-pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value> {
+pub async fn view(pool: &SqlitePool, owner: &str, date: &str, scope: &Scope) -> AppResult<Value> {
     #[allow(clippy::type_complexity)]
     let wants: Vec<(String, String, i64, String, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT id, name, qty, priority, why, precon_id FROM shopping_wants WHERE owner_id = ? AND kind = 'sealed' AND retired_at IS NULL ORDER BY added_at, id",
@@ -138,9 +147,19 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
             .collect();
         // The cheapest copy in stock at a live store they'll go to, within the cap when one is set
         // (with no cap: the cheapest, and the page and Claude say there's no cap).
+        // "Along the way" comes only from a store the card trip visits; a need from any store
+        // they're going to.
+        let allowed = |k: &str| {
+            if priority == "along" {
+                scope.trip.as_ref().is_some_and(|t| t.contains(k))
+            } else {
+                scope.going.as_ref().is_none_or(|g| g.contains(k))
+            }
+        };
         let best = quotes
             .iter()
             .filter(|q| q["in_stock"] == true && q["store_live"] == true && q["preference"] != "never" && q["price"].is_number())
+            .filter(|q| allowed(q["store"].as_str().unwrap_or_default()))
             .filter(|q| cap.is_none() || q["over_cap"] == false)
             .min_by(|a, b| a["price"].as_f64().partial_cmp(&b["price"].as_f64()).unwrap_or(std::cmp::Ordering::Equal))
             .map(|q| q["id"].clone());
@@ -156,6 +175,16 @@ pub async fn view(pool: &SqlitePool, owner: &str, date: &str) -> AppResult<Value
 pub struct ViewQuery {
     /// The device's today (a day either side of the server's), for the cap in force.
     today: Option<String>,
+    /// JSON arrays of store keys: going this time, and the stores the card trip visits.
+    going: Option<String>,
+    trip: Option<String>,
+}
+
+fn keys(v: Option<&str>, what: &str) -> AppResult<Option<std::collections::HashSet<String>>> {
+    match v {
+        None => Ok(None),
+        Some(t) => serde_json::from_str::<Vec<String>>(t).map(|k| Some(k.into_iter().collect())).map_err(|_| AppError::bad(format!("{what} must be a JSON list of store keys"))),
+    }
 }
 
 /// `GET /api/plan/sealed?today=YYYY-MM-DD`: the sealed products on your list, with store prices and
@@ -166,7 +195,8 @@ pub async fn view_route(State(st): State<AppState>, CurrentUser(user): CurrentUs
         Some(_) => return Err(AppError::bad("today must be your date (YYYY-MM-DD), a day either side of the server's")),
         None => today(),
     };
-    Ok(Json(view(&st.pool, &user.id, &date).await?))
+    let scope = Scope { going: keys(q.going.as_deref(), "going")?, trip: keys(q.trip.as_deref(), "trip")? };
+    Ok(Json(view(&st.pool, &user.id, &date, &scope).await?))
 }
 
 #[derive(Deserialize)]
@@ -268,7 +298,14 @@ pub fn text(v: &Value) -> String {
     );
     for it in items {
         let qty = it["qty"].as_i64().unwrap_or(1);
-        let _ = write!(out, "- {}{}", it["name"].as_str().unwrap_or_default(), if qty > 1 { format!(" ×{qty}") } else { String::new() });
+        let _ = write!(
+            out,
+            "- {}{}{}{}",
+            it["name"].as_str().unwrap_or_default(),
+            if qty > 1 { format!(" ×{qty}") } else { String::new() },
+            if it["priority"] == "along" { " (only along the way)" } else { "" },
+            it["why"].as_str().map(|w| format!(" ({w})")).unwrap_or_default()
+        );
         if it["precon"].is_null() {
             out.push_str(": not matched to a precon Yama knows, so no market or singles value.\n");
         } else {
@@ -375,7 +412,7 @@ mod tests {
             assert!(s.is_success(), "{v}");
         }
         assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "nowhere", "price": 1}))).await.0.as_u16(), 400);
-        let v = view(&pool, &owner, "2026-11-01").await.unwrap();
+        let v = view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap();
         assert_eq!(v["cap_usd"], 51.0);
         let it = &v["items"][0];
         assert_eq!(it["market"]["usd"], 48.0);
@@ -391,21 +428,32 @@ mod tests {
         // Two prices from one store on one day: the one recorded last counts.
         send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 45.0, "checked_on": "2026-11-01"}))).await;
         send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 47.0, "checked_on": "2026-11-01"}))).await;
-        let v2 = view(&pool, &owner, "2026-11-01").await.unwrap();
+        let v2 = view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap();
         let pats: Vec<&Value> = v2["items"][0]["quotes"].as_array().unwrap().iter().filter(|q| q["store"] == "pats").collect();
         assert_eq!((pats.len(), pats[0]["price"].as_f64()), (1, Some(47.0)));
         // A retired store is never the best choice.
         sqlx::query("UPDATE plan_stores SET retired_at = 'now' WHERE owner_id = ? AND key = 'pats'").bind(&owner).execute(&pool).await.unwrap();
-        let v3 = view(&pool, &owner, "2026-11-01").await.unwrap();
+        let v3 = view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap();
         let best = v3["items"][0]["best"].clone();
         assert!(v3["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["id"] == best && q["store"] == "mothership"), "{v3}");
         sqlx::query("UPDATE plan_stores SET retired_at = NULL WHERE owner_id = ? AND key = 'pats'").bind(&owner).execute(&pool).await.unwrap();
+        // Going this time leaves the other stores out of the pick; an along-the-way product needs a
+        // store on the trip, and with none known gets no pick.
+        let only_pats = Scope { going: Some(["pats".to_string()].into_iter().collect()), trip: None };
+        let v4 = view(&pool, &owner, "2026-11-01", &only_pats).await.unwrap();
+        assert!(v4["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["id"] == v4["items"][0]["best"] && q["store"] == "pats"), "{v4}");
+        sqlx::query("UPDATE shopping_wants SET priority = 'along' WHERE id = ?").bind(want).execute(&pool).await.unwrap();
+        assert_eq!(view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap()["items"][0]["best"], Value::Null);
+        let on_trip = Scope { going: None, trip: Some(["mothership".to_string()].into_iter().collect()) };
+        let v5 = view(&pool, &owner, "2026-11-01", &on_trip).await.unwrap();
+        assert!(v5["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["id"] == v5["items"][0]["best"] && q["store"] == "mothership"), "{v5}");
+        sqlx::query("UPDATE shopping_wants SET priority = 'need' WHERE id = ?").bind(want).execute(&pool).await.unwrap();
         // A sealed want saved before it was matched is matched when read.
         sqlx::query("UPDATE shopping_wants SET precon_id = NULL WHERE id = ?").bind(want).execute(&pool).await.unwrap();
-        assert_eq!(view(&pool, &owner, "2026-11-01").await.unwrap()["items"][0]["precon"]["id"], "federation-fleet");
+        assert_eq!(view(&pool, &owner, "2026-11-01", &Scope::default()).await.unwrap()["items"][0]["precon"]["id"], "federation-fleet");
         // A price over the cap is flagged; another account sees nothing and can't add a price.
         let (_, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "mothership", "price": 59.99}))).await;
-        let v = view(&pool, &owner, &today()).await.unwrap();
+        let v = view(&pool, &owner, &today(), &Scope::default()).await.unwrap();
         assert!(v["items"][0]["quotes"].as_array().unwrap().iter().any(|q| q["store"] == "mothership" && q["over_cap"] == true));
         // The page sends the device's today; one far from the server's is refused.
         assert_eq!(send(&app, Method::GET, "/api/plan/sealed?today=1999-01-01", Some(&token), None).await.0.as_u16(), 400);
@@ -418,7 +466,7 @@ mod tests {
         let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE owner_id = ? AND want_id = ? AND store_key = 'pats'").bind(&owner).bind(want).fetch_one(&pool).await.unwrap();
         assert_eq!(kept, HISTORY);
         let (other, other_token) = user(&pool, "other@example.com").await;
-        assert_eq!(view(&pool, &other, "2026-11-01").await.unwrap()["items"], json!([]));
+        assert_eq!(view(&pool, &other, "2026-11-01", &Scope::default()).await.unwrap()["items"], json!([]));
         assert_eq!(send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&other_token), Some(json!({"store": "pats", "price": 1}))).await.0.as_u16(), 404);
         let qid = quotes[0]["id"].as_str().unwrap();
         assert_eq!(send(&app, Method::DELETE, &format!("/api/plan/sealed/quotes/{qid}"), Some(&other_token), None).await.0.as_u16(), 404);

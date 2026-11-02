@@ -912,7 +912,11 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             };
             let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
             let mut text = crate::plan::trip::list_text(&bundle, &today);
-            text.push_str(&crate::plan::sealed::text(&crate::plan::sealed::view(pool, &user.id, &today).await?));
+            // Sealed products along the way only from stores the card trip visits.
+            let trip = crate::plan::trip::plan(&bundle, &today, None);
+            let on_trip = trip.stops.iter().filter_map(|st| st.store["key"].as_str().map(String::from)).collect();
+            let scope = crate::plan::sealed::Scope { going: None, trip: Some(on_trip) };
+            text.push_str(&crate::plan::sealed::text(&crate::plan::sealed::view(pool, &user.id, &today, &scope).await?));
             Ok(text)
         }
         "store_stock" => {
