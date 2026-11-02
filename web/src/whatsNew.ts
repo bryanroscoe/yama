@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-02-sell-list",
+    date: "2026-11-02",
+    title: "Sell lists for store buylists",
+    items: [
+      "Collection has a Sell list: the cards you're looking at, as a file or list a store's buylist takes. Pick SortSwift (upload the CSV), Storepass (paste into Bulk Submission) or Card Kingdom.",
+      "Narrow it to cards worth at least an amount, untick any card or sell only some copies. Cards in deck boxes and proxies stay out.",
+      "To pick cards by hand, put them in a list and open that list first. The store's page shows its offer before you send anything.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
     id: "2026-11-02-play-alpha",
     date: "2026-11-02",
     title: "Online play is marked alpha",

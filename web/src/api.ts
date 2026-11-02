@@ -214,6 +214,9 @@ export interface CollectionItem {
   finish: string;
   lang: string;
   proxy: boolean;
+  altered?: boolean;
+  signed?: boolean;
+  misprint?: boolean;
   container_id: string | null;
   container_name: string | null;
   container_kind: string | null;
