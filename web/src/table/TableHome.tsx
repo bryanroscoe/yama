@@ -143,9 +143,9 @@ function GuestBanner() {
   return (
     <aside className="guest-banner" aria-label="Counting without an account">
       <p>
-        <b>No account needed to count life.</b>
+        <b>No account needed.</b>
         <span className="dim">
-          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in with Google to share the table with everyone's phones, keep your playgroup's stats and save these games, and keep your decks and collection.
+          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in to share the table and keep your games and decks.
         </span>
       </p>
       <Link className="button primary" to="/signin">Sign in</Link>

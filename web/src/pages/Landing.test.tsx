@@ -9,6 +9,9 @@ describe("signed-out discovery", () => {
       expect(html).toContain(`href="${path}"`);
     }
     expect(html).toContain("Explore without an account");
+    // The life counter needs no account: the landing points at it, ahead of the sign-in form.
+    expect(html).toContain('href="/">Life counter</a>');
+    expect(html.indexOf("Count life at the table")).toBeLessThan(html.indexOf("Google sign-in placeholder"));
     expect(html).toContain('href="#sign-in"');
     expect(html.indexOf("Explore without an account")).toBeLessThan(html.indexOf("Google sign-in placeholder"));
     expect(html).toContain("Art by Craig Elliott");
