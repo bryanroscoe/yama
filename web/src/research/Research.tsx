@@ -199,7 +199,7 @@ function DeckOverview({ bundle }: { bundle: ResearchBundle }) {
 function ImportResearch() {
   const navigate = useNavigate();const qc = useQueryClient();
   const save = useMutation({ mutationFn: async (f: File) => { if (f.size > 4 << 20) throw new Error("Research files must be under 4 MiB."); return importReport(JSON.parse(await f.text())); }, onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["research"] }); navigate(`/decks/research/${r.id}`); } });
-  return <details><summary>Import a note file</summary><p className="small dim">Accepts yama-research/1 JSON files.</p><input type="file" accept="application/json,.json" disabled={save.isPending} onChange={(e) => { const f = e.target.files?.[0]; if (f) save.mutate(f); }} /><ErrorText error={save.error} /></details>;
+  return <details><summary>Import a note file</summary><p className="small dim">Choosing a yama-research/1 JSON file saves it to your account and replaces any note with the same ID.</p><input type="file" accept="application/json,.json" disabled={save.isPending} onChange={(e) => { const f = e.target.files?.[0]; if (f) save.mutate(f); }} /><ErrorText error={save.error} /></details>;
 }
 
 /** One id per Save-a-copy action in this tab: a reload or a retry after a lost answer gets the

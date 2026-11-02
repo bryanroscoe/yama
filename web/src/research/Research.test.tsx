@@ -81,6 +81,7 @@ describe("deck research evidence", () => {
     client.clear();
     expect(index).toContain("<h1>Agent notes</h1>");expect(index).toContain("Research saved by your agents.");
     expect(index).toContain('href="/decks/plan/review"');
+    expect(index).toContain("saves it to your account and replaces any note with the same ID");
     const note=fullPage();
     expect(note).not.toContain("Research saved by your agents.");expect(note).toContain("Note saved 27 Oct 2026");
   });
