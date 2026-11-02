@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { shortDate, usd } from "../api";
 import { saveFile } from "../download";
 import { Details, ErrorText, Sheet } from "../components/ui";
@@ -28,38 +28,40 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   const [unpriced, setUnpriced] = useState(false);
   // Cards in deck boxes are usually being played; leave them out unless this view is a deck box.
   const [decks, setDecks] = useState(inDeckBox);
-  /** How many of a row to sell, when not all of them; 0 leaves it out. */
+  /** How many of a row to sell, where chosen; 0 leaves it out. */
   const [counts, setCounts] = useState<Map<string, number>>(new Map());
+  /** Rows not chosen one by one: all their copies (at first, and after Tick all) or none (after Untick all). */
+  const [rest, setRest] = useState<"all" | "none">("all");
   const [limit, setLimit] = useState(SHOW);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const floor = Number(min);
   const minimum = min.trim() !== "" && Number.isFinite(floor) && floor > 0 ? floor : null;
-  const deckCopies = items.filter((i) => i.container_kind === "deck" && !i.proxy).reduce((n, i) => n + i.qty, 0);
-  const shown = useMemo(
-    () =>
-      items.filter((i) => {
-        if (!decks && i.container_kind === "deck") return false;
-        if (minimum === null) return true;
-        return i.unit_price_usd == null ? unpriced : i.unit_price_usd >= minimum;
-      }),
-    [items, decks, minimum, unpriced],
-  );
-  const noPrice = minimum === null ? 0 : items.filter((i) => !i.proxy && i.unit_price_usd == null && (decks || i.container_kind !== "deck")).reduce((n, i) => n + i.qty, 0);
+  const worth = (i: SellItem, withUnpriced: boolean) => minimum === null || (i.unit_price_usd == null ? withUnpriced : i.unit_price_usd >= minimum);
+  const copies = (rows: SellItem[]) => rows.reduce((n, i) => n + i.qty, 0);
+  // What each checkbox would add: cards this format can take that pass the other filters.
+  const usable = sellable(format, items) as SellItem[];
+  const deckCopies = copies(usable.filter((i) => i.container_kind === "deck" && worth(i, unpriced)));
+  const noPrice = minimum === null ? 0 : copies(usable.filter((i) => i.unit_price_usd == null && (decks || i.container_kind !== "deck")));
+  const shown = items.filter((i) => (decks || i.container_kind !== "deck") && worth(i, unpriced));
   const cards = sellable(format, shown) as SellItem[];
   const out = leftOut(format, shown);
-  const qty = (c: SellCard) => counts.get(c.id) ?? c.qty;
+  // Never more than the row holds now: the collection can change while the sheet is open.
+  const qty = (c: SellCard) => Math.min(c.qty, counts.get(c.id) ?? (rest === "all" ? c.qty : 0));
   const text = sellText(format, cards, qty);
   const chosen = cards.filter((c) => qty(c) > 0);
   const value = chosen.reduce((v, c) => v + (c.unit_price_usd ?? 0) * qty(c), 0);
   const valueless = chosen.filter((c) => c.unit_price_usd == null).reduce((n, c) => n + qty(c), 0);
   const day = shortDate(chosen.map((c) => c.price_date).filter((d): d is string => !!d).sort().at(-1)) ?? null;
-  const flagged = chosen.filter((c) => special(c).length > 0);
+  const flagged = chosen.filter((c) => special(c).length > 0).reduce((n, c) => n + qty(c), 0);
   const limitNote = overLimit(format, text);
   const info = SELL_FORMATS[format];
   const set = (id: string, n: number) => setCounts((m) => new Map(m).set(id, n));
-  const all = (n: (c: SellCard) => number) => setCounts(new Map(cards.map((c) => [c.id, n(c)])));
+  const all = (r: "all" | "none") => {
+    setRest(r);
+    setCounts(new Map());
+  };
 
   const download = () => saveFile(new Blob([text.text], { type: `${info.mime};charset=utf-8` }), info.file).catch(setError);
   const copy = async () => {
@@ -80,7 +82,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           <button className="quiet" onClick={onClose}>Close</button>
         </div>
         <p className="dim">
-          From {from}. To choose cards by hand, put them in a list (New, then List) and open it here. Proxies are never included.
+          From {from}. To choose cards by hand, move them into a list (New, then List) and open it here. Proxies are never included.
         </p>
 
         <div className="segmented sell-formats" role="group" aria-label="Format">
@@ -111,15 +113,14 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           )}
         </div>
 
-        <p className="sell-total" role="status">
+        <p className="sell-total">
           <b className="num">
             {text.copies.toLocaleString()} {text.copies === 1 ? "card" : "cards"}
           </b>
           {text.copies > 0 && (
             <span className="dim">
               {" "}
-              {usd(value)} market value{day ? ` on ${day}` : ""}
-              {valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}. A buylist pays less than market; each store sets its own offer.
+              {valueless < text.copies ? `${usd(value)} market value${day ? ` on ${day}` : ""}${valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}.` : "No market price for any of them."} A buylist pays less than market; each store sets its own offer.
             </span>
           )}
         </p>
@@ -138,10 +139,10 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           )}
         </div>
         <ErrorText error={error} />
-        {flagged.length > 0 && (
+        {flagged > 0 && (
           <p className="small dim">
-            {flagged.length === 1 ? "1 card is" : `${flagged.length} cards are`} signed, altered or misprinted
-            {format === "sortswift" ? ", said in the Notes column" : ", which this format can't say"}. Check {flagged.length === 1 ? "its" : "their"} offer with the store.
+            {flagged === 1 ? "1 card is" : `${flagged.toLocaleString()} cards are`} signed, altered or misprinted
+            {format === "sortswift" ? ", said in the Notes column" : ", which this format can't say"}. Check {flagged === 1 ? "its" : "their"} offer with the store.
           </p>
         )}
         {out.length > 0 && (
@@ -163,8 +164,8 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
               <span className="small dim">
                 {chosen.length.toLocaleString()} of {cards.length.toLocaleString()} {cards.length === 1 ? "row" : "rows"} ticked
               </span>
-              <button className="quiet small" onClick={() => all((c) => c.qty)}>Tick all</button>
-              <button className="quiet small" onClick={() => all(() => 0)}>Untick all</button>
+              <button className="quiet small" onClick={() => all("all")}>Tick all</button>
+              <button className="quiet small" onClick={() => all("none")}>Untick all</button>
             </div>
             <ul className="sell-list">
               {cards.slice(0, limit).map((c) => {
@@ -187,7 +188,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
                     </label>
                     {c.qty > 1 && (
                       <label className="sell-qty small">
-                        <input type="number" min="0" max={c.qty} value={n} onChange={(e) => set(c.id, Math.max(0, Math.min(c.qty, Math.floor(Number(e.target.value) || 0))))} />
+                        <input type="number" min="0" max={c.qty} value={n} aria-label={`Copies of ${c.name} to sell`} onChange={(e) => set(c.id, Math.max(0, Math.min(c.qty, Math.floor(Number(e.target.value) || 0))))} />
                         of {c.qty}
                       </label>
                     )}

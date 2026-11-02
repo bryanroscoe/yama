@@ -211,7 +211,9 @@ export function CollectionPage() {
               <button aria-pressed={kind === "proxy"} onClick={() => setKind("proxy")}>Proxies</button>
             </div>
           )}
-          {!!items.data?.length && <button className="outline coll-sell" onClick={() => setSelling(true)}>Sell list</button>}
+          {!!items.data?.length && !items.isPlaceholderData && filter.trim() === query && (
+            <button className="outline coll-sell" onClick={() => setSelling(true)}>Sell list</button>
+          )}
           <label className="coll-filter">
             <span className="visually-hidden">Filter by name</span>
             <input type="search" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
