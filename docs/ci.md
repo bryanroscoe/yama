@@ -30,7 +30,15 @@ variable, means off:
 
 With tests off, agents run the checks before merging: `CARGO_BUILD_JOBS=1
 scripts/local-ci.sh --no-amend` on the final head after reconciling with main, then the local
-results go in the PR as local evidence (AGENTS.md). The caveats in
+results go in the PR as local evidence (AGENTS.md). `local-ci.sh` doesn't build the Android
+app, so a change under the paths `android.yml` watches (`web/android/**`,
+`web/capacitor.config.ts`, `web/src/native.ts`, `web/package.json`) also runs that build
+locally with JDK 21 and the Android SDK (docs/mobile.md):
+
+```sh
+npm run android:sync -w web
+(cd web/android && ./gradlew --no-daemon assembleDebug bundleRelease)
+``` The caveats in
 [Don't test a merge twice](#dont-test-a-merge-twice) about macOS vs Linux apply to every merge
 while tests are off, since nothing re-tests main on Linux.
 
