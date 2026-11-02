@@ -6,88 +6,60 @@
 //! `packages/core/src/plan/fixtures/trip.json`, so keep them in step. A listing is a dated quote,
 //! not a purchase; a missing price is unknown, never $0.
 
-use crate::auth::CurrentUser;
-use crate::error::{AppError, AppResult};
-use crate::routes::AppState;
-use axum::Json;
-use axum::extract::{Path, State};
-use chrono::Utc;
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 
 // ── preferences ─────────────────────────────────────────────────────────────
-
-pub const PREFERENCES: [&str; 4] = ["default", "ok", "maybe", "never"];
-
-#[derive(Deserialize)]
-pub struct PrefBody {
-    /// Null clears it: the store is "ok" again.
-    preference: Option<String>,
-    note: Option<String>,
-}
-
-/// `PUT /api/plan/stores/{key}/preference`: the caller's own setting for one of their stores. It
-/// lives apart from the imported store row, so an import never overwrites it.
-pub async fn preference_route(
-    State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
-    Path(key): Path<String>,
-    Json(body): Json<PrefBody>,
-) -> AppResult<Json<Value>> {
-    let known: Option<String> = sqlx::query_scalar("SELECT key FROM plan_stores WHERE owner_id = ? AND key = ?")
-        .bind(&user.id)
-        .bind(&key)
-        .fetch_optional(&st.pool)
-        .await?;
-    if known.is_none() {
-        return Err(AppError::NotFound("store"));
-    }
-    let note = body.note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-    if note.as_ref().is_some_and(|n| n.chars().count() > 500) {
-        return Err(AppError::bad("note: at most 500 characters"));
-    }
-    let at = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    match body.preference.as_deref() {
-        None => {
-            sqlx::query("DELETE FROM plan_store_prefs WHERE owner_id = ? AND store_key = ?").bind(&user.id).bind(&key).execute(&st.pool).await?;
-            Ok(Json(json!({"store": key, "preference": null})))
-        }
-        Some(p) if PREFERENCES.contains(&p) => {
-            sqlx::query(
-                "INSERT INTO plan_store_prefs (owner_id, store_key, preference, note, updated_at) VALUES (?, ?, ?, ?, ?)
-                 ON CONFLICT(owner_id, store_key) DO UPDATE SET preference = excluded.preference, note = excluded.note, updated_at = excluded.updated_at",
-            )
-            .bind(&user.id)
-            .bind(&key)
-            .bind(p)
-            .bind(&note)
-            .bind(&at)
-            .execute(&st.pool)
-            .await?;
-            Ok(Json(json!({"store": key, "preference": p, "note": note, "updated_at": at})))
-        }
-        Some(other) => Err(AppError::bad(format!("preference must be one of default, ok, maybe or never, not \"{other}\""))),
-    }
-}
+// Set with `shopping.rs` (the route and Claude's staged change); read here from the bundle.
 
 fn rank(p: &str) -> u8 {
     match p {
-        "default" => 0,
+        "favorite" => 0,
         "maybe" => 2,
         "never" => 3,
         _ => 1,
     }
 }
 
-fn preference_text(p: &str) -> &'static str {
+pub fn preference_text(p: &str) -> &'static str {
     match p {
-        "default" => "your usual store",
+        "favorite" => "their favourite, to support",
         "maybe" => "maybe, one trip",
-        "never" => "you won't go",
+        "never" => "they won't go",
         _ => "fine to go",
     }
+}
+
+/// The owner's level for a store (`trip.ts` `storePreference`): "ok" when unset; "default" is the
+/// name a favourite had before migration 0051.
+pub fn store_preference(b: &Value, key: &str) -> &'static str {
+    match b["store_prefs"][key]["preference"].as_str() {
+        Some("favorite" | "default") => "favorite",
+        Some("maybe") => "maybe",
+        Some("never") => "never",
+        _ => "ok",
+    }
+}
+
+/// How much more a card may cost at this store and still come from it (0 when unset).
+pub fn store_premium(b: &Value, key: &str) -> f64 {
+    if store_preference(b, key) != "favorite" {
+        return 0.0; // a premium kept from when it was a favourite
+    }
+    b["store_prefs"][key].get("premium_usd").and_then(num).filter(|v| *v > 0.0).unwrap_or(0.0)
+}
+
+/// Every store's place in the owner's order of how easy it is to get to, from 1 (`trip.ts`
+/// `hassleOrder`): the stores they numbered, by number, then the rest in store order.
+pub fn hassle_order(b: &Value) -> HashMap<String, usize> {
+    let h = |k: &str| b["store_prefs"][k].get("hassle").and_then(num).unwrap_or(f64::MAX);
+    let mut all: Vec<&Value> = arr(b, "stores").iter().filter(|x| x["retired"] != true && s(x, "kind") != Some("printer")).collect();
+    all.sort_by(|x, y| {
+        let (kx, ky) = (s(x, "key").unwrap_or_default(), s(y, "key").unwrap_or_default());
+        h(kx).partial_cmp(&h(ky)).unwrap_or(std::cmp::Ordering::Equal).then(sort_of(x).cmp(&sort_of(y))).then(kx.cmp(ky))
+    });
+    all.iter().enumerate().filter_map(|(i, x)| Some((s(x, "key")?.to_string(), i + 1))).collect()
 }
 
 // ── the buy rule ────────────────────────────────────────────────────────────
@@ -130,7 +102,7 @@ fn times(x: f64) -> String {
 }
 
 /// The rule set in force on `date`: the newest that starts on or before it.
-fn rules_at<'a>(settings: &'a [Value], date: &str) -> Option<&'a Value> {
+pub fn rules_at<'a>(settings: &'a [Value], date: &str) -> Option<&'a Value> {
     let mut sorted: Vec<&Value> = settings.iter().collect();
     sorted.sort_by(|a, b| s(a, "effective_from").cmp(&s(b, "effective_from")));
     sorted.into_iter().rev().find(|x| s(x, "effective_from").is_some_and(|f| f <= date))
@@ -289,6 +261,8 @@ pub struct Stop<'a> {
     pub along_total: f64,
     pub cart_url: Option<String>,
     pub no_cart_line: usize,
+    /// On a TCGplayer Pro storefront (no cart link): (card, search link) for each needed card.
+    pub search: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -318,10 +292,14 @@ pub struct Trip<'a> {
     /// Store names by key, for the alternatives (a smaller set can use a store the trip doesn't).
     pub names: HashMap<String, String>,
     pub print: Vec<PrintRow<'a>>,
+    /// The cards to print as a TCGplayer Mass Entry link (None: none, or too long).
+    pub print_mass_entry: Option<String>,
     pub elsewhere: Vec<(&'a Value, Vec<Row<'a>>)>,
-    /// Stores you won't go to (or that aren't local, under a buy-local rule), with their preference
-    /// and how many needed cards they have under the rule.
-    pub skipped: Vec<(&'a Value, &'a str, usize)>,
+    /// Stores off this trip with needed cards under the rule: their preference, how many cards,
+    /// and why ("never", "not-local", "left-out").
+    pub skipped: Vec<(&'a Value, &'a str, usize, &'static str)>,
+    /// The stores they said they're going to this time; None: every store they'll go to.
+    pub going: Option<Vec<String>>,
     pub checked_on: Vec<String>,
     pub wishlist: Vec<WishTier>,
 }
@@ -510,6 +488,41 @@ fn cart_url(store: &Value, variants: &[&str]) -> Option<String> {
     Some(t.replace("{items}", &items.join(",")))
 }
 
+/// Longest TCGplayer Mass Entry link built (`carts.ts` `MASS_ENTRY_MAX`); an 8.3 KB one was refused.
+const MASS_ENTRY_MAX: usize = 7000;
+
+fn front_face(card: &str) -> &str {
+    card.split(" // ").next().unwrap_or(card).trim()
+}
+
+/// A TCGplayer Mass Entry link, "1 Name" a line (`carts.ts` `massEntryUrl`).
+pub fn mass_entry_url(cards: &[&str]) -> Option<String> {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for c in cards.iter().map(|c| front_face(c)) {
+        match counts.iter_mut().find(|(n, _)| *n == c) {
+            Some((_, k)) => *k += 1,
+            None => counts.push((c, 1)),
+        }
+    }
+    if counts.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = counts.iter().map(|(c, n)| urlencoding(&format!("{n} {c}"))).collect();
+    let url = format!("https://www.tcgplayer.com/massentry?productline=Magic&c={}", lines.join("||"));
+    (url.len() <= MASS_ENTRY_MAX).then_some(url)
+}
+
+/// A card search on the store's TCGplayer Pro storefront, which has no cart link (`carts.ts`).
+pub fn pro_search_url(store: &Value, card: &str) -> Option<String> {
+    // The parsed host, as `carts.ts` reads `new URL(...).origin`: a path or query can't pose as one.
+    let u = url::Url::parse(s(store, "homepage")?).ok()?;
+    if u.scheme() != "https" || !u.host_str()?.ends_with(".tcgplayerpro.com") {
+        return None;
+    }
+    let base = u.origin().ascii_serialization();
+    Some(format!("{base}/search/products?q={}&productLineName={}&sort=price-asc", urlencoding(front_face(card)), urlencoding("Magic: The Gathering")))
+}
+
 /// `encodeURIComponent`.
 fn urlencoding(v: &str) -> String {
     let mut out = String::new();
@@ -523,8 +536,9 @@ fn urlencoding(v: &str) -> String {
     out
 }
 
-/// Plan the trip from a bundle (`bundle::load_bundle`). `today` is YYYY-MM-DD.
-pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
+/// Plan the trip from a bundle (`bundle::load_bundle`). `today` is YYYY-MM-DD; `going` is the
+/// stores they're going to this time (None: every store they'll go to).
+pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a> {
     let live: HashSet<&str> = arr(b, "swaps").iter().filter(|x| x["retired"] != true).filter_map(|x| s(x, "key")).collect();
     let answers = answers(b, &live);
     let bought = bought(b, &live);
@@ -534,12 +548,25 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
     let wants = wants(b, &answers, &bought);
     let stores: Vec<&Value> = arr(b, "stores").iter().filter(|x| x["retired"] != true).collect();
     let store = |k: &str| stores.iter().copied().find(|x| s(x, "key") == Some(k));
-    let prefs = b.get("store_prefs");
-    let pref = |k: &str| -> &'a str {
-        let p = prefs.and_then(|p| p.get(k)).and_then(|p| s(p, "preference")).unwrap_or("ok");
-        PREFERENCES.iter().copied().find(|x| *x == p).unwrap_or("ok")
+    let pref = |k: &str| -> &'static str { store_preference(b, k) };
+    let skip_why = |st: &Value| -> Option<&'static str> {
+        let k = s(st, "key").unwrap_or_default();
+        if pref(k) == "never" {
+            Some("never")
+        } else if local_only && s(st, "kind") != Some("local") {
+            Some("not-local")
+        } else if going.is_some_and(|g| !g.iter().any(|x| x == k)) {
+            Some("left-out")
+        } else {
+            None
+        }
     };
-    let eligible = |st: &Value| pref(s(st, "key").unwrap_or_default()) != "never" && (!local_only || s(st, "kind") == Some("local"));
+    let eligible = |st: &Value| skip_why(st).is_none();
+    // A card goes to its cheapest copy after each store's premium, then the preferred store, then
+    // the easier one to get to (`trip.ts` `compareOffers`).
+    let hassle = hassle_order(b);
+    let place = |k: &str| hassle.get(k).copied().unwrap_or(usize::MAX);
+    let premium_cents = |o: &Offer| -> i64 { ((o.price - store_premium(b, o.key())) * 100.0).round().max(0.0) as i64 };
 
     let mut by_card: HashMap<String, Vec<&Value>> = HashMap::new();
     for q in arr(b, "quotes") {
@@ -592,10 +619,10 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             offers.push(Offer { quote: q, store: st, preference: pref(s(st, "key").unwrap_or_default()), price, market, verdict });
         }
         offers.sort_by(|x, y| {
-            x.price
-                .partial_cmp(&y.price)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            premium_cents(x)
+                .cmp(&premium_cents(y))
                 .then(rank(x.preference).cmp(&rank(y.preference)))
+                .then(place(x.key()).cmp(&place(y.key())))
                 .then(sort_of(x.store).cmp(&sort_of(y.store)))
                 .then(x.key().cmp(y.key()))
         });
@@ -621,21 +648,29 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             coverage.entry(o.key().to_string()).or_default().insert(&w.id);
         }
     }
-    let mut pool: Vec<&Value> = coverage.keys().filter_map(|k| store(k)).collect();
     let key_of = |x: &Value| s(x, "key").unwrap_or_default().to_string();
+    let by_order = |x: &&Value, y: &&Value| sort_of(x).cmp(&sort_of(y)).then(key_of(x).cmp(&key_of(y)));
+    let covering: Vec<&Value> = coverage.keys().filter_map(|k| store(k)).collect();
+    let mut forced: Vec<&Value> = covering.iter().copied().filter(|x| pref(&key_of(x)) == "favorite").collect();
+    forced.sort_by(by_order);
+    let mut pool: Vec<&Value> = covering.iter().copied().filter(|x| pref(&key_of(x)) != "favorite").collect();
     pool.sort_by(|x, y| {
         coverage[&key_of(y)]
             .len()
             .cmp(&coverage[&key_of(x)].len())
             .then(rank(pref(&key_of(x))).cmp(&rank(pref(&key_of(y)))))
-            .then(sort_of(x).cmp(&sort_of(y)))
-            .then(key_of(x).cmp(&key_of(y)))
+            .then(by_order(x, y))
     });
-    // Exact up to 12 candidate stores; with more, a greedy cover picks the stores searched first
-    // and a cover longer than 12 puts its later stores on every trip (`trip.ts`).
-    let mut forced: Vec<&Value> = Vec::new();
+    // Up to 12 other stores are searched exhaustively; with more, a greedy cover of the cards the
+    // favourites don't have picks the stores searched first, and a cover longer than 12 puts its
+    // later stores on every trip (`trip.ts`).
     if pool.len() > MAX_SEARCH {
-        let mut left: HashSet<&str> = coverage.values().flat_map(|c| c.iter().copied()).collect();
+        let mut left: HashSet<&str> = pool.iter().flat_map(|x| coverage[&key_of(x)].iter().copied()).collect();
+        for f in &forced {
+            for id in &coverage[&key_of(f)] {
+                left.remove(id);
+            }
+        }
         let mut rest = pool.clone();
         let mut cover: Vec<&Value> = Vec::new();
         while !left.is_empty() {
@@ -653,15 +688,15 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             }
             cover.push(st);
         }
-        forced = cover.split_off(MAX_SEARCH.min(cover.len()));
+        forced.extend(cover.split_off(MAX_SEARCH.min(cover.len())));
         cover.extend(rest);
         cover.truncate(MAX_SEARCH);
         pool = cover;
     }
-    let by_order = |x: &&Value, y: &&Value| sort_of(x).cmp(&sort_of(y)).then(key_of(x).cmp(&key_of(y)));
+    forced.sort_by(by_order);
     pool.sort_by(by_order);
 
-    // (keys, covered, maybes, others, total), the best of each size.
+    // (keys, covered, maybes, hassle, total), the best of each size; every subset has the favourites.
     type Choice = (Vec<String>, usize, usize, usize, f64);
     let better = |a: &Choice, c: &Choice| -> bool {
         if a.1 != c.1 {
@@ -678,8 +713,8 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
     };
     let mut best: HashMap<usize, Choice> = HashMap::new();
     for mask in (if forced.is_empty() { 1u32 } else { 0 })..(1u32 << pool.len()) {
-        let mut picked: Vec<&Value> = pool.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, x)| *x).collect();
-        picked.extend(forced.iter().copied());
+        let mut picked: Vec<&Value> = forced.clone();
+        picked.extend(pool.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, x)| *x));
         picked.sort_by(by_order);
         let keys: Vec<String> = picked.iter().map(|x| key_of(x)).collect();
         let set: HashSet<String> = keys.iter().cloned().collect();
@@ -691,8 +726,8 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             }
         }
         let maybes = keys.iter().filter(|k| pref(k) == "maybe").count();
-        let others = keys.iter().filter(|k| pref(k) != "default").count();
-        let c: Choice = (keys, covered, maybes, others, cents(total));
+        let ease = keys.iter().map(|k| place(k)).sum();
+        let c: Choice = (keys, covered, maybes, ease, cents(total));
         let n = c.0.len();
         if best.get(&n).is_none_or(|cur| better(&c, cur)) {
             best.insert(n, c);
@@ -738,13 +773,19 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
             }
             continue;
         }
-        let banned: Vec<&Offer> = offers.iter().filter(|o| o.verdict == Verdict::Ok && !eligible(o.store)).collect();
-        let first = |v: Verdict| offers.iter().find(|o| o.verdict == v && eligible(o.store)).cloned();
+        // Off this trip: first the stores they left off today, then ones that aren't local when the
+        // rule says buy local, then ones they won't go to (`trip.ts`).
+        let off: Vec<&Offer> = offers.iter().filter(|o| o.verdict == Verdict::Ok && !eligible(o.store)).collect();
+        let why = ["left-out", "not-local", "never"].into_iter().find(|r| off.iter().any(|o| skip_why(o.store) == Some(*r)));
+        let banned: Vec<&Offer> = off.iter().copied().filter(|o| why.is_some() && skip_why(o.store) == why).collect();
+        let reason = match why {
+            Some("left-out") => "left-out",
+            Some("not-local") => "not-local",
+            _ => "never-store",
+        };
+        // A price that fails the rule says so wherever it's listed (`trip.ts`).
+        let first = |v: Verdict| offers.iter().find(|o| o.verdict == v).cloned();
         let (checks, unpriced, unknown) = seen_of[&w.id].clone();
-        // Off the trip because the rule says buy local (the store is fine otherwise), or because they won't go.
-        let not_local: Vec<&Offer> = banned.iter().copied().filter(|o| o.preference != "never").collect();
-        let reason = if not_local.is_empty() { "never-store" } else { "not-local" };
-        let banned = if not_local.is_empty() { banned } else { not_local };
         let row = if let Some(o) = banned.first() {
             let mut names: Vec<String> = Vec::new();
             for x in &banned {
@@ -768,7 +809,7 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
 
     let by_card = |x: &Row, y: &Row| x.want.deck_name.as_deref().unwrap_or("").cmp(y.want.deck_name.as_deref().unwrap_or("")).then(x.want.card.cmp(&y.want.card));
     let mut chosen_stores: Vec<&Value> = chosen.iter().filter_map(|k| store(k)).collect();
-    chosen_stores.sort_by(|x, y| rank(pref(&key_of(x))).cmp(&rank(pref(&key_of(y)))).then(sort_of(x).cmp(&sort_of(y))).then(key_of(x).cmp(&key_of(y))));
+    chosen_stores.sort_by(|x, y| rank(pref(&key_of(x))).cmp(&rank(pref(&key_of(y)))).then(place(&key_of(x)).cmp(&place(&key_of(y)))).then(by_order(x, y)));
     let stops: Vec<Stop> = chosen_stores
         .into_iter()
         .map(|st| {
@@ -783,6 +824,7 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
                 along_total: cents(along.iter().map(|r| r.offer.price).sum()),
                 cart_url: cart_url(st, &lines),
                 no_cart_line: rows.len() - lines.len(),
+                search: rows.iter().filter_map(|r| Some((r.want.card.clone(), pro_search_url(st, &r.want.card)?))).collect(),
                 rows,
                 along,
             }
@@ -791,12 +833,16 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
     let covered: usize = stops.iter().map(|x| x.rows.len()).sum();
     print.sort_by(|x, y| x.want.deck_name.as_deref().unwrap_or("").cmp(y.want.deck_name.as_deref().unwrap_or("")).then(x.want.card.cmp(&y.want.card)));
 
-    let mut skipped: Vec<(&Value, &str, usize)> = stores
+    let mut skipped: Vec<(&Value, &str, usize, &'static str)> = stores
         .iter()
         .copied()
-        .filter(|st| !eligible(st) && s(st, "kind") != Some("printer"))
-        .map(|st| (st, pref(&key_of(st)), needed.iter().filter(|w| offers_of[&w.id].iter().any(|o| o.verdict == Verdict::Ok && o.key() == key_of(st))).count()))
-        .filter(|(_, _, n)| *n > 0)
+        .filter(|st| s(st, "kind") != Some("printer"))
+        .filter_map(|st| {
+            let why = skip_why(st)?;
+            let n = needed.iter().filter(|w| offers_of[&w.id].iter().any(|o| o.verdict == Verdict::Ok && o.key() == key_of(st))).count();
+            Some((st, pref(&key_of(st)), n, why))
+        })
+        .filter(|x| x.2 > 0)
         .collect();
     skipped.sort_by(|x, y| sort_of(x.0).cmp(&sort_of(y.0)).then(key_of(x.0).cmp(&key_of(y.0))));
     let mut elsewhere: Vec<(&Value, Vec<Row>)> = elsewhere
@@ -826,9 +872,11 @@ pub fn plan<'a>(b: &'a Value, today: &str) -> Trip<'a> {
         total,
         alternatives,
         names: stores.iter().filter_map(|x| Some((s(x, "key")?.to_string(), store_name(x).to_string()))).collect(),
+        print_mass_entry: mass_entry_url(&print.iter().map(|p| p.want.card.as_str()).collect::<Vec<_>>()),
         print,
         elsewhere,
         skipped,
+        going: going.map(<[String]>::to_vec),
         checked_on: checked.into_iter().collect(),
         wishlist,
     }
@@ -864,8 +912,10 @@ pub fn summary(t: &Trip) -> Value {
         "needed": t.needed, "covered": t.covered, "total": t.total,
         "alternatives": t.alternatives.iter().map(|a| json!([a.0, a.1, a.2])).collect::<Vec<_>>(),
         "print": t.print.iter().map(|p| json!([p.want.card, p.reason])).collect::<Vec<_>>(),
+        "print_mass_entry": t.print_mass_entry,
+        "search": t.stops.iter().map(|x| x.search.iter().map(|(_, u)| u.clone()).collect::<Vec<_>>()).collect::<Vec<_>>(),
         "elsewhere": t.elsewhere.iter().map(|(st, rs)| json!([s(st, "key"), rs.iter().map(|r| r.want.card.clone()).collect::<Vec<_>>()])).collect::<Vec<_>>(),
-        "skipped": t.skipped.iter().map(|(st, _, n)| json!([s(st, "key"), n])).collect::<Vec<_>>(),
+        "skipped": t.skipped.iter().map(|(st, _, n, why)| json!([s(st, "key"), n, why])).collect::<Vec<_>>(),
         "wishlist": t.wishlist.iter().map(|w| json!([w.label, w.items.iter().map(|i| i.0.card.clone()).collect::<Vec<_>>()])).collect::<Vec<_>>(),
     })
 }
@@ -922,6 +972,10 @@ fn row_line(r: &Row) -> String {
 pub fn text(t: &Trip) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "Store trip, planned {}.", date(&t.today));
+    if let Some(g) = &t.going {
+        let names: Vec<&str> = g.iter().map(|k| t.names.get(k).map_or(k.as_str(), String::as_str)).collect();
+        let _ = writeln!(out, "Going this time: {}.", if names.is_empty() { "no stores".to_string() } else { names.join(", ") });
+    }
     let _ = writeln!(
         out,
         "Rule{}: {}",
@@ -963,9 +1017,14 @@ pub fn text(t: &Trip) -> String {
             usd(Some(st.total))
         );
         if let Some(u) = &st.cart_url {
-            let _ = writeln!(out, "Cart link (replaces what's in that cart): {u}");
+            let _ = writeln!(out, "Cart link (fills that store's cart with these; check it before paying): {u}");
         }
-        if st.no_cart_line > 0 {
+        if !st.search.is_empty() {
+            out.push_str("No cart link on this store's site; a search for each card:\n");
+            for (card, url) in &st.search {
+                let _ = writeln!(out, "  {card}: {url}");
+            }
+        } else if st.no_cart_line > 0 {
             let _ = writeln!(out, "{} without a cart line: ask at the counter.", st.no_cart_line);
         }
         for r in &st.rows {
@@ -992,6 +1051,7 @@ pub fn text(t: &Trip) -> String {
             let why = match p.reason {
                 "never-store" => format!("only at {}, where they won't go ({at})", p.stores.join(", ")),
                 "not-local" => format!("only at {}, which isn't local, and their rule is to buy locally ({at})", p.stores.join(", ")),
+                "left-out" => format!("only at {}, which they left off this trip ({at})", p.stores.join(", ")),
                 "over-max" => format!("over the rule's limit ({at}): print it, and keep it on the real-card wishlist"),
                 "over-market" => format!("above the rule for its market ({at}; {})", market_words(&p.offer.as_ref().and_then(|o| o.market.clone()))),
                 "no-market" => format!("no market price to judge it by ({at})"),
@@ -1002,9 +1062,16 @@ pub fn text(t: &Trip) -> String {
             };
             let _ = writeln!(out, "- {} for {}: {why}", p.want.card, p.want.deck_name.as_deref().unwrap_or("?"));
         }
+        if let Some(u) = &t.print_mass_entry {
+            let _ = writeln!(out, "To compare online prices for these, TCGplayer Mass Entry: {u}");
+        }
     }
-    for (st, p, n) in &t.skipped {
-        let why = if *p == "never" { preference_text(p).to_string() } else { "not a local store, and your rule is to buy locally".into() };
+    for (st, _, n, why) in &t.skipped {
+        let why = match *why {
+            "never" => "they won't go",
+            "left-out" => "left off this trip",
+            _ => "not a local store, and their rule is to buy locally",
+        };
         let _ = writeln!(out, "\nSkipped: {} ({why}) has {n} needed card{} under the rule.", store_name(st), if *n == 1 { "" } else { "s" });
     }
     if !t.elsewhere.is_empty() {

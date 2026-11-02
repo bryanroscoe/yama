@@ -1118,6 +1118,17 @@ wishlist by price tier. Claude's `shopping_trip` tool runs a Rust port (`server/
 checked against the same fixture. Listings are still the plan's dated `plan_quotes`; store
 snapshots fetched by the server come in slice 2.
 
+Account rules and store preferences v2 (2026-11-01, same design note): the buy rule and sealed
+cap are edited in Plan settings (`server/src/plan/shopping.rs`, `packages/core` `shoprules.ts`)
+and saved as a new dated rule set with `origin = 'yama'`; a plan import never replaces a Yama-made
+set, and an imported set dated after one warns the first time it arrives. Migration 0051 renames
+the usual store to `favorite` (on every trip it has a card for) and adds `hassle` (the person's
+order of how easy stores are to get to) and `premium_usd` (a favourite gets a card when it costs at
+most that much more than the cheapest). The Trip page also takes the stores going this time, a
+list to copy per store, search links for TCGplayer Pro storefronts (which have no cart link) and a
+TCGplayer Mass Entry link for what's left (`carts.ts`). Claude reads it with `shopping_settings`
+and stages `set_shopping_rules` and `set_store_preference`.
+
 ### Deck market values (2026-10-27)
 
 Saved deck lists and the precon catalog show a singles replacement estimate alongside the existing cost to finish. `server/src/deck_prices.rs` uses the planner's cheapest eligible nonfoil paper-printing policy, with snapshots within three days of each card's newest snapshot. Commander and main quantities count, including basics; sideboards do not. This estimates the card list independent of ownership and proxies, not the resale value of the user's actual printings. Totals include priced copies only, are null when none are priced, count missing copies explicitly, and carry the oldest and newest contributing dates and TCGplayer/Scryfall provenance.

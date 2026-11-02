@@ -26,7 +26,8 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// without them are fetched again.
 /// 3: installed states read from the owner's decks (`installed.rs`, 2026-10-28).
 /// 4: store preferences and the real-card wishlist, for the store trip (2026-11-01).
-const SHAPE: u32 = 4;
+/// 5: a store's place in your order and a favourite's premium (2026-11-01).
+const SHAPE: u32 = 5;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
@@ -38,7 +39,7 @@ pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
         "SELECT id || '=' || COALESCE(current_version_id, '') || '/' || COALESCE(parent_id, '') || '/' || name AS line
          FROM decks WHERE owner_id = ? AND archived = 0
          UNION ALL SELECT 'plan:' || key || '=' || COALESCE(deck_id, '') || '/' || name FROM plan_decks WHERE owner_id = ?
-         UNION ALL SELECT 'pref:' || store_key || '=' || preference || '/' || updated_at FROM plan_store_prefs WHERE owner_id = ?
+         UNION ALL SELECT 'pref:' || store_key || '=' || preference || '/' || IFNULL(hassle, '') || '/' || IFNULL(premium_usd, '') || '/' || updated_at FROM plan_store_prefs WHERE owner_id = ?
          UNION ALL SELECT 'research:' || id || '=' || revision || '/' || updated_at FROM research_reports WHERE owner_id = ?
          ORDER BY 1",
     )
@@ -367,14 +368,16 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
 
     // Your store preferences (made in Yama, never by an import) and your real-card wishlist (research
     // scenarios with purpose `permanent_real_wishlist`), for the store trip (packages/core trip.ts).
-    let pref_rows: Vec<(String, String, Option<String>, String)> =
-        sqlx::query_as("SELECT store_key, preference, note, updated_at FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
+    let pref_rows: Vec<(String, String, Option<String>, Option<i64>, Option<f64>, String)> =
+        sqlx::query_as("SELECT store_key, preference, note, hassle, premium_usd, updated_at FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
             .bind(owner)
             .fetch_all(pool)
             .await?;
     let store_prefs: Map<String, Value> = pref_rows
         .into_iter()
-        .map(|(key, preference, note, at)| (key, json!({"preference": preference, "note": note, "updated_at": at})))
+        .map(|(key, preference, note, hassle, premium, at)| {
+            (key, json!({"preference": preference, "note": note, "hassle": hassle, "premium_usd": premium, "updated_at": at}))
+        })
         .collect();
     let wishlist = wishlist(pool, owner).await?;
     for w in &wishlist {

@@ -21,10 +21,15 @@ the shopping list.
    wants to buy and each store's dated listings, the trip picks the fewest stores covering the most
    cards under his buy rule, and shows each store's cards, its cart total and cart link, the best
    choice with fewer stores, and what is left to print, with the reason.
-2. **His stores, his way.** Each person marks each store: **your usual store** (Pat's Games), **fine
-   to go** (Mothership), **maybe, one trip** (Multiverse Hobbies, Hutto; he hasn't been) or **won't
-   go** (Alpha Strike, San Marcos, 44 mi). The trip never sends him to a "won't go" store, and goes
-   to a "maybe" store only for cards no other store has.
+2. **His stores, his way.** Each person marks each store: **favourite, support them**, **fine to
+   go**, **maybe, one trip** or **won't go**, puts them in order of how easy they are to get to, and
+   can give a favourite a premium ("up to $0.25 more a card here"). Bryan, 1 Nov 2026: Black Castle
+   Gamez (Cedar Park, 3.6 mi) is his favourite, "the most convenient by far and I want to support
+   them... use them as much as possible"; Mothership (6.9 mi) is second closest; Pat's Games (11.7
+   mi) "has the most stuff" but is "the most pain in the ass to get to"; Multiverse Hobbies (Hutto,
+   13.4 mi) is "pretty good" and he is "pretty flexible"; "I can go to any four of those"; Alpha
+   Strike (San Marcos, 44 mi) stays "won't go". On the Trip page he also ticks which stores he's
+   going to this time, and the trip optimizes over those.
 3. **One shopping list**: plan buy rows, approved pickups, cards for Yama decks that aren't in a plan
    (his cEDH "Kraum & Tymna" deck has four local buys), the long-term real-card wishlist by price
    tier, and sealed precons he might buy.
@@ -57,15 +62,40 @@ the shopping list.
   market, unknown market doesn't qualify", which is looser than his real rule between $1 and $2
   and stricter at $0.50 and under. **commander-decks should add the `local_buy` object above to the
   2026-10-28 row of `data/planner/settings.json`**; the importer already keeps unknown rule keys.
-- **Sealed precons: at most $51 per deck, before tax** (28 Oct 2026). A later rule key,
-  `sealed_max_usd`, carries it.
+- **Sealed precons: at most $51 per deck, before tax** (28 Oct 2026). The rule key
+  `sealed_max_usd` carries it.
+
+### Account-level rules (built 1 Nov 2026)
+
+Bryan, 1 Nov 2026: "The rule for the price might be something you configure on an account level...
+make it easy to change." Plan settings, Shopping rules, shows the rule in force today and **Change
+your buy rule**: the most a card may cost, the always-fine price, the market ranges (under $X: at
+most Y× market; the last may be "any market"), and the sealed cap. The form starts from the set in
+force (its `local_buy`, else the rule read from its older fields).
+
+- **A save is a new dated rule set.** `POST /api/plan/settings` copies the set in force on that day,
+  replaces `local_buy` and `sealed_max_usd`, and saves it with `origin = 'yama'` from that day (the
+  device's today; the server takes yesterday to tomorrow in UTC). A second save the same day
+  replaces that day's set. Older checks keep the set of their own day. **Undo this one** removes
+  the newest set when it was made in Yama (`DELETE /api/plan/settings/{date}`, Yama-made only).
+- **Yama and the import side by side.** The import still replaces only the sets it made.
+  - **Same date:** a set made in Yama is kept; the imported one for that date is not applied, and
+    the import report says so. (Before 1 Nov 2026 the import replaced it.)
+  - **An imported set dated after a Yama one** is a newer decision from his export, and applies
+    from its own date, as any set does. Its report warns, the first time that set arrives or
+    changes, that it follows the set he made in Yama, so it never takes over silently.
+  - **An imported set dated before a Yama one** (commander-decks adding `local_buy` to its
+    2026-10-28 set later) changes only the days before the Yama set.
+- **Claude** reads it with `shopping_settings` and stages a change with `set_shopping_rules`,
+  which makes the same dated set on the day he applies it.
 
 ## Data model
 
 | What | Where | Status |
 |---|---|---|
 | Stores (name, kind, location, cart link template, note) | `plan_stores`, from the plan import (`data/planner/stores.json`); Yama-made stores in planner slice 6 | Exists |
-| **Store preferences** | `plan_store_prefs (owner_id, store_key, preference, note, updated_at)`, migration 0050. Keyed by store key, apart from `plan_stores`, so an import never overwrites them and a retired store keeps its preference when it returns. No row: "fine to go". | Built (slice 1) |
+| **Store preferences** | `plan_store_prefs (owner_id, store_key, preference, note, updated_at)`, migration 0050; migration 0051 renames `default` to `favorite` and adds `hassle` (his order, from 1) and `premium_usd` (0 to $10). Keyed by store key, apart from `plan_stores`, so an import never overwrites them and a retired store keeps its preference when it returns. No row: "fine to go". | Built (slice 1, v2) |
+| **Rule sets made in Yama** | `plan_settings` rows with `origin = 'yama'`, from Settings or the staged `set_shopping_rules` (see "Account-level rules") | Built |
 | Dated listings for plan cards | `plan_quotes` (`stock_check`: store, checked date, in stock, price, printing, cart variant, URL) | Exists |
 | Real-card wishlist | Research scenarios with `purpose: permanent_real_wishlist` (`research_reports`), one entry per card | Exists; the bundle now carries it as `wishlist` |
 | **Stock snapshots** | `store_snapshots (id, owner_id, store_key, source, query, fetched_at, status, raw_gz, item_count)` and `store_listings (snapshot_id, owner_id, card_name, oracle_id, set_code, number, finish, condition, language, price, qty, variant, url)`. One snapshot is one dated read of one store (a whole catalog, or the answers for a card list). Listings are never edited; a newer snapshot of the same store supersedes an older one, as `newestChecks` does for quotes. The raw response is kept gzipped (newest 10 per store) so a parse bug can be fixed without fetching again. | Slice 2 |
@@ -97,17 +127,31 @@ is a port of `planTrip` over the same bundle JSON. Both are checked against one 
   stock"), at a non-retired store that isn't a printer, in stock, with a price, not foil. Only those
   that qualify under the rule count.
 
-**Choosing stores.** Stores that he'll go to (not "won't go"; and only local ones when his rule
-set says `buy_local_only`) and that have a qualifying copy of a needed card are searched
-exhaustively (up to 12; 4,095 subsets). With more than 12, a greedy cover picks the stores searched (and puts the rest of a longer cover on every trip), so every coverable card is reached but the fewest stores is approximate. For each number of stores, the
-best subset covers the most needed cards, then has the fewest "maybe" stores, then the fewest
-stores other than his usual one, then the lowest total. The trip is the smallest set that covers as
-many cards as any set can; the smaller sets that cover fewer are shown as "with fewer stores"
-("Pat's alone: 2 cards, $1.50"), so he can decide that one card isn't worth a drive. Each card goes
-to its cheapest qualifying copy among the chosen stores (ties: preference, then store order).
+**Choosing stores** (store preferences v2, 1 Nov 2026). A store is a candidate when he'll go to it
+(not "won't go"), it is local when his rule set says `buy_local_only`, it is ticked under "Going
+this time" (all are, until he unticks one; `?going=1&store=...` on the page, `stores` on `shopping_trip`),
+and it has a qualifying copy of a needed card.
+
+- **A favourite with a qualifying needed card is on every trip.** "Use them as much as possible."
+- The other candidates are searched exhaustively (up to 12; 4,095 subsets), each subset together
+  with the favourites. With more than 12, a greedy cover picks the stores searched (the rest of a
+  longer cover goes on every trip), so every coverable card is reached but the fewest stores is
+  approximate. For each number of stores, the best subset
+  covers the most needed cards, then has the fewest "maybe" stores, then is **easiest to get to**
+  (the lowest sum of the stores' places in his order), then has the lowest total.
+- The trip is the smallest set that covers as many cards as any set can; the smaller sets that
+  cover fewer are shown as "with fewer stores" ("Black Castle alone: 2 cards, $1.50"), so he can
+  decide that one card isn't worth a drive.
+- **Each card goes to its cheapest qualifying copy among the chosen stores after each store's
+  premium**: a favourite with a $0.25 premium gets a card listed at $0.75 when the cheapest other
+  copy is $0.50. Ties go to the preferred store (favourite, fine, maybe), then the easier one, then
+  store order. The premium never lets in a copy the rule refuses, and totals are listed prices.
+- **The order.** `hassle` is his place for the store, from 1 (easiest). Stores he hasn't placed
+  come after those he has, in the plan's store order. Moving a store on the Trip page saves every
+  store's place, so the order is entirely his.
 
 **What's left, and why** (each needed card not on the trip, first reason that applies):
-only at a store he won't go to (named); over the rule's limit (print it, keep it on the wishlist);
+only at stores he left off this trip (named); only at a store he won't go to (named); over the rule's limit (print it, keep it on the wishlist);
 above the rule for its market; no market to judge it by; in stock with no price (ask); not in
 stock at the last check; no check recorded. "Won't go" stores with cards he needs are listed with
 the count, so the cost of the preference is visible.
@@ -145,23 +189,28 @@ singles value is a market estimate, not what he could sell them for (AGENTS.md's
 
 ## Claude's tools (MCP)
 
-Read (built in slice 1):
+Read (built):
 
 | Tool | Returns |
 |---|---|
-| `shopping_trip` (`today` optional) | The trip in words: the rule and its date, check dates, each store with its preference, cards, cart link and total, what comes along, the best with fewer stores, what to print and why, skipped stores, and the wishlist by tier |
+| `shopping_trip` (`today`, `stores` optional) | The trip in words: the rule and its date, check dates, each store with its preference, cards, cart link and total, what comes along, the best with fewer stores, what to print and why, skipped stores, and the wishlist by tier |
+| `shopping_settings` | The rule in force today and every dated set with its origin, the sealed cap, and each store's preference, place in the order and premium |
+
+Staged writes (built with migration 0051, which rebuilds `assistant_changes` for its `kind` CHECK),
+applied by the person in Yama: `set_shopping_rules` (a new dated set on the day they apply it) and
+`set_store_preference` (one store's level, place and premium; unspecified parts stay as they are).
 
 Later, read: `shopping_list` (every want with its source and status), `store_stock` (one store's
-newest snapshot for given cards). Staged writes, applied by the person in Yama as today:
-`set_store_preference`, `check_stores` (fetch snapshots for a card list), `add_wish`. Adding a
-staged kind means rebuilding `assistant_changes` for its `kind` CHECK (as migrations 0026, 0028
-and 0029 did), so those come together in one migration.
+newest snapshot for given cards). Staged: `check_stores` (fetch snapshots for a card list),
+`add_wish`.
 
 ## Slices
 
 1. **Built:** store preferences (table, `PUT /api/plan/stores/{key}/preference`, the bundle's
    `store_prefs`), the wishlist in the bundle (`wishlist`), `planTrip` with `local_buy` rules and
    wishlist tiers, the Trip page (`/decks/plan/trip`) with the store choices, and `shopping_trip`.
+1b. **Built:** account-level rules (Settings, `shopping_settings`, `set_shopping_rules`) and store
+   preferences v2 (favourite, order, premium, "Going this time", `set_store_preference`).
 2. Stock snapshots: tables, the Shopify, TCGplayer Pro and YesTCG connectors on request, the
    snapshot import, and the trip reading snapshots beside `plan_quotes`.
 3. One shopping list: Yama deck cards not owned and not in a plan (the cEDH deck), hand-added wants,
@@ -173,6 +222,6 @@ and 0029 did), so those come together in one migration.
 
 - Should a "maybe" store need more than one card to be worth the trip? Today one card is enough,
   and "with fewer stores" shows what skipping it costs.
-- Should Black Castle be marked "won't go" too (tiny stock, priced at or above market)?
+- Should a favourite's premium be per card (today) or a percentage of the price?
 - The trip uses today's rule for every listing. Is that right for listings checked under an older
   rule (the buy list keeps judging those by their own day)?

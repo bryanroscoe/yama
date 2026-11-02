@@ -576,34 +576,88 @@ fn compare(existing: Option<&Existing>, hash: &str, origin: &str, counts: &mut R
 }
 
 impl Writer<'_> {
-    /// Each date's rule set is replaced whole. A Yama-made set on the same date is replaced too,
-    /// and the report says so.
+    /// Each date's imported rule set is replaced whole. A set made in Yama is never replaced: on the
+    /// same date the imported one isn't applied, and an imported set dated after one made in Yama
+    /// applies from its own date with a warning the first time it arrives or changes, so it never
+    /// takes over silently (docs/shopping-design.md, "Account-level rules").
     async fn settings(&self, conn: &mut SqliteConnection, plan: &Plan, report: &mut Report) -> AppResult<()> {
-        let other: Vec<String> = sqlx::query_scalar("SELECT effective_from FROM plan_settings WHERE owner_id = ? AND origin != ?")
+        if self.origin != "import" {
+            // A Yama backup being restored: its sets replace the sets on the same dates (the report
+            // names each one that changes), and no set is deleted, so a backup without some
+            // dates never silently removes a rule set made since.
+            let existing: HashMap<String, (String, Option<String>, String)> =
+                sqlx::query_as::<_, (String, String, Option<String>, String)>("SELECT effective_from, rules, note, origin FROM plan_settings WHERE owner_id = ?")
+                    .bind(self.owner)
+                    .fetch_all(&mut *conn)
+                    .await?
+                    .into_iter()
+                    .map(|(d, r, n, o)| (d, (r, n, o)))
+                    .collect();
+            for s in &plan.settings {
+                let incoming = (json_text(&s.rules)?, s.note.clone(), self.origin.to_string());
+                if existing.get(&s.effective_from).is_some_and(|e| *e != incoming) {
+                    report.warnings.push(format!("The rule set from {} was replaced by the restored one", s.effective_from));
+                }
+                sqlx::query(
+                    "INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(owner_id, effective_from) DO UPDATE SET rules = excluded.rules, note = excluded.note,
+                       origin = excluded.origin, created_at = excluded.created_at",
+                )
+                .bind(self.owner)
+                .bind(&s.effective_from)
+                .bind(json_text(&s.rules)?)
+                .bind(&s.note)
+                .bind(self.origin)
+                .bind(self.stamp)
+                .execute(&mut *conn)
+                .await?;
+            }
+            report.counts.settings = plan.settings.len() as i64;
+            return Ok(());
+        }
+        let yama: Vec<String> = sqlx::query_scalar("SELECT effective_from FROM plan_settings WHERE owner_id = ? AND origin != ? ORDER BY effective_from")
             .bind(self.owner)
             .bind(self.origin)
             .fetch_all(&mut *conn)
             .await?;
-        sqlx::query("DELETE FROM plan_settings WHERE owner_id = ? AND origin = ?").bind(self.owner).bind(self.origin).execute(&mut *conn).await?;
-        for s in &plan.settings {
-            if other.contains(&s.effective_from) {
-                report.warnings.push(format!("The rule set from {} made in Yama was replaced by the imported one", s.effective_from));
-            }
-            sqlx::query(
-                "INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(owner_id, effective_from) DO UPDATE SET rules = excluded.rules, note = excluded.note,
-                   origin = excluded.origin, created_at = excluded.created_at",
-            )
+        let before: HashMap<String, String> = sqlx::query_as::<_, (String, String)>("SELECT effective_from, rules FROM plan_settings WHERE owner_id = ? AND origin = ?")
             .bind(self.owner)
-            .bind(&s.effective_from)
-            .bind(json_text(&s.rules)?)
-            .bind(&s.note)
             .bind(self.origin)
-            .bind(self.stamp)
-            .execute(&mut *conn)
-            .await?;
+            .fetch_all(&mut *conn)
+            .await?
+            .into_iter()
+            .collect();
+        sqlx::query("DELETE FROM plan_settings WHERE owner_id = ? AND origin = ?").bind(self.owner).bind(self.origin).execute(&mut *conn).await?;
+        let mut applied: i64 = 0;
+        for s in &plan.settings {
+            if yama.contains(&s.effective_from) {
+                report.warnings.push(format!(
+                    "Kept the rule set from {} made in Yama; the imported one for that date wasn't applied",
+                    s.effective_from
+                ));
+                continue;
+            }
+            let rules = json_text(&s.rules)?;
+            if let Some(last) = yama.iter().rfind(|d| **d < s.effective_from)
+                && before.get(&s.effective_from) != Some(&rules)
+            {
+                report.warnings.push(format!(
+                    "The imported rule set from {} applies from that date, after the one made in Yama on {last}",
+                    s.effective_from
+                ));
+            }
+            sqlx::query("INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+                .bind(self.owner)
+                .bind(&s.effective_from)
+                .bind(&rules)
+                .bind(&s.note)
+                .bind(self.origin)
+                .bind(self.stamp)
+                .execute(&mut *conn)
+                .await?;
+            applied += 1;
         }
-        report.counts.settings = plan.settings.len() as i64;
+        report.counts.settings = applied;
         Ok(())
     }
 
