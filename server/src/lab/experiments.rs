@@ -12,6 +12,9 @@
 //! created (cards, and the opponents' cards too), so a later edit to a deck or a re-imported
 //! precon catalog never changes an experiment part way through.
 //!
+//! Who: only admins and power users (`User::power`, 2026-10-31) may start, repeat or extend an
+//! experiment; everyone else still reads their own earlier runs.
+//!
 //! Isolation: every query binds the owner; another user's experiment is "not found". Limits for
 //! anyone but an admin: 100, 200 or 400 games, Easy or Medium, and one experiment playing plus two
 //! waiting. An account that joined without an invite (`User::limited`) gets less: 100 games, one
@@ -90,6 +93,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/lab/experiments/{id}/again", post(again_handler))
         .route("/api/lab/experiments/{id}/more", post(more_handler))
         .route("/api/lab/experiments/{id}/pods", get(pods_handler))
+        .route("/api/lab/experiments/{id}/tables", get(tables_handler))
         .route("/api/lab/pace", get(pace_handler))
         .route("/api/lab/engines/check", post(engines_check_handler))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -268,6 +272,11 @@ pub fn list_text(cards: &[LabCard]) -> String {
     let commanders: String = cards.iter().filter(|c| c.commander).map(line).collect();
     let main: String = cards.iter().filter(|c| !c.commander).map(line).collect();
     format!("Commander\n{commanders}\nDeck\n{main}")
+}
+
+/// The fingerprint a precon's stock list has as a lab list, to recognise it among a run's entrants.
+pub fn precon_list_sha(cards: Vec<PreconCard>) -> String {
+    sha256_hex(&list_text(&normalize(from_precon_cards(cards))))
 }
 
 fn make_list(id: &str, label: &str, source: Value, cards: Vec<LabCard>) -> LabList {
@@ -1230,6 +1239,25 @@ fn list_display(list: &LabList, checked: &Checked, info: &HashMap<String, Card>)
     ListDisplay { label: list.label.clone(), commanders: checked.commanders.clone(), color_identity: checked.color_identity.clone(), art, source: list.source.clone() }
 }
 
+/// A group per list for the tournament schedule: lists with the same commanders are versions of
+/// one deck (yours, its stock precon, a variant) and share a group. A list without a commander
+/// is its own.
+fn deck_families<'a>(lists: impl Iterator<Item = &'a LabList>) -> Vec<usize> {
+    let mut groups: HashMap<Vec<String>, usize> = HashMap::new();
+    lists
+        .enumerate()
+        .map(|(i, l)| {
+            let mut key: Vec<String> = l.cards.iter().filter(|c| c.commander).map(|c| c.oracle_id.clone().unwrap_or_else(|| c.name.to_lowercase())).collect();
+            if key.is_empty() {
+                key.push(format!("#{i}"));
+            }
+            key.sort();
+            let next = groups.len();
+            *groups.entry(key).or_insert(next)
+        })
+        .collect()
+}
+
 /// The opponents some game uses, with how many games (pods) each sits in.
 fn used_opponents(field: Vec<LabList>, games: &[pairing::ScheduledGame], per_pod: bool) -> Vec<Opponent> {
     field
@@ -1269,9 +1297,11 @@ pub async fn create_with(
     fa: &ForgeAccess,
 ) -> AppResult<ExperimentDetail> {
     let op_id = req.op_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    // A retry of a create that already happened answers with it, even after the grant is gone.
     if let Some(d) = by_op_id(pool, user, op_id.as_deref()).await? {
         return Ok(d);
     }
+    user.require_power()?;
     let mode = Mode::parse(req.mode.as_deref())?;
     let engines = engines_for(&req, fa)?;
     check_games(user, req.games)?;
@@ -1614,7 +1644,8 @@ async fn build_versus(pool: &SqlitePool, user: &User, req: &NewExperiment, sim: 
         }
     }
     let games = if tournament {
-        pairing::schedule_tournament(&id[..8], &entrant_ids, req.games as usize, seed, difficulty, &LIMITS)
+        let families = deck_families(lists.iter().map(|b| &b.list));
+        pairing::schedule_tournament(&id[..8], &entrant_ids, &families, req.games as usize, seed, difficulty, &LIMITS)
     } else {
         pairing::schedule_versus(&id[..8], &entrant_ids, &filler_ids, pod, req.games as usize, seed, difficulty, &LIMITS)
     };
@@ -1768,6 +1799,7 @@ pub async fn again_with(
     if let Some(d) = by_op_id(pool, user, op_id).await? {
         return Ok(d);
     }
+    user.require_power()?;
     let (old_name, text): (String, String) = sqlx::query_as("SELECT name, spec FROM lab_experiments WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(&user.id)
@@ -1844,7 +1876,8 @@ pub async fn again_with(
         }
         Mode::Tournament => {
             let ids: Vec<String> = old.entrants.iter().map(|l| l.id.clone()).collect();
-            let scheduled = pairing::schedule_tournament(&new_id[..8], &ids, games as usize, seed, &old.difficulty, &LIMITS);
+            let families = deck_families(old.entrants.iter());
+            let scheduled = pairing::schedule_tournament(&new_id[..8], &ids, &families, games as usize, seed, &old.difficulty, &LIMITS);
             (scheduled.len(), scheduled)
         }
         Mode::Versus => {
@@ -1913,6 +1946,8 @@ pub async fn more_with(
         // Applied already (a retried request), or changed since the page loaded.
         return detail(pool, &user.id, id).await;
     }
+    // Only new games need power: a retry above answers even after the grant is gone.
+    user.require_power()?;
     if status != "done" {
         return Err(AppError::Conflict(match status.as_str() {
             "queued" | "running" => "This run is still playing. Add games once it has finished.".into(),
@@ -2690,6 +2725,205 @@ pub async fn pods_for(pool: &SqlitePool, owner: &str, id: &str, engine: Option<&
     Ok(out)
 }
 
+/// A deck that sat at one of a head-to-head run's tables: an entrant, or a precon filling a seat.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TableDeck {
+    /// The id its games use ("e0".., or the filler's "precons/<slug>").
+    pub id: String,
+    pub label: String,
+    pub commanders: Vec<String>,
+    pub art: Option<Art>,
+    /// Its place in the run's entrants (and in the summary's), or null for a filler.
+    pub entrant: Option<usize>,
+}
+
+/// One game at a table, seat by seat (seat 0 is the engine's first seat; `first_seat` says who
+/// took the first turn).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TableGame {
+    pub game: String,
+    /// Deck ids in seat order.
+    pub seats: Vec<String>,
+    /// False until the game is played; every field below is empty until then.
+    pub played: bool,
+    pub end: Option<String>,
+    pub scored: bool,
+    pub first_seat: Option<u8>,
+    pub winner: Option<u8>,
+    /// Finishing place per seat in a scored game (tied players share the mean of their places).
+    pub places: Vec<Option<f64>>,
+    /// The turn each seat was knocked out on (every player's turn counted), or null if it lasted.
+    pub out_turn: Vec<Option<u32>>,
+    pub final_life: Vec<Option<i32>>,
+    pub turns: u32,
+    pub seconds: f64,
+    pub error: Option<String>,
+    pub finished_at: Option<String>,
+}
+
+/// One table: the same decks for a block of games, a seat rotation apart.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TableView {
+    /// 1-based, in play order, counted over the whole run (filters keep the numbers).
+    pub table: usize,
+    /// Deck ids, in the first game's seat order.
+    pub decks: Vec<String>,
+    pub games: Vec<TableGame>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Tables {
+    pub engine: String,
+    /// Every deck the tables below name.
+    pub decks: Vec<TableDeck>,
+    pub tables: Vec<TableView>,
+}
+
+fn table_game(game: String, seats: Vec<String>, result: Option<&str>, finished_at: Option<String>) -> TableGame {
+    let n = seats.len();
+    let mut g = TableGame {
+        game,
+        seats,
+        played: false,
+        end: None,
+        scored: false,
+        first_seat: None,
+        winner: None,
+        places: vec![None; n],
+        out_turn: vec![None; n],
+        final_life: vec![None; n],
+        turns: 0,
+        seconds: 0.0,
+        error: None,
+        finished_at,
+    };
+    let Some(result) = result else { return g };
+    g.played = true;
+    match serde_json::from_str::<yama_play::lab::GameResult>(result) {
+        Ok(r) => {
+            let scored = matches!(r.end, yama_play::lab::End::Win | yama_play::lab::End::Draw | yama_play::lab::End::TurnCap | yama_play::lab::End::ActionCap);
+            let ranks = super::stats::placement_ranks(&r.placements);
+            g.end = Some(r.end.as_str().into());
+            g.scored = scored;
+            g.first_seat = r.first_seat;
+            g.winner = r.winner;
+            if scored {
+                g.places = (0..n).map(|s| ranks.get(&(s as u8)).copied()).collect();
+            }
+            for e in &r.eliminations {
+                if let Some(t) = g.out_turn.get_mut(usize::from(e.seat)) {
+                    *t = Some(e.turn);
+                }
+            }
+            g.final_life = (0..n).map(|s| r.final_life.get(s).copied()).collect();
+            g.turns = r.turns;
+            g.seconds = r.ms as f64 / 1000.0;
+            g.error = r.error;
+        }
+        Err(e) => {
+            g.end = Some("error".into());
+            g.error = Some(format!("unreadable result line: {e}"));
+        }
+    }
+    g
+}
+
+/// A head-to-head or tournament run's games grouped by table, for one engine (as `pods_for`
+/// picks it): only the tables `entrant` sat at, or only table `table`, or all of them. The
+/// owner's only; anyone else's is "not found", and other modes are refused.
+pub async fn tables_for(pool: &SqlitePool, owner: &str, id: &str, engine: Option<&str>, entrant: Option<&str>, table: Option<usize>) -> AppResult<Tables> {
+    if engine.is_some_and(|e| e != "phase" && e != "forge") {
+        return Err(AppError::bad("engine: use phase or forge"));
+    }
+    let spec: Option<String> = sqlx::query_scalar("SELECT spec FROM lab_experiments WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_optional(pool).await?;
+    let Some(spec) = spec else {
+        return Err(AppError::NotFound("experiment"));
+    };
+    let spec: ExperimentSpec = serde_json::from_str(&spec).map_err(anyhow::Error::from)?;
+    if !matches!(spec.mode, Mode::Versus | Mode::Tournament) {
+        return Err(AppError::bad("Tables are for head-to-head and tournament runs"));
+    }
+    let engine: String = match engine {
+        Some(e) => e.to_string(),
+        None => sqlx::query_scalar("SELECT engine FROM lab_experiment_games WHERE experiment_id = ? ORDER BY ord LIMIT 1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or_else(|| "phase".to_string()),
+    };
+    // Both schedules play game g at ord 2g in blocks of `pod` games with one set of decks, a seat
+    // apart (`schedule_versus`, `schedule_tournament`); a "both" run's Forge half is offset. The
+    // filters go into the query, so one table or one deck's tables don't read the whole run.
+    let first: i64 = sqlx::query_scalar("SELECT COALESCE(MIN(ord), 0) FROM lab_experiment_games WHERE experiment_id = ? AND engine = ?")
+        .bind(id)
+        .bind(&engine)
+        .fetch_one(pool)
+        .await?;
+    let first = first - first % 2;
+    let span = 2 * i64::try_from(spec.pod.max(1)).unwrap_or(4);
+    let (lo, hi) = match table {
+        Some(n) => {
+            let n = i64::try_from(n).unwrap_or(i64::MAX).clamp(1, i64::MAX / 4 / span);
+            (first + (n - 1) * span, first + n * span)
+        }
+        None => (i64::MIN, i64::MAX),
+    };
+    let rows: Vec<(String, i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT game, ord, spec, result, finished_at FROM lab_experiment_games g
+         WHERE experiment_id = ? AND engine = ? AND ord >= ? AND ord < ?
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(g.spec, '$.decks') d WHERE d.value = ?))
+         ORDER BY ord",
+    )
+    .bind(id)
+    .bind(&engine)
+    .bind(lo)
+    .bind(hi)
+    .bind(entrant)
+    .bind(entrant)
+    .fetch_all(pool)
+    .await?;
+    let pod = spec.pod.max(1);
+    let mut tables: Vec<TableView> = Vec::new();
+    for (game, ord, gspec, result, finished_at) in rows {
+        let Ok(gspec) = serde_json::from_str::<GameSpec>(&gspec) else { continue };
+        let n = usize::try_from((ord - first) / 2).unwrap_or(0) / pod + 1;
+        if tables.last().is_none_or(|t| t.table != n) {
+            tables.push(TableView { table: n, decks: gspec.decks.clone(), games: Vec::new() });
+        }
+        let g = table_game(game, gspec.decks, result.as_deref(), finished_at);
+        tables.last_mut().expect("pushed above").games.push(g);
+    }
+    // The query did the filtering; this drops a table 0 (clamped to table 1's range above).
+    tables.retain(|t| table.is_none_or(|n| t.table == n));
+    let named: HashSet<&str> = tables.iter().flat_map(|t| t.decks.iter().map(String::as_str)).collect();
+    let mut decks: Vec<TableDeck> = spec
+        .entrants
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| named.contains(l.id.as_str()))
+        .map(|(i, l)| {
+            let d = spec.display.entrants.get(i);
+            TableDeck {
+                id: l.id.clone(),
+                label: l.label.clone(),
+                commanders: d.map(|d| d.commanders.clone()).unwrap_or_else(|| l.cards.iter().filter(|c| c.commander).map(|c| c.name.clone()).collect()),
+                art: d.and_then(|d| d.art.clone()),
+                entrant: Some(i),
+            }
+        })
+        .collect();
+    let fillers: Vec<&LabList> = spec.opponents.iter().map(|o| &o.list).filter(|l| named.contains(l.id.as_str())).collect();
+    if !fillers.is_empty() {
+        let lists: Vec<&[LabCard]> = fillers.iter().map(|l| l.cards.as_slice()).collect();
+        let info = card_info(pool, &lists).await?;
+        decks.extend(fillers.into_iter().map(|l| {
+            let d = list_display(l, &check_list(&l.cards, &info), &info);
+            TableDeck { id: l.id.clone(), label: l.label.clone(), commanders: d.commanders, art: d.art, entrant: None }
+        }));
+    }
+    Ok(Tables { engine, decks, tables })
+}
+
 /// How fast the lab is playing, for the "expected time" before an experiment is created.
 ///
 /// The pace is measured on everyone's games, so only admins get it exactly. Anyone else gets
@@ -2844,6 +3078,25 @@ async fn pods_handler(
     Ok(Json(pods_for(&st.pool, &user.id, &id, q.engine.as_deref()).await?))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TablesQuery {
+    pub engine: Option<String>,
+    /// Only the tables this deck id sat at.
+    pub entrant: Option<String>,
+    /// Only this table (1-based).
+    pub table: Option<usize>,
+}
+
+async fn tables_handler(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<TablesQuery>,
+) -> AppResult<Json<Tables>> {
+    st.lab.check_available()?;
+    Ok(Json(tables_for(&st.pool, &user.id, &id, q.engine.as_deref(), q.entrant.as_deref(), q.table).await?))
+}
+
 /// Most extra names in one card-support check, and most lists.
 const MAX_CHECK_NAMES: usize = 400;
 const MAX_CHECK_LISTS: usize = MAX_TOURNAMENT_ENTRANTS;
@@ -2879,6 +3132,7 @@ pub struct EngineSupport {
 /// The card support of the lists a run would test, per engine, before it is made. The lists are
 /// read with the owner's checks, as a run would read them.
 async fn engines_check_handler(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: Bytes) -> AppResult<Json<EngineSupport>> {
+    user.require_power()?;
     let sim = st.lab.simulator()?;
     let req: EnginesCheck = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("bad request body: {e}")))?;
     if req.names.len() > MAX_CHECK_NAMES || req.lists.len() > MAX_CHECK_LISTS {

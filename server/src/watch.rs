@@ -820,6 +820,7 @@ async fn own_seat(pool: &SqlitePool, user: &str, seat: u8, id: &str, level: &str
 
 /// Check a request, load its decks and start the game.
 async fn start(st: &AppState, user: &User, body: CreateRequest) -> AppResult<Arc<WatchGame>> {
+    user.require_power()?;
     st.limits.watch_creates.check_user(user)?;
     st.watch.check_caps(user)?;
     if !WATCH_SEATS.contains(&body.seats.len()) {

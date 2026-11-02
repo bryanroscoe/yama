@@ -1,14 +1,23 @@
 import {
+  commanderSources,
   commanderTax,
+  dangerOf,
+  keySeat,
+  sourceName,
+  COMMANDER_LETHAL,
   identityKeys,
-  lossReason,
+  lossOf,
+  lossesOf,
   MANA,
+  POISON_LETHAL,
   panelFills,
   remaining,
   type ManaKey,
   COALESCE_MS,
   type CommanderKey,
+  type CommanderPick,
   type CounterKind,
+  type Loss,
   type FunRating,
   type LoggedEvent,
   type PlayerState,
@@ -16,50 +25,32 @@ import {
   type TableState,
   type WinCondition,
 } from "@yama/core";
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Pips, Sheet } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
-import { ShareCard } from "./share";
-import { canUndo, discardGame, dispatch, finishGame, redo, undo, useSyncStatus, useTable } from "./store";
+import { tableLayout, useLandscape, useLayoutChoice } from "./layouts";
+import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
+import { announceNext, JoinSheet, ShareCard, startHosting, useHosting } from "./share";
+import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable } from "./store";
+import { history } from "./history";
+import { DiceSheet } from "./DiceSheet";
+import { LayoutPicker } from "./LayoutPicker";
+import { EditSeat } from "./SeatEditor";
+import { setCountTurns, useCountTurns } from "./turns";
+import { useFullscreen, useInstall } from "../install";
+import { useScreenAwake } from "./wakeLock";
+import { isGuest } from "../guest";
 
 /** Where panel taps go: this device's game, or the host's game for a guest phone. */
 export const DispatchContext = createContext<(e: TableEvent) => void>(dispatch);
 import "./table.css";
 import "./art-panel.css";
 
-/** Rotation for each seat so every player reads their own panel. Seats go clockwise. */
-export function layout(n: number): { cols: number; rows: number; cells: { seat: number; rot: number; area: string }[] } {
-  switch (n) {
-    case 1:
-      return { cols: 1, rows: 1, cells: [{ seat: 0, rot: 0, area: "1 / 1" }] };
-    case 2:
-      return { cols: 1, rows: 2, cells: [{ seat: 0, rot: 0, area: "2 / 1" }, { seat: 1, rot: 180, area: "1 / 1" }] };
-    case 3:
-      return {
-        cols: 2,
-        rows: 2,
-        cells: [
-          { seat: 0, rot: 90, area: "2 / 1" },
-          { seat: 1, rot: 180, area: "1 / 1 / 2 / 3" },
-          { seat: 2, rot: 270, area: "2 / 2" },
-        ],
-      };
-    default: {
-      // Two long sides of a table: left column faces right, right column faces left.
-      const rows = Math.ceil(n / 2);
-      const cells = [];
-      for (let i = 0; i < n; i++) {
-        if (i < rows) cells.push({ seat: i, rot: 90, area: `${rows - i} / 1` });
-        else cells.push({ seat: i, rot: 270, area: `${i - rows + 1} / 2` });
-      }
-      return { cols: 2, rows, cells };
-    }
-  }
-}
+export { uprightLayout } from "./layouts";
 
 export function TablePlay() {
   const { game, state } = useTable();
@@ -68,25 +59,46 @@ export function TablePlay() {
   const [knockSeat, setKnockSeat] = useState<number | null>(null);
   /** The winner being recorded (null = a draw), while the finish questions are open. */
   const [finishing, setFinishing] = useState<{ winner: number | null } | null>(null);
+  /** The commander dealing damage right now: tap each player it hit. */
+  const [attack, setAttack] = useState<{ seat: number; partner: boolean } | null>(null);
+  /** The player taking commander damage right now (Lifetap's way): tap the commander that hit them. */
+  const [taking, setTaking] = useState<number | null>(null);
+  /** The join code, full screen: straight after setup when the table chose everyone's phones. */
+  const location = useLocation();
+  const opened = location.state as { share?: boolean; fresh?: boolean } | null;
+  const [joining, setJoining] = useState(() => !!opened?.share);
+  /** "Who goes first?", as a game opens from New game or Save and play again. */
+  const [askFirst, setAskFirst] = useState(() => !!opened?.fresh);
+  const [dice, setDice] = useState(false);
   const navigate = useNavigate();
+  const hosting = useHosting();
+  const countTurns = useCountTurns();
+  // "Show the code" and "who goes first" are one-offs: a reload of this page mustn't open them
+  // (and start sharing) again.
+  useEffect(() => {
+    if (opened?.share || opened?.fresh) navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const layoutKey = useLayoutChoice(state?.players.length ?? 0);
+  const landscape = useLandscape();
 
   // Keep the screen on during a game where supported.
-  useEffect(() => {
-    let lock: { release(): Promise<void> } | null = null;
-    const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } };
-    nav.wakeLock?.request("screen").then((l) => (lock = l)).catch(() => {});
-    return () => void lock?.release();
-  }, []);
+  useScreenAwake();
 
   const artFor = useTableArt(state?.players ?? []);
+  const lethal = useLethalPrompt(state);
 
   if (!game || !state) return <Navigate to="/" replace />;
-  const { cols, rows, cells } = layout(state.players.length);
+  const { cols, rows, cells } = tableLayout(state.players.length, layoutKey, landscape);
   const alive = remaining(state);
   const fills = panelFills(state.players.map((p) => p.colorIdentity));
+  // Whose turn it is shows only on a device counting turns; most tables don't.
+  const counting = countTurns;
+  const sharing = hosting.gameId === state.setup.id;
+  const leave = () => navigate("/");
 
   return (
-    <div className="table" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+    <div className={`table${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
       {cells.map(({ seat, rot, area }) => {
         const p = state.players.find((x) => x.seat === seat);
         if (!p) return null;
@@ -96,39 +108,88 @@ export function TablePlay() {
             p={p}
             rot={rot}
             area={area}
-            active={state.activeSeat === seat}
+            active={counting && state.activeSeat === seat}
             state={state}
             pending={pendingDelta(game.log, seat)}
             fill={fills[state.players.indexOf(p)]!}
             artFor={artFor}
             onOpen={() => setSheetSeat(seat)}
             onKnockOut={() => setKnockSeat(seat)}
+            attack={attack}
+            onAttack={(partner) => {
+              setTaking(null);
+              setAttack(attack?.seat === seat && attack.partner === partner ? null : { seat, partner });
+            }}
+            taking={taking}
+            onTake={() => {
+              setAttack(null);
+              setTaking(taking === seat ? null : seat);
+            }}
           />
         );
       })}
-      <button className="hub" onClick={() => setMenu(true)} aria-label={`Turn ${state.turn}. Open table menu`}>
-        <span>{state.turn}</span>
-      </button>
+      {attack || taking !== null ? (
+        <button className="hub hub-done" onClick={() => { setAttack(null); setTaking(null); }} aria-label="Done with commander damage">
+          <span>Done</span>
+        </button>
+      ) : (
+        <button
+          className={`hub${counting ? "" : " hub-menu"}`}
+          onClick={() => setMenu(true)}
+          aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other phones. " : ""}Open table menu`}
+        >
+          {counting ? <span>{state.turn}</span> : <MenuIcon />}
+          {/* Shared: a small dot on the hub. The join code is at the top of the menu. */}
+          {sharing && <span className="hub-live" aria-hidden="true" />}
+        </button>
+      )}
 
       {menu && (
         <Sheet label="Table menu" onClose={() => setMenu(false)}>
           <TableMenu
             state={state}
             onClose={() => setMenu(false)}
-            onLeave={() => navigate("/")}
+            onLeave={leave}
             onFinish={(winner) => {
               setMenu(false);
               setFinishing({ winner });
             }}
+            onJoin={() => {
+              setMenu(false);
+              setJoining(true);
+            }}
+            onDice={() => {
+              setMenu(false);
+              setDice(true);
+            }}
             aliveCount={alive.length}
             artFor={artFor}
+            log={game.log}
             turnSince={[...game.log].reverse().find((e) => e.event.type === "pass_turn")?.at ?? game.setup.startedAt}
           />
         </Sheet>
       )}
       {sheetSeat !== null && (
         <Sheet label="Player" onClose={() => setSheetSeat(null)}>
-          <PlayerSheet state={state} seat={sheetSeat} onClose={() => setSheetSeat(null)} artFor={artFor} />
+          <PlayerSheet
+            state={state}
+            seat={sheetSeat}
+            onClose={() => setSheetSeat(null)}
+            artFor={artFor}
+            onAttack={(partner) => {
+              setAttack({ seat: sheetSeat, partner });
+              setSheetSeat(null);
+            }}
+            onTake={() => {
+              setTaking(sheetSeat);
+              setSheetSeat(null);
+            }}
+            onWin={() => {
+              setSheetSeat(null);
+              setFinishing({ winner: sheetSeat });
+            }}
+            host
+          />
         </Sheet>
       )}
       {knockSeat !== null && (
@@ -142,11 +203,46 @@ export function TablePlay() {
             state={state}
             winner={finishing.winner}
             onBack={() => setFinishing(null)}
-            onSave={(details, first) => {
+            onSave={(details, first, again) => {
+              const setup = game.setup;
+              const id = crypto.randomUUID();
+              // Phones following this game move to the next one with it.
+              if (again && sharing) announceNext(id);
               finishGame(finishing.winner, details, first);
-              navigate("/");
+              if (!again) return navigate("/");
+              // The same seats and commanders, from the start. Commanders swapped mid-game come along.
+              startGame({
+                ...setup,
+                id,
+                startedAt: new Date().toISOString(),
+                players: state.players.map(({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist }) =>
+                  ({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist })),
+              });
+              setFinishing(null);
+              setAskFirst(true);
+              if (sharing) startHosting(id);
             }}
           />
+        </Sheet>
+      )}
+      {joining && (
+        <Sheet label="Join on your phone" onClose={() => setJoining(false)}>
+          <JoinSheet gameId={state.setup.id} onDone={() => setJoining(false)} />
+        </Sheet>
+      )}
+      {dice && (
+        <Sheet label="Dice and coin" onClose={() => setDice(false)}>
+          <DiceSheet players={state.players} onDone={() => setDice(false)} />
+        </Sheet>
+      )}
+      {askFirst && !joining && !finishing && (
+        <Sheet label="Who goes first?" onClose={() => setAskFirst(false)}>
+          <FirstSheet state={state} artFor={artFor} onDone={() => setAskFirst(false)} />
+        </Sheet>
+      )}
+      {lethal.ask && !menu && !finishing && !attack && taking === null && !askFirst && !joining && !dice && sheetSeat === null && knockSeat === null && (
+        <Sheet label="Out of the game?" onClose={lethal.dismiss}>
+          <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
         </Sheet>
       )}
       {alive.length === 1 && state.players.length > 1 && !menu && !finishing && (
@@ -175,7 +271,8 @@ export type ArtFor = (seat: number, partner?: boolean) => CardArt | null;
 export function useTableArt(players: PlayerState[]): ArtFor {
   const showArt = useShowArt();
   const fromSetup = (p: PlayerState) => panelArt(p);
-  const looked = useCardArt(showArt ? players.flatMap((p) => [fromSetup(p) ? null : p.commanderName, p.partnerName]) : []);
+  const partnerFromSetup = (p: PlayerState) => panelArt({ art: p.partnerArt, artist: p.partnerArtist });
+  const looked = useCardArt(showArt ? players.flatMap((p) => [fromSetup(p) ? null : p.commanderName, partnerFromSetup(p) ? null : p.partnerName]) : []);
   const checked = (a: CardArt | null | undefined): CardArt | null => {
     const art = a ? panelArt({ art: a.art ?? undefined, artist: a.artist ?? undefined }) : null;
     return art ? { art, artist: a!.artist } : null;
@@ -184,11 +281,115 @@ export function useTableArt(players: PlayerState[]): ArtFor {
     if (!showArt) return null;
     const p = players.find((x) => x.seat === seat);
     if (!p) return null;
-    if (partner) return p.partnerName ? checked(looked.get(p.partnerName)) : null;
+    if (partner) {
+      if (!p.partnerName) return null;
+      const own = partnerFromSetup(p);
+      return own ? { art: own, artist: p.partnerArtist ?? null } : checked(looked.get(p.partnerName));
+    }
     const own = fromSetup(p);
     if (own) return { art: own, artist: p.artist ?? null };
     return p.commanderName ? checked(looked.get(p.commanderName)) : null;
   };
+}
+
+/**
+ * Ask whether a player is out once they reach a loss (0 life, 10 poison, 21 from one commander).
+ * It waits for the taps to settle, asks once per cause, and asks again if the cause goes away
+ * and comes back. `onlySeat` limits it to one seat (a guest's own phone).
+ */
+export function useLethalPrompt(state: TableState | null, onlySeat?: number | null) {
+  // Kept per game on this device, so leaving the table (or a reload) doesn't ask again.
+  const gameId = state?.setup.id ?? null;
+  const [dismissed, setDismissedState] = useState<string[]>(() => readDismissed(gameId));
+  const loadedFor = useRef(gameId);
+  if (loadedFor.current !== gameId) {
+    loadedFor.current = gameId;
+    setDismissedState(readDismissed(gameId));
+  }
+  const setDismissed = (f: (d: string[]) => string[]) =>
+    setDismissedState((d) => {
+      const next = f(d);
+      if (gameId && next !== d) {
+        if (next.length) localStorage.setItem(dismissedKey(gameId), JSON.stringify(next));
+        else localStorage.removeItem(dismissedKey(gameId));
+      }
+      return next;
+    });
+  const [ready, setReady] = useState<string | null>(null);
+  // Every active cause, so dismissing one (21 from Atraxa) still lets a later one (10 poison) ask.
+  const everyLoss = (state?.players ?? []).flatMap((p) => (state ? lossesOf(state, p) : []).map((loss) => ({ seat: p.seat, loss })));
+  const losses = everyLoss.filter((x) => onlySeat === undefined || x.seat === onlySeat);
+  // Answers are forgotten only when their cause is gone from the table, not when a guest's phone
+  // looks at another seat.
+  const live = everyLoss.map((x) => `${x.seat}:${x.loss.key}`);
+  const liveKey = live.join("|");
+  const pending = losses.find((x) => !dismissed.includes(`${x.seat}:${x.loss.key}`));
+  const pendingKey = pending ? `${pending.seat}:${pending.loss.key}` : null;
+  useEffect(() => {
+    setDismissed((d) => (d.every((k) => liveKey.split("|").includes(k)) ? d : d.filter((k) => liveKey.split("|").includes(k))));
+  }, [liveKey]);
+  useEffect(() => {
+    if (!pendingKey) return setReady(null);
+    // Every change restarts the wait, so a burst of taps (or lifelink right after) finishes first.
+    const t = window.setTimeout(() => setReady(pendingKey), 900);
+    return () => window.clearTimeout(t);
+  }, [pendingKey, state]);
+  return {
+    ask: pending && ready === pendingKey ? pending : null,
+    dismiss: () => pendingKey && setDismissed((d) => [...d, pendingKey]),
+  };
+}
+
+export const dismissedKey = (gameId: string) => `yama.table.dismissed.${gameId}`;
+function readDismissed(gameId: string | null): string[] {
+  if (!gameId) return [];
+  try {
+    const v = JSON.parse(localStorage.getItem(dismissedKey(gameId)) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+const LOSS_RULE: Record<Loss["kind"], string> = {
+  commander_damage: `${COMMANDER_LETHAL} combat damage from one commander knocks a player out.`,
+  life: "A player at 0 life or less loses.",
+  poison: "Ten poison counters knock a player out.",
+};
+
+/** "Is Sam out?" with the cause, the rule, and who did it. */
+export function LethalSheet({ state, seat, loss, onDone }: { state: TableState; seat: number; loss: Loss; onDone: () => void }) {
+  const dispatch = useContext(DispatchContext);
+  const p = state.players.find((x) => x.seat === seat)!;
+  const others = state.players.filter((x) => x.seat !== seat && !x.eliminated);
+  const by = loss.bySeat === undefined ? undefined : state.players.find((x) => x.seat === loss.bySeat);
+  const out = (bySeat?: number) => {
+    dispatch(bySeat === undefined ? { type: "eliminate", seat } : { type: "eliminate", seat, bySeat });
+    onDone();
+  };
+  return (
+    <div className="stack lethal">
+      <div className="sheet-head">
+        <h2>Is {p.name} out?</h2>
+      </div>
+      <p className="lethal-cause">{loss.text}.</p>
+      <p className="small dim" style={{ margin: 0 }}>{LOSS_RULE[loss.kind]} Some cards keep a player in; if one does, keep playing.</p>
+      {by ? (
+        <button className="primary" onClick={() => out(by.seat)}>Yes, {by.name} knocked {p.name} out</button>
+      ) : (
+        <>
+          <p className="small" style={{ margin: 0 }}>Who knocked {p.name} out?</p>
+          <div className="row">
+            {others.map((o) => (
+              <button key={o.seat} onClick={() => out(o.seat)}>{o.name}</button>
+            ))}
+            <button className="outline" onClick={() => out()}>No one, or not sure</button>
+          </div>
+        </>
+      )}
+      <button className="quiet" onClick={onDone}>Not out, keep playing</button>
+    </div>
+  );
 }
 
 /** The running total of the current tap burst, for the little "−3" next to the number. */
@@ -223,20 +424,41 @@ export function Panel(props: {
   onKnockOut: () => void;
   /** A guest's own tall panel: + on the top half, − on the bottom half. */
   vertical?: boolean;
+  /** The commander dealing damage now, if any: other panels turn into its damage counters. */
+  attack?: { seat: number; partner: boolean } | null;
+  /** Start (or switch, or stop) dealing commander damage with this seat's commander. */
+  onAttack?: (partner: boolean) => void;
+  /** The player taking commander damage now, if any: other panels turn into their commanders' damage to them. */
+  taking?: number | null;
+  /** Start (or stop) taking commander damage for this seat, Lifetap's way. */
+  onTake?: () => void;
 }) {
-  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor, vertical = false } = props;
+  const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor, vertical = false, attack = null, onAttack, taking = null, onTake } = props;
   useTick(pending !== null); // clear the bubble once the burst ends
   const dispatch = useContext(DispatchContext);
   const showArt = useShowArt();
   // useTableArt already honours the per-device "mana colors instead of art" switch.
-  const art = artFor?.(p.seat) ?? null;
+  // Partners (and a Background) share the panel, each with its own half; either one alone fills it.
+  const mainArt = artFor?.(p.seat) ?? null;
+  const secondArt = artFor?.(p.seat, true) ?? null;
+  const art = mainArt ?? secondArt;
+  const partnerArt = mainArt ? secondArt : null;
   // With art on, a seat whose art is missing is a raised block, not a mana fill; the identity
   // band along its top still says whose it is. Plain colors are the per-device choice.
   const noArt = showArt && !art;
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];
   const out = !!p.eliminated;
-  const reason = out ? null : lossReason(p);
+  const loss = lossOf(state, p);
+  // Close to a loss (low life, poison or commander damage nearly lethal): the panel's edge glows.
+  const danger = dangerOf(state, p);
+  const commanderGame = state.setup.format === "commander" && state.players.length > 1;
+  const attacker = attack ? state.players.find((x) => x.seat === attack.seat) : undefined;
+  const attackKey = attack ? (`${attack.seat}${attack.partner ? "b" : ""}` as CommanderKey) : null;
+  const attackName = attacker ? ((attack!.partner ? attacker.partnerName : attacker.commanderName) ?? `${attacker.name}'s commander`) : "";
+  const attackArt = attack ? (artFor?.(attack.seat, attack.partner) ?? null) : null;
+  const victim = taking === null ? undefined : state.players.find((x) => x.seat === taking);
+  const busy = !!attack || taking !== null;
   const style = {
     gridArea: area,
     "--fill": base.fill,
@@ -250,10 +472,12 @@ export function Panel(props: {
     .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
     .map(([key, v]) => {
       const partner = key.endsWith("b");
-      const seat = Number(key.replace("b", ""));
+      const seat = keySeat(key);
       const from = state.players.find((x) => x.seat === seat);
-      const name = (partner ? from?.partnerName : from?.commanderName) ?? from?.name ?? "a commander";
-      return { key, amount: v ?? 0, name, art: artFor?.(seat, partner)?.art ?? null, fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
+      const name = sourceName(state, key) ?? from?.name ?? "a commander";
+      // A commander the seat stopped playing has no art here: the seat's art is its new one now.
+      const gone = !!state.retired?.[key];
+      return { key, amount: v ?? 0, name, art: gone ? null : (artFor?.(seat, partner)?.art ?? null), fill: MANA[identityKeys(from?.colorIdentity ?? "")[0]!].fill };
     });
   // Wider totals get a smaller face so the number stays clear of the − and + at the ends.
   const digits = String(p.life).length;
@@ -272,13 +496,21 @@ export function Panel(props: {
 
   return (
     <section
-      className={`panel${active ? " active" : ""}${out ? " out" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}`}
+      className={`panel${active ? " active" : ""}${out ? " out" : ""}${attack?.seat === p.seat || taking === p.seat ? " attacker" : ""}${art ? " has-art" : ""}${noArt ? " no-art" : ""}${!p.colorIdentity ? " no-identity" : ""}${danger ? ` danger danger-${danger.level} danger-${danger.kind}` : ""}`}
       style={style}
-      aria-label={`${p.name}, ${p.life} life`}
+      aria-label={`${p.name}, ${p.life} life${danger ? `, ${danger.text}` : ""}`}
     >
       <div className={`panel-inner${sideways ? " sideways" : ""}${vertical ? " vertical" : ""}`} style={{ transform: `translate(-50%, -50%) rotate(${rot}deg)` }}>
-        {art && <ArtPanel className="panel-art" art={art.art} artist={art.artist} wash="center" credit={false} />}
+        {art && partnerArt ? (
+          <div className="panel-art panel-art-pair art-has">
+            <ArtPanel art={art.art} artist={art.artist} wash="center" credit={false} />
+            <ArtPanel art={partnerArt.art} artist={partnerArt.artist} wash="center" credit={false} />
+          </div>
+        ) : (
+          art && <ArtPanel className="panel-art" art={art.art} artist={art.artist} wash="center" credit={false} />
+        )}
         <div className="bands" />
+        {danger && <div className="danger-glow" />}
         <Hold onStep={(n) => dispatch({ type: "life", seat: p.seat, delta: -n })} className="tap minus" label={`${p.name} loses 1 life`}>
           <span aria-hidden="true">−</span>
         </Hold>
@@ -290,12 +522,22 @@ export function Panel(props: {
           <span key={p.life} className="life-value">{p.life}</span>
           {pending !== null && <span key={pending > 0 ? "up" : "down"} className="pending">{pending > 0 ? `+${pending}` : `−${-pending}`}</span>}
         </div>
+        <span className="visually-hidden" aria-live="polite">{danger ? `${p.name}: ${danger.text}` : ""}</span>
         <div className="panel-top">
           <div className="badges">
+            {danger && (
+              <span key={danger.text} className="badge danger-badge">
+                <WarningIcon /> {danger.text}
+              </span>
+            )}
             {state.monarch === p.seat && <span className="badge">Monarch</span>}
             {state.initiative === p.seat && <span className="badge">Initiative</span>}
             {p.poison > 0 && <span className="badge">{p.poison} poison</span>}
             {p.commanderCasts > 0 && <span className="badge">Tax +{commanderTax(p)}</span>}
+            {(p.counters.blessing ?? 0) > 0 && <span className="badge">City's blessing</span>}
+            {COUNTERS.filter((c) => (p.counters[c.kind] ?? 0) > 0).map((c) => (
+              <span key={c.kind} className="badge">{p.counters[c.kind]} {c.short}</span>
+            ))}
           </div>
           {damage.length > 0 && (
             <div className="cmdr-pills">
@@ -316,16 +558,109 @@ export function Panel(props: {
           {p.commanderName && <span className="cmdr">{p.commanderName}</span>}
         </button>
         {/* Scryfall asks for the artist and copyright wherever an art crop shows. */}
-        {art && <span className="panel-credit">{artCredit(art.artist)}</span>}
-        {reason && (
+        {art && <span className="panel-credit">{artCredit(bothArtists(art.artist, partnerArt?.artist))}</span>}
+        {loss && !busy && (
           <button className="out-prompt" onClick={onKnockOut}>
-            Out? {reason}
+            Out? {loss.text}
           </button>
         )}
-        {out && <div className="out-label">Out on turn {p.eliminated!.turn}</div>}
+        {out && <div className="out-label">{p.eliminated!.uncounted ? "Out" : `Out on turn ${p.eliminated!.turn}`}</div>}
+        {commanderGame && !out && !busy && (onAttack || onTake) && (
+          <span className="cmdr-btns">
+            {onTake && (
+              <button className="attack-btn" onClick={onTake} aria-label={`${p.name} takes commander damage`} title="Take commander damage">
+                <ShieldIcon />
+              </button>
+            )}
+            {onAttack && (
+              <button className="attack-btn" onClick={() => onAttack(false)} aria-label={`Deal commander damage with ${p.commanderName ?? `${p.name}'s commander`}`} title="Deal commander damage">
+                <SwordsIcon />
+              </button>
+            )}
+          </span>
+        )}
+        {victim && !out && (
+          taking === p.seat ? (
+            <div className="attack-layer is-attacker">
+              <span className="attack-title">{p.name} is taking commander damage</span>
+              <span className="attack-hint">Tap + on the commander that hit you. Life comes off too.</span>
+              <span className="attack-actions">
+                <button className="primary" onClick={onTake}>Done</button>
+              </span>
+            </div>
+          ) : (
+            <div className="attack-layer take-layer">
+              {commanderSources(state, victim.seat)
+                .filter((c) => c.seat === p.seat && !c.retired)
+                .map((c) => {
+                  const a = artFor?.(c.seat, c.partner) ?? null;
+                  const dealt = victim.commanderDamage[c.key] ?? 0;
+                  return (
+                    <span key={c.key} className="take-source">
+                      <span className="attack-from">
+                        {a?.art ? <img src={a.art} alt="" /> : <span className="cmdr-dot" style={{ background: MANA[identityKeys(p.colorIdentity)[0]!].fill }} />}
+                        {c.name} to {victim.name}
+                      </span>
+                      <span className="attack-steps">
+                        <Hold className="attack-step" label={`Take back 1 damage from ${c.name} to ${victim.name}`} onStep={(n) => dispatch({ type: "commander_damage", seat: victim.seat, source: c.key, delta: -n })}>
+                          <span aria-hidden="true">−</span>
+                        </Hold>
+                        <span className={`attack-amount num${dealt >= COMMANDER_LETHAL - 5 ? " warn" : ""}`} aria-live="polite">{dealt}</span>
+                        <Hold className="attack-step" label={`${victim.name} takes 1 damage from ${c.name}`} onStep={(n) => dispatch({ type: "commander_damage", seat: victim.seat, source: c.key, delta: n })}>
+                          <span aria-hidden="true">+</span>
+                        </Hold>
+                      </span>
+                      {a?.art && <span className="attack-credit">{artCredit(a.artist)}</span>}
+                    </span>
+                  );
+                })}
+              <span className="attack-hint">{COMMANDER_LETHAL} from one commander knocks {victim.name} out</span>
+            </div>
+          )
+        )}
+        {attack && attacker && !out && (
+          attack.seat === p.seat ? (
+            <div className="attack-layer is-attacker">
+              <span className="attack-title">{attackName} is dealing damage</span>
+              <span className="attack-hint">Tap + on each player it hit. Life comes off too.</span>
+              <span className="attack-actions">
+                {p.partnerName && (
+                  <button onClick={() => onAttack?.(!attack.partner)}>Switch to {attack.partner ? (p.commanderName ?? "commander") : p.partnerName}</button>
+                )}
+                <button className="primary" onClick={() => onAttack?.(attack.partner)}>Done</button>
+              </span>
+            </div>
+          ) : (
+            <div className="attack-layer">
+              <span className="attack-from">
+                {attackArt?.art ? <img src={attackArt.art} alt="" /> : <span className="cmdr-dot" style={{ background: MANA[identityKeys(attacker.colorIdentity)[0]!].fill }} />}
+                From {attackName}
+              </span>
+              <span className="attack-steps">
+                <Hold className="attack-step" label={`Take back 1 damage from ${attackName}`} onStep={(n) => dispatch({ type: "commander_damage", seat: p.seat, source: attackKey!, delta: -n })}>
+                  <span aria-hidden="true">−</span>
+                </Hold>
+                <span className={`attack-amount num${(p.commanderDamage[attackKey!] ?? 0) >= COMMANDER_LETHAL - 5 ? " warn" : ""}`} aria-live="polite">{p.commanderDamage[attackKey!] ?? 0}</span>
+                <Hold className="attack-step" label={`${p.name} takes 1 damage from ${attackName}`} onStep={(n) => dispatch({ type: "commander_damage", seat: p.seat, source: attackKey!, delta: n })}>
+                  <span aria-hidden="true">+</span>
+                </Hold>
+              </span>
+              <span className="attack-hint">
+                {(p.commanderDamage[attackKey!] ?? 0) >= COMMANDER_LETHAL ? "Lethal" : `${COMMANDER_LETHAL - (p.commanderDamage[attackKey!] ?? 0)} more is lethal`}
+              </span>
+              {attackArt?.art && <span className="attack-credit">{artCredit(attackArt.artist)}</span>}
+            </div>
+          )
+        )}
       </div>
     </section>
   );
+}
+
+/** "A and B" for a pair painted by two artists, else whichever is known. */
+function bothArtists(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (a && b && a !== b) return `${a} and ${b}`;
+  return a ?? b ?? null;
 }
 
 /** Tap for one step; hold to repeat, speeding up to tens. */
@@ -376,6 +711,38 @@ function Hold({ onStep, className, label, children }: { onStep: (n: number) => v
   );
 }
 
+/** The rarer player counters, with a line on what uses each, behind "Other counters". */
+const COUNTERS: { kind: CounterKind; label: string; short: string; about: string }[] = [
+  { kind: "energy", label: "Energy", short: "energy", about: "Kaladesh-style cards give energy and spend it on their abilities." },
+  { kind: "experience", label: "Experience", short: "experience", about: "Commanders like Meren and Mizzix get stronger with each one." },
+  { kind: "rad", label: "Rad", short: "rad", about: "Fallout cards: at your first main phase, mill that many and lose 1 life per nonland." },
+  { kind: "storm", label: "Storm", short: "storm", about: "Spells cast this turn, for storm and cards that count them. Set it back to 0 each turn." },
+  { kind: "treasure", label: "Treasure", short: "treasure", about: "Treasure tokens, if you'd rather not keep them on the battlefield." },
+];
+
+/** One sword: "this commander attacks". */
+const SwordsIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+    <path d="m13 19 6-6M16 16l4 4M19 21l2-2" />
+  </svg>
+);
+
+/** A warning triangle, beside the word for how close a player is to out. */
+const WarningIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    <path d="M12 9v4M12 17h.01" />
+  </svg>
+);
+
+/** A shield: "this player takes commander damage". */
+const ShieldIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  </svg>
+);
+
 /** − value +, the steppers on the player sheet. Round buttons in rows, square ones on tiles. */
 function Steps({ label, value, onChange, shape = "round", warn = false }: { label: string; value: number; onChange: (d: number) => void; shape?: "round" | "square"; warn?: boolean }) {
   return (
@@ -387,14 +754,28 @@ function Steps({ label, value, onChange, shape = "round", warn = false }: { labe
   );
 }
 
-export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableState; seat: number; onClose: () => void; artFor?: ArtFor }) {
+export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, onWin, host = false }: {
+  state: TableState;
+  seat: number;
+  onClose: () => void;
+  artFor?: ArtFor;
+  /** Deal commander damage with this seat's commander, tapping each player it hit. */
+  onAttack?: (partner: boolean) => void;
+  /** This player takes commander damage: tap the commander that hit them. */
+  onTake?: () => void;
+  /** End the game with this player as the winner. */
+  onWin?: () => void;
+  /** The phone running the game: it can change who sits here and their deck from your decks and playgroups. */
+  host?: boolean;
+}) {
   const dispatch = useContext(DispatchContext);
   const showArt = useShowArt();
   const [knocking, setKnocking] = useState(false);
+  const [changing, setChanging] = useState(false);
   const p = state.players.find((x) => x.seat === seat)!;
-  const opponents = state.players.filter((x) => x.seat !== seat);
-  const counters: CounterKind[] = ["energy", "experience", "rad"];
+  const commanderGame = state.setup.format === "commander";
   if (knocking) return <KnockOut state={state} seat={seat} onDone={onClose} onCancel={() => setKnocking(false)} />;
+  if (changing) return host ? <EditSeat state={state} seat={seat} onDone={() => setChanging(false)} /> : <ChangeCommander p={p} onDone={() => setChanging(false)} />;
   const art = artFor ? artFor(seat) : showArt && panelArt(p) ? { art: p.art!, artist: p.artist ?? null } : null;
   const partnerArt = artFor?.(seat, true) ?? null;
   const tax = (partner: boolean) => {
@@ -421,70 +802,111 @@ export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableStat
         <button className="ps-done" onClick={onClose}>Done</button>
         <span className="ps-who">
           <span className="ps-name">
-            <span className="art-big">{p.name}</span>
+            {host ? (
+              <button className="art-big ps-name-edit" onClick={() => setChanging(true)} aria-label={`${p.name}. Change the player or their deck`}>{p.name}</button>
+            ) : (
+              <span className="art-big">{p.name}</span>
+            )}
             {p.commanderName && <span className="ps-cmdr">{p.commanderName}{p.partnerName ? ` and ${p.partnerName}` : ""}</span>}
           </span>
-          <span className="ps-life art-big num" aria-label={`${p.life} life`}>{p.life}</span>
+          <SetLife life={p.life} onSet={(n) => n !== p.life && dispatch({ type: "life", seat, delta: n - p.life })} />
         </span>
       </ArtPanel>
+      <div className="ps-actions">
+        <span className="ps-actions-row">
+          {[-10, -5, 5, 10].map((d) => (
+            <button key={d} className="ps-jump" onClick={() => dispatch({ type: "life", seat, delta: d })} aria-label={`${d > 0 ? "Gain" : "Lose"} ${Math.abs(d)} life`}>
+              {d > 0 ? `+${d}` : `−${-d}`}
+            </button>
+          ))}
+        </span>
+        <span className="ps-actions-row">
+          {commanderGame && onTake && state.players.length > 1 && !p.eliminated && (
+            <button className="outline" onClick={onTake}>
+              <ShieldIcon /> Take commander damage
+            </button>
+          )}
+          {commanderGame && onAttack && state.players.length > 1 && !p.eliminated && (
+            <button className="outline" onClick={() => onAttack(false)}>
+              <SwordsIcon /> Deal commander damage
+            </button>
+          )}
+        </span>
+        <span className="ps-actions-row">
+          {host ? (
+            <button className="outline" onClick={() => setChanging(true)}>{commanderGame ? "Change player or deck" : "Change player"}</button>
+          ) : (
+            commanderGame && <button className="outline" onClick={() => setChanging(true)}>{p.commanderName ? "Change commander" : "Pick a commander"}</button>
+          )}
+          {onWin && !p.eliminated && <button className="primary ps-win" onClick={onWin}>{p.name} won</button>}
+        </span>
+      </div>
 
+      {commanderGame && state.players.length > 1 && (
       <section className="ps-section" aria-labelledby="ps-dmg">
         <div className="ps-section-head">
           <h2 id="ps-dmg">Commander damage taken</h2>
-          <span className="small dim">21 from one knocks you out</span>
+          <span className="small dim">{COMMANDER_LETHAL} from one knocks you out</span>
         </div>
         <div className="ps-rows">
-          {opponents.map((o) => {
-            const keys: CommanderKey[] = o.partnerName ? [`${o.seat}`, `${o.seat}b`] : [`${o.seat}`];
-            return keys.map((k) => {
-              const partner = k.endsWith("b");
-              const name = partner ? `${o.partnerName}` : (o.commanderName ?? "Their commander");
-              const value = p.commanderDamage[k] ?? 0;
-              const a = artFor?.(o.seat, partner) ?? null;
-              return (
-                <div key={k} className="ps-row">
-                  <SeatDot art={a} colorIdentity={o.colorIdentity} className="ps-row-art" />
-                  <span className="ps-row-text">
-                    <span className="ps-row-name">{name}</span>
-                    <span className="small dim">{o.name}</span>
-                  </span>
-                  <Steps label={`${name} damage`} value={value} warn={value >= 15} onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })} />
-                </div>
-              );
-            });
+          {commanderSources(state, seat).map(({ key: k, seat: from, partner, name, retired }) => {
+            const o = state.players.find((x) => x.seat === from)!;
+            const value = p.commanderDamage[k] ?? 0;
+            const a = retired ? null : (artFor?.(from, partner) ?? null);
+            return (
+              <div key={k} className="ps-row">
+                <SeatDot art={a} colorIdentity={o.colorIdentity} className="ps-row-art" />
+                <span className="ps-row-text">
+                  <span className="ps-row-name">{name}</span>
+                  <span className="small dim">{retired ? `${o.name}, before switching` : o.name}</span>
+                </span>
+                <Steps label={`${name} damage`} value={value} warn={value >= COMMANDER_LETHAL - 6} onChange={(d) => dispatch({ type: "commander_damage", seat, source: k, delta: d })} />
+              </div>
+            );
           })}
         </div>
         <p className="small dim ps-note">Commander damage also comes off your life.</p>
       </section>
+      )}
 
       <section className="ps-section" aria-labelledby="ps-counters">
-        <h2 id="ps-counters">Counters</h2>
-        <div className="ps-counters">
+        <h2 id="ps-counters">Poison</h2>
+        <div className="ps-counters ps-counters-one">
           <div className="ps-counter">
             <span className="ps-counter-text">
-              <span className="small dim">Poison</span>
-              <b className="num">{p.poison}</b>
+              <b className={`num${p.poison >= 7 ? " warn" : ""}`} aria-label={`${p.poison} of ${POISON_LETHAL} poison`}>
+                {p.poison}
+                <span className="ps-of"> / {POISON_LETHAL}</span>
+              </b>
             </span>
             <Steps label="Poison" value={p.poison} shape="square" onChange={(d) => dispatch({ type: "poison", seat, delta: d })} />
           </div>
-          {counters.map((c) => {
-            const label = c[0]!.toUpperCase() + c.slice(1);
-            const v = p.counters[c] ?? 0;
+        </div>
+      </section>
+
+      {commanderGame && tax(false)}
+      {commanderGame && p.partnerName && tax(true)}
+
+      <section className="ps-section ps-more" aria-labelledby="ps-other">
+        <div className="ps-section-head">
+          <h2 id="ps-other">Other counters</h2>
+          <span className="small dim">Only some cards use these</span>
+        </div>
+        <div className="ps-counters">
+          {COUNTERS.map((c) => {
+            const v = p.counters[c.kind] ?? 0;
             return (
-              <div key={c} className="ps-counter">
+              <div key={c.kind} className="ps-counter ps-counter-about">
                 <span className="ps-counter-text">
-                  <span className="small dim">{label}</span>
+                  <span className="small"><b>{c.label}</b> <span className="dim">{c.about}</span></span>
                   <b className="num">{v}</b>
                 </span>
-                <Steps label={label} value={v} shape="square" onChange={(d) => dispatch({ type: "counter", seat, counter: c, delta: d })} />
+                <Steps label={c.label} value={v} shape="square" onChange={(d) => dispatch({ type: "counter", seat, counter: c.kind, delta: d })} />
               </div>
             );
           })}
         </div>
       </section>
-
-      {tax(false)}
-      {p.partnerName && tax(true)}
 
       <div className="ps-marks">
         <button className="outline" aria-pressed={state.monarch === seat} onClick={() => dispatch({ type: "monarch", seat: state.monarch === seat ? null : seat })}>
@@ -492,6 +914,10 @@ export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableStat
         </button>
         <button className="outline" aria-pressed={state.initiative === seat} onClick={() => dispatch({ type: "initiative", seat: state.initiative === seat ? null : seat })}>
           {state.initiative === seat ? "Remove initiative" : "Take the initiative"}
+        </button>
+        <button className="outline" aria-pressed={(p.counters.blessing ?? 0) > 0} onClick={() => dispatch({ type: "counter", seat, counter: "blessing", delta: (p.counters.blessing ?? 0) > 0 ? -1 : 1 })}>
+          {/* The blessing is for good (CR 702.131c); taking it back is only for a mistaken tap. */}
+          {(p.counters.blessing ?? 0) > 0 ? "Take back city's blessing (tapped by mistake)" : "Got the city's blessing"}
         </button>
       </div>
       {p.eliminated ? (
@@ -503,13 +929,105 @@ export function PlayerSheet({ state, seat, onClose, artFor }: { state: TableStat
   );
 }
 
+const MAX_TYPED_LIFE = 99_999;
+
+/** The big life total on the player sheet. Tap it to type a new total (a big lifegain, a reset). */
+function SetLife({ life, onSet }: { life: number; onSet: (n: number) => void }) {
+  const [typing, setTyping] = useState<string | null>(null);
+  if (typing === null) {
+    return (
+      <button className="ps-life art-big num" onClick={() => setTyping(String(life))} aria-label={`${life} life. Type a new total`}>
+        {life}
+      </button>
+    );
+  }
+  const done = () => {
+    const n = Number.parseInt(typing, 10);
+    // Five digits either way is more than any real game, and keeps the total a safe whole number.
+    if (Number.isSafeInteger(n) && Math.abs(n) <= MAX_TYPED_LIFE) onSet(n);
+    setTyping(null);
+  };
+  return (
+    <form className="ps-life-set" onSubmit={(e) => { e.preventDefault(); done(); }}>
+      <input
+        className="art-big num"
+        inputMode="numeric"
+        aria-label="New life total"
+        autoFocus
+        value={typing}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          const v = e.target.value.replace(/[^\d-]/g, "").replace(/(?!^)-/g, "");
+          setTyping(v.startsWith("-") ? `-${v.slice(1, 6)}` : v.slice(0, 5));
+        }}
+        onBlur={done}
+      />
+    </form>
+  );
+}
+
+/** A disclosure that starts open when it holds something worth seeing. */
+function OpenDetails({ label, open, className, children }: { label: string; open: boolean; className?: string; children: ReactNode }) {
+  return (
+    <details className={`details-fold${className ? ` ${className}` : ""}`} open={open || undefined}>
+      <summary>{label}</summary>
+      <div className="details-body">{children}</div>
+    </details>
+  );
+}
+
+/** Mid-game: this seat is playing a different commander (or the one at setup was wrong). */
+function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) {
+  const dispatch = useContext(DispatchContext);
+  const [typed, setDraft] = useState<CommanderDraft>({
+    commanderName: p.commanderName,
+    partnerName: p.partnerName,
+    colorIdentity: p.colorIdentity,
+    art: p.art,
+    artist: p.artist,
+    partnerArt: p.partnerArt,
+    partnerArtist: p.partnerArtist,
+  });
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    // A name typed but never picked from the list still gets its card's art and colors.
+    const draft = await resolveDraft(typed);
+    const pick: CommanderPick = {
+      commanderName: draft.commanderName?.trim() || undefined,
+      partnerName: draft.partnerName?.trim() || undefined,
+      colorIdentity: draft.colorIdentity ?? "",
+      art: draft.art,
+      artist: draft.artist,
+      partnerArt: draft.partnerName ? draft.partnerArt : undefined,
+      partnerArtist: draft.partnerName ? draft.partnerArtist : undefined,
+    };
+    // The same commander (a fix to its art or partner) is still the same deck.
+    const sameDeck = pick.commanderName === p.commanderName;
+    dispatch({ type: "seat", seat: p.seat, ...pick, deckVersionId: sameDeck ? p.deckVersionId : undefined, was: { commanderName: p.commanderName, partnerName: p.partnerName } });
+    onDone();
+  };
+  return (
+    <div className="stack">
+      <div className="sheet-head">
+        <h2>{p.name}'s commander</h2>
+        <button className="quiet" onClick={onDone}>Cancel</button>
+      </div>
+      <CommanderFields value={typed} onChange={setDraft} autoFocus />
+      <p className="small dim" style={{ margin: 0 }}>Damage already dealt and taken stays as it is.</p>
+      <div className="row">
+        <button className="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+      </div>
+    </div>
+  );
+}
+
 /** Who knocked a player out, for the playgroup's rivalries. Suggests the commander that dealt 21. */
 export function KnockOut({ state, seat, onDone, onCancel }: { state: TableState; seat: number; onDone: () => void; onCancel?: () => void }) {
   const dispatch = useContext(DispatchContext);
   const p = state.players.find((x) => x.seat === seat)!;
   const others = state.players.filter((x) => x.seat !== seat && !x.eliminated);
-  const lethal = Object.entries(p.commanderDamage).find(([, d]) => (d ?? 0) >= 21)?.[0];
-  const suggested = lethal === undefined ? null : Number.parseInt(lethal, 10);
+  const suggested = lossOf(state, p)?.bySeat ?? null;
   const out = (bySeat?: number) => {
     dispatch(bySeat === undefined ? { type: "eliminate", seat } : { type: "eliminate", seat, bySeat });
     onDone();
@@ -538,7 +1056,8 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   state: TableState;
   winner: number | null;
   onBack: () => void;
-  onSave: (details: { winCondition?: WinCondition; fun?: FunRating[] }, firstSeat: number | null) => void;
+  /** `again`: start a new game with the same seats straight after saving this one. */
+  onSave: (details: { winCondition?: WinCondition; fun?: FunRating[] }, firstSeat: number | null, again: boolean) => void;
 }) {
   const [condition, setCondition] = useState<WinCondition | null>(null);
   const [fun, setFun] = useState<FunRating[]>([]);
@@ -560,7 +1079,8 @@ function FinishSheet({ state, winner, onBack, onSave }: {
       )}
       <FunPicker seats={seats} value={fun} onChange={setFun} />
       <div className="row">
-        <button className="primary" onClick={() => onSave({ winCondition: condition ?? undefined, fun }, first)}>Save the game</button>
+        <button className="primary" onClick={() => onSave({ winCondition: condition ?? undefined, fun }, first, false)}>Save the game</button>
+        <button onClick={() => onSave({ winCondition: condition ?? undefined, fun }, first, true)}>Save and play again</button>
       </div>
     </div>
   );
@@ -583,6 +1103,12 @@ function SeatDot({ art, colorIdentity, className }: { art: CardArt | null; color
   return <span className={`${className} seat-dot-none`} style={{ "--dot": MANA[identityKeys(colorIdentity)[0]!].fill } as CSSProperties} />;
 }
 
+const TrophyIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" />
+    <path d="M17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3" />
+  </svg>
+);
 const UndoIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M9 14 4 9l5-5" />
@@ -595,6 +1121,14 @@ const RedoIcon = () => (
     <path d="M20 9H10a6 6 0 0 0 0 12h3" />
   </svg>
 );
+/** The hub, when the table isn't counting turns: three dots for the menu. */
+const MenuIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="5" cy="12" r="2.2" />
+    <circle cx="12" cy="12" r="2.2" />
+    <circle cx="19" cy="12" r="2.2" />
+  </svg>
+);
 export const CloseIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
     <path d="M6 6l12 12M18 6 6 18" />
@@ -603,25 +1137,34 @@ export const CloseIcon = () => (
 
 type Marker = "monarch" | "initiative" | "first";
 
-function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turnSince }: {
+function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, turnSince }: {
   state: TableState;
   onClose: () => void;
   onLeave: () => void;
   onFinish: (winner: number | null) => void;
+  /** The join code, full size. */
+  onJoin: () => void;
+  onDice: () => void;
   aliveCount: number;
   artFor: ArtFor;
+  log: LoggedEvent[];
   /** When the current turn started: the last pass, or the start of the game. */
   turnSince: string;
 }) {
   const artists = state.players.map((p) => artFor(p.seat)).filter((a): a is CardArt => !!a).map((a) => a.artist);
   const sync = useSyncStatus();
   const showArt = useShowArt();
+  const countTurns = useCountTurns();
+  const install = useInstall();
+  const fullscreen = useFullscreen();
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [picking, setPicking] = useState<Marker | null>(null);
   const active = state.players.find((p) => p.seat === state.activeSeat);
   const next = nextPlayer(state);
   const first = state.players.find((p) => p.seat === state.firstSeat);
   const minutes = Math.floor((Date.now() - Date.parse(turnSince)) / 60_000);
+  const counting = countTurns;
+  const played = Math.floor((Date.now() - Date.parse(state.setup.startedAt)) / 60_000);
   const holder = (m: Marker) => state.players.find((p) => p.seat === (m === "monarch" ? state.monarch : m === "initiative" ? state.initiative : state.firstSeat));
   const give = (m: Marker, seat: number | null) => {
     if (m === "monarch") dispatch({ type: "monarch", seat });
@@ -646,24 +1189,38 @@ function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turn
     <div className="table-menu">
       <span className="sheet-grip" aria-hidden="true" />
       <div className="tm-head">
-        <div className="tm-turn">
-          {active && <SeatDot art={artFor(active.seat)} colorIdentity={active.colorIdentity} className="tm-avatar" />}
-          <span className="tm-turn-text">
-            <h2>Turn {state.turn}</h2>
-            <span className="dim">
-              {active?.name}'s turn, {minutes < 1 ? "just started" : `${minutes} min`}
+        {counting ? (
+          <div className="tm-turn">
+            {active && <SeatDot art={artFor(active.seat)} colorIdentity={active.colorIdentity} className="tm-avatar" />}
+            <span className="tm-turn-text">
+              <h2>Turn {state.turn}</h2>
+              <span className="dim">
+                {active?.name}'s turn, {minutes < 1 ? "just started" : `${minutes} min`}
+              </span>
             </span>
-          </span>
-        </div>
+          </div>
+        ) : (
+          <div className="tm-turn">
+            <span className="tm-turn-text">
+              <h2>The table</h2>
+              <span className="dim">{played < 1 ? "Just started" : played < 60 ? `${played} min in` : `${Math.floor(played / 60)} h ${played % 60} min in`}</span>
+            </span>
+          </div>
+        )}
         <button className="tm-round" aria-label="Back to the game" onClick={onClose}>
           <CloseIcon />
         </button>
       </div>
 
-      <div className="tm-pass">
-        <button className="primary" onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
+      {counting && (
+        <button className="primary tm-pass-turn" onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
           {next && <SeatDot art={artFor(next.seat)} colorIdentity={next.colorIdentity} className="tm-pass-dot" />}
-          {next ? `Pass to ${next.name}` : "Pass the turn"}
+          {next ? `Pass the turn to ${next.name}` : "Pass the turn"}
+        </button>
+      )}
+      <div className="tm-pass">
+        <button className={confirmEnd ? "outline" : "primary"} onClick={() => setConfirmEnd((c) => !c)} aria-expanded={confirmEnd}>
+          <TrophyIcon /> Finish the game
         </button>
         <button className="tm-icon" onClick={undo} disabled={!canUndo()} aria-label="Undo">
           <UndoIcon />
@@ -672,6 +1229,31 @@ function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turn
           <RedoIcon />
         </button>
       </div>
+      {confirmEnd && (
+        <section className="tm-finish" aria-labelledby="tm-who-won">
+          <h3 id="tm-who-won">Who won?</h3>
+          {aliveCount > 1 && <p className="small dim">{aliveCount} players are still in. Pick the winner, or go back to the table.</p>}
+          <div className="tm-winners">
+            {state.players.map((p) => (
+              <button key={p.seat} className="tm-winner" onClick={() => onFinish(p.seat)}>
+                <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-winner-dot" />
+                <span>{p.name}</span>
+              </button>
+            ))}
+          </div>
+          <div className="row">
+            <button className="outline" onClick={() => onFinish(null)}>It was a draw</button>
+            <button className="quiet" onClick={() => setConfirmEnd(false)}>Keep playing</button>
+          </div>
+        </section>
+      )}
+
+      {/* Sharing the table with everyone's phones needs an account. */}
+      {isGuest() ? (
+        <p className="small dim tm-guest-share">To share this table with everyone's phones, sign in with Google from the Table page. This game stays on this phone.</p>
+      ) : (
+        <ShareCard gameId={state.setup.id} onBigger={onJoin} />
+      )}
 
       <section className="tm-section" aria-labelledby="tm-on-table">
         <h3 id="tm-on-table">On the table</h3>
@@ -712,50 +1294,130 @@ function TableMenu({ state, onClose, onLeave, onFinish, aliveCount, artFor, turn
         )}
       </section>
 
-      <ShareCard gameId={state.setup.id} />
-
       <div className="tm-actions">
         <RollButton state={state} />
-        <button onClick={() => setConfirmEnd((c) => !c)} aria-expanded={confirmEnd}>Record a winner</button>
+        <button onClick={onDice}>Dice and coin</button>
       </div>
-      {confirmEnd && (
-        <div className="tm-pick">
-          <p className="small dim">Who won? {aliveCount > 1 ? `${aliveCount} players are still in.` : ""}</p>
-          <div className="tm-pick-row">
-            {state.players.map((p) => (
-              <button key={p.seat} onClick={() => onFinish(p.seat)}>
-                <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-marker-dot" />
-                {p.name}
-              </button>
-            ))}
-            <button className="outline" onClick={() => onFinish(null)}>Draw</button>
-            <button
-              className="outline tm-discard"
-              onClick={() => {
-                if (confirm("Throw this game away? It won't be saved.")) {
-                  discardGame();
-                  onLeave();
-                }
-              }}
-            >
-              Discard game
-            </button>
-          </div>
+      <LayoutPicker n={state.players.length} className="tm-layout" />
+      <GameLog state={state} log={log} />
+
+      <section className="tm-section tm-settings" aria-labelledby="tm-settings">
+        <h3 id="tm-settings">This phone</h3>
+        <label className="check-row">
+          <input type="checkbox" checked={countTurns} onChange={(e) => setCountTurns(e.target.checked)} />
+          <span>
+            Count turns
+            <span className="small dim tm-setting-note">
+              {countTurns ? " A Pass the turn button, and the turn number in the middle. A count started mid-game isn't saved as the game's length." : " Off: nobody has to remember to pass."}
+            </span>
+          </span>
+        </label>
+        {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
+        {(artists.length > 0 || !showArt) && (
+          <label className="check-row">
+            <input type="checkbox" checked={showArt} onChange={(e) => setShowArt(e.target.checked)} />
+            <span>Commander art behind each player</span>
+          </label>
+        )}
+        <div className="tm-screen">
+          {fullscreen.supported && <button className="outline" onClick={fullscreen.toggle} aria-pressed={fullscreen.on}>{fullscreen.on ? "Leave full screen" : "Full screen"}</button>}
+          {install.canPrompt && <button className="outline" onClick={() => void install.install()}>Install Yama</button>}
         </div>
-      )}
-      {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
-      {(artists.length > 0 || !showArt) && (
-        <button className="quiet small tm-art-toggle" onClick={() => setShowArt(!showArt)}>
-          {showArt ? "Use mana colors instead of art" : "Show commander art"}
+        {install.fromShareMenu && <p className="small dim">For full screen on an iPhone or iPad, add Yama to the home screen: Share, then Add to Home Screen.</p>}
+      </section>
+
+      <div className="tm-leave">
+        <button className="outline" onClick={onLeave}>Leave the table</button>
+        <button
+          className="outline tm-discard"
+          onClick={() => {
+            if (confirm("Throw this game away? It won't count, and it's deleted from Yama.")) {
+              discardGame();
+              onLeave();
+            }
+          }}
+        >
+          Discard game
         </button>
-      )}
+      </div>
+      <p className="small dim tm-leave-note">Leaving keeps the game going on this phone: it's on the Table page to come back to.</p>
       <div className="tm-foot">
         <span>
-          {sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
+          {isGuest() ? "Kept on this phone. Sign in to save it to Yama." : sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
         </span>
-        <button className="tm-link" onClick={onLeave}>Leave it running</button>
       </div>
       {artists.length > 0 && <p className="tm-credit">Commander art: {artCredits(artists)}</p>}
+    </div>
+  );
+}
+
+/** What's happened so far, newest first: the same lines as the game's page afterwards. */
+function GameLog({ state, log }: { state: TableState; log: LoggedEvent[] }) {
+  const lines = history(state.setup, log).reverse();
+  if (!lines.length) return null;
+  return (
+    <OpenDetails label="What's happened" open={false} className="tm-log">
+      <ol className="tm-log-list">
+        {lines.slice(0, 60).map((l) => (
+          <li key={l.seq}>
+            <span className="tm-log-when num">{new Date(l.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+            <span>{l.text}</span>
+          </li>
+        ))}
+      </ol>
+      {lines.length > 60 && <p className="small dim">The whole log is on the game's page once it's saved.</p>}
+    </OpenDetails>
+  );
+}
+
+/**
+ * As a game opens: who takes the first turn? Tap them, or let the phone pick. It's saved with the
+ * game for the playgroup's turn-order stats; Skip leaves it for the end of the game.
+ */
+function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtFor; onDone: () => void }) {
+  const [rolled, setRolled] = useState<number | null>(null);
+  const pick = (seat: number) => {
+    dispatch({ type: "set_first", seat });
+    onDone();
+  };
+  const roll = () => {
+    const r = new Uint32Array(1);
+    crypto.getRandomValues(r);
+    const p = state.players[r[0]! % state.players.length]!;
+    dispatch({ type: "set_first", seat: p.seat, rolled: true });
+    setRolled(p.seat);
+  };
+  const winner = state.players.find((p) => p.seat === rolled);
+  if (winner) {
+    return (
+      <div className="stack first-sheet">
+        <div className="first-rolled" role="status">
+          <SeatDot art={artFor(winner.seat)} colorIdentity={winner.colorIdentity} className="first-rolled-dot" />
+          <h2>{winner.name} goes first</h2>
+        </div>
+        <div className="row">
+          <button className="primary" onClick={onDone}>Start</button>
+          <button className="quiet" onClick={roll}>Roll again</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="stack first-sheet">
+      <div className="sheet-head">
+        <h2>Who goes first?</h2>
+        <button className="quiet" onClick={onDone}>Skip</button>
+      </div>
+      <div className="tm-winners">
+        {state.players.map((p) => (
+          <button key={p.seat} className="tm-winner" onClick={() => pick(p.seat)}>
+            <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-winner-dot" />
+            <span>{p.name}</span>
+          </button>
+        ))}
+      </div>
+      <button className="primary" onClick={roll}>Pick at random</button>
+      <p className="small dim" style={{ margin: 0 }}>Saved with the game for the playgroup's turn-order stats. Change it any time from the menu.</p>
     </div>
   );
 }

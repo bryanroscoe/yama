@@ -1,33 +1,53 @@
 # Running Yama on saget
 
-Yama runs as one container on saget, Bryan's Unraid server at `<saget-lan-address>`. It follows the same pattern as the house site (see `~/Developer/sagetserver/docs/HOUSE-DEPLOYMENT.md`):
+Yama and its advisor/Forge sidecars run on saget, Bryan's Unraid server on his LAN. It follows the same pattern as the house site (see `~/Developer/sagetserver/docs/HOUSE-DEPLOYMENT.md`):
 
 - **Directory:** `/mnt/user/appdata/yama` on the cache SSD. It holds `compose.yaml`, a server-local `yama.env` (not in git), and `data/` (the SQLite database, engine card data and backups).
-- **LAN:** http://<saget-lan-address>:8099. The container listens on 8787.
+- **Reaching saget:** the scripts here read its address and SSH user from `deploy/.env` (gitignored; copy [`deploy/.env.example`](.env.example)) or the environment (`YAMA_DEPLOY_HOST`, `YAMA_DEPLOY_USER`, default `root`), and stop if it is unset. Saget's address is never written in a tracked file. In the commands below, `ssh saget` means `ssh $YAMA_DEPLOY_USER@$YAMA_DEPLOY_HOST`; a `Host saget` entry in `~/.ssh/config` makes them work as written.
+- **LAN:** port 8099 on saget's LAN address (`http://$YAMA_DEPLOY_HOST:8099`). The container listens on 8787. Compose publishes the port on `YAMA_LAN_ADDRESS` from a server-local `.env` beside `compose.yaml` (`/mnt/user/appdata/yama/.env`, not in git; for example `YAMA_LAN_ADDRESS=` saget's LAN address), so only the LAN interface answers. Without it the port listens on every IPv4 interface. Until the updated `host.py` is installed on saget, its health check still expects the LAN address, so keep `YAMA_LAN_ADDRESS` unset or equal to it; the updated gate checks whatever address the running container publishes.
 - **Public:** joins the existing `novalyst_default` Docker network, so the existing Cloudflare tunnel (`novalyst-cloudflared`) can route a hostname to `http://yama:8787`. No router ports are opened. Never restart `novalyst-cloudflared` or any other container for a Yama deploy.
+- **Shared-table relay:** not on saget. It runs on Cloudflare (`relay.yama.ing`, Workers Free) so tables keep working while saget is down; it deploys separately, by hand: [`relay/README.md`](../relay/README.md).
 - **Container hardening:** runs as `99:100`, read-only filesystem, all capabilities dropped, 5 GB memory cap. The rules engine uses about 720 MB; the lab's game threads and live games take the rest. At its cap a container doesn't fail, it slows down: every allocation waits on the kernel reclaiming pages. That is how 3 GB once turned minute-long lab games into time-outs.
 
 ## Rules (from the sagetserver repo)
 
-Ask Bryan before any action that changes the server. Read-only checks (`docker ps`, `ss`, `df`) are fine. The deployment and setup scripts change the server. `./deploy/deploy.sh --check` and `sh deploy/check-release.sh` only check local/GitHub release state; `pull-db.sh` without `--fresh` only reads from saget.
+Automatic releases after successful current-main CI are authorized (Bryan, 2026-10-28). Other server changes still need Bryan's request. Read-only checks (`docker ps`, `ss`, `df`) are fine. The deployment and setup scripts change the server. `./deploy/deploy.sh --check` and `sh deploy/check-release.sh` only check local/GitHub release state; `pull-db.sh` without `--fresh` only reads from saget.
 
 Follow [Releasing Yama](RELEASING.md) before a first deploy or update: fetch GitHub, integrate the intended changes into main, check the merged result and publish main, then deploy from clean main matching freshly fetched `origin/main`. The deploy script enforces this and stops before any server call if it fails.
 
 ## First deploy
 
-1. `./deploy/first-time.sh`. It creates the directory, copies `yama.env.example` to `yama.env` (only if missing), and downloads the engine card data (101 MB, checked against its SHA-256).
-2. Choose how people sign in. Edit `yama.env` on the server:
-   - **Cloudflare Access (recommended).** Create a self-hosted Access application for the Yama hostname, with an allow policy listing the friends' emails (one-time PIN or Google login). Put the team name and the application's audience tag into `YAMA_CF_ACCESS_TEAM` / `YAMA_CF_ACCESS_AUD`. The Access policy becomes the invite list, and Yama trusts only Cloudflare's signed token, never a bare email header.
-   - **Google sign-in.** Set `YAMA_GOOGLE_CLIENT_IDS` (an OAuth web client whose authorized origin is the Yama URL) and invite people with `docker exec yama yama-server invite friend@gmail.com`.
-3. `./deploy/deploy.sh` copies the source to `build/` on saget, builds the image there in the background (so a dropped SSH session can't stop it; log in `build/build.log`) and starts the container. On first start Yama downloads Scryfall card data (about 2 minutes), then refreshes prices daily.
-4. In Cloudflare Zero Trust, open the `novalyst` tunnel and add a public hostname (for example `yama.ing`) pointing at service `http://yama:8787`.
+1. Run `./deploy/first-time.sh` from the verified source checkout. It creates the data
+   directory, copies `yama.env.example` only when missing, and copies locally available
+   pinned engine card data after checking its SHA-256. It does not regenerate that data.
+2. Configure `yama.env` on saget: verified Google sign-in (`YAMA_GOOGLE_CLIENT_IDS`),
+   the admin email(s), open Google sign-up (`YAMA_OPEN_SIGNUP=1`) and
+   `YAMA_PASSWORD_LOGIN=0`. Use the existing approved Google OAuth client/origins;
+   new accounts or provider configuration still require Bryan's request.
+3. Install the reviewed [production runner and host entrypoint](RUNNER.md). Once CI
+   passes on current main, the workflow deploys; a requested manual release uses
+   `./deploy/deploy.sh` from clean current main and the same host gate.
+4. The first authorized release creates missing advisor/Forge env files and paired
+   secrets under the release lock, without printing credentials. Existing secrets,
+   encryption keys, tokens, API keys and custom URLs are preserved. A missing partner
+   is recovered from the existing secret; conflicting or empty paired secrets require
+   explicit repair and are never silently rotated.
+5. A genuinely empty installation (no Yama container and no database/WAL files) can
+   start without a backup when using the default database settings and standard /data
+   bind. Custom database URLs/data mounts and a rebuild containing a database must first restore a running
+   Yama container using the recovery instructions so its mandatory backup can succeed.
+   A missing container never makes an existing database disposable. Builds and attempt
+   records live under `/mnt/user/appdata/yama-release`, as described in the runner guide.
+6. The existing Cloudflare tunnel routes the approved hostname to `http://yama:8787`.
+   Adding/changing a hostname is a separate setup action; a Yama release never restarts
+   the tunnel or unrelated applications.
 
 ## Current sign-in setup (2026-10-18; open sign-up added 2026-10-20, off until set)
 
 - **Google sign-in:** Google Cloud project `yama-512101`, OAuth web client `228285497505-i6ocbd3fndfdrjim4t0p2grsmiglrkfo.apps.googleusercontent.com`, authorized origins `https://yama.ing` and the legacy `https://yama.saget.org`. The client ID is public and is set in the server's `yama.env`. Yama never needs the client secret; Bryan keeps the downloaded JSON.
   - While the OAuth consent screen is in **Testing** mode, only listed test users can sign in. Either add each friend there, or publish the app (the email and profile scopes need no Google review). Open sign-up needs it published (see "Open sign-up" below).
-  - Friends also need a Yama invite: `ssh root@<saget-lan-address> docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
-- **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh root@<saget-lan-address> docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Nobody can make a password account from the app: that command is the only way. `YAMA_PASSWORD_LOGIN=0` in `yama.env` turns password sign-in off altogether. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
+  - Friends also need a Yama invite: `ssh saget docker exec yama yama-server invite friend@gmail.com`. Admins (`YAMA_ADMIN_EMAILS`) can invite from the Group tab instead.
+- **Password accounts:** for debugging on the server, test players, or if Google sign-in breaks. `ssh saget docker exec yama yama-server user add debug@example.com --admin` prints a generated password; the login screen then shows "Sign in with a password". `user list` shows every account; `user remove-password EMAIL` turns one off. Nobody can make a password account from the app: that command is the only way. `YAMA_PASSWORD_LOGIN=0` in `yama.env` turns password sign-in off altogether. `YAMA_GUEST_MODE=0` turns off card search for the life counter without an account (`/api/guest/cards/search`) if it's abused; those phones keep counting with typed names. Dev login (`YAMA_DEV_LOGIN`) never works here: the container listens on 0.0.0.0, so the server ignores it.
 - **Cloudflare Access:** optional, and not set up yet. If it's turned on, commander-decks' `publish.py` and `pull.py` also need an Access service token: set `YAMA_CF_ACCESS_CLIENT_ID` and `YAMA_CF_ACCESS_CLIENT_SECRET` on the Mac, and allow that token in the Access policy. The Yama script key still decides whose plan it is.
 - **Public route (2026-10-28):** `yama.ing` → `http://yama:8787` on the existing `novalyst` tunnel (proxied DNS CNAME to its `cfargotunnel.com` hostname). The legacy `yama.saget.org` route remains available during migration; other tunnel routes are unchanged.
 
@@ -62,7 +82,7 @@ Off unless `yama.env` says otherwise. To turn it on:
 2. **Tell Yama to believe the tunnel's client address.** Sign-in attempts are limited per address (10 in 10 minutes), and behind the tunnel every request arrives from the `novalyst-cloudflared` container. Cloudflare passes the visitor's address in `CF-Connecting-IP`, but Yama only believes that header from peers listed in `YAMA_TRUSTED_PROXIES`, because anyone on the LAN could send it. Find the tunnel network's range (read-only):
 
    ```sh
-   ssh root@<saget-lan-address> "docker network inspect novalyst_default -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}'"
+   ssh saget "docker network inspect novalyst_default -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}'"
    ```
 
    and put it in `yama.env`, for example `YAMA_TRUSTED_PROXIES=172.18.0.0/16`. LAN requests on port 8099 normally arrive from the LAN client's own address (Docker forwards published ports without changing the source), so they are counted per device and their header is ignored. If Docker's userland proxy hands them over from the network's gateway instead, a LAN device could set the header and pick its own count; to rule that out, list only the connector's address (`docker inspect novalyst-cloudflared -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}'`), which changes if that container is recreated. Without this setting the limits still work, but count every tunnel visitor as one address (Yama logs a warning the first time it sees the header from a peer it doesn't trust).
@@ -95,7 +115,7 @@ Whose Claude answers:
 
 Setting it up:
 
-1. `./deploy/deploy.sh` builds `yama-advisor` too, and on first run writes the advisor's secrets on saget without printing them: `advisor.env` (`ADVISOR_SECRET`, mode 0600) and, in `yama.env`, `YAMA_ADVISOR_URL`, `YAMA_ADVISOR_SECRET`, `YAMA_ADVISOR_KEY_SECRET` and `YAMA_ADVISOR_SUBSCRIPTION_EMAILS`. It never overwrites them; changing `YAMA_ADVISOR_KEY_SECRET` later makes saved keys unreadable (people re-add them).
+1. The deployment host gate builds `yama-advisor` too, and on first authorized run writes the advisor's secrets on saget without printing them: `advisor.env` (`ADVISOR_SECRET`, mode 0600) and, in `yama.env`, `YAMA_ADVISOR_URL`, `YAMA_ADVISOR_SECRET`, `YAMA_ADVISOR_KEY_SECRET` and `YAMA_ADVISOR_SUBSCRIPTION_EMAILS`. It never overwrites them; changing `YAMA_ADVISOR_KEY_SECRET` later makes saved keys unreadable (people re-add them).
 2. **Bryan connects his subscription:** `claude setup-token` on the Mac (browser sign-in; prints a token that lasts a year), then `./deploy/advisor-token.sh` and paste it. The token stays hidden, goes to saget over SSH's stdin, lands in `advisor.env` and restarts only `yama-advisor`. `./deploy/advisor-token.sh --remove` takes it off. Until then, Bryan's questions say the subscription isn't connected, and the You section says so too.
 
 3. **The shared key (optional, only if Bryan wants friends on it):**
@@ -106,15 +126,16 @@ Setting it up:
 
    Optional settings in `yama.env` (the defaults need nothing): `YAMA_ADVISOR_SHARED_MONTHLY_USD=10`, `YAMA_ADVISOR_SHARED_MODELS=claude-haiku-5-5` (comma-separated), `YAMA_ADVISOR_SHARED_OWNER_NAME=Bryan` (else the granting admin's display name shows: "On Bryan Roscoe's shared key").
 
-Checks (read-only): `ssh root@<saget-lan-address> 'docker logs --tail 20 yama-advisor'` (its start line says whether the subscription token and the shared key are set, never their values).
+Checks (read-only): `ssh saget 'docker logs --tail 20 yama-advisor'` (its start line says whether the subscription token and the shared key are set, never their values).
 
 ## Forge (a second engine for Lab runs)
 
-- `deploy.sh` builds `yama-forge` (deploy/Dockerfile.forge-worker; the first build downloads Forge 2.0.15, about 250 MB, and checks its SHA-256) and makes `forge.env` on saget once (`FORGE_SECRET`, mode 0600, never printed), adding `YAMA_FORGE_SECRET` and `YAMA_FORGE_URL=http://yama-forge:8791` to `yama.env`.
+- The deployment host gate builds `yama-forge` (deploy/Dockerfile.forge-worker, from Yama's pinned Forge build: see below) and makes `forge.env` on saget once (`FORGE_SECRET`, mode 0600, never printed), adding `YAMA_FORGE_SECRET` and `YAMA_FORGE_URL=http://yama-forge:8791` to `yama.env`.
 - The worker sits on the internal `yama_forge` network with yama only: no published port, no internet. Read-only, every capability dropped, `/work` and `/tmp` as tmpfs.
 - Size: `FORGE_SLOTS` games at once (3 in compose.yaml), each a JVM of `FORGE_XMX` (1536m) with 2 CPUs; the container gets 6 CPUs at a low share and 7 GB. Change all three together.
 - Without the worker (or without `YAMA_FORGE_URL`/`YAMA_FORGE_SECRET`), the Lab offers phase only. With the worker down, Forge games wait and the run page says so; Admin, Server shows its state.
 - Forge is GPL-3.0 and runs as a separate program; none of its code is in Yama. Private use.
+- Forge build: the image unpacks Yama's own Forge build (`ARG FORGE_DIST`/`FORGE_DIST_SHA256` in the Dockerfile; label `forge <version>`, e.g. `forge 2.0.16-745401a4+yama3.54567890`: the Forge branch commit, the build's name and the tarball's hash). The tarball is Forge code: forge-referee's `dist/build-dist.sh <name> <forge checkout>` builds it (to `~/Developer/forge-engine/`), and it reaches the build as the local image `yama-forge-dist:<name>` on saget: `deploy/forge-dist.sh install` before merging a new pin (`status` to check). Without that image the release build fails for every service, not just Forge (Yama and the advisor don't deploy either), and production keeps running. Don't `docker image prune -a` it away.
 
 ## Claude's tools from outside Yama (OAuth sign-in)
 
@@ -128,7 +149,13 @@ Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yam
 
 ## Updating
 
-Follow [Releasing Yama](RELEASING.md), then run `./deploy/deploy.sh` from main when deployment is requested. It verifies that the clean checkout matches freshly fetched `origin/main`, builds that exact commit's images, backs up the database before restarting (`data/backups/yama-<time>.db`, written with SQLite's `VACUUM INTO`, which is safe while the server runs), and recreates only the `yama`, `yama-advisor` and `yama-forge` containers. `./deploy/deploy.sh --check` performs the source and engine checks without contacting saget.
+Successful push CI on current `main` automatically deploys through the dedicated saget
+runner. Follow [Releasing Yama](RELEASING.md) for reviews and merge, and [runner operation](RUNNER.md)
+for setup, pause, status and recovery. One server lock serializes automatic and manual
+releases. The server builds committed exports, requires a SQLite backup before activation,
+preserves local configuration/Compose overrides, and verifies exact image IDs plus health.
+`./deploy/deploy.sh --check` still checks local source/engine readiness without contacting
+saget; a requested manual retry uses `./deploy/deploy.sh` and the same server CI gate.
 
 ## Phones
 
@@ -141,8 +168,8 @@ Android only. The default is the installable web app, with no store; an optional
 ## Useful commands (read-only)
 
 ```sh
-ssh root@<saget-lan-address> 'docker logs --tail 50 yama'
-curl -s http://<saget-lan-address>:8099/api/health
+ssh saget 'docker logs --tail 50 yama'
+./deploy/health.sh   # reads saget's LAN address from deploy/.env or the environment
 ```
 
 ## Debugging with real data

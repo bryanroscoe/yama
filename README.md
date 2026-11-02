@@ -1,5 +1,7 @@
 # Yama
 
+Bracket builds and reversible deck-box inserts: `/decks/builds` brings saved Current/Original lists, plan bracket builds and researched alternatives together. Older now/after-prints snapshots remain under Legacy. Choose two complete lists for 2.5 × 3.5 inch duplex swap cards.
+
 Yet Another Magic App: a free Magic: The Gathering app with a public precon reference and private accounts for playing and tracking Commander. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 The engine is maintained in the private [Yama Phase repository](https://github.com/bryanroscoe/yama-phase).
@@ -21,9 +23,11 @@ tools, and inspected with 180-day-default descriptive monthly weighting. Overlap
 snapshots, activity counts and undated ELO sequences keep their own meanings; imports
 do not publish rankings or change decks and games.
 
-The signed-out home page highlights the public precon reference and MCP guide, explains what
-an account adds, and keeps Google sign-in directly accessible. OAuth and private links use a
-focused sign-in view.
+Signed out, Yama opens as usual with its full navigation: the life counter and card search
+work without an account, and pages that keep someone's own data (decks, collection, playgroup,
+the Lab) ask them to sign in where the page would be. The sign-in page (`/signin`) highlights the
+public precon reference and MCP guide, explains what an account adds, and keeps Google sign-in
+directly accessible. OAuth and private links use a focused sign-in view.
 
 | Area | Status |
 |---|---|
@@ -36,8 +40,8 @@ focused sign-in view.
 | Collection | Binders, boxes, decks and lists; add from card search (a real copy or a proxy); move, condition, proxy; proxies kept out of market value, and a Real / Proxies filter; idempotent offline ops; Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export; "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names |
 | Decks | Paste any common list format; edit as text with versions; version history with a diff between any two versions; Commander validation; owned/needed with cheapest market price; sample hands with mulligans; Game Changers count; how many cards online play supports; real-game results per version ("This version: 3-2, 5 games") |
 | Suggested changes | Review suggestions from Yama’s assistant and external MCP apps before applying them. Deck proposals show separate cards in/out with quantities, card previews, readable reasons and deck checks; existing proposals use the same view |
-| Research review | Private saved research with current and bracket alternatives, explained power estimates, exact swaps, executable combos, dated local buys and separate print lists. Preferred builds, per-swap answers and notes persist across refreshes; research choices never apply deck changes ([format](docs/research-format.md)) |
-| Historical datasets | Decks, Datasets browses private imported commander/precon evidence, with name/type search, entity history, adjustable monthly recency summaries, source provenance and original downloads. Admins can upload prepared JSON/gzip datasets ([format](docs/datasets.md)) |
+| Research review | Private saved research with current and bracket alternatives, explained power estimates, exact swaps, executable combos, dated local buys and separate print lists. Preferred builds, per-swap answers and notes persist across refreshes; research choices never apply deck changes. A note can be shared by link (`/r/<token>`) or on your profile, showing its builds, swaps, pilot notes and lists but never your answers, ownership or shopping evidence ([format](docs/research-format.md)) |
+| Historical datasets | Decks, Datasets browses private imported commander/precon evidence, with name/type search, entity history, adjustable monthly recency summaries, source provenance and original downloads. Admins can upload prepared JSON/gzip datasets ([format](docs/datasets.md)) and switch a source on for the precon pages, which then show each precon's dated real-game history, recent rate and trend, updated by every new upload |
 | Brackets | A declared bracket per deck (chips on the deck list, table setup and online lobby), shown beside a starting suggestion from Commander Spellbook's card-list signals: Game Changers, mass land denial, extra turns and combos. Unflagged lists start provisionally at Core (2); Exhibition (1) and cEDH (5) are chosen by the owner. The deck page explains why. Checked in the background after a save; turn off with `YAMA_DECK_CHECKS=0` |
 | Deck stats and export | Mana curve (creatures and other spells), average mana value with and without lands, land count, colored pips and potential land access per color, without unsupported shortage verdicts ([method and research](docs/deck-stats.md)). Export as names only (EDHbots), Moxfield (set and number of your copy) or MTG Arena; copy or download |
 | Life counter | 1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was (all optional) |
@@ -72,6 +76,7 @@ cargo build -p yama-server
 
 npm install
 npm run dev                                  # web app on http://localhost:5173 (proxies /api)
+npm run polish -- shoot --as you@example.com # screenshots of every page at three sizes (docs/polish.md)
 ```
 
 Online play needs the local phase fork and its card data (see docs/engine-integration.md):
@@ -93,9 +98,9 @@ cargo build --release -p yama-play --bins
 ./target/release/soak data/engine/card-data-1e5608e61683de41.json 80 1-20   # 20 full games, loop detection as online
 ./target/release/playbench data/engine/card-data-1e5608e61683de41.json --games 2   # AI, engine and view times
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
-  cargo test --release -p yama-play --test determinism -- --ignored          # same games twice, and resumed
+  cargo test --release -p yama-play --test integration -- --ignored determinism:: # same games twice, and resumed
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
-  cargo test --release -p yama-play --test lab_regressions -- --ignored --test-threads=1 # frozen live failures and a successful control
+  cargo test --release -p yama-play --test integration -- --ignored --test-threads=1 lab_regressions:: # frozen live failures and a successful control
 YAMA_ENGINE_CARD_DATA=data/engine/card-data-1e5608e61683de41.json \
   cargo test --release -p yama-server play::bench -- --ignored --nocapture   # a person's move, act to views sent
 ```
@@ -141,7 +146,9 @@ Create an OAuth client ID (type "Web application") in Google Cloud Console, add 
 ## Checks
 
 [GitHub CI](docs/ci.md) runs the Rust and Python suites, web tests, typecheck and web build on
-every PR into main and every main push. Both CI jobs must pass before merge.
+every ready PR into main and every main push. Both CI jobs must pass before merge, or be skipped
+by the gate because `scripts/local-ci.sh` passed on that commit's tree (or the PR has the
+`skip-ci` label). Draft PRs run no CI; see [Skip CI on a PR](docs/ci.md#skip-ci-on-a-pr).
 
 The opt-in [lab worker pilot](docs/lab-workers.md) lets an admin route Phase pods to saget,
 a laptop or GitHub-hosted Actions, choose among available workers, and compare matching samples.
@@ -154,7 +161,8 @@ npm test              # packages/core
 npm run typecheck     # core + web
 ```
 
-Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
+Successful CI on merged `main` automatically deploys through the dedicated saget runner
+([operation and recovery](deploy/RUNNER.md)). Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
 
 `cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-1e5608e61683de41.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
 

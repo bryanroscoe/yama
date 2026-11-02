@@ -2,10 +2,18 @@
 
 Fetch GitHub before merging, integrate the completed work into `main`, verify and publish `main`, then deploy that exact commit. Production deploys require a clean `main` matching freshly fetched `origin/main`.
 
-This guide records Bryan's release process (2026-10-25) and default PR completion workflow
-(2026-10-27). Requested repository changes have standing authorization for scoped feature pushes,
-PRs, reviews, fixes and merge. Deployment, new accounts and spending remain separately authorized.
+This guide records Bryan's release process (2026-10-25), default PR completion workflow
+(2026-10-27), and automatic main deployment authorization (2026-10-28). Requested repository changes have standing authorization for scoped feature pushes,
+PRs, reviews, fixes and merge. Automatic deployment after successful main CI is now authorized; new accounts and spending remain separately authorized.
 Do not stop at a local commit or leave a pending PR unmonitored.
+
+## Automatic production deployment
+
+Bryan authorized the saget deployment runner on 2026-10-28. A successful push CI on
+current main now automatically deploys that exact revision through the serialized
+server gate. Merging reviewed work into main is therefore a production release decision.
+See [runner setup, operation and recovery](RUNNER.md). Do not race it with an old
+branch's deployment script. Stop the runner to pause releases without stopping CI.
 
 ## Default PR completion
 
@@ -26,7 +34,7 @@ Do not stop at a local commit or leave a pending PR unmonitored.
    that handles failures/findings and carries the PR through merge. Waiting is a tracked state,
    not completion. Report the merged SHA and the independent deployment state.
 
-The local main integration/export procedure below still governs deployments. Feature PRs normally
+The local main integration procedure below still governs manual release preparation. Feature PRs normally
 merge on GitHub; fetch and fast-forward the clean main checkout to that reviewed merge before
 running the deployment readiness check.
 
@@ -109,24 +117,22 @@ This requires all of the following before any saget call:
 
 - The current branch is `main`, with no tracked edits or untracked files. Detached HEAD and feature branches are refused.
 - A fresh fetch of GitHub main succeeds, and the local commit equals `origin/main` exactly. Ahead, behind and diverged main checkouts are refused.
-- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main`. The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
+- A fresh fetch of the repository in `deploy/phase-repo` succeeds, and `deploy/phase-rev` is a full commit SHA reachable from its published `main` or from a published `archive/*` tag (rebasing the fork's main keeps the previous line under such a tag, so the deployed engine stays releasable until Yama bumps the pin; the server gate applies the same rule). The engine checkout defaults to `../yama-phase`; `YAMA_PHASE_DIR` can select another checkout without changing its remotes or working files.
 
-The check does not merge, push, contact saget, build images or restart anything. Once it passes and deployment is requested:
+The check does not merge, push, contact saget, build images or restart anything, and needs no
+server address. Once it passes and deployment is requested (saget's address and SSH user come
+from the gitignored `deploy/.env`; copy `deploy/.env.example`):
 
 ```sh
 ./deploy/deploy.sh
 ```
 
-The script repeats the checks, then exports the verified commit and pinned engine. Source, compose configuration and build labels all use that same commit. It builds on saget, backs up the database before restarting, and recreates only Yama's containers. Server configuration and secrets remain on saget.
+The script repeats the source checks, then requests the same server-owned release gate
+as GitHub Actions. The server independently verifies current main and push CI, holds a
+single production lock, fetches its dedicated checkout and pinned engine, builds the
+committed exports, requires a database backup and verifies all exact-image health checks.
+Server configuration, the local Compose override and secrets remain on saget. Normally
+the automatic workflow already handles this after main CI passes; a manual call is for
+an explicitly requested retry. `--check` still makes no server calls.
 
-Record the deployed revision, check `curl -fsS http://<saget-lan-address>:8099/api/health`, confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.
-
-## Shared-server build limits
-
-`YAMA_BUILD_JOBS=1` limits the server's Cargo compilation to one job (default: 4).
-`YAMA_BUILD_CGROUP_PARENT=/guard/builds` passes Docker's cgroup parent to all three
-image builds. Configure and verify the ancestor's memory limit on the build host first;
-the option alone does not impose a memory limit. Use a child beneath the capped ancestor,
-since BuildKit may reset limits on the selected parent itself. `--check` validates the
-option syntax without contacting the host; it cannot verify that host configuration.
-Keep local compilation at one job under the machine's existing compiler guard.
+Record the deployed revision, check `./deploy/health.sh` (it reads saget's LAN address from `deploy/.env` or the environment), confirm the revision in Admin, Server, and smoke-test the changed feature on the live site. See [the deployment notes](README.md) for logs and rollback. A rollback of an existing production image is a separate recovery action, not permission to deploy a feature branch.

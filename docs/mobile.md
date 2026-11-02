@@ -1,5 +1,24 @@
 # Phone apps
 
+## Plan: a semi-public Google Play release (Bryan, 2026-10-31)
+
+Google Play only, as a Capacitor app with the web build bundled inside it (not a Trusted Web Activity, which is only Chrome showing the site and adds nothing the installable web app lacks). Bundling the build and using native features also keeps clear of Play's rejection of apps that only wrap a website.
+
+What it buys over the installable web app: native camera control and ML Kit text recognition for the scanner, native Google sign-in (required: Google blocks its web sign-in inside an app's web view), background work, and a store listing. Camera, vibration, wake lock, offline use, sharing and push already work in the web app on Android.
+
+Release ladder:
+
+1. **Server and web (done 2026-10-31):** power users. Starting simulations, watched AI games and Ask Claude are for admins and power users only, enforced by the server; results stay visible; MCP stays without the simulation-starting tools (ARCHITECTURE.md, "Power users and the semi-public release"). Grant friends in Admin, People.
+2. **Still to build before a Play submission:**
+   - **Account deletion** in the app and at a web link that works without the app (a Play requirement for apps with sign-up). Today it's by email to Bryan, which isn't enough.
+   - **Native Google sign-in** (below) and an Android OAuth client registered with the Play signing key's SHA-1.
+   - **The Android project and build:** `npx cap add android`, the camera permission, the app origin in `YAMA_CORS_ORIGINS`, target API 36. Build the signed `.aab` in GitHub Actions rather than on the Mac: its disk is too full for the Android SDK and Gradle caches.
+   - **What goes in the Play build (Bryan's call, still open):** the full app, or the companion only (Table, Collection, Scanner, Decks, Lab results, Precons) with online Play left on the web. A full game client in a public listing is the bigger IP target (ARCHITECTURE.md §11); companion-only needs a build flag that drops the Play routes and navigation.
+3. **Closed testing track (the semi-public release):** friends opt in by email or Google Group; nobody else can find it. Data safety form, content rating, privacy policy link and listing assets first (below).
+4. **Open testing or production** later, if the beta goes well.
+
+**Play Console account:** Bryan has a personal account, made a while ago. Play's rule that a personal account must run a closed test with 12 testers opted in for 14 days in a row before production applies only to personal accounts created after 13 Nov 2023; if it applies, the Console dashboard shows it. The closed test is the first step either way.
+
 **Decided 2026-10-18: Android only, no Apple developer account.** On Android the installable web app is the app:
 
 - **Install:** Chrome → Install app.

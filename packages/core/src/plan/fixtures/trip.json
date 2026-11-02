@@ -1,0 +1,2038 @@
+{
+ "about": "One bundle and the trip each side must plan from it (packages/core/src/plan/trip.ts and server/src/plan/trip.rs). A case may name the stores going this time (`stores`). Regenerate `expect` only after checking the change by hand.",
+ "bundle": {
+  "settings": [
+   {
+    "effective_from": "2026-10-10",
+    "note": "Tricky Terrain local buys",
+    "origin": "import",
+    "rules": {
+     "buy_local_only": true,
+     "max_over_market_pct": 25,
+     "ceiling_key_usd": 4,
+     "ceiling_other_usd": 3,
+     "always_print_over_usd": 10
+    }
+   },
+   {
+    "effective_from": "2026-10-28",
+    "note": "Buy cheap cards locally",
+    "origin": "import",
+    "rules": {
+     "buy_local_only": true,
+     "max_over_market_pct": 100,
+     "ceiling_key_usd": 2,
+     "ceiling_other_usd": 2,
+     "local_buy": {
+      "max_usd": 2,
+      "always_ok_usd": 0.5,
+      "tiers": [
+       {
+        "market_under": 1,
+        "max_multiple": 2
+       },
+       {
+        "market_under": null,
+        "max_multiple": 1.5
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "stores": [
+   {
+    "key": "black-castle",
+    "name": "Black Castle Gamez",
+    "short": "Black Castle",
+    "kind": "local",
+    "cart_url_template": null,
+    "homepage": "https://blackcastlegamez.tcgplayerpro.com",
+    "location": "Cedar Park, 3.6 mi",
+    "note": null,
+    "print_tiers": null,
+    "sort": 0,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
+   {
+    "key": "pats",
+    "name": "Pat's Games",
+    "short": "Pat's",
+    "kind": "local",
+    "cart_url_template": "https://patsgames.com/cart/{items}",
+    "homepage": null,
+    "location": null,
+    "note": null,
+    "print_tiers": null,
+    "sort": 1,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
+   {
+    "key": "mothership",
+    "name": "Mothership Books and Games",
+    "short": "Mothership",
+    "kind": "local",
+    "cart_url_template": "https://mothershipatx.com/cart/{items}",
+    "homepage": null,
+    "location": null,
+    "note": null,
+    "print_tiers": null,
+    "sort": 2,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
+   {
+    "key": "alpha-strike",
+    "name": "Alpha Strike Games",
+    "short": "Alpha Strike",
+    "kind": "local",
+    "cart_url_template": null,
+    "homepage": null,
+    "location": "San Marcos, 44 mi",
+    "note": null,
+    "print_tiers": null,
+    "sort": 4,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
+   {
+    "key": "multiverse-hobbies",
+    "name": "Multiverse Hobbies",
+    "short": "Multiverse Hobbies",
+    "kind": "local",
+    "cart_url_template": null,
+    "homepage": null,
+    "location": "Hutto, 13.4 mi",
+    "note": null,
+    "print_tiers": null,
+    "sort": 6,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
+   {
+    "key": "mpc",
+    "name": "MakePlayingCards",
+    "short": "MPC",
+    "kind": "printer",
+    "cart_url_template": null,
+    "homepage": null,
+    "location": null,
+    "note": null,
+    "print_tiers": null,
+    "sort": 8,
+    "origin": "import",
+    "retired": false,
+    "retired_at": null
+   },
+   {
+    "key": "gone",
+    "name": "Closed Games",
+    "short": "Closed",
+    "kind": "local",
+    "cart_url_template": null,
+    "homepage": null,
+    "location": null,
+    "note": null,
+    "print_tiers": null,
+    "sort": 9,
+    "origin": "import",
+    "retired": true,
+    "retired_at": "2026-10-20T00:00:00Z"
+   }
+  ],
+  "store_prefs": {
+   "black-castle": {
+    "preference": "favorite",
+    "note": "Closest; support them",
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 1,
+    "premium_usd": 0.25
+   },
+   "mothership": {
+    "preference": "ok",
+    "note": null,
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 2,
+    "premium_usd": null
+   },
+   "pats": {
+    "preference": "ok",
+    "note": "Most stock, hardest to get to",
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 3,
+    "premium_usd": null
+   },
+   "multiverse-hobbies": {
+    "preference": "maybe",
+    "note": "One trip; haven't been",
+    "updated_at": "2026-11-01T00:00:00Z",
+    "hassle": 4,
+    "premium_usd": null
+   },
+   "alpha-strike": {
+    "preference": "never",
+    "note": "Won't drive there",
+    "updated_at": "2026-11-01T00:00:00Z"
+   }
+  },
+  "decks": [
+   {
+    "key": "tricky",
+    "name": "Tricky Terrain",
+    "status": "active"
+   },
+   {
+    "key": "old",
+    "name": "Old Deck",
+    "status": "archived"
+   }
+  ],
+  "swaps": [
+   {
+    "key": "s-sol",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": "Mind Rock",
+    "in": "Sol Ring",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Sol Ring",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-fell",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Fellwar Stone",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Fellwar Stone",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-exotic",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Exotic Orchard",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Exotic Orchard",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-strike",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Strike It Rich",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Strike It Rich",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-vault",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Mana Vault",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Mana Vault",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-signet",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Arcane Signet",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Arcane Signet",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-mind",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Mind Stone",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Mind Stone",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-tower",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Command Tower",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Command Tower",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-vessel",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Thought Vessel",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Thought Vessel",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-ponder",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Ponder",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Ponder",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-talisman",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Talisman of Unity",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": {
+     "order": "pats-1",
+     "line": 1
+    },
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Talisman of Unity",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-elves",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Llanowar Elves",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Llanowar Elves",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-old",
+    "deck": "old",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Dark Ritual",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Dark Ritual",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "p-swords",
+    "deck": "tricky",
+    "stage": "proposed",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": "Generous Gift",
+    "in": "Swords to Plowshares",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Swords to Plowshares",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "p-path",
+    "deck": "tricky",
+    "stage": "proposed",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Path to Exile",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Path to Exile",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "p-counter",
+    "deck": "tricky",
+    "stage": "proposed",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Counterspell",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Counterspell",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "p-brain",
+    "deck": "tricky",
+    "stage": "proposed",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Brainstorm",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Brainstorm",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": false,
+    "retired_at": null,
+    "updated_at": "2026-10-28T00:00:00Z"
+   },
+   {
+    "key": "s-retired",
+    "deck": "tricky",
+    "stage": "planned",
+    "role": "swap",
+    "parent": null,
+    "src": "buy",
+    "src_declared": null,
+    "store_label": null,
+    "out": null,
+    "in": "Counterspell",
+    "plan_card": null,
+    "later_out": null,
+    "after_print": false,
+    "tier": null,
+    "band": null,
+    "group": null,
+    "sort": 0,
+    "game_changer": null,
+    "got": null,
+    "order_item": null,
+    "print_order": null,
+    "listing": null,
+    "when": null,
+    "advice": null,
+    "why": "Test reason for Counterspell",
+    "why_out": null,
+    "note": null,
+    "upgrade": null,
+    "retired": true,
+    "retired_at": "2026-10-29T00:00:00Z",
+    "updated_at": "2026-10-28T00:00:00Z"
+   }
+  ],
+  "aliases": {
+   "p-swords-old": "p-swords"
+  },
+  "reviews": {
+   "p-swords-old": {
+    "decision": "want",
+    "note": null,
+    "cut": "Swift Cut",
+    "deck": "tricky",
+    "card": "Swords to Plowshares",
+    "at": "2026-10-29T10:00:00Z",
+    "origin": "yama"
+   },
+   "p-counter": {
+    "decision": "no",
+    "note": null,
+    "cut": null,
+    "deck": "tricky",
+    "card": "Counterspell",
+    "at": "2026-10-29T10:00:00Z",
+    "origin": "yama"
+   },
+   "p-path": {
+    "decision": null,
+    "note": null,
+    "cut": null,
+    "deck": "tricky",
+    "card": "Path to Exile",
+    "at": "2026-10-29T10:00:00Z",
+    "origin": "yama"
+   }
+  },
+  "marks": {
+   "s-elves": {
+    "bought": {
+     "value": true,
+     "at": "2026-10-30T10:00:00Z",
+     "payload": {
+      "qty": 1
+     }
+    }
+   }
+  },
+  "quotes": [
+   {
+    "swap": null,
+    "card": "Sol Ring",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-18",
+    "result": null,
+    "in_stock": true,
+    "price": 1,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-sol-old",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Sol Ring",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": false,
+    "price": null,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Sol Ring",
+    "kind": "stock_check",
+    "store": "mothership",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 1.25,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": "c21",
+    "num": "263",
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-sol",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Fellwar Stone",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 0.5,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-fell",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Exotic Orchard",
+    "kind": "stock_check",
+    "store": "multiverse-hobbies",
+    "store_label": null,
+    "checked": "2026-11-01",
+    "result": null,
+    "in_stock": true,
+    "price": 0.75,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Strike It Rich",
+    "kind": "stock_check",
+    "store": "alpha-strike",
+    "store_label": null,
+    "checked": "2026-10-31",
+    "result": null,
+    "in_stock": true,
+    "price": 0.25,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Mana Vault",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-31",
+    "result": "Lightly Played",
+    "in_stock": true,
+    "price": 90,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Arcane Signet",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 1.75,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-signet",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Mind Stone",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": null,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Command Tower",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": false,
+    "price": 0.25,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Ponder",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": "Foil",
+    "in_stock": true,
+    "price": 0.3,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Ponder",
+    "kind": "stock_check",
+    "store": "mothership",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 0.6,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-ponder",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Swords to Plowshares",
+    "kind": "stock_check",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 1,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-swords",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Path to Exile",
+    "kind": "stock_check",
+    "store": "mothership",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 0.4,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-path",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Brainstorm",
+    "kind": "stock_check",
+    "store": "multiverse-hobbies",
+    "store_label": null,
+    "checked": "2026-11-01",
+    "result": null,
+    "in_stock": true,
+    "price": 0.3,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Dark Ritual",
+    "kind": "stock_check",
+    "store": "mothership",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 0.5,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": "v-ritual",
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Thought Vessel",
+    "kind": "stock_check",
+    "store": "mpc",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 0.3,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Counterspell",
+    "kind": "stock_check",
+    "store": "gone",
+    "store_label": null,
+    "checked": "2026-10-15",
+    "result": null,
+    "in_stock": true,
+    "price": 0.25,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Thought Vessel",
+    "kind": "market_benchmark",
+    "store": "pats",
+    "store_label": null,
+    "checked": "2026-10-01",
+    "result": null,
+    "in_stock": true,
+    "price": null,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Fellwar Stone",
+    "kind": "stock_check",
+    "store": "black-castle",
+    "store_label": null,
+    "checked": "2026-11-01",
+    "result": null,
+    "in_stock": true,
+    "price": 0.5,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Sol Ring",
+    "kind": "stock_check",
+    "store": "black-castle",
+    "store_label": null,
+    "checked": "2026-11-01",
+    "result": null,
+    "in_stock": true,
+    "price": 1.5,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   },
+   {
+    "swap": null,
+    "card": "Swords to Plowshares",
+    "kind": "stock_check",
+    "store": "mothership",
+    "store_label": null,
+    "checked": "2026-10-30",
+    "result": null,
+    "in_stock": true,
+    "price": 1,
+    "price_from_text": false,
+    "currency": "USD",
+    "printing": null,
+    "set": null,
+    "num": null,
+    "printing_from_text": false,
+    "scryfall_id": null,
+    "variant": null,
+    "url": null,
+    "source": "Store website",
+    "origin": "import"
+   }
+  ],
+  "wishlist": [
+   {
+    "card": "Mana Vault",
+    "reason": "Printed; buy a real copy someday",
+    "detail": null,
+    "url": null,
+    "report": "audit",
+    "scenario": "printed-card-wishlist"
+   },
+   {
+    "card": "Rhystic Study",
+    "reason": "Printed; buy a real copy someday",
+    "detail": null,
+    "url": null,
+    "report": "audit",
+    "scenario": "printed-card-wishlist"
+   },
+   {
+    "card": "Mox Diamond",
+    "reason": "Printed; buy a real copy someday",
+    "detail": null,
+    "url": null,
+    "report": "audit",
+    "scenario": "printed-card-wishlist"
+   },
+   {
+    "card": "Dark Ritual",
+    "reason": "Printed; buy a real copy someday",
+    "detail": null,
+    "url": null,
+    "report": "audit",
+    "scenario": "printed-card-wishlist"
+   },
+   {
+    "card": "Unknown Card",
+    "reason": "Printed; buy a real copy someday",
+    "detail": null,
+    "url": null,
+    "report": "audit",
+    "scenario": "printed-card-wishlist"
+   }
+  ],
+  "names": {
+   "Sol Ring": "o-sol-ring",
+   "Fellwar Stone": "o-fellwar-stone",
+   "Exotic Orchard": "o-exotic-orchard",
+   "Strike It Rich": "o-strike-it-rich",
+   "Mana Vault": "o-mana-vault",
+   "Arcane Signet": "o-arcane-signet",
+   "Mind Stone": "o-mind-stone",
+   "Command Tower": "o-command-tower",
+   "Thought Vessel": "o-thought-vessel",
+   "Swords to Plowshares": "o-swords-to-plowshares",
+   "Path to Exile": "o-path-to-exile",
+   "Counterspell": "o-counterspell",
+   "Brainstorm": "o-brainstorm",
+   "Llanowar Elves": "o-llanowar-elves",
+   "Talisman of Unity": "o-talisman-of-unity",
+   "Rhystic Study": "o-rhystic-study",
+   "Mox Diamond": "o-mox-diamond",
+   "Dark Ritual": "o-dark-ritual"
+  },
+  "market": {
+   "o-sol-ring": {
+    "usd": 1.2,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-sol-ring",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-fellwar-stone": {
+    "usd": 0.1,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-fellwar-stone",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-exotic-orchard": {
+    "usd": 0.5,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-exotic-orchard",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-strike-it-rich": {
+    "usd": 0.2,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-strike-it-rich",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-mana-vault": {
+    "usd": 95.28,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-mana-vault",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-arcane-signet": {
+    "usd": 0.8,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-arcane-signet",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-mind-stone": {
+    "usd": 0.3,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-mind-stone",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-command-tower": {
+    "usd": 0.25,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-command-tower",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-thought-vessel": {
+    "usd": 1.1,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-thought-vessel",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-swords-to-plowshares": {
+    "usd": 2.5,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-swords-to-plowshares",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-path-to-exile": {
+    "usd": 1.8,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-path-to-exile",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-counterspell": {
+    "usd": 1.2,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-counterspell",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-brainstorm": {
+    "usd": 0.5,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-brainstorm",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-llanowar-elves": {
+    "usd": 0.25,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-llanowar-elves",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-talisman-of-unity": {
+    "usd": 0.6,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-talisman-of-unity",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-rhystic-study": {
+    "usd": 62.66,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-rhystic-study",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-mox-diamond": {
+    "usd": 1119.82,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-mox-diamond",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   },
+   "o-dark-ritual": {
+    "usd": 0.3,
+    "printing": "Test Set (TST) #1",
+    "set": "tst",
+    "num": "1",
+    "scryfall_id": "p-o-dark-ritual",
+    "date": "2026-10-31",
+    "source": "TCGplayer market via Scryfall, cheapest non-foil"
+   }
+  },
+  "market_by_printing": {
+   "sr-c21": {
+    "usd": 1.5,
+    "usd_foil": 3,
+    "date": "2026-10-31",
+    "set": "c21",
+    "num": "263",
+    "source": "TCGplayer market via Scryfall"
+   }
+  },
+  "printing_ids": {
+   "c21/263": "sr-c21"
+  },
+  "prices_as_of": "2026-10-31"
+ },
+ "cases": [
+  {
+   "today": "2026-11-01",
+   "expect": {
+    "rule_from": "2026-10-28",
+    "derived": false,
+    "stops": [
+     {
+      "store": "black-castle",
+      "rows": [
+       [
+        "Fellwar Stone",
+        0.5
+       ],
+       [
+        "Sol Ring",
+        1.5
+       ]
+      ],
+      "along": [],
+      "total": 2
+     },
+     {
+      "store": "mothership",
+      "rows": [
+       [
+        "Swords to Plowshares",
+        1
+       ]
+      ],
+      "along": [
+       [
+        "Dark Ritual",
+        0.5
+       ],
+       [
+        "Path to Exile",
+        0.4
+       ]
+      ],
+      "total": 1
+     },
+     {
+      "store": "multiverse-hobbies",
+      "rows": [
+       [
+        "Exotic Orchard",
+        0.75
+       ]
+      ],
+      "along": [
+       [
+        "Brainstorm",
+        0.3
+       ]
+      ],
+      "total": 0.75
+     }
+    ],
+    "needed": 11,
+    "covered": 4,
+    "total": 3.75,
+    "alternatives": [
+     [
+      [
+       "black-castle"
+      ],
+      2,
+      2
+     ],
+     [
+      [
+       "black-castle",
+       "mothership"
+      ],
+      3,
+      3
+     ],
+     [
+      [
+       "black-castle",
+       "mothership",
+       "multiverse-hobbies"
+      ],
+      4,
+      3.75
+     ]
+    ],
+    "print": [
+     [
+      "Arcane Signet",
+      "over-market"
+     ],
+     [
+      "Command Tower",
+      "not-stocked"
+     ],
+     [
+      "Mana Vault",
+      "over-max"
+     ],
+     [
+      "Mind Stone",
+      "no-price"
+     ],
+     [
+      "Ponder",
+      "no-market"
+     ],
+     [
+      "Strike It Rich",
+      "never-store"
+     ],
+     [
+      "Thought Vessel",
+      "no-check"
+     ]
+    ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=1%20Arcane%20Signet||1%20Command%20Tower||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Fellwar%20Stone&productLineName=Magic%3A%20The%20Gathering&sort=price-asc",
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     [],
+     []
+    ],
+    "elsewhere": [],
+    "skipped": [
+     [
+      "alpha-strike",
+      1,
+      "never"
+     ]
+    ],
+    "wishlist": [
+     [
+      "$200 and up",
+      [
+       "Mox Diamond"
+      ]
+     ],
+     [
+      "$50 to $200",
+      [
+       "Mana Vault",
+       "Rhystic Study"
+      ]
+     ],
+     [
+      "Under $2",
+      [
+       "Dark Ritual"
+      ]
+     ],
+     [
+      "No market price",
+      [
+       "Unknown Card"
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "today": "2026-10-20",
+   "expect": {
+    "rule_from": "2026-10-10",
+    "derived": true,
+    "stops": [
+     {
+      "store": "black-castle",
+      "rows": [
+       [
+        "Sol Ring",
+        1.5
+       ]
+      ],
+      "along": [],
+      "total": 1.5
+     },
+     {
+      "store": "mothership",
+      "rows": [
+       [
+        "Swords to Plowshares",
+        1
+       ]
+      ],
+      "along": [
+       [
+        "Path to Exile",
+        0.4
+       ]
+      ],
+      "total": 1
+     }
+    ],
+    "needed": 11,
+    "covered": 2,
+    "total": 2.5,
+    "alternatives": [
+     [
+      [
+       "black-castle"
+      ],
+      1,
+      1.5
+     ],
+     [
+      [
+       "black-castle",
+       "mothership"
+      ],
+      2,
+      2.5
+     ]
+    ],
+    "print": [
+     [
+      "Arcane Signet",
+      "over-market"
+     ],
+     [
+      "Command Tower",
+      "not-stocked"
+     ],
+     [
+      "Exotic Orchard",
+      "over-market"
+     ],
+     [
+      "Fellwar Stone",
+      "over-market"
+     ],
+     [
+      "Mana Vault",
+      "over-max"
+     ],
+     [
+      "Mind Stone",
+      "no-price"
+     ],
+     [
+      "Ponder",
+      "no-market"
+     ],
+     [
+      "Strike It Rich",
+      "never-store"
+     ],
+     [
+      "Thought Vessel",
+      "no-check"
+     ]
+    ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=1%20Arcane%20Signet||1%20Command%20Tower||1%20Exotic%20Orchard||1%20Fellwar%20Stone||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     []
+    ],
+    "elsewhere": [
+     [
+      "multiverse-hobbies",
+      [
+       "Brainstorm"
+      ]
+     ]
+    ],
+    "skipped": [
+     [
+      "alpha-strike",
+      1,
+      "never"
+     ]
+    ],
+    "wishlist": [
+     [
+      "$200 and up",
+      [
+       "Mox Diamond"
+      ]
+     ],
+     [
+      "$50 to $200",
+      [
+       "Mana Vault",
+       "Rhystic Study"
+      ]
+     ],
+     [
+      "Under $2",
+      [
+       "Dark Ritual"
+      ]
+     ],
+     [
+      "No market price",
+      [
+       "Unknown Card"
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "today": "2026-11-01",
+   "stores": [
+    "black-castle",
+    "pats",
+    "multiverse-hobbies"
+   ],
+   "expect": {
+    "rule_from": "2026-10-28",
+    "derived": false,
+    "stops": [
+     {
+      "store": "black-castle",
+      "rows": [
+       [
+        "Fellwar Stone",
+        0.5
+       ],
+       [
+        "Sol Ring",
+        1.5
+       ]
+      ],
+      "along": [],
+      "total": 2
+     },
+     {
+      "store": "pats",
+      "rows": [
+       [
+        "Swords to Plowshares",
+        1
+       ]
+      ],
+      "along": [],
+      "total": 1
+     },
+     {
+      "store": "multiverse-hobbies",
+      "rows": [
+       [
+        "Exotic Orchard",
+        0.75
+       ]
+      ],
+      "along": [
+       [
+        "Brainstorm",
+        0.3
+       ]
+      ],
+      "total": 0.75
+     }
+    ],
+    "needed": 11,
+    "covered": 4,
+    "total": 3.75,
+    "alternatives": [
+     [
+      [
+       "black-castle"
+      ],
+      2,
+      2
+     ],
+     [
+      [
+       "black-castle",
+       "pats"
+      ],
+      3,
+      3
+     ],
+     [
+      [
+       "black-castle",
+       "pats",
+       "multiverse-hobbies"
+      ],
+      4,
+      3.75
+     ]
+    ],
+    "print": [
+     [
+      "Arcane Signet",
+      "over-market"
+     ],
+     [
+      "Command Tower",
+      "not-stocked"
+     ],
+     [
+      "Mana Vault",
+      "over-max"
+     ],
+     [
+      "Mind Stone",
+      "no-price"
+     ],
+     [
+      "Ponder",
+      "no-market"
+     ],
+     [
+      "Strike It Rich",
+      "never-store"
+     ],
+     [
+      "Thought Vessel",
+      "no-check"
+     ]
+    ],
+    "print_mass_entry": "https://www.tcgplayer.com/massentry?productline=Magic&c=1%20Arcane%20Signet||1%20Command%20Tower||1%20Mana%20Vault||1%20Mind%20Stone||1%20Ponder||1%20Strike%20It%20Rich||1%20Thought%20Vessel",
+    "search": [
+     [
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Fellwar%20Stone&productLineName=Magic%3A%20The%20Gathering&sort=price-asc",
+      "https://blackcastlegamez.tcgplayerpro.com/search/products?q=Sol%20Ring&productLineName=Magic%3A%20The%20Gathering&sort=price-asc"
+     ],
+     [],
+     []
+    ],
+    "elsewhere": [],
+    "skipped": [
+     [
+      "mothership",
+      2,
+      "left-out"
+     ],
+     [
+      "alpha-strike",
+      1,
+      "never"
+     ]
+    ],
+    "wishlist": [
+     [
+      "$200 and up",
+      [
+       "Mox Diamond"
+      ]
+     ],
+     [
+      "$50 to $200",
+      [
+       "Mana Vault",
+       "Rhystic Study"
+      ]
+     ],
+     [
+      "Under $2",
+      [
+       "Dark Ritual"
+      ]
+     ],
+     [
+      "No market price",
+      [
+       "Unknown Card"
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

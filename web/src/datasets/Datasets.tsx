@@ -1,3 +1,4 @@
+import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -5,7 +6,7 @@ import { api, apiBlob } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { Details, ErrorText } from "../components/ui";
-import { KINDS, count, dataset, datasets, object, percent, periodLabel, recordName, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
+import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
 
 function SourceLink({ url, children }: { url: unknown; children: ReactNode }) {
@@ -19,7 +20,7 @@ export function DatasetCard({ d }: { d: Dataset }) {
   const revision = `revision=${d.revision}`;
   return <article className="dataset-card">
     <h2><Link to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}`}>{d.title}</Link></h2>
-    <p className="dim">{d.source.name}, revision {d.revision}. Imported {d.imported_at.slice(0, 10)}.</p>
+    <p className="dim">{d.source.name}, revision {d.revision}. Imported {fmtDate(d.imported_at)}.</p>
     <p>{count(Object.values(d.records).reduce((a, b) => a + (b ?? 0), 0))} records from {count(d.source_documents)} source documents</p>
     <div className="dataset-counts">{Object.entries(KINDS).map(([kind, label]) => <Link key={kind} to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}&kind=${kind}`}>{label} <b>{count(d.records[kind as keyof typeof KINDS] ?? 0)}</b></Link>)}</div>
   </article>;
@@ -47,6 +48,33 @@ function UploadDataset() {
     </form>
   </Details>;
 }
+/** Admins choose which of their sources feed the shared precon pages; the figures follow new uploads. */
+export function SharedPreconEvidence({ owner, names }: { owner: string; names: string[] }) {
+  const client = useQueryClient();
+  const report = useQuery({ queryKey: ["precon-evidence"], queryFn: preconEvidence });
+  const toggle = useMutation({
+    mutationFn: ({ name, on }: { name: string; on: boolean }) => setPreconEvidence(name, on),
+    onSuccess: (r) => { client.setQueryData(["precon-evidence"], r); void client.invalidateQueries({ queryKey: ["lab"] }); },
+  });
+  const r = report.data;
+  if (!r || names.length === 0) return <ErrorText error={report.error} />;
+  const on = new Set(r.sources.filter((s) => s.owner === owner).map((s) => s.source_name));
+  const matched = Object.keys(r.matched).length;
+  return <section className="dataset-card">
+    <h2>Shared precon evidence</h2>
+    <p>Precon pages show real-game history derived from the sources switched on here. They use each dataset's newest revision, so a new upload updates them. The datasets themselves stay private.</p>
+    {names.map((name) => <label key={name} className="dataset-toggle">
+      <input type="checkbox" checked={on.has(name)} disabled={toggle.isPending} onChange={(e) => toggle.mutate({ name, on: e.target.checked })} />
+      Use my {name} datasets on the precon pages
+    </label>)}
+    <ErrorText error={toggle.error} />
+    {r.source_labels.length > 0 && <p className="dim">{matched} of {r.catalog_precons} catalog precons linked to {count(r.entities)} source precons; {r.catalog_without_real_games} have no real-game history.</p>}
+    {r.unmatched.length > 0 && <Details label={`Source precons not linked (${r.unmatched.length})`}>
+      <ul>{r.unmatched.map((u) => <li key={`${u.source}-${u.entity}-${u.reason}`}><SourceLink url={u.url}>{u.name}</SourceLink> ({u.source}, {u.entity}): {u.reason}</li>)}</ul>
+      <p>Link or exclude one with <code>yama-server precon-evidence link PRECON ENTITY</code> or <code>exclude</code>.</p>
+    </Details>}
+  </section>;
+}
 export function DatasetsPage() {
   const { id } = useParams();
   return id ? <DatasetDetail key={id} id={id} /> : <DatasetIndex />;
@@ -62,6 +90,7 @@ function DatasetIndex() {
     {list.data?.length === 0 && <p>No datasets have been imported into your account yet.</p>}
     {list.data?.map((d) => <DatasetCard key={d.id} d={d} />)}
     {me.data?.is_admin && !me.data.viewing && <UploadDataset />}
+    {me.data?.is_admin && !me.data.viewing && list.data && <SharedPreconEvidence owner={me.data.email} names={[...new Set(list.data.map((d) => d.source.name))]} />}
   </main>;
 }
 function SourceCard({ source }: { source: Source }) {
@@ -154,7 +183,7 @@ function DatasetDetail({ id }: { id: string }) {
     {read.isPending && <p role="status">Loading evidence…</p>}
     {head && <>
       <h2>{head.title}</h2>
-      <p className="dim">Private to your account. Revision {head.revision}, imported {head.imported_at.slice(0, 10)}.</p>
+      <p className="dim">Private to your account. Revision {head.revision}, imported {fmtDate(head.imported_at)}.</p>
       <p>{head.method}</p>
       <div className="dataset-actions">
         <button className={sources ? "outline" : "primary"} onClick={() => update({ section: "" })}>Browse records</button>

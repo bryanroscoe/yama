@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { identityName, listText } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { usePower } from "../auth";
 import { api } from "../api";
 import { ErrorText, Pips } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
@@ -9,6 +10,8 @@ import type { HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
 import { ConfidenceLine } from "./confidence";
 import {
+  deckName,
+  fieldResult,
   baseConfidence,
   baseConfidenceSentence,
   caveat,
@@ -38,6 +41,8 @@ import { ArtPanel, IntervalChart, SimLine, StatusTag } from "./parts";
 import { LabHead } from "./LabLayout";
 import { usePrecons } from "./Precons";
 import { usePace } from "./pickers";
+import { deckPath, tablePath } from "./RunTables";
+import { FEW_GAMES } from "./tables";
 import { gameChoices } from "./logic";
 
 const LIVE = new Set(["queued", "running"]);
@@ -90,7 +95,7 @@ function Again({ e }: { e: ExperimentDetail }) {
     mutationFn: () => api<ExperimentDetail>(`/api/lab/experiments/${e.id}/again`, { method: "POST", json: { games: pick, op_id: `${e.id}-again-${pick}-${Date.now()}` } }),
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
-      navigate(`/decks/lab/runs/${d.id}`);
+      navigate(`/lab/runs/${d.id}`);
     },
   });
   return (
@@ -200,6 +205,7 @@ function fieldFrom(e: ExperimentItem): FieldChoice | undefined {
 }
 
 export function RunPage() {
+  const power = usePower();
   const { id } = useParams();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -224,14 +230,14 @@ export function RunPage() {
     mutationFn: () => api(`/api/lab/experiments/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
-      navigate("/decks/lab/runs");
+      navigate("/lab/runs");
     },
   });
 
   if (exp.error) {
     return (
       <>
-        <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+        <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
         <ErrorText error={exp.error} />
       </>
     );
@@ -244,7 +250,7 @@ export function RunPage() {
 
   return (
     <>
-      <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+      <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
       <ArtPanel art={e.base?.art}>
         <span>
           <StatusTag status={e.status} />
@@ -286,7 +292,7 @@ export function RunPage() {
         )
       )}
 
-      {e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
+      {power && e.status === "done" && !["versus", "tournament"].includes(modeOf(e)) && <MoreGames e={e} />}
 
       <section>
         <h2>{modeOf(e) === "change" ? "The change" : modeOf(e) === "solo" ? "The list" : "The decks"}</h2>
@@ -295,25 +301,25 @@ export function RunPage() {
 
       {enginesOf(e).mode === "both" ? (
         <>
-          {halfOf(e, "phase").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "phase").progress.done} status={e.status} mode={modeOf(e)} engine="phase" />}
-          {halfOf(e, "forge").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "forge").progress.done} status={e.status} mode={modeOf(e)} engine="forge" />}
+          {halfOf(e, "phase").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "phase").progress.done} status={e.status} mode={modeOf(e)} engine="phase" pod={e.label.pod ?? 4} />}
+          {halfOf(e, "forge").progress.done > 0 && <Pods id={e.id} done={halfOf(e, "forge").progress.done} status={e.status} mode={modeOf(e)} engine="forge" pod={e.label.pod ?? 4} />}
         </>
       ) : (
-        e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} />
+        e.progress.done > 0 && <Pods id={e.id} done={e.progress.done} status={e.status} mode={modeOf(e)} pod={e.label.pod ?? 4} />
       )}
 
       <section>
-        {!live && <Again e={e} />}
+        {!live && power && <Again e={e} />}
         <div className="row">
           {live && (
             <button onClick={() => cancel.mutate()} disabled={cancel.isPending}>
               Cancel the rest
             </button>
           )}
-          {modeOf(e) === "change" || modeOf(e) === "solo" ? (
-            <button onClick={() => navigate("/decks/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
+          {!power ? null : modeOf(e) === "change" || modeOf(e) === "solo" ? (
+            <button onClick={() => navigate("/lab/try", { state: { prefill: prefillFrom(e) } })}>{modeOf(e) === "solo" ? "Try a change to it" : "Edit the change"}</button>
           ) : (
-            <button onClick={() => navigate("/decks/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
+            <button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
           )}
           <button className="quiet" onClick={() => confirm("Delete this run and its results?") && remove.mutate()} disabled={remove.isPending}>
             Delete
@@ -405,7 +411,7 @@ function ForgeWait({ e }: { e: ExperimentItem }) {
 /** The results view for a run's mode. */
 function ModeResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
   const on = engine ?? (enginesOf(e).mode === "forge" ? "forge" : "phase");
-  return ["versus", "tournament"].includes(modeOf(e)) ? <VersusResults e={e} s={s} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
+  return ["versus", "tournament"].includes(modeOf(e)) ? <VersusResults e={e} s={s} engine={enginesOf(e).mode === "both" ? on : undefined} /> : modeOf(e) === "solo" ? <SoloResults e={e} s={s} engine={on} /> : <Results e={e} s={s} engine={on} />;
 }
 
 /** A "both" run: whether the engines agree, then each engine's results under its own heading. */
@@ -416,7 +422,9 @@ function BothResults({ e, live }: { e: ExperimentDetail; live: boolean }) {
     <>
       {a && a.kind !== "waiting" && (
         <p className={`lab-agreement ${a.kind}`} role="status">
-          <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b> {a.text}.
+          {/* The server's text can open with the same words as the bold lead; say them once. */}
+          <b>{a.kind === "agree" ? "The engines agree." : a.kind === "disagree" ? "The engines disagree." : "No clear answer yet."}</b>{" "}
+          {a.text.replace(/^The engines (agree|disagree)[.:]\s*/, "")}.
         </p>
       )}
       {halves.map(({ h, d }) => (
@@ -648,8 +656,10 @@ function SoloResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine
 }
 
 /** Decks head to head: each deck's win share, who finished ahead of whom, and game length. */
-function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
-  const v = s.versus!;
+function VersusResults({ e, s, engine }: { e: ExperimentDetail; s: Summary; engine?: HalfEngine }) {
+  const precons = usePrecons().data?.precons ?? [];
+  const v = { ...s.versus!, entrants: s.versus!.entrants.map((x) => ({ ...x, label: deckName(x.label, precons) })) };
+  const ids = v.entrants.map((x) => x.id);
   const level = `${Math.round(s.level * 100)}%`;
   const even = 1 / v.pod;
   const top = rateCeiling(v.entrants.map((x) => x.wilson?.[1]));
@@ -663,7 +673,7 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
   return (
     <section>
       <h2>{s.verdict.final ? "Result" : "So far"}</h2>
-      <p className="lab-verdict">{verdictText(e.status, s)}</p>
+      <p className="lab-verdict">{fieldResult(s, s.verdict.final || e.status === "cancelled", (l) => deckName(l, precons))?.text ?? verdictText(e.status, s)}</p>
       {modeOf(e) === "tournament" && !s.verdict.final && <p className="small dim">Progress updates each game; the ranking may lag by up to 24 games while a batch finishes.</p>}
       <IntervalChart
         caption={`Win share in ${v.pod === 2 ? "1v1 games" : "4-player pods"}`}
@@ -671,7 +681,9 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
           key: x.id,
           label: (
             <>
-              <b>{x.label}</b>
+              <b>
+                <Link to={deckPath(e.id, x.id, engine)}>{x.label}</Link>
+              </b>
               <span>
                 first in {x.first} {x.first === 1 ? "game" : "games"}
               </span>
@@ -686,6 +698,7 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
               <b>{pct(x.win_rate)}</b> won, {x.wins} of {x.games}
               {x.wilson ? ` (${level} interval ${pctRange(x.wilson[0], x.wilson[1])})` : ""}
               {x.avg_place != null ? `, average place ${x.avg_place.toFixed(2)}` : ""}
+              {x.strength ? `, strength ${x.strength.strength.toFixed(2)} (${level} interval ${x.strength.lo.toFixed(2)} to ${x.strength.hi.toFixed(2)})` : ""}
             </>
           ),
         }))}
@@ -695,37 +708,56 @@ function VersusResults({ e, s }: { e: ExperimentDetail; s: Summary }) {
       />
       <p className="lab-note">
         The line marks {v.pod === 2 ? "a half" : "a quarter"}: what a deck with no edge would win.
+        {v.entrants.some((x) => x.strength) ? " Strength accounts for who each deck sat with: 1 is the field's average, and a strength-2 deck is twice as likely as a strength-1 deck to win a pod they share." : ""}
         {v.filler_wins > 0 ? ` Precons filling empty seats won ${v.filler_wins} games.` : ""}
         {rounds != null ? ` Games lasted about ${Math.round(rounds)} rounds (${v.avg_turns!.toFixed(0)} turns counting every player's).` : ""}
       </p>
       {v.meetings.length > 0 && (
         <>
           <h3>Head to head</h3>
-          <label>Filter matchups by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
-          <p className="small dim">Only decks that shared scored games are compared. Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} matching pairs. This is finish order in multiplayer pods, not a simulated 1v1 win rate.</p>
+          <p className="small">
+            Two decks that sat at the same table, and which of the two finished higher in each game they shared, whoever won the game. One table is {v.pod} games, so most pairs in a big
+            field have only a handful; under {FEW_GAMES} games a pair can't tell you much. Open a pair to see its tables.
+          </p>
+          <label>Filter pairs by deck<input value={matchupFilter} onChange={(e) => { setMatchupFilter(e.target.value); setMatchupPage(0); }} /></label>
+          <p className="small dim">Showing {meetings.length ? matchupPage * 200 + 1 : 0}–{Math.min((matchupPage + 1) * 200, meetings.length)} of {meetings.length} pairs. {v.pod === 2 ? "In a 1v1 run this is the same as who won." : "This is finish order at four-player tables, not a 1v1 win rate."}</p>
           <div className="lab-scroll">
             <table className="plain small lab-h2h">
               <thead>
                 <tr>
-                  <th>Decks</th>
+                  <th>Pair</th>
                   <th className="r">Games</th>
-                  <th>Who finished ahead</th>
+                  <th>Who finished higher</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {meetings.slice(matchupPage * 200, (matchupPage + 1) * 200).map((m) => (
-                  <tr key={`${m.a}-${m.b}`}>
-                    <td>
-                      {names[m.a]} and {names[m.b]}
-                    </td>
-                    <td className="r num">{m.games}</td>
-                    <td>
-                      {names[m.a]} {m.a_ahead}, {names[m.b]} {m.b_ahead}
-                      {m.ties ? `, level ${m.ties}` : ""}
-                      {m.a_share != null && m.a_share_ci ? ` (${names[m.a]} ahead in ${pct(m.a_share)}, ${level} interval ${pctRange(m.a_share_ci[0], m.a_share_ci[1])})` : ""}
-                    </td>
-                  </tr>
-                ))}
+                {meetings.slice(matchupPage * 200, (matchupPage + 1) * 200).map((m) => {
+                  const [hi, lo, hiN] = m.a_ahead >= m.b_ahead ? [names[m.a], names[m.b], m.a_ahead] : [names[m.b], names[m.a], m.b_ahead];
+                  const untied = m.a_ahead + m.b_ahead;
+                  const share = m.a_ahead >= m.b_ahead ? m.a_share : m.a_share != null ? 1 - m.a_share : null;
+                  const ci = m.a_share_ci ? (m.a_ahead >= m.b_ahead ? m.a_share_ci : ([1 - m.a_share_ci[1], 1 - m.a_share_ci[0]] as [number, number])) : null;
+                  return (
+                    <tr key={`${m.a}-${m.b}`}>
+                      <td>
+                        <Link to={deckPath(e.id, ids[m.a] ?? "", engine)}>{names[m.a]}</Link> and <Link to={deckPath(e.id, ids[m.b] ?? "", engine)}>{names[m.b]}</Link>
+                      </td>
+                      <td className="r num">{m.games}</td>
+                      <td>
+                        {untied === 0
+                          ? `Level in every game`
+                          : m.a_ahead === m.b_ahead
+                            ? `Even: each finished higher in ${m.a_ahead}`
+                            : `${hi} finished higher than ${lo} in ${hiN} of ${untied}`}
+                        {m.ties ? `, level in ${m.ties}` : ""}
+                        {untied < FEW_GAMES ? <span className="dim">, too few games to tell</span> : share != null && ci && m.a_ahead !== m.b_ahead ? <span className="dim"> ({pct(share)}, {level} interval {pctRange(ci[0], ci[1])})</span> : null}
+                      </td>
+                      <td>
+                        <Link to={deckPath(e.id, ids[m.a] ?? "", engine, ids[m.b] ?? "")}>See the games</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -760,6 +792,7 @@ function changeShort(e: ExperimentItem): string {
 }
 
 function Change({ e }: { e: ExperimentDetail }) {
+  const precons = usePrecons().data?.precons ?? [];
   const v = e.variant;
   const mode = modeOf(e);
   // A "both" run's label counts both engines' games; say them per engine.
@@ -775,7 +808,7 @@ function Change({ e }: { e: ExperimentDetail }) {
         <ul className="lab-decks small">
           {decks.map((d) => (
             <li key={d.label}>
-              <b>{d.label}</b>
+              <b>{deckName(d.label, precons)}</b>
               {d.commanders.length ? `: ${d.commanders.join(" and ")}` : ""}
               {d.source.kind === "deck" ? " (the deck's version when the run was made)" : d.source.kind === "precon" ? " (the precon's stock list)" : ""}
             </li>
@@ -833,7 +866,7 @@ function RunNotes({ e }: { e: ExperimentDetail }) {
           <ul className="lab-note">
             {e.opponents.map((o) => (
               <li key={o.id}>
-                {(o.source as { kind?: string; id?: string }).kind === "precon" ? <Link to={`/decks/lab/p/${(o.source as { id: string }).id}`}>{o.label}</Link> : o.label}, in {o.pods}{" "}
+                {(o.source as { kind?: string; id?: string }).kind === "precon" ? <Link to={`/lab/p/${(o.source as { id: string }).id}`}>{o.label}</Link> : o.label}, in {o.pods}{" "}
                 {o.pods === 1 ? unit[0] : unit[1]}
               </li>
             ))}
@@ -854,7 +887,7 @@ const MISSING: Record<ExperimentStatus, string> = {
   done: "not played",
 };
 
-function Pods({ id, done, status, mode, engine }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode; engine?: "phase" | "forge" }) {
+function Pods({ id, done, status, mode, engine, pod = 4 }: { id: string; done: number; status: ExperimentStatus; mode: ExperimentMode; engine?: "phase" | "forge"; pod?: number }) {
   const [open, setOpen] = useState(false);
   const pods = useQuery({
     queryKey: ["lab", "pods", id, done, engine ?? ""],
@@ -886,6 +919,7 @@ function Pods({ id, done, status, mode, engine }: { id: string; done: number; st
                   <th>Game</th>
                   <th>Seats, first player first</th>
                   <th>Result</th>
+                  <th>Table</th>
                 </tr>
               </thead>
               <tbody>
@@ -909,6 +943,9 @@ function Pods({ id, done, status, mode, engine }: { id: string; done: number; st
                       ) : (
                         <span className="faint">{MISSING[status]}</span>
                       )}
+                    </td>
+                    <td>
+                      <Link to={tablePath(id, Math.floor((p.pod - 1) / pod) + 1, engine)}>Table {Math.floor((p.pod - 1) / pod) + 1}</Link>
                     </td>
                   </tr>
                 ))}

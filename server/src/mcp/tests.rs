@@ -1,5 +1,5 @@
 use super::{Question, QuestionToken};
-use crate::testutil::{app, deck, send, user};
+use crate::testutil::{app, deck, power_user, send, user};
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
@@ -63,15 +63,34 @@ async fn only_an_mcp_key_or_a_question_token_gets_in() {
 }
 
 #[tokio::test]
+async fn only_power_users_get_the_tools_that_start_simulations() {
+    let (app, pool) = app().await;
+    let (_, session) = user(&pool, "friend@example.com").await;
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    for n in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+        assert!(!names.contains(&n), "{n} offered to an account that isn't a power user");
+        let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": n, "arguments": {}})))).await;
+        assert_eq!(status, StatusCode::OK, "{r}");
+        assert!(r["error"]["message"].as_str().unwrap().contains("unknown tool"), "{r}");
+    }
+    // Their own data and runs stay readable.
+    for n in ["overview", "lab_runs", "lab_run", "cancel_lab_run", "precon"] {
+        assert!(names.contains(&n), "{n} missing from {names:?}");
+    }
+}
+
+#[tokio::test]
 async fn the_protocol_basics() {
     let (app, pool) = app().await;
-    let (_, session) = user(&pool, "bryan@example.com").await;
+    let (_, session) = power_user(&pool, "bryan@example.com").await;
     let mcp = key(&app, &session, Some("mcp")).await;
 
     let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK);
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["overview", "deck", "plan_deck", "review_queue", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
+    for n in ["overview", "deck", "plan_deck", "review_queue", "shopping_trip", "shopping_settings", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
     let start = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "start_lab_run").unwrap();
@@ -372,7 +391,7 @@ async fn plan_and_collection_changes_apply_through_their_own_ops() {
 #[tokio::test]
 async fn tournament_pasted_lists_are_frozen_without_creating_decks_or_starting_games() {
     let (app, pool) = app().await;
-    let (owner, session) = user(&pool, "commander-test@example.com").await;
+    let (owner, session) = power_user(&pool, "commander-test@example.com").await;
     let token = key(&app, &session, Some("mcp")).await;
     let a = "Commander\n1 Commander A\nDeck\n99 Island\n";
     let b = "Commander\n1 Commander B\nDeck\n99 Island\n";
@@ -389,4 +408,129 @@ async fn tournament_pasted_lists_are_frozen_without_creating_decks_or_starting_g
     for bad in [json!([{"label":"A"}]),json!([{"label":"","list":a}]),json!([{"label":"A","list":""}])] {
         assert!(call(&app, &token, "start_lab_run", json!({"mode":"tournament","entrant_lists":bad})).await.0);
     }
+}
+
+#[tokio::test]
+async fn shopping_rules_and_store_preferences_are_staged_then_applied() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    for (id, key, name, sort) in [("st1", "black-castle", "Black Castle Gamez", 1), ("st2", "pats", "Pat's Games", 2)] {
+        sqlx::query(
+            "INSERT INTO plan_stores (id, owner_id, key, name, kind, sort, origin, created_at, updated_at) VALUES (?, ?, ?, ?, 'local', ?, 'import', 'now', 'now')",
+        )
+        .bind(id)
+        .bind(&a)
+        .bind(key)
+        .bind(name)
+        .bind(sort)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO plan_settings (owner_id, effective_from, rules, note, origin, created_at) VALUES (?, '2026-10-28', ?, 'Imported', 'import', 'now')")
+        .bind(&a)
+        .bind(json!({"currency": "USD", "ceiling_other_usd": 2.0, "max_over_market_pct": 100, "proxy_cost_usd": 0.3}).to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &mcp, "shopping_settings", json!({})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("the set from 2026-10-28 (from their plan import)"), "{text}");
+    assert!(text.contains("Sealed precons: no limit set."), "{text}");
+    assert!(text.contains("- Black Castle Gamez (key black-castle): fine to go, not placed in their order"), "{text}");
+
+    // Bryan's rule, with the sealed cap; parts left out would keep the rule in force.
+    let (err, text) = call(
+        &app,
+        &mcp,
+        "set_shopping_rules",
+        json!({"max_usd": 2, "always_ok_usd": 0.5, "tiers": [{"market_under": 1, "max_multiple": 2}, {"market_under": null, "max_multiple": 1.5}], "sealed_max_usd": 51}),
+    )
+    .await;
+    assert!(!err, "{text}");
+    assert!(text.contains("at most 1.5× market when market is $1.00 or more") && text.contains("at most $51.00 a deck"), "{text}");
+    let rules = change_id(&text);
+    let (err, text) = call(&app, &mcp, "set_shopping_rules", json!({"always_ok_usd": 5})).await;
+    assert!(err && text.contains("can't be above the most a card may cost"), "{text}");
+
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "black castle gamez", "preference": "favorite", "hassle": 1, "premium_usd": 0.25})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Black Castle Gamez: their favourite, to support"), "{text}");
+    let pref = change_id(&text);
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "Nowhere"})).await;
+    assert!(err && text.contains("Their stores: Black Castle Gamez (black-castle), Pat's Games (pats)"), "{text}");
+    let (err, _) = call(&app, &mcp, "set_store_preference", json!({"store": "pats", "hassle": 0})).await;
+    assert!(err);
+
+    let sets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_settings WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    let prefs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_store_prefs").fetch_one(&pool).await.unwrap();
+    assert_eq!((sets, prefs), (1, 0), "nothing changes before it's applied");
+
+    for id in [&rules, &pref] {
+        let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
+        assert!(!err, "{text}");
+    }
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let (origin, rules): (String, String) = sqlx::query_as("SELECT origin, rules FROM plan_settings WHERE owner_id = ? AND effective_from = ?")
+        .bind(&a)
+        .bind(&today)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let rules: Value = serde_json::from_str(&rules).unwrap();
+    assert_eq!(origin, "yama");
+    assert_eq!(rules["proxy_cost_usd"], 0.3, "a copy of the set in force");
+    assert_eq!(rules["sealed_max_usd"], 51.0);
+    assert_eq!(rules["local_buy"]["tiers"][1], json!({"market_under": null, "max_multiple": 1.5}));
+    let row: (String, Option<i64>, Option<f64>) = sqlx::query_as("SELECT preference, hassle, premium_usd FROM plan_store_prefs WHERE owner_id = ? AND store_key = 'black-castle'")
+        .bind(&a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row, ("favorite".into(), Some(1), Some(0.25)));
+
+    // Another store to first place: the others move down, no two share a place.
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "pats", "hassle": 1})).await;
+    assert!(!err, "{text}");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{text}");
+    let places: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT store_key, hassle FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
+        .bind(&a)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(places, [("black-castle".to_string(), Some(2)), ("pats".to_string(), Some(1))]);
+
+    // A staged change applies only what it names, over edits made since it was staged.
+    let (err, text) = call(&app, &mcp, "set_store_preference", json!({"store": "pats", "premium_usd": 0.1})).await;
+    assert!(!err, "{text}");
+    let staged = change_id(&text);
+    let (status, _) = send(&app, Method::PUT, "/api/plan/stores/pats/preference", Some(&a_session), Some(json!({"preference": "maybe", "note": "Far", "hassle": 1}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": staged})).await;
+    assert!(!err, "{text}");
+    let pats: (String, Option<String>, Option<f64>) = sqlx::query_as("SELECT preference, note, premium_usd FROM plan_store_prefs WHERE owner_id = ? AND store_key = 'pats'")
+        .bind(&a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(pats, ("maybe".into(), Some("Far".into()), Some(0.1)));
+    // An order naming one store renumbers the rest after it.
+    let (status, _) = send(&app, Method::PUT, "/api/plan/store-order", Some(&a_session), Some(json!({"keys": ["black-castle"]}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let places: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT store_key, hassle FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
+        .bind(&a)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(places, [("black-castle".to_string(), Some(1)), ("pats".to_string(), Some(2))]);
+    let (err, text) = call(&app, &mcp, "shopping_trip", json!({"stores": ["black-castle", "nowhere"]})).await;
+    assert!(err && text.contains("No store with key \"nowhere\". Their store keys: black-castle, pats."), "{text}");
+
+    let (_, text) = call(&app, &mcp, "shopping_settings", json!({})).await;
+    assert!(text.contains(&format!("the set from {today} (made in Yama)")), "{text}");
+    assert!(text.contains("- Black Castle Gamez (key black-castle): their favourite, to support, up to $0.25 more a card here\n"), "{text}");
+
 }

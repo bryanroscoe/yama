@@ -132,20 +132,31 @@ describe("reviewItems", () => {
   const answers = new Map<string, Review>([["p-buy", answer({ decision: "want", note: "for the gift card" })], ["now", answer({ decision: "no" })]]);
   const decks = reviewItems({ decks: [deck("beta", 2), deck("alpha", 1), deck("zeta", 3, "archived")], swaps, quotes, stores }, answers);
 
-  it("lists live swaps per deck in plan order, proposals first, then the plan's groups", () => {
+  it("lists live swaps per deck: proposals waiting for an answer, then answered ones, then the plan", () => {
     expect(decks.map((d) => d.deck.key)).toEqual(["alpha", "beta"]);
     const alpha = decks[0]!;
-    expect(alpha.items.map((i) => [i.group, i.swap.key])).toEqual([
-      ["proposed", "p-own"], ["proposed", "p-buy"], ["now", "now"], ["standins", "stand"], ["prints", "print"], ["prints", "later"], ["optional", "opt"],
+    expect(alpha.items.map((i) => [i.section, i.group, i.swap.key])).toEqual([
+      ["open", "proposed", "p-own"], ["answered", "proposed", "p-buy"], ["planned", "now", "now"], ["planned", "standins", "stand"],
+      ["planned", "prints", "print"], ["planned", "prints", "later"], ["planned", "optional", "opt"],
     ]);
     expect(alpha.items.find((i) => i.swap.key === "p-buy")!.quotes.map((q) => q.checked)).toEqual(["2026-10-18", "2026-10-10", "2026-10-01"]);
   });
 
-  it("counts for the chips and filters", () => {
+  it("counts only unanswered proposals as to answer, as the overview does", () => {
     const alpha = decks[0]!;
-    expect(alpha.counts).toEqual({ all: 7, undecided: 5, proposed: 2, want: 1, unsure: 0, no: 1 });
-    expect(filterItems(alpha.items, "undecided", "").map((i) => i.swap.key)).toEqual(["p-own", "stand", "print", "later", "opt"]);
+    expect(alpha.counts).toEqual({ all: 7, undecided: 1, proposed: 2, want: 1, unsure: 0, no: 1 });
+    expect(alpha.sections).toEqual({ open: 1, answered: 1, planned: 5 });
+    expect(filterItems(alpha.items, "undecided", "").map((i) => i.swap.key)).toEqual(["p-own"]);
     expect(filterItems(alpha.items, "no", "").map((i) => i.swap.key)).toEqual(["now"]);
+    // Planned swaps without an answer are in the plan already: never "to answer".
+    expect(decks[1]!.counts.undecided).toBe(0);
+    expect(decks[1]!.sections).toEqual({ open: 0, answered: 0, planned: 1 });
+  });
+
+  it("a note or a cut alone doesn't answer a proposal", () => {
+    const noted = reviewItems({ decks: [deck("alpha", 1)], swaps: [swap({ key: "p", in: "P", stage: "proposed" })], quotes: [], stores },
+      new Map([["p", answer({ decision: null, note: "thinking" })]]));
+    expect(noted[0]!.items[0]!.section).toBe("open");
   });
 
   it("searches reasons, store names, stock notes and your notes", () => {

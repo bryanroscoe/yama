@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/decks/{id}/results", get(results))
         .route("/api/decks/{id}/share-link", post(reset_share_link))
         .route("/api/decks/{id}/configurations", post(new_configuration))
+        .route("/api/decks/{id}/use", post(use_list))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -225,7 +226,13 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     }
     let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
     let mut estimates = crate::deck_checks::estimates(&st.pool, &versions).await?;
-    let market_prices = crate::deck_prices::prices(&st.pool).await?;
+    let mut cards_by_version: HashMap<String, Vec<DeckCard>> = HashMap::new();
+    for v in &versions {
+        cards_by_version.insert(v.clone(), load_version_cards(&st.pool, v).await?);
+    }
+    // Price only the cards these decks hold, not every card Yama knows.
+    let ids: std::collections::BTreeSet<&str> = cards_by_version.values().flatten().map(|c| c.oracle_id.as_str()).collect();
+    let market_prices = crate::deck_prices::prices_for(&st.pool, &ids.into_iter().collect::<Vec<_>>()).await?;
     for d in &mut decks {
         d.estimate = d.current_version_id.as_ref().and_then(|v| estimates.remove(v));
         // Same rule as the deck page's results (stats::results_by_version): only seats where the
@@ -241,7 +248,10 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
         .await?;
         (d.games, d.wins, d.draws) = (games, wins, draws);
         if let Some(v) = &d.current_version_id {
-            let cards = load_version_cards(&st.pool, v).await?;
+            let cards = match cards_by_version.remove(v) {
+                Some(cards) => cards,
+                None => load_version_cards(&st.pool, v).await?,
+            };
             d.singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &market_prices);
             d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
             for c in cards.iter().filter(|c| c.board != Board::Side) {
@@ -384,16 +394,7 @@ pub(crate) async fn insert_version(pool: &SqlitePool, deck_id: &str, cards: &[De
 /// As `insert_version`, inside the caller's transaction (no wake: the caller wakes the check
 /// worker once it commits).
 pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str, cards: &[DeckCard], note: Option<&str>) -> AppResult<String> {
-    let vid = new_id();
-    let stamp = now();
-    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at) VALUES (?,?,?,?,?)")
-        .bind(&vid)
-        .bind(deck_id)
-        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
-        .bind(note)
-        .bind(&stamp)
-        .execute(&mut *conn)
-        .await?;
+    let (vid, stamp) = insert_saved_version_in(conn, deck_id, cards, note, false).await?;
     sqlx::query("UPDATE decks SET current_version_id = ?, updated_at = ? WHERE id = ?")
         .bind(&vid)
         .bind(&stamp)
@@ -404,12 +405,37 @@ pub(crate) async fn insert_version_in(conn: &mut SqliteConnection, deck_id: &str
     Ok(vid)
 }
 
+/// Save a version row without making it current. With `history_only` it waits in History, where
+/// "Restore this list" can put it in the deck later as a new version (a scanned list the owner
+/// didn't switch to), so it is never the deck's list itself; no outside check is queued for it.
+/// Returns the version's id and timestamp.
+pub(crate) async fn insert_saved_version_in(
+    conn: &mut SqliteConnection,
+    deck_id: &str,
+    cards: &[DeckCard],
+    note: Option<&str>,
+    history_only: bool,
+) -> AppResult<(String, String)> {
+    let vid = new_id();
+    let stamp = now();
+    sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, note, created_at, history_only) VALUES (?,?,?,?,?,?)")
+        .bind(&vid)
+        .bind(deck_id)
+        .bind(serde_json::to_string(cards).map_err(anyhow::Error::from)?)
+        .bind(note)
+        .bind(&stamp)
+        .bind(history_only)
+        .execute(&mut *conn)
+        .await?;
+    Ok((vid, stamp))
+}
+
 pub async fn load_version_cards(pool: &SqlitePool, version_id: &str) -> AppResult<Vec<DeckCard>> {
     let json: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(version_id).fetch_one(pool).await?;
     Ok(serde_json::from_str(&json).map_err(anyhow::Error::from)?)
 }
 
-async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, Option<String>, Option<String>)> {
+pub(crate) async fn owned_deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<(String, Option<String>, Option<String>)> {
     sqlx::query_as("SELECT name, current_version_id, container_id FROM decks WHERE id = ? AND owner_id = ?")
         .bind(id)
         .bind(owner)
@@ -995,6 +1021,125 @@ async fn new_configuration(
     Ok(Json(Created { id: new, unknown: vec![] }))
 }
 
+#[derive(Deserialize)]
+struct UseList {
+    /// Another deck in this deck's configuration group: its current list becomes this deck's.
+    from: Option<String>,
+    /// Or one of this deck's own versions, restored.
+    version: Option<String>,
+    /// Client-generated, so a retried request saves one version (`applied_ops`).
+    op_id: String,
+}
+
+/// Put another list in this deck (Bryan, 2026-10-28: "There should be the one that's currently
+/// implemented, and then there should be an easy way to swap back to other versions of the
+/// deck"). `from` copies a configuration's current list into its main deck (or any deck of the
+/// group into another); `version` restores one of the deck's own versions. Either saves a new
+/// version, so the list it replaces stays in the history and can be restored the same way. The
+/// source's chosen printings fill in any card this deck has no printing for; this deck's own
+/// choices (proxies included) stay. A list equal to the current one saves nothing.
+async fn use_list(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Json(body): Json<UseList>,
+) -> AppResult<Json<serde_json::Value>> {
+    st.limits.deck_writes.check_user(&user)?;
+    if body.op_id.trim().is_empty() || body.op_id.len() > 100 {
+        return Err(AppError::bad("op_id is required"));
+    }
+    let (_, current, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    let group = configuration_group(&st.pool, &user.id, &id).await?;
+    let mut tx = st.pool.begin().await?;
+    let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
+        .bind(&body.op_id)
+        .bind(&user.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    // A retry gets the first answer; the same op_id for another list is refused, never replayed.
+    let target = serde_json::json!({ "deck": id, "from": body.from, "version": body.version });
+    if let Some((kind, payload)) = done {
+        let stored: serde_json::Value = serde_json::from_str(&payload).map_err(anyhow::Error::from)?;
+        if kind != "deck.use" || stored["target"] != target {
+            return Err(AppError::Conflict("that op_id was used for something else".into()));
+        }
+        return Ok(Json(serde_json::json!({ "version_id": stored["version_id"], "changed": stored["changed"] })));
+    }
+    let (cards_json, note, prints_from): (String, String, Option<String>) = match (&body.from, &body.version) {
+        (Some(from), None) => {
+            if *from == id {
+                return Err(AppError::bad("that's this deck's own list"));
+            }
+            let source = group.iter().find(|c| c.id == *from).ok_or(AppError::NotFound("configuration"))?;
+            let label = source.configuration.clone().unwrap_or_else(|| source.name.clone());
+            let cards: Option<String> = sqlx::query_scalar(
+                "SELECT v.cards FROM decks d JOIN deck_versions v ON v.id = d.current_version_id WHERE d.id = ? AND d.owner_id = ?",
+            )
+            .bind(from)
+            .bind(&user.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            (cards.ok_or_else(|| AppError::bad("that configuration has no list yet"))?, format!("Switched to {label}"), Some(from.clone()))
+        }
+        (None, Some(version)) => {
+            let row: Option<(String, String)> = sqlx::query_as("SELECT cards, created_at FROM deck_versions WHERE id = ? AND deck_id = ?")
+                .bind(version)
+                .bind(&id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let (cards, at) = row.ok_or(AppError::NotFound("version"))?;
+            (cards, format!("Restored the list from {}", &at[..at.len().min(10)]), None)
+        }
+        _ => return Err(AppError::bad("give either from (a configuration) or version")),
+    };
+    let cards: Vec<DeckCard> = serde_json::from_str(&cards_json).map_err(anyhow::Error::from)?;
+    let same = match &current {
+        Some(v) => {
+            let now_cards: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(v).fetch_one(&mut *tx).await?;
+            let now_cards: Vec<DeckCard> = serde_json::from_str(&now_cards).map_err(anyhow::Error::from)?;
+            let key = |cs: &[DeckCard]| {
+                let mut k: Vec<(String, String, i64)> = cs.iter().map(|c| (format!("{:?}", c.board), c.oracle_id.clone(), c.qty)).collect();
+                k.sort();
+                k
+            };
+            key(&now_cards) == key(&cards)
+        }
+        None => false,
+    };
+    // The source's printing choices fill gaps even when the list itself is already the same.
+    if let Some(from) = &prints_from {
+        sqlx::query(
+            "INSERT OR IGNORE INTO deck_prints (deck_id, oracle_id, set_code, collector_number, finish, proxy)
+             SELECT ?, oracle_id, set_code, collector_number, finish, proxy FROM deck_prints WHERE deck_id = ?",
+        )
+        .bind(&id)
+        .bind(from)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let result = if same {
+        serde_json::json!({ "version_id": current, "changed": false })
+    } else {
+        let vid = insert_version_in(&mut tx, &id, &cards, Some(note.as_str())).await?;
+        serde_json::json!({ "version_id": vid, "changed": true })
+    };
+    let mut stored = result.clone();
+    stored["target"] = target;
+    sqlx::query("INSERT INTO applied_ops (op_id, owner_id, kind, payload, applied_at) VALUES (?,?,?,?,?)")
+        .bind(&body.op_id)
+        .bind(&user.id)
+        .bind("deck.use")
+        .bind(stored.to_string())
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    if !same {
+        crate::deck_checks::wake();
+    }
+    Ok(Json(result))
+}
+
 async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
     archive(&st.pool, &user.id, &id).await
 }
@@ -1056,13 +1201,16 @@ struct VersionRow {
     id: String,
     note: Option<String>,
     created_at: String,
+    /// Saved for History only (a scan not made the list): never the deck's list.
+    #[sqlx(default)]
+    history_only: bool,
 }
 
 async fn list_versions(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Vec<VersionRow>>> {
     owned_deck(&st.pool, &user.id, &id).await?;
     Ok(Json(
         // rowid breaks ties between versions saved in the same second.
-        sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
+        sqlx::query_as("SELECT id, note, created_at, history_only FROM deck_versions WHERE deck_id = ? ORDER BY created_at DESC, rowid DESC")
             .bind(&id)
             .fetch_all(&st.pool)
             .await?,
@@ -1217,7 +1365,7 @@ pub(crate) const BASICS: [&str; 11] = [
     "Snow-Covered Plains", "Snow-Covered Island", "Snow-Covered Swamp", "Snow-Covered Mountain", "Snow-Covered Forest",
 ];
 
-fn is_basic(name: &str) -> bool {
+pub(crate) fn is_basic(name: &str) -> bool {
     BASICS.contains(&name)
 }
 
@@ -1263,6 +1411,13 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
     if v.total != 100 {
         v.errors.push(format!("{} cards; Commander decks have exactly 100 including the commander", v.total));
     }
+    // Copies of a card across the commander and main deck (a commander scanned or listed twice
+    // is one commander row and one main row): singleton counts them together, reported once.
+    let mut copies: HashMap<&str, i64> = HashMap::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        *copies.entry(c.oracle_id.as_str()).or_insert(0) += c.qty;
+    }
+    let mut reported: Vec<&str> = Vec::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let Some(card) = info.get(&c.oracle_id) else {
             v.warnings.push(format!("{} isn't in the card data", c.name));
@@ -1275,8 +1430,10 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
             .zip([7, 9])
             .find(|(phrase, _)| text.contains(&format!("a deck can have {phrase} cards named")))
             .map(|(_, n)| n);
-        if c.qty > 1 && !is_basic(&c.name) && !any_number && up_to.is_none_or(|n| c.qty > n) {
-            v.errors.push(format!("{} × {}: Commander is singleton", c.qty, c.name));
+        let qty = copies[c.oracle_id.as_str()];
+        if qty > 1 && !is_basic(&c.name) && !any_number && up_to.is_none_or(|n| qty > n) && !reported.contains(&c.oracle_id.as_str()) {
+            reported.push(c.oracle_id.as_str());
+            v.errors.push(format!("{} × {}: Commander is singleton", qty, c.name));
         }
         if !commanders.is_empty() {
             if let Some(outside) = card.color_identity.chars().find(|ch| !v.color_identity.contains(*ch)) {
@@ -1506,6 +1663,14 @@ mod tests {
         assert!(v.errors.iter().any(|e| e.contains("Jeweled Lotus is banned")));
         assert!(!v.errors.iter().any(|e| e.contains("Forest")));
         assert!(!v.errors.iter().any(|e| e.contains("100"))); // 1 + 2 + 1 + 1 + 95 = 100
+
+        // The commander listed again in the main deck: one row each, counted together, said once.
+        let twice = vec![dc("Omo", 1, Board::Commander), dc("Omo", 1, Board::Main), dc("Forest", 98, Board::Main)];
+        let v = validate(&twice, &info);
+        assert_eq!(v.errors.iter().filter(|e| e.contains("singleton")).collect::<Vec<_>>(), ["2 × Omo: Commander is singleton"]);
+        // Basics and "any number" cards still may repeat across rows.
+        let rats = vec![dc("Omo", 1, Board::Commander), dc("Relentless Rats", 30, Board::Main), dc("Relentless Rats", 2, Board::Main), dc("Forest", 67, Board::Main)];
+        assert!(!validate(&rats, &info).errors.iter().any(|e| e.contains("singleton")));
     }
 }
 

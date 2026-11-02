@@ -31,10 +31,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const MINUTE: Duration = Duration::from_secs(60);
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Sign-in attempts (Google and password together), per address and per email.
 pub const SIGN_IN_ATTEMPTS: usize = 10;
 pub const SIGN_IN_WINDOW: Duration = Duration::from_secs(10 * 60);
+/// New open sign-up accounts per address per day, and from everywhere per hour.
+pub const NEW_ACCOUNTS_PER_ADDRESS: usize = 3;
+pub const NEW_ACCOUNTS_PER_HOUR: usize = 60;
 
 /// Keys kept before stale ones are swept out.
 const SWEEP_AT: usize = 10_000;
@@ -56,7 +60,21 @@ impl RateLimiter {
 
     /// Count a hit for `key`, or refuse it with a 429 that says how long to wait.
     pub fn check(&self, key: &str) -> AppResult<()> {
-        self.check_at(key, Instant::now())
+        self.check_at(key, Instant::now(), true)
+    }
+
+    /// Count a hit for `key` that has already happened, whatever the count: for something
+    /// checked with `allows` beforehand and counted only once it really happened.
+    pub fn record(&self, key: &str) {
+        let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        hits.entry(key.to_string()).or_default().push_back(Instant::now());
+    }
+
+    /// Whether a hit for `key` would be allowed, without counting it: for checking several
+    /// limits before counting any (`record` or `check` once all allow), so one refusal doesn't use up
+    /// another's allowance.
+    pub fn allows(&self, key: &str) -> AppResult<()> {
+        self.check_at(key, Instant::now(), false)
     }
 
     /// Per-account limits leave admins out.
@@ -64,7 +82,7 @@ impl RateLimiter {
         if user.is_admin { Ok(()) } else { self.check(&user.id) }
     }
 
-    fn check_at(&self, key: &str, now: Instant) -> AppResult<()> {
+    fn check_at(&self, key: &str, now: Instant, count: bool) -> AppResult<()> {
         let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
         if hits.len() >= SWEEP_AT {
             let window = self.window;
@@ -81,7 +99,9 @@ impl RateLimiter {
                 retry_after: wait.as_secs().max(1),
             });
         }
-        q.push_back(now);
+        if count {
+            q.push_back(now);
+        }
         Ok(())
     }
 }
@@ -105,8 +125,21 @@ pub struct Limits {
     pub sign_in_email: RateLimiter,
     /// `/api/cards/search`, per account.
     pub search: RateLimiter,
+    /// `/api/guest/cards/search`: commander lookups from the life counter without an account,
+    /// per client address.
+    pub guest_search: RateLimiter,
+    /// New accounts through open sign-up, per client address: a person makes one, a script many.
+    pub new_accounts_address: RateLimiter,
+    /// New accounts through open sign-up from everywhere together, so a flood from many addresses
+    /// still stops (invited people are never counted or refused).
+    pub new_accounts: RateLimiter,
+    /// Held while one sign-up checks both new-account limits, makes the account and counts it,
+    /// so sign-ups arriving together can't all pass the checks before any is counted.
+    pub new_account_gate: tokio::sync::Mutex<()>,
     /// `/api/cards/autocomplete`, per account (it runs while someone types).
     pub autocomplete: RateLimiter,
+    /// Player searches by handle and their public decks (Log a game, New game), per account.
+    pub people: RateLimiter,
     /// The 5 MB offline card bundle, per account.
     pub offline_cards: RateLimiter,
     /// Joining a playgroup or an online game by code, right or wrong, per account: a 6-letter
@@ -114,6 +147,9 @@ pub struct Limits {
     pub join_codes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
+    /// Mythic Tools bridge game previews and imports, per account (bridges/mythic). The page
+    /// previews again on each change, so this allows more than `imports`.
+    pub mythic_bridge: RateLimiter,
     /// New decks (pasted, from a precon or from a plan list), saved versions and list previews,
     /// per account (each save also queues a Commander Spellbook check).
     pub deck_writes: RateLimiter,
@@ -139,10 +175,16 @@ impl Default for Limits {
             sign_in_address: RateLimiter::new("sign-in attempts from this address", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             sign_in_email: RateLimiter::new("sign-in attempts for this email", SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW),
             search: RateLimiter::new("card searches", 120, MINUTE),
+            guest_search: RateLimiter::new("card searches from this address", 60, MINUTE),
+            new_accounts_address: RateLimiter::new("new accounts from this address", NEW_ACCOUNTS_PER_ADDRESS, DAY),
+            new_accounts: RateLimiter::new("new accounts on Yama just now", NEW_ACCOUNTS_PER_HOUR, 60 * MINUTE),
+            new_account_gate: tokio::sync::Mutex::new(()),
             autocomplete: RateLimiter::new("card name lookups", 300, MINUTE),
+            people: RateLimiter::new("player searches", 120, MINUTE),
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
+            mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
             advisor: RateLimiter::new("questions to Claude", 6, MINUTE),
@@ -258,17 +300,17 @@ mod tests {
         let l = RateLimiter::new("tries", 10, Duration::from_secs(600));
         let t0 = Instant::now();
         for i in 0..10 {
-            l.check_at("a", t0 + Duration::from_secs(i)).unwrap();
+            l.check_at("a", t0 + Duration::from_secs(i), true).unwrap();
         }
-        let Err(AppError::TooManyRequests { message, retry_after }) = l.check_at("a", t0 + Duration::from_secs(30)) else { panic!("11th allowed") };
+        let Err(AppError::TooManyRequests { message, retry_after }) = l.check_at("a", t0 + Duration::from_secs(30), true) else { panic!("11th allowed") };
         assert_eq!(message, "Too many tries. Try again in 10 minutes.");
         assert_eq!(retry_after, 570);
         // Another key has its own count; refused hits weren't counted.
-        l.check_at("b", t0 + Duration::from_secs(30)).unwrap();
+        l.check_at("b", t0 + Duration::from_secs(30), true).unwrap();
         // The oldest hit leaves the window at 600 s, which frees exactly one place.
-        l.check_at("a", t0 + Duration::from_secs(600)).unwrap();
-        assert!(l.check_at("a", t0 + Duration::from_secs(600)).is_err());
-        l.check_at("a", t0 + Duration::from_secs(602)).unwrap();
+        l.check_at("a", t0 + Duration::from_secs(600), true).unwrap();
+        assert!(l.check_at("a", t0 + Duration::from_secs(600), true).is_err());
+        l.check_at("a", t0 + Duration::from_secs(602), true).unwrap();
     }
 
     #[test]
@@ -276,9 +318,9 @@ mod tests {
         let l = RateLimiter::new("tries", 1, Duration::from_secs(1));
         let t0 = Instant::now();
         for i in 0..SWEEP_AT {
-            l.check_at(&format!("k{i}"), t0).unwrap();
+            l.check_at(&format!("k{i}"), t0, true).unwrap();
         }
-        l.check_at("late", t0 + Duration::from_secs(2)).unwrap();
+        l.check_at("late", t0 + Duration::from_secs(2), true).unwrap();
         assert_eq!(l.hits.lock().unwrap().len(), 1);
     }
 
@@ -305,7 +347,7 @@ mod tests {
         // Through the tunnel: the visitor's address.
         assert_eq!(client_address(connector, Some("203.0.113.9"), &tunnel), Some(ip("203.0.113.9")));
         // From the LAN, or any peer outside the list, the header is ignored.
-        assert_eq!(client_address(Some(ip("<saget-lan-address>")), Some("203.0.113.9"), &tunnel), Some(ip("<saget-lan-address>")));
+        assert_eq!(client_address(Some(ip("192.0.2.17")), Some("203.0.113.9"), &tunnel), Some(ip("192.0.2.17")));
         // With no list nothing is trusted, so every tunnel visitor counts as the connector.
         assert_eq!(client_address(connector, Some("203.0.113.9"), &[]), connector);
         // A garbled header from the tunnel falls back to the peer; no header is the peer.
@@ -320,5 +362,17 @@ mod tests {
         assert_eq!(address_key(Some(ip("2001:db8:1:2:bbbb::9"))), "2001:db8:1:2::/64");
         assert_eq!(address_key(Some(ip("203.0.113.9"))), "203.0.113.9");
         assert_eq!(address_key(None), "unknown");
+    }
+
+    #[test]
+    fn allows_checks_without_counting() {
+        let l = RateLimiter::new("tries", 1, Duration::from_secs(60));
+        let t0 = Instant::now();
+        // Asking any number of times uses nothing up.
+        for _ in 0..5 {
+            l.check_at("a", t0, false).unwrap();
+        }
+        l.check_at("a", t0, true).unwrap();
+        assert!(l.check_at("a", t0, false).is_err());
     }
 }

@@ -26,6 +26,8 @@ pub fn config() -> Config {
         auto_import: false,
         // No Commander Spellbook calls from tests.
         deck_checks: false,
+        // The Mythic Tools bridge is on in tests, so its routes are covered (bridges/mythic).
+        mythic_bridge: true,
         engine_card_data: None,
         cf_access_team: None,
         cf_access_aud: None,
@@ -33,6 +35,7 @@ pub fn config() -> Config {
         lab_threads: 2,
         open_signup: false,
         password_login: true,
+        guest_mode: true,
         trusted_proxies: vec![],
         lab_quota: crate::config::LabQuota::default(),
         advisor: crate::config::AdvisorConfig::default(),
@@ -96,6 +99,14 @@ pub async fn user(pool: &SqlitePool, email: &str) -> (String, String) {
         .execute(pool)
         .await
         .unwrap();
+    (id, token)
+}
+
+/// A power user (simulations, watched AI games, Ask Claude) with a live session. Returns (user
+/// id, bearer token).
+pub async fn power_user(pool: &SqlitePool, email: &str) -> (String, String) {
+    let (id, token) = user(pool, email).await;
+    sqlx::query("UPDATE users SET power_user = 1 WHERE id = ?").bind(&id).execute(pool).await.unwrap();
     (id, token)
 }
 

@@ -1,0 +1,154 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Finish an active release; only the newest pending release matters. The host
+# lock also covers manual releases and survives runner/SSH disconnections.
+concurrency:
+  group: yama-production
+  cancel-in-progress: false
+
+# The repository variable DEPLOY_BACKEND picks how this workflow reaches saget
+# (deploy/RUNNER.md, "Choose the deploy backend"): unset or `runner` uses the
+# self-hosted runner on saget's LAN; `cloudflare` uses a GitHub-hosted job over
+# Cloudflare Access SSH. Both run the same forced host release gate.
+jobs:
+  deploy:
+    name: Deploy (saget runner)
+    if: >-
+      vars.DEPLOY_BACKEND != 'cloudflare' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: [self-hosted, Linux, X64, yama-production]
+    # Covers the host lock wait (110m), release deadline (105m), and cleanup.
+    timeout-minutes: 240
+    steps:
+      # No checkout, Docker socket, production env files, persistent PAT, or
+      # downloaded PR artifacts. SSH can invoke only the host release gate.
+      - name: Deploy the successful main revision
+        env:
+          DEPLOY_BACKEND: ${{ vars.DEPLOY_BACKEND }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$DEPLOY_BACKEND" in
+            ''|runner) ;;
+            *) echo "::error::Unknown DEPLOY_BACKEND '$DEPLOY_BACKEND'; use runner or cloudflare."; exit 1 ;;
+          esac
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_SSH_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || {
+            echo '::error::Repository secret DEPLOY_SSH_HOST is missing or not a plain host.'; exit 1; }
+          release_log="$(mktemp)"
+          trap 'rm -f "$release_log"' EXIT
+          printf '%s\n' "$GH_TOKEN" | ssh -T \
+            -i /run/yama-deploy/id_ed25519 \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=/run/yama-deploy/known_hosts \
+            "root@$DEPLOY_SSH_HOST" \
+            "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log"
+          result="$(sed -n 's/^YAMA_RELEASE_RESULT=//p' "$release_log" | tail -n 1)"
+          case "$result" in
+            success) message='Deployed and health-verified' ;;
+            already_healthy) message='Already deployed and health-verified; nothing restarted' ;;
+            superseded) message='Superseded by newer main; this request did not activate production' ;;
+            *) echo '::error::Host did not report a recognized release outcome; check the installed host.py version.'; exit 1 ;;
+          esac
+          printf '%s: %s.\n' "$message" "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-cloudflare:
+    name: Deploy (Cloudflare Access)
+    if: >-
+      vars.DEPLOY_BACKEND == 'cloudflare' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    environment: production
+    # Covers the host lock wait (110m), release deadline (105m), and cleanup.
+    timeout-minutes: 240
+    steps:
+      # Still no checkout: the job holds only the pinned cloudflared binary and
+      # the deploy key, which the host restricts to its release gate.
+      # 2026.5.1 is the last release reported to honor Access service tokens
+      # for `access ssh`; 2026.6.0 and later fall back to browser login
+      # (cloudflare/cloudflared#1674). Check headless auth before upgrading.
+      - name: Install pinned cloudflared
+        env:
+          CLOUDFLARED_VERSION: 2026.5.1
+          CLOUDFLARED_SHA256: 3c6a5ba995a258dbe90f98e5fdb2c2620b7be72c3ca761614f6eb52aee252cea
+        shell: bash
+        run: |
+          set -euo pipefail
+          download="$(mktemp)"
+          trap 'rm -f "$download"' EXIT
+          curl -fsSL --retry 3 -o "$download" \
+            "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-linux-amd64"
+          echo "$CLOUDFLARED_SHA256  $download" | sha256sum -c -
+          sudo install -m 0755 "$download" /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Deploy the successful main revision
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$DEPLOY_SSH_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || {
+            echo '::error::Secret DEPLOY_SSH_HOST is missing or not a plain host name.'; exit 1; }
+          for name in DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
+            [[ -n "${!name}" ]] || { echo "::error::Secret $name is missing."; exit 1; }
+          done
+          umask 077
+          ssh_dir="$(mktemp -d)"
+          release_log="$(mktemp)"
+          trap 'rm -rf "$ssh_dir" "$release_log"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/id_ed25519" "$ssh_dir/known_hosts"
+          # cloudflared reads the Access service token (its --id/--secret) from
+          # the environment, so it never appears in any command's arguments.
+          export TUNNEL_SERVICE_TOKEN_ID="$CF_ACCESS_CLIENT_ID"
+          export TUNNEL_SERVICE_TOKEN_SECRET="$CF_ACCESS_CLIENT_SECRET"
+          # Keepalives hold the tunnel open while the host builds silently.
+          printf '%s\n' "$GH_TOKEN" | ssh -T \
+            -i "$ssh_dir/id_ed25519" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            -o 'ProxyCommand=cloudflared access ssh --hostname %h' \
+            "root@$DEPLOY_SSH_HOST" \
+            "/mnt/user/appdata/yama-release/host.py deploy $RELEASE_SHA" | tee "$release_log"
+          result="$(sed -n 's/^YAMA_RELEASE_RESULT=//p' "$release_log" | tail -n 1)"
+          case "$result" in
+            success) message='Deployed and health-verified' ;;
+            already_healthy) message='Already deployed and health-verified; nothing restarted' ;;
+            superseded) message='Superseded by newer main; this request did not activate production' ;;
+            *) echo '::error::Host did not report a recognized release outcome; check the installed host.py version.'; exit 1 ;;
+          esac
+          printf '%s: %s.\n' "$message" "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"

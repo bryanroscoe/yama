@@ -55,3 +55,36 @@
 .login .login-hero > .art-img {
   object-position: 50% 25%;
 }
+
+/* A page that needs an account, signed out: what it keeps, then the ways in on a raised card,
+   under the usual nav (components/RequireAccount.tsx). */
+.account-gate-lede {
+  max-width: 56ch;
+  margin: 0 0 24px;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.account-gate-signin.login-side {
+  display: block;
+  max-width: 440px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+}
+.account-gate-signin.login-side .login-inner {
+  width: 100%;
+  margin: 0;
+  gap: 24px;
+}
+.account-gate-signin.login-side .login-title {
+  font-size: 2rem;
+}
+.account-gate-public {
+  margin: -8px 0 24px;
+}
+
+/* The foot of the laptop rail, signed out: the way in. */
+.rail-foot .rail-signin {
+  justify-content: center;
+}

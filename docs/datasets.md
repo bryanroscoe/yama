@@ -145,6 +145,44 @@ tribal/theme identity, synergy engine, win condition, tempo and interaction styl
 are separate signals. Archetype records are references, not automatic assignments.
 Measured upgrade effects still need outcomes linked to exact lists as played.
 
+## Shared precon evidence
+
+29 October 2026. An admin can let their datasets feed the signed-in precon pages: the
+Datasets page's "Shared precon evidence" switch, `PUT`/`DELETE
+/api/admin/precon-evidence/sources/{source name}`, or
+
+```sh
+./target/debug/yama-server precon-evidence use Playgroup.gg --owner you@example.com
+./target/debug/yama-server precon-evidence report
+./target/debug/yama-server precon-evidence link PRECON ENTITY --note "why"
+./target/debug/yama-server precon-evidence exclude PRECON ENTITY --source Playgroup.gg
+./target/debug/yama-server precon-evidence unlink PRECON ENTITY
+./target/debug/yama-server precon-evidence calibrate --split 2026-09-15 --owner you@example.com
+```
+
+`calibrate` runs the time-split test that decides whether a simulation earns weight in rating v2
+(ARCHITECTURE.md, "Precon evidence from datasets"); with `--owner` it includes that account's own
+tournaments.
+
+Only derived per-precon figures leave the datasets. They are computed on every read from the
+active revision of each of that owner's datasets whose `source.name` matches, so uploading a
+new revision or another dataset from the same source updates them. `report` (and
+`GET /api/admin/precon-evidence`) lists the links and every source precon left unlinked, with
+the reason. Account deletion removes the switch with the datasets.
+
+The precon history uses `performance` records with `entity_kind` `precon` and cumulative
+snapshots. This is the one place cumulative snapshots are differenced: for consecutive
+snapshots n₁ < n₂ games with rates r₁, r₂, the games between them imply
+(n₂r₂ − n₁r₁)/(n₂ − n₁). Gaps under 40 new games are pooled with the next snapshot. The
+recent rate weights each interval by its games and by recency at its midpoint (180-day half-life);
+the trend is the games-weighted slope across three or more intervals. The source reports a
+normalised 4-player rate rather than wins, so these are approximations with no binomial
+interval. A falling game count restarts the history; agreeing duplicates count once;
+conflicting, partial-capture, flagged, future and out-of-range figures are left out with a note.
+A precon without its own snapshots shows its commander's newest 180-day (else 365-, else 90-day)
+rolling-window figure separately; it mixes every list under that commander and never enters the
+precon's rate.
+
 ## Follow-on work
 
 Add scoped collector credentials using this import contract; do not give every
@@ -152,3 +190,30 @@ existing admin MCP connection upload powers. Then add
 scheduled, dated source adapters with last-good-state retention, explicit dataset
 promotion and a dedicated public projection. Current imports remain private and
 do not change existing public precon or commander assessments.
+
+## Public commander ranking
+
+1 November 2026. `/commanders` ranks commanders from the real-game sources an admin enables for
+it, separately from the precon pages (ARCHITECTURE.md, "Public commander ranking"):
+
+```sh
+./target/debug/yama-server commander-evidence use Playgroup.gg --owner you@example.com
+./target/debug/yama-server commander-evidence use "Mythic Tools" --owner you@example.com
+./target/debug/yama-server commander-evidence report
+./target/debug/yama-server commander-evidence stop "Mythic Tools" --owner you@example.com
+```
+
+`PUT`/`DELETE /api/admin/commander-evidence/sources/{source name}` do the same for the signed-in
+admin. It reads `commander` records from the active revision of each of that owner's datasets
+with that source name: either wins and games (`game_win_count`, `game_played_count`, optional
+`pilot_count`, identified by `oracle_id`(s), `scryfall_id` or a unique `name`) or a source's own
+score on the page's scale (`score_0_100`, `interval_low`, `interval_high`, `games`, `baseline`,
+`prior_strength`, `oracle_ids`). When several datasets from one source have a commander, the
+newest import's figure stands. `report` shows coverage, how far the sources agree and the top 15.
+
+The Mythic Tools scores come from the clean-room hand-off, never Mythic's responses:
+
+```sh
+python3 -I scripts/mythic-commander-dataset.py ~/Developer/.agent-tasks/mythic-meta-cleanroom-20261031/deliver mythic.json
+./target/debug/yama-server import-dataset mythic.json --owner you@example.com
+```

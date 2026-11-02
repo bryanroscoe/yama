@@ -17,6 +17,7 @@ import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
 import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
+import { NameEntry } from "./NameEntry";
 import { choosePrinting, printingOptions } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
 import { createServerCatalog } from "./serverCatalog";
@@ -45,8 +46,16 @@ export interface ScannerViewProps {
   /**
    * Keep adding: a card whose printing the scanner settled itself (the only one, or read from the
    * collector line) is added at once, one copy, and scanning goes on. Anything less still waits.
+   * With `identityOnly`, any card the camera found is added unless it might be another card.
    */
   autoAdd?: boolean;
+  /**
+   * The close-up step: when the whole-card view can't settle the printing (or the name of a card
+   * whose art isn't known), ask for the camera close to the corner (or the name). Off for a camera
+   * that can't be moved (a stand or a card feeder): the printing is then picked by tap, and the
+   * close-up only runs when asked for. Default on.
+   */
+  closeups?: boolean;
   /** Stop reading the camera (something is shown over the scanner). */
   paused?: boolean;
   /** The last few cards added, newest first. */
@@ -61,6 +70,16 @@ export interface ScannerViewProps {
   renderResult?: (card: ScanCandidate) => ReactNode;
   /** Only the card's identity matters: no printing, price or picker. */
   identityOnly?: boolean;
+  /** One card, once (a rescan of a card already filed): no Copies choice. */
+  single?: boolean;
+  /** Shown over the camera view, under the top buttons (the deck check's verdict). A function is
+   * given the card found and waiting to be accepted, else null, so the overlay never shows an
+   * older card while a new one waits. */
+  overlay?: ReactNode | ((pending: ScanCandidate | null) => ReactNode);
+  /** The word for what accepting does, in the camera's chips: "Added" unless set ("Checked"). */
+  addedWord?: string;
+  /** Buzz on a find, an add or a needed tap (where the browser can). Default on. */
+  haptics?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -189,6 +208,7 @@ export function ScannerView({
   onShowAdded,
   unsavedCount = 0,
   autoAdd = false,
+  closeups = true,
   paused = false,
   recent = [],
   finish = "nonfoil",
@@ -196,7 +216,17 @@ export function ScannerView({
   acceptLabel = "Add",
   renderResult,
   identityOnly = false,
+  single = false,
+  overlay,
+  addedWord = "Added",
+  haptics = true,
 }: ScannerViewProps) {
+  // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
+  const hapticsRef = useRef(haptics);
+  hapticsRef.current = haptics;
+  const buzz = (pattern: number | number[]) => {
+    if (hapticsRef.current) navigator.vibrate?.(pattern);
+  };
   const videoRef = useRef<HTMLVideoElement>(null);
   const guideRef = useRef<HTMLDivElement>(null);
   /** The part of the panel that needs a tap, when scanning can't go on by itself. */
@@ -404,7 +434,7 @@ export function ScannerView({
       setShowAll(false);
       setCopies(1);
       setPhase("found");
-      navigator.vibrate?.(30);
+      buzz(30);
       if (!identityOnly) void settle(seq, f, { art: top.illustrationId, id: top.id }, read);
     },
     [identityOnly, settle],
@@ -432,7 +462,7 @@ export function ScannerView({
       setShowAll(false);
       setCopies(1);
       setPhase("found");
-      navigator.vibrate?.(30);
+      buzz(30);
       // The text reader's proof of a printing: set code and number found together with a matching
       // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
       const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
@@ -535,7 +565,7 @@ export function ScannerView({
             if (!stop && handleText(res, false)) return;
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
-            if (!stop && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
+            if (!stop && closeups && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
               setCloseup("title");
               return;
             }
@@ -568,7 +598,7 @@ export function ScannerView({
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, photoBusy, paused, identityOnly, showArt, handleText, textReader]);
+  }, [phase, mode, closeup, photoBusy, paused, identityOnly, closeups, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -662,11 +692,15 @@ export function ScannerView({
   };
 
   // Step 2 starts by itself when the printing isn't settled: several share the art and the
-  // collector line couldn't be read from the whole-card view.
-  const needsCollector = live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
+  // collector line couldn't be read from the whole-card view. Without close-ups, the picker asks.
+  const needsCollector = closeups && live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
   useEffect(() => {
     if (needsCollector) setCloseup("collector");
   }, [needsCollector]);
+  // Turning close-ups off ends one in progress.
+  useEffect(() => {
+    if (!closeups) setCloseup(null);
+  }, [closeups]);
   useEffect(() => {
     if (phase !== "found" && closeup === "collector") setCloseup(null);
     if (phase === "found" && closeup === "title") setCloseup(null);
@@ -705,7 +739,7 @@ export function ScannerView({
             const chosenNow = c.chosen;
             setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, options: c.options, raw: text } : cur));
             setCloseup(null);
-            navigator.vibrate?.(30);
+            buzz(30);
             return;
           }
           previous = c.chosen?.scryfall_id ?? null;
@@ -758,26 +792,26 @@ export function ScannerView({
           : null;
   useEffect(() => {
     if (!tapNeeded) return;
-    navigator.vibrate?.([20, 60, 20]);
+    buzz([20, 60, 20]);
     tapRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [tapNeeded]);
   useEffect(() => {
-    if (!autoAdd || !onAccept || paused || identityOnly || phase !== "found" || !found || !addsItself(found)) return;
-    const c = found.chosen!;
-    const label = `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})`;
+    if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
+    const c = identityOnly ? null : found.chosen!;
+    const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : found.name;
     const saved = onAccept(candidateOf(found, c), 1, true);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
     again();
     void Promise.resolve(saved).then(
       (ok) => {
-        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap Added to try again`);
+        if (ok === false) setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`);
         else {
-          navigator.vibrate?.(40);
-          setJustAdded(`Added ${label}`);
+          buzz(40);
+          setJustAdded(`${addedWord} ${label}`);
         }
       },
-      () => setJustAdded(`Couldn't save ${label}. Tap Added to try again`),
+      () => setJustAdded(`Couldn't save ${label}. Tap ${addedWord} to try again`),
     );
     // again() is a plain function of this render; only these decide whether to add.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -819,12 +853,13 @@ export function ScannerView({
         {addedCount > 0 &&
           (onShowAdded ? (
             <button className="scan-count" onClick={onShowAdded}>
-              Added {addedCount}
+              {addedWord} {addedCount}
               {unsavedCount > 0 ? `, ${unsavedCount} not saved` : ""}: review
             </button>
           ) : (
-            <span className="scan-count">Added {addedCount} so far</span>
+            <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
+        {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
           {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
         </span>
@@ -841,6 +876,8 @@ export function ScannerView({
               <button onClick={() => setCloseup(null)}>Back to scanning</button>
               <NameEntry onPick={(n) => fromName(n)} />
             </div>
+            {/* The Close-ups switch among them: a fixed camera can't do this step. */}
+            {controls}
           </div>
         )}
         {!isFound && closeup !== "title" && (
@@ -968,7 +1005,7 @@ export function ScannerView({
             <div className="scan-buttons">
               {onAccept && (
                 <div className="scan-accept">
-                  {!identityOnly && (
+                  {!identityOnly && !single && (
                     <label className="scan-copies">
                       Copies
                       <select value={copies} onChange={(e) => setCopies(Number(e.target.value))}>
@@ -1044,6 +1081,17 @@ export function addsItself(f: Pick<Found, "sure" | "chosen" | "method" | "confid
   return !!f.sure && !!f.chosen && !typed;
 }
 
+/**
+ * Keep adding when only the card matters (scanning a deck): a card the camera found by its art is
+ * added by itself unless the art looks like another card too; one read as text only when the read
+ * was sure. A typed name, or a less certain read, waits for Add.
+ */
+export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others">): boolean {
+  const typed = f.method === "name" && f.confidence === 1;
+  if (typed) return false;
+  return f.method === "art" ? f.others.length === 0 : f.confidence >= SURE;
+}
+
 function explain(f: Found, identityOnly: boolean): string {
   const by = f.method === "art" ? "Recognized by its art" : f.method === "name" ? (f.confidence === 1 ? "Typed by name" : "Read from the card's name") : "Read from the collector number";
   if (identityOnly) return `${by}. Check the card name.`;
@@ -1060,46 +1108,4 @@ function explain(f: Found, identityOnly: boolean): string {
       if (f.options.length === 0) return `${by}. Yama's card data has no printing of it.`;
       return f.sameArt ? `${by}. ${f.options.length} printings share this art: pick yours.` : `${by}. Pick the printing.`;
   }
-}
-
-/** Type a card's name instead of scanning it. */
-function NameEntry({ onPick }: { onPick: (name: string) => void }) {
-  const [q, setQ] = useState("");
-  const [names, setNames] = useState<string[]>([]);
-  useEffect(() => {
-    const t = q.trim();
-    if (t.length < 2) return setNames([]);
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api<string[]>(`/api/cards/autocomplete?q=${encodeURIComponent(t)}`)
-        .then((r) => !cancelled && setNames(r.slice(0, 6)))
-        .catch(() => undefined);
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [q]);
-  return (
-    <div className="scan-name">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Or type the name" aria-label="Card name" autoComplete="off" />
-      {names.length > 0 && (
-        <ul className="scan-name-list">
-          {names.map((n) => (
-            <li key={n}>
-              <button
-                onClick={() => {
-                  setQ("");
-                  setNames([]);
-                  onPick(n);
-                }}
-              >
-                {n}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
 }

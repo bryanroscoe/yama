@@ -115,7 +115,7 @@ export function Buy() {
             </header>
             {g.store.note && <p className="buy-store-note">{g.store.note}</p>}
             {g.rows.map(row)}
-            {g.cartUrl && <p className="buy-store-note">Filling the {g.store.short ?? g.store.name} cart replaces what's in it now.</p>}
+            {g.cartUrl && <p className="buy-store-note">Filling the cart at {g.store.short ?? g.store.name} replaces what's in it now.</p>}
           </section>
         ))}
       </div>
@@ -251,9 +251,12 @@ function BuyItem({ r, view, onMark }: { r: BuyRow; view: PlanView; onMark: () =>
         {r.decision === "no" && s.stage === "planned" && <span className="buy-row-meta">You said no. Nothing changes until you and your planner decide what to do with this swap.</span>}
         <span className="buy-row-actions">
           <button className="buy-mark" onClick={onMark}>Mark bought</button>
-          <span className={`pill${decided.tone === "plain" ? " quiet" : ` ${decided.tone}`}`}>{decided.label}</span>
-          {s.stage === "proposed" && <span className="pill quiet">Proposed</span>}
-          {s.stage === "planned" && s.role === "standin" && <span className="pill quiet">Stand-in</span>}
+          {/* The pills wrap as one group, so a narrow row never strands one on a line by itself. */}
+          <span className="buy-row-pills">
+            <span className={`pill${decided.tone === "plain" ? " quiet" : ` ${decided.tone}`}`}>{decided.label}</span>
+            {s.stage === "proposed" && <span className="pill quiet">Proposed</span>}
+            {s.stage === "planned" && s.role === "standin" && <span className="pill quiet">Stand-in</span>}
+          </span>
           {/* The reasoning behind the row folds away, so a store's list scans on one screen. */}
           {more && (
             <Details label="More" className="buy-more">

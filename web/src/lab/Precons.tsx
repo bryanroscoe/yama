@@ -23,6 +23,7 @@ import {
   identityMatches,
   pct,
   pctRange,
+  shortHash,
   simDetails,
   SIM_SORTS,
   simLabel,
@@ -216,52 +217,8 @@ export function PreconsPage() {
           <p className="lab-note">
             <b>{rated} precons rated</b> from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
             {" "}{run.engine ?? "Unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}.
+            {" "}<a href="#how-ratings-work">How these ratings work{run.warnings.length ? `, ${run.warnings.length} analysis ${run.warnings.length === 1 ? "note" : "notes"}` : ""}</a>
           </p>
-          <Details label={run.warnings.length ? `Rating details (${run.warnings.length} analysis ${run.warnings.length === 1 ? "note" : "notes"})` : "Rating method and limitations"}>
-            <p>Run: {run.name}.</p>
-            <p>{caveat(run.engine)}</p>
-            {few > 0 && <p>{few} precons have fewer than {FEW} games; their intervals are wide and the order may change.</p>}
-            {unjudgedAll > 0 && (
-              <p>
-                The simulation can't judge {unjudgedAll} of these precons: real games disagree strongly with it, or a known gap in the engine's AI breaks their plan.
-                They're marked sim unreliable{hideUnjudged ? " and hidden" : simSort ? " and listed last" : ""}.
-                {doubtfulAll ? ` ${doubtfulAll} more are marked sim doubtful.` : ""}
-              </p>
-            )}
-            {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
-            {run.card_data && <p>{simDetails(run.card_data)}</p>}
-            <p>Upgradeability grades use published guides, checked card examples and the stated commander’s restrictions. Alternate commanders and on-theme swaps have separate assessments and lists. Sorting uses the highest supported in-box upgrade grade. The table names those commanders and shows how many included options remain ungraded. Replacing the strategy is a separate deck build.</p>
-            <p className="lab-note">
-              Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
-              finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons; a quarter is an even share. The bar is
-              its {level} interval, so a wide bar means few games. <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about
-              twice as often. Raw wins and rank ranges are on each precon's page.
-            </p>
-            {real && (
-              <p className="lab-note">
-                Real-game ranks: playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. They count people's games, not simulations,
-                and only cover precons with enough logged games.
-              </p>
-            )}
-            {run.confidence && (
-              <>
-                <p className="lab-note">
-                  The <b>sim unreliable</b> and <b>sim doubtful</b> marks come from the analysis. It compares each precon's simulated win rate with real games on
-                  playgroup.gg, counts the cards the engine only partly implements, and checks a hand-kept list of known gaps in the engine's AI (a deck whose plan
-                  needs plays the AI never makes). Unreliable means real games disagree strongly or a known gap breaks the deck's plan; doubtful is a lesser
-                  warning. No mark only means no problem is known: the simulation as a whole still follows real games only loosely.
-                  {run.confidence.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
-                </p>
-                {run.confidence.method && (
-                  <Details>
-                    <p>{run.confidence.method}</p>
-                  </Details>
-                )}
-              </>
-            )}
-
-            {run.warnings.length > 0 && <ul>{run.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
-          </Details>
         </>
       ) : (
         <p className="area-note">No simulation ratings yet.</p>
@@ -329,7 +286,7 @@ export function PreconsPage() {
             <tr>
               <Th k="rank" label={run && run.ranked > 0 ? `Rank of ${run.ranked}` : "Rank"} sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="name" label="Deck" sort={sort} desc={desc} onSort={sortBy} />
-              <Th k="p4" label={`Model win rate in 4-player pods, ${level} interval`} sort={sort} desc={desc} onSort={sortBy} />
+              <Th k="p4" label={`Model win rate in 4-player pods, ${level} interval`} sort={sort} desc={desc} onSort={sortBy} className="bar" />
               <Th k="games" label="Games" sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="strength" label="Strength" sort={sort} desc={desc} onSort={sortBy} num />
               <Th k="upgradeability" label="Upgradeability" sort={sort} desc={desc} onSort={sortBy} num />
@@ -340,14 +297,16 @@ export function PreconsPage() {
             <tbody className="lab-mine">
               <tr className="lab-mine-head">
                 <th colSpan={7} scope="rowgroup">
-                  <span className="lab-mine-title">
-                    Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
-                  </span>
-                  {!needle && (
-                    <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
-                      {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists`}
-                    </button>
-                  )}
+                  <div className="lab-mine-bar">
+                    <span className="lab-mine-title">
+                      Your lists <span>Rated in your own paired runs: each run has its own field and model fit, so its rank is out of that run's decks.</span>
+                    </span>
+                    {!needle && (
+                      <button type="button" className="quiet small" aria-expanded={mineOpen} onClick={() => set({ mine: mineOpen ? null : "1" })}>
+                        {mineOpen ? "Hide your lists" : `Show your ${mineShown.length} lists`}
+                      </button>
+                    )}
+                  </div>
                 </th>
               </tr>
               {(mineOpen || needle) &&
@@ -418,7 +377,7 @@ export function PreconsPage() {
               <li className={`lab-card${isFew ? " few" : ""}${last ? " unjudged" : ""}`}>
                 <span className="rank num">{r?.rank ?? ""}</span>
                 <span className="lab-card-main">
-                  <Link to={`/decks/lab/p/${p.id}`} className="lab-card-name">
+                  <Link to={`/lab/p/${p.id}`} className="lab-card-name">
                     <b>{p.name}</b> <Pips identity={p.color_identity} />
                   </Link>
                   <span className="dim small">Upgradeability: <UpgradeabilitySummary value={p.upgradeability} /></span>
@@ -437,12 +396,112 @@ export function PreconsPage() {
         })}
       </ol>
       {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a colour.</p>}
-      <p className="lab-note">
-        The amber line is 25%, an even share at a 4-player table. Precons with fewer than {FEW} games are faded, with "few games" in amber.
-        {unjudgedAll > 0 ? " A sim unreliable or sim doubtful mark says the simulator is known to misjudge that deck; tap it for why." : ""} Open a precon for its
-        list, matchups and "Make this a Yama deck".
-        {mineShown.length ? ` Your lists come from your own runs with ${mineShown.map((m) => m.rating.games).reduce((a, b) => Math.min(a, b))} or more games each, so their intervals are tighter.` : ""}
-      </p>
+
+      {run && (
+        <section className="lab-about" id="how-ratings-work" aria-labelledby="how-ratings-work-title">
+          <h2 id="how-ratings-work-title">How these ratings work</h2>
+          <p className="lab-label">{caveat(run.engine)}</p>
+          <div className="lab-about-grid">
+            <div>
+              <h3>Reading the table</h3>
+              <p>
+                Every precon played whole games against other precons, with {ai} in every seat, in 4-player pods. The <b>model win rate</b> is a model of
+                finishing order ({run.model ?? "Plackett-Luce"})'s chance that the deck wins a pod of three random precons. The amber line is 25%, an even share.
+              </p>
+              <p>
+                The bar is its {level} interval, so a wide bar means few games. Precons with fewer than {FEW} games are faded, with "few games" in amber.
+                {few > 0 ? ` ${few} ${few === 1 ? "precon is" : "precons are"} under ${FEW} games, so the order may change.` : ""}
+              </p>
+              <p>
+                <b>Strength</b> is the same model's rating: 1 is an average precon, 2 finishes ahead about twice as often. Each precon's page has its list, raw wins, rank ranges,
+                matchups and "Make this a Yama deck".
+              </p>
+              {skipped > 0 && <p>Ranks are among all {run.ranked} decks in the run, and {skipped} of those aren't in this list, so some ranks are skipped.</p>}
+              {mineShown.length > 0 && (
+                <p>
+                  Your lists come from your own runs with {mineShown.map((m) => m.rating.games).reduce((a, b) => Math.min(a, b))} or more games each, so their
+                  intervals are tighter.
+                </p>
+              )}
+            </div>
+            {(run.confidence || unjudgedAll > 0 || doubtfulAll > 0) && (
+              <div>
+                <h3>Sim unreliable and sim doubtful</h3>
+                <p>
+                  The analysis compares each precon's simulated win rate with real games on playgroup.gg, counts the cards the engine only partly implements,
+                  and checks a hand-kept list of known gaps in the engine's AI (a deck whose plan needs plays the AI never makes).
+                </p>
+                <p>
+                  <b>Unreliable</b> means real games disagree strongly or a known gap breaks the deck's plan{unjudgedAll > 0 ? `: ${unjudgedAll} ${unjudgedAll === 1 ? "precon" : "precons"} here, ${hideUnjudged ? "hidden" : simSort ? "listed last" : "marked in the table"}` : ""}.
+                  {" "}<b>Doubtful</b> is a lesser warning{doubtfulAll > 0 ? `: ${doubtfulAll} ${doubtfulAll === 1 ? "precon" : "precons"}` : ""}.{unjudgedAll + doubtfulAll > 0 ? " Tap a mark for why." : ""}
+                </p>
+                <p>
+                  No mark only means no problem is known: the simulation as a whole still follows real games only loosely.
+                  {run.confidence?.reference_run ? ` Decks without real games of their own are judged by their precon in run ${run.confidence.reference_run}.` : ""}
+                </p>
+                {run.confidence?.method && (
+                  <Details label="Method">
+                    <p>{run.confidence.method}</p>
+                  </Details>
+                )}
+              </div>
+            )}
+            {real && (
+              <div>
+                <h3>Real games</h3>
+                <p>
+                  playgroup.gg's precon tier list ({real.method}), fetched {fmtDate(real.fetched)}. It counts people's games, not simulations, and only covers
+                  precons with enough logged games.
+                </p>
+              </div>
+            )}
+            <div>
+              <h3>Upgradeability</h3>
+              <p>
+                Grades use published guides, checked card examples and the stated commander’s restrictions. Alternate commanders and on-theme swaps have
+                separate assessments and lists. Sorting uses the highest supported in-box upgrade grade; the table names those commanders and shows how many
+                included options remain ungraded. Replacing the strategy is a separate deck build.
+              </p>
+            </div>
+            <div>
+              <h3>This run</h3>
+              <dl className="lab-about-run">
+                <dt>Run</dt>
+                <dd>{run.name}</dd>
+                <dt>Engine</dt>
+                <dd>{run.engine ?? "Unrecorded"}</dd>
+                <dt>AI</dt>
+                <dd>{run.difficulty ?? "Unrecorded"}</dd>
+                <dt>Games</dt>
+                <dd>{run.games.toLocaleString("en-GB")}, {run.pod ?? 4}-player pods</dd>
+                <dt>Analysed</dt>
+                <dd>{fmtDate(run.analysed_at ?? run.created_at)}</dd>
+                {run.card_data && (
+                  <>
+                    <dt>Card data</dt>
+                    <dd>{run.card_data.split(", ").map(shortHash).join(", ")}</dd>
+                  </>
+                )}
+              </dl>
+              {run.warnings.length > 0 && (
+                <>
+                  <h4>From the analysis</h4>
+                  <ul>
+                    {run.warnings.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+      {!run && mineShown.length > 0 && (
+        <p className="lab-note">
+          The amber line is 25%, an even share at a 4-player table. Your lists come from your own runs, each with its own field and model fit.
+        </p>
+      )}
     </>
   );
 }
@@ -474,7 +533,7 @@ function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level
       </td>
       <td className="deck">
         <span className={`lab-deck-name${confidenceMark(r?.confidence) ? " has-mark" : ""}`}>
-          <Link to={`/decks/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
+          <Link to={`/lab/p/${p.id}`}>{p.name}</Link> <Pips identity={p.color_identity} />
           <ConfidenceMark confidence={r?.confidence} name={p.name} method={method} />
         </span>
         <span className="sub">
@@ -504,7 +563,7 @@ function TableRow({ p, max, level, method }: { p: PreconItem; max: number; level
           <span className="dim small">no data</span>
         )}
       </td>
-      <td className="num"><UpgradeabilitySummary value={p.upgradeability} /></td>
+      <td className="num upg"><UpgradeabilitySummary value={p.upgradeability} /></td>
       <td className="real num">
         {pg?.rank != null ? (
           <>
@@ -561,7 +620,7 @@ function MineRow({ m, max, level }: { m: MyList; max: number; level: string }) {
           <span className="dim small">no data</span>
         )}
       </td>
-      <td className="num"><span className="dim small">Not assessed for this list</span></td>
+      <td className="num upg"><span className="dim small">Not assessed for this list</span></td>
       <td className="real num">
         <span className="dim small">Your list</span>
       </td>

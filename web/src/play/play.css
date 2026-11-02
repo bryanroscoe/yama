@@ -48,6 +48,9 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-rows: minmax(0, 1fr);
 }
+.ph-hero[data-n="1"] .ph-hero-art {
+  grid-template-columns: minmax(0, 1fr);
+}
 .ph-hero[data-n="2"] .ph-hero-art {
   grid-template-rows: minmax(0, 1fr);
 }
@@ -321,7 +324,7 @@
 .ph-join-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 12px 8px;
   align-items: end;
 }
 .ph-code-label {
@@ -341,6 +344,14 @@
   letter-spacing: 0.18em;
 }
 .ph-code input::placeholder {
+  font-family: var(--body);
+  font-weight: 400;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+/* Empty, the field takes the placeholder's size too, so "Code" sits centred instead of on the
+   big code font's baseline. */
+.ph-code input:placeholder-shown {
   font-family: var(--body);
   font-weight: 400;
   font-size: 16px;

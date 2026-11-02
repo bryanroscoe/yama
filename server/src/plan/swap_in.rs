@@ -171,20 +171,25 @@ async fn current_list(tx: &mut Transaction<'_, Sqlite>, owner: &str, plan_deck_i
     })
 }
 
-/// A plan deck's Yama deck: the linked one, else the only live deck with its exact name.
+/// A plan deck's Yama deck, as `installed.rs` resolves it: the main deck of the linked deck's
+/// configuration group (the list in the box), else the only live main deck with its exact name.
 async fn yama_deck(tx: &mut Transaction<'_, Sqlite>, owner: &str, linked: Option<&str>, name: &str) -> AppResult<Option<(String, String, Option<String>, Option<String>)>> {
     type Row = (String, String, Option<String>, Option<String>);
     if let Some(id) = linked {
-        let row: Option<Row> = sqlx::query_as("SELECT id, name, current_version_id, container_id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
-            .bind(id)
-            .bind(owner)
-            .fetch_optional(&mut **tx)
-            .await?;
+        let row: Option<Row> = sqlx::query_as(
+            "SELECT p.id, p.name, p.current_version_id, p.container_id
+             FROM decks d JOIN decks p ON p.id = COALESCE(d.parent_id, d.id) AND p.owner_id = d.owner_id
+             WHERE d.id = ? AND d.owner_id = ? AND d.archived = 0 AND p.archived = 0",
+        )
+        .bind(id)
+        .bind(owner)
+        .fetch_optional(&mut **tx)
+        .await?;
         if row.is_some() {
             return Ok(row);
         }
     }
-    let rows: Vec<Row> = sqlx::query_as("SELECT id, name, current_version_id, container_id FROM decks WHERE owner_id = ? AND archived = 0 AND lower(name) = lower(?)")
+    let rows: Vec<Row> = sqlx::query_as("SELECT id, name, current_version_id, container_id FROM decks WHERE owner_id = ? AND archived = 0 AND parent_id IS NULL AND lower(name) = lower(?)")
         .bind(owner)
         .bind(name.trim())
         .fetch_all(&mut **tx)
@@ -238,6 +243,8 @@ fn move_ops(copies: &mut [OwnedCopy], from: &dyn Fn(&OwnedCopy) -> bool, oracle_
                     purchase_price: None,
                     note: None,
                     proxy: None,
+                    scryfall_id: None,
+                    split: None,
                 });
             } else {
                 ops.push(OpKind::Adjust { item_id: c.id.clone(), delta: -take });

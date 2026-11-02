@@ -105,7 +105,7 @@ function CompareForm() {
       if (name.trim()) body.name = name.trim();
       return api<ExperimentDetail>("/api/lab/experiments", { method: "POST", json: body });
     },
-    onSuccess: (d) => navigate(`/decks/lab/runs/${d.id}`),
+    onSuccess: (d) => navigate(`/lab/runs/${d.id}`),
   });
 
   const labels = chosen.map((c) => c.label);
@@ -248,7 +248,7 @@ function CompareForm() {
               {create.isPending ? "Starting…" : tournament ? "Start tournament" : versus ? "Play them head to head" : "Compare them"}
             </button>
             <p className="lab-note" style={{ margin: 0 }}>
-              AI-piloted simulated games, not your table. To test a change to one deck, use <Link to="/decks/lab/try">Try a change</Link>. <Link to="/decks/lab/runs">My runs</Link>
+              AI-piloted simulated games, not your table. To test a change to one deck, use <Link to="/lab/try">Try a change</Link>. <Link to="/lab/runs">My runs</Link>
             </p>
           </section>
         </aside>

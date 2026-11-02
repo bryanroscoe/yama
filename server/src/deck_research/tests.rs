@@ -260,7 +260,7 @@ async fn mcp_can_save_and_read_private_research_without_apply() {
             .await
             .is_err()
     );
-    let tools = crate::mcp::tools::list(&via);
+    let tools = crate::mcp::tools::list(&user, &via);
     let save = tools.iter().find(|t| t["name"] == "save_research").unwrap();
     assert_eq!(save["annotations"]["idempotentHint"], true);
 }

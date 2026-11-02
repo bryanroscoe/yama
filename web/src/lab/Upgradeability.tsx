@@ -1,17 +1,17 @@
 import type { Upgradeability } from "./api";
 const METHOD = "source-backed-upgradeability-v4";
 
-export function UpgradeabilitySummary({ value }: { value?: Upgradeability }) {
+export function UpgradeabilitySummary({ value, detailed = false }: { value?: Upgradeability; detailed?: boolean }) {
   if (value && value.method !== METHOD)
     return <span className="dim small">Needs refreshed evidence</span>;
   if (value?.package) {
     const p = value.package;
     return (
-      <span>
+      <span className="upg-summary">
         <strong>
           {p.best_supported_score == null
             ? "Package ungraded"
-            : `Highest supported in-box upgrade grade: ${p.best_supported_score}/5 ${p.best_supported_label}`}
+            : `${detailed ? "Highest supported in-box upgrade grade: " : ""}${p.best_supported_score}/5 ${p.best_supported_label}`}
         </strong>
         {p.best_supported_commanders.map((c) => (
           <span className="sub" key={c.join(" + ")}>
@@ -20,7 +20,7 @@ export function UpgradeabilitySummary({ value }: { value?: Upgradeability }) {
         ))}
         <span className="sub">
           {p.graded_configurations}/{p.configurations} commander configurations
-          graded. Unassessed options may be stronger.
+          graded{detailed ? ". Unassessed options may be stronger." : ""}
         </span>
       </span>
     );
@@ -168,6 +168,7 @@ function Evidence({ value: v }: { value: Upgradeability }) {
         </p>
       )}
       <h4>Commander results</h4>
+      <p>{v.commander_caveat}</p>
       {v.commander_results.length ? (
         <ul>
           {v.commander_results.map((c) => (
@@ -193,6 +194,12 @@ function Evidence({ value: v }: { value: Upgradeability }) {
       ) : (
         <p className="dim">No commander observation is available.</p>
       )}
+      <p className="lab-note">
+        <a href="https://playgroup.gg">Playgroup.gg / Arcane Digital B.V.</a>,
+        aggregate statistics under{" "}
+        <a href="https://playgroup.gg/legal">CC BY 4.0</a>. Source refresh dates
+        are not provided by this endpoint.
+      </p>
     </>
   );
 }
@@ -222,52 +229,52 @@ export function UpgradeabilitySection({
   return (
     <section>
       <h2>Upgradeability</h2>
-      <p>{v.basis}</p>
       {v.package && (
         <>
           <h3>The complete package</h3>
           <p>
-            <UpgradeabilitySummary value={v} />
+            <UpgradeabilitySummary value={v} detailed />
           </p>
-          <p>
-            {v.package.configurations} stock-compatible in-box commander
-            configurations inventoried on {v.package.checked_on}.{" "}
-            {v.package.validated_configurations} have validated simulation lists.{" "}
-            {v.package.roster_complete
-              ? "Inventory complete for the checked stock list."
-              : "Inventory incomplete."}
-          </p>
-          {!!v.package.featured_commanders.length && (
+          <details>
+            <summary>Package coverage</summary>
             <p>
-              Featured commanders:{" "}
-              {v.package.featured_commanders
-                .map((c) => c.join(" + "))
-                .join(", ")}
-              .
+              {v.package.configurations} stock-compatible in-box commander
+              configurations inventoried on {v.package.checked_on}.{" "}
+              {v.package.validated_configurations} have validated simulation lists.{" "}
+              {v.package.roster_complete
+                ? "Inventory complete for the checked stock list."
+                : "Inventory incomplete."}
             </p>
-          )}
-          <p>{v.package.note}</p>
-          {!!v.package.other_legends.length && (
-            <details>
-              <summary>Other included legends</summary>
+            {!!v.package.featured_commanders.length && (
               <p>
-                These cannot lead the complete unchanged stock pool with a
-                checked configuration: {v.package.other_legends.join(", ")}.
+                Featured commanders:{" "}
+                {v.package.featured_commanders
+                  .map((c) => c.join(" + "))
+                  .join(", ")}
+                .
               </p>
-            </details>
-          )}
+            )}
+            <p>{v.package.note}</p>
+            {!!v.package.other_legends.length && (
+              <details>
+                <summary>Other included legends</summary>
+                <p>
+                  These cannot lead the complete unchanged stock pool with a
+                  checked configuration: {v.package.other_legends.join(", ")}.
+                </p>
+              </details>
+            )}
+          </details>
         </>
       )}
-      {!!v.commanders.length && <h3>{v.commanders.join(" + ")}</h3>}
-      <Evidence value={v} />
+      <details>
+        <summary>{v.commanders.join(" + ") || "Reference commander"}: {v.score == null ? v.label : `${v.score}/5 ${v.label}`}</summary>
+        <p>{v.basis}</p>
+        <Evidence value={v} />
+      </details>
       {!!v.alternatives.length && (
         <>
           <h3>Other commander options</h3>
-          <p>
-            Each option has its own assessment and comparison list. Stock
-            results elsewhere on this page are not results for these alternative
-            lists.
-          </p>
           {v.alternatives.map((a) => (
             <details key={a.variant_key} id={`commander-${a.variant_key}`}>
               <summary>
@@ -283,6 +290,7 @@ export function UpgradeabilitySection({
                       ? "Separate deck build"
                       : "Reference commander configuration"}
               </p>
+              <p>Stock results elsewhere on this page do not describe this alternative list.</p>
               <Evidence value={a} />
             </details>
           ))}
@@ -318,13 +326,7 @@ export function UpgradeabilitySection({
           separate from budget and Commander brackets.
         </p>
       </details>
-      <p>{v.commander_caveat}</p>
-      <p className="lab-note">
-        <a href="https://playgroup.gg">Playgroup.gg / Arcane Digital B.V.</a>,
-        aggregate statistics under{" "}
-        <a href="https://playgroup.gg/legal">CC BY 4.0</a>. Source refresh dates
-        are not provided by this endpoint.
-      </p>
+
     </section>
   );
 }

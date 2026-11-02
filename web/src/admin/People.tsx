@@ -37,12 +37,17 @@ export function PeoplePage() {
     onSuccess: refresh,
   });
   const invite = useMutation({ mutationFn: (a: AccountInfo) => (a.invited ? adminApi.uninvite(a.id) : adminApi.invite(a.id)), onSuccess: refresh });
+  const power = useMutation({ mutationFn: (a: AccountInfo) => adminApi.setPower(a.id, !a.power_user), onSuccess: refresh });
   // View as: the page reloads as them (viewing.ts), so there's nothing to do on success here.
   const view = useMutation({ mutationFn: (a: AccountInfo) => startViewing(a.id) });
 
   const flip = (a: AccountInfo) => {
     if (!a.disabled_at && !window.confirm(`Disable ${a.email}? They're signed out at once and can't sign in until you enable the account again.`)) return;
     toggle.mutate(a);
+  };
+  const flipPower = (a: AccountInfo) => {
+    if (a.power_user && !window.confirm(`Stop ${a.email} being a power user? They keep their runs but can't start simulations, watch AI games or ask Claude.`)) return;
+    power.mutate(a);
   };
   const flipInvite = (a: AccountInfo) => {
     if (a.invited) {
@@ -72,7 +77,7 @@ export function PeoplePage() {
           <span className="visually-hidden">Search people</span>
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or email" />
         </label>
-        <ErrorText error={accounts.error ?? toggle.error ?? invite.error ?? view.error} />
+        <ErrorText error={accounts.error ?? toggle.error ?? invite.error ?? power.error ?? view.error} />
         {accounts.data && list.length === 0 && <p className="dim">Nobody matches that search.</p>}
         <ul className="admin-list">
           {list.map((a) => (
@@ -88,6 +93,9 @@ export function PeoplePage() {
                 <div className="admin-actions">
                   <button className="outline" onClick={() => flipInvite(a)} disabled={invite.isPending}>
                     {a.invited ? "Remove invite" : "Invite"}
+                  </button>
+                  <button className="outline" onClick={() => flipPower(a)} disabled={power.isPending} title="Power users may start simulations and watched AI games and ask Claude">
+                    {a.power_user ? "Remove power user" : "Make power user"}
                   </button>
                   <button className="outline" onClick={() => flip(a)} disabled={toggle.isPending}>
                     {a.disabled_at ? "Enable" : "Disable"}

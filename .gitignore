@@ -1,6 +1,7 @@
 /target
 /target-dev
 node_modules/
+__pycache__/
 dist/
 /data/*
 !/data/.gitkeep
@@ -12,6 +13,11 @@ dist/
 web/public/ocr/
 # Local PDF exports and verification files, never shipped with the app.
 /output/pdf/
+# Polish-run screenshots and reports (npm run polish), never shipped.
+/output/polish/
 /tmp/pdfs/
 
 web/public/precon-fonts/
+
+# Cloudflare relay: wrangler dev state
+.wrangler/

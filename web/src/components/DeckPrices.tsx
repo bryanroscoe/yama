@@ -7,7 +7,7 @@ export function SinglesPrice({ value }: { value: SinglesValue | undefined }) {
     ? shortDate(value.newest_date)
     : `${shortDate(value.oldest_date)} to ${shortDate(value.newest_date)}`;
   return <span>
-    <b>{usd(value.usd)}</b> in singles{value.unpriced_copies > 0 ? ` (partial: ${value.unpriced_copies} copies without a price)` : ""}
+    <b>{usd(value.usd)}</b> in singles{value.unpriced_copies > 0 ? ` (partial: ${copies(value.unpriced_copies)} without a price)` : ""}
     {value.newest_date && <span className="dim small">. {value.source}, {dates}</span>}
   </span>;
 }

@@ -1,0 +1,151 @@
+/* Scan this deck (DeckScanPage). */
+
+.deck-scan {
+  max-width: 760px;
+}
+.deck-scan h1 {
+  margin: 0;
+}
+.deck-scan-start {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.deck-scan-start .scan-name {
+  flex: 1 1 220px;
+  position: relative;
+}
+.deck-scan-start .scan-name input,
+.deck-scan-fix .scan-name input {
+  width: 100%;
+}
+.deck-scan-progress {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  display: grid;
+  gap: 12px;
+}
+.deck-scan-progress p {
+  margin: 0;
+}
+/* The display face like the deck page's stats: the body face's slashed zero read as a "no" sign
+   at this size. */
+.deck-scan-progress .num {
+  font-family: var(--display);
+  font-size: var(--t-big);
+  line-height: 1;
+}
+.deck-scan-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--text);
+}
+.deck-scan-good {
+  color: var(--good);
+}
+.deck-scan-warn {
+  color: var(--warn);
+}
+.deck-scan-out {
+  color: var(--bad);
+}
+.deck-scan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.deck-scan-list > li {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+}
+.deck-scan-list > li.is-duplicate {
+  background: var(--warn-tint);
+}
+.deck-scan-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 0 4px;
+}
+.deck-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* Big enough to hit with a thumb while holding cards. */
+.deck-scan-actions button {
+  min-height: 40px;
+}
+.deck-scan-tag {
+  margin-left: 8px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.deck-scan-tag.is-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.deck-scan-fix {
+  display: grid;
+  gap: 4px;
+  padding: 8px 4px 4px;
+  position: relative;
+}
+.deck-scan-diff {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.deck-scan-diff h3,
+.deck-scan-checks h3 {
+  margin: 0 0 4px;
+}
+.deck-scan-plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.deck-scan-plain li {
+  padding: 2px 0;
+}
+.deck-scan-checks {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.deck-scan-checks p {
+  margin: 0 0 4px;
+}
+.deck-scan-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.deck-scan-choice input {
+  margin-top: 4px;
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+/* On the page the name suggestions open downward (over the camera they open upward). */
+.deck-scan-start .scan-name-list,
+.deck-scan-fix .scan-name-list {
+  top: calc(100% + 4px);
+  bottom: auto;
+}
+.deck-scan-fix > button {
+  justify-self: start;
+}

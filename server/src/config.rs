@@ -25,6 +25,9 @@ pub struct Config {
     /// Check each saved deck version with Commander Spellbook in the background (bracket
     /// estimate, flagged cards, combos). On unless `YAMA_DECK_CHECKS=0`; sends deck lists there.
     pub deck_checks: bool,
+    /// The Mythic Tools bridge (`bridges/mythic`): import games from Mythic Tools. Off unless
+    /// `YAMA_MYTHIC_BRIDGE=1`; Mythic's API is private and can change, and the bridge may go.
+    pub mythic_bridge: bool,
     /// The rules engine's card data (phase card-data.json). Online play is off without it.
     pub engine_card_data: Option<PathBuf>,
     /// Cloudflare Access team name (`<team>.cloudflareaccess.com`) and application audience
@@ -41,6 +44,10 @@ pub struct Config {
     /// Password sign-in for accounts given a password with `yama-server user add`. On unless
     /// YAMA_PASSWORD_LOGIN=0. Nothing ever makes a password account except that command.
     pub password_login: bool,
+    /// The life counter for people who haven't signed in (2026-11-01): card search for their
+    /// commanders, per address (`/api/guest/cards/search`). On unless YAMA_GUEST_MODE=0, which is
+    /// the switch to turn it off if it's abused; their phones then keep counting with typed names.
+    pub guest_mode: bool,
     /// Peers whose `CF-Connecting-IP` header is believed (YAMA_TRUSTED_PROXIES: addresses or
     /// CIDR ranges, comma-separated). Set it to the Cloudflare tunnel connector's Docker network;
     /// without it, per-address limits count the connector's address (see `limits.rs`).
@@ -296,6 +303,7 @@ impl Config {
             cors_origins: list("YAMA_CORS_ORIGINS"),
             auto_import: flag("YAMA_AUTO_IMPORT"),
             deck_checks: !off("YAMA_DECK_CHECKS"),
+            mythic_bridge: flag("YAMA_MYTHIC_BRIDGE"),
             engine_card_data: Some(engine_card_data),
             cf_access_team: std::env::var("YAMA_CF_ACCESS_TEAM").ok().filter(|s| !s.is_empty()),
             cf_access_aud: std::env::var("YAMA_CF_ACCESS_AUD").ok().filter(|s| !s.is_empty()),
@@ -305,6 +313,7 @@ impl Config {
             },
             open_signup: flag("YAMA_OPEN_SIGNUP"),
             password_login: !off("YAMA_PASSWORD_LOGIN"),
+            guest_mode: !off("YAMA_GUEST_MODE"),
             trusted_proxies,
             lab_quota,
             advisor,

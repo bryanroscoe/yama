@@ -707,3 +707,8 @@
     display: none;
   }
 }
+/* Signed out: what an account adds to a card, in place of ownership and prices. */
+.cp .cp-signin {
+  margin: 0;
+  color: var(--dim);
+}

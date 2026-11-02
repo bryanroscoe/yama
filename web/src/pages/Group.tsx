@@ -12,6 +12,7 @@ import "./group.css";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { SharingSettings } from "../decks/SharingSettings";
+import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -44,6 +45,7 @@ export function GroupPage() {
         <Account />
       </div>
       <ExportGames group={group} />
+      <MythicImportEntry />
       <GroupActions />
     </main>
   );
@@ -255,7 +257,8 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                               <b>{c.commander}</b>
                               <span>
                                 {who}
-                                <span className="grp-narrow">{who ? ", " : ""}{c.games} {c.games === 1 ? "game" : "games"}</span>
+                                {/* The count stays together: "7" and "games" split across lines. */}
+                                <span className="grp-narrow">{who ? ", " : ""}<span style={{ whiteSpace: "nowrap" }}>{c.games} {c.games === 1 ? "game" : "games"}</span></span>
                               </span>
                             </span>
                           </span>
@@ -358,15 +361,16 @@ function ExportGames({ group }: { group?: Playgroup }) {
         <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
         <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
       </Details>
-      {group && (
-        <div className="row">
-          <span style={{ minWidth: "9rem" }}>{group.name}</span>
-          <a className="button" href={link("json", group.id)} download>JSON</a>
-          <a className="button" href={link("csv", group.id)} download>CSV</a>
-        </div>
-      )}
-      <div className="row">
-        <span style={{ minWidth: "9rem" }}>Every game you played or recorded</span>
+      {/* One grid for both rows, so the JSON and CSV buttons line up in columns. */}
+      <div className="grp-export">
+        {group && (
+          <>
+            <span>{group.name}</span>
+            <a className="button" href={link("json", group.id)} download>JSON</a>
+            <a className="button" href={link("csv", group.id)} download>CSV</a>
+          </>
+        )}
+        <span>Every game you played or recorded</span>
         <a className="button" href={link("json")} download>JSON</a>
         <a className="button" href={link("csv")} download>CSV</a>
       </div>
@@ -414,7 +418,7 @@ function Account() {
         <OfflineCardsSetting />
         {!me.data?.viewing && <SharingSettings />}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
-        {!me.data?.viewing && <AdvisorSettings />}
+        {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
         {me.data?.is_admin && (
           <div className="grp-you-row">
             <span className="grp-you-text">

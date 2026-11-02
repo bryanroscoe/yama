@@ -506,7 +506,7 @@ pub fn solo_verdict(stats: &ListStats, pod: usize, is_final: bool) -> Verdict {
 
 // ── head to head (mode "versus") ─────────────────────────────────────────────
 
-pub const TOURNAMENT_METHOD: &str = "A shared tournament field plays balanced randomized four-player pods. Each quartet rotates through every seat with fresh seeds. Every participant is scored, including benchmark precons. Win rates use only the games that deck played and carry Wilson 90% intervals. Head-to-head rates use only shared scored games, excluding tied finishes. Equal appearances reduce opponent-selection imbalance but do not guarantee identical opponents or remove AI/card-support bias. Small samples and overlapping intervals do not establish a power ranking. Timeouts, crashes and errors are unscored; turn/action caps are scored with no winner.";
+pub const TOURNAMENT_METHOD: &str = "A shared tournament field plays balanced randomized four-player pods. Each quartet rotates through every seat with fresh seeds. Every participant is scored, including benchmark precons. Win rates use only the games that deck played and carry Wilson 90% intervals. Head-to-head rates use only shared scored games, excluding tied finishes. Equal appearances reduce opponent-selection imbalance but do not guarantee identical opponents or remove AI/card-support bias. Small samples and overlapping intervals do not establish a power ranking. Timeouts, crashes and errors are unscored; turn/action caps are scored with no winner. Strength is fitted to who won each pod given who sat in it (multiplayer Bradley–Terry): 1 is the field's geometric mean, a strength-2 deck is twice as likely as a strength-1 deck to win a pod they share, and it accounts for uneven tables that raw win rates don't. Its 90% interval comes from the fit's curvature and treats games as independent.";
 
 pub const VERSUS_METHOD: &str = "Each of your decks plays the others directly, every deck rotated through every seat so \
 going first evens out. Win share: the games each deck won, with a Wilson 90% interval; in a pod of four a deck with no \
@@ -514,7 +514,10 @@ edge wins about one in four (one in two in 1v1). Head to head: of the games two 
 ahead of the other (ties left out). With two decks, the verdict goes by that head-to-head share and its Wilson 90% \
 interval: a deck is ahead only when the interval is clear of 50% by a whole point. Precons filling empty seats count as \
 opponents, not as entrants. Games that ran out of CPU time, crashed or failed aren't scored; games that reached the turn \
-or action cap count as games nobody won.";
+or action cap count as games nobody won. With three or more decks, strength is fitted to who won each pod given who \
+sat in it (multiplayer Bradley–Terry): 1 is the field's geometric mean, and a deck of strength 2 is twice as likely as a \
+strength-1 deck to win a pod they share. It accounts for uneven tables, which raw win shares don't. Its 90% interval comes \
+from the fit's curvature; pods with a precon filling a seat or with no winner aren't used.";
 
 /// One deck in a head-to-head experiment.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -529,6 +532,9 @@ pub struct Entrant {
     pub avg_place: Option<f64>,
     /// Games it went first in (seat 0), scored or not.
     pub first: u32,
+    /// Fitted strength in the shared field (lab/strength.rs): pods of entrants only, with a winner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<super::strength::Strength>,
 }
 
 /// Two entrants who sat in the same scored games.
@@ -577,6 +583,7 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
         }
     }
     let mut place_sum = vec![0.0f64; n];
+    let mut pods: Vec<super::strength::Pod> = Vec::new();
     let mut turns = Vec::new();
     let mut builds: Vec<BuildGames> = Vec::new();
     let mut unscored = Unscored::default();
@@ -646,6 +653,12 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
             }
         }
         let present: Vec<usize> = place.iter().enumerate().filter_map(|(i, p)| p.map(|_| i)).collect();
+        // Only pods whose every seat is an entrant, won by one of them, inform the fitted strength.
+        if r.end == End::Win && winner_is_entrant && present.len() == spec.decks.len() {
+            if let Some(w) = seats.iter().position(|s| *s == r.winner) {
+                pods.push(super::strength::Pod { decks: present.clone(), winner: w });
+            }
+        }
         for (at, &a) in present.iter().enumerate() { for &b in &present[at + 1..] {
             let index = a * (2 * n - a - 1) / 2 + b - a - 1;
             let m = &mut meetings[index];
@@ -661,6 +674,12 @@ pub fn summarize_versus(rows: &[(String, Option<String>)], entrants: &[(String, 
             e.win_rate = Some(f64::from(e.wins) / f64::from(e.games));
             e.wilson = wilson(e.wins, e.games);
             e.avg_place = Some(place_sum[i] / f64::from(e.games));
+        }
+    }
+    // A fitted strength needs a field: three or more decks.
+    if n >= 3 {
+        for (e, f) in v.entrants.iter_mut().zip(super::strength::fit(n, &pods)) {
+            e.strength = f;
         }
     }
     for m in meetings.iter_mut() {
@@ -717,12 +736,16 @@ pub fn versus_verdict(v: &Versus, is_final: bool) -> Verdict {
     }
     let best = scored.iter().max_by(|x, y| x.win_rate.partial_cmp(&y.win_rate).unwrap_or(std::cmp::Ordering::Equal)).expect("non-empty");
     let lo = best.wilson.map(|w| pct(w[0])).unwrap_or(0);
-    let clear = scored.iter().filter(|e| e.id != best.id).all(|e| e.wilson.is_some_and(|w| pct(w[1]) < lo));
+    let close = scored.iter().filter(|e| e.id != best.id).filter(|e| !e.wilson.is_some_and(|w| pct(w[1]) < lo)).count();
     let detail = format!("wins {}%, {level} interval {} to {}%", pct(best.win_rate.unwrap_or(0.0)), lo, best.wilson.map(|w| pct(w[1])).unwrap_or(0));
-    if clear {
-        Verdict { kind: VerdictKind::Better, text: format!("{} wins most often, clear of the others ({detail})", best.label), is_final }
+    if close == 0 {
+        let others = scored.len() - 1;
+        Verdict { kind: VerdictKind::Better, text: format!("{} wins most often, clear of the other {others} ({detail})", best.label), is_final }
     } else {
-        unclear(format!("{} wins most often so far, but the others are within the margin ({detail})", best.label))
+        // Say how many decks are within reach: "the others" means little in a field of 174.
+        let yet = if is_final { "" } else { " yet" };
+        let others = if close == 1 { "1 other deck is".to_string() } else { format!("{close} other decks are") };
+        unclear(format!("No clear winner{yet}: {} wins most often ({detail}), but {others} within the margin", best.label))
     }
 }
 
@@ -1120,5 +1143,30 @@ mod tests {
         let slightly = summarize(&pods(10, 12, 4, 74), true);
         assert_eq!(slightly.verdict.kind, VerdictKind::Better, "{}", slightly.verdict.text);
         assert_eq!(agreement(false, false, &slightly, &unclear).kind, AgreementKind::Unclear);
+    }
+
+    #[test]
+    fn a_field_verdict_counts_the_decks_within_reach_of_the_leader() {
+        let e = |id: &str, rate: f64, w: [f64; 2]| Entrant {
+            id: id.into(),
+            label: id.to_uppercase(),
+            games: 100,
+            wins: 0,
+            win_rate: Some(rate),
+            wilson: Some(w),
+            avg_place: None,
+            first: 0,
+            strength: None,
+        };
+        let field = |entrants| Versus { pod: 4, games: 100, pending: 0, entrants, meetings: vec![], filler_wins: 0, avg_turns: None };
+        let close = field(vec![e("a", 0.65, [0.60, 0.71]), e("b", 0.62, [0.56, 0.67]), e("c", 0.61, [0.55, 0.66]), e("d", 0.2, [0.15, 0.25])]);
+        let v = versus_verdict(&close, true);
+        assert_eq!(v.kind, VerdictKind::Unclear);
+        assert_eq!(v.text, "No clear winner: A wins most often (wins 65%, 90% interval 60 to 71%), but 2 other decks are within the margin");
+        assert!(versus_verdict(&close, false).text.starts_with("No clear winner yet: "));
+        let clear = field(vec![e("a", 0.6, [0.5, 0.7]), e("b", 0.2, [0.1, 0.3]), e("c", 0.2, [0.1, 0.3])]);
+        let v = versus_verdict(&clear, true);
+        assert_eq!(v.kind, VerdictKind::Better);
+        assert_eq!(v.text, "A wins most often, clear of the other 2 (wins 60%, 90% interval 50 to 70%)");
     }
 }

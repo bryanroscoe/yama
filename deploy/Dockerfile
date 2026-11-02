@@ -11,7 +11,9 @@ COPY web/package.json web/
 RUN npm ci --no-audit --no-fund
 COPY packages packages
 COPY web web
-RUN npm run build -w web
+# Shared tables meet on Yama's Cloudflare relay (relay/README.md), so they work while saget is down.
+ARG VITE_RELAY_URL=wss://relay.yama.ing
+RUN VITE_RELAY_URL="$VITE_RELAY_URL" npm run build -w web
 
 FROM rust:1-bookworm AS server
 WORKDIR /src/yama
@@ -24,16 +26,22 @@ COPY play play
 # The MCP format resource is embedded by the server at compile time.
 COPY docs/research-format.md docs/research-format.md
 # The public Rust renderer embeds these shared web inputs at compile time.
-COPY web/src/styles.css web/src/styles.css
+COPY web/src/styles.css web/src/controls.css web/src/art-framing.css web/src/
 COPY web/public/precons.css web/public/site-notice.html web/public/
 # The commit this image is built from (the build context has no .git); server/build.rs stamps it.
 ARG YAMA_GIT_SHA=
 ARG YAMA_GIT_DIRTY=
-ARG CARGO_BUILD_JOBS=4
+# The target cache is shared by every build on this host, including other branches'. Cargo
+# judges path crates fresh by file timestamps, so a source this tree shares with an older or
+# other-branch build can look already compiled and its stale artifact (or build script) ships.
+# Touch this tree's Yama and Phase sources so they always compile from what was copied in;
+# crates.io dependencies stay cached. The cache is locked: one build writes it at a time.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/yama/target \
+    --mount=type=cache,target=/src/yama/target,sharing=locked \
+    find /src/yama-phase/crates server play \( -name '*.rs' -o -name Cargo.toml \) -exec touch {} + \
+ && YAMA_GIT_SHA=$YAMA_GIT_SHA YAMA_GIT_DIRTY=$YAMA_GIT_DIRTY \
     YAMA_LAB_GIT_SHA=$YAMA_GIT_SHA YAMA_LAB_GIT_DIRTY=$YAMA_GIT_DIRTY \
-    CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS cargo build --release -p yama-server \
+    CARGO_BUILD_JOBS=4 cargo build --release -p yama-server \
  && cp target/release/yama-server /usr/local/bin/yama-server
 
 FROM debian:bookworm-slim

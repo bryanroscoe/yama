@@ -11,7 +11,7 @@ import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText } from "../components/ui";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
-import { useMe } from "../auth";
+import { useMe, usePower } from "../auth";
 import type { OnlineGame, SeatInfo, ServerMessage } from "./types";
 import "./play.css";
 
@@ -56,6 +56,7 @@ function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } 
 }
 
 export function PlayHome() {
+  const power = usePower();
   const games = useQuery({ queryKey: ["play"], queryFn: () => api<OnlineGame[]>("/api/play"), refetchInterval: 5000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
@@ -74,7 +75,7 @@ export function PlayHome() {
         {status.data?.enabled && <NewGame decks={decks.data ?? []} />}
         <div className="ph-side">
           {status.data?.enabled && <JoinGame decks={decks.data ?? []} />}
-          {status.data?.enabled && (
+          {status.data?.enabled && power && (
             <section className="ph-watch" aria-labelledby="ph-watch-h">
               <h2 id="ph-watch-h">Watch AIs play</h2>
               <p className="dim">Watch your decks or precons play at your pace.</p>
@@ -131,10 +132,12 @@ function ContinueHero({ game }: { game: OnlineGame }) {
       : v.active === game.you
         ? `Your turn ${v.turn}`
         : `${active?.ai ? "The computer" : active?.name ?? "Someone"}'s move, turn ${v.turn}`;
+  // One tile per distinct commander: the same art repeated across seats looked like a tiling bug.
+  const tiles = seats.filter((s, i) => !s.commander_art || seats.findIndex((o) => o.commander_art === s.commander_art) === i);
   return (
-    <Link to={`/play/${game.id}`} className="ph-hero" aria-label={`Continue your game: ${headline}`} data-n={seats.length}>
+    <Link to={`/play/${game.id}`} className="ph-hero" aria-label={`Continue your game: ${headline}`} data-n={tiles.length}>
       <span className="ph-hero-art" aria-hidden="true">
-        {seats.map((s) => (s.commander_art ? <img key={s.seat} src={s.commander_art} alt="" /> : <span key={s.seat} className="ph-hero-blank" />))}
+        {tiles.map((s) => (s.commander_art ? <img key={s.seat} src={s.commander_art} alt="" /> : <span key={s.seat} className="ph-hero-blank" />))}
       </span>
       <span className="ph-hero-wash" aria-hidden="true" />
       <span className="ph-hero-text">

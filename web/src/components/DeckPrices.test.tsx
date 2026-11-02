@@ -29,7 +29,7 @@ describe("deck market prices", () => {
     const html = renderToStaticMarkup(<OwnershipValue o={{ cards: 100, owned: 79, proxies: 10, needed: 11, needed_cost_usd: 286.4, needed_without_price: 1, owned_value_usd: 71.07, owned_without_price: 0, proxy_value_usd: 2004.5, proxies_without_price: 0 }} />);
     expect(html).toContain("Real cards you own");
     expect(html).toContain("$71.07");
-    expect(html).toContain("$2004.50");
+    expect(html).toContain("$2,004.50");
     expect(html).toContain("to replace 10 copies with real cards");
     expect(html).toContain("$286.40");
     expect(html).toContain("11 copies, basics excluded, 1 without a price");

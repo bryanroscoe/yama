@@ -165,3 +165,18 @@ This is the signature pattern. Use it for life-counter panels, deck headers, dec
 | `--radius: 6px` | see the radii above (pills for buttons) |
 
 Also update `web/public/manifest.webmanifest` so its theme and background colors are `#0b0c0e`.
+
+### Wide artwork and detailed evidence
+
+Page headers preserve the whole art composition with `object-fit: contain`, in a right-aligned
+window capped at 626 px. This applies to public precons/shared decks and private deck, Lab,
+planner and sample-hand headers through `art-framing.css`. Do not enlarge a cover crop until
+a character's face disappears. Compact cover-fitted tiles favour the top of the composition;
+explicit focal-position overrides are still available. Preserve artist credit and use a separate
+wash for legibility.
+
+Result panels lead with a short label, value, sample count and source date. Keep confidence and
+missing-data labels visible. Put interval explanations, rank ranges and limitations behind one
+named disclosure; retain the interval graphic. Upgradeability shows the grade and assessed
+coverage before package and commander disclosures. Evidence caveats stay with the evidence
+they qualify, inside the same disclosure.

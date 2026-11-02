@@ -668,7 +668,7 @@ impl LabWorker {
         if live.online() { live.cards.clone() } else { None }
     }
 
-    /// The online Forge worker's engine label ("forge 2.0.15").
+    /// The online Forge worker's engine label ("forge 2.0.16-745401a4+yama3.54567890").
     pub fn forge_engine(&self) -> Option<String> {
         let live = lock(&self.forge_live);
         if live.online() { live.status.as_ref().map(|s| s.engine.clone()) } else { None }
@@ -1085,8 +1085,10 @@ pub async fn store(pool: &SqlitePool, experiment: &str, game: &str, result: &Gam
 /// isn't valid JSON is never read as JSON (CASE evaluates in order; WHERE terms needn't) and is
 /// left alone: it is an unscored error from an unknown build. Forge games are never cleared: their
 /// build is the Forge worker's, and a "both" experiment's Forge half is a separate summary.
-const SPLIT_PODS: &str = "WITH b AS (
-        SELECT ord, result IS NULL AS pending, result IS NOT NULL AND json_valid(result) AS readable,
+// Materialize parsed rows once and expose the pod key so SQLite can index the pair join.
+// Inlining both CTE references makes a large startup scan quadratic under the writer lock.
+const SPLIT_PODS: &str = "WITH b AS MATERIALIZED (
+        SELECT ord, ord / 2 AS pod, result IS NULL AS pending, result IS NOT NULL AND json_valid(result) AS readable,
                CASE WHEN json_valid(result) THEN json_extract(result, '$.engine') END AS engine,
                CASE WHEN json_valid(result) THEN json_extract(result, '$.card_data') END AS card_data,
                CASE WHEN json_valid(result) THEN json_extract(result, '$.runner') END AS runner
@@ -1098,7 +1100,7 @@ const SPLIT_PODS: &str = "WITH b AS (
       AND NOT EXISTS (SELECT 1 FROM lab_execution_runs r WHERE r.experiment_id=lab_experiment_games.experiment_id AND r.comparison=0)
       AND EXISTS (SELECT 1 FROM lab_experiments e WHERE e.id = lab_experiment_games.experiment_id AND e.status IN ('queued','running'))
       AND ord IN (
-        SELECT x.ord FROM b x JOIN b p ON p.ord / 2 = x.ord / 2 AND p.ord != x.ord
+        SELECT x.ord FROM b x JOIN b p ON p.pod = x.pod AND p.ord != x.ord
         WHERE x.readable AND (x.engine IS NOT ? OR x.card_data IS NOT ? OR x.runner IS NOT ?)
           AND (p.pending OR (p.readable AND (p.engine IS NOT x.engine OR p.card_data IS NOT x.card_data OR p.runner IS NOT x.runner)))
       )";

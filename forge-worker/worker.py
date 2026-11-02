@@ -1,8 +1,10 @@
 """Yama's Forge worker: plays Lab games on Forge for the Yama server (server/src/lab/forge.rs).
 
-Forge (https://github.com/Card-Forge/forge, GPL-3.0) runs as a separate program, one JVM per game, exactly as
-the deck lab's batch runner runs it (forge_runner.py beside this file, a copy of commander-decks
-scripts/sim/forge_runner.py; keep the two in step). No Forge code is in Yama. This worker is only an HTTP front
+Forge (https://github.com/Card-Forge/forge, GPL-3.0) runs as separate programs. With a Forge build that has
+yama-serve.jar (Yama's builds from yama3 on), each slot keeps one long-lived JVM that plays its games one after
+another (forge_serve.py); otherwise every game gets its own JVM, exactly as the deck lab's batch runner runs it
+(forge_runner.py beside this file, a copy of commander-decks scripts/sim/forge_runner.py; keep the two in step).
+Both read Forge's output with the same parser. No Forge code is in Yama. This worker is only an HTTP front
 for that runner, on a private Docker network that only the yama container shares, behind a shared secret.
 
   GET  /health   "ok" (no secret: the container health check)
@@ -17,13 +19,15 @@ game twice.
 
 Settings (environment): FORGE_SECRET (required, 32+ characters), FORGE_DIR, FORGE_JAVA, FORGE_SLOTS (games at
 once, default 2), FORGE_XMX (JVM heap, default 1536m), FORGE_JVM_CPUS (default 2), FORGE_PORT (default 8791),
-FORGE_WORK (writable scratch, default /work), FORGE_INDEX (where the card index is kept, default the runner's).
+FORGE_WORK (writable scratch, default /work), FORGE_INDEX (where the card index is kept, default the runner's),
+FORGE_SERVE (0: one JVM per game even when the build has yama-serve.jar).
 """
 import hashlib
 import hmac
 import json
 import os
 import re
+import queue
 import shutil
 import sys
 import threading
@@ -34,6 +38,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import forge_runner as F  # noqa: E402
+import forge_serve as S  # noqa: E402
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_NAMES = 5_000
@@ -46,7 +51,7 @@ def worker_label():
     """The runner stamp on every result: this worker's and the runner's source, hashed."""
     here = Path(__file__).resolve().parent
     h = hashlib.sha256()
-    for name in ("worker.py", "forge_runner.py", "common.py"):
+    for name in ("worker.py", "forge_runner.py", "forge_serve.py", "common.py"):
         h.update((here / name).read_bytes())
     sha = os.environ.get("FORGE_WORKER_GIT_SHA", "").strip()
     return f"yama forge-worker {sha + '-' if sha else ''}{h.hexdigest()[:8]}"
@@ -66,9 +71,10 @@ class BadRequest(Exception):
 
 
 class Worker:
-    """Plays games with forge_runner's Runner, one JVM per game, at most `slots` at once."""
+    """Plays at most `slots` games at once: on long-lived JVMs (forge_serve) when the Forge build has
+    yama-serve.jar and `serve` is on, else with forge_runner's Runner, one JVM per game."""
 
-    def __init__(self, forge, names, slots=2, xmx="1536m", jvm_cpus=2):
+    def __init__(self, forge, names, slots=2, xmx="1536m", jvm_cpus=2, serve=True):
         self.forge = forge
         self.names = names
         self.slots = slots
@@ -76,6 +82,14 @@ class Worker:
         self.jvm_cpus = jvm_cpus
         self.label = worker_label()
         self.sem = threading.BoundedSemaphore(slots)
+        jar = S.serve_jar(forge) if serve else None
+        self.jvms = None
+        if jar is not None:
+            self.jvms = queue.SimpleQueue()
+            for n in range(slots):
+                self.jvms.put(S.ServeJvm(forge, jar, n, xmx=xmx, jvm_cpus=jvm_cpus))
+        else:  # games may play differently from long-lived JVMs (warm JIT, AI time-outs): never pool the two
+            self.label += " one-jvm-per-game"
         self.lock = threading.Lock()
         self.playing = {}  # key -> threading.Event
         self.answers = OrderedDict()  # key -> result, newest last
@@ -182,16 +196,12 @@ class Worker:
             if problems:
                 res["error"] = f"{F.DECK_ERRORS} " + " | ".join(problems)
                 return self._shape(res)
-            args = SimpleNamespace(threads=1, profile=profile, xmx=self.xmx, jvm_cpus=self.jvm_cpus, max_seconds=None,
-                                   keep_logs="none", keep_work=False, logs_dir=None)
             with self.sem:
                 with self.lock:
                     self.running += 1
-                runner = F.Runner(args, self.forge, by_id, self.label)
                 try:
-                    played, _stats = runner.play(job)
+                    played = self._run(job, by_id, profile)
                 finally:
-                    runner.cleanup()
                     with self.lock:
                         self.running -= 1
             played["actions"] = 0
@@ -199,6 +209,38 @@ class Worker:
             return self._shape(played)
         finally:
             shutil.rmtree(Path(F.DECK_CACHE) / folder, ignore_errors=True)
+
+    def _run(self, job, by_id, profile):
+        if self.jvms is not None:
+            jvm = self.jvms.get()
+            try:
+                return S.play(jvm, job, self.forge, by_id, self.label, profile)
+            finally:
+                self.jvms.put(jvm)
+        args = SimpleNamespace(threads=1, profile=profile, xmx=self.xmx, jvm_cpus=self.jvm_cpus, max_seconds=None,
+                               keep_logs="none", keep_work=False, logs_dir=None)
+        runner = F.Runner(args, self.forge, by_id, self.label)
+        try:
+            return runner.play(job)[0]
+        finally:
+            runner.cleanup()
+
+    def warm(self):
+        """Start every long-lived JVM now (in the background), so the first games don't wait for Forge to load."""
+        if self.jvms is None:
+            return
+        def start(jvm):
+            try:
+                if not jvm.alive:
+                    jvm.start()
+            except Exception as e:  # the game that gets this JVM starts it again and reports the failure
+                print(f"forge-worker: JVM {jvm.n} didn't start: {e}", file=sys.stderr)
+                jvm.stop()
+            finally:
+                self.jvms.put(jvm)
+        for _ in range(self.slots):
+            jvm = self.jvms.get()
+            threading.Thread(target=start, args=(jvm,), daemon=True).start()
 
     @staticmethod
     def _shape(res):
@@ -289,11 +331,14 @@ def main():
         print(f"forge-worker: warning: Java {major}; Forge's AI time-outs need Java 17 (see forge_runner.py)", file=sys.stderr)
     names = F.card_index(forge)
     worker = Worker(forge, names, slots=int(os.environ.get("FORGE_SLOTS", "2")), xmx=os.environ.get("FORGE_XMX", "1536m"),
-                    jvm_cpus=int(os.environ.get("FORGE_JVM_CPUS", "2")))
+                    jvm_cpus=int(os.environ.get("FORGE_JVM_CPUS", "2")), serve=os.environ.get("FORGE_SERVE", "1") != "0")
+    worker.warm()
     port = int(os.environ.get("FORGE_PORT", "8791"))
     server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(worker, secret))
     server.daemon_threads = True
-    print(f"forge-worker: {forge.engine}, {len(names)} card names, {worker.slots} slots, listening on {port}", file=sys.stderr)
+    mode = "long-lived JVMs" if worker.jvms is not None else "one JVM per game"
+    print(f"forge-worker: {forge.engine}, {len(names)} card names, {worker.slots} slots ({mode}), listening on {port}",
+          file=sys.stderr)
     server.serve_forever()
 
 

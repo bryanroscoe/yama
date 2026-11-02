@@ -725,6 +725,31 @@ async fn unknown_names_and_printings_are_kept_and_reported() {
 }
 
 #[tokio::test]
+async fn a_bracket_box_and_extras_reach_the_pages_and_are_optional() {
+    let (app, _pool, _owner, token) = setup().await;
+    // Without them (the fixture has neither), the bracket comes back as it was sent.
+    import(&app, &token, &doc()).await;
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["bracket"]["target"], 3);
+    assert!(alpha["bracket"].get("box").is_none() && alpha["bracket"].get("extras").is_none());
+
+    let mut d = doc();
+    d["plan"]["decks"][0]["bracket"]["box"] = json!(2);
+    d["plan"]["decks"][0]["bracket"]["extras"] = json!(["Sol Ring", "Extra Future Card"]);
+    let r = import(&app, &token, &d).await;
+    let unknown = r["unknown_cards"].as_array().unwrap();
+    let extra = unknown.iter().find(|u| u["name"] == "Extra Future Card").expect("an unknown extra is reported");
+    assert!(extra["where"].as_array().unwrap().iter().any(|w| w == "Alpha Deck: Bracket 4 extras"), "{extra}");
+    let b = bundle(&app, &token).await;
+    let alpha = find(&b["decks"], "key", "alpha");
+    assert_eq!(alpha["bracket"]["box"], 2);
+    assert_eq!(alpha["bracket"]["extras"], json!(["Sol Ring", "Extra Future Card"]));
+    assert_eq!(b["names"]["Sol Ring"], "o-sol");
+    assert!(b["unresolved"].as_array().unwrap().iter().any(|n| n == "Extra Future Card"), "extras are resolved like other plan names");
+}
+
+#[tokio::test]
 async fn a_card_added_later_resolves_without_a_new_import() {
     let (app, pool, owner, token) = setup().await;
     import(&app, &token, &doc()).await;
@@ -831,6 +856,10 @@ async fn bad_documents_get_400_naming_the_json_path() {
         ("plan.decks[0].states.later:", Box::new(|d| d["plan"]["decks"][0]["states"]["later"] = json!({"cards": []}))),
         ("plan.decks[0].states.now.cards[2].qty: invalid type", Box::new(|d| d["plan"]["decks"][0]["states"]["now"]["cards"][2]["qty"] = json!("one"))),
         ("plan.decks[1].key: \"alpha\" appears twice", Box::new(|d| d["plan"]["decks"][1]["key"] = json!("alpha"))),
+        ("plan.decks[0].bracket.box: must be a bracket", Box::new(|d| d["plan"]["decks"][0]["bracket"]["box"] = json!(6))),
+        ("plan.decks[0].bracket.box: must be a bracket", Box::new(|d| d["plan"]["decks"][0]["bracket"]["box"] = json!("2"))),
+        ("plan.decks[0].bracket.extras: must be a list", Box::new(|d| d["plan"]["decks"][0]["bracket"]["extras"] = json!("Sol Ring"))),
+        ("plan.decks[0].bracket.extras[1]: must be a card name", Box::new(|d| d["plan"]["decks"][0]["bracket"]["extras"] = json!(["Sol Ring", " "]))),
         ("plan.reviews[\"alpha-idea\"].at:", Box::new(|d| d["plan"]["reviews"] = json!({"alpha-idea": {"decision": "want", "at": "2026-10-19 01:00"}}))),
         ("plan.reviews[\"alpha-idea\"].decision:", Box::new(|d| d["plan"]["reviews"] = json!({"alpha-idea": {"decision": "maybe", "at": "2026-10-19T01:00:00Z"}}))),
     ];
@@ -1188,4 +1217,379 @@ async fn the_cli_uses_the_same_import() {
     std::fs::write(&path, "{\"format\": \"other\"}").unwrap();
     let err = import::import_file(&pool, &path, "bryan@example.com", false, false).await.unwrap_err();
     assert!(err.to_string().starts_with("format:"), "{err}");
+}
+
+// ── installed state from the deck, and Review order (2026-10-28) ───────────
+
+fn card(oracle_id: &str, name: &str, qty: i64, board: crate::decks::Board) -> crate::decks::DeckCard {
+    crate::decks::DeckCard { oracle_id: oracle_id.into(), name: name.into(), qty, board }
+}
+
+/// Alpha Deck's list with `third` and `fourth` in its two swap slots.
+fn alpha_deck(third: (&str, &str), fourth: (&str, &str)) -> Vec<crate::decks::DeckCard> {
+    use crate::decks::Board::{Commander, Main};
+    vec![
+        card("o-cmd", "Test Commander", 1, Commander),
+        card("o-sol", "Sol Ring", 1, Main),
+        card(third.0, third.1, 1, Main),
+        card(fourth.0, fourth.1, 1, Main),
+        card("o-forest", "Forest", 96, Main),
+    ]
+}
+
+fn swap_of<'a>(b: &'a Value, key: &str) -> &'a Value {
+    find(&b["swaps"], "key", key)
+}
+
+#[tokio::test]
+async fn installed_is_read_from_the_decks_current_list() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let print = "plan|Alpha Deck|Print Card|Old Card";
+    let bought = "plan|Alpha Deck|Bought Card|Cut Card";
+    let stand = "standin|Alpha Deck|Stand Card";
+
+    // No Yama deck yet: nothing is derived, so the ticks and the plan's record still decide.
+    let b = bundle(&app, &token).await;
+    assert!(swap_of(&b, bought)["deck_installed"].is_null());
+    assert!(find(&b["decks"], "key", "alpha")["yama_deck"].is_null());
+
+    // A main deck with the plan deck's name holding the "now" list: the bought swap and the
+    // stand-in are in, the print isn't. Proposals are never judged.
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-stand", "Stand Card"), ("o-bought", "Bought Card"))).await.unwrap();
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, bought)["deck_installed"], true);
+    assert_eq!(swap_of(&b, stand)["deck_installed"], true);
+    assert_eq!(swap_of(&b, print)["deck_installed"], false);
+    assert!(swap_of(&b, "alpha-idea")["deck_installed"].is_null());
+    let yd = &find(&b["decks"], "key", "alpha")["yama_deck"];
+    assert_eq!(yd["id"], main.as_str());
+    assert_eq!(yd["linked"], false);
+
+    // A stock configuration, linked to the plan: the plan still reads the main deck, the list in the box.
+    let (status, made) = send(&app, Method::POST, &format!("/api/decks/{main}/configurations"), Some(&token), Some(json!({"configuration": "stock", "op_id": "cfg-1"}))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let stock = made["id"].as_str().unwrap().to_string();
+    crate::decks::insert_version(&pool, &stock, &alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card")), Some("stock")).await.unwrap();
+    let (status, _) = send(&app, Method::PATCH, "/api/plan/decks/alpha", Some(&token), Some(json!({"deck_id": stock}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let b = bundle(&app, &token).await;
+    let yd = &find(&b["decks"], "key", "alpha")["yama_deck"];
+    assert_eq!(yd["id"], main.as_str());
+    assert_eq!(yd["linked"], true);
+    assert_eq!(swap_of(&b, bought)["deck_installed"], true);
+
+    // Putting the stock list in the main deck takes every swap out, and the bundle key moves.
+    let rev_before = b["rev"].clone();
+    let (status, used) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-1"}))).await;
+    assert_eq!(status, StatusCode::OK, "{used}");
+    assert_eq!(used["changed"], true);
+    let b = bundle(&app, &token).await;
+    assert_ne!(b["rev"], rev_before);
+    for k in [print, bought, stand] {
+        assert_eq!(swap_of(&b, k)["deck_installed"], false, "{k}");
+    }
+    let note: Option<String> = sqlx::query_scalar("SELECT v.note FROM decks d JOIN deck_versions v ON v.id = d.current_version_id WHERE d.id = ?")
+        .bind(&main)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(note.as_deref(), Some("Switched to stock"));
+
+    // A retry saves nothing new; the same list again saves nothing either.
+    let n = count_versions(&pool, &main).await;
+    let (_, again) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-1"}))).await;
+    assert_eq!(again, used);
+    // The same op_id for another list is refused rather than replayed.
+    let (status, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": "whatever", "op_id": "use-1"}))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, same) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": stock, "op_id": "use-2"}))).await;
+    assert_eq!(same["changed"], false);
+    assert_eq!(count_versions(&pool, &main).await, n);
+
+    // Restoring the first version (the "now" list) puts the swaps back.
+    let first: String = sqlx::query_scalar("SELECT id FROM deck_versions WHERE deck_id = ? ORDER BY created_at, rowid LIMIT 1").bind(&main).fetch_one(&pool).await.unwrap();
+    let (status, restored) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": first, "op_id": "use-3"}))).await;
+    assert_eq!(status, StatusCode::OK, "{restored}");
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, bought)["deck_installed"], true);
+
+    // MCP plan_deck says where installed state comes from, and reads it from the deck.
+    let text = crate::advisor::context::plan_deck(&pool, &owner, "alpha").await.unwrap();
+    assert!(text.contains("Installed state is read from their Yama deck \"Alpha Deck\""), "{text}");
+    assert!(text.contains("Bought Card replacing Cut Card [buy, T1, installed (in the deck's list)]"), "{text}");
+    assert!(text.contains("Print Card replacing Old Card [print, T1, not installed (not in the deck's list)]"), "{text}");
+
+    assert_eq!(swap_of(&b, stand)["deck_superseded"], false);
+
+    // The print goes in where the stand-in was: the stand-in is out, but done, not waiting.
+    crate::decks::insert_version(&pool, &main, &alpha_deck(("o-print", "Print Card"), ("o-bought", "Bought Card")), Some("prints")).await.unwrap();
+    let b = bundle(&app, &token).await;
+    assert_eq!(swap_of(&b, print)["deck_installed"], true);
+    assert_eq!(swap_of(&b, stand)["deck_installed"], false);
+    assert_eq!(swap_of(&b, stand)["deck_superseded"], true);
+}
+
+/// A scan of the physical deck saved as a new version (deck_scan.rs) moves installs only when it
+/// becomes the deck's list.
+#[tokio::test]
+async fn a_scanned_list_marks_installs_only_once_it_is_current() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let bought = "plan|Alpha Deck|Bought Card|Cut Card";
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], false);
+    let scan = json!([
+        {"name": "Test Commander", "qty": 1, "commander": true}, {"name": "Sol Ring", "qty": 1},
+        {"name": "Old Card", "qty": 1}, {"name": "Bought Card", "qty": 1}, {"name": "Forest", "qty": 96},
+    ]);
+    let based_on: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&main).fetch_one(&pool).await.unwrap();
+    let (status, saved) = send(&app, Method::POST, &format!("/api/decks/{main}/scan"), Some(&token), Some(json!({"op_id": "scan-a", "cards": scan, "make_current": false, "based_on": based_on}))).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], false);
+    let (status, saved) = send(&app, Method::POST, &format!("/api/decks/{main}/scan"), Some(&token), Some(json!({"op_id": "scan-b", "cards": scan, "make_current": true, "based_on": based_on}))).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(swap_of(&bundle(&app, &token).await, bought)["deck_installed"], true);
+}
+
+async fn count_versions(pool: &SqlitePool, deck: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM deck_versions WHERE deck_id = ?").bind(deck).fetch_one(pool).await.unwrap()
+}
+
+#[tokio::test]
+async fn using_a_list_stays_inside_the_owners_configuration_group() {
+    let (app, pool, owner, token) = setup().await;
+    let main = crate::decks::create_deck_with_cards(&pool, &owner, "Alpha Deck", None, alpha_deck(("o-old", "Old Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    let other = crate::decks::create_deck_with_cards(&pool, &owner, "Other Deck", None, alpha_deck(("o-stand", "Stand Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    let (stranger, stranger_token) = user(&pool, "someone@example.com").await;
+    let theirs = crate::decks::create_deck_with_cards(&pool, &stranger, "Theirs", None, alpha_deck(("o-stand", "Stand Card"), ("o-cut", "Cut Card"))).await.unwrap();
+    // A deck outside the group, someone else's deck, and someone else using mine: all refused.
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": other, "op_id": "a"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"from": theirs, "op_id": "b"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&stranger_token), Some(json!({"from": theirs, "op_id": "c"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let their_version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&theirs).fetch_one(&pool).await.unwrap();
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"version": their_version, "op_id": "d"}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/use"), Some(&token), Some(json!({"op_id": "e"}))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(count_versions(&pool, &main).await, 1);
+}
+
+#[tokio::test]
+async fn review_lists_unanswered_proposals_first_and_leaves_planned_swaps_out() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    // "alpha-idea" (Proposal Card) comes before "alpha-owned" (Spare Card) in plan order; answer it.
+    yama_answer(&pool, &owner, "alpha-idea", Some("want"), "2026-10-28T10:00:00Z").await;
+    let text = crate::advisor::context::review(&pool, &owner).await.unwrap();
+    assert!(text.contains("Want means an agent moves the swap into the plan"), "{text}");
+    assert!(text.contains("Alpha Deck: 1 waiting for an answer, 1 answered"), "{text}");
+    let open = text.find("- Spare Card").expect("unanswered proposal listed");
+    let answered = text.find("- Proposal Card").expect("answered proposal listed");
+    let heading = text.find("Already answered:").unwrap();
+    assert!(open < heading && heading < answered, "{text}");
+    // Planned swaps are in the plan already, so they aren't on the review list.
+    assert!(!text.contains("Bought Card"), "{text}");
+    // A note alone doesn't answer a proposal.
+    sqlx::query("UPDATE plan_reviews SET decision = NULL, note = 'thinking' WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).execute(&pool).await.unwrap();
+    let text = crate::advisor::context::review(&pool, &owner).await.unwrap();
+    assert!(text.contains("Alpha Deck: 2 waiting for an answer, 0 answered"), "{text}");
+    let deck = crate::advisor::context::plan_deck(&pool, &owner, "alpha").await.unwrap();
+    assert!(deck.contains("Proposed swaps waiting for their answer (2)"), "{deck}");
+}
+
+#[tokio::test]
+async fn old_lab_links_redirect_to_the_lab_section() {
+    let (app, _pool, _owner, _token) = setup().await;
+    for (from, to) in [("/decks/lab", "/lab"), ("/decks/lab/runs/abc", "/lab/runs/abc"), ("/decks/lab/try?deck=x%20y", "/lab/try?deck=x%20y")] {
+        let res = app.clone().oneshot(Request::builder().uri(from).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT, "{from}");
+        assert_eq!(res.headers()[header::LOCATION], to, "{from}");
+    }
+}
+
+// ── store preferences, the wishlist and the trip (docs/shopping-design.md) ──
+
+async fn set_pref(app: &Router, token: &str, store: &str, body: Value) -> (StatusCode, Value) {
+    send(app, Method::PUT, &format!("/api/plan/stores/{store}/preference"), Some(token), Some(body)).await
+}
+
+#[tokio::test]
+async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
+    let (app, pool, id, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    yama_answer(&pool, &id, "alpha-idea", Some("want"), "2026-10-19T10:00:00Z").await;
+    let before = bundle(&app, &token).await;
+    assert_eq!(before["store_prefs"], json!({}));
+    assert_eq!(before["wishlist"], json!([]));
+
+    // Only your own stores, and only the four preferences and sensible settings.
+    let (friend, friend_token) = user(&pool, "friend@example.com").await;
+    assert_eq!(set_pref(&app, &token, "nowhere", json!({"preference": "never"})).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(set_pref(&app, &friend_token, "shop", json!({"preference": "never"})).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "sometimes"})).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "ok", "hassle": 0})).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": "favorite", "premium_usd": 11})).await.0, StatusCode::BAD_REQUEST);
+    // The name before migration 0051 still means a favourite.
+    let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "default", "hassle": 2, "premium_usd": 0.25})).await;
+    assert_eq!((status, r["preference"].as_str()), (StatusCode::OK, Some("favorite")), "{r}");
+    assert_eq!(bundle(&app, &token).await["store_prefs"]["shop"]["premium_usd"], 0.25);
+    // The whole order at once: only your current stores (not a printer), each once.
+    let order = |keys: Value| {
+        let (app, token) = (app.clone(), token.clone());
+        async move { send(&app, Method::PUT, "/api/plan/store-order", Some(&token), Some(json!({"keys": keys}))).await }
+    };
+    assert_eq!(order(json!(["shop", "shop"])).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(order(json!(["printer"])).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::PUT, "/api/plan/store-order", Some(&friend_token), Some(json!({"keys": ["shop"]}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(order(json!(["shop"])).await.0, StatusCode::OK);
+    let b = bundle(&app, &token).await;
+    assert_eq!((b["store_prefs"]["shop"]["hassle"].as_i64(), b["store_prefs"]["shop"]["preference"].as_str()), (Some(1), Some("favorite")), "other settings stay");
+    let (status, r) = set_pref(&app, &token, "shop", json!({"preference": "never", "note": "  Too far  "})).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+
+    // A wishlist scenario in research; another kind of scenario isn't one.
+    let document = json!({"id": "audit", "scenarios": [
+        {"id": "wish", "purpose": "permanent_real_wishlist", "buys": [{"card": "Sol Ring", "reason": "Printed"}, {"card": "Unknown Future Card"}, {"card": "sol ring"}]},
+        {"id": "default", "buys": [{"card": "Red Card"}]}]});
+    for (owner, rid) in [(&id, "audit"), (&friend, "theirs")] {
+        sqlx::query("INSERT INTO research_reports (owner_id, id, title, content_hash, document, updated_at) VALUES (?, ?, 'Audit', 'h', ?, '2026-11-01T00:00:00Z')")
+            .bind(owner)
+            .bind(rid)
+            .bind(document.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let b = bundle(&app, &token).await;
+    assert_ne!(b["rev"], before["rev"], "a preference or research change refetches the bundle");
+    assert_eq!(b["store_prefs"]["shop"]["preference"], "never");
+    assert_eq!(b["store_prefs"]["shop"]["note"], "Too far");
+    let wish: Vec<&str> = b["wishlist"].as_array().unwrap().iter().map(|w| w["card"].as_str().unwrap()).collect();
+    assert_eq!(wish, ["Sol Ring", "Unknown Future Card"]);
+    assert_eq!(b["names"]["Sol Ring"], "o-sol");
+    assert!(b["unresolved"].as_array().unwrap().contains(&json!("Unknown Future Card")));
+    assert_eq!(bundle(&app, &friend_token).await["store_prefs"], json!({}), "preferences are per user");
+
+    // You won't go there, so the wanted card is left to print, and the store is named.
+    let t = super::trip::plan(&b, "2026-11-01", None);
+    assert!(t.stops.is_empty());
+    assert_eq!(t.print.len(), 1);
+    assert_eq!((t.print[0].want.card.as_str(), t.print[0].reason), ("Proposal Card", "never-store"));
+    assert_eq!(t.skipped.len(), 1);
+
+    // Cleared: fine to go again, and the trip goes there.
+    assert_eq!(set_pref(&app, &token, "shop", json!({"preference": null})).await.0, StatusCode::OK);
+    let b = bundle(&app, &token).await;
+    assert_eq!(b["store_prefs"], json!({}));
+    let t = super::trip::plan(&b, "2026-11-01", None);
+    assert_eq!(t.stops.len(), 1);
+    assert_eq!(t.stops[0].rows[0].want.card, "Proposal Card");
+    assert_eq!(t.total, Some(0.75));
+    assert!(super::trip::text(&t).contains("1. Example Games (fine to go): 1 card, $0.75"));
+}
+
+#[tokio::test]
+async fn a_rule_set_made_in_yama_is_dated_and_an_import_never_replaces_it() {
+    let (app, pool, id, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let (friend, friend_token) = user(&pool, "friend@example.com").await;
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let tomorrow = (chrono::Utc::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    let rule = json!({"max_usd": 2.0, "always_ok_usd": 0.5, "tiers": [{"market_under": 1.0, "max_multiple": 2.0}, {"market_under": null, "max_multiple": 1.5}]});
+    let post = |token: String, body: Value| {
+        let app = app.clone();
+        async move { send(&app, Method::POST, "/api/plan/settings", Some(&token), Some(body)).await }
+    };
+
+    // Only today (a day either side for time zones), and only a rule that makes sense.
+    let (status, _) = post(token.clone(), json!({"effective_from": "2026-10-01", "local_buy": rule})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut odd = rule.clone();
+    odd["always_ok_usd"] = json!(3.0);
+    let (status, r) = post(token.clone(), json!({"effective_from": today, "local_buy": odd})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(r["error"].as_str().unwrap().contains("can't be above"), "{r}");
+
+    let before = revision(&pool, &id).await;
+    let (status, r) = post(token.clone(), json!({"effective_from": today, "local_buy": rule, "sealed_max_usd": 51, "note": "New rule"})).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert!(revision(&pool, &id).await > before, "the bundle is fetched again");
+    let b = bundle(&app, &token).await;
+    let sets = b["settings"].as_array().unwrap();
+    assert_eq!(sets.len(), 3);
+    let made = sets.iter().find(|s| s["effective_from"] == today.as_str()).unwrap();
+    assert_eq!(made["origin"], "yama");
+    assert_eq!(made["note"], "New rule");
+    assert_eq!(made["rules"]["ceiling_other_usd"], 3.0, "a copy of the set in force, older checks keep theirs");
+    assert_eq!(made["rules"]["sealed_max_usd"], 51.0);
+    assert_eq!(made["rules"]["local_buy"]["max_usd"], 2.0);
+    assert_eq!(bundle(&app, &friend_token).await["settings"], json!([]), "rules are per user");
+    let _ = friend;
+
+    // A later import keeps it: the same date isn't applied, and a later imported set warns.
+    let mut d = doc();
+    d["plan"]["settings"].as_array_mut().unwrap().push(json!({"effective_from": today, "note": "Imported today", "rules": {"currency": "USD"}}));
+    d["plan"]["settings"].as_array_mut().unwrap().push(json!({"effective_from": tomorrow, "note": "Imported tomorrow", "rules": {"currency": "USD"}}));
+    let r = import(&app, &token, &d).await;
+    let warnings: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(warnings.iter().any(|w| w.starts_with(&format!("Kept the rule set from {today} made in Yama"))), "{warnings:?}");
+    assert!(warnings.iter().any(|w| w.starts_with(&format!("The imported rule set from {tomorrow} applies from that date"))), "{warnings:?}");
+    assert_eq!(r["counts"]["settings"], 3);
+    let b = bundle(&app, &token).await;
+    let made = b["settings"].as_array().unwrap().iter().find(|s| s["effective_from"] == today.as_str()).unwrap();
+    assert_eq!((made["origin"].as_str(), made["note"].as_str()), (Some("yama"), Some("New rule")));
+    // The same import again: nothing new to warn about after the Yama set.
+    let mut again = d.clone();
+    again["meta"]["generated_at"] = json!("2026-10-19T21:30:00Z");
+    again["plan"]["stores"][0]["note"] = json!("Changed");
+    let r = import(&app, &token, &again).await;
+    let warnings: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(!warnings.iter().any(|w| w.contains("applies from that date")), "{warnings:?}");
+
+    // Undo: only the newest set, and only one made in Yama.
+    let del = |date: &str| {
+        let (app, token, path) = (app.clone(), token.clone(), format!("/api/plan/settings/{date}"));
+        async move { send(&app, Method::DELETE, &path, Some(&token), None).await }
+    };
+    assert_eq!(del(&tomorrow).await.0, StatusCode::CONFLICT, "imported");
+    assert_eq!(del(&today).await.0, StatusCode::CONFLICT, "not the newest");
+    assert_eq!(del("2026-01-01").await.0, StatusCode::NOT_FOUND);
+    import(&app, &token, &doc()).await;
+    let (status, r) = del(&today).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(bundle(&app, &token).await["settings"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn restoring_a_yama_backup_never_deletes_a_rule_set() {
+    let (app, _pool, _id, token) = setup().await;
+    // A plan made in Yama (a backup restored), then a rule set made since.
+    let mut backup = doc();
+    backup["meta"]["app"] = json!("yama");
+    import(&app, &token, &backup).await;
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let rule = json!({"max_usd": 2.0, "always_ok_usd": 0.5, "tiers": []});
+    let (status, r) = send(&app, Method::POST, "/api/plan/settings", Some(&token), Some(json!({"effective_from": today, "local_buy": rule}))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+
+    // A backup with no rule sets keeps them all.
+    backup["meta"]["generated_at"] = json!("2026-10-19T20:30:00Z");
+    backup["plan"]["settings"] = json!([]);
+    import(&app, &token, &backup).await;
+    let dates: Vec<String> = bundle(&app, &token).await["settings"].as_array().unwrap().iter().map(|s| s["effective_from"].as_str().unwrap().to_string()).collect();
+    assert_eq!(dates, ["2026-10-08", "2026-10-10", today.as_str()]);
+
+    // One with today's date replaces it, and says so.
+    backup["meta"]["generated_at"] = json!("2026-10-19T21:30:00Z");
+    backup["plan"]["settings"] = json!([{"effective_from": today, "note": "Restored", "rules": {"currency": "USD"}}]);
+    let r = import(&app, &token, &backup).await;
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("was replaced by the restored one")), "{r}");
+    let b = bundle(&app, &token).await;
+    assert_eq!(b["settings"].as_array().unwrap().len(), 3);
+    assert_eq!(b["settings"][2]["note"], "Restored");
 }

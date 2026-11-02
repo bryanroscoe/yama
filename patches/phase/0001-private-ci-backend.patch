@@ -1,0 +1,2117 @@
+From ccbcc40e6f9d5e30fec2c59f099ab879b839bc88 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:04:43 -0500
+Subject: [PATCH 01/13] Adapt private fork CI to the isolated saget worker
+
+---
+ .github/actions/prepare-private-ci/action.yml |  28 ++++
+ .github/workflows/action-pin-audit.yml        |  14 +-
+ .github/workflows/ai-gate.yml                 |  44 ++++--
+ .github/workflows/ci.yml                      | 126 +++++++++++++-----
+ docs/private-ci.md                            |  40 ++++++
+ 5 files changed, 200 insertions(+), 52 deletions(-)
+ create mode 100644 .github/actions/prepare-private-ci/action.yml
+ create mode 100644 docs/private-ci.md
+
+diff --git a/.github/actions/prepare-private-ci/action.yml b/.github/actions/prepare-private-ci/action.yml
+new file mode 100644
+index 00000000..39be49d6
+--- /dev/null
++++ b/.github/actions/prepare-private-ci/action.yml
+@@ -0,0 +1,28 @@
++name: Prepare private CI worker
++description: Configure dedicated writable tools and build outputs on the private runner.
++runs:
++  using: composite
++  steps:
++    - name: Prepare saget caches
++      if: runner.environment == 'self-hosted'
++      shell: bash
++      run: |
++        set -euo pipefail
++        test "$GITHUB_REPOSITORY" = bryanroscoe/yama-phase
++        mkdir -p /ci-cache/tools /ci-cache/target /ci-cache/android /ci-cache/gradle /ci-cache/sccache
++        # Preserve scripts/artifact paths while compiling into one dedicated cache.
++        for path in target client/src-tauri/target; do
++          if [ -e "$path" ] || [ -L "$path" ]; then
++            test "$(readlink "$path")" = /ci-cache/target
++          else
++            mkdir -p "$(dirname "$path")"
++            ln -s /ci-cache/target "$path"
++          fi
++        done
++        echo 'RUNNER_TOOL_CACHE=/ci-cache/tools' >> "$GITHUB_ENV"
++        echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
++        echo 'ANDROID_HOME=/ci-cache/android' >> "$GITHUB_ENV"
++        echo 'ANDROID_SDK_ROOT=/ci-cache/android' >> "$GITHUB_ENV"
++        echo 'GRADLE_USER_HOME=/ci-cache/gradle' >> "$GITHUB_ENV"
++        echo 'SCCACHE_DIR=/ci-cache/sccache' >> "$GITHUB_ENV"
++        echo 'SCCACHE_CACHE_SIZE=2G' >> "$GITHUB_ENV"
+diff --git a/.github/workflows/action-pin-audit.yml b/.github/workflows/action-pin-audit.yml
+index b09d67cc..4941d57d 100644
+--- a/.github/workflows/action-pin-audit.yml
++++ b/.github/workflows/action-pin-audit.yml
+@@ -33,11 +33,11 @@ permissions: {}
+ jobs:
+   audit:
+     name: Audit action pins from base
+-    # 246030356 is .github/workflows/ci.yml. Opaque, but a pull request can
++    # 398415720 is .github/workflows/ci.yml. Opaque, but a pull request can
+     # rename that workflow and cannot renumber it.
+-    if: github.event.workflow_run.workflow_id == 246030356
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    if: github.event.workflow_run.workflow_id == 398415720
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     # Read-only. This job handles the untrusted tree.
+     permissions:
+       contents: read
+@@ -93,9 +93,9 @@ jobs:
+   report:
+     name: Report the audit result
+     needs: audit
+-    if: always() && github.event.workflow_run.workflow_id == 246030356
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    if: always() && github.event.workflow_run.workflow_id == 398415720
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     # The only job with a write token, and it never fetches or reads the
+     # evaluated tree -- it publishes a verdict the audit job already reached.
+     permissions:
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index 390fd3c5..46db6dfb 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -21,20 +21,25 @@ permissions:
+ jobs:
+   ai-gate:
+     name: Paired-seed AI gate
+-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+-    runs-on: ubuntu-latest
++    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # 30m was too tight and flaked out on slow runners. Measured budget on a
+     # cache miss: ~6.5m for the "Generate card data" step (5m `tool` build + gen)
+     # + a cold debug build + the debug run itself (30 games at ~1.1m/game on a
+     # slow runner ≈ 34m). Hosted-runner speed varies ~2x, so a fast runner
+     # finishes well under 30m while a slow one overruns. 60m preserves the full
+     # `--games 10` coverage; the ceiling only bills the failure case.
+-    timeout-minutes: 60
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+@@ -51,8 +56,8 @@ jobs:
+ 
+   ai-gate-nightly:
+     name: Nightly AI gate drift monitor
+-    if: github.event_name == 'schedule'
+-    runs-on: ubuntu-latest
++    if: ${{ (github.event_name == 'schedule') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # The gate's workload flags MUST equal the corresponding fields in
+     # crates/phase-ai/baselines/suite-baseline.json. The comparator refuses a pair
+     # whose workloads disagree, so a divergent value here makes this job incapable
+@@ -63,12 +68,17 @@ jobs:
+     # registry, plus mirror classification at a low-power band — not a drift gate
+     # at the band a larger per-matchup sample would give. The ceiling only bills
+     # the failure case; a job that finishes early stops early.
+-    timeout-minutes: 300
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 300 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+@@ -115,20 +125,25 @@ jobs:
+ 
+   ai-perf-gate:
+     name: Decision-cost perf gate
+-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+-    runs-on: ubuntu-latest
++    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Same runner-variance overrun as the paired gate above. Measured budget on
+     # a cache miss: ~6.5m card-data gen + cold debug build + the perf suite
+     # (PERF_SAMPLE_COUNT=5 cold child processes × 3 scenarios × PERF_ACTION_CAP
+     # 3000 actions ≈ 21m in debug on a slow runner). The per-counter median
+     # assertion (#4878) is variance-robust; the wall-clock is not. 60m gives
+     # headroom without changing the fixed workload.
+-    timeout-minutes: 60
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+@@ -151,14 +166,19 @@ jobs:
+ 
+   ai-perf-gate-nightly:
+     name: Nightly decision-cost perf drift monitor
+-    if: github.event_name == 'schedule'
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: ${{ (github.event_name == 'schedule') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+       - name: Restore AI card data caches
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1f8709c5..931006e7 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -33,18 +33,23 @@ permissions:
+ jobs:
+   rust-lint:
+     name: Rust lint (fmt, clippy, parser gate)
+-    runs-on: ubuntu-latest
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Clippy can consume the former 15-minute ceiling on a cold hosted cache;
+     # retain a bounded job while leaving room for the remaining lint gates.
+-    timeout-minutes: 60
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
+         with:
++          persist-credentials: false
+           # Full history so the parser-combinator gate can diff against origin/main.
+           fetch-depth: 0
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -52,7 +57,7 @@ jobs:
+ 
+       - name: Enable sccache
+         run: |
+-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
++          echo "SCCACHE_GHA_ENABLED=${{ runner.environment == 'github-hosted' }}" >> "$GITHUB_ENV"
+           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+ 
+@@ -214,12 +219,18 @@ jobs:
+ 
+   rust-test-build:
+     name: Rust tests (build archive)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 60
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - name: Free runner disk for Rust test linking
++        if: runner.environment == 'github-hosted'
+         # Build the workspace's test binaries once. Keep the Rust caches intact
+         # and reclaim only unused hosted-image payloads before setup-rust-toolchain
+         # restores/saves Cargo state.
+@@ -243,6 +254,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -250,7 +262,7 @@ jobs:
+ 
+       - name: Enable sccache
+         run: |
+-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
++          echo "SCCACHE_GHA_ENABLED=${{ runner.environment == 'github-hosted' }}" >> "$GITHUB_ENV"
+           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+ 
+@@ -299,20 +311,25 @@ jobs:
+   rust-test:
+     name: Rust tests (shard ${{ matrix.shard }}/4)
+     needs: rust-test-build
+-    runs-on: ubuntu-latest
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Archive downloads can consume over 10 minutes before tests begin.
+     # Keep a bounded job with time for each shard to finish its tests.
+-    timeout-minutes: 30
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     strategy:
+       fail-fast: false
+       matrix:
+         shard: [1, 2, 3, 4, 5]
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
+ 
+       # Some snapshot tests query Cargo metadata at runtime. This makes Cargo
+       # available but does not build test binaries; those come from the archive.
+       # Do not restore or save a Rust target cache: the archive is the cache.
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+           target: wasm32-unknown-unknown
+@@ -352,16 +369,21 @@ jobs:
+ 
+   card-data-gate:
+     name: Card data (generate, validate, coverage)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@v4
+         with:
++          persist-credentials: false
+           # Parse-diff reads both parents of GitHub's synthetic PR merge commit.
+           fetch-depth: 2
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -369,7 +391,7 @@ jobs:
+ 
+       - name: Enable sccache
+         run: |
+-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
++          echo "SCCACHE_GHA_ENABLED=${{ runner.environment == 'github-hosted' }}" >> "$GITHUB_ENV"
+           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+           echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+ 
+@@ -700,7 +722,7 @@ jobs:
+           jq --arg h "$HASH" '. + {card_data_hash: $h}' data/coverage-data.json > data/coverage-data.stamped.json
+ 
+       - name: Upload data to R2 (preview)
+-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
++        if: vars.CI_ENABLE_PUBLISHING == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+         env:
+           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+@@ -728,7 +750,7 @@ jobs:
+         # bounded by distinct parser states, not commit count. best-effort
+         # (continue-on-error): a missed publish just defers a PR's comment to
+         # "baseline pending" until the next main push, never wedges main.
+-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
++        if: vars.CI_ENABLE_PUBLISHING == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+         continue-on-error: true
+         env:
+           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+@@ -749,14 +771,19 @@ jobs:
+     # Its output (draft-pools.json) is not consumed by ci.yml — this is a
+     # main-only smoke test that draft-pool-gen still compiles and runs.
+     name: Draft pools (smoke)
+-    runs-on: ubuntu-latest
+-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+-    timeout-minutes: 20
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 20 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           # No wasm32 target: draft-pool-gen is a native binary. The target list
+           # isn't part of the rust-cache key, so omitting it still shares the
+           # rust-debug cache with card-data-gate.
+@@ -799,13 +826,19 @@ jobs:
+ 
+   wasm-check:
+     name: WASM compile check
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 10
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+ 
+@@ -817,13 +850,18 @@ jobs:
+     # consumes this job's entire 15-minute timeout.
+     if: ${{ false }}
+     name: Tauri compile check + tests
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 15
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-tauri
+           cache-workspaces: |
+             . -> target
+@@ -862,10 +900,15 @@ jobs:
+ 
+   android-debug-apk:
+     name: Android debug APK (ARM64)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - name: Validate Gradle wrapper
+         uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+@@ -898,6 +941,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: aarch64-linux-android
+           cache-shared-key: rust-tauri-android-arm64
+           cache-workspaces: client/src-tauri -> target
+@@ -971,8 +1015,8 @@ jobs:
+ 
+   rust-check:
+     name: Rust (fmt, clippy, test, coverage-gate)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     needs:
+       - rust-lint
+       - rust-test-build
+@@ -982,7 +1026,7 @@ jobs:
+       - wasm-check
+       - tauri-check
+       - android-debug-apk
+-    if: always()
++    if: ${{ (always()) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+     steps:
+       - name: Check split Rust jobs
+         env:
+@@ -1010,11 +1054,16 @@ jobs:
+ 
+   lobby-worker-test:
+     name: Lobby worker (pnpm test)
+-    runs-on: ubuntu-latest
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     # Cache-hit npm ci runs have exceeded five minutes; leave room for the measured slow tail.
+-    timeout-minutes: 10
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
+       - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++
++      - uses: ./.github/actions/prepare-private-ci
+ 
+       - uses: pnpm/action-setup@v4
+         with:
+@@ -1034,14 +1083,17 @@ jobs:
+ 
+   card-bot-test:
+     name: Card bot (bun test)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           # The tests never touch git; don't leave the token in .git/config.
+           persist-credentials: false
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+         with:
+           # Tracks deploy/card-bot.Dockerfile's oven/bun:1.3 runtime.
+@@ -1057,13 +1109,17 @@ jobs:
+ 
+   frontend:
+     name: Frontend (lint, type-check, test)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 15
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
+       - uses: actions/checkout@v4
+         with:
++          persist-credentials: false
+           fetch-depth: 0
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: pnpm/action-setup@v4
+         with:
+           version: 9
+@@ -1121,15 +1177,19 @@ jobs:
+ 
+   draft-match-wasm-proof:
+     name: Draft match proof (real WASM)
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 30
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           persist-credentials: false
+ 
++      - uses: ./.github/actions/prepare-private-ci
++
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-wasm
+           rustflags: ""
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+new file mode 100644
+index 00000000..61309682
+--- /dev/null
++++ b/docs/private-ci.md
+@@ -0,0 +1,40 @@
++# Private fork CI
++
++The `bryanroscoe/yama-phase` fork can run its core CI, game-AI gates and trusted
++action-pin audit on saget. These remain GitHub Actions workflows with their
++existing test commands, test shards, WASM/Android checks and AI workloads.
++`CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
++The audit follows this fork's CI workflow ID, not the upstream repository's ID.
++
++From the `bryanroscoe/sagetserver` checkout:
++
++```sh
++python3 scripts/ci_runners.py register --repo yama-phase
++python3 scripts/ci_runners.py switch saget --repo yama-phase --apply
++python3 scripts/ci_runners.py switch github --repo yama-phase --apply
++```
++
++The saget value is `["self-hosted","Linux","X64","saget-ci"]`; hosted is
++`["ubuntu-24.04"]`. Omit `--apply` to preview. Newly scheduled jobs use the
++selection; assigned jobs finish on their original runner. Hosted private jobs
++need available account minutes. Existing GitHub artifact/data-cache transfers
++remain subject to the account's storage quota even with self-hosted compute.
++
++The private `saget-yama-phase-ci` worker has its own container, network, runner
++state, Cargo/tool/Android/Gradle caches and no Docker socket or production mounts.
++Fork PR execution must remain disabled at repository level. Tools install into
++writable project caches; checkout target symlinks preserve existing script/artifact
++paths. Rust target cache and bounded local sccache stay on saget instead of being
++uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
++
++All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
++production builds. Local job budgets include that wait. This changes throughput
++and wall-clock timing; it does not reduce test/game counts or establish comparable
++performance evidence between hosted and saget hardware. Temporary checkouts are
++removed after jobs, while useful tools/dependency caches remain.
++
++Inherited release/deployment/maintenance workflows keep their existing hosted
++routing and are outside this CI migration. The two core-CI R2 publishing steps
++require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
++for this fork. Registration and CI validation do not authorize publishing,
++application deployment, upstream changes, or moving Yama's pinned engine revision.
+
+From 9df05c6b5d06cb93c5adb6dbcb75d3aa42232a77 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:07:07 -0500
+Subject: [PATCH 02/13] fork: scope private automation to CI and pin stable
+ Rust
+
+---
+ .github/workflows/ai-gate.yml | 4 ++++
+ .github/workflows/ci.yml      | 9 +++++++++
+ CLAUDE.md                     | 2 +-
+ docs/YAMA.md                  | 7 +++++--
+ docs/private-ci.md            | 6 ++++--
+ 5 files changed, 23 insertions(+), 5 deletions(-)
+
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index 46db6dfb..2e025a3b 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -39,6 +39,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+@@ -78,6 +79,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+@@ -143,6 +145,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+@@ -178,6 +181,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-ai-gate
+ 
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 931006e7..13f2d89c 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -49,6 +49,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -254,6 +255,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -332,6 +334,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           target: wasm32-unknown-unknown
+           cache: false
+ 
+@@ -383,6 +386,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -783,6 +787,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           # No wasm32 target: draft-pool-gen is a native binary. The target list
+           # isn't part of the rust-cache key, so omitting it still shares the
+@@ -838,6 +843,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -861,6 +867,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           cache-shared-key: rust-tauri
+           cache-workspaces: |
+@@ -941,6 +948,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: aarch64-linux-android
+           cache-shared-key: rust-tauri-android-arm64
+@@ -1189,6 +1197,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+         with:
++          toolchain: '1.98.1'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-wasm
+diff --git a/CLAUDE.md b/CLAUDE.md
+index dc30a05c..fcfa9d72 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,7 +7,7 @@ repository and `upstream` is `phase-rs/phase`. Read [the fork guide](docs/YAMA.m
+ plus a short stack of Yama commits, kept current by rebasing. Publishing upstream PRs or enabling
+ upstream release/deployment workflows needs Bryan's instruction. The upstream rules below apply to
+ every upstream candidate. On Bryan's Mac use `cargo +stable`, `CARGO_BUILD_JOBS=1`, and keep the
+-machine's compiler guard (`~/.config/agent-hygiene/BUILD-LIMITS.md`). GitHub Actions is disabled here.
++machine's compiler guard (`~/.config/agent-hygiene/BUILD-LIMITS.md`). Only the reviewed private CI workflows run here; inherited release/deployment workflows remain disabled.
+ 
+ This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+ 
+diff --git a/docs/YAMA.md b/docs/YAMA.md
+index fdec877f..db0e9246 100644
+--- a/docs/YAMA.md
++++ b/docs/YAMA.md
+@@ -65,5 +65,8 @@ Comprehensive Rules.
+ 
+ ## Automation
+ 
+-GitHub Actions is disabled here; the inherited workflows target upstream's infrastructure. Do
+-not enable upstream's release or deployment workflows.
++Bryan requested private-project CI on saget on 2026-10-29. Only core CI, the game-AI gates
++and trusted action-pin audit are enabled for this fork; all other inherited workflows stay
++disabled. The inherited workflows target upstream infrastructure. Do not enable upstream's
++release or deployment workflows. See [private CI](private-ci.md) for the backend switch,
++stable Rust toolchain and isolation boundaries.
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 61309682..e910f8ff 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -5,6 +5,7 @@ action-pin audit on saget. These remain GitHub Actions workflows with their
+ existing test commands, test shards, WASM/Android checks and AI workloads.
+ `CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
+ The audit follows this fork's CI workflow ID, not the upstream repository's ID.
++CI explicitly installs stable Rust 1.98.1, matching the fork's stable-build policy.
+ 
+ From the `bryanroscoe/sagetserver` checkout:
+ 
+@@ -33,8 +34,9 @@ and wall-clock timing; it does not reduce test/game counts or establish comparab
+ performance evidence between hosted and saget hardware. Temporary checkouts are
+ removed after jobs, while useful tools/dependency caches remain.
+ 
+-Inherited release/deployment/maintenance workflows keep their existing hosted
+-routing and are outside this CI migration. The two core-CI R2 publishing steps
++Only `ci.yml`, `ai-gate.yml` and `action-pin-audit.yml` are enabled at GitHub.
++All inherited release/deployment/maintenance workflows remain disabled and keep
++their existing hosted routing; they are outside this CI migration. The two core-CI R2 publishing steps
+ require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
+ for this fork. Registration and CI validation do not authorize publishing,
+ application deployment, upstream changes, or moving Yama's pinned engine revision.
+
+From 84c6f2c0b3e466c3e9eea56d8c3ed96ec6ffad4e Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:10:01 -0500
+Subject: [PATCH 03/13] fork: rely on tool-cache configuration before listener
+ startup
+
+---
+ .github/actions/prepare-private-ci/action.yml | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/.github/actions/prepare-private-ci/action.yml b/.github/actions/prepare-private-ci/action.yml
+index 39be49d6..c15b2c3c 100644
+--- a/.github/actions/prepare-private-ci/action.yml
++++ b/.github/actions/prepare-private-ci/action.yml
+@@ -19,7 +19,6 @@ runs:
+             ln -s /ci-cache/target "$path"
+           fi
+         done
+-        echo 'RUNNER_TOOL_CACHE=/ci-cache/tools' >> "$GITHUB_ENV"
+         echo 'CARGO_BUILD_JOBS=2' >> "$GITHUB_ENV"
+         echo 'ANDROID_HOME=/ci-cache/android' >> "$GITHUB_ENV"
+         echo 'ANDROID_SDK_ROOT=/ci-cache/android' >> "$GITHUB_ENV"
+
+From 0bcebcbca5c9f9c8b7a5ef059c17b1262e5c2939 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:20:01 -0500
+Subject: [PATCH 04/13] fork: extract each test shard outside the persistent
+ target cache
+
+---
+ .github/workflows/ci.yml | 6 +++++-
+ docs/private-ci.md       | 3 ++-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 13f2d89c..980f065e 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -368,7 +368,11 @@ jobs:
+         # caught before it lands on the branch that feeds staging/preview.
+         env:
+           PROPTEST_CASES: ${{ github.event_name == 'pull_request' && '32' || '256' }}
+-        run: cargo-nextest nextest run --profile ci --partition count:${{ matrix.shard }}/5 --archive-file nextest-archive.tar.zst --extract-to target --status-level fail --final-status-level fail
++        run: |
++          # Each shard gets a fresh archive extraction. The persistent target
++          # cache is shared between jobs and must not hold nested archive output.
++          nextest_extract="$(mktemp -d "$RUNNER_TEMP/nextest.XXXXXX")"
++          cargo-nextest nextest run --profile ci --partition count:${{ matrix.shard }}/5 --archive-file nextest-archive.tar.zst --extract-to "$nextest_extract" --status-level fail --final-status-level fail
+ 
+   card-data-gate:
+     name: Card data (generate, validate, coverage)
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index e910f8ff..29429712 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -25,7 +25,8 @@ The private `saget-yama-phase-ci` worker has its own container, network, runner
+ state, Cargo/tool/Android/Gradle caches and no Docker socket or production mounts.
+ Fork PR execution must remain disabled at repository level. Tools install into
+ writable project caches; checkout target symlinks preserve existing script/artifact
+-paths. Rust target cache and bounded local sccache stay on saget instead of being
++paths. Each Nextest shard extracts its archive under disposable RUNNER_TEMP,
++so repeated shards cannot collide inside the persistent target cache. Rust target cache and bounded local sccache stay on saget instead of being
+ uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
+ 
+ All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
+
+From 7a2930b2108f3c402f22f6dcb24f48e26792ab32 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 16:27:29 -0500
+Subject: [PATCH 05/13] fork: retain nightly for the libtest JSON archive
+ workload
+
+---
+ .github/workflows/ci.yml | 4 ++--
+ docs/private-ci.md       | 4 +++-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 980f065e..51982276 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -255,7 +255,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+-          toolchain: '1.98.1'
++          toolchain: 'nightly-2026-04-19'
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+@@ -334,7 +334,7 @@ jobs:
+ 
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+-          toolchain: '1.98.1'
++          toolchain: 'nightly-2026-04-19'
+           target: wasm32-unknown-unknown
+           cache: false
+ 
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 29429712..df808356 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -5,7 +5,9 @@ action-pin audit on saget. These remain GitHub Actions workflows with their
+ existing test commands, test shards, WASM/Android checks and AI workloads.
+ `CI_LINUX_RUNNER` selects JSON runner labels; unset retains GitHub-hosted Linux.
+ The audit follows this fork's CI workflow ID, not the upstream repository's ID.
+-CI explicitly installs stable Rust 1.98.1, matching the fork's stable-build policy.
++Production/lint/WASM/AI builds use stable Rust 1.98.1, matching the fork's
++stable-build policy. The test archive and shards retain pinned nightly-2026-04-19
++because probe-pin's existing libtest JSON tests require nightly; no tests are skipped.
+ 
+ From the `bryanroscoe/sagetserver` checkout:
+ 
+
+From a4eadf41b3055cfbdd5f00ebff6a7120e31d4e82 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 18:17:25 -0500
+Subject: [PATCH 06/13] fork: install stable lint components explicitly
+
+---
+ .github/workflows/ci.yml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 51982276..4cdf6379 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -50,6 +50,7 @@ jobs:
+       - uses: actions-rust-lang/setup-rust-toolchain@v1
+         with:
+           toolchain: '1.98.1'
++          components: rustfmt, clippy
+           cache: ${{ runner.environment == 'github-hosted' }}
+           target: wasm32-unknown-unknown
+           cache-shared-key: rust-debug
+
+From 90acc71a5ccd310811f2f2d5090e3ab92c09efb0 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 22:08:58 -0500
+Subject: [PATCH 07/13] fork: preserve the protocol checkout history assertion
+
+---
+ .github/workflows/ci.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 4cdf6379..f52f8146 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1128,8 +1128,8 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+         with:
+-          persist-credentials: false
+           fetch-depth: 0
++          persist-credentials: false
+ 
+       - uses: ./.github/actions/prepare-private-ci
+ 
+
+From a6c70dfeccd6618e64a28d33d3fa0549d932c15e Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Thu, 29 Oct 2026 23:37:24 -0500
+Subject: [PATCH 08/13] fork: satisfy stable Clippy with equivalent expressions
+
+---
+ crates/engine/src/game/payment_transaction.rs | 21 +++++++++----------
+ .../src/parser/oracle_effect/conditions.rs    |  4 ++--
+ 2 files changed, 12 insertions(+), 13 deletions(-)
+
+diff --git a/crates/engine/src/game/payment_transaction.rs b/crates/engine/src/game/payment_transaction.rs
+index d8f7aa2d..32cbc046 100644
+--- a/crates/engine/src/game/payment_transaction.rs
++++ b/crates/engine/src/game/payment_transaction.rs
+@@ -254,17 +254,16 @@ fn settle_canonical_tail(
+         return Ok(());
+     };
+     engine::resume_pending_continuation_if_priority(state, events)?;
+-    let completed = Some(carrier).filter(|_| {
+-        state.resolving_stack_entry.is_none()
+-            && matches!(
+-                state.waiting_for,
+-                crate::types::game_state::WaitingFor::Priority { .. }
+-            )
+-            && state.game_end.is_none()
+-            && state.payment_transaction.is_none()
+-            && !state.payment_transaction_replay
+-            && !triggers::is_pending_trigger_construction_active(state)
+-    });
++    let completed = (state.resolving_stack_entry.is_none()
++        && matches!(
++            state.waiting_for,
++            crate::types::game_state::WaitingFor::Priority { .. }
++        )
++        && state.game_end.is_none()
++        && state.payment_transaction.is_none()
++        && !state.payment_transaction_replay
++        && !triggers::is_pending_trigger_construction_active(state))
++    .then_some(carrier);
+     let default_wf = state.waiting_for.clone();
+     let waiting_for = engine_priority::run_post_action_pipeline_for_canonical_tail(
+         state,
+diff --git a/crates/engine/src/parser/oracle_effect/conditions.rs b/crates/engine/src/parser/oracle_effect/conditions.rs
+index 34b69bcb..3491dcf2 100644
+--- a/crates/engine/src/parser/oracle_effect/conditions.rs
++++ b/crates/engine/src/parser/oracle_effect/conditions.rs
+@@ -2059,7 +2059,7 @@ fn parse_its_a_card_type_gate_body<'a>(
+         }
+     }
+     let type_word = type_str.rsplit(' ').next().unwrap_or(type_str);
+-    let capitalized = format!("{}{}", &type_word[..1].to_uppercase(), &type_word[1..]);
++    let capitalized = format!("{}{}", type_word[..1].to_uppercase(), &type_word[1..]);
+     // CR 608.2c: "permanent" is not a CoreType (it spans CR 110.1's permanent card
+     // types). Build the condition via the existing parse_type_phrase_folding building block —
+     // "permanent card" → TargetFilter::Typed(TypeFilter::Permanent) — and gate on it
+@@ -3201,7 +3201,7 @@ pub(super) fn try_parse_type_setting(text: &str) -> Option<AbilityDefinition> {
+         .ok()?;
+ 
+     let type_name = type_name.trim();
+-    let capitalized = format!("{}{}", &type_name[..1].to_uppercase(), &type_name[1..]);
++    let capitalized = format!("{}{}", type_name[..1].to_uppercase(), &type_name[1..]);
+     CoreType::from_str(&capitalized).ok()?;
+ 
+     let mut remove_types = Vec::new();
+
+From 9ad87af2d3c23978fd5ed3e4861bd21101e57adc Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 01:57:40 -0500
+Subject: [PATCH 09/13] fork: wait for CI capacity in cancellable workflow
+ steps
+
+---
+ .github/workflows/action-pin-audit.yml | 12 ++++
+ .github/workflows/ai-gate.yml          | 24 ++++++++
+ .github/workflows/ci.yml               | 81 +++++++++++++++++++++++++-
+ docs/private-ci.md                     |  3 +
+ 4 files changed, 119 insertions(+), 1 deletion(-)
+
+diff --git a/.github/workflows/action-pin-audit.yml b/.github/workflows/action-pin-audit.yml
+index 4941d57d..508fd2b7 100644
+--- a/.github/workflows/action-pin-audit.yml
++++ b/.github/workflows/action-pin-audit.yml
+@@ -42,6 +42,12 @@ jobs:
+     permissions:
+       contents: read
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       # No `ref:` on purpose: the default is the default branch, which is what
+       # makes the checker below the reviewed one.
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+@@ -101,6 +107,12 @@ jobs:
+     permissions:
+       statuses: write
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - name: Publish the commit status
+         env:
+           GH_TOKEN: ${{ github.token }}
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index 2e025a3b..c948fea2 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -31,6 +31,12 @@ jobs:
+     # `--games 10` coverage; the ceiling only bills the failure case.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -71,6 +77,12 @@ jobs:
+     # the failure case; a job that finishes early stops early.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 300 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -137,6 +149,12 @@ jobs:
+     # headroom without changing the fixed workload.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -173,6 +191,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index f52f8146..0b29c681 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -39,6 +39,12 @@ jobs:
+     # retain a bounded job while leaving room for the remaining lint gates.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -225,6 +231,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 60 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -324,6 +336,12 @@ jobs:
+       matrix:
+         shard: [1, 2, 3, 4, 5]
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -381,6 +399,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -784,6 +808,12 @@ jobs:
+     if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 20 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -840,6 +870,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -864,6 +900,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -916,6 +958,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           persist-credentials: false
+@@ -1039,8 +1087,15 @@ jobs:
+       - wasm-check
+       - tauri-check
+       - android-debug-apk
+-    if: ${{ (always()) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
++    # Report failures, but let superseded workflow cancellation finish.
++    if: ${{ (!cancelled()) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - name: Check split Rust jobs
+         env:
+           RUST_LINT_RESULT: ${{ needs.rust-lint.result }}
+@@ -1072,6 +1127,12 @@ jobs:
+     # Cache-hit npm ci runs have exceeded five minutes; leave room for the measured slow tail.
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 10 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           persist-credentials: false
+@@ -1100,6 +1161,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           # The tests never touch git; don't leave the token in .git/config.
+@@ -1126,6 +1193,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 15 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@v4
+         with:
+           fetch-depth: 0
+@@ -1194,6 +1267,12 @@ jobs:
+     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
+     timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 30 }}
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+         with:
+           persist-credentials: false
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index df808356..0d365610 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -43,3 +43,6 @@ their existing hosted routing; they are outside this CI migration. The two core-
+ require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
+ for this fork. Registration and CI validation do not authorize publishing,
+ application deployment, upstream changes, or moving Yama's pinned engine revision.
++
++On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
++The Rust summary job still reports failed dependencies, but skips a cancelled workflow so obsolete runs cannot hold the CI concurrency group.
+
+From 219fa4cbd2499596bae53339f4ad0688a3f5cdc0 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 03:44:29 -0500
+Subject: [PATCH 10/13] fork: use slice fill for stable Rust lint
+
+---
+ crates/draft-core/src/types.rs | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/crates/draft-core/src/types.rs b/crates/draft-core/src/types.rs
+index 0df207c2..6ada8591 100644
+--- a/crates/draft-core/src/types.rs
++++ b/crates/draft-core/src/types.rs
+@@ -1384,9 +1384,7 @@ impl SeatFlags {
+     }
+ 
+     pub fn clear(&mut self) {
+-        for flag in &mut self.0 {
+-            *flag = false;
+-        }
++        self.0.fill(false);
+     }
+ 
+     pub fn len(&self) -> usize {
+
+From 8afc05e5d72105d01599f29773b6ec4697badc26 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 11:57:39 -0500
+Subject: [PATCH 11/13] fork: preserve private parse baselines without public
+ publishing
+
+---
+ .github/workflows/ci.yml                      |  65 ++++++-
+ .../workflows/coverage-parse-diff-comment.yml |  32 +++-
+ docs/private-ci.md                            |  23 ++-
+ scripts/private-parse-comment.test.mjs        |  61 +++++++
+ scripts/private_parse_baseline.py             | 159 ++++++++++++++++
+ scripts/private_parse_baseline_tests.py       | 172 ++++++++++++++++++
+ 6 files changed, 499 insertions(+), 13 deletions(-)
+ create mode 100644 scripts/private-parse-comment.test.mjs
+ create mode 100644 scripts/private_parse_baseline.py
+ create mode 100644 scripts/private_parse_baseline_tests.py
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 0b29c681..a299c740 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -143,6 +143,11 @@ jobs:
+         # that weakens it fails here instead of shipping unnoticed.
+         run: python3 scripts/release_dispatch_guard_tests.py
+ 
++      - name: Private parse baseline tests
++        run: |
++          python3 scripts/private_parse_baseline_tests.py
++          node --test scripts/private-parse-comment.test.mjs
++
+       - name: Preview data wait tests
+         # The manifest is signed only after this script sees its data URLs
+         # served, so the tests drive it against a local HTTP server. They also
+@@ -492,6 +497,28 @@ jobs:
+             data/card-names.json
+           key: cardgen-${{ hashFiles('data/mtgjson/AtomicCards.json', 'crates/engine/src/**/*.rs', 'crates/engine/data/**', 'crates/engine/build.rs', 'crates/engine/Cargo.toml', 'Cargo.lock') }}
+ 
++      - name: Identify private parse baseline
++        id: private-baseline
++        if: github.event.repository.private && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
++        env:
++          PR_HEAD: ${{ github.event.pull_request.head.sha }}
++          EVENT_NAME: ${{ github.event_name }}
++        run: |
++          set -euo pipefail
++          BASE=HEAD
++          if [ "$EVENT_NAME" = pull_request ]; then
++            BASE="$(./scripts/parse-diff-base.sh "$PR_HEAD")"
++            git fetch --no-tags --depth=1 origin "$BASE"
++          fi
++          python3 scripts/private_parse_baseline.py identify --ref "$BASE" >> "$GITHUB_OUTPUT"
++
++      - name: Restore private parse baseline
++        if: github.event.repository.private && github.event_name == 'pull_request'
++        uses: actions/cache/restore@v4
++        with:
++          path: .private-parse-baseline/coverage-data.json
++          key: ${{ steps.private-baseline.outputs.cache_key }}
++
+       - name: Cache card-data gate results
+         # Proof-of-passage cache for the two expensive steps that are pure
+         # functions of the same hashed inputs: `card-data-validate` and
+@@ -640,7 +667,7 @@ jobs:
+             --fail-on-engine
+ 
+       - name: Parse-detail diff vs base baseline
+-        # PR-only review aid (NEVER blocks — continue-on-error): surfaces the
++        # PR-only review aid: surfaces the
+         # field-level parse changes this PR introduces, for the reviewing LLM.
+         # Unlike the regression check above (supported flips only), this diffs
+         # the full parse_details tree.
+@@ -659,10 +686,13 @@ jobs:
+         # hit; only the new bin links).
+         id: parsediff
+         if: github.event_name == 'pull_request'
+-        continue-on-error: true
++        # Private cache misses rebuild the exact base. Missing private evidence
++        # is a failed gate; public behavior stays intact.
++        continue-on-error: ${{ !github.event.repository.private }}
+         env:
+           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+           PR_NUMBER: ${{ github.event.pull_request.number }}
++          PRIVATE_CI: ${{ github.event.repository.private && 'true' || 'false' }}
+         run: |
+           set -euo pipefail
+           echo "$PR_NUMBER" > pr-number.txt
+@@ -678,6 +708,10 @@ jobs:
+           # cards). Reading the base off the merge commit's parent keeps both
+           # sides in lockstep no matter how stale (or main-merged) the PR is.
+           if ! BASE_SHA="$(./scripts/parse-diff-base.sh "$HEAD_SHA")"; then
++            if [ "$PRIVATE_CI" = true ]; then
++              echo "::error::Cannot identify the exact private baseline parent."
++              exit 1
++            fi
+             # An unmergeable PR has no synthetic merge parent. A shallow or
+             # missing parent is never licensed to use the frozen webhook base:
+             # that would bill intervening main changes to this PR.
+@@ -693,6 +727,22 @@ jobs:
+             echo "produced=false" >> "$GITHUB_OUTPUT"
+             exit 0
+           fi
++          if [ "$PRIVATE_CI" = true ]; then
++            # Preserve the HEAD diff binary before compiling the BASE on a
++            # cold miss into the same sequential target cache. Base generation
++            # cannot overwrite this binary or the head's coverage JSON.
++            cargo build --profile tool --features cli --bin coverage-parse-diff
++            DIFF_BIN="$(realpath target)/tool/coverage-parse-diff"
++            BASELINE=.private-parse-baseline/coverage-data.json
++            if ! python3 scripts/private_parse_baseline.py validate --ref "$BASE_SHA"; then
++              python3 scripts/private_parse_baseline.py build --ref "$BASE_SHA"
++            fi
++            "$DIFF_BIN" "$BASELINE" data/coverage-data.json \
++              --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
++              --markdown parse-diff.md --json parse-diff.json
++            echo "produced=true" >> "$GITHUB_OUTPUT"
++            exit 0
++          fi
+           URL="https://data.phase-rs.dev/parse-baselines/coverage-data-${BASE_HASH}.json"
+           if curl -fsSL --retry 3 --retry-delay 2 "$URL" -o coverage-base.json; then
+             cargo run --profile tool --features cli --bin coverage-parse-diff -- \
+@@ -723,6 +773,17 @@ jobs:
+             parse-diff.json
+             pr-number.txt
+ 
++      - name: Prepare private main parse baseline
++        if: github.event.repository.private && github.event_name == 'push' && github.ref == 'refs/heads/main'
++        run: python3 scripts/private_parse_baseline.py store --ref HEAD
++
++      - name: Save private main parse baseline
++        if: github.event.repository.private && github.event_name == 'push' && github.ref == 'refs/heads/main'
++        uses: actions/cache/save@v4
++        with:
++          path: .private-parse-baseline/coverage-data.json
++          key: ${{ steps.private-baseline.outputs.cache_key }}
++
+       - name: Run semantic audit
+         # Produces data/semantic-audit.json with structured findings for cards
+         # that parse cleanly but disagree semantically with their Oracle text.
+diff --git a/.github/workflows/coverage-parse-diff-comment.yml b/.github/workflows/coverage-parse-diff-comment.yml
+index 2677bb35..ae24ae14 100644
+--- a/.github/workflows/coverage-parse-diff-comment.yml
++++ b/.github/workflows/coverage-parse-diff-comment.yml
+@@ -34,15 +34,21 @@ permissions:
+ jobs:
+   comment:
+     name: Sticky parse-diff comment
+-    runs-on: ubuntu-latest
+-    timeout-minutes: 5
++    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-24.04"]') }}
++    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER, 'self-hosted') && 360 || 5 }}
+     # Only PR-triggered CI runs produce the artifact. Skipping non-PR runs keeps
+     # this job off main/merge_group entirely.
+-    if: github.event.workflow_run.event == 'pull_request'
++    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.workflow_id == 398415720 && github.event.workflow_run.head_repository.full_name == github.repository
+     steps:
++      - name: Wait for saget CI capacity
++        if: runner.environment == 'self-hosted'
++        working-directory: ${{ runner.temp }}
++        run: |
++          test "${SAGET_CI_SLOT_PROTOCOL:-}" = step-v1
++          python3 /run/saget-ci/slot.py --step
+       - name: Download parse-diff artifact
+         id: dl
+-        uses: actions/download-artifact@v4
++        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+         # Absent artifact = the PR didn't change engine source (compute step
+         # skipped its upload). Nothing to comment; degrade silently.
+         continue-on-error: true
+@@ -54,7 +60,7 @@ jobs:
+ 
+       - name: Upsert sticky comment
+         if: steps.dl.outcome == 'success'
+-        uses: actions/github-script@v7
++        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+         with:
+           script: |
+             const fs = require('fs');
+@@ -65,12 +71,12 @@ jobs:
+             // unreliable for forks). Absent => nothing to do.
+             let prNumber;
+             try {
+-              prNumber = parseInt(fs.readFileSync(`${dir}/pr-number.txt`, 'utf8').trim(), 10);
++              prNumber = Number(fs.readFileSync(`${dir}/pr-number.txt`, 'utf8').trim());
+             } catch {
+               core.info('No pr-number.txt in artifact; nothing to comment.');
+               return;
+             }
+-            if (!Number.isInteger(prNumber)) {
++            if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+               core.info('pr-number.txt malformed; skipping.');
+               return;
+             }
+@@ -95,10 +101,20 @@ jobs:
+             }
+ 
+             const { owner, repo } = context.repo;
++            const run = context.payload.workflow_run;
++            const { data: pr } = await github.rest.pulls.get({owner, repo, pull_number: prNumber});
++            // The artifact is data, not authority to write on another PR or
++            // replace newer review evidence after a slow older run finishes.
++            if (pr.state !== 'open' || pr.head.sha !== run.head_sha ||
++                pr.head.repo.full_name !== `${owner}/${repo}` ||
++                !body.includes(run.head_sha)) {
++              core.info('Artifact does not identify the current same-repository PR head; skipping.');
++              return;
++            }
+             const comments = await github.paginate(github.rest.issues.listComments, {
+               owner, repo, issue_number: prNumber, per_page: 100,
+             });
+-            const existing = comments.find(c => c.body && c.body.includes(MARKER));
++            const existing = comments.find(c => c.user.login === 'github-actions[bot]' && c.body && c.body.includes(MARKER));
+ 
+             if (existing) {
+               // EDIT in place — GitHub does not notify on edits, so re-pushes
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 0d365610..5d9a7894 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -31,18 +31,35 @@ paths. Each Nextest shard extracts its archive under disposable RUNNER_TEMP,
+ so repeated shards cannot collide inside the persistent target cache. Rust target cache and bounded local sccache stay on saget instead of being
+ uploaded as GitHub Cargo caches. Hosted-only disk pruning never runs here.
+ 
+-All private workers share a two-CPU/12-GiB parent and a whole-job slot with Yama
+-production builds. Local job budgets include that wait. This changes throughput
++All private workers share a four-CPU/12-GiB parent and two execution slots with
++root-selected memory reservations. CI shares the production gate; Yama production
++builds take it exclusively. Local job budgets include that wait. This changes throughput
+ and wall-clock timing; it does not reduce test/game counts or establish comparable
+ performance evidence between hosted and saget hardware. Temporary checkouts are
+ removed after jobs, while useful tools/dependency caches remain.
+ 
+-Only `ci.yml`, `ai-gate.yml` and `action-pin-audit.yml` are enabled at GitHub.
++Enable `ci.yml`, `ai-gate.yml`, `action-pin-audit.yml` and the trusted
++`coverage-parse-diff-comment.yml` after these adapters reach main. The comment
++workflow runs on the selected CI backend, reads artifacts without checking out
++PR code, and only posts evidence matching the current same-repository PR head.
+ All inherited release/deployment/maintenance workflows remain disabled and keep
+ their existing hosted routing; they are outside this CI migration. The two core-CI R2 publishing steps
+ require the additional `CI_ENABLE_PUBLISHING == 'true'` opt-in, which is unset
+ for this fork. Registration and CI validation do not authorize publishing,
+ application deployment, upstream changes, or moving Yama's pinned engine revision.
+ 
++Private parse baselines do not use R2 or require `CI_ENABLE_PUBLISHING`. Main CI
++saves coverage in this repository's private GitHub Actions cache, keyed by engine
++source, exact MTGJSON input and compiler identity. PRs only restore these entries;
++they cannot save a replacement main baseline. On a miss, eviction, or mismatched
++metadata, CI exports the actual synthetic merge commit's base parent into
++RUNNER_TEMP and generates its coverage with the same MTGJSON bytes and compiler.
++The base build runs sequentially in the existing target cache, and its temporary
++source/output tree is removed afterward. Head coverage remains untouched.
++The resulting parse-diff artifact identifies both base and current PR head.
++Failure to obtain private evidence fails the card-data job instead of reporting
++an indefinitely pending public snapshot. A cold baseline adds a base engine build
++and export; it uses existing CI capacity and private Actions storage quotas.
++
+ On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
+ The Rust summary job still reports failed dependencies, but skips a cancelled workflow so obsolete runs cannot hold the CI concurrency group.
+diff --git a/scripts/private-parse-comment.test.mjs b/scripts/private-parse-comment.test.mjs
+new file mode 100644
+index 00000000..4ef5d7c2
+--- /dev/null
++++ b/scripts/private-parse-comment.test.mjs
+@@ -0,0 +1,61 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import test from "node:test";
++
++const workflow = readFileSync(new URL("../.github/workflows/coverage-parse-diff-comment.yml", import.meta.url), "utf8");
++// Execute the shipped github-script body, with GitHub and artifact I/O stubbed.
++const body = workflow.split("          script: |\n")[1].split("\n").map(line => line.replace(/^ {12}/, "")).join("\n");
++const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
++const script = new AsyncFunction("require", "core", "github", "context", body);
++const head = "a".repeat(40);
++
++async function run({prHead = head, repository = "bryanroscoe/yama-phase", artifactHead = head,
++                    state = "open", comments = [], prNumber = "8"} = {}) {
++  const writes = [];
++  const files = {
++    "parse-diff-artifact/pr-number.txt": prNumber,
++    "parse-diff-artifact/parse-diff.md": `<!-- coverage-parse-diff -->\nGenerated for head ${artifactHead}\n`,
++  };
++  const require = name => {
++    assert.equal(name, "fs");
++    return {readFileSync: path => files[path]};
++  };
++  const issues = {
++    listComments: () => {},
++    createComment: async value => writes.push({kind: "create", ...value}),
++    updateComment: async value => writes.push({kind: "update", ...value}),
++  };
++  const github = {
++    rest: {issues, pulls: {get: async () => ({data: {state, head: {sha: prHead, repo: {full_name: repository}}}})}},
++    paginate: async () => comments,
++  };
++  await script(require, {info: () => {}}, github, {
++    repo: {owner: "bryanroscoe", repo: "yama-phase"},
++    payload: {workflow_run: {head_sha: head}},
++  });
++  return writes;
++}
++
++test("current private head posts evidence, including a zero-change result", async () => {
++  const writes = await run();
++  assert.equal(writes.length, 1);
++  assert.equal(writes[0].kind, "create");
++  assert.equal(writes[0].issue_number, 8);
++  assert.ok(writes[0].body.includes(head));
++});
++
++test("slow stale runs, foreign repositories, closed PRs and headless artifacts cannot post", async () => {
++  for (const args of [
++    {prHead: "b".repeat(40)}, {repository: "other/fork"}, {state: "closed"},
++    {artifactHead: "unknown"}, {prNumber: "0"}, {prNumber: "NaN"}, {prNumber: "8garbage"},
++  ]) assert.deepEqual(await run(args), []);
++});
++
++test("only the bot's sticky is updated; a user's marked comment is preserved", async () => {
++  const user = {id: 1, user: {login: "bryanroscoe"}, body: "<!-- coverage-parse-diff -->"};
++  const bot = {id: 2, user: {login: "github-actions[bot]"}, body: "<!-- coverage-parse-diff -->"};
++  const writes = await run({comments: [user, bot]});
++  assert.equal(writes.length, 1);
++  assert.equal(writes[0].kind, "update");
++  assert.equal(writes[0].comment_id, 2);
++});
+diff --git a/scripts/private_parse_baseline.py b/scripts/private_parse_baseline.py
+new file mode 100644
+index 00000000..95ae76a2
+--- /dev/null
++++ b/scripts/private_parse_baseline.py
+@@ -0,0 +1,159 @@
++#!/usr/bin/env python3
++"""Keep parse baselines private and rebuild an exact base when its cache expires."""
++
++import argparse
++from contextlib import contextmanager
++import hashlib
++import json
++import os
++from pathlib import Path
++import re
++import shutil
++import subprocess
++import sys
++import tempfile
++
++
++def identity(root, ref, atomic):
++    sha = subprocess.check_output(
++        ["git", "rev-parse", "--verify", ref + "^{commit}"], cwd=root, text=True
++    ).strip()
++    if not re.fullmatch(r"[0-9a-f]{40}", sha):
++        raise ValueError("baseline ref is not a commit")
++    engine_hash = subprocess.check_output(
++        ["bash", str(Path(__file__).with_name("engine-source-hash.sh")), sha],
++        cwd=root, text=True,
++    ).strip()
++    digest = hashlib.sha256()
++    with atomic.open("rb") as stream:
++        for block in iter(lambda: stream.read(1024 * 1024), b""):
++            digest.update(block)
++    compiler = subprocess.check_output(["rustc", "-vV"], cwd=root)
++    return {
++        "base_sha": sha,
++        "engine_hash": engine_hash,
++        "input_hash": digest.hexdigest(),
++        "compiler_hash": hashlib.sha256(compiler).hexdigest(),
++    }
++
++
++def read_coverage(path):
++    with path.open() as stream:
++        data = json.load(stream)
++    if not isinstance(data, dict) or not isinstance(data.get("cards"), list) or not data["cards"]:
++        raise ValueError("baseline must contain a nonempty coverage cards array")
++    return data
++
++
++def store(coverage, output, expected):
++    data = read_coverage(coverage)
++    data["private_ci_baseline"] = expected
++    output.parent.mkdir(parents=True, exist_ok=True)
++    temporary = None
++    try:
++        with tempfile.NamedTemporaryFile(mode="w", dir=output.parent, delete=False) as stream:
++            temporary = Path(stream.name)
++            json.dump(data, stream, separators=(",", ":"))
++            stream.write("\n")
++        os.replace(temporary, output)
++    finally:
++        if temporary is not None:
++            temporary.unlink(missing_ok=True)
++
++
++def validate(path, expected):
++    data = read_coverage(path)
++    recorded = data.get("private_ci_baseline", {})
++    if not isinstance(recorded, dict):
++        raise ValueError("private baseline metadata is not an object")
++    # Different main commits with identical engine/input/compiler bytes share a
++    # baseline. Never reuse one after a parser, MTGJSON, or toolchain change.
++    for key in ("engine_hash", "input_hash", "compiler_hash"):
++        if recorded.get(key) != expected[key]:
++            raise ValueError("private baseline identity mismatch: " + key)
++    if not re.fullmatch(r"[0-9a-f]{40}", recorded.get("base_sha", "")):
++        raise ValueError("private baseline has no source commit")
++
++
++@contextmanager
++def source_directory():
++    # A stable source path keeps Cargo's package identity stable across cold
++    # baselines. A random manifest path would leave another set of workspace
++    # artifacts in the shared target on every miss. Each runner executes one
++    # job at a time; never replace unexpected leftovers after an interruption.
++    base = Path(os.environ["RUNNER_TEMP"]) / "private-parse-baseline-src"
++    base.mkdir(mode=0o700)
++    try:
++        yield base
++    finally:
++        shutil.rmtree(base)
++
++
++def build(root, atomic, output, expected):
++    # This job has already built the head's diff binary. Compile the base
++    # sequentially into the SAME target cache; no concurrent divergent builds
++    # or duplicate dependency tree. The base never writes into the head tree.
++    env = os.environ.copy()
++    env["CARGO_TARGET_DIR"] = str((root / "target").resolve())
++    # setup-rust-toolchain uses a directory override in the HEAD checkout.
++    # The archived base has its own rust-toolchain.toml outside that override.
++    env["RUSTUP_TOOLCHAIN"] = subprocess.check_output(
++        ["rustup", "show", "active-toolchain"], cwd=root, text=True
++    ).split()[0]
++    with source_directory() as base:
++        with subprocess.Popen(["git", "archive", expected["base_sha"]], cwd=root,
++                              stdout=subprocess.PIPE) as archive:
++            try:
++                subprocess.run(["tar", "-x", "-C", str(base)], stdin=archive.stdout, check=True)
++            finally:
++                archive.stdout.close()
++            if archive.wait() != 0:
++                raise RuntimeError("cannot export baseline commit")
++        compiler = subprocess.check_output(["rustc", "-vV"], cwd=base, env=env)
++        if hashlib.sha256(compiler).hexdigest() != expected["compiler_hash"]:
++            raise ValueError("base compiler differs from the head compiler")
++        data = base / "data"
++        (data / "mtgjson").mkdir(parents=True, exist_ok=True)
++        (data / "mtgjson/AtomicCards.json").symlink_to(atomic.resolve())
++        cargo = ["cargo", "run", "--profile", "tool", "--features", "cli", "--bin"]
++        with (data / "card-data.json").open("w") as stream:
++            subprocess.run(cargo + ["oracle-gen", "--", "data/", "--stats", "--names-out",
++                                    "data/card-names.json"], cwd=base, env=env,
++                           stdout=stream, check=True)
++        coverage = data / "coverage-data.json"
++        with coverage.open("w") as stream:
++            subprocess.run(cargo + ["coverage-report", "--", "data/", "--all"],
++                           cwd=base, env=env, stdout=stream, check=True)
++        store(coverage, output, expected)
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("command", choices=("identify", "validate", "store", "build"))
++    parser.add_argument("--ref", required=True)
++    parser.add_argument("--input", type=Path, default=Path("data/mtgjson/AtomicCards.json"))
++    parser.add_argument("--output", type=Path, default=Path(".private-parse-baseline/coverage-data.json"))
++    parser.add_argument("--coverage", type=Path, default=Path("data/coverage-data.json"))
++    args = parser.parse_args()
++    root = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
++    expected = identity(root, args.ref, args.input)
++    if args.command == "identify":
++        for key, value in expected.items():
++            print(key + "=" + value)
++        print("cache_key=private-parse-baseline-v1-" + "-".join(
++            expected[key] for key in ("engine_hash", "input_hash", "compiler_hash")))
++    elif args.command == "validate":
++        try:
++            validate(args.output, expected)
++        except (OSError, ValueError) as error:
++            print("Private baseline unavailable: " + str(error), file=sys.stderr)
++            return 1
++    elif args.command == "store":
++        store(args.coverage, args.output, expected)
++    else:
++        build(root, args.input, args.output, expected)
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/private_parse_baseline_tests.py b/scripts/private_parse_baseline_tests.py
+new file mode 100644
+index 00000000..1a153868
+--- /dev/null
++++ b/scripts/private_parse_baseline_tests.py
+@@ -0,0 +1,172 @@
++#!/usr/bin/env python3
++"""Exercise exact-base generation and private cache identity without compiling Rust."""
++
++import json
++import os
++from pathlib import Path
++import subprocess
++import tempfile
++import unittest
++from unittest.mock import patch
++
++import private_parse_baseline as baseline
++
++
++class BaselineTests(unittest.TestCase):
++    def setUp(self):
++        self.directory = tempfile.TemporaryDirectory(prefix="phase-baseline-test-")
++        self.addCleanup(self.directory.cleanup)
++        self.root = Path(self.directory.name)
++        self.repo = self.root / "repo"
++        self.repo.mkdir()
++        self.bin = self.root / "bin"
++        self.bin.mkdir()
++        self.scratch = self.root / "scratch"
++        self.scratch.mkdir()
++        self.env = patch.dict(os.environ, {
++            "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
++            "RUNNER_TEMP": str(self.scratch),
++        })
++        self.env.start()
++        self.addCleanup(self.env.stop)
++        self.tool("rustc", "print('rustc fixture compiler A')")
++        self.tool("rustup", "print('fixture-toolchain (directory override)')")
++        self.tool("cargo", """
++import json, os, pathlib, sys
++if os.environ.get('BASELINE_TEST_FAIL') == 'true':
++    sys.exit(7)
++assert pathlib.Path(os.environ['CARGO_TARGET_DIR']).is_absolute()
++assert os.environ['RUSTUP_TOOLCHAIN'] == 'fixture-toolchain'
++if 'oracle-gen' in sys.argv:
++    source = pathlib.Path('crates/engine/src/fixture.rs').read_text().strip()
++    atomic = pathlib.Path('data/mtgjson/AtomicCards.json').read_text().strip()
++    print(json.dumps({'source': source, 'input': atomic}))
++else:
++    data = json.loads(pathlib.Path('data/card-data.json').read_text())
++    print(json.dumps({'cards': [data]}))
++""")
++        self.git("init", "-q")
++        self.git("config", "user.name", "Fixture")
++        self.git("config", "user.email", "fixture@example.invalid")
++        self.git("config", "commit.gpgsign", "false")
++        self.source = self.repo / "crates/engine/src/fixture.rs"
++        self.source.parent.mkdir(parents=True)
++        self.source.write_text("BASE")
++        self.git("add", ".")
++        self.git("commit", "-qm", "base")
++        self.base = self.git("rev-parse", "HEAD")
++        self.source.write_text("HEAD")
++        self.git("add", ".")
++        self.git("commit", "-qm", "head")
++        self.atomic = self.root / "AtomicCards.json"
++        self.atomic.write_text("same MTGJSON input")
++        self.output = self.repo / ".baseline/coverage-data.json"
++
++    def git(self, *args):
++        return subprocess.check_output(["git", *args], cwd=self.repo, text=True).strip()
++
++    def tool(self, name, body):
++        path = self.bin / name
++        path.write_text("#!/usr/bin/env python3\n" + body + "\n")
++        path.chmod(0o755)
++
++    def expected(self, ref=None):
++        return baseline.identity(self.repo, ref or self.base, self.atomic)
++
++    def build(self):
++        expected = self.expected()
++        baseline.build(self.repo, self.atomic, self.output, expected)
++        return expected
++
++    def test_cold_miss_builds_actual_base_with_same_input_without_touching_head(self):
++        before = self.git("status", "--porcelain")
++        head = self.git("rev-parse", "HEAD")
++        expected = self.build()
++        result = json.loads(self.output.read_text())
++        self.assertEqual(result["cards"], [{"source": "BASE", "input": "same MTGJSON input"}])
++        self.assertEqual(result["private_ci_baseline"], expected)
++        self.assertEqual(self.source.read_text(), "HEAD")
++        self.assertEqual(self.git("rev-parse", "HEAD"), head)
++        self.assertEqual(list(self.scratch.iterdir()), [])
++        self.output.unlink()
++        self.output.parent.rmdir()
++        self.assertEqual(self.git("status", "--porcelain"), before)
++
++    def test_cache_hit_validates_without_running_cargo(self):
++        expected = self.build()
++        with patch.dict(os.environ, {"BASELINE_TEST_FAIL": "true"}):
++            baseline.validate(self.output, expected)
++
++    def test_source_input_and_compiler_changes_each_reject_stale_baseline(self):
++        expected = self.build()
++        changed_source = self.expected("HEAD")
++        with self.assertRaisesRegex(ValueError, "engine_hash"):
++            baseline.validate(self.output, changed_source)
++        self.atomic.write_text("different MTGJSON")
++        with self.assertRaisesRegex(ValueError, "input_hash"):
++            baseline.validate(self.output, self.expected())
++        self.atomic.write_text("same MTGJSON input")
++        self.tool("rustc", "print('rustc fixture compiler B')")
++        with self.assertRaisesRegex(ValueError, "compiler_hash"):
++            baseline.validate(self.output, self.expected())
++        self.assertNotEqual(expected["compiler_hash"], self.expected()["compiler_hash"])
++
++    def test_equivalent_source_commit_can_share_content_addressed_baseline(self):
++        expected = self.build()
++        same = dict(expected, base_sha="f" * 40)
++        baseline.validate(self.output, same)
++
++    def test_base_cannot_silently_use_its_own_nightly_override(self):
++        self.tool("rustc", """
++import os, pathlib
++is_base = pathlib.Path.cwd().name == 'private-parse-baseline-src'
++if is_base and os.environ.get('RUSTUP_TOOLCHAIN') != 'fixture-toolchain':
++    print('rustc fixture NIGHTLY')
++else:
++    print('rustc fixture compiler A')
++""")
++        expected = self.build()
++        baseline.validate(self.output, expected)
++
++    def test_unexpected_base_compiler_is_rejected_without_stamping_output(self):
++        self.tool("rustc", """
++import pathlib
++print('rustc fixture NIGHTLY' if pathlib.Path.cwd().name == 'private-parse-baseline-src' else 'rustc fixture compiler A')
++""")
++        with self.assertRaisesRegex(ValueError, "base compiler"):
++            self.build()
++        self.assertFalse(self.output.exists())
++        self.assertEqual(list(self.scratch.iterdir()), [])
++
++    def test_failed_generation_preserves_previous_output_and_cleans_scratch(self):
++        self.build()
++        before = self.output.read_bytes()
++        with patch.dict(os.environ, {"BASELINE_TEST_FAIL": "true"}):
++            with self.assertRaises(subprocess.CalledProcessError):
++                self.build()
++        self.assertEqual(self.output.read_bytes(), before)
++        self.assertEqual(list(self.scratch.iterdir()), [])
++
++    def test_missing_or_malformed_cache_cannot_be_accepted(self):
++        with self.assertRaises(FileNotFoundError):
++            baseline.validate(self.output, self.expected())
++        self.output.parent.mkdir()
++        for value in ({}, {"cards": []}, {"cards": "not an array"}, {"cards": [{}]},
++                      {"cards": [{}], "private_ci_baseline": None}):
++            with self.subTest(value=value):
++                self.output.write_text(json.dumps(value))
++                with self.assertRaises(ValueError):
++                    baseline.validate(self.output, self.expected())
++
++    def test_interrupted_source_directory_is_preserved_and_refused(self):
++        existing = self.scratch / "private-parse-baseline-src"
++        existing.mkdir()
++        evidence = existing / "unknown-output"
++        evidence.write_text("preserve")
++        with self.assertRaises(FileExistsError):
++            self.build()
++        self.assertEqual(evidence.read_text(), "preserve")
++
++
++if __name__ == "__main__":
++    unittest.main()
+
+From 35662293d8b0a88519a365fb567d57604b41171b Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 12:06:37 -0500
+Subject: [PATCH 12/13] fork: use checked-out merge parents without refetching
+ private origin
+
+---
+ .github/workflows/ci.yml                |  5 +--
+ scripts/private_parse_baseline_tests.py | 44 +++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index a299c740..0c199116 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -508,7 +508,8 @@ jobs:
+           BASE=HEAD
+           if [ "$EVENT_NAME" = pull_request ]; then
+             BASE="$(./scripts/parse-diff-base.sh "$PR_HEAD")"
+-            git fetch --no-tags --depth=1 origin "$BASE"
++            # checkout's depth 2 already contains both merge parents and trees;
++            # persist-credentials:false deliberately removes later Git auth.
+           fi
+           python3 scripts/private_parse_baseline.py identify --ref "$BASE" >> "$GITHUB_OUTPUT"
+ 
+@@ -719,7 +720,7 @@ jobs:
+             echo "produced=true" >> "$GITHUB_OUTPUT"
+             exit 0
+           fi
+-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
++          # The depth-2 checkout already supplies this parent and its full tree.
+           BASE_HASH="$(./scripts/engine-source-hash.sh "$BASE_SHA")"
+           HEAD_HASH="$(./scripts/engine-source-hash.sh HEAD)"
+           if [ "$BASE_HASH" = "$HEAD_HASH" ]; then
+diff --git a/scripts/private_parse_baseline_tests.py b/scripts/private_parse_baseline_tests.py
+index 1a153868..06966f7a 100644
+--- a/scripts/private_parse_baseline_tests.py
++++ b/scripts/private_parse_baseline_tests.py
+@@ -4,8 +4,10 @@
+ import json
+ import os
+ from pathlib import Path
++import shutil
+ import subprocess
+ import tempfile
++import textwrap
+ import unittest
+ from unittest.mock import patch
+ 
+@@ -167,6 +169,48 @@ print('rustc fixture NIGHTLY' if pathlib.Path.cwd().name == 'private-parse-basel
+             self.build()
+         self.assertEqual(evidence.read_text(), "preserve")
+ 
++    def test_shipped_steps_use_shallow_merge_parents_without_origin_credentials(self):
++        # A docs-only PR and a parallel main commit produce a real synthetic
++        # merge. Clone it as checkout does, with only the merge and two parents.
++        self.source.write_text("BASE")
++        self.git("add", ".")
++        self.git("commit", "-qm", "docs-only PR")
++        head = self.git("rev-parse", "HEAD")
++        self.git("checkout", "-q", "--detach", self.base)
++        (self.repo / "main-note").write_text("parallel main change")
++        self.git("add", ".")
++        self.git("commit", "-qm", "main")
++        main = self.git("rev-parse", "HEAD")
++        self.git("merge", "--no-ff", "-qm", "synthetic PR merge", head)
++        self.git("branch", "synthetic-merge")
++        checkout = self.root / "shallow"
++        subprocess.run(["git", "clone", "--quiet", "--depth", "2", "--branch",
++                        "synthetic-merge", self.repo.as_uri(), str(checkout)], check=True)
++        # Any later fetch fails. No credentials or private repository needed.
++        subprocess.run(["git", "remote", "set-url", "origin", str(self.root / "no-origin")],
++                       cwd=checkout, check=True)
++        scripts = checkout / "scripts"
++        scripts.mkdir()
++        origin_scripts = Path(__file__).resolve().parent
++        for name in ("private_parse_baseline.py", "engine-source-hash.sh", "parse-diff-base.sh"):
++            shutil.copy2(origin_scripts / name, scripts / name)
++        data = checkout / "data/mtgjson"
++        data.mkdir(parents=True)
++        shutil.copy2(self.atomic, data / "AtomicCards.json")
++        output = self.root / "step-output"
++        output.touch()
++        env = dict(os.environ, EVENT_NAME="pull_request", PR_HEAD=head, HEAD_SHA=head,
++                   PR_NUMBER="8", PRIVATE_CI="true", GITHUB_OUTPUT=str(output))
++        workflow = (origin_scripts.parent / ".github/workflows/ci.yml").read_text()
++        for name in ("Identify private parse baseline", "Parse-detail diff vs base baseline"):
++            step = workflow.split("      - name: " + name + "\n", 1)[1].split("\n      - ", 1)[0]
++            shell = textwrap.dedent(step.split("        run: |\n", 1)[1])
++            subprocess.run(["bash", "-c", shell], cwd=checkout, env=env,
++                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
++        self.assertIn("base_sha=" + main, output.read_text())
++        self.assertIn("cache_key=private-parse-baseline-v1-", output.read_text())
++        self.assertIn("produced=false", output.read_text())
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+
+From 1946e2e3fc7b1877d5245dd6d546f92b771ef572 Mon Sep 17 00:00:00 2001
+From: Bryan Roscoe <bryanroscoe@gmail.com>
+Date: Fri, 30 Oct 2026 12:36:36 -0500
+Subject: [PATCH 13/13] fork: cancel superseded AI gate runs before they block
+ current CI
+
+---
+ .github/workflows/ai-gate.yml | 6 ++++++
+ docs/private-ci.md            | 2 ++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/.github/workflows/ai-gate.yml b/.github/workflows/ai-gate.yml
+index c948fea2..1e4f8b41 100644
+--- a/.github/workflows/ai-gate.yml
++++ b/.github/workflows/ai-gate.yml
+@@ -14,6 +14,12 @@ on:
+     - cron: "0 9 * * *"
+   workflow_dispatch:
+ 
++# Obsolete PR workloads must not occupy the private worker ahead of the latest
++# commit. Manual and scheduled suites retain separate concurrency groups.
++concurrency:
++  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
++  cancel-in-progress: true
++
+ permissions:
+   contents: read
+   issues: write
+diff --git a/docs/private-ci.md b/docs/private-ci.md
+index 5d9a7894..f803994a 100644
+--- a/docs/private-ci.md
++++ b/docs/private-ci.md
+@@ -63,3 +63,5 @@ and export; it uses existing CI capacity and private Actions storage quotas.
+ 
+ On saget, the first workflow step waits for CI capacity before checkout. The pre-job hook returns promptly so GitHub can report and cancel queued work. This step runs from RUNNER_TEMP, which exists before checkout, and verifies the runner supports the step-slot protocol. Install/adopt the reviewed sagetserver hooks before running these adapters. Hosted jobs skip this step.
+ The Rust summary job still reports failed dependencies, but skips a cancelled workflow so obsolete runs cannot hold the CI concurrency group.
++AI gates also cancel superseded runs of the same PR. Manual and scheduled suites
++use separate groups so a PR update does not displace those workloads.

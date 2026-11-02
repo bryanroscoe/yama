@@ -91,7 +91,7 @@ fn idle(_: &str) -> bool {
 }
 
 fn user(id: &str, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false, power: true }
 }
 
 async fn add_user(pool: &SqlitePool, id: &str, admin: bool) {
@@ -272,6 +272,36 @@ async fn an_experiment_is_frozen_and_paired_when_created() {
         assert_eq!(others(&b), others(&v));
         assert_eq!((b.max_turns, b.max_actions, b.max_seconds, b.difficulty.as_str()), (120, 200_000, 600, "Easy"));
     }
+}
+
+#[tokio::test]
+async fn only_admins_and_power_users_start_repeat_or_extend_experiments() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let quota = crate::config::LabQuota::default();
+    let fa = ForgeAccess::default();
+    let bryan = user("bryan", false);
+    let with_op = |op: &str| {
+        let mut r = swap_req(100);
+        r.op_id = Some(op.into());
+        r
+    };
+    let d = create(&pool, &bryan, with_op("op-1"), sim.as_ref()).await.unwrap();
+    let id = d.item.id.clone();
+    // The same account after its power-user grant is withdrawn: it still reads the run and a retry
+    // of the create that already happened answers with it, but it starts nothing new.
+    let plain = User { power: false, ..user("bryan", false) };
+    assert_eq!(create_with(&pool, &plain, with_op("op-1"), sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
+    let forbidden = |e: AppError| matches!(e, AppError::Forbidden(m) if m == crate::auth::POWER_ONLY);
+    assert!(forbidden(create_with(&pool, &plain, with_op("op-2"), sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert!(forbidden(again_with(&pool, &plain, &id, 100, None, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    // 100 games of a change run are 50 pods: asking from that count is new work, from any other
+    // it's a retry (or a stale page) and answers with the run.
+    assert!(forbidden(more_with(&pool, &plain, &id, 100, 50, sim.as_ref(), &quota, &fa).await.unwrap_err()));
+    assert_eq!(more_with(&pool, &plain, &id, 100, 0, sim.as_ref(), &quota, &fa).await.unwrap().item.id, id);
+    assert_eq!(detail(&pool, "bryan", &id).await.unwrap().item.id, id);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id='bryan'").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]
@@ -2207,6 +2237,122 @@ async fn tournament_is_one_frozen_shared_field_and_scores_every_deck() {
 }
 
 #[tokio::test]
+async fn tables_group_a_tournament_by_table_with_each_seat_for_the_owner_only() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let r = req(json!({"op_id":"tables-tournament", "mode":"tournament", "entrants": [
+        {"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"},
+        {"kind":"precon","id":"p3"}, {"kind":"precon","id":"p4"}, {"kind":"precon","id":"p5"}
+    ], "games":8}));
+    let d = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    let before = tables_for(&pool, "admin", &d.item.id, None, None, None).await.unwrap();
+    assert!(before.tables.iter().flat_map(|t| &t.games).all(|g| !g.played && g.places.len() == 4), "unplayed games are listed, empty");
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    let all = tables_for(&pool, "admin", &d.item.id, None, None, None).await.unwrap();
+    assert_eq!(all.engine, "phase");
+    assert_eq!(all.tables.iter().map(|t| t.games.len()).sum::<usize>(), d.item.progress.total as usize);
+    for (i, t) in all.tables.iter().enumerate() {
+        assert_eq!(t.table, i + 1);
+        assert_eq!(t.games.len(), 4, "a table is one seat rotation");
+        let mut decks = t.decks.clone();
+        decks.sort();
+        for g in &t.games {
+            let mut seats = g.seats.clone();
+            seats.sort();
+            assert_eq!(seats, decks, "every game of a table has its four decks");
+            assert!(g.played && g.end.is_some());
+            if g.scored {
+                assert!(g.places.iter().all(Option::is_some));
+            }
+        }
+    }
+    assert_eq!(all.decks.len(), 5);
+    assert!(all.decks.iter().all(|x| x.entrant.is_some() && !x.label.is_empty()));
+    let one = tables_for(&pool, "admin", &d.item.id, None, Some("e2"), None).await.unwrap();
+    assert!(!one.tables.is_empty() && one.tables.iter().all(|t| t.decks.iter().any(|x| x == "e2")));
+    let with_e2: Vec<&TableView> = all.tables.iter().filter(|t| t.decks.iter().any(|x| x == "e2")).collect();
+    assert_eq!(one.tables.iter().collect::<Vec<_>>(), with_e2, "exactly the tables e2 sat at, numbered as in the whole run");
+    let third = tables_for(&pool, "admin", &d.item.id, None, None, Some(3)).await.unwrap();
+    assert_eq!(third.tables.len(), 1);
+    assert_eq!(third.tables[0], all.tables[2], "a table keeps its number when filtered");
+    assert_eq!(third.decks.len(), 4, "only the decks it names");
+    assert!(tables_for(&pool, "admin", &d.item.id, None, None, Some(0)).await.unwrap().tables.is_empty());
+    assert!(tables_for(&pool, "admin", &d.item.id, None, None, Some(usize::MAX)).await.unwrap().tables.is_empty());
+    assert!(tables_for(&pool, "other", &d.item.id, None, None, None).await.is_err());
+    assert!(tables_for(&pool, "admin", &d.item.id, Some("nope"), None, None).await.is_err());
+}
+
+#[tokio::test]
+async fn lab_games_reads_a_tournament_table_by_table() {
+    use crate::mcp::{Via, tools};
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let mut st = crate::testutil::state_with(crate::testutil::config(), pool.clone()).await;
+    st.lab = LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone()));
+    let admin = user("admin", true);
+    let r = req(json!({"op_id":"mcp-tables", "mode":"tournament", "entrants": [
+        {"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"},
+        {"kind":"precon","id":"p3"}, {"kind":"precon","id":"p4"}, {"kind":"precon","id":"p5"}
+    ], "games":8}));
+    let d = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    st.lab.drain().await;
+    let call = |args: Value| {
+        let (st, admin) = (st.clone(), admin.clone());
+        async move { tools::call(&st, &admin, &Via::Key, "lab_games", &args).await }
+    };
+    let by_name = call(json!({"id": d.item.id, "deck": "precon p3"})).await.unwrap();
+    assert!(by_name.contains("where Precon p3 sat"), "{by_name}");
+    assert!(by_name.contains("Table ") && by_name.contains("went first") && by_name.contains("1. "), "{by_name}");
+    assert_eq!(by_name, call(json!({"id": d.item.id, "deck": "e2"})).await.unwrap(), "by name or entrant id");
+    let one = call(json!({"id": d.item.id, "table": 2})).await.unwrap();
+    assert!(one.starts_with("1 table on phase."), "{one}");
+    assert_eq!(one.matches("\n- ").count(), 4, "a table's four games: {one}");
+    assert!(call(json!({"id": d.item.id, "deck": "precon"})).await.unwrap_err().to_string().contains("matches 5 decks"));
+    assert!(call(json!({"id": d.item.id, "deck": "nobody"})).await.unwrap_err().to_string().contains("No deck"));
+    let other = user("other", false);
+    assert!(matches!(tools::call(&st, &other, &Via::Key, "lab_games", &json!({"id": d.item.id, "deck": "e0"})).await.unwrap_err(), AppError::NotFound(_)));
+
+    // Two decks with one name (versions of a saved deck keep its name): the name is ambiguous.
+    let a = deck(&pool, "admin", "Twin", list_of("Ghave", &["Llanowar Elves"])).await;
+    let b = deck(&pool, "admin", "Twin", list_of("Atla", &["Grizzly Bears"])).await;
+    let r = req(json!({"op_id":"mcp-twins", "mode":"tournament", "entrants": [
+        {"kind":"deck","id":a}, {"kind":"deck","id":b}, {"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"}
+    ], "games":4}));
+    let twins = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    st.lab.drain().await;
+    let err = call(json!({"id": twins.item.id, "deck": "twin"})).await.unwrap_err().to_string();
+    assert!(err.contains("matches 2 decks") && err.contains("(e0)") && err.contains("(e1)"), "{err}");
+    assert!(call(json!({"id": twins.item.id, "deck": "E1"})).await.unwrap().contains("where Twin sat"));
+}
+
+#[tokio::test]
+async fn tables_name_the_precons_filling_head_to_head_seats() {
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let r = req(json!({"op_id":"tables-versus", "mode":"versus", "entrants": [
+        {"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"}
+    ], "field":{"kind":"precons_ids","ids":["p3","p4","p5"]}, "games":8}));
+    let d = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    let t = tables_for(&pool, "admin", &d.item.id, None, None, None).await.unwrap();
+    assert_eq!(t.tables.len(), 2);
+    assert!(t.tables.iter().all(|x| x.games.len() == 4 && x.decks.iter().any(|d| d == "e0") && x.decks.iter().any(|d| d == "e1")));
+    assert!(t.decks.iter().any(|x| x.entrant.is_none()), "the fillers are named too");
+    // 1v1: tables of two, two games each.
+    let r = req(json!({"op_id":"tables-1v1", "mode":"versus", "entrants": [{"kind":"precon","id":"p1"}, {"kind":"precon","id":"p2"}], "pod": 2, "games": 6}));
+    let one = create(&pool, &admin, r, sim.as_ref()).await.unwrap();
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    let t = tables_for(&pool, "admin", &one.item.id, None, None, None).await.unwrap();
+    assert_eq!(t.tables.iter().map(|x| (x.table, x.games.len(), x.decks.len())).collect::<Vec<_>>(), [(1, 2, 2), (2, 2, 2), (3, 2, 2)]);
+    assert_eq!(tables_for(&pool, "admin", &one.item.id, None, None, Some(2)).await.unwrap().tables, vec![t.tables[1].clone()]);
+    // Change runs have no tables.
+    let c = create(&pool, &admin, swap_req(20), sim.as_ref()).await.unwrap();
+    assert!(tables_for(&pool, "admin", &c.item.id, None, None, None).await.is_err());
+}
+
+#[tokio::test]
 async fn tournament_can_add_the_precon_catalog_and_preserves_idempotency() {
     let pool = fixture().await;
     let sim = FakeSim::new();
@@ -2332,4 +2478,57 @@ async fn cancelled_retry_tail_is_not_described_as_ongoing_in_advisor_context() {
         assert!(!ended.contains("slow retries"));
         assert!(!ended.contains("retry-only tail"));
     }
+}
+
+#[tokio::test]
+async fn stock_tournaments_pool_into_the_rating_simulation_one_engine_and_build_at_a_time() {
+    use crate::precon_evidence::{choose_simulation, chosen_simulation, clear_simulation};
+    let pool = fixture().await;
+    let sim = FakeSim::new();
+    let admin = user("admin", true);
+    let tournament = |op: &str| req(json!({"op_id": op, "mode":"tournament","entrants":[{"kind":"precon","id":"p1"}],"field":{"kind":"precons_all"},"games":100}));
+    let a = create(&pool, &admin, tournament("t-a"), sim.as_ref()).await.unwrap().item.id;
+    let b = create(&pool, &admin, tournament("t-b"), sim.as_ref()).await.unwrap().item.id;
+    LabWorker::new(pool.clone(), 2, SimState::Ready(sim.clone())).drain().await;
+    assert!(chosen_simulation(&pool).await.unwrap().is_none(), "nothing chosen, no simulation");
+
+    let build = choose_simulation(&pool, "admin", &[a.clone()], "phase", None).await.unwrap();
+    assert!(!build.is_empty() && !build.contains('+'), "the newest game's engine version: {build}");
+    let one = chosen_simulation(&pool).await.unwrap().expect("its phase games give strengths");
+    assert_eq!(one.kind, "tournament");
+    assert_eq!(one.precons, 5, "every stock entrant");
+    assert!(one.name.starts_with("128 stock-precon tournament games"), "{}", one.name);
+    assert!(!one.name.contains("Tournament:"), "the owner's experiment name stays private");
+    assert_eq!(one.id, crate::precon_evidence::CHOSEN_SIMULATION_ID, "and so does its id");
+    assert!(!one.engine.contains(&a));
+    // Frozen at a date, as the time-split test sees it: no games had finished an hour ago.
+    let past = chrono::Utc::now() - chrono::Duration::hours(1);
+    assert!(crate::precon_evidence::chosen_simulation_at(&pool, Some(past)).await.unwrap().is_none());
+    choose_simulation(&pool, "admin", &[a.clone(), b.clone()], "phase", None).await.unwrap();
+    let both = chosen_simulation(&pool).await.unwrap().unwrap();
+    assert!(both.name.starts_with("256 stock-precon tournament games"), "two tournaments pool: {}", both.name);
+    assert_eq!(both.precons, 5, "one entrant per stock list across tournaments");
+
+    // Another engine or engine version contributes nothing.
+    assert!(choose_simulation(&pool, "admin", &[a.clone()], "forge", None).await.is_err(), "no forge games to name a build");
+    assert!(choose_simulation(&pool, "admin", &[a.clone()], "phase", Some("phase-rs v9")).await.is_err(), "no games from that build");
+    // Games from other card data drop out of a choice.
+    sqlx::query("UPDATE precon_evidence_simulation SET card_data = 'other-card-data'").execute(&pool).await.unwrap();
+    assert!(chosen_simulation(&pool).await.unwrap().is_none());
+    assert!(choose_simulation(&pool, "admin", &[a.clone()], "mtga", None).await.is_err());
+    assert!(choose_simulation(&pool, "bryan", &[a.clone()], "phase", None).await.is_err(), "only the operator's own tournaments");
+
+    // Pods with a list that isn't a current stock precon drop out; the rest still count.
+    choose_simulation(&pool, "admin", &[a.clone()], "phase", Some(&build)).await.unwrap();
+    sqlx::query("UPDATE lab_experiments SET spec = json_set(spec, '$.entrants[0].sha256', 'not-stock') WHERE id = ?")
+        .bind(&a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let fewer = chosen_simulation(&pool).await.unwrap().unwrap();
+    let kept: u32 = fewer.name.split(' ').next().unwrap().parse().unwrap();
+    assert!(kept > 0 && kept < 128, "{}", fewer.name);
+    assert!(fewer.precons <= 4, "the altered list has no strength");
+    clear_simulation(&pool).await.unwrap();
+    assert!(chosen_simulation(&pool).await.unwrap().is_none());
 }

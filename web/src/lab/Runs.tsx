@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
+import { usePower } from "../auth";
+import { POWER_NOTE } from "../components/PowerOnly";
 import { api } from "../api";
 import { Details, ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
@@ -10,7 +12,10 @@ import {
   cantJudge,
   caveat,
   deltaBound,
+  deckName,
   durationText,
+  engineFamily,
+  fieldResult,
   fmtDate,
   hasResults,
   pct,
@@ -27,29 +32,56 @@ import {
 } from "./logic";
 import { IntervalChart, SimLine } from "./parts";
 import { RunWarnings, usePrecons } from "./Precons";
-import { experimentLabel } from "./Run";
 import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
-export function headline(e: ExperimentItem): string {
+export function headline(e: ExperimentItem, name?: (label: string) => string): string {
   const p = e.progress;
   const s = e.summary && hasResults(e.summary) ? e.summary : null;
+  const field = fieldResult(s, e.status !== "queued" && e.status !== "running", name);
   switch (e.status) {
     case "queued":
       return p.eta_seconds != null ? `Waiting, done in ${durationText(p.eta_seconds)}` : "Waiting for its turn";
     case "running":
-      return `${p.done} of ${p.total} games${p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}${s ? `. So far: ${s.verdict.text}` : ""}`;
+      return `${p.done} of ${p.total} games${p.eta_seconds != null ? `, ${durationText(p.eta_seconds)} left` : ""}${s ? `. So far: ${field?.text ?? s.verdict.text}` : ""}`;
     case "failed":
       return `Failed: ${e.error ?? "no reason recorded"}`;
     case "cancelled":
-      return `Cancelled after ${p.done} of ${p.total} games${s ? `. ${verdictText(e.status, s)}` : ""}`;
+      return `Cancelled after ${p.done} of ${p.total} games${s ? `. ${field?.text ?? verdictText(e.status, s)}` : ""}`;
     default:
-      return s?.verdict.text ?? "Done";
+      return field?.text ?? s?.verdict.text ?? "Done";
   }
 }
 
+/** Under a run's name: who it plays against (when anyone), how many games, and when it started. */
+function runSubtitle(e: ExperimentItem): string {
+  const f = e.field;
+  const mode = e.mode ?? "change";
+  const games = `${e.label.games.toLocaleString("en-GB")} games, started ${fmtDate(e.label.started_at ?? e.label.created_at)}`;
+  // A tournament's field decks are all entrants, scored like the rest: no empty seats to name.
+  if (mode === "tournament") return games;
+  if (mode === "versus") {
+    return f && f.kind !== "none" ? `Empty seats from ${f.every_pod ? f.label : f.label.replace(/^./, (c) => c.toLowerCase())}, ${games}` : games;
+  }
+  return `${f?.label ?? "An unrecorded field"}, ${games}`;
+}
+
+/** A run's simulation line on its card: engines by name, not by build (the run's page has every build). */
+function cardSimLabel(e: ExperimentItem): string {
+  const l = e.label;
+  return simLabel({
+    engine: engineFamily(l.engine),
+    difficulty: l.difficulty,
+    games: e.progress.done,
+    planned: l.games,
+    pod: l.pod,
+    date: l.finished_at ?? l.started_at ?? l.created_at,
+  });
+}
+
 export function RunsPage() {
+  const power = usePower();
   const qc = useQueryClient();
   const exps = useQuery({
     queryKey: ["lab", "experiments"],
@@ -58,6 +90,7 @@ export function RunsPage() {
   });
   const runs = useQuery({ queryKey: ["lab", "runs"], queryFn: () => api<RunListItem[]>("/api/lab/runs") });
   const precons = usePrecons();
+  const name = (label: string) => deckName(label, precons.data?.precons ?? []);
   const batch = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired");
   const refresh = () => void qc.invalidateQueries({ queryKey: ["lab", "experiments"] });
   const stop = useMutation({ mutationFn: (id: string) => api(`/api/lab/experiments/${id}/cancel`, { method: "POST" }), onSuccess: refresh });
@@ -69,33 +102,46 @@ export function RunsPage() {
       <LabHead
         title="My runs"
         action={
-          <span className="row" style={{ gap: 8 }}>
-            <Link className="button" to="/decks/lab/compare">
-              Compare decks
-            </Link>
-            <Link className="button primary" to="/decks/lab/try">
-              Try a change
-            </Link>
-          </span>
+          power ? (
+            <span className="row" style={{ gap: 8 }}>
+              <Link className="button" to="/lab/compare">
+                Compare decks
+              </Link>
+              <Link className="button primary" to="/lab/try">
+                Try a change
+              </Link>
+            </span>
+          ) : undefined
         }
       />
       <ErrorText error={exps.error ?? stop.error ?? remove.error} />
       {exps.data?.length === 0 && batch.length === 0 && (
-        <p className="empty">
-          No runs yet. <Link to="/decks/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/decks/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
-          <Link to="/decks/lab">Precons</Link>.
-        </p>
+        power ? (
+          <p className="empty">
+            No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
+            <Link to="/lab">Precons</Link>.
+          </p>
+        ) : (
+          <p className="empty">
+            No runs. {POWER_NOTE} See the <Link to="/lab">simulated precon rankings</Link>.
+          </p>
+        )
       )}
       {exps.data && exps.data.length > 0 && (
         <section className="lab-runs" aria-label="Your experiments">
           {exps.data.map((e) => {
             const live = e.status === "queued" || e.status === "running";
             const s = e.summary && hasResults(e.summary) ? e.summary : null;
+            const field = fieldResult(s, !live, name);
             const tag = live
               ? { text: e.status === "running" ? "Running" : "Waiting", tone: "" }
               : e.status === "failed"
                 ? { text: "Failed", tone: "bad" }
-                : s
+                : field
+                  ? field.clear
+                    ? { text: "Clear winner", tone: "good" }
+                    : { text: "No clear winner", tone: "quiet" }
+                  : s
                   ? verdictTag(s.verdict.kind, e.mode ?? "change")
                   : { text: e.status === "cancelled" ? "Cancelled" : "Done", tone: "quiet" };
             return (
@@ -103,10 +149,8 @@ export function RunsPage() {
                 <div className="lab-runcard-head">
                   {e.base?.art ? <img className="crop crop-sm" src={e.base.art.url} alt="" loading="lazy" /> : <span className="crop crop-sm" aria-hidden="true" />}
                   <span className="lab-runcard-title">
-                    <Link to={`/decks/lab/runs/${e.id}`}>{e.name}</Link>
-                    <span>
-                      {e.field?.label ?? "An unrecorded field"}, {e.label.games} games, started {fmtDate(e.label.started_at ?? e.label.created_at)}
-                    </span>
+                    <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
+                    <span>{runSubtitle(e)}</span>
                   </span>
                   <span className={`pill ${tag.tone}`}>{tag.text}</span>
                 </div>
@@ -115,11 +159,25 @@ export function RunsPage() {
                     <span style={{ width: `${e.progress.total ? (e.progress.done / e.progress.total) * 100 : 0}%` }} />
                   </span>
                 )}
-                <span className="lab-runcard-result">{headline(e)}</span>
-                {s && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
-                <span className="lab-note">{experimentLabel(e)}.</span>
+                <span className="lab-runcard-result">{headline(e, name)}</span>
+                {field && field.leaders.length > 1 && (s?.versus?.entrants.length ?? 0) > 3 && (
+                  <ol className="lab-runcard-leaders" aria-label="Most wins">
+                    {field.leaders.map((l) => (
+                      <li key={l.label}>
+                        <span>{l.label}</span> <span>{pct(l.win_rate)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {s && !field && <ExperimentConfidence e={e} precons={precons.data?.precons ?? []} />}
+                <span className="lab-note">{cardSimLabel(e)}.</span>
+                {e.label.engine && e.label.engine !== engineFamily(e.label.engine) && (
+                  <Details label="Engine builds" className="lab-runcard-builds">
+                    <p className="lab-note">{e.label.engine}</p>
+                  </Details>
+                )}
                 <span className="lab-runcard-actions">
-                  <Link className="button" to={`/decks/lab/runs/${e.id}`}>
+                  <Link className="button" to={`/lab/runs/${e.id}`}>
                     Open
                   </Link>
                   {live ? (
@@ -152,7 +210,7 @@ export function RunsPage() {
                 <article key={`${r.id}-${c.base}-${c.variant}`} className="lab-runcard">
                   <div className="lab-runcard-head">
                     <span className="lab-runcard-title">
-                      <Link to={`/decks/lab/runs/batch/${r.id}`}>
+                      <Link to={`/lab/runs/batch/${r.id}`}>
                         {deckOf(c.base_name)} {stateLabel(shortName(c.base_name))[0].toLowerCase()} vs {stateLabel(shortName(c.variant_name))[0].toLowerCase()}
                       </Link>
                       <span>
@@ -172,7 +230,7 @@ export function RunsPage() {
                     {simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at, run: r.name })}.
                   </span>
                   <span className="lab-runcard-actions">
-                    <Link className="button" to={`/decks/lab/runs/batch/${r.id}`}>
+                    <Link className="button" to={`/lab/runs/batch/${r.id}`}>
                       Open
                     </Link>
                   </span>
@@ -240,7 +298,7 @@ export function BatchPage() {
   if (run.error) {
     return (
       <>
-        <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+        <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
         <ErrorText error={run.error} />
       </>
     );
@@ -257,7 +315,7 @@ export function BatchPage() {
   const confOf = (id: string) => p?.variants.find((v) => v.id === id)?.confidence ?? null;
   return (
     <>
-      <LabHead slim back={{ to: "/decks/lab/runs", label: "Back to my runs" }} />
+      <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
       <div className="page-head">
         <div>
           <h1>{r.name}</h1>

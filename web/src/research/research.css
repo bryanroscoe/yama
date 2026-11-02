@@ -6,10 +6,15 @@
 .research-page p { overflow-wrap: anywhere; }
 .research-page details { border: 1px solid var(--line, #333); border-radius: .65rem; padding: .9rem; margin: .65rem 0; }
 .research-page summary { cursor: pointer; }
+/* What sharing shows: apart from the last choice's hint, which it ran straight on from. */
+.research-share > fieldset + p { margin-top: 16px; }
 .research-page li { margin: .4rem 0; }
 .research-deck-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,310px),1fr)); gap: 1rem; margin-top: 1.5rem; }
 .research-deck-card { border: 1px solid var(--line, #333); border-radius: .8rem; padding: 1.1rem; text-decoration: none; color: inherit; background: var(--surface, #171719); }
 .research-deck-card:hover { border-color: var(--text, #ddd); }
+/* A column, so each card's "Review exact builds" link sits on the bottom edge, level across a row. */
+.research-deck-card { display: flex; flex-direction: column; }
+.research-deck-card > a:last-child { align-self: flex-start; margin-top: auto; }
 .research-deck-card h2 { font-size: 1.3rem; }
 .research-power-pair { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .research-power-pair p { margin: .35rem 0; font-size: 1.4rem; }

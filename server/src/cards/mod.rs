@@ -4,6 +4,7 @@ mod preview;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
+use crate::limits::{ClientAddress, address_key};
 use crate::routes::AppState;
 use axum::extract::{Path, Query, State};
 use axum::routing::get;
@@ -15,6 +16,7 @@ use std::collections::HashMap;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/cards/search", get(search_cards))
+        .route("/api/guest/cards/search", get(guest_search_cards))
         .route("/api/cards/autocomplete", get(autocomplete))
         .route("/api/cards/preview", get(preview::get))
         .route("/api/cards/{oracle_id}", get(card_detail))
@@ -106,6 +108,16 @@ async fn search_cards(
 ) -> AppResult<Json<SearchResult>> {
     st.limits.search.check_user(&user)?;
     Ok(Json(search(&st.pool, &user.id, &p.q, p.order.as_deref(), p.page.unwrap_or(1)).await?))
+}
+
+/// Card search without an account, for the life counter's commander fields (2026-11-01): limited
+/// per address, owns nothing, and off with YAMA_GUEST_MODE=0.
+async fn guest_search_cards(State(st): State<AppState>, ClientAddress(address): ClientAddress, Query(p): Query<SearchParams>) -> AppResult<Json<SearchResult>> {
+    if !st.cfg.guest_mode {
+        return Err(AppError::Forbidden("Card search without an account is off right now. Type the name, or sign in.".into()));
+    }
+    st.limits.guest_search.check(&address_key(address))?;
+    Ok(Json(search(&st.pool, "", &p.q, p.order.as_deref(), p.page.unwrap_or(1)).await?))
 }
 
 /// One page of a card search for `owner` (prices and their own copies included). Shared by the
@@ -613,6 +625,20 @@ mod tests {
             .unwrap();
         let (_, body) = send(&app, Method::GET, "/api/cards/search?q=sol", Some(&token), None).await;
         assert_eq!((body["cards"][0]["owned"].as_i64(), body["cards"][0]["owned_in"].clone()), (Some(4), serde_json::Value::Null));
+    }
+
+    #[tokio::test]
+    async fn guests_search_without_an_account_until_it_is_switched_off() {
+        let (app, pool) = app().await;
+        seed(&pool).await;
+        let (status, body) = send(&app, Method::GET, "/api/guest/cards/search?q=sol", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!((body["cards"][0]["name"].as_str(), body["cards"][0]["owned"].as_i64()), (Some("Sol Ring"), Some(0)));
+        // The account search still wants one.
+        assert_eq!(send(&app, Method::GET, "/api/cards/search?q=sol", None, None).await.0, StatusCode::UNAUTHORIZED);
+        // YAMA_GUEST_MODE=0 turns it off.
+        let off = crate::routes::app(crate::testutil::state_with(crate::config::Config { guest_mode: false, ..crate::testutil::config() }, pool).await);
+        assert_eq!(send(&off, Method::GET, "/api/guest/cards/search?q=sol", None, None).await.0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

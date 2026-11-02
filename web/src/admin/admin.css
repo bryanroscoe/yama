@@ -225,6 +225,12 @@
   grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
   gap: 8px;
 }
+/* One full-width tile per number made the phone page seven screens of mostly empty boxes. */
+@media (max-width: 560px) {
+  .admin-figures {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 .admin-figure {
   display: flex;
   flex-direction: column;

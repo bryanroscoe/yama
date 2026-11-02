@@ -298,6 +298,18 @@ textarea:hover {
 :where(.sheet, fieldset.seat, .surface, .side, .scan-controls) :is(input, select, textarea) {
   background-color: var(--ground);
 }
+/* The file picker's button in Yama's secondary style, not the browser's grey default. */
+input[type="file"]::file-selector-button {
+  font: inherit;
+  font-weight: 700;
+  margin-right: 12px;
+  padding: 0.2rem 1rem;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  cursor: pointer;
+}
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--text);
@@ -404,6 +416,16 @@ label > span.hint {
 .deck-sections {
   margin-bottom: 1rem;
 }
+/* A track wider than the screen fades at an end with more to scroll to (DeckTabs sets data-more). */
+.segmented[data-more="end"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
+.segmented[data-more="start"] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+}
+.segmented[data-more="start end"] {
+  mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+}
 
 /* "Details": a quiet disclosure for file names, hashes and the full rule discussion
    (components/ui.tsx Details). */
@@ -491,14 +513,14 @@ label > span.hint {
   margin: 0;
 }
 
-/* Phones: a 76 px tab bar with six tabs. The active tab is text-colored, the rest dim. */
+/* Phones: a 76 px tab bar with seven tabs. The active tab is text-colored, the rest dim. */
 .nav {
   position: fixed;
   inset: auto 0 0 0;
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   background: var(--ground);
   border-top: 1px solid var(--line);
   z-index: 20;
@@ -526,13 +548,24 @@ label > span.hint {
 .nav .rail-foot {
   display: none;
 }
-/* Phones: the inner block steps aside, so the six links are the tab bar's grid items. */
+/* Phones: the inner block steps aside, so the seven links are the tab bar's grid items. */
 .nav-inner {
   display: contents;
 }
-/* The admin entry lives only in the laptop rail; on phones the tab bar keeps its six tabs. */
+/* The admin entry lives only in the laptop rail; on phones the tab bar keeps its seven tabs. */
 .nav a.nav-admin {
   display: none;
+}
+/* Seven labels fit a 360 px phone a little smaller and tighter. */
+@media (max-width: 430px) {
+  .nav a {
+    font-size: 0.6875rem;
+    letter-spacing: -0.02em;
+  }
+  .nav a svg {
+    width: 24px;
+    height: 24px;
+  }
 }
 
 /* Laptops: a left rail. The active item is a raised pill; your avatar and the sync status sit at
@@ -1130,9 +1163,6 @@ table.plain tr.few td {
   gap: 16px 32px;
   align-items: end;
 }
-.setup-group {
-  flex: 1 1 15rem;
-}
 .field-label {
   font-weight: 700;
   font-size: var(--t-label);
@@ -1424,13 +1454,16 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   box-shadow: 0 0 0 2px var(--text);
 }
 .ct-kind,
+/* Pretty wrapping: "1 with no price" and "swap bag" left one word alone on the last line. */
 .ct-meta {
   font-size: 0.75rem;
   color: var(--on-art-dim);
+  text-wrap: pretty;
 }
 .ct-name {
   font-weight: 700;
   font-size: 0.9375rem;
+  text-wrap: pretty;
 }
 .container-tile .art-none .ct-kind,
 .container-tile .art-none .ct-meta,
@@ -1749,11 +1782,12 @@ fieldset.seat > legend:not(.visually-hidden) + * {
     gap: 14px 40px;
     align-items: end;
   }
+  /* Top-aligned: a two-line caption under one stat lifted its number above the others. */
   .hero-stats {
     display: flex;
     flex-wrap: wrap;
     gap: 14px 40px;
-    align-items: end;
+    align-items: start;
   }
   .hero-stats .deck-stat b {
     font-size: 2.5rem;
@@ -2008,39 +2042,12 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   cursor: progress;
 }
 
-/* Configurations: other builds of a deck, a row of links under its tile and switched on its page. */
-.deck-tiles > li.has-configs {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-.deck-configs-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.deck-configs-list a {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  min-height: 44px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: inherit;
-  text-decoration: none;
-}
-.deck-configs-list a:hover,
-.deck-configs-list a:focus-visible {
-  background: var(--raised);
-}
+/* Configurations: other builds of a deck, switched on its page. */
 .deck-shared {
   font-weight: 600;
   color: var(--on-art);
+  /* Stays at the right end when the foot wraps onto a second line. */
+  margin-left: auto;
 }
 .hero-configs {
   display: flex;

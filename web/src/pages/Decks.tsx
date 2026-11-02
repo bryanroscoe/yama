@@ -30,7 +30,11 @@ import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
+import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
+import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
+import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
+import { DeckLists } from "../decks/DeckLists";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
@@ -90,10 +94,10 @@ export function DecksPage() {
         </div>
       )}
       <ul className="deck-tiles">
-        {groupConfigurations(decks.data ?? []).map(({ main, configurations }) => (
-          <li key={main.id} className={configurations.length ? "has-configs" : undefined}>
+        {/* Configurations and bracket builds live on the deck's own page, not under its tile. */}
+        {groupConfigurations(decks.data ?? []).map(({ main }) => (
+          <li key={main.id}>
             <DeckTile d={main} />
-            {configurations.length > 0 && <ConfigurationList main={main} configurations={configurations} />}
           </li>
         ))}
       </ul>
@@ -139,36 +143,6 @@ function DeckTile({ d }: { d: DeckSummary }) {
   );
 }
 
-/** A main deck's configurations as a row of links under its tile, always in view: the main
- *  list first, then the others, each with how close it is to complete. */
-function ConfigurationList({ main, configurations }: { main: DeckSummary; configurations: DeckSummary[] }) {
-  const qc = useQueryClient();
-  const prefetch = (id: string) => void qc.prefetchQuery({ queryKey: ["deck", id], queryFn: () => api<DeckView>(`/api/decks/${id}`), staleTime: 30_000 });
-  return (
-    <nav className="deck-configs" aria-label={`Configurations of ${main.name}`}>
-      <ul className="deck-configs-list">
-        {[main, ...configurations].map((c, i) => {
-          const own = ownership(c.owned, c.card_count, c.proxies ?? 0);
-          const shared = SHARED_LABEL[c.visibility];
-          return (
-            <li key={c.id}>
-              <Link
-                to={`/decks/${c.id}`}
-                onMouseEnter={() => prefetch(c.id)}
-                onFocus={() => prefetch(c.id)}
-                title={[own?.text, shared].filter(Boolean).join(". ") || undefined}
-              >
-                <b>{c.configuration ?? (i === 0 ? "Main" : c.name)}</b>
-                <span className="dim small">{own ? own.short : `${c.card_count} cards`}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
-}
-
 /** How many cards a collapsed stack shows before "Show all". */
 const STACK_PEEK = 6;
 
@@ -204,6 +178,7 @@ export function DeckPage() {
   const [exporting, setExporting] = useState(false);
   const [history, setHistory] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [mythic, setMythic] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
@@ -229,6 +204,7 @@ export function DeckPage() {
     setExporting(false);
     setHistory(false);
     setSharing(false);
+    setMythic(false);
     setConfiguring(false);
     setOpen(null);
   }, [id]);
@@ -295,11 +271,15 @@ export function DeckPage() {
       <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
       <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
       <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+      <Link className="button on-art" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
+      <Link className="button on-art" to={`/decks/${d.id}/check`}>Check this deck</Link>
       <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
       <button className="on-art" onClick={() => setSharing(true)}>Share</button>
       <button className="on-art" onClick={() => setExporting(true)}>Export</button>
+      <MythicSendButton className="on-art" onClick={() => setMythic(true)} />
       <button className="on-art" onClick={() => setHistory(true)}>History</button>
       <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
+      <Link className="button on-art" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
       <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
       <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
     </>
@@ -352,8 +332,8 @@ export function DeckPage() {
           {d.configurations.length > 1 && (
             <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
               <span className="hero-configs-label">Configurations</span>
-              {d.configurations.map((c, i) => {
-                const label = c.configuration ?? (i === 0 ? "Main" : c.name);
+              {d.configurations.filter((c, i) => i === 0 || !legacyConfiguration(c.configuration)).map((c, i) => {
+                const label = configurationLabel(c.configuration, c.name, i === 0);
                 const loading = deck.isPlaceholderData && c.id === id;
                 return (
                   <Link
@@ -365,10 +345,12 @@ export function DeckPage() {
                     onFocus={() => prefetch(c.id)}
                   >
                     {label}
+                    {i === 0 ? ", in the deck" : ""}
                     {loading && <span className="hero-configs-loading">, opening…</span>}
                   </Link>
                 );
               })}
+              {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && <details open={legacyConfiguration(d.configuration)}><summary>Legacy</summary>{d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => <Link key={c.id} className="on-art" to={`/decks/${c.id}`}>{c.configuration ?? c.name}</Link>)}</details>}
             </nav>
           )}
           <div className="hero-row">
@@ -407,11 +389,15 @@ export function DeckPage() {
             <summary>More actions</summary>
             <div className="deck-extra-actions">
               <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+              <Link className="button outline" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
+              <Link className="button outline" to={`/decks/${d.id}/check`}>Check this deck</Link>
               <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
               <button className="outline" onClick={() => setSharing(true)}>Share</button>
               <button className="outline" onClick={() => setExporting(true)}>Export</button>
+              <MythicSendButton className="outline" onClick={() => setMythic(true)} />
               <button className="outline" onClick={() => setHistory(true)}>History</button>
               <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
+              <Link className="button outline" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
               <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
             </div>
           </details>
@@ -424,11 +410,13 @@ export function DeckPage() {
           {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
         </div>
         {!v.ok && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+        <DeckLists deck={d} />
 
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
+        {mythic && <MythicSend deck={d} onClose={() => setMythic(false)} />}
         {configuring && <NewConfiguration deck={d} onClose={() => setConfiguring(false)} />}
         {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
         {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
@@ -578,6 +566,7 @@ export function DeckPage() {
             versionId={d.version_id}
             declared={d.bracket}
             gameChangers={d.game_changers}
+            cards={d.cards}
             onCard={openByName}
             onDeclare={() => setEditing(true)}
           />
@@ -656,8 +645,8 @@ function PlanCardLine({ plan, name }: { plan: DeckPlanInfo; name: string }) {
 function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean; plan?: DeckPlanInfo | null }) {
   const cls = small ? "small" : "";
   if (e.owned > 0) {
-    const where = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
-    return <span className={`${cls} dim`}>Own {e.owned}: {where}</span>;
+    const all = Object.entries(e.locations).map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ""}`).join(", ");
+    return <span className={`${cls} dim`} title={all}>Own {e.owned}: {placesText(e.locations)}</span>;
   }
   if (e.proxies > 0) return <span className={`${cls} dim`}>Proxy only</span>;
   const s = plan?.swapsByIn.get(e.name);

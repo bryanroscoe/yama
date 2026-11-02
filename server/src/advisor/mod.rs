@@ -11,6 +11,9 @@
 //!    key, which only the sidecar holds (ANTHROPIC_SHARED_API_KEY). Never the subscription.
 //! 4. Everyone else sees the advisor as unavailable, with what they could do about it.
 //!
+//! Only admins and power users (`User::power`, 2026-10-31) reach any of it: every advisor route
+//! but the deletes takes `PowerUser`, and [`access`] answers `PowerOnly` for anyone else.
+//!
 //! **What it can do.** Read: the conversation's context is rebuilt from the asker's own rows on
 //! every question (`context.rs`), and Claude's only tools are Yama's own read tools for the asker
 //! (`mcp/`, through a one-question token). It can't change anything; the page offers to save a
@@ -30,7 +33,7 @@ pub mod context;
 pub mod keys;
 pub mod shared;
 
-use crate::auth::{CurrentUser, User};
+use crate::auth::{CurrentUser, PowerUser, User};
 use crate::config::AdvisorConfig;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -119,6 +122,8 @@ pub enum Access {
     KeysOff,
     /// The account could add its own key.
     NeedsKey,
+    /// Not an admin or a power user (2026-10-31): Ask Claude is theirs only.
+    PowerOnly,
 }
 
 impl Access {
@@ -128,6 +133,7 @@ impl Access {
             Access::Off => Some("off"),
             Access::KeysOff => Some("keys_off"),
             Access::NeedsKey => Some("needs_key"),
+            Access::PowerOnly => Some("power_only"),
         }
     }
 }
@@ -139,6 +145,9 @@ impl Access {
 pub fn access(cfg: &AdvisorConfig, user: &User, has_key: bool, shared: SharedGrant) -> Access {
     if !cfg.enabled() {
         return Access::Off;
+    }
+    if !user.power {
+        return Access::PowerOnly;
     }
     let email = user.email.trim().to_lowercase();
     if !email.is_empty() && cfg.subscription_emails.contains(&email) {
@@ -339,7 +348,7 @@ async fn status_for(st: &AppState, user: &User) -> AppResult<Status> {
     })
 }
 
-async fn status_route(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Status>> {
+async fn status_route(State(st): State<AppState>, PowerUser(user): PowerUser) -> AppResult<Json<Status>> {
     Ok(Json(status_for(&st, &user).await?))
 }
 
@@ -348,7 +357,7 @@ struct KeyBody {
     api_key: String,
 }
 
-async fn save_key_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<KeyBody>) -> AppResult<Json<Status>> {
+async fn save_key_route(State(st): State<AppState>, PowerUser(user): PowerUser, Json(body): Json<KeyBody>) -> AppResult<Json<Status>> {
     let secret = match (&st.cfg.advisor.key_secret, st.cfg.advisor.enabled()) {
         (Some(s), true) => s.clone(),
         _ => return Err(AppError::Conflict("This server can't store API keys.".into())),
@@ -372,7 +381,7 @@ struct SettingsBody {
     model: String,
 }
 
-async fn settings_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<SettingsBody>) -> AppResult<Json<Status>> {
+async fn settings_route(State(st): State<AppState>, PowerUser(user): PowerUser, Json(body): Json<SettingsBody>) -> AppResult<Json<Status>> {
     if !MODELS.iter().any(|(id, ..)| *id == body.model) {
         return Err(AppError::bad(format!("model must be one of {}", MODELS.iter().map(|m| m.0).collect::<Vec<_>>().join(", "))));
     }
@@ -412,7 +421,7 @@ struct ListQuery {
     reference: Option<String>,
 }
 
-async fn list_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(q): Query<ListQuery>) -> AppResult<Json<Vec<ConversationItem>>> {
+async fn list_route(State(st): State<AppState>, PowerUser(user): PowerUser, Query(q): Query<ListQuery>) -> AppResult<Json<Vec<ConversationItem>>> {
     Ok(Json(
         sqlx::query_as(
             "SELECT c.id, c.title, c.context_kind, c.context_ref, c.created_at, c.updated_at,
@@ -463,7 +472,7 @@ async fn owned_conversation(pool: &SqlitePool, owner: &str, id: &str) -> AppResu
     .ok_or(AppError::NotFound("conversation"))
 }
 
-async fn conversation_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<ConversationDetail>> {
+async fn conversation_route(State(st): State<AppState>, PowerUser(user): PowerUser, Path(id): Path<String>) -> AppResult<Json<ConversationDetail>> {
     let conversation = owned_conversation(&st.pool, &user.id, &id).await?;
     let items = sqlx::query_as(
         "SELECT id, role, content, model, mode, status, error, usage, created_at FROM advisor_messages
@@ -542,7 +551,7 @@ async fn history(pool: &SqlitePool, owner: &str, conversation: &str) -> AppResul
         .collect())
 }
 
-async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<AskBody>) -> AppResult<Response> {
+async fn ask_route(State(st): State<AppState>, PowerUser(user): PowerUser, Json(body): Json<AskBody>) -> AppResult<Response> {
     let question = body.question.trim().to_string();
     if question.is_empty() {
         return Err(AppError::bad("Ask a question first."));
@@ -556,6 +565,7 @@ async fn ask_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, J
         Access::Off => return Err(AppError::Unavailable("Ask Claude isn't set up on this server.".into())),
         Access::KeysOff => return Err(AppError::Forbidden("Ask Claude is only available to the server's owner here.".into())),
         Access::NeedsKey => return Err(AppError::Forbidden("Add your own Anthropic API key in Settings to ask Claude.".into())),
+        Access::PowerOnly => return Err(AppError::Forbidden(crate::auth::POWER_ONLY.into())),
     };
     let allowed = models_for(&st.cfg.advisor, Some(mode));
     let model = match body.model {

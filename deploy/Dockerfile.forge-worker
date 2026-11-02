@@ -1,41 +1,57 @@
 # syntax=docker/dockerfile:1.7
 # The Forge worker: Forge as a second engine for Yama's Lab runs (server/src/lab/forge.rs). Forge
-# (https://github.com/Card-Forge/forge, GPL-3.0) is downloaded and run as a separate program, one JVM per
-# game; none of its code is in Yama. forge-worker/ is Yama's own HTTP front for the deck lab's batch runner
-# (forge_runner.py, a copy of commander-decks scripts/sim/forge_runner.py). Private use.
+# (https://github.com/Card-Forge/forge, GPL-3.0) runs as separate programs: one long-lived JVM per slot, playing
+# games one after another (forge_serve.py, with the build's yama-serve.jar); none of its code is in Yama.
+# forge-worker/ is Yama's own HTTP front for that and for the deck lab's batch runner (forge_runner.py, a copy of
+# commander-decks scripts/sim/forge_runner.py), whose parser reads every game. Private use.
 #
 # Built by deploy/deploy.sh with the context yama/forge-worker. Java 17, not 21: when one of Forge's AI
 # decisions overruns its time and ignores the interrupt, Forge calls Thread.stop(), which Java 20+ refuses
 # (see deploy/Dockerfile.forge and commander-decks docs/lab/forge.md).
 #
-# Read-only friendly: the worker writes only to /work (tmpfs: deck files and one Forge user dir per game) and
+# Read-only friendly: the worker writes only to /work (tmpfs: deck files and one Forge user dir per JVM) and
 # /tmp (tmpfs, for the JVMs). Forge's card index is built here, at image build, into /opt/forge-index.
 ARG JAVA_IMAGE=eclipse-temurin:17-jre
+# Forge is Yama's own build (yama3, 2026-10-30: yama2's Forge, master 3ead7e68 with AI speed fixes, plus
+# yama-serve.jar for long-lived JVMs; notes in
+# forge-worker/README.md), not a release download. The build is Forge code (GPL-3.0), so it stays out of Yama:
+# forge-referee's dist/build-dist.sh makes the tarball (a release's layout: the desktop jar and res/), and
+# deploy/forge-dist.sh installs it on saget as the local image yama-forge-dist:<FORGE_DIST>. The build refuses a
+# tarball whose SHA-256 isn't this pin. Without the image the release build fails for all three services and
+# production keeps running: install it before merging a new pin. The jar is renamed to end in the first 8 digits
+# of that SHA-256, so results carry "forge <version>.<sha8>" (forge 2.0.16-745401a4+yama3.54567890: the Forge
+# branch commit, the build's name and the tarball): another tarball never shares a label.
+ARG FORGE_DIST=yama3
+ARG FORGE_DIST_SHA256=54567890aa6641b61c02ea5d3b613fb33fa0ccf24a46858e67f4278dec9caac3
+ARG FORGE_DIST_IMAGE=yama-forge-dist:${FORGE_DIST}
+
+FROM ${FORGE_DIST_IMAGE} AS forgedist
 
 FROM ${JAVA_IMAGE} AS forge
-ARG FORGE_VERSION=2.0.15
-ARG FORGE_SHA256=4468f182b60f6ca62d89697baa208981085af744f116781af751c611826db600
-RUN apt-get update && apt-get install -y --no-install-recommends bzip2 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL --retry 3 -o /tmp/forge.tar.bz2 \
-      "https://github.com/Card-Forge/forge/releases/download/forge-${FORGE_VERSION}/forge-installer-${FORGE_VERSION}.tar.bz2" \
- && echo "${FORGE_SHA256}  /tmp/forge.tar.bz2" | sha256sum -c - \
- && mkdir -p "/opt/forge/forge-${FORGE_VERSION}" \
- && tar -xjf /tmp/forge.tar.bz2 -C "/opt/forge/forge-${FORGE_VERSION}" --no-same-owner --no-same-permissions \
- && rm /tmp/forge.tar.bz2 \
- && cd "/opt/forge/forge-${FORGE_VERSION}" \
- && rm -rf docs ./*.exe ./*.cmd ./*.command adventure-editor* forge-gui-mobile-dev-*.jar gdx-particle-editor.jar \
- && test -f "forge-gui-desktop-${FORGE_VERSION}-jar-with-dependencies.jar" \
- && test -f res/cardsfolder/cardsfolder.zip \
+ARG FORGE_DIST_SHA256
+COPY --from=forgedist /forge-dist.tar.gz /tmp/forge-dist.tar.gz
+# One forge-<version> folder; /opt/forge/current points at it, so nothing else needs the version.
+RUN echo "${FORGE_DIST_SHA256}  /tmp/forge-dist.tar.gz" | sha256sum -c - \
+ && mkdir -p /opt/forge \
+ && tar -xzf /tmp/forge-dist.tar.gz -C /opt/forge --no-same-owner --no-same-permissions \
+ && rm /tmp/forge-dist.tar.gz \
+ && test "$(ls -d /opt/forge/forge-* | wc -l)" = 1 \
+ && ln -s "$(ls -d /opt/forge/forge-*)" /opt/forge/current \
+ && test -f /opt/forge/current/res/cardsfolder/cardsfolder.zip \
+ && cd /opt/forge/current \
+ && test "$(ls forge-gui-desktop-*-jar-with-dependencies.jar | wc -l)" = 1 \
+ && test -f yama-serve.jar \
+ && j=$(ls forge-gui-desktop-*-jar-with-dependencies.jar) && v=${j#forge-gui-desktop-} && v=${v%-jar-with-dependencies.jar} \
+ && mv "$j" "forge-gui-desktop-$v.$(echo "${FORGE_DIST_SHA256}" | cut -c1-8)-jar-with-dependencies.jar" \
  && chmod -R a+rX /opt/forge
 
 FROM ${JAVA_IMAGE}
-ARG FORGE_VERSION=2.0.15
 # A passwd entry for uid 99 gives the JVM a real user.home (/work) instead of "?".
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* \
  && useradd -u 99 -g 100 -M -d /work -s /usr/sbin/nologin forge
 COPY --from=forge /opt/forge /opt/forge
-COPY common.py forge_runner.py worker.py /opt/forge-worker/
-ENV FORGE_DIR=/opt/forge/forge-${FORGE_VERSION} \
+COPY common.py forge_runner.py forge_serve.py worker.py /opt/forge-worker/
+ENV FORGE_DIR=/opt/forge/current \
     FORGE_JAVA=/opt/java/openjdk/bin/java \
     FORGE_INDEX=/opt/forge-index \
     FORGE_WORK=/work \

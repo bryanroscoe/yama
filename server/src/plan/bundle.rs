@@ -24,15 +24,36 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// would share a key, and a phone that kept the last person's bundle after a sign-out could be
 /// told it was still current. `SHAPE` goes up when the bundle gains fields, so saved copies
 /// without them are fetched again.
-const SHAPE: u32 = 2;
+/// 3: installed states read from the owner's decks (`installed.rs`, 2026-10-28).
+/// 4: store preferences and the real-card wishlist, for the store trip (2026-11-01).
+/// 5: a store's place in your order and a favourite's premium (2026-11-01).
+const SHAPE: u32 = 5;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
     let cards_at: Option<String> =
         sqlx::query_scalar("SELECT MAX(finished_at) FROM import_runs WHERE error IS NULL AND finished_at IS NOT NULL").fetch_one(pool).await?;
+    // Every live deck's current version and every plan deck's link: a saved list, a switched
+    // configuration or a new link changes installed states, so it changes the key.
+    let lists: Vec<String> = sqlx::query_scalar(
+        "SELECT id || '=' || COALESCE(current_version_id, '') || '/' || COALESCE(parent_id, '') || '/' || name AS line
+         FROM decks WHERE owner_id = ? AND archived = 0
+         UNION ALL SELECT 'plan:' || key || '=' || COALESCE(deck_id, '') || '/' || name FROM plan_decks WHERE owner_id = ?
+         UNION ALL SELECT 'pref:' || store_key || '=' || preference || '/' || IFNULL(hassle, '') || '/' || IFNULL(premium_usd, '') || '/' || updated_at FROM plan_store_prefs WHERE owner_id = ?
+         UNION ALL SELECT 'research:' || id || '=' || revision || '/' || updated_at FROM research_reports WHERE owner_id = ?
+         ORDER BY 1",
+    )
+    .bind(owner)
+    .bind(owner)
+    .bind(owner)
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let lists = lists.join(";");
+    let decks_tag = &crate::util::sha256_hex(&lists)[..8];
     let digits: String = cards_at.unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let tag = &crate::util::sha256_hex(owner)[..8];
-    Ok(format!("{}-{}-{tag}-s{SHAPE}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
+    Ok(format!("{}-{}-{decks_tag}-{tag}-s{SHAPE}", revision.unwrap_or(0), if digits.is_empty() { "0" } else { digits.as_str() }))
 }
 
 fn parse(s: Option<&str>) -> Value {
@@ -345,6 +366,24 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         })
         .collect();
 
+    // Your store preferences (made in Yama, never by an import) and your real-card wishlist (research
+    // scenarios with purpose `permanent_real_wishlist`), for the store trip (packages/core trip.ts).
+    let pref_rows: Vec<(String, String, Option<String>, Option<i64>, Option<f64>, String)> =
+        sqlx::query_as("SELECT store_key, preference, note, hassle, premium_usd, updated_at FROM plan_store_prefs WHERE owner_id = ? ORDER BY store_key")
+            .bind(owner)
+            .fetch_all(pool)
+            .await?;
+    let store_prefs: Map<String, Value> = pref_rows
+        .into_iter()
+        .map(|(key, preference, note, hassle, premium, at)| {
+            (key, json!({"preference": preference, "note": note, "hassle": hassle, "premium_usd": premium, "updated_at": at}))
+        })
+        .collect();
+    let wishlist = wishlist(pool, owner).await?;
+    for w in &wishlist {
+        names.add(Some(&w.card));
+    }
+
     // Decks and their current lists
     let deck_rows: Vec<DeckRow> = sqlx::query_as(
         "SELECT id, key, name, source, status, product, commander, color_identity, owner_changes, bracket, groups, notes, deck_id,
@@ -383,6 +422,9 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
             names.add(bag.get("in").and_then(Value::as_str));
             names.add(bag.get("out").and_then(Value::as_str));
         }
+        for n in model::bracket_extras(Some(&bracket)) {
+            names.add(Some(n));
+        }
     }
 
     // Swaps, with their links as keys (owners checked on every SET NULL link)
@@ -403,6 +445,8 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    // Installed, from each plan deck's Yama deck (null where there's no deck to read).
+    let installs = super::installed::load(pool, owner).await?;
     let swaps: Vec<Value> = swap_rows
         .into_iter()
         .map(|s| {
@@ -420,7 +464,8 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 "band": s.band, "group": s.group_label, "sort": s.sort, "game_changer": s.game_changer,
                 "got": parse(s.got.as_deref()), "order_item": order_item, "print_order": s.print_order,
                 "listing": s.listing, "when": s.when_text, "advice": s.advice, "why": s.why, "why_out": s.why_out,
-                "note": s.note, "upgrade": parse(s.upgrade.as_deref()),
+                "note": s.note, "upgrade": parse(s.upgrade.as_deref()), "deck_installed": installs.swaps.get(&s.key),
+                "deck_superseded": installs.superseded.contains_key(&s.key),
                 "retired": s.retired_at.is_some(), "retired_at": s.retired_at, "updated_at": s.updated_at,
             })
         })
@@ -695,6 +740,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 "commander": parse_or(&d.commander, json!([])), "color_identity": d.color_identity,
                 "owner_changes": parse_or(&d.owner_changes, json!([])), "bracket": parse(d.bracket.as_deref()),
                 "groups": parse_or(&d.groups, json!([])), "notes": parse_or(&d.notes, json!([])), "deck_id": d.deck_id,
+                "yama_deck": installs.decks.get(&d.id),
                 "sort": d.sort, "updated_at": d.updated_at, "states": states,
             })
         })
@@ -711,5 +757,39 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         "names": names_map, "unresolved": unresolved, "cards": cards,
         "market": market, "market_by_printing": market_by_printing, "printing_ids": printing_ids,
         "prices_as_of": prices_as_of,
+        "store_prefs": store_prefs, "wishlist": wishlist,
     }))
+}
+
+/// One card on the owner's real-card wishlist.
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WishItem {
+    pub card: String,
+    pub reason: Option<String>,
+    pub detail: Option<String>,
+    pub url: Option<String>,
+    pub report: String,
+    pub scenario: String,
+}
+
+/// Every card in the owner's research scenarios with purpose `permanent_real_wishlist`, once each
+/// (the first report by id wins). It is a watchlist: no quantity, no purchase, no store quote.
+pub async fn wishlist(pool: &SqlitePool, owner: &str) -> AppResult<Vec<WishItem>> {
+    let rows: Vec<WishItem> = sqlx::query_as(
+        "SELECT TRIM(json_extract(b.value, '$.card')) AS card,
+                CASE json_type(b.value, '$.reason') WHEN 'text' THEN json_extract(b.value, '$.reason') END AS reason,
+                CASE json_type(b.value, '$.detail') WHEN 'text' THEN json_extract(b.value, '$.detail') END AS detail,
+                CASE json_type(b.value, '$.url') WHEN 'text' THEN json_extract(b.value, '$.url') END AS url,
+                r.id AS report, COALESCE(CAST(json_extract(s.value, '$.id') AS TEXT), '') AS scenario
+         FROM research_reports r, json_each(r.document, '$.scenarios') s, json_each(s.value, '$.buys') b
+         WHERE r.owner_id = ? AND json_type(r.document, '$.scenarios') = 'array' AND json_type(s.value, '$.buys') = 'array'
+           AND json_extract(s.value, '$.purpose') = 'permanent_real_wishlist' AND json_type(b.value, '$.card') = 'text'
+           AND TRIM(json_extract(b.value, '$.card')) != ''
+         ORDER BY r.id, s.key, b.key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let mut seen = BTreeSet::new();
+    Ok(rows.into_iter().filter(|w| seen.insert(w.card.to_lowercase())).collect())
 }

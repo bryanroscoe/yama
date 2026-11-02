@@ -51,7 +51,8 @@ pub const DISABLED: &str = "This account has been turned off. Ask the host if th
 
 /// SQL that is true for a `users u` row with the smaller allowance (`User::limited`): a Google
 /// account that isn't an admin, has no password from the command line, and isn't invited.
-/// Accounts made any other way (Cloudflare Access, dev login, `user add`) never are.
+/// Accounts made any other way (Cloudflare Access, dev login, `user add`) never are. Being a power
+/// user doesn't change the allowance; an invite does.
 macro_rules! limited_sql {
     () => {
         "(u.google_sub IS NOT NULL AND u.is_admin = 0 AND u.password_hash IS NULL \
@@ -60,10 +61,28 @@ macro_rules! limited_sql {
 }
 pub(crate) use limited_sql;
 
+/// SQL that is true for a `users u` row that may use the heavy and AI features (`User::power`):
+/// an admin, or an account an admin made a power user (migration 0047).
+macro_rules! power_sql {
+    () => {
+        "(u.is_admin = 1 OR u.power_user = 1)"
+    };
+}
+pub(crate) use power_sql;
+
+/// Why a request for a power-user feature was refused.
+pub const POWER_ONLY: &str = "Simulations and Ask Claude are open to admins and power users for now.";
+
 /// The columns of [`User`], read from `users u`.
 macro_rules! user_columns {
     () => {
-        concat!("u.id, u.email, u.display_name, u.is_admin, ", $crate::auth::limited_sql!(), " AS limited")
+        concat!(
+            "u.id, u.email, u.display_name, u.is_admin, ",
+            $crate::auth::limited_sql!(),
+            " AS limited, ",
+            $crate::auth::power_sql!(),
+            " AS power"
+        )
     };
 }
 pub(crate) use user_columns;
@@ -93,6 +112,17 @@ pub struct User {
     /// joined through open sign-up, or whose invite was withdrawn. Gets the smaller lab and play
     /// allowance, and can't use Yama while open sign-up is off.
     pub limited: bool,
+    /// An admin, or an account an admin made a power user: may start simulations and watched AI
+    /// games and use Ask Claude (2026-10-31). Everyone else keeps their own data and reads
+    /// simulation results, but can't start that work.
+    pub power: bool,
+}
+
+impl User {
+    /// Refuse a power-user feature (simulations, watched AI games, Ask Claude) to anyone else.
+    pub fn require_power(&self) -> AppResult<()> {
+        if self.power { Ok(()) } else { Err(AppError::Forbidden(POWER_ONLY.into())) }
+    }
 }
 
 /// A user and whether an admin has turned the account off.
@@ -164,6 +194,20 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Ok(CurrentUser(user));
         }
         access_user(parts, state).await?.map(CurrentUser).ok_or(AppError::Unauthorized)
+    }
+}
+
+/// Extractor: the signed-in user, when they may use the power-user features (simulations, watched
+/// AI games, Ask Claude). Anyone else signed in gets a 403 that says why; signed out is 401.
+pub struct PowerUser(pub User);
+
+impl FromRequestParts<AppState> for PowerUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let CurrentUser(user) = CurrentUser::from_request_parts(parts, state).await?;
+        user.require_power()?;
+        Ok(PowerUser(user))
     }
 }
 
@@ -331,7 +375,7 @@ async fn google_login(
         return Err(AppError::Forbidden("the Google sign-in had no email address".into()));
     }
     st.limits.sign_in_email.check(&email)?;
-    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref()).await?;
+    let user = google_account(&st, &claims.sub, &email, claims.name.as_deref(), &address_key(address)).await?;
     start_session(&st, jar, user).await
 }
 
@@ -358,7 +402,7 @@ fn display_name(name: Option<&str>, email: &str) -> String {
 
 /// The account a verified Google sign-in (`sub`, lower-cased `email`) belongs to, made if need
 /// be, or why it can't come in. See the module notes for the rules.
-async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>) -> AppResult<User> {
+async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str>, address: &str) -> AppResult<User> {
     let invited = is_invited(st, email).await?;
     let open = st.cfg.open_signup;
     let id = if let Some(acc) = account_by_google(&st.pool, sub).await? {
@@ -399,7 +443,23 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 if !open && !invited {
                     return Err(not_invited(email));
                 }
-                sqlx::query(
+                // Open sign-up makes accounts at a person's pace: a few per address a day, and a
+                // ceiling for everyone together, so scripted sign-ups stop. Invites aren't counted.
+                // One sign-up at a time from here to the count below (making accounts is rare), so
+                // sign-ups arriving together can't all pass the limits before any is counted.
+                let _gate = if invited { None } else { Some(st.limits.new_account_gate.lock().await) };
+                // Another sign-in for this same Google account may have made it while this one
+                // waited at the gate: then it's theirs to sign in to, with no limit to meet.
+                let made_meanwhile: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE google_sub = ?)").bind(sub).fetch_one(&st.pool).await?;
+                if !invited && !made_meanwhile {
+                    // Both must allow it, and it counts only once the account is really made
+                    // (below): a refusal from the ceiling for everyone, or two sign-ins racing to
+                    // make the same account, doesn't use up this address's own few.
+                    st.limits.new_accounts_address.allows(address)?;
+                    st.limits.new_accounts.allows("all")?;
+                }
+                let made = sqlx::query(
                     "INSERT INTO users (id, google_sub, email, display_name, is_admin, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT DO NOTHING",
                 )
                 .bind(new_id())
@@ -409,7 +469,9 @@ async fn google_account(st: &AppState, sub: &str, email: &str, name: Option<&str
                 .bind(now())
                 .execute(&st.pool)
                 .await?;
-                if !invited {
+                if !invited && made.rows_affected() == 1 {
+                    st.limits.new_accounts_address.record(address);
+                    st.limits.new_accounts.record("all");
                     tracing::info!(%email, "new account through open sign-up");
                 }
                 // Two sign-ins at once: the second finds the first one's row.
@@ -591,6 +653,31 @@ pub async fn set_disabled_by_email(pool: &SqlitePool, email: &str, disabled: boo
     }
 }
 
+/// Longest session `yama-server user session` will make.
+pub const CLI_SESSION_MAX_HOURS: i64 = 24;
+
+/// `yama-server user session EMAIL --hours N`: a short session for an existing account, printed
+/// once, for a tool that drives the web app as that person (the polish screenshots, docs/polish.md).
+/// Only someone with a shell on the server can make one, the same trust as a password from
+/// `user add`. It never makes an account, refuses a turned-off one, and the usual checks still apply
+/// when it's used (an account that isn't invited only works while open sign-up is on).
+pub async fn cli_session(pool: &SqlitePool, email: &str, hours: i64) -> anyhow::Result<String> {
+    anyhow::ensure!((1..=CLI_SESSION_MAX_HOURS).contains(&hours), "--hours is 1 to {CLI_SESSION_MAX_HOURS}");
+    let email = email.trim().to_lowercase();
+    let acc = account_by_email(pool, &email).await?.ok_or_else(|| anyhow::anyhow!("there's no account for {email}"))?;
+    anyhow::ensure!(!acc.disabled, "{email} is turned off");
+    let token = random_token();
+    let expires = Utc::now() + Duration::hours(hours);
+    sqlx::query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .bind(sha256_hex(&token))
+        .bind(&acc.user.id)
+        .bind(now())
+        .bind(expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .execute(pool)
+        .await?;
+    Ok(token)
+}
+
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
     use argon2::password_hash::PasswordHasher;
     argon2::Argon2::default()
@@ -765,6 +852,8 @@ struct AccountInfo {
     is_admin: bool,
     limited: bool,
     invited: bool,
+    /// Made a power user by an admin (admins are power users without it).
+    power_user: bool,
     google: bool,
     password: bool,
     disabled_at: Option<String>,
@@ -781,7 +870,7 @@ async fn admin_list_users(State(st): State<AppState>, AdminUser(_): AdminUser) -
         sqlx::query_as(concat!(
             "SELECT u.id, u.email, u.display_name, u.is_admin, ",
             limited_sql!(),
-            " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited,
+            " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited, u.power_user = 1 AS power_user,
                u.google_sub IS NOT NULL AS google, u.password_hash IS NOT NULL AS password, u.disabled_at, u.created_at,
                (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in, u.last_seen_at
              FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500"
@@ -976,5 +1065,26 @@ mod tests {
 
         assert!(remove_local_password(&pool, "debug@example.com").await.unwrap());
         assert!(!remove_local_password(&pool, "debug@example.com").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn cli_sessions_are_short_and_only_for_live_accounts() {
+        let (app, pool) = crate::testutil::app().await;
+        crate::testutil::user(&pool, "polish@example.com").await;
+        let token = cli_session(&pool, "Polish@Example.com", 2).await.unwrap();
+        let (status, me) = crate::testutil::send(&app, axum::http::Method::GET, "/api/me", Some(&token), None).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(me["email"], "polish@example.com");
+        let expires: String = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE token_hash = ?").bind(sha256_hex(&token)).fetch_one(&pool).await.unwrap();
+        let left = chrono::DateTime::parse_from_rfc3339(&expires).unwrap().with_timezone(&Utc) - Utc::now();
+        assert!(left <= Duration::hours(2) && left > Duration::minutes(110), "{left}");
+
+        assert!(cli_session(&pool, "polish@example.com", 0).await.is_err());
+        assert!(cli_session(&pool, "polish@example.com", CLI_SESSION_MAX_HOURS + 1).await.is_err());
+        assert!(cli_session(&pool, "nobody@example.com", 1).await.is_err());
+        assert!(set_disabled_by_email(&pool, "polish@example.com", true).await.unwrap());
+        assert!(cli_session(&pool, "polish@example.com", 1).await.is_err());
+        let (status, _) = crate::testutil::send(&app, axum::http::Method::GET, "/api/me", Some(&token), None).await;
+        assert_eq!(status, axum::http::StatusCode::UNAUTHORIZED);
     }
 }

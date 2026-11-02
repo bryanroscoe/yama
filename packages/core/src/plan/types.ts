@@ -71,9 +71,15 @@ export interface Bag {
 
 export interface Bracket {
   target?: number | null;
+  /** Optional: the bracket the deck is kept at in its box, when that isn't `target`. */
+  box?: number | null;
   keep_note?: string | null;
   callouts?: string[];
   bags?: Record<string, Bag[]>;
+  /** Optional: cards kept for Bracket 4 that are in no build. */
+  extras?: string[] | null;
+  /** An export extra (not part of the format): the Game Changers in each bracket's build. */
+  game_changers?: Record<string, string[]> | null;
 }
 
 export interface PlanGroup {
@@ -95,6 +101,19 @@ export interface OwnerChange {
   note?: string | null;
 }
 
+/** A plan deck's Yama deck (`PlanDeck.yama_deck`). */
+export interface YamaDeckRef {
+  id: string;
+  name: string;
+  /** The main deck's own label; null reads as Main. */
+  configuration: string | null;
+  version_id: string | null;
+  /** When its current list was saved. */
+  list_at: string | null;
+  /** Linked to the plan deck, rather than found by name. */
+  linked: boolean;
+}
+
 export interface PlanDeck {
   key: string;
   name: string;
@@ -109,6 +128,11 @@ export interface PlanDeck {
   notes: PlanNote[];
   /** The owner's Yama deck for this physical deck, when linked. */
   deck_id: string | null;
+  /**
+   * The Yama deck installs are read from: the main deck of the linked deck's group, else the one
+   * live main deck with this name. Null when there's none (bundles before 2026-10-28 lack it).
+   */
+  yama_deck?: YamaDeckRef | null;
   sort: number;
   updated_at: string;
   states: Partial<Record<StateName, PlanState>>;
@@ -145,6 +169,14 @@ export interface Swap {
   why_out: string | null;
   note: string | null;
   upgrade: { id: string; status: string } | null;
+  /**
+   * Installed, read from the plan deck's Yama deck (its current list has the card in and the card
+   * out gone; server `plan/installed.rs`). Null or absent when there's no Yama deck to read, or for
+   * proposals: then the tick and the plan's record decide.
+   */
+  deck_installed?: boolean | null;
+  /** A stand-in out of the deck because the print it held a slot for is in: done, not waiting. */
+  deck_superseded?: boolean;
   retired: boolean;
   retired_at: string | null;
   updated_at: string;
@@ -232,6 +264,33 @@ export interface Store {
   origin: string;
   retired: boolean;
   retired_at: string | null;
+}
+
+/**
+ * How you feel about going to a store (yours, set in Yama; docs/shopping-design.md): a favourite
+ * you want to support is on every trip it has a card for; "maybe" only for cards no other store has.
+ */
+export type StorePreference = "favorite" | "ok" | "maybe" | "never";
+
+export interface StorePref {
+  /** Bundles before migration 0051 say "default" for a favourite; `storePreference` reads both. */
+  preference: StorePreference | "default";
+  note: string | null;
+  updated_at: string;
+  /** Your order of how easy a store is to get to: 1 is the easiest. Null: after the ones you ordered. */
+  hassle?: number | null;
+  /** How much more a card may cost here and still come from this store, in USD; null or 0: only on a tie. */
+  premium_usd?: number | null;
+}
+
+/** A card on your real-card wishlist (a research scenario with purpose `permanent_real_wishlist`). */
+export interface WishItem {
+  card: string;
+  reason: string | null;
+  detail: string | null;
+  url: string | null;
+  report: string;
+  scenario: string;
 }
 
 export interface Review {
@@ -383,6 +442,10 @@ export interface PlanBundle {
   market_by_printing: Record<string, { usd: number | null; usd_foil: number | null; date: string | null; set: string; num: string; source: string }>;
   printing_ids: Record<string, string>;
   prices_as_of: string | null;
+  /** Your store preferences by store key; a store without one is "ok". Missing from older bundles. */
+  store_prefs?: Record<string, StorePref>;
+  /** Your real-card wishlist, from research. Missing from older bundles. */
+  wishlist?: WishItem[];
 }
 
 export interface RowCounts {

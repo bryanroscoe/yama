@@ -5,7 +5,7 @@
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
 //! lab runs, experiments and usage, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
-//! watches, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
+//! watches, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, and any live online game it is in
 //! ends.
 //!
 //! **What stays, anonymised, because other people's records depend on it:**
@@ -48,8 +48,10 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("assistant_changes", "owner_id"),
     ("calendar_watches", "user_id"),
     ("collection_items", "owner_id"),
+    ("commander_evidence_sources", "owner_id"),
     ("containers", "owner_id"),
     ("decks", "owner_id"),
+    ("deleted_games", "deleted_by"),
     ("evidence_datasets", "owner_id"),
     ("game_seats", "user_id"),
     ("games", "created_by"),
@@ -60,7 +62,10 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("lab_runs", "owner_id"),
     ("lab_usage", "owner_id"),
     ("lab_worker_instances", "owner_id"),
+    ("mythic_game_notes", "owner_id"),
     ("mythic_imports", "owner_id"),
+    ("mythic_links", "owner_id"),
+    ("mythic_pushes", "owner_id"),
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
     ("online_games", "host_id"),
@@ -76,11 +81,14 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("plan_reviews", "owner_id"),
     ("plan_settings", "owner_id"),
     ("plan_states", "owner_id"),
+    ("plan_store_prefs", "owner_id"),
     ("plan_stores", "owner_id"),
     ("plan_swaps", "owner_id"),
     ("play_prefs", "user_id"),
     ("playgroup_members", "user_id"),
     ("playgroups", "owner_id"),
+    ("precon_evidence_sources", "owner_id"),
+    ("precon_evidence_simulation", "owner_id"),
     ("research_reports", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
@@ -92,6 +100,12 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
 /// Tables the account's own rows are simply deleted from, children before parents. Tables that
 /// need more than a delete (games, playgroups, online games, invites) are handled before these.
 const OWNED_DELETES: &[(&str, &str)] = &[
+    // The account stops feeding shared precon evidence along with its datasets.
+    ("precon_evidence_sources", "owner_id"),
+    // and its chosen simulation, whose tournaments go with it.
+    ("precon_evidence_simulation", "owner_id"),
+    // and the public commander ranking.
+    ("commander_evidence_sources", "owner_id"),
     ("evidence_datasets", "owner_id"),
     ("research_reviews", "owner_id"),
     ("research_review_ops", "owner_id"),
@@ -108,6 +122,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("oauth_codes", "user_id"),
     ("oauth_grants", "user_id"),
     ("calendar_watches", "user_id"),
+    ("deleted_games", "deleted_by"),
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
     ("assistant_changes", "owner_id"),
@@ -128,6 +143,7 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("plan_states", "owner_id"),
     ("plan_order_items", "owner_id"),
     ("plan_orders", "owner_id"),
+    ("plan_store_prefs", "owner_id"),
     ("plan_stores", "owner_id"),
     ("plan_decks", "owner_id"),
     ("plan_settings", "owner_id"),
@@ -142,7 +158,11 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("containers", "owner_id"),
     ("item_aliases", "owner_id"),
     ("applied_ops", "owner_id"),
+    // The Mythic Tools bridge: its links, and Mythic's notes kept for this account alone.
+    ("mythic_game_notes", "owner_id"),
+    ("mythic_links", "owner_id"),
     ("mythic_imports", "owner_id"),
+    ("mythic_pushes", "owner_id"),
     ("decks", "owner_id"),
 ];
 

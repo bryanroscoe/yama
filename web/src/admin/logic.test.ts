@@ -41,8 +41,8 @@ describe("admin words", () => {
 
   it("size files", () => {
     expect(bytes(512)).toBe("512 bytes");
-    expect(bytes(1536)).toBe("1.5 KB");
-    expect(bytes(48 * 1024 * 1024)).toBe("48 MB");
+    expect(bytes(1536)).toBe("1.5\u00a0KB");
+    expect(bytes(48 * 1024 * 1024)).toBe("48\u00a0MB");
     expect(bytes(null)).toBe("unknown");
   });
 
@@ -86,6 +86,7 @@ describe("admin words", () => {
     expect(advisorLine(row({ advisor_mode: "shared", advisor_shared: true }))).toBe("Asks Claude on the shared key.");
     expect(advisorLine(row({ advisor_mode: "own_key", advisor_shared: true }))).toContain("also has the shared key");
     expect(advisorLine(row({ advisor_shared: true, advisor_reason: "needs_key" }))).toBe("Has the shared key, but the advisor doesn't hold one yet.");
+    expect(advisorLine(row({ advisor_shared: true, advisor_reason: "power_only" }))).toBe("Has the shared key, but can't use it: not a power user.");
   });
 
   const grant = (over: Partial<SharedGrant> = {}): SharedGrant => ({

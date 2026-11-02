@@ -17,8 +17,9 @@
 # CPU is capped with --cpus and given a low share, so Plex and the other containers win any
 # contention.
 set -eu
-cd "$(dirname "$0")/.."
-HOST=root@<saget-lan-address>
+DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+cd "$DEPLOY_DIR/.."
+. "$DEPLOY_DIR/target.sh"
 DIR=/mnt/user/appdata/yama-lab
 CARDS=/mnt/user/appdata/yama/data/engine
 CARD_FILE=card-data-1e5608e61683de41.json

@@ -1,0 +1,122 @@
+/* Check this deck (DeckCheckPage). Builds on deckScan.css. The verdict colours are the status
+   tones (good, bad, warn), the only colour on the page, so they can be read at a glance. */
+
+.deck-check-target {
+  display: grid;
+  gap: 4px;
+}
+.deck-check-target label {
+  display: grid;
+  gap: 4px;
+  font-weight: 700;
+}
+.deck-check-target select {
+  width: 100%;
+  min-height: 44px;
+}
+.deck-check-target p {
+  margin: 0;
+}
+.deck-check-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.deck-check-mute {
+  max-width: 560px;
+}
+.deck-check-section h2 {
+  margin: 0;
+}
+/* Each card's name on its own line, where its copies are below it; the + and − marks hang
+   in the margin so wrapped lines start under the name, not under the mark. */
+.deck-check-section .deck-scan-plain li {
+  position: relative;
+  padding: 4px 0 4px 1em;
+}
+.deck-check-section .deck-scan-plain li > [aria-hidden="true"]:first-child {
+  position: absolute;
+  left: 0;
+}
+.deck-check-where {
+  display: block;
+}
+
+/* The verdict: a solid block of the tone, dark text, a big mark. */
+.deck-check-verdict {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  color: #111;
+  background: var(--surface);
+}
+.deck-check-verdict.is-good {
+  background: var(--good);
+}
+.deck-check-verdict.is-out {
+  background: var(--bad);
+}
+.deck-check-verdict.is-warn {
+  background: var(--warn);
+}
+.deck-check-mark {
+  flex: none;
+  font-size: 2.6rem;
+  line-height: 1;
+  font-weight: 800;
+  width: 1.2em;
+  text-align: center;
+}
+.deck-check-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.deck-check-title {
+  font-size: 1.6rem;
+  line-height: 1.1;
+}
+.deck-check-name {
+  font-size: var(--t-label);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.deck-check-detail {
+  font-size: var(--t-sm);
+}
+.deck-check-verdict.is-compact {
+  padding: 8px 12px;
+}
+.deck-check-verdict.is-compact .deck-check-mark {
+  font-size: 1.8rem;
+}
+.deck-check-verdict.is-compact .deck-check-title {
+  font-size: 1.2rem;
+}
+
+/* Over the camera, under the close button and the count. */
+.deck-check-overlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(max(14px, env(safe-area-inset-top)) + 56px);
+  pointer-events: none;
+}
+.deck-check-overlay .deck-check-verdict {
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.45);
+}
+
+.deck-check-tag.is-good {
+  color: var(--good);
+  border-color: var(--good);
+}
+.deck-check-tag.is-out {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.deck-check-tag.is-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}

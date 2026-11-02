@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { AcquisitionItem, PowerSummary, PrintedWishlist, ResearchPage, Shopping } from "./Research";
 import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { changedAnswer, money, safeUrl, targetForSwap, type ResearchBundle } from "./api";
+import { changedSince } from "./about";
+import type { DeckSummary } from "../api";
 
 vi.mock("../auth",()=>({useMe:()=>({data:{id:"owner"}})}));
 vi.mock("../components/DeckTabs",()=>({AreaHead:({title}:{title:string})=><h1>{title}</h1>}));
@@ -43,6 +45,11 @@ describe("deck research evidence", () => {
     const b={target_hashes:{[target]:"old"}} as unknown as ResearchBundle;expect(changedAnswer(b,review)).toBe(false);
     b.target_hashes[target]="new";expect(changedAnswer(b,review)).toBe(true);delete b.target_hashes[target];expect(changedAnswer(b,review)).toBe(true);
   });
+  it("opens a copy of a shared note instead of the note list",()=>{
+    const client=new QueryClient();
+    const html=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research?copy=abc123"]}><Routes><Route path="/decks/research" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
+    expect(html).toContain("Saving a copy of the shared note");expect(html).not.toContain("Import a note file");
+  });
   it("shows exact swaps, retained answers and alternatives without an Apply action",()=>{
     const html=fullPage();expect(html).toContain("Living Energy");expect(html).toContain("Thought Monitor");expect(html).toContain("Glimmer of Genius");expect(html).toContain("Repeatable artifact draw");expect(html).toContain("Preferred build ✓");expect(html).toContain("Keep friends games interactive");expect(html).toContain('aria-pressed="true"');expect(html).toContain("Download list");expect(html).toContain("100 cards total");expect(html).toContain("97");expect(html).toContain("Copy artifacts and turn a developed board into combat pressure.");expect(html).toContain('aria-label="Preview Thought Monitor"');expect(html).not.toContain(">Apply</button>");expect(html).toContain("do not apply swaps");
   });
@@ -67,4 +74,42 @@ describe("deck research evidence", () => {
     expect(html).toContain("Buy these precons first");expect(html).toContain("$47.01");expect(html).toContain("$1.25 before tax");expect(html).not.toContain("$48.26");expect(html).toContain("not cards you own now");
   });
 
+  it("labels research as agent notes that need nothing from you, on the index and on a note",()=>{
+    const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});
+    client.setQueryData(["research","owner","list"],[{id:"audit",title:"Deck review",revision:1,updated_at:"2026-10-27"}]);
+    const index=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research"]}><Routes><Route path="/decks/research" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
+    client.clear();
+    expect(index).toContain("<h1>Agent notes</h1>");expect(index).toContain("Agent notes are what Claude and other agents save");expect(index).toContain("nothing here needs you to do anything");
+    expect(index).toContain('href="/decks/plan/review"');expect(index).toContain("has changed since the note was saved");
+    const note=fullPage();
+    expect(note).toContain("Agent notes are what Claude and other agents save");expect(note).toContain("Note saved 27 Oct 2026");
+  });
+
+  it("flags a note's deck when the deck changed after the note was saved",()=>{
+    const d=(name:string,updated_at:string,parent_id:string|null=null)=>({id:name,name,updated_at,parent_id} as unknown as DeckSummary);
+    const decks=[d("Living Energy","2026-10-28T10:00:00Z"),d("Riders of Rohan","2026-10-20T10:00:00Z"),d("Living Energy (stock)","2026-10-29T00:00:00Z","Living Energy")];
+    expect(changedSince(decks,"living energy","2026-10-27")?.id).toBe("Living Energy");
+    expect(changedSince(decks,"Riders of Rohan","2026-10-27")).toBeNull();
+    expect(changedSince(decks,"Unknown deck","2026-10-27")).toBeNull();
+  });
+
+});
+
+it("counts a colon-suffixed research commander in the same board as the printer", () => {
+  const rows = listEntries("Commander:\n1 Leader\nDeck:\n99 Plains");
+  expect(rows).toEqual([{ name: "Leader", qty: 1, commander: true }, { name: "Plains", qty: 99, commander: false }]);
+});
+
+it("shows a shared note's link and says what stays private", () => {
+  vi.stubGlobal("location", { origin: "https://yama.ing" });
+  const b: ResearchBundle = { document: { schema: "yama-research/1", id: "audit", title: "Deck review", generated_at: "2026-10-31", decks: [{ key: "energy", name: "Living Energy", commander: "Saheeli", builds: [{ id: "b3", label: "Bracket 3", list: "Commander\n1 Saheeli\nDeck\n99 Forest" }] }] }, revision: 1, updated_at: "2026-10-31", target_hashes: {}, reviews: [], visibility: "link", share_token: "0123456789abcdef01234567" };
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(["research", "owner", "audit"], b);
+  client.setQueryData(["sharing"], { handle: "saget", new_deck_visibility: "private", collection_public: false, share_lab_results: false, decks: { private: 0, link: 0, public: 0 } });
+  const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research/audit"]}><Routes><Route path="/decks/research/:reportId" element={<ResearchPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  client.clear();
+  vi.unstubAllGlobals();
+  expect(html).toContain("Share this note (anyone with the link)");
+  expect(html).toContain("https://yama.ing/r/0123456789abcdef01234567");
+  expect(html).toContain("as written, so read them before sharing");
 });

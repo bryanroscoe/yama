@@ -14,6 +14,235 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-01-table-danger",
+    date: "2026-11-01",
+    title: "The life counter warns when someone is close to out",
+    items: [
+      "A player's panel glows red around the edge when they're close to losing: a quarter of their starting life left (10 in Commander), 7 poison, or 16 damage from one commander. It beats faster once they're one hit from out, and a badge says why.",
+    ],
+  },
+  {
+    id: "2026-11-01-table-awake",
+    date: "2026-11-01",
+    title: "The life counter keeps your screen on",
+    items: [
+      "Your phone no longer goes to sleep during a game. Yama asks again to keep the screen on each time you come back from another app or unlock the phone, and phones following a shared table stay awake too.",
+    ],
+  },
+  {
+    id: "2026-11-01-shopping-settings",
+    date: "2026-11-01",
+    title: "Your buy rule, your favourite store, and lists to paste",
+    items: [
+      "Plan settings has your buy rule: the most a card may cost, the price that's always fine, how far over market you'll go, and the most for a sealed precon. A change applies from today, so older checks keep the rules of their day, and a plan import won't replace it.",
+      "On the Trip page, mark a favourite store you want to support: it's on every trip it has a card for, and you can let it charge a little more. Put your stores in order of how easy they are to get to, and untick the ones you're not going to this time.",
+      "Each store has its list to copy and its cart link where the store has one. Stores on TCGplayer Pro get a search link for each card, and what's left has a TCGplayer Mass Entry link to compare online.",
+    ],
+    link: { to: "/decks/plan/trip", label: "Store trip" },
+  },
+  {
+    id: "2026-11-01-store-trip",
+    date: "2026-11-01",
+    title: "Plan a trip to your stores",
+    items: [
+      "Plans has a Trip page: the fewest of your stores that have the cards you're buying under your shopping rule, with each store's cards, total and cart, and what to print instead.",
+      "Mark each store as your usual one, fine, maybe or one you won't go to. The trip never sends you to a store you won't go to.",
+      "Proposals you haven't decided on and your real-card wishlist come along from stores you're visiting anyway. Listings are the dated checks in your plan, not a promise the card is still there.",
+    ],
+    link: { to: "/decks/plan/trip", label: "Store trip" },
+  },
+  {
+    id: "2026-11-01-lab-tables",
+    date: "2026-11-01",
+    title: "See what happened at every table of a lab run",
+    items: [
+      "In a head-to-head or tournament run, every deck's name opens its own page: how it placed, who it sat with and how it did against each, and every table it played at with the commanders' art.",
+      "Open a table to see its four games one by one: who went first, the finishing order, the turn each deck was knocked out, and the life left when a game hit the cap.",
+      "Head to head now says it in words, such as \"Lorehold Spirit finished higher than Fantastic Four in 3 of 4\", and marks pairs with too few games to tell.",
+      "New tournaments keep versions of the same deck (yours, the stock list, a variant) at separate tables while every deck still plays as often as the others. In a big field they never meet; in a very small field with several versions they sometimes have to.",
+    ],
+    link: { to: "/lab/runs", label: "Open my runs" },
+  },
+  {
+    id: "2026-11-01-no-account-counter",
+    date: "2026-11-01",
+    title: "Count life without an account",
+    items: [
+      "Friends without a Yama account can use the life counter on their own phone: \"Count life without an account\" on the sign-in page. Their games stay on that phone.",
+      "If they sign in later, the Table page asks whether to save those games to their account. Sharing a table with everyone's phones still needs an account; joining one by its code doesn't.",
+    ],
+  },
+  {
+    id: "2026-11-01-whos-playing",
+    date: "2026-11-01",
+    title: "New game: tap who's playing",
+    items: [
+      "Pick Friends or one of your playgroups, then tap the people at the table. Each one takes the next seat; tap again to take them off. Playgroup members' games count for them, and friends from past games sit as guests.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-11-01-table-pass",
+    date: "2026-11-01",
+    title: "Life counter: finish, edit players, take commander damage",
+    items: [
+      "Finish the game leads the table menu: tap the winner's picture (or It was a draw), and a player's sheet has \"Sam won\" too. Leave the table keeps the game going; Discard game throws it away.",
+      "Tap a player's name to change who's sitting there or what they're playing, mid-game: rename them, pick them from your playgroup so the game counts for them, or switch decks.",
+      "Commander damage the Lifetap way: tap the shield on the panel taking damage, then + on whoever's commander hit them. The swords still deal it from the attacker.",
+      "Turn counting is off unless you turn it on (Count turns, in the menu). Each game still opens by asking who goes first, or picks someone at random.",
+      "Picking one of your decks asks which list next (main, stock, after prints), and a deck that lists several commanders asks which one is playing. Poison reads as 3 / 10, and the other counters stay open.",
+      "Install Yama from the Table page to get it full screen, or use Full screen in the menu.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-11-01-fix-a-printing",
+    date: "2026-11-01",
+    title: "Fix a card's printing in your collection",
+    items: [
+      "Tap a card on the Collection page and choose Change printing to pick the right one from every printing of that card, with its picture, year and price.",
+      "Or choose Rescan this card and hold it up to the camera: the printing you confirm replaces the old one. A different card is refused, so nothing changes by mistake.",
+      "With several copies in one row, change all of them or just one. Copies stay where they live, in the same condition.",
+      "Delete from collection removes the whole row, after you confirm.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
+    id: "2026-11-01-table-relay",
+    date: "2026-11-01",
+    title: "Everyone's phones: no account needed, and it keeps going if Yama's server is down",
+    items: [
+      "Friends who scan the join code no longer sign in to Yama: the code is all they need.",
+      "Shared tables now meet on Cloudflare instead of Yama's own server, so a game everyone follows keeps going even when Yama's server or its internet connection is down. The host's phone still keeps the game and uploads it when it can.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-11-01-check-a-deck",
+    date: "2026-11-01",
+    title: "Check a deck box card by card",
+    items: [
+      "On a deck, Check this deck (under More actions on a phone) flips through the physical deck with the camera. Each card shows at once, in green or red with a sound, whether it belongs or has to come out, and warns about a second copy.",
+      "Pick what the box should match: the deck's current list, another configuration or saved version, your plan's after-prints list or bracket builds, or a research build.",
+      "For a card to take out it says what goes in instead and where that card is, when Yama knows. A running count shows what's left to take out and what's still missing.",
+      "Nothing is saved. Mute it from the page; the setting stays on this device. Save as a deck scan turns the check into a normal scan if you want the list saved.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
+    id: "2026-10-31-table-layouts-join",
+    date: "2026-10-31",
+    title: "Life counter: panel layouts, join from the start, dice",
+    items: [
+      "New game asks how the panels sit (two a side, one each side, everyone facing the screen, and more for each player count) and whether everyone keeps their own phone. With everyone's phones on, the join code fills the screen as the game opens; a green dot on the middle button shows the table is shared.",
+      "Save and play again starts a rematch with the same seats, and phones that joined follow it without scanning again.",
+      "Delete a game you recorded from the bottom of its page, for a test game or one entered by mistake. Discarding a game in progress now removes it from Yama too, instead of leaving it in Recent games as still going.",
+      "Turns are only counted if you start passing the turn from the menu, so a game nobody counted doesn't go in the stats as one turn long.",
+      "Dice (d4 to d20 or any size, up to three at once), a coin, a random player, and Shuffle the seats at setup. Storm, treasure and the city's blessing join the counters; tap a player's total on their sheet to type a new one. Partner commanders share their panel's art, and a landscape screen turns the whole layout to fit.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-10-31-power-users",
+    date: "2026-10-31",
+    title: "Simulations and Ask Claude for power users",
+    items: [
+      "Starting simulations, watching AI games and Ask Claude are open to admins and power users for now, because they take a lot of the server. Ask the host if you'd like to be a power user.",
+      "Simulation results stay open to everyone: the Lab's precon rankings and your own earlier runs are where they were.",
+    ],
+    link: { to: "/lab", label: "Precon rankings" },
+  },
+  {
+    id: "2026-10-31-power-estimate",
+    date: "2026-10-31",
+    title: "An estimate on the older 1 to 10 power scale",
+    items: [
+      "A deck's Bracket panel now translates the list into the older power-level scale, for playgroups that still talk in it: the suggested bracket sets the range and cheap mana, draw, interaction, tutors, the curve, Game Changers and combos move it within it.",
+      "It's an unofficial Yama estimate from the card list, not how the deck plays. Open How the power estimate adds up to see every factor and the cards behind it.",
+    ],
+  },
+  {
+    id: "2026-10-31-scan-closeups-switch",
+    date: "2026-10-31",
+    title: "Scan with a camera that stays put",
+    items: [
+      "The scanner's close-up step is now a switch under the camera. Leave Close-ups on to hold the phone near the set code and number when several printings share the art. Turn it off for a stand or card feeder: the scanner reads the whole card and asks you to tap the printing when that isn't enough.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
+    id: "2026-10-31-seat-search",
+    date: "2026-10-31",
+    title: "Find players and decks when you seat a game",
+    items: [
+      "New game and Log a game find anyone on Yama by their @handle, as well as your playgroups and past games. Someone found by handle plays as a guest unless they're in the playgroup you chose.",
+      "Each seat's Deck field searches the player's public decks, your own decks (lent, on someone else's seat) and the precons. Picking one fills in its commanders, or just pick a commander as before.",
+      "Log a game can remove a player, and Who went first? has a Don't remember answer, here and at the end of a table game.",
+      "Games you logged can be edited: open one and choose Edit this game.",
+      "Logging a night of games? Save and log another keeps the same players and decks for the next one, and any game's page has Log another like this.",
+    ],
+    link: { to: "/", label: "Log a game" },
+  },
+  {
+    id: "2026-10-29-precon-real-history",
+    date: "2026-10-29",
+    title: "Precon pages show real games over time",
+    items: [
+      "A precon's page now shows its playgroup.gg results over time: the all-time win rate, the rate in the games played since the earliest snapshot, and whether it's rising or falling.",
+      "Precons playgroup.gg doesn't rate show their commander's own figure instead, labelled as every list under that commander.",
+      "An experimental rating v2 combines real games with the simulation, but only gives the simulation weight if it has proved it predicts later real games. Tournaments in the Lab also show each deck's fitted strength, which accounts for who it sat with.",
+    ],
+    link: { to: "/lab", label: "Open the precons" },
+  },
+  {
+    id: "2026-10-29-swap-cards",
+    date: "2026-10-29",
+    title: "Bracket swap cards for your deck boxes",
+    items: [
+      "Print a card-sized note for each deck box: the bracket it's kept at, what comes out and goes in for each step down, with Game Changers marked. Going up, do the swaps in reverse.",
+      "Print all swap cards is under Your plans, nine to a page with cut lines. A deck's own card is on its Brackets tab and in its Bracket bags panel. Print at actual size from a computer; on a phone the cards are easy to read.",
+    ],
+    link: { to: "/decks/plan/swap-cards", label: "See your swap cards" },
+  },
+  {
+    id: "2026-10-29-scan-a-deck",
+    date: "2026-10-29",
+    title: "Scan a deck into Yama",
+    items: [
+      "On a deck, Scan this deck (under More actions on a phone) scans the physical deck card after card with the camera. A typed name or a photo works too. It counts toward 100, shows whether the commander is in, and lets you fix a misread card or remove one scanned twice.",
+      "Before saving you see the cards going in and out, what stays, and the Commander checks: 100 cards, singleton, colors and legality.",
+      "The scan is saved as a new version. Choose whether it becomes the deck's list (which your plan reads installs from); the old list stays in History to switch back to.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
+    id: "2026-10-29-table-pass",
+    date: "2026-10-29",
+    title: "A better table: search, partners, a knock-out check and two phone views",
+    items: [
+      "New game searches for players (you, your playgroups and people from your recent games) and for commanders, with their art in the list. Partners and Backgrounds get their own field, and a deck with two commanders brings both.",
+      "Pick the game first: Commander at 40, a 20-life game, or something else. Start says what it starts.",
+      "When someone reaches 0 life, 10 poison or 21 damage from one commander, the table asks whether they're out and who did it. A card that keeps them in? Say not out.",
+      "Tap the swords on a panel to deal that commander's damage: every other panel turns into its counter. Life comes off too.",
+      "A seat can change commanders mid-game from its player sheet. Energy, experience and rad sit under Other counters, with what uses each.",
+      "Following on your phone: switch between My seat and Whole table, and tap anyone to see or change their totals.",
+      "Recent games open to their details and a turn-by-turn history. A game still going can be followed live or carried on from your laptop. On a laptop the panels face the screen; the table menu switches it.",
+    ],
+    link: { to: "/", label: "Start a game" },
+  },
+  {
+    id: "2026-10-28-review-installs-lab",
+    date: "2026-10-28",
+    title: "A clearer Review, installs read from your decks, and a Lab tab",
+    items: [
+      "Review is one to-do list: proposals still waiting for your answer come first. Answered proposals and swaps already in the plan sit underneath, closed, so nothing looks done when it isn't.",
+      "A plan's installed swaps now come from the deck itself: a swap is in when its card is in the deck's current list and the card it replaces is gone. The deck page says which list is in the deck and puts a configuration's list (stock, after prints) in with one tap; History restores any earlier list.",
+      "The Lab has its own tab. Old links under Decks still open it.",
+      "Research is now called Agent notes: what Claude and other agents save for each other. Nothing there needs you; anything you should decide shows up in Review.",
+    ],
+    link: { to: "/decks/plan/review", label: "Open Review" },
+  },
+  {
     id: "2026-10-28-shared-deck-pages",
     date: "2026-10-28",
     title: "Shared decks show what your deck page shows",
@@ -76,7 +305,7 @@ export const NEWS: NewsEntry[] = [
       "Research can keep a permanent wishlist of genuine cards even when their printed copies are already here. It stays separate from local purchase quotes, quantities to buy and order totals.",
       "Card names on the wishlist have the same hover and tap previews as the deck guides.",
     ],
-    link: { to: "/decks/research", label: "Review deck research" },
+    link: { to: "/decks/research", label: "Open agent notes" },
   },
   {
     id: "2026-10-27-commander-options",
@@ -99,7 +328,7 @@ export const NEWS: NewsEntry[] = [
       "Hover or focus card names to inspect the card. Tap names to pin a preview, including in research, decks, collection, plans, suggested changes and public stock lists.",
       "Research separates the complete 100-card deck, exact swaps and acquisition requirements. Gameplay profiles explain setup, finishers, interaction, recovery and weaknesses; Game Changer choices have reasons. Planned sealed purchases stay separate from owned cards, singles and prints.",
     ],
-    link: { to: "/decks/research", label: "Review builds" },
+    link: { to: "/decks/research", label: "Open agent notes" },
   },
   {
     id: "2026-10-27-precon-evidence-audit",
@@ -128,7 +357,7 @@ export const NEWS: NewsEntry[] = [
       "Decks, Research keeps current lists, bracket alternatives, rough power explanations, combos, local buying evidence and print requirements together.",
       "Choose a preferred build, answer individual swaps and save notes. Your answers survive research updates; changed evidence is flagged. These preferences do not install cards or approve orders.",
     ],
-    link: { to: "/decks/research", label: "Open deck research" },
+    link: { to: "/decks/research", label: "Open agent notes" },
   },
   {
     id: "2026-10-27-mcp-guide",
@@ -178,7 +407,7 @@ export const NEWS: NewsEntry[] = [
       "Your decks and the precon catalog show the estimated value of their singles, including commanders, quantities and basics. Missing prices are counted separately, with the dates and source beside the estimate.",
       "Precons also show a separate sealed deck market price when the stock product can be identified. Each stock card has a singles price. Values are market references, not store quotes or what you would receive selling a deck.",
     ],
-    link: { to: "/decks/lab", label: "Compare precons" },
+    link: { to: "/lab", label: "Compare precons" },
   },
   {
     id: "2026-10-26-tournaments",
@@ -189,7 +418,7 @@ export const NEWS: NewsEntry[] = [
       "Choose games per deck. Four-player pods balance appearances, vary opponents and rotate seats. Identical lists count once, and every participant contributes to the results.",
       "Results rank the field with win-share intervals and show shared-game matchups, separately for each engine. These are AI simulations, not predictions for your table.",
     ],
-    link: { to: "/decks/lab/compare?mode=tournament", label: "Set up a tournament" },
+    link: { to: "/lab/compare?mode=tournament", label: "Set up a tournament" },
   },
   {
     id: "2026-10-26-deck-stats-brackets",
@@ -259,7 +488,7 @@ export const NEWS: NewsEntry[] = [
       "Compare decks: two decks against the same opponents, or two to four of your decks head to head at one table, each taking every seat in turn.",
       "Against a pick of one or two of your decks, they now sit in every pod and precons of similar power fill the other seats. Finished runs can be run again with more games.",
     ],
-    link: { to: "/decks/lab/compare", label: "Compare decks" },
+    link: { to: "/lab/compare", label: "Compare decks" },
   },
   {
     id: "2026-10-22-deck-import",
@@ -308,7 +537,7 @@ export const NEWS: NewsEntry[] = [
       "A precon's page, your batch runs and a plan's three versions say plainly when the numbers say little about real games.",
       "Try a change warns before you run a deck like Tricky Terrain, and again beside the verdict.",
     ],
-    link: { to: "/decks/lab", label: "Open the lab" },
+    link: { to: "/lab", label: "Open the lab" },
   },
   {
     id: "2026-10-19-online-board",

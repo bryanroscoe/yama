@@ -1,17 +1,18 @@
-import { useMemo, type ReactNode } from "react";
-import { Link, NavLink } from "react-router";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { Link, NavLink, useLocation } from "react-router";
 import { useMe } from "../auth";
 import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
 import "./deck-area.css";
 
-/** The Decks tab's sections, in order. Adding a section is one line here. */
+/** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
+ *  tab since 2026-10-28; Research is labelled as what it is, notes agents keep for themselves. */
 export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
   { to: "/decks", label: "Decks", end: true },
+  { to: "/decks/builds", label: "Builds" },
   { to: "/decks/plan", label: "Plans" },
-  { to: "/decks/research", label: "Research" },
-  { to: "/decks/lab", label: "Lab" },
+  { to: "/decks/research", label: "Agent notes" },
   { to: "/decks/datasets", label: "Datasets" },
 ];
 
@@ -29,13 +30,46 @@ function useToReview(): number {
   }, [plan.bundle, box, userId]);
 }
 
-/** The segmented control at the top of the Decks tab: the Decks list, the plan pages and the lab
- *  pages all show it. Drawn as the shared .segmented pill (styles.css). Plans carries a count of
+/** The segmented control at the top of the Decks tab: the Decks list, the plan pages and the
+ *  agent notes all show it. Drawn as the shared .segmented pill (styles.css). Plans carries a count of
  *  proposals still waiting for an answer. */
+/** On a phone the sections run past the screen's edge: bring the chosen one into view and mark
+ *  which ends have more (`data-more`), so the track fades there instead of cutting a word off. */
+function useScrollHint<T extends HTMLElement>(content: unknown) {
+  const ref = useRef<T>(null);
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const active = el.querySelector<HTMLElement>('[aria-current="page"]');
+    if (active && el.scrollWidth > el.clientWidth) {
+      const a = active.getBoundingClientRect();
+      const e = el.getBoundingClientRect();
+      el.scrollLeft += a.left - e.left - (e.width - a.width) / 2;
+    }
+    const update = () => {
+      const more = [el.scrollLeft > 1 && "start", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 && "end"].filter(Boolean).join(" ");
+      if (more) el.dataset.more = more;
+      else delete el.dataset.more;
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    resize?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      resize?.disconnect();
+    };
+  }, [pathname, content]);
+  return ref;
+}
+
 export function DeckTabs() {
   const toReview = useToReview();
+  // The Plans count arrives after load and widens the track: measure again when it does.
+  const track = useScrollHint<HTMLElement>(toReview);
   return (
-    <nav className="segmented deck-sections" aria-label="Decks sections">
+    <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
       {DECK_SECTIONS.map((s) => (
         <NavLink key={s.to} to={s.to} end={s.end}>
           {s.label}
@@ -71,20 +105,23 @@ export function BackButton({ to, label, text, className = "" }: { to: string; la
   );
 }
 
-/** An underlined row of section pages (Overview, Review... or Precons, Try a change...). */
+/** An underlined row of section pages (Overview, Review... or the Lab's Precons, Try a change...). */
 export function SubNav({ label, pages, also }: { label: string; pages: { to: string; label: string; end?: boolean; also?: string }[]; also?: string }) {
   return (
     <nav className="area-subnav" aria-label={label}>
-      {pages.map((p) => (
-        <NavLink
-          key={p.to}
-          to={p.to}
-          end={p.end}
-          className={({ isActive }) => (isActive || (p.also && also?.startsWith(p.also)) ? "active" : "")}
-        >
-          {p.label}
-        </NavLink>
-      ))}
+      {pages.map((p) =>
+        // A page that belongs under another (Swap cards under Overview) marks it current for
+        // screen readers too, which NavLink only does for its own path.
+        p.also && also?.startsWith(p.also) ? (
+          <Link key={p.to} to={p.to} className="active" aria-current="page">
+            {p.label}
+          </Link>
+        ) : (
+          <NavLink key={p.to} to={p.to} end={p.end} className={({ isActive }) => (isActive ? "active" : "")}>
+            {p.label}
+          </NavLink>
+        ),
+      )}
     </nav>
   );
 }
@@ -92,7 +129,7 @@ export function SubNav({ label, pages, also }: { label: string; pages: { to: str
 /**
  * The head of a Decks-tab page (design: DeckList, Lab, PlanOverview, Buy...).
  *
- * - Laptop: the page title on the left; Decks | Plans | Lab and the page's action on the right;
+ * - Laptop: the page title on the left; Decks | Plans | Agent notes and the page's action on the right;
  *   the section's sub-nav underneath.
  * - Phone, a section's front page (`index`): "Decks" and the action, the control full width, the
  *   sub-nav. Phone, any other page: a back button and the page title (and `status`), nothing else.
@@ -107,6 +144,8 @@ export function AreaHead({
   action,
   nav,
   status,
+  area = "Decks",
+  sections = <DeckTabs />,
 }: {
   title?: ReactNode;
   index?: boolean;
@@ -115,6 +154,10 @@ export function AreaHead({
   action?: ReactNode;
   nav?: ReactNode;
   status?: ReactNode;
+  /** The tab this page belongs to, the phone title of its front page. */
+  area?: string;
+  /** The tab's own sections control (Decks | Plans | Agent notes); null for a tab without one. */
+  sections?: ReactNode;
 }) {
   return (
     <header className={`area-head ${index ? "is-index" : "is-sub"}${slim ? " is-slim" : ""}`}>
@@ -125,7 +168,7 @@ export function AreaHead({
             {index ? (
               <>
                 <span className="area-wide">{title}</span>
-                <span className="area-phone">Decks</span>
+                <span className="area-phone">{area}</span>
               </>
             ) : (
               title
@@ -133,7 +176,7 @@ export function AreaHead({
           </h1>
         )}
         {status && <div className="area-status">{status}</div>}
-        <DeckTabs />
+        {sections}
         {action && <div className="area-action">{action}</div>}
       </div>
       {nav}

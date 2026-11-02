@@ -1,0 +1,19 @@
+/* The Mythic Tools import (MythicImport.tsx). */
+.mythic-import { max-width: 52rem; }
+/* Code keeps its lines and indentation; a phone scrolls it sideways instead of wrapping. */
+.mythic-snippet {
+  white-space: pre;
+  max-height: 20rem;
+  overflow: auto;
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+/* The file field has no visible label, so it lines up with the Playgroup select's bottom. */
+.mythic-upload-row { align-items: end; }
+.mythic-players { border-collapse: collapse; }
+.mythic-players th,
+.mythic-players td { text-align: left; padding: 0.35rem 1rem 0.35rem 0; border-bottom: 1px solid var(--line); }
+.mythic-games { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.9rem; }
+.mythic-games > li { padding-bottom: 0.9rem; border-bottom: 1px solid var(--line); }

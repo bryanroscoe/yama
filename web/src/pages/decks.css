@@ -241,7 +241,12 @@
     padding: 8px 12px;
     font-size: var(--t-label);
   }
-  .deck-actions-more[open] { grid-column: 1 / -1; }
+  /* Opening it leaves the summary beside Edit deck; the actions spread under both columns
+     (back by one column plus the gap) instead of the summary jumping to a row of its own. */
+  .deck-actions-more[open] .deck-extra-actions {
+    width: calc(200% + 8px);
+    margin-left: calc(-100% - 8px);
+  }
   .deck-actions-more > summary {
     justify-content: center;
     border: 1px solid var(--line);

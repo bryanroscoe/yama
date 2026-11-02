@@ -52,7 +52,7 @@ export function SharingSettings() {
       >
         <label>
           Your handle
-          <span className="hint">Your profile's address, /u/handle. 3 to 30 letters, digits, - or _.</span>
+          <span className="hint">Your profile's address, /u/handle. 3 to 30 letters, digits, - or _. People seating a game can find you by it.</span>
           <span className="row">
             <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="saget" maxLength={31} autoCapitalize="none" spellCheck={false} />
             <button disabled={save.isPending || handle.trim().replace(/^@/, "").toLowerCase() === (s.handle ?? "")}>Save</button>
@@ -91,8 +91,10 @@ export function SharingSettings() {
         >
           Make all my decks public
         </button>
+        {/* Outlined like its partner: a quiet button wrapped onto its own line on a phone and
+            looked indented by its own padding. */}
         <button
-          className="quiet"
+          className="outline"
           disabled={all.isPending || total === 0 || s.decks.private === total}
           onClick={() => shareAll("private", `Make all ${total} decks private? Every link you've sent stops working until you share again.`)}
         >
