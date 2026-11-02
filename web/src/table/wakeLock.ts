@@ -61,7 +61,7 @@ export function holdScreenAwake(nav: WakeLockHost, page: PageHost): () => void {
   };
 }
 
-/** Keep the screen on while the calling page is open, where the browser supports it. */
-export function useScreenAwake() {
-  useEffect(() => holdScreenAwake(navigator as Navigator & WakeLockHost, document), []);
+/** Keep the screen on while the calling page is open (and `on`), where the browser supports it. */
+export function useScreenAwake(on = true) {
+  useEffect(() => (on ? holdScreenAwake(navigator as Navigator & WakeLockHost, document) : undefined), [on]);
 }
