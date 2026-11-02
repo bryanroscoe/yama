@@ -68,7 +68,7 @@ function record(d: Pick<DeckSummary, "games" | "wins" | "draws">): string | null
 }
 
 export function DecksPage() {
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   // "Start a deck" on a precon (older links to /decks?precon=…) opens the import page with its stock list.
   const [params] = useSearchParams();
   const precon = params.get("precon");
@@ -155,11 +155,11 @@ export function DeckPage() {
   // (the hero's actions, the whole body, the action bar), so nothing acts on the deck just left.
   const deck = useQuery({
     queryKey: ["deck", id],
-    queryFn: () => api<DeckView>(`/api/decks/${id}`),
+    queryFn: ({ signal }) => api<DeckView>(`/api/decks/${id}`, { signal }),
     placeholderData: (prev) => (prev?.configurations.some((c) => c.id === id) ? prev : undefined),
   });
-  const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: () => api<DeckView>(`/api/decks/${other}`), staleTime: 30_000 });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${other}`, { signal }), staleTime: 30_000 });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [view, setView] = useState<"all" | "needed">("all");
   const [layout, setLayoutState] = useState<"stacks" | "list">(() => {
     const saved = localStorage.getItem("yama.deck.layout");
@@ -661,13 +661,13 @@ function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean;
 function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
+  const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
   // The bracket panel has already asked whether this server sends lists to Spellbook.
   const checksOn = qc.getQueryData<DeckCheck>(["deck-check", deck.id, deck.version_id])?.enabled === true;
   const [name, setName] = useState(deck.name);
   const [container, setContainer] = useState(deck.container_id ?? "");
   const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [parent, setParent] = useState(deck.parent_id ?? "");
   const [configuration, setConfiguration] = useState(deck.configuration ?? "");
   // A deck with configurations of its own stays a main deck; the others can go under a main deck.

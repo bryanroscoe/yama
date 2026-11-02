@@ -1,7 +1,7 @@
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
 import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -20,6 +20,7 @@ function tileMeta(copies: number, value: number | undefined, unpriced: number | 
   return `${cards}, ${money}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
 import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
+import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
 
@@ -36,7 +37,10 @@ const CLOSEUPS = "yama.scan.closeups";
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
 const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly played", MP: "moderately played", HP: "heavily played", DMG: "damaged" };
+/** Rows shown at first, and how many more each "Show more" adds: a collection can run to thousands,
+ *  and drawing every row at once made the page crawl. */
 const SHOW = 24;
+const MORE = 200;
 
 /** Most valuable first (by the price of one copy); copies with no price go last, by name. */
 function byValue(a: Item, b: Item): number {
@@ -54,20 +58,22 @@ export function CollectionPage() {
   /** What the last change in a card's sheet did ("Mount Doom is now …"). */
   const [done, setDone] = useState<string | null>(null);
   const [sort, setSort] = useState<"value" | "name">("value");
-  const [all, setAll] = useState(false);
+  const [limit, setLimit] = useState(SHOW);
   const [kind, setKind] = useState<"all" | "real" | "proxy">("all");
+  // Asked of the server once typing settles, not on every key.
+  const query = useDebounced(filter.trim(), 250);
 
-  const summary = useQuery({ queryKey: ["collection-summary"], queryFn: () => api<CollectionSummary>("/api/collection/summary") });
-  const containers = useQuery({ queryKey: ["containers"], queryFn: () => api<Container[]>("/api/containers") });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  const summary = useQuery({ queryKey: ["collection-summary"], queryFn: ({ signal }) => api<CollectionSummary>("/api/collection/summary", { signal }) });
+  const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const items = useQuery({
-    queryKey: ["collection", container, filter, kind],
-    queryFn: () => {
+    queryKey: ["collection", container, query, kind],
+    queryFn: ({ signal }) => {
       const p = new URLSearchParams();
       if (container) p.set("container", container);
-      if (filter.trim()) p.set("q", filter.trim());
+      if (query) p.set("q", query);
       if (kind !== "all") p.set("proxy", kind === "proxy" ? "only" : "none");
-      return api<Item[]>(`/api/collection?${p}`);
+      return api<Item[]>(`/api/collection?${p}`, { signal });
     },
     placeholderData: (prev) => prev,
   });
@@ -89,8 +95,19 @@ export function CollectionPage() {
   const priced = priceSource(s?.price_date);
   const day = shortDate(s?.price_date) ?? "an unknown date";
   const money = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-  const sorted = [...(items.data ?? [])].sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
-  const shown = all || filter ? sorted : sorted.slice(0, SHOW);
+  const sorted = useMemo(
+    () => [...(items.data ?? [])].sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
+    [items.data, sort],
+  );
+  // Another binder, filter or order starts from the top again.
+  const view = `${container}|${query}|${kind}|${sort}`;
+  const [viewed, setViewed] = useState(view);
+  if (viewed !== view) {
+    setViewed(view);
+    setLimit(SHOW);
+  }
+  const shown = sorted.slice(0, limit);
+  const left = sorted.length - shown.length;
   const heading = chosen ? chosen.name : container === "none" ? "Loose cards" : sort === "value" ? "Most valuable" : "Every card";
   const thumbArtists = shown.filter((i) => i.image_art_crop).map((i) => i.artist);
   return (
@@ -205,14 +222,14 @@ export function CollectionPage() {
           </p>
         )}
         <ErrorText error={items.error ?? summary.error} />
-        {items.data && items.data.length === 0 && !filter && !container && kind === "all" && (
+        {items.data && items.data.length === 0 && !query && !container && kind === "all" && (
           <div className="empty">
             <p>No cards yet. Import a collection or add cards from search.</p>
           </div>
         )}
-        {items.data && items.data.length === 0 && (filter || container || kind !== "all") && (
+        {items.data && items.data.length === 0 && (query || container || kind !== "all") && (
           <p className="empty">
-            {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{filter ? ` called "${filter}"` : ""}.
+            {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{query ? ` called "${query}"` : ""}.
           </p>
         )}
         <ul className="coll-list">
@@ -245,8 +262,10 @@ export function CollectionPage() {
             );
           })}
         </ul>
-        {!all && !filter && sorted.length > SHOW && (
-          <button className="coll-more" onClick={() => setAll(true)}>Show all {sorted.length.toLocaleString()}</button>
+        {left > 0 && (
+          <button className="coll-more" onClick={() => setLimit((n) => n + MORE)}>
+            {left > MORE ? `Show ${MORE} more of ${left.toLocaleString()}` : `Show the last ${left.toLocaleString()}`}
+          </button>
         )}
         {!!items.data?.length && (
           <p className="small dim coll-note">

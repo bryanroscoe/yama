@@ -12,7 +12,7 @@ type VersionResult = Results["versions"][number];
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
 
 export function DeckResults({ deckId, versionId }: { deckId: string; versionId: string | null }) {
-  const q = useQuery({ queryKey: ["deck-results", deckId, versionId], queryFn: () => api<Results>(`/api/decks/${deckId}/results`) });
+  const q = useQuery({ queryKey: ["deck-results", deckId, versionId], queryFn: ({ signal }) => api<Results>(`/api/decks/${deckId}/results`, { signal }) });
   const r = q.data;
   if (q.error) return <ErrorText error={q.error} />;
   if (!r) return null;

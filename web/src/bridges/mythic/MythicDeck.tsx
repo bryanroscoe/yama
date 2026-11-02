@@ -27,7 +27,7 @@ export function MythicSendButton({ className, onClick }: { className: string; on
  */
 export function MythicSend({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
-  const link = useQuery({ queryKey: ["mythic-deck", deck.id], queryFn: () => api<MythicDeckLink>(`/api/bridges/mythic/decks/${deck.id}`) });
+  const link = useQuery({ queryKey: ["mythic-deck", deck.id], queryFn: ({ signal }) => api<MythicDeckLink>(`/api/bridges/mythic/decks/${deck.id}`, { signal }) });
   const [privacy, setPrivacy] = useState("private");
   const [copied, setCopied] = useState(false);
   const { cards, missing } = sendCards(deck);

@@ -95,7 +95,7 @@ export function availablePeople(people: Person[], seats: Pick<SeatDraft, "name" 
 export function usePeople(group: Playgroup | undefined, groups: Playgroup[] | undefined): Person[] {
   const me = useMe().data;
   // Without an account there are no past games to offer people from.
-  const games = useQuery({ queryKey: ["games"], queryFn: () => api<GameRow[]>("/api/games"), enabled: !isGuest() });
+  const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }), enabled: !isGuest() });
   // Without an account there's nobody to offer, whatever an earlier session left in the cache.
   if (isGuest()) return [];
   const out: Person[] = [];
@@ -318,8 +318,8 @@ function draftFromPlayer(p: TableState["players"][number], decks: DeckSummary[] 
  */
 export function EditSeat({ state, seat, onDone }: { state: TableState; seat: number; onDone: () => void }) {
   const guest = isGuest();
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }), enabled: !guest });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: !guest });
   const group = groups.data?.find((g) => g.id === state.setup.playgroupId);
   const p = state.players.find((x) => x.seat === seat)!;
   const i = state.players.indexOf(p);

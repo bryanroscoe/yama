@@ -224,7 +224,7 @@ export function resultText(r: MythicApplied): string {
 export function useMythicBridge(): boolean {
   const q = useQuery({
     queryKey: ["mythic-bridge"],
-    queryFn: () => api("/api/bridges/mythic").then(() => true, () => false),
+    queryFn: ({ signal }) => api("/api/bridges/mythic", { signal }).then(() => true, () => false),
     staleTime: Infinity,
     retry: false,
   });

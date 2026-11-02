@@ -17,7 +17,7 @@ import { DeleteAccount } from "./DeleteAccount";
 import { exportLink } from "../download";
 
 export function GroupPage() {
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
   const [selected, setSelected] = useState<string | null>(null);
   const group = groups.data?.find((g) => g.id === selected) ?? groups.data?.[0];
 
@@ -109,8 +109,8 @@ function readGames(games: GameRow[], me: string | undefined) {
 
 function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNode }) {
   const me = useMe().data;
-  const stats = useQuery({ queryKey: ["stats", group.id], queryFn: () => api<PlaygroupStats>(`/api/playgroups/${group.id}/stats`) });
-  const games = useQuery({ queryKey: ["games", "group", group.id], queryFn: () => api<GameRow[]>(`/api/games?playgroup=${group.id}`) });
+  const stats = useQuery({ queryKey: ["stats", group.id], queryFn: ({ signal }) => api<PlaygroupStats>(`/api/playgroups/${group.id}/stats`, { signal }) });
+  const games = useQuery({ queryKey: ["games", "group", group.id], queryFn: ({ signal }) => api<GameRow[]>(`/api/games?playgroup=${group.id}`, { signal }) });
   const [shared, setShared] = useState(false);
   const s = stats.data;
   const myKey = group.members.find((m) => m.user_id && m.user_id === me?.id)?.id ?? me?.id;

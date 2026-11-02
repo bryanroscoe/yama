@@ -48,6 +48,11 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+/** The bearer token, for requests made where localStorage isn't (a worker). */
+export function currentToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
 async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   const token = localStorage.getItem(TOKEN_KEY);
@@ -77,6 +82,11 @@ export async function apiBlob(path: string): Promise<Blob> {
   return (await apiResponse(path)).blob();
 }
 
+/**
+ * A JSON (or text) answer from Yama's server. Pass a query's `signal` in `init` (React Query gives
+ * one to every query function) so a search that's been typed past, or a page that's been left, stops
+ * its request instead of finishing it for nobody.
+ */
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const res = await apiResponse(path, init);
   const type = res.headers.get("content-type") ?? "";

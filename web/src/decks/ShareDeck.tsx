@@ -30,7 +30,7 @@ export function useCopy(): [string | null, (text: string) => Promise<void>] {
 export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
-  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: () => api<Sharing>("/api/me/sharing"), enabled: !!userId });
+  const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
   const [copied, copy] = useCopy();
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["deck", deck.id] });

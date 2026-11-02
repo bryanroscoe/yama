@@ -1,126 +1,133 @@
 // Every card's rules text on the device (about 24 MB in IndexedDB, 5 MB to download), so
 // card lookups work at the table without signal.
+//
+// The page's side (2026-11-02): the list lives in a worker (cards.worker.ts, cardStore.ts) that
+// downloads, saves and searches it, and reads it from IndexedDB only when a search, lookup or
+// scan needs it. The page reads only the small description of the saved copy. The worker is let
+// go after a few idle minutes, so the list doesn't sit in a phone's memory.
 
-import { searchOffline, type OfflineCard } from "@yama/core";
+import type { OfflineCard } from "@yama/core";
 import { useSyncExternalStore } from "react";
-import { api, type Card } from "../api";
-import { idbGet, idbPut } from "./idb";
-
-/** Bundle shape this app reads (the server's OFFLINE_FORMAT). A saved copy in another
- *  format, or none (saved before formats existed), is downloaded again. */
-const FORMAT = 2;
-
-interface Bundle {
-  format?: number;
-  version: string;
-  /** Whether the server had loaded the Game Changer flags when the bundle was made. */
-  game_changers?: boolean;
-  savedAt: string;
-  cards: OfflineCard[];
-}
-
-const KEY = "offline-cards";
+import { API_BASE, currentToken, FETCH_CREDENTIALS, type Card } from "../api";
+import type { Access, Meta } from "./cardStore";
+import type { CardsReply, CardsRequest } from "./cards.worker";
 
 type Status = { count: number; version: string | null; savedAt: string | null; downloading: boolean; error: string | null };
 let status: Status = { count: 0, version: null, savedAt: null, downloading: false, error: null };
-let bundle: Bundle | null = null;
-let loading: Promise<Bundle | null> | null = null;
 const listeners = new Set<() => void>();
 const set = (s: Partial<Status>) => {
   status = { ...status, ...s };
   for (const l of listeners) l();
 };
+const showMeta = (m: Meta | null) => m && set({ count: m.count, version: m.version, savedAt: m.savedAt });
 
-export function loadOfflineCards(): Promise<Bundle | null> {
-  if (bundle) return Promise.resolve(bundle);
-  loading ??= idbGet<Bundle>(KEY)
-    .then((b) => {
-      bundle = b ?? null;
-      if (b) set({ count: b.cards.length, version: b.version, savedAt: b.savedAt });
-      return bundle;
-    })
-    .catch(() => null);
-  return loading;
+type Ask = CardsRequest extends infer R ? (R extends { id: number } ? Omit<R, "id"> : never) : never;
+
+const IDLE_MS = 3 * 60_000;
+let worker: Worker | null = null;
+let idle: ReturnType<typeof setTimeout> | undefined;
+let next = 1;
+const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+
+function startWorker(): Worker {
+  const w = new Worker(new URL("./cards.worker.ts", import.meta.url), { type: "module" });
+  w.onmessage = (e: MessageEvent<CardsReply>) => {
+    const r = e.data;
+    const p = waiting.get(r.id);
+    if (!p) return;
+    waiting.delete(r.id);
+    if (r.ok) p.resolve(r.value);
+    else p.reject(new Error(r.error));
+    if (!waiting.size) {
+      clearTimeout(idle);
+      idle = setTimeout(() => {
+        if (waiting.size) return;
+        worker?.terminate();
+        worker = null;
+      }, IDLE_MS);
+    }
+  };
+  w.onerror = (e) => {
+    e.preventDefault();
+    for (const p of waiting.values()) p.reject(new Error(e.message || "The card list's worker stopped"));
+    waiting.clear();
+    worker = null;
+  };
+  return w;
 }
 
+/** Ask the card list's worker; where there are no workers (tests), do the same work here. */
+async function ask<T>(request: Ask): Promise<T> {
+  if (typeof Worker === "undefined") {
+    const store = await import("./cardStore");
+    switch (request.op) {
+      case "meta":
+        return (await store.readMeta()) as T;
+      case "refresh":
+        return (await store.refresh(request.access, request.force)) as T;
+      case "search":
+        return (await store.search(request.q, request.order, request.page, request.pageSize)) as T;
+      case "card":
+        return (await store.card(request.oracleId)) as T;
+      case "names":
+        return (await store.names()) as T;
+    }
+  }
+  clearTimeout(idle);
+  worker ??= startWorker();
+  const id = next++;
+  return new Promise<T>((resolve, reject) => {
+    waiting.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    worker!.postMessage({ ...request, id });
+  });
+}
+
+const access = (): Access => ({ apiBase: API_BASE, token: currentToken(), credentials: FETCH_CREDENTIALS });
+
+/** Check the saved copy with the server now and save a changed list ("Update" in Group, You). */
 export async function downloadOfflineCards(): Promise<void> {
   if (status.downloading) return;
   set({ downloading: true, error: null });
   try {
-    const b = await api<Omit<Bundle, "savedAt">>("/api/cards/offline");
-    const saved: Bundle = { ...b, savedAt: new Date().toISOString() };
-    await idbPut(KEY, saved);
-    bundle = saved;
-    loading = Promise.resolve(saved);
-    set({ count: saved.cards.length, version: saved.version, savedAt: saved.savedAt, downloading: false });
+    showMeta(await ask<Meta | null>({ op: "refresh", access: access(), force: true }));
+    set({ downloading: false });
   } catch (e) {
     set({ downloading: false, error: e instanceof Error ? e.message : String(e) });
   }
 }
 
-/** Fetch the bundle in the background if this device has none, it's in an older format, or
- *  it's more than a week old. */
+/** Quietly, after the app has loaded: check the saved copy if it's due (cardStore.due). */
 export async function refreshOfflineCardsIfStale() {
-  if (!navigator.onLine) return;
-  const b = await loadOfflineCards();
-  const week = 7 * 24 * 3600 * 1000;
-  if (!b || b.format !== FORMAT || Date.now() - Date.parse(b.savedAt) > week) await downloadOfflineCards();
+  if (!navigator.onLine || status.downloading) return;
+  set({ downloading: true, error: null });
+  try {
+    showMeta(await ask<Meta | null>({ op: "refresh", access: access(), force: false }));
+    set({ downloading: false });
+  } catch (e) {
+    set({ downloading: false, error: e instanceof Error ? e.message : String(e) });
+  }
 }
-
-/** A saved bundle's Game Changer flags mean something only if the server had loaded them. */
-const hasGameChangers = (b: Bundle) => b.format === FORMAT && b.game_changers === true;
 
 export function useOfflineCards() {
   return useSyncExternalStore(
     (l) => {
       listeners.add(l);
-      void loadOfflineCards();
+      if (!status.count) void ask<Meta | null>({ op: "meta" }).then(showMeta, () => undefined);
       return () => listeners.delete(l);
     },
     () => status,
   );
 }
 
-/** Shape an offline card like the server's, for the shared card views. `gameChangers` says
- *  whether the bundle carries the flags; without them a card's flag is unknown (null). */
-export function toCard(c: OfflineCard, gameChangers: boolean): Card {
-  return {
-    oracle_id: c.i,
-    name: c.n,
-    mana_cost: c.m,
-    cmc: c.v,
-    type_line: c.t,
-    oracle_text: c.o,
-    colors: c.c,
-    color_identity: c.ci,
-    power: c.p,
-    toughness: c.th,
-    loyalty: c.l,
-    rarity: c.r,
-    layout: c.y,
-    legalities: c.f,
-    image_small: null,
-    image_normal: c.img,
-    image_art_crop: null,
-    back_image_normal: null,
-    artist: null,
-    default_printing: null,
-    edhrec_rank: c.e,
-    game_changer: gameChangers ? c.g === true : null,
-  };
+export function offlineSearch(q: string, order: string, page: number, pageSize = 60): Promise<{ total: number; page: number; page_size: number; cards: Card[]; offline: true }> {
+  return ask({ op: "search", q, order, page, pageSize });
 }
 
-export async function offlineSearch(q: string, order: string, page: number, pageSize = 60) {
-  const b = await loadOfflineCards();
-  if (!b) throw new Error("You're offline and this device hasn't saved the card list yet.");
-  const gameChangers = hasGameChangers(b);
-  const hits = searchOffline(b.cards, q, order as "name", { gameChangers });
-  const cards = hits.slice((page - 1) * pageSize, page * pageSize).map((c) => toCard(c, gameChangers));
-  return { total: hits.length, page, page_size: pageSize, cards, offline: true };
+export function offlineCard(oracleId: string): Promise<Card | null> {
+  return ask({ op: "card", oracleId });
 }
 
-export async function offlineCard(oracleId: string): Promise<Card | null> {
-  const b = await loadOfflineCards();
-  const c = b?.cards.find((x) => x.i === oracleId);
-  return b && c ? toCard(c, hasGameChangers(b)) : null;
+/** Every saved card's name, id and layout (the scanner's names), or null with no saved copy. */
+export function offlineCardNames(): Promise<Pick<OfflineCard, "i" | "n" | "y">[] | null> {
+  return ask({ op: "names" });
 }

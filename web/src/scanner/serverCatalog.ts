@@ -2,7 +2,7 @@
 // from the offline card bundle already kept in IndexedDB.
 
 import { api, ApiError, type Printing } from "../api";
-import { loadOfflineCards } from "../offline/cards";
+import { offlineCardNames } from "../offline/cards";
 import type { CatalogPrinting, ScanCatalog } from "./types";
 
 const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "vanguard", "scheme", "planar", "art_series"]);
@@ -21,11 +21,11 @@ export interface ServerCatalogOptions {
 }
 
 export async function createServerCatalog(opts: ServerCatalogOptions = {}): Promise<ScanCatalog> {
-  const bundle = await loadOfflineCards();
+  const cards = await offlineCardNames().catch(() => null);
   const names: string[] = [];
   const full = new Map<string, string>();
   const oracle = new Map<string, string>();
-  for (const c of bundle?.cards ?? []) {
+  for (const c of cards ?? []) {
     if (c.y && SKIP_LAYOUTS.has(c.y)) continue;
     names.push(c.n);
     oracle.set(c.n, c.i);
