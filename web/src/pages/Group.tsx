@@ -14,6 +14,7 @@ import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { SharingSettings } from "../decks/SharingSettings";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 import { DeleteAccount } from "./DeleteAccount";
+import { exportLink } from "../download";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
@@ -354,7 +355,7 @@ function ExportGames({ group }: { group?: Playgroup }) {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const offset = -new Date().getTimezoneOffset();
   const link = (ext: "json" | "csv", playgroup?: string) =>
-    `${API_BASE}/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`;
+    exportLink(`/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`, `yama-games.${ext}`);
   return (
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
       <h2 style={{ margin: 0 }}>Export games</h2>
@@ -367,13 +368,13 @@ function ExportGames({ group }: { group?: Playgroup }) {
         {group && (
           <>
             <span>{group.name}</span>
-            <a className="button" href={link("json", group.id)} download>JSON</a>
-            <a className="button" href={link("csv", group.id)} download>CSV</a>
+            <a className="button" {...link("json", group.id)} download>JSON</a>
+            <a className="button" {...link("csv", group.id)} download>CSV</a>
           </>
         )}
         <span>Every game you played or recorded</span>
-        <a className="button" href={link("json")} download>JSON</a>
-        <a className="button" href={link("csv")} download>CSV</a>
+        <a className="button" {...link("json")} download>JSON</a>
+        <a className="button" {...link("csv")} download>CSV</a>
       </div>
     </section>
   );

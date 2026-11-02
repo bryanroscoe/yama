@@ -10,6 +10,7 @@ import "./auth.css";
 import { noteViewing } from "./viewing";
 import { Landing } from "./pages/Landing";
 import { chooseGuest } from "./guest";
+import { isNative, nativeGoogleCredential } from "./native";
 
 const ME_KEY = "yama.me";
 
@@ -254,8 +255,17 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
   });
 
   const clientId = config.data?.google_client_id;
+  const native = isNative();
+  // Inside the Android app Google's web button doesn't work; its own sign-in sends the same ID token.
+  const nativeGoogle = useMutation({
+    mutationFn: async () => {
+      const credential = await nativeGoogleCredential(clientId!);
+      if (credential) google.mutate(credential);
+    },
+    onError: setError,
+  });
   useEffect(() => {
-    if (!clientId || !googleRef.current) return;
+    if (!clientId || !googleRef.current || native) return;
     let cancelled = false;
     loadGoogle()
       .then(() => {
@@ -269,7 +279,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
     };
     // google.mutate is stable enough for a one-time button render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId]);
+  }, [clientId, native]);
 
   return (
     <>
@@ -286,7 +296,12 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
       </div>
       {/* Google's button is a light-scheme iframe. Inside our dark page Chrome paints an opaque
           white backdrop behind an iframe whose scheme differs, so give its box the light scheme. */}
-      {clientId && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {clientId && !native && <div ref={googleRef} style={{ colorScheme: "light" }} />}
+      {clientId && native && (
+        <button className="primary" disabled={nativeGoogle.isPending || google.isPending} onClick={() => nativeGoogle.mutate()}>
+          {nativeGoogle.isPending || google.isPending ? "Signing in…" : "Sign in with Google"}
+        </button>
+      )}
       {/* The life counter works without an account (guest.ts); sharing a table needs one. */}
       {countLife && (
         <button className="login-secondary" onClick={() => navigate("/", { replace: true })}>
