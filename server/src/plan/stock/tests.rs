@@ -325,6 +325,16 @@ async fn the_check_route_picks_connectors_limits_and_imports() {
     let mut bad = file.clone();
     bad["listings"][0]["price"] = json!(-1);
     assert_eq!(send(&app, Method::POST, "/api/plan/stock/import", Some(&token), Some(bad)).await.0.as_u16(), 400);
+    let mut bad = file.clone();
+    bad["listings"][0]["qty"] = json!(-1);
+    assert_eq!(send(&app, Method::POST, "/api/plan/stock/import", Some(&token), Some(bad)).await.0.as_u16(), 400, "a quantity is never dropped");
+    // A listing that doesn't say whether it's available is unknown stock.
+    let mut quiet = file.clone();
+    quiet["fetched_at"] = json!("2026-11-01T17:00:00Z");
+    quiet["listings"][0].as_object_mut().unwrap().remove("available");
+    assert!(send(&app, Method::POST, "/api/plan/stock/import", Some(&token), Some(quiet)).await.0.is_success());
+    let q = store_quotes(&pool, &owner, &["Sol Ring".into()]).await.unwrap();
+    assert_eq!(q.iter().find(|q| q["store"] == "pats" && q["card"] == "Sol Ring").unwrap()["in_stock"], Value::Null);
 
     // Another account can't import into these stores, and doesn't see the snapshots.
     let (_, other) = user(&pool, "other@example.com").await;

@@ -803,8 +803,13 @@ pub fn plan<'a>(b: &'a Value, today: &str, going: Option<&[String]>) -> Trip<'a>
             continue;
         }
         if !w.needed {
-            // Elsewhere means a store off this trip: copies used up at a store on it don't count.
-            if let Some(there) = offers.iter().find(|o| o.verdict == Verdict::Ok && eligible(o.store) && !chosen.contains(o.key())) {
+            // Elsewhere means a store off this trip: copies used up at a store on it don't count, and
+            // a listing's copies there are counted too (`trip.ts`).
+            let left = |o: &Offer| o.quote["qty"].as_i64().is_none_or(|n| used.get(&(o.quote as *const Value as usize)).copied().unwrap_or(0) < n);
+            if let Some(there) = offers.iter().find(|o| o.verdict == Verdict::Ok && eligible(o.store) && !chosen.contains(o.key()) && left(o)) {
+                if there.quote["qty"].as_i64().is_some() {
+                    *used.entry(there.quote as *const Value as usize).or_default() += 1;
+                }
                 let k = there.key().to_string();
                 let row = Row { want: w.clone(), offer: there.clone() };
                 match elsewhere.iter_mut().find(|(g, _)| *g == k) {

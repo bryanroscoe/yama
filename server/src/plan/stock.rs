@@ -1016,6 +1016,9 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
             Some("etched") => Some("etched"),
             Some(x) => return Err(AppError::bad(format!("listings[{i}].finish: nonfoil, foil or etched, not \"{x}\""))),
         };
+        if l.qty.is_some_and(|q| !(0..=100000).contains(&q)) {
+            return Err(AppError::bad(format!("listings[{i}].qty: 0 to 100,000, or null when the store didn't say")));
+        }
         let url = short(&l.url, 1000).filter(|u| u.starts_with("https://"));
         listings.push(Listing {
             card: l.card.trim().to_string(),
@@ -1028,7 +1031,7 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
             language: short(&l.language, 40),
             price: l.price,
             available: l.available,
-            qty: l.qty.filter(|q| (0..=100000).contains(q)),
+            qty: l.qty,
             from_price: l.price_is_lowest,
             variant: l.variant.as_ref().and_then(|v| v.as_str().map(String::from).or_else(|| v.as_i64().map(|i| i.to_string()))).filter(|v| v.len() <= 40),
             url,
@@ -1220,7 +1223,8 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             }
             let title = r.title.clone().unwrap_or_else(|| card.clone());
             q["result"] = json!(if words.is_empty() { title } else { format!("{title} ({})", words.join(", ")) });
-            q["in_stock"] = json!(r.available != Some(false));
+            // A listing that didn't say whether it's available is unknown stock: ask the store.
+            q["in_stock"] = json!(r.available);
             q["price"] = json!(r.price);
             q["printing"] = json!(match (&r.set_code, &r.number) {
                 (Some(c), Some(n)) => Some(format!("{} {n}", c.to_uppercase())),

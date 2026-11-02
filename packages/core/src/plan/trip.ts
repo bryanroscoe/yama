@@ -522,8 +522,12 @@ export function planTrip(b: TripData, opts: TripOptions): TripPlan {
       continue;
     }
     if (!w.needed) {
-      // Elsewhere means a store off this trip: copies used up at a store on it don't count.
-      const there = offers.find((o) => o.verdict === "ok" && eligible(o.store) && !chosen.has(o.store.key));
+      // Elsewhere means a store off this trip: copies used up at a store on it don't count, and a
+      // listing's copies there are counted too.
+      const there = offers.find(
+        (o) => o.verdict === "ok" && eligible(o.store) && !chosen.has(o.store.key) && (o.quote.qty == null || (used.get(o.quote) ?? 0) < o.quote.qty),
+      );
+      if (there && there.quote.qty != null) used.set(there.quote, (used.get(there.quote) ?? 0) + 1);
       if (there) elsewhere.set(there.store.key, [...(elsewhere.get(there.store.key) ?? []), { want: w, offer: there }]);
       continue;
     }
