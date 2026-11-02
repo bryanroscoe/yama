@@ -83,16 +83,17 @@ jobs:
   # With tests off, push CI on main still has to succeed: the deploy workflow and saget's
   # release gate (deploy/host.py) both require a successful push CI run, and a run whose
   # jobs are all skipped concludes "skipped". This job vouches only that tests were off
-  # and ran locally before merge. It runs on saget's free CI runner, never a hosted one.
+  # and ran locally before merge. It runs where CI_LINUX_RUNNER points like the test jobs:
+  # free on saget, about one billed minute per main push on a hosted runner.
   tests-off:
     name: Tests are off (checked locally before merge)
     if: >-
       vars.CI_TESTS != 'on' &&
       github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, Linux, X64, yama-ci]
-    # Like the other saget jobs, it may wait for the shared CI pool and the release gate
-    # (a running deploy holds it); timing out here would fail push CI and block the deploy.
-    timeout-minutes: 360
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    # On saget it may wait for the shared CI pool and the release gate (a running deploy
+    # holds it); timing out there would fail push CI and block the deploy.
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
     permissions: {}
     steps:
       - name: Record that CI tests are off

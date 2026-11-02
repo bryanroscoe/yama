@@ -221,9 +221,10 @@ class Workflow(unittest.TestCase):
         condition = re.search(r'if: >-\n(.*?)\n    runs-on', marker, re.S).group(1)
         self.assertIn("vars.CI_TESTS != 'on' &&", condition)
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", condition)
-        self.assertIn('runs-on: [self-hosted, Linux, X64, yama-ci]', marker)
+        # Same backend switch and saget capacity budget as the test jobs.
+        self.assertIn("runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '[\"self-hosted\",\"Linux\",\"X64\",\"yama-ci\"]') }}", marker)
+        self.assertIn("&& 360 || 5 }}", marker)
         self.assertIn('permissions: {}', marker)
-        self.assertIn('timeout-minutes: 360', marker)  # waits for saget capacity like the others
         self.assertNotIn('needs:', marker)
         self.assertNotIn('uses:', marker)
         self.assertNotIn('secrets.', marker)
