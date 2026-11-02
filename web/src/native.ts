@@ -21,6 +21,12 @@ export function isServerPage(path: string): boolean {
   return SERVER_PAGES.test(path) || path === "/sitemap.xml";
 }
 
+/** Go to a path: a server page opens on the server in the browser inside the app; anything else in place. */
+export function openPage(path: string) {
+  if (isNative() && isServerPage(new URL(path, location.href).pathname)) window.open(API_BASE + path, "_blank");
+  else location.assign(path);
+}
+
 /**
  * Inside the app: open links to server pages in the browser, on the server, and make Android's
  * back button go back through the app's pages (it closes the app from the first page). Does
@@ -60,7 +66,9 @@ export async function nativeGoogleCredential(webClientId: string): Promise<strin
   const { SocialLogin } = await import("@capgo/capacitor-social-login");
   await SocialLogin.initialize({ google: { webClientId, mode: "online" } });
   try {
-    const res = await SocialLogin.login({ provider: "google", options: { scopes: ["email", "profile"] } });
+    // No `scopes`: the defaults (openid, email, profile) are all Yama asks for, and custom
+    // scopes would need a modified MainActivity.
+    const res = await SocialLogin.login({ provider: "google", options: {} });
     const result = res.result as { idToken?: string | null; responseType?: string };
     if (!result.idToken) throw new Error("Google didn't send an ID token. Try again.");
     return result.idToken;

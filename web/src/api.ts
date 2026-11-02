@@ -35,6 +35,13 @@ export function publicOrigin(): string {
   return (import.meta.env.VITE_PUBLIC_URL as string | undefined) ?? (API_BASE || location.origin);
 }
 
+/**
+ * The web app sends its session cookie. The Android app calls the server from its own origin with
+ * the bearer token alone: credentialed requests would need the server to allow credentials for
+ * that origin, which it deliberately doesn't (routes.rs).
+ */
+export const FETCH_CREDENTIALS: RequestCredentials = API_BASE ? "omit" : "include";
+
 /** Native apps can't share the web cookie, so they keep the bearer token. Web relies on the cookie. */
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -50,7 +57,7 @@ async function apiResponse(path: string, init: RequestInit & { json?: unknown } 
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: "include" });
+  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: FETCH_CREDENTIALS });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     let data: Record<string, unknown> | undefined;

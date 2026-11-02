@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ArtPanel } from "../components/ArtPanel";
 import { SiteNotice } from "../components/SiteNotice";
 import { Wordmark } from "../components/Wordmark";
+import { openPage } from "../native";
 import "./landing.css";
 
 /** Runtime Scryfall art, with the credit beside the crop. */
@@ -56,7 +57,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               <form className="landing-handle" action="/u" method="get" aria-labelledby="shared-title" onSubmit={(e) => {
                 e.preventDefault();
                 const h = new FormData(e.currentTarget).get("handle")?.toString().trim().replace(/^@/, "").toLowerCase();
-                if (h) location.assign(`/u/${encodeURIComponent(h)}`);
+                if (h) openPage(`/u/${encodeURIComponent(h)}`);
               }}>
                 <input name="handle" aria-label="Handle" placeholder="@handle" autoCapitalize="none" spellCheck={false} maxLength={31} required />
                 <button type="submit">Open profile</button>
