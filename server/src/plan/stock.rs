@@ -690,6 +690,11 @@ async fn fetch_pro(f: &mut Fetcher, base: &str, raw: &mut Raw) -> Found {
                     out.errors.push(format!("{base}/api/catalog/search: an answer without the catalog"));
                     break;
                 };
+                // Every page must count the same catalog as the first.
+                if out.total.is_some_and(|t| t != total) {
+                    out.errors.push(format!("{base}/api/catalog/search: the catalog's size changed between pages"));
+                    break;
+                }
                 let n = answer["products"]["items"].as_array().map_or(0, Vec::len) as i64;
                 out.total = Some(total);
                 out.listings.extend(listings);
@@ -1278,9 +1283,11 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
 }
 
 /// `POST /api/plan/stock/import`: a `yama-store-snapshot/1` file.
-pub async fn import_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(f): Json<ImportFile>) -> AppResult<Json<Value>> {
-    // Imports share the account's import allowance (plan files, Mythic Tools CSVs).
+pub async fn import_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, body: axum::body::Bytes) -> AppResult<Json<Value>> {
+    // Imports share the account's import allowance (plan files, Mythic Tools CSVs), checked before
+    // the file is parsed.
     st.limits.imports.check_user(&user)?;
+    let f: ImportFile = serde_json::from_slice(&body).map_err(|e| AppError::bad(format!("not a yama-store-snapshot/1 file: {e}")))?;
     Ok(Json(import(&st.pool, &user.id, f).await?))
 }
 
