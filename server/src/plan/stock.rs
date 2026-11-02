@@ -218,6 +218,19 @@ fn title_language(title: &str) -> Option<String> {
     None
 }
 
+/// A foil or etched finish a title names as a word ("Sol Ring (Foil)", "[Etched Foil]"); "non-foil" isn't one.
+fn title_finish(title: &str) -> Option<&'static str> {
+    let lower = title.to_lowercase().replace("non-foil", " ").replace("nonfoil", " ");
+    let words: Vec<&str> = lower.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    if words.contains(&"etched") {
+        Some("etched")
+    } else if words.contains(&"foil") {
+        Some("foil")
+    } else {
+        None
+    }
+}
+
 /// Condition, language and finish from a variant's options ("Near Mint / English / Foil").
 fn variant_parts(text: &str) -> (Option<String>, Option<String>, &'static str) {
     let lower = text.to_lowercase();
@@ -286,8 +299,7 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
         return vec![];
     }
     let (set_code, number) = set_and_number(title);
-    let lower = title.to_lowercase();
-    let style_foil = lower.contains("etched") || lower.contains(" foil");
+    let title_finish = title_finish(title);
     let empty = vec![];
     body["variants"]
         .as_array()
@@ -297,8 +309,8 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
             let vt = v["title"].as_str().or_else(|| v["public_title"].as_str()).unwrap_or_default();
             let (condition, language, mut finish) = variant_parts(vt);
             let language = language.or_else(|| title_language(title));
-            if finish == "nonfoil" && style_foil {
-                finish = if lower.contains("etched") { "etched" } else { "foil" };
+            if finish == "nonfoil" && let Some(f) = title_finish {
+                finish = f;
             }
             Listing {
                 card: card.to_string(),
@@ -340,14 +352,7 @@ pub fn pro_catalog(body: &Value, base: &str) -> Option<(i64, Vec<Listing>)> {
             if card.is_empty() {
                 return None;
             }
-            let lower = name.to_lowercase();
-            let finish = if lower.contains("etched") {
-                Some("etched")
-            } else if lower.contains("(foil") || lower.contains(" foil)") {
-                Some("foil")
-            } else {
-                None
-            };
+            let finish = title_finish(name);
             let url = match (p["setUrlName"].as_str(), p["productUrlName"].as_str(), p["id"].as_i64()) {
                 (Some(s), Some(n), Some(id)) => Some(format!("{base}/catalog/magic/{s}/{n}/{id}")),
                 _ => None,
@@ -396,8 +401,8 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
             let cond = h["condition"].as_str().unwrap_or_default();
             let (condition, language, mut finish) = variant_parts(cond);
             let language = language.or_else(|| title_language(name));
-            if finish == "nonfoil" && name.to_lowercase().contains("foil") {
-                finish = "foil";
+            if finish == "nonfoil" && let Some(f) = title_finish(name) {
+                finish = f;
             }
             Some(Listing {
                 card: card.to_string(),
@@ -1222,9 +1227,10 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
             set_code: short(&l.set, 12).map(|s| s.to_lowercase()),
             set_name: short(&l.set_name, 200),
             number: short(&l.number, 20),
-            finish,
+            // A file that leaves finish or language out may still name them in the title.
+            finish: finish.or_else(|| l.title.as_deref().and_then(title_finish)),
             condition: short(&l.condition, 60),
-            language: short(&l.language, 40),
+            language: short(&l.language, 40).or_else(|| l.title.as_deref().and_then(title_language)),
             price: l.price,
             available: l.available,
             qty: l.qty,

@@ -152,6 +152,10 @@ fn titles_and_variants_parse() {
     assert_eq!(variant_parts("Lightly Played / Japanese / Normal"), (Some("Lightly Played".into()), Some("Japanese".into()), "nonfoil"));
     assert_eq!(variant_parts("Normal / Near Mint"), (Some("Near Mint".into()), None, "nonfoil"));
     assert_eq!(variant_parts("Foil / Near Mint"), (Some("Near Mint".into()), None, "foil"));
+    assert_eq!(title_finish("Sol Ring (Foil)"), Some("foil"));
+    assert_eq!(title_finish("Sol Ring [Etched Foil]"), Some("etched"));
+    assert_eq!(title_finish("Sol Ring (Non-Foil)"), None);
+    assert_eq!(title_finish("Foilborn Sprite"), None, "a word in the name isn't a finish");
     assert_eq!(title_language("Sol Ring (Japanese)").as_deref(), Some("Japanese"));
     assert_eq!(title_language("Sol Ring [C21 - 263] (JP)").as_deref(), Some("Japanese"));
     assert_eq!(title_language("Sol Ring [C21 - 263]"), None, "a set code isn't a language");

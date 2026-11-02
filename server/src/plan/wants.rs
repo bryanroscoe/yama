@@ -93,7 +93,7 @@ pub async fn check(pool: &SqlitePool, owner: &str, w: &NewWant) -> AppResult<(St
 /// want already saved under it is returned as it is, so applying the change again adds nothing.
 pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: Option<&str>) -> AppResult<Value> {
     if let Some(id) = id
-        && let Some(done) = list_all(pool, owner).await?.into_iter().find(|x| x["id"] == id)
+        && let Some(done) = one(pool, owner, id).await?
     {
         return Ok(done);
     }
@@ -134,23 +134,24 @@ pub async fn add(pool: &SqlitePool, owner: &str, w: &NewWant, source: &str, id: 
 
 /// The owner's wants on the list now, oldest first. A deck that's gone keeps its label.
 pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Value>> {
-    rows(pool, owner, false).await
+    rows(pool, owner, None).await
 }
 
-/// Every want, also those taken off the list.
-async fn list_all(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Value>> {
-    rows(pool, owner, true).await
+/// One want by id, also one taken off the list.
+async fn one(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Option<Value>> {
+    Ok(rows(pool, owner, Some(id)).await?.into_iter().next())
 }
 
-async fn rows(pool: &SqlitePool, owner: &str, all: bool) -> AppResult<Vec<Value>> {
+async fn rows(pool: &SqlitePool, owner: &str, id: Option<&str>) -> AppResult<Vec<Value>> {
     #[allow(clippy::type_complexity)]
     let rows: Vec<(String, String, String, i64, String, Option<String>, Option<String>, Option<String>, String, String)> = sqlx::query_as(
         "SELECT w.id, w.kind, w.name, w.qty, w.priority, w.deck_id, COALESCE(d.name, w.deck_name), w.why, w.source, w.added_at
          FROM shopping_wants w LEFT JOIN decks d ON d.id = w.deck_id AND d.owner_id = w.owner_id
-         WHERE w.owner_id = ? AND (? OR w.retired_at IS NULL) ORDER BY w.added_at, w.id",
+         WHERE w.owner_id = ? AND (w.id = ? OR (? IS NULL AND w.retired_at IS NULL)) ORDER BY w.added_at, w.id",
     )
     .bind(owner)
-    .bind(all)
+    .bind(id)
+    .bind(id)
     .fetch_all(pool)
     .await?;
     Ok(rows
@@ -166,14 +167,20 @@ pub async fn add_route(State(st): State<AppState>, CurrentUser(user): CurrentUse
     Ok(Json(add(&st.pool, &user.id, &w, "page", None).await?))
 }
 
-/// `DELETE /api/plan/wants/{id}`: take it off your list (kept, retired, for the record).
+/// `DELETE /api/plan/wants/{id}`: take it off your list. One added on the page is deleted; one a
+/// change from Claude added is kept, retired, since applying that change again must add nothing.
 pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Value>> {
-    let done = sqlx::query("UPDATE shopping_wants SET retired_at = ? WHERE id = ? AND owner_id = ? AND retired_at IS NULL")
-        .bind(now())
-        .bind(&id)
-        .bind(&user.id)
-        .execute(&st.pool)
-        .await?;
+    let gone = sqlx::query("DELETE FROM shopping_wants WHERE id = ? AND owner_id = ? AND source = 'page'").bind(&id).bind(&user.id).execute(&st.pool).await?;
+    let done = if gone.rows_affected() > 0 {
+        gone
+    } else {
+        sqlx::query("UPDATE shopping_wants SET retired_at = ? WHERE id = ? AND owner_id = ? AND retired_at IS NULL")
+            .bind(now())
+            .bind(&id)
+            .bind(&user.id)
+            .execute(&st.pool)
+            .await?
+    };
     if done.rows_affected() == 0 {
         return Err(AppError::NotFound("want"));
     }
