@@ -23,6 +23,9 @@ CREATE INDEX sealed_quotes_owner ON sealed_quotes (owner_id, want_id, checked_on
 CREATE TABLE sealed_quote_ids (
     id          TEXT PRIMARY KEY,
     owner_id    TEXT NOT NULL REFERENCES users(id),
+    -- What was sent with it (product, store, price, stock, date, note), so a reused id with other
+    -- values is refused.
+    payload     TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
 CREATE INDEX sealed_quote_ids_owner ON sealed_quote_ids (owner_id, created_at);

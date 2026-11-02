@@ -244,6 +244,8 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     if note.is_some_and(|n| n.chars().count() > 500) {
         return Err(AppError::bad("note: at most 500 characters"));
     }
+    // What this price says, to compare with an id sent before.
+    let payload = json!([want, b.store, b.price, b.in_stock, checked, note]).to_string();
     // The id check, the insert and the pruning under one lock, so identical retries at once save once.
     static SAVE: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     let _one = SAVE.get_or_init(Default::default).lock().await;
@@ -254,7 +256,7 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
             #[allow(clippy::type_complexity)]
             let had: Option<(String, String, String, Option<f64>, bool, String, Option<String>)> =
                 sqlx::query_as("SELECT owner_id, want_id, store_key, price, in_stock, checked_on, note FROM sealed_quotes WHERE id = ?").bind(i).fetch_optional(pool).await?;
-            let used: Option<String> = sqlx::query_scalar("SELECT owner_id FROM sealed_quote_ids WHERE id = ?").bind(i).fetch_optional(pool).await?;
+            let used: Option<(String, String)> = sqlx::query_as("SELECT owner_id, payload FROM sealed_quote_ids WHERE id = ?").bind(i).fetch_optional(pool).await?;
             match (had, used) {
                 // The same price sent again: already recorded.
                 (Some((o, w, st, p, s, c, n)), _) if o == user.id && w == want && st == b.store && p == b.price && s == b.in_stock && c == checked && n.as_deref() == note => {
@@ -262,7 +264,7 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
                 }
                 (Some(_), _) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
                 // Saved before and since pruned from the history: saved already, nothing to add.
-                (None, Some(o)) if o == user.id => return Ok(Json(json!({"id": i}))),
+                (None, Some((o, p))) if o == user.id && p == payload => return Ok(Json(json!({"id": i}))),
                 (None, Some(_)) => return Err(AppError::Conflict("That id was used for another price; send a new one.".into())),
                 (None, None) => i.to_string(),
             }
@@ -272,7 +274,7 @@ pub async fn quote_route(State(st): State<AppState>, CurrentUser(user): CurrentU
     // The id's record, the price and the pruning are one write: a failed save leaves no record.
     let mut tx = pool.begin().await?;
     if b.id.is_some() {
-        sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, created_at) VALUES (?, ?, ?)").bind(&id).bind(&user.id).bind(now()).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO sealed_quote_ids (id, owner_id, payload, created_at) VALUES (?, ?, ?, ?)").bind(&id).bind(&user.id).bind(&payload).bind(now()).execute(&mut *tx).await?;
         let month = (Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
         sqlx::query("DELETE FROM sealed_quote_ids WHERE owner_id = ? AND created_at < ?").bind(&user.id).bind(&month).execute(&mut *tx).await?;
     }
@@ -538,6 +540,9 @@ mod tests {
         assert!(s.is_success());
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sealed_quotes WHERE id = 'retry-0001'").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 0);
+        // ...and one with other values is refused, pruned or not.
+        let (s, _) = send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 42.0, "id": "retry-0001"}))).await;
+        assert_eq!(s.as_u16(), 409);
         // A short history per product and store.
         for i in 0..(HISTORY + 3) {
             send(&app, Method::POST, &format!("/api/plan/sealed/{want}/quotes"), Some(&token), Some(json!({"store": "pats", "price": 40.0 + i as f64, "checked_on": "2026-10-01"}))).await;
