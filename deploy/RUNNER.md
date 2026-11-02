@@ -270,6 +270,13 @@ building, allow the lock owner to finish. Fix CI/build errors through a PR and m
 For a transient deployment failure, rerun **Deploy production** on main after checking
 the recorded state. Never deploy a historic SHA through this gate.
 
+A merged revert no longer stops a release that is already building (2026-11-02): the reverted
+commit is still on main, so it activates and the revert deploys after it. To stop it, cancel
+its **Deploy production** run in GitHub Actions. That ends the job's token, so the host's next
+GitHub check fails and the running service is preserved, as long as that check is still ahead:
+the last one runs after the backup, just before the config switch. Read the history record to
+see which stage it reached.
+
 For an emergency image rollback, inspect `previous.json`, the current schema and the
 migration compatibility first. It preserves the prior image IDs, base Compose content
 and pre-release database backup path. Pin each prior image explicitly when applying
