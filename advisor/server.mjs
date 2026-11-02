@@ -108,7 +108,13 @@ async function advise(req, res) {
     running -= 1;
     if (!res.writableEnded) res.end();
     await rm(home, { recursive: true, force: true }).catch(() => {});
-    const tokens = usage ? ` in=${usage.input_tokens ?? "?"} out=${usage.output_tokens ?? "?"}` : "";
+    // cache_read / cache_write: input tokens read from and written to Anthropic's prompt cache.
+    // Mostly reads means each request's fixed start (system prompt, tools) is being reused;
+    // mostly writes, or neither, means it isn't, and restructuring the prompt would pay off.
+    const cached = (key, label) => (typeof usage?.[key] === "number" ? ` ${label}=${usage[key]}` : "");
+    const tokens = usage
+      ? ` in=${usage.input_tokens ?? "?"} out=${usage.output_tokens ?? "?"}${cached("cache_read_input_tokens", "cache_read")}${cached("cache_creation_input_tokens", "cache_write")}`
+      : "";
     console.log(`advise mode=${r.mode} model=${r.model} outcome=${outcome} ms=${Date.now() - started}${tokens}`);
   }
 }

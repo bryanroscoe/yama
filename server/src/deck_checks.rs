@@ -2,9 +2,12 @@
 //! (Game Changers, mass land denial, extra turns) and the combos it finds in the list.
 //!
 //! A check is queued when a version is saved (`decks::insert_version`) and run by one background
-//! worker, so saving never waits on the network. The worker sends one request at a time, at
-//! least [`MIN_GAP`] apart, which keeps Yama far under Spellbook's guideline of about 80
-//! requests a minute; a 429 makes it wait as long as Spellbook asks. Failures retry with growing
+//! worker, so saving never waits on the network. An answer depends only on the list sent
+//! ([`list_hash`]), so a version whose list was already answered (a save that changed only
+//! printings, a reverted list, a precon many people have) reuses that answer without a request.
+//! The worker sends one request at a time, paced with the research tools' requests to
+//! Spellbook ([`Research::pace`], every 4 s), which keeps Yama far under Spellbook's guideline
+//! of about 80 requests a minute; a 429 from either holds both off as long as Spellbook asks. Failures retry with growing
 //! pauses and stop after [`MAX_ATTEMPTS`] until someone presses "check again". One account's
 //! decks get at most [`PER_OWNER_HOUR`] checks an hour; the rest wait their turn, so nobody (with
 //! open sign-up, a stranger saving deck after deck) can keep Spellbook busy on Yama's behalf or
@@ -21,7 +24,8 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use crate::mcp::research::client::{Provider, Research};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::Notify;
 
@@ -30,8 +34,9 @@ pub const SPELLBOOK: &str = "commander_spellbook";
 pub const SPELLBOOK_ESTIMATE_URL: &str = "https://backend.commanderspellbook.com/estimate-bracket";
 pub const SPELLBOOK_SITE: &str = "https://commanderspellbook.com/";
 
-/// Shortest pause between two requests to Spellbook (at most 15 a minute).
-const MIN_GAP: Duration = Duration::from_secs(4);
+/// How old an answer for the same list may be and still be reused when a version is saved.
+/// "Check again" asks for a newer one.
+const REUSE_DAYS: i64 = 14;
 /// Failed tries before the worker gives up on a version until it's requested again.
 pub const MAX_ATTEMPTS: i64 = 6;
 /// Pause before try n+1 after n failures.
@@ -68,15 +73,75 @@ pub fn wake() {
     WAKE.get_or_init(Notify::new).notify_one();
 }
 
-/// Queue a check of a new version. Does nothing if it's already queued or checked.
-pub async fn queue<'e, E: sqlx::SqliteExecutor<'e>>(db: E, version_id: &str) -> sqlx::Result<()> {
-    sqlx::query("INSERT INTO deck_version_checks (version_id, source, requested_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+/// What decides a check's answer: the commander and main cards sent ([`request_body`]), each
+/// oracle id with its quantity and board, in order. Printings and the sideboard don't count.
+pub fn list_hash(cards: &[DeckCard]) -> String {
+    use sha2::Digest;
+    let mut lines: Vec<String> = cards
+        .iter()
+        .filter(|c| c.board != Board::Side && c.qty > 0)
+        .map(|c| format!("{}\t{}\t{}", c.oracle_id, c.qty, if c.board == Board::Commander { "commander" } else { "main" }))
+        .collect();
+    lines.sort();
+    hex::encode(sha2::Sha256::digest(lines.join("\n").as_bytes()))
+}
+
+/// Queue a check of a new version with its `cards`, or give it the answer for the same list
+/// from the last [`REUSE_DAYS`] days. Does nothing if it's already queued or checked.
+pub async fn queue(conn: &mut sqlx::SqliteConnection, version_id: &str, cards: &[DeckCard]) -> sqlx::Result<()> {
+    let hash = list_hash(cards);
+    let reused = sqlx::query(
+        "INSERT INTO deck_version_checks (version_id, source, requested_at, checked_at, bracket_tag, game_changers, mld, extra_turns,
+            combos, unrecognized, last_attempt_at, list_hash)
+         SELECT ?1, source, checked_at, checked_at, bracket_tag, game_changers, mld, extra_turns, combos, unrecognized, checked_at, list_hash
+           FROM deck_version_checks WHERE source = ?2 AND list_hash = ?3 AND checked_at >= ?4 ORDER BY checked_at DESC LIMIT 1
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(version_id)
+    .bind(SPELLBOOK)
+    .bind(&hash)
+    .bind(stamp_of(Utc::now() - chrono::Duration::days(REUSE_DAYS)))
+    .execute(&mut *conn)
+    .await?;
+    if reused.rows_affected() == 0 {
+        sqlx::query("INSERT INTO deck_version_checks (version_id, source, requested_at, list_hash) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
+            .bind(version_id)
+            .bind(SPELLBOOK)
+            .bind(stamp())
+            .bind(&hash)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Give a pending check the answer another version with the same list got since this one was
+/// requested (identical lists queued together, or checked again elsewhere). True if it did.
+async fn reuse_answer(pool: &SqlitePool, version_id: &str, hash: &str) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE deck_version_checks AS c SET list_hash = ?2, checked_at = s.checked_at, bracket_tag = s.bracket_tag,
+             game_changers = s.game_changers, mld = s.mld, extra_turns = s.extra_turns, combos = s.combos,
+             unrecognized = s.unrecognized, attempts = 0, error = NULL
+           FROM (SELECT * FROM deck_version_checks WHERE source = ?3 AND list_hash = ?2 AND version_id != ?1 AND checked_at IS NOT NULL
+                   AND checked_at >= (SELECT requested_at FROM deck_version_checks WHERE version_id = ?1 AND source = ?3)
+                 ORDER BY checked_at DESC LIMIT 1) AS s
+          WHERE c.version_id = ?1 AND c.source = ?3",
+    )
+    .bind(version_id)
+    .bind(hash)
+    .bind(SPELLBOOK)
+    .execute(pool)
+    .await?;
+    if done.rows_affected() > 0 {
+        return Ok(true);
+    }
+    sqlx::query("UPDATE deck_version_checks SET list_hash = ? WHERE version_id = ? AND source = ?")
+        .bind(hash)
         .bind(version_id)
         .bind(SPELLBOOK)
-        .bind(stamp())
-        .execute(db)
+        .execute(pool)
         .await?;
-    Ok(())
+    Ok(false)
 }
 
 /// Ask for a fresh check of a version that may have been checked before (outside data changes:
@@ -635,10 +700,22 @@ async fn next_pending(pool: &SqlitePool) -> sqlx::Result<Next> {
     Ok(soonest.map_or(Next::Idle, Next::Later))
 }
 
-/// Check one version against Spellbook and store the answer (or the failure).
-pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id: &str) -> Result<(), CheckError> {
+/// Check one version against Spellbook and store the answer (or the failure). With `pacer`,
+/// the request waits for Spellbook's shared turn and a 429 holds everyone off.
+pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id: &str, pacer: Option<&Research>) -> Result<(), CheckError> {
+    let cards = load_version_cards(pool, version_id).await.map_err(|e| CheckError::Failed(format!("couldn't read the deck: {e}")))?;
+    let reused = reuse_answer(pool, version_id, &list_hash(&cards)).await.map_err(|e| CheckError::Failed(format!("couldn't read the checks: {e}")))?;
+    if reused {
+        return Ok(());
+    }
+    if let Some(pacer) = pacer {
+        pacer.pace(Provider::Spellbook).await;
+    }
     let started = stamp();
-    let outcome = fetch(pool, http, url, version_id, &started).await;
+    let outcome = fetch(http, url, &cards, version_id, &started).await;
+    if let (Some(pacer), Err(CheckError::RateLimited(wait))) = (pacer, &outcome) {
+        pacer.hold_off(Provider::Spellbook, *wait);
+    }
     let stored = match &outcome {
         Ok(result) => store(pool, version_id, result).await,
         Err(e) => record_failure(pool, version_id, &started, &e.to_string()).await,
@@ -649,15 +726,14 @@ pub async fn run_one(pool: &SqlitePool, http: &reqwest::Client, url: &str, versi
     outcome.map(|_| ())
 }
 
-async fn fetch(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id: &str, started: &str) -> Result<CheckResult, CheckError> {
-    let cards = load_version_cards(pool, version_id).await.map_err(|e| CheckError::Failed(format!("couldn't read the deck: {e}")))?;
+async fn fetch(http: &reqwest::Client, url: &str, cards: &[DeckCard], version_id: &str, started: &str) -> Result<CheckResult, CheckError> {
     if !cards.iter().any(|c| c.board != Board::Side) {
         return Err(CheckError::Failed("the deck has no cards to check".into()));
     }
     let res = http
         .post(url)
         .header(reqwest::header::ACCEPT, "application/json")
-        .json(&request_body(&cards))
+        .json(&request_body(cards))
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -668,7 +744,7 @@ async fn fetch(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id:
             .headers()
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(|v| crate::mcp::research::client::retry_after(v.trim()))
             .unwrap_or(60)
             .clamp(10, 3600);
         return Err(CheckError::RateLimited(Duration::from_secs(secs)));
@@ -683,7 +759,7 @@ async fn fetch(pool: &SqlitePool, http: &reqwest::Client, url: &str, version_id:
     if !is_known_tag(&est.bracket_tag) {
         tracing::warn!(tag = %est.bracket_tag, version_id, "Commander Spellbook sent a bracket tag Yama doesn't know; shown as unknown");
     }
-    Ok(summarize(est, &cards, started))
+    Ok(summarize(est, cards, started))
 }
 
 fn short_error(e: &reqwest::Error) -> String {
@@ -751,8 +827,9 @@ pub async fn backfill(pool: &SqlitePool) -> sqlx::Result<u64> {
     .rows_affected())
 }
 
-/// Run checks in the background for as long as the server runs.
-pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String) {
+/// Run checks in the background for as long as the server runs, pacing Spellbook with
+/// `research`.
+pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String, research: Arc<Research>) {
     tokio::spawn(async move {
         match backfill(&pool).await {
             Ok(0) => {}
@@ -760,22 +837,17 @@ pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String) {
             Err(e) => tracing::warn!(error = %e, "couldn't queue deck checks"),
         }
         let wake = WAKE.get_or_init(Notify::new);
-        let mut last_request: Option<tokio::time::Instant> = None;
         loop {
             match next_pending(&pool).await {
                 Ok(Next::Due(version)) => {
-                    if let Some(t) = last_request {
-                        tokio::time::sleep_until(t + MIN_GAP).await;
-                    }
-                    last_request = Some(tokio::time::Instant::now());
                     let job = crate::perf::Job::start("deck check", Duration::from_secs(30));
-                    let result = run_one(&pool, &http, &url, &version).await;
+                    let result = run_one(&pool, &http, &url, &version, Some(&research)).await;
                     job.finish(&result, "Commander Spellbook");
                     match result {
                         Ok(()) => tracing::debug!(version, "checked a deck with Commander Spellbook"),
+                        // The shared pacer now holds every Spellbook request off that long.
                         Err(CheckError::RateLimited(wait)) => {
-                            tracing::warn!(secs = wait.as_secs(), "Commander Spellbook rate limit; pausing deck checks");
-                            tokio::time::sleep(wait).await;
+                            tracing::warn!(secs = wait.as_secs(), "Commander Spellbook rate limit; pausing deck checks and research");
                         }
                         Err(e) => tracing::warn!(version, error = %e, "deck check failed"),
                     }
@@ -1000,8 +1072,11 @@ mod tests {
         for v in &versions[..PER_OWNER_HOUR as usize] {
             store(&pool, v, &summarize(serde_json::from_value(serde_json::json!({"bracketTag": "C"})).unwrap(), &rohan_sample(), &stamp())).await.unwrap();
         }
-        // u1's 21st waits, even though it was queued before u2's deck...
-        let theirs = crate::decks::create_deck_with_cards(&pool, "u2", "B's deck", None, rohan_sample()).await.unwrap();
+        // u1's 21st waits, even though it was queued before u2's deck (another list: the same one
+        // would take u1's answer at once)...
+        let mut list = rohan_sample();
+        list.iter_mut().find(|c| c.board == Board::Main).expect("a main card").qty += 1;
+        let theirs = crate::decks::create_deck_with_cards(&pool, "u2", "B's deck", None, list).await.unwrap();
         let theirs = current_version(&pool, &theirs).await;
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(v) if v == theirs));
         // ...and with nothing else due the worker looks again in a few minutes.
@@ -1053,6 +1128,54 @@ mod tests {
         url
     }
 
+    #[test]
+    fn a_lists_hash_is_its_commander_and_main_cards_in_any_order() {
+        let card = |id: &str, qty, board| DeckCard { oracle_id: id.into(), name: id.into(), qty, board };
+        let a = vec![card("c", 1, Board::Commander), card("x", 1, Board::Main), card("y", 2, Board::Main)];
+        let mut b = vec![card("y", 2, Board::Main), card("x", 1, Board::Main), card("c", 1, Board::Commander), card("s", 1, Board::Side)];
+        assert_eq!(list_hash(&a), list_hash(&b));
+        b[0].qty = 3;
+        assert_ne!(list_hash(&a), list_hash(&b));
+        assert_ne!(list_hash(&a), list_hash(&[card("c", 1, Board::Main), card("x", 1, Board::Main), card("y", 2, Board::Main)]));
+    }
+
+    #[tokio::test]
+    async fn the_same_list_reuses_its_answer_instead_of_asking_again() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Rohan", None, rohan_sample()).await.unwrap();
+        let v1 = current_version(&pool, &deck).await;
+        let http = crate::routes::http_client();
+        run_one(&pool, &http, &fake_spellbook(200).await, &v1, None).await.unwrap();
+        // Saved again with the same cards (a new printing changes no oracle card): answered at
+        // once, nothing queued.
+        let cards = load_version_cards(&pool, &v1).await.unwrap();
+        let v2 = crate::decks::insert_version(&pool, &deck, &cards, Some("new printing")).await.unwrap();
+        let shown = view(&pool, Some(&v2), true).await.unwrap();
+        assert!(!shown.pending && shown.result.is_some());
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Idle));
+
+        // An answer too old isn't reused at save: the same list in another account is queued.
+        sqlx::query("UPDATE deck_version_checks SET requested_at = '2025-01-01T00:00:00.000Z', checked_at = '2025-01-01T00:00:00.000Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u2', 'b@example.com', 'B', '2026-10-19T00:00:00Z')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let theirs = crate::decks::create_deck_with_cards(&pool, "u2", "Rohan too", None, rohan_sample()).await.unwrap();
+        let t = current_version(&pool, &theirs).await;
+        assert!(view(&pool, Some(&t), true).await.unwrap().pending);
+        // The first deck is checked again after that request: the worker gives the second its
+        // answer without a request (this "Spellbook" would fail).
+        sqlx::query("UPDATE deck_version_checks SET checked_at = ? WHERE version_id = ?").bind(stamp()).bind(&v1).execute(&pool).await.unwrap();
+        run_one(&pool, &http, &fake_spellbook(500).await, &t, None).await.unwrap();
+        let shown = view(&pool, Some(&t), true).await.unwrap();
+        assert!(!shown.pending && shown.error.is_none());
+        assert_eq!(shown.result.unwrap().bracket, Some(4));
+    }
+
     #[tokio::test]
     async fn worker_stores_answers_and_honours_rate_limits() {
         let pool = crate::db::test_pool().await;
@@ -1063,7 +1186,7 @@ mod tests {
 
         // 429: the wait Spellbook asks for, counted as a failed try.
         let url = fake_spellbook(429).await;
-        match run_one(&pool, &http, &url, &v).await {
+        match run_one(&pool, &http, &url, &v, None).await {
             Err(CheckError::RateLimited(d)) => assert_eq!(d, Duration::from_secs(120)),
             other => panic!("expected a rate limit, got {other:?}"),
         }
@@ -1071,7 +1194,7 @@ mod tests {
 
         // 200: stored, the error cleared, nothing pending.
         let url = fake_spellbook(200).await;
-        run_one(&pool, &http, &url, &v).await.unwrap();
+        run_one(&pool, &http, &url, &v, None).await.unwrap();
         let shown = view(&pool, Some(&v), true).await.unwrap();
         assert!(!shown.pending && shown.error.is_none());
         let r = shown.result.unwrap();
@@ -1089,7 +1212,7 @@ mod tests {
         request_again(&pool, &v).await.unwrap();
         assert!(view(&pool, Some(&v), true).await.unwrap().pending);
         let url = fake_spellbook(500).await;
-        assert!(run_one(&pool, &http, &url, &v).await.is_err());
+        assert!(run_one(&pool, &http, &url, &v, None).await.is_err());
         let shown = view(&pool, Some(&v), true).await.unwrap();
         assert!(!shown.pending && shown.retrying && shown.result.is_some());
         assert!(shown.error.unwrap().contains("500"));

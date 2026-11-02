@@ -47,7 +47,7 @@ that every advertised tool in three evolving projects has an identical implement
 |---|---|
 | Card facts, rulings, owned copies, Game Changers | Existing `card`, `find_cards`, `check_list` |
 | Full online Scryfall grammar and all-format card legality | `search_scryfall`, including page/offset continuation without skipping cards |
-| Printings, regular/foil prices, original image URLs | `card_printings`; missing prices stay null; images load at runtime |
+| Printings, regular/foil prices, original image URLs | `card_printings`, from Yama's own printings and latest prices (each with its date and source; no outside request since 2026-11-02); missing prices stay null; images load at runtime |
 | Commander community recommendations, themes, budget tiers | `commander_recommendations`; optional own-list exclusion and owned filtering run locally |
 | Arbitrary combo discovery | `find_combos(query)` |
 | Included / nearly included combos, changes of colors or commanders | `find_combos(deck/list, share_list=true)`; retains separate provider categories and prerequisites |
@@ -78,9 +78,15 @@ model assumptions and user goals in the workflow/version note instead.
   streamed response caps (2 MiB JSON, 4 MiB rules). User URLs are parsed to a supported host and
   a bounded deck id; only that id is used to construct a request. Official rules links must be
   HTTPS on `wizards.com` or its subdomains, without credentials or a custom port.
-- GETs have a one-hour in-memory cache, at most 16 entries / 8 MiB; there is no bulk-data download
-  or second card database. Retrieval timestamps survive cache hits. Provider `Retry-After`
-  produces a shared cooldown, without automatic retry storms or fabricated empty results.
+- GET answers are kept in memory (32 entries / 16 MiB, least recently used out first) and in the
+  database (`research_cache`, 32 MiB) for each provider's own time (ARCHITECTURE.md), shared
+  between people and restarts; identical requests in flight share one fetch. There is no
+  bulk-data download or second card database. The provider and retrieval time survive cache hits.
+  Provider `Retry-After` produces a shared cooldown, without automatic retry storms or fabricated
+  empty results; a request whose provider's next turn is more than 8 s off is refused rather than
+  queued, and each person has 60 outside requests per 15 minutes.
+- Public Moxfield and Archidekt decks are fetched only from sites `YAMA_DECK_LINK_SOURCES`
+  enables, the same rule as deck import (docs/deck-import.md).
 - Spellbook deck matching resolves the caller's own deck before any request, requires
   `share_list=true`, and honors `YAMA_DECK_CHECKS=0`. Only card names and quantities are sent.
   Deck POSTs are never cached, and notes, deck names, inventory, tokens and other users' data

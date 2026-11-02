@@ -459,6 +459,12 @@ pub fn yestcg_store(body: &Value, store_host: &str, card: &str) -> Option<Option
 
 // ── fetching ────────────────────────────────────────────────────────────────
 
+/// The host (and port) a store's requests are paced by.
+fn host_of(url: &str) -> Option<String> {
+    let u = url::Url::parse(url).ok()?;
+    Some(format!("{}:{}", u.host_str()?, u.port_or_known_default()?))
+}
+
 /// One request at a time per host, `pause` apart, across every check on this server.
 async fn pace(host: &str, pause: Duration) -> tokio::sync::OwnedMutexGuard<Instant> {
     static HOSTS: OnceLock<std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<Instant>>>>> = OnceLock::new();
@@ -469,6 +475,48 @@ async fn pace(host: &str, pause: Duration) -> tokio::sync::OwnedMutexGuard<Insta
         tokio::time::sleep(wait).await;
     }
     guard
+}
+
+/// Store answers are public (a card's listings, not anybody's account), so one fetched for one
+/// person's check serves anyone's for [`SHARED_TTL`], keyed by method, URL and body.
+const SHARED_TTL: Duration = Duration::from_secs(45 * 60);
+const SHARED_ENTRIES: usize = 2000;
+const SHARED_BYTES: usize = 32 << 20;
+/// The longest a store's Retry-After is waited out inside a check; longer, and it gives up.
+const MAX_ASKED: Duration = Duration::from_secs(60);
+
+struct Shared {
+    text: std::sync::Arc<String>,
+    at: Instant,
+    fetched_at: String,
+}
+
+fn shared() -> &'static std::sync::Mutex<HashMap<String, Shared>> {
+    static SHARED: OnceLock<std::sync::Mutex<HashMap<String, Shared>>> = OnceLock::new();
+    SHARED.get_or_init(Default::default)
+}
+
+fn shared_get(key: &str) -> Option<(std::sync::Arc<String>, String)> {
+    let mut map = shared().lock().expect("shared answers");
+    match map.get(key) {
+        Some(s) if s.at.elapsed() < SHARED_TTL => Some((s.text.clone(), s.fetched_at.clone())),
+        Some(_) => {
+            map.remove(key);
+            None
+        }
+        None => None,
+    }
+}
+
+fn shared_put(key: String, text: &str) {
+    let mut map = shared().lock().expect("shared answers");
+    map.retain(|_, s| s.at.elapsed() < SHARED_TTL);
+    map.insert(key, Shared { text: std::sync::Arc::new(text.to_string()), at: Instant::now(), fetched_at: now() });
+    // Oldest out first.
+    while map.len() > SHARED_ENTRIES || map.values().map(|s| s.text.len()).sum::<usize>() > SHARED_BYTES {
+        let Some(oldest) = map.iter().min_by_key(|(_, s)| s.at).map(|(k, _)| k.clone()) else { break };
+        map.remove(&oldest);
+    }
 }
 
 /// What one job fetched, kept as the snapshot's raw record.
@@ -483,6 +531,13 @@ impl Raw {
         let keep = self.size + body.len() <= RAW_MAX;
         self.size += body.len();
         self.items.push(json!({"method": method, "url": url, "status": status, "at": now(), "body": if keep { json!(body) } else { json!(null) }}));
+    }
+
+    /// An answer another check fetched at `at`, reused.
+    fn add_shared(&mut self, method: &str, url: &str, at: &str, body: &str) {
+        let keep = self.size + body.len() <= RAW_MAX;
+        self.size += body.len();
+        self.items.push(json!({"method": method, "url": url, "status": 200, "at": at, "shared": true, "body": if keep { json!(body) } else { json!(null) }}));
     }
 
     fn gz(&self) -> Option<Vec<u8>> {
@@ -503,7 +558,9 @@ impl Fetcher {
         Fetcher { http, pause: pause.unwrap_or(Duration::ZERO), cookie: None }
     }
 
-    /// GET or POST with a browser's headers, retrying 429 and 5xx twice. Records every answer.
+    /// GET or POST with a browser's headers, retrying 429 (as long as the store asks, up to
+    /// [`MAX_ASKED`]) and 5xx twice. Records every answer; one fetched in the last
+    /// [`SHARED_TTL`] by any check is reused.
     async fn send(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw) -> Result<Value, String> {
         let text = self.fetch(kind, method, url, body, raw, "application/json").await?;
         serde_json::from_str(&text).map_err(|_| format!("{url}: the answer wasn't JSON"))
@@ -515,7 +572,12 @@ impl Fetcher {
     }
 
     async fn fetch(&mut self, kind: Kind, method: &str, url: &str, body: Option<&Value>, raw: &mut Raw, accept: &str) -> Result<String, String> {
-        let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(String::from)).ok_or("bad url")?;
+        let host = host_of(url).ok_or("bad url")?;
+        let key = format!("{method} {url}\n{}", body.map(Value::to_string).unwrap_or_default());
+        if let Some((text, at)) = shared_get(&key) {
+            raw.add_shared(method, url, &at, &text);
+            return Ok(text.to_string());
+        }
         let pause = if self.pause.is_zero() { Duration::ZERO } else { kind.pause().max(self.pause) };
         let mut last = String::new();
         for attempt in 0..3u32 {
@@ -539,19 +601,34 @@ impl Fetcher {
             let read = match sent {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    resp.text().await.map(|t| (status, t))
+                    let asked = resp
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|v| Duration::from_secs(crate::mcp::research::client::retry_after(v.trim())));
+                    resp.text().await.map(|t| (status, asked, t))
                 }
                 Err(e) => Err(e),
             };
-            *guard = Instant::now();
+            // The next request to this host, from any check, waits its pause from now, or as long
+            // as the store asked.
+            let asked = match &read {
+                Ok((429, Some(asked), _)) => *asked,
+                _ => Duration::ZERO,
+            };
+            *guard = Instant::now() + asked.min(MAX_ASKED);
             drop(guard);
             match read {
-                Ok((status, text)) => {
+                Ok((status, _, text)) => {
                     raw.add(method, url, status, &text);
                     if (200..300).contains(&status) {
+                        shared_put(key, &text);
                         return Ok(text);
                     }
                     last = format!("{url}: HTTP {status}");
+                    if status == 429 && asked > MAX_ASKED {
+                        return Err(format!("{url}: the store asked Yama to wait {} s", asked.as_secs()));
+                    }
                     if status != 429 && status < 500 {
                         return Err(last);
                     }
@@ -570,7 +647,7 @@ impl Fetcher {
 
     /// YesTCG answers its API only with the session cookie its home page sets.
     async fn yestcg_cookie(&mut self, base: &str, raw: &mut Raw) {
-        let host = url::Url::parse(base).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
+        let host = host_of(base).unwrap_or_default();
         let mut guard = pace(&host, if self.pause.is_zero() { Duration::ZERO } else { Kind::YesTcg.pause() }).await;
         let sent = self.http.get(format!("{base}/")).header("User-Agent", BROWSER_UA).timeout(Duration::from_secs(30)).send().await;
         // The next request waits its pause from now.

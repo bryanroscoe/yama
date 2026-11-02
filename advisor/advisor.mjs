@@ -256,9 +256,18 @@ export async function runAdvice({ req, queryFn, oauthToken, sharedKey, home, pat
   }
 }
 
+/**
+ * Token counts from the SDK's result. The prompt-cache counts come only when the SDK reports
+ * them: tokens read from Anthropic's prompt cache (billed at a tenth) and tokens written to it,
+ * so the advisor's log shows whether the long, unchanging start of each request is reused.
+ */
 function usageOf(msg) {
   const u = msg.usage ?? {};
-  return { input_tokens: u.input_tokens ?? null, output_tokens: u.output_tokens ?? null };
+  const out = { input_tokens: u.input_tokens ?? null, output_tokens: u.output_tokens ?? null };
+  for (const key of ["cache_read_input_tokens", "cache_creation_input_tokens"]) {
+    if (typeof u[key] === "number") out[key] = u[key];
+  }
+  return out;
 }
 
 function errorCode(msg) {

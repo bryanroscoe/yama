@@ -509,3 +509,37 @@ async fn pruning_keeps_the_days_reads_so_the_cap_holds() {
     let body = CheckBody { stores: Some(vec!["pats".into()]), cards: Some(vec!["Sol Ring".into()]), yestcg: false };
     assert!(matches!(start(&st, &owner, &body, "page", None).await, Err(AppError::TooManyRequests { .. })));
 }
+
+#[tokio::test]
+async fn store_answers_are_shared_between_checks_and_retry_after_is_honoured() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let counter = hits.clone();
+    let app = Router::new()
+        .route(
+            "/page",
+            get(move || {
+                let counter = counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    "listings"
+                }
+            }),
+        )
+        .route("/busy", get(|| async { (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "600")], "") }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = crate::routes::http_client();
+    // Two people's checks: one request, and the second records the answer as shared.
+    let (mut raw_a, mut raw_b) = (Raw::default(), Raw::default());
+    assert_eq!(Fetcher::new(http.clone(), None).page(Kind::Shopify, &format!("{base}/page"), &mut raw_a).await.unwrap(), "listings");
+    assert_eq!(Fetcher::new(http.clone(), None).page(Kind::Shopify, &format!("{base}/page"), &mut raw_b).await.unwrap(), "listings");
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(raw_b.items[0]["shared"], true);
+    // A store that asks for ten minutes isn't waited out inside a check.
+    let started = Instant::now();
+    let err = Fetcher::new(http, None).page(Kind::Shopify, &format!("{base}/busy"), &mut raw_a).await.unwrap_err();
+    assert!(err.contains("wait 600 s"), "{err}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+}

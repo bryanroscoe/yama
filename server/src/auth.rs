@@ -34,7 +34,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::time::Instant;
+use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::RwLock;
 
 pub const SESSION_COOKIE: &str = "yama_session";
@@ -969,17 +969,41 @@ struct JwkSet {
 }
 
 /// Signing keys for an identity provider (Google, Cloudflare Access). Providers rotate keys
-/// every few days; refetch hourly or on an unknown `kid`, but on an unknown `kid` at most once a
-/// minute, so tokens with made-up key ids can't make Yama hammer the provider.
+/// every few days; refetch when the provider's Cache-Control max-age runs out (an hour if it
+/// gives none) or on an unknown `kid`, but at most once a minute, so tokens with made-up key ids
+/// can't make Yama hammer the provider. A refresh that fails keeps the keys already held, for up
+/// to a day past their age, so a provider hiccup doesn't sign everybody out.
 pub struct JwkCache {
     url: String,
-    cache: RwLock<Option<(Instant, Vec<Jwk>)>>,
+    cache: RwLock<Option<HeldKeys>>,
     /// Keys given up front (tests): never fetched.
     fixed: bool,
 }
 
-/// Soonest refetch after the last fetch when a token names an unknown key.
-const MIN_REFETCH_SECS: u64 = 60;
+struct HeldKeys {
+    keys: Vec<Jwk>,
+    fetched: Instant,
+    max_age: StdDuration,
+    /// The last fetch tried, failed or not.
+    tried: Instant,
+}
+
+/// Soonest refetch after the last try when a token names an unknown key or a refresh failed.
+const MIN_REFETCH: StdDuration = StdDuration::from_secs(60);
+/// How long keys whose refresh keeps failing stay in use past their max-age.
+const STALE_KEYS: StdDuration = StdDuration::from_secs(24 * 3600);
+
+/// A response's Cache-Control max-age, kept between five minutes and a day; an hour without one.
+fn max_age(headers: &reqwest::header::HeaderMap) -> StdDuration {
+    let secs = headers
+        .get_all(reqwest::header::CACHE_CONTROL)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .find_map(|d| d.trim().strip_prefix("max-age=").and_then(|n| n.trim().parse::<u64>().ok()))
+        .unwrap_or(3600);
+    StdDuration::from_secs(secs.clamp(300, 24 * 3600))
+}
 
 pub type GoogleKeys = JwkCache;
 
@@ -998,30 +1022,48 @@ impl JwkCache {
     #[cfg(test)]
     pub fn fixed(keys: &[(&str, &str, &str)]) -> Self {
         let keys = keys.iter().map(|(kid, n, e)| Jwk { kid: kid.to_string(), n: n.to_string(), e: e.to_string() }).collect();
-        Self { url: String::new(), cache: RwLock::new(Some((Instant::now(), keys))), fixed: true }
+        let now = Instant::now();
+        Self { url: String::new(), cache: RwLock::new(Some(HeldKeys { keys, fetched: now, max_age: StdDuration::MAX, tried: now })), fixed: true }
     }
 
     async fn keys(&self, http: &reqwest::Client, force: bool) -> AppResult<Vec<Jwk>> {
-        if let Some((at, keys)) = &*self.cache.read().await {
-            let age = at.elapsed().as_secs();
-            if self.fixed || (age < 3600 && (!force || age < MIN_REFETCH_SECS)) {
-                return Ok(keys.clone());
+        if let Some(held) = &*self.cache.read().await {
+            let fresh = held.fetched.elapsed() < held.max_age && !force;
+            if self.fixed || fresh || held.tried.elapsed() < MIN_REFETCH {
+                return Ok(held.keys.clone());
             }
         }
         if self.fixed {
             return Ok(Vec::new());
         }
-        let set: JwkSet = http
+        let fetched = self.fetch(http).await;
+        let mut cache = self.cache.write().await;
+        let now = Instant::now();
+        match (fetched, cache.as_mut()) {
+            (Ok((keys, max_age)), _) => {
+                *cache = Some(HeldKeys { keys: keys.clone(), fetched: now, max_age, tried: now });
+                Ok(keys)
+            }
+            (Err(e), Some(held)) if held.fetched.elapsed() < held.max_age.saturating_add(STALE_KEYS) => {
+                tracing::warn!(error = %e, age_secs = held.fetched.elapsed().as_secs(), "couldn't refresh signing keys; still using the ones held");
+                held.tried = now;
+                Ok(held.keys.clone())
+            }
+            (Err(e), _) => Err(e),
+        }
+    }
+
+    async fn fetch(&self, http: &reqwest::Client) -> AppResult<(Vec<Jwk>, StdDuration)> {
+        let res = http
             .get(&self.url)
+            .timeout(StdDuration::from_secs(10))
             .send()
             .await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| anyhow::anyhow!("fetching signing keys from {}: {e}", self.url))?
-            .json()
-            .await
-            .map_err(|e| anyhow::anyhow!("parsing signing keys from {}: {e}", self.url))?;
-        *self.cache.write().await = Some((Instant::now(), set.keys.clone()));
-        Ok(set.keys)
+            .map_err(|e| anyhow::anyhow!("fetching signing keys from {}: {e}", self.url))?;
+        let max_age = max_age(res.headers());
+        let set: JwkSet = res.json().await.map_err(|e| anyhow::anyhow!("parsing signing keys from {}: {e}", self.url))?;
+        Ok((set.keys, max_age))
     }
 
     async fn verify<T: serde::de::DeserializeOwned>(
@@ -1087,6 +1129,49 @@ async fn access_user(parts: &Parts, state: &AppState) -> AppResult<Option<User>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn signing_keys_follow_max_age_and_survive_a_failed_refresh() {
+        use std::sync::atomic::{AtomicU16, Ordering};
+        let status = std::sync::Arc::new(AtomicU16::new(200));
+        let code = status.clone();
+        let app = axum::Router::new().route(
+            "/certs",
+            axum::routing::get(move || {
+                let code = code.clone();
+                async move {
+                    let code = axum::http::StatusCode::from_u16(code.load(Ordering::SeqCst)).unwrap();
+                    (code, [("cache-control", "public, max-age=600, must-revalidate")], r#"{"keys":[{"kid":"a","n":"n","e":"e","kty":"RSA"}]}"#)
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/certs", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let http = crate::routes::http_client();
+        let cache = JwkCache::new(&url);
+        assert_eq!(cache.keys(&http, false).await.unwrap()[0].kid, "a");
+        assert_eq!(cache.cache.read().await.as_ref().unwrap().max_age, StdDuration::from_secs(600));
+        // Their age is up and the provider fails: the keys held stay in use.
+        status.store(500, Ordering::SeqCst);
+        /// Make the held keys `secs` old; None if this machine hasn't been up that long.
+        async fn age(cache: &JwkCache, secs: u64) -> Option<()> {
+            let at = Instant::now().checked_sub(StdDuration::from_secs(secs))?;
+            let mut held = cache.cache.write().await;
+            let held = held.as_mut().unwrap();
+            held.fetched = at;
+            held.tried = at;
+            Some(())
+        }
+        age(&cache, 700).await.unwrap();
+        assert_eq!(cache.keys(&http, false).await.unwrap()[0].kid, "a");
+        // A day past their age, they aren't (when this machine has been up long enough to say).
+        if age(&cache, 700 + 24 * 3600).await.is_some() {
+            assert!(cache.keys(&http, false).await.is_err());
+        }
+        // Nothing held and a failure: an error.
+        assert!(JwkCache::new(&url).keys(&http, false).await.is_err());
+    }
 
     #[test]
     fn generated_passwords_look_right_and_verify() {
