@@ -20,10 +20,12 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 - The host entrypoint lives outside runner-writable paths. It checks GitHub itself:
   a commit on main, latest push CI for that SHA, the CI workflow identity, success,
   branch, event and source repository. If main moved on after the request, the commit still
-  deploys unless a newer main commit's push CI has already passed (that one deploys instead);
-  a commit off main, or older than production, never deploys (Bryan, 2026-11-02: requiring the
-  exact tip starved every release while merges landed every few minutes). A PR job cannot grant itself deployment access
-  merely by selecting the runner label. Ordinary CI uses a separate `yama-ci` runner,
+  deploys while it stays on main, even when newer commits have passed CI; their own requests
+  deploy after it. A commit off main, or older than production, never deploys (Bryan,
+  2026-11-02: requiring the exact tip starved every release while merges landed every few
+  minutes, and so did yielding to a newer commit once push CI passed in about a minute).
+  A PR job cannot grant itself deployment access merely by selecting the runner label.
+  Ordinary CI uses a separate `yama-ci` runner,
   state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
   git configuration. Phase is fetched over HTTPS from the public fork without a deploy key. Tokens
@@ -101,8 +103,14 @@ the runner. No new public ingress is needed.
 ## Release behavior
 
 GitHub's `yama-production` concurrency group finishes an active run without cancelling
-it. The host lock also protects manual releases, independent of the runner. Already healthy deployments are idempotent and do not restart. Old queued
-SHAs are skipped; a release superseded during its build does not activate. Fresh
+it. The host lock also protects manual releases, independent of the runner. Already healthy deployments are idempotent and do not restart. GitHub keeps
+only the newest pending request. A request that gets the lock builds and activates its commit
+while that commit is still on main and its own push CI still passes; production never goes
+back. Merges during the wait or build no longer discard it (2026-11-02: production sat on one
+commit while main moved through four, each merge superseding the ~20-minute build in progress).
+A request doesn't yield to a newer passed commit before building either: any CI completion on
+main (a manual run, say) queues a deploy run that can replace that commit's pending request and
+then skip its jobs, so yielding could leave nothing deploying. At most one extra build runs. Fresh
 GitHub checks happen before building, after building, and after backup immediately
 before switching the live Compose configuration. If GitHub or
 Phase cannot be freshly checked, deployment fails closed.
@@ -118,6 +126,8 @@ requests never reserve priority. Never replace either lock file.
 
 The host prints a `YAMA_RELEASE_RESULT` outcome after finishing. GitHub's summary says
 whether the SHA was deployed, was already healthy, or was superseded without activation.
+A superseded run still succeeds (skipping an old request is normal) but carries a
+"Not deployed" warning annotation, and the host log above it says why.
 Install the reviewed host entrypoint before using the updated workflow; a missing result
 is an error, not evidence of activation.
 
@@ -259,6 +269,13 @@ Use GitHub Actions logs plus the attempt's history record/build logs. If Docker 
 building, allow the lock owner to finish. Fix CI/build errors through a PR and merge.
 For a transient deployment failure, rerun **Deploy production** on main after checking
 the recorded state. Never deploy a historic SHA through this gate.
+
+A merged revert no longer stops a release that is already building (2026-11-02): the reverted
+commit is still on main, so it activates and the revert deploys after it. To stop it, cancel
+its **Deploy production** run in GitHub Actions. That ends the job's token, so the host's next
+GitHub check fails and the running service is preserved, as long as that check is still ahead:
+the last one runs after the backup, just before the config switch. Read the history record to
+see which stage it reached.
 
 For an emergency image rollback, inspect `previous.json`, the current schema and the
 migration compatibility first. It preserves the prior image IDs, base Compose content
