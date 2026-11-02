@@ -169,8 +169,8 @@ pub struct Research {
     store: Option<SqlitePool>,
     /// Requests in flight, by key: a second caller waits for the first's answer.
     flights: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Each provider's next free turn.
-    lanes: HashMap<Provider, Mutex<Instant>>,
+    /// Each provider's turns.
+    lanes: HashMap<Provider, Mutex<Lane>>,
     /// Each person's recent outside requests.
     spent: Mutex<HashMap<String, VecDeque<Instant>>>,
     #[cfg(test)]
@@ -196,12 +196,18 @@ impl Default for Research {
             memory: Mutex::default(),
             store: None,
             flights: Mutex::default(),
-            lanes: PROVIDERS.into_iter().map(|p| (p, Mutex::new(Instant::now()))).collect(),
+            lanes: PROVIDERS.into_iter().map(|p| (p, Mutex::new(Lane { next: Instant::now(), held: Instant::now() }))).collect(),
             spent: Mutex::default(),
             #[cfg(test)]
             bases: HashMap::new(),
         }
     }
+}
+
+/// A provider's turns: the next free one, and how long a 429 holds everybody off.
+struct Lane {
+    next: Instant,
+    held: Instant,
 }
 
 /// One fetch of a key at a time: the turn, and the map entry it goes from when nobody else is
@@ -276,36 +282,50 @@ impl Research {
     }
 
     /// Take `provider`'s next turn, refusing one more than `max_wait` away. Returns how long to
-    /// wait for it; the caller sleeps without holding anything.
+    /// wait for it; the caller sleeps without holding anything, then [`Research::take_turn`].
     pub fn reserve(&self, provider: Provider, max_wait: Option<Duration>) -> AppResult<Duration> {
-        let mut next = self.lanes[&provider].lock().expect("lane");
+        let mut lane = self.lanes[&provider].lock().expect("lane");
         let now = Instant::now();
-        let start = (*next).max(now);
+        let start = lane.next.max(lane.held).max(now);
         let wait = start - now;
         if max_wait.is_some_and(|max| wait > max) {
-            return Err(AppError::TooManyRequests {
-                message: "The research source is cooling down; try again later.".into(),
-                retry_after: wait.as_secs().max(1),
-            });
+            return Err(cooling(wait));
         }
-        *next = start + provider.interval();
+        lane.next = start + provider.interval();
         Ok(wait)
+    }
+
+    /// Sleep `wait` for a reserved turn, then honour any 429 that came in meanwhile: wait it out
+    /// too, or with `max_wait`, refuse if it's longer than that.
+    async fn take_turn(&self, provider: Provider, mut wait: Duration, max_wait: Option<Duration>) -> AppResult<()> {
+        loop {
+            tokio::time::sleep(wait).await;
+            wait = self.lanes[&provider].lock().expect("lane").held.saturating_duration_since(Instant::now());
+            if wait.is_zero() {
+                return Ok(());
+            }
+            if max_wait.is_some_and(|max| wait > max) {
+                return Err(cooling(wait));
+            }
+        }
     }
 
     /// Wait for `provider`'s next turn however far off, for a background job.
     pub async fn pace(&self, provider: Provider) {
         let wait = self.reserve(provider, None).unwrap_or_default();
-        tokio::time::sleep(wait).await;
+        let _ = self.take_turn(provider, wait, None).await;
     }
 
-    /// `provider` asked Yama to slow down: nobody's next turn is sooner than `wait` from now.
+    /// `provider` asked Yama to slow down: nobody's turn, even one already reserved, comes sooner
+    /// than `wait` from now.
     pub fn hold_off(&self, provider: Provider, wait: Duration) {
-        let mut next = self.lanes[&provider].lock().expect("lane");
-        *next = (*next).max(Instant::now() + wait);
+        let mut lane = self.lanes[&provider].lock().expect("lane");
+        lane.held = lane.held.max(Instant::now() + wait);
     }
 
-    /// Count one outside request against `who`'s budget, or refuse it.
-    fn spend(&self, who: &str) -> AppResult<()> {
+    /// Count one outside request against `who`'s budget, or with `check_only`, just say whether
+    /// there's room.
+    fn spend(&self, who: &str, check_only: bool) -> AppResult<()> {
         let (limit, window) = BUDGET;
         let mut spent = self.spent.lock().expect("budget");
         let now = Instant::now();
@@ -323,7 +343,9 @@ impl Research {
                 retry_after: retry.as_secs().max(1),
             });
         }
-        times.push_back(now);
+        if !check_only {
+            times.push_back(now);
+        }
         Ok(())
     }
 
@@ -421,11 +443,15 @@ impl Research {
         if self.offline {
             return Err(crate::error::offline(provider.name()));
         }
+        // Charged only once a turn is secured: a refusal sends nothing.
         if let Some(who) = who {
-            self.spend(who)?;
+            self.spend(who, true)?;
         }
         let wait = self.reserve(provider, Some(MAX_WAIT))?;
-        tokio::time::sleep(wait).await;
+        if let Some(who) = who {
+            self.spend(who, false)?;
+        }
+        self.take_turn(provider, wait, Some(MAX_WAIT)).await?;
         let mut req = if let Some(body) = &body {
             self.http.post(url.clone()).json(body)
         } else {
@@ -529,6 +555,13 @@ fn readable(provider: Provider, url: &Url, doc: &Document) -> bool {
     }
 }
 
+fn cooling(wait: Duration) -> AppError {
+    AppError::TooManyRequests {
+        message: "The research source is cooling down; try again later.".into(),
+        retry_after: wait.as_secs().max(1),
+    }
+}
+
 fn too_large() -> AppError {
     AppError::Unavailable(
         "The research response exceeded Yama's size limit; narrow the request.".into(),
@@ -572,9 +605,15 @@ mod tests {
         assert!(research.reserve(Provider::Spellbook, None).unwrap() > Duration::from_secs(11));
         // Other providers are their own lanes.
         assert!(research.reserve(Provider::Scryfall, Some(MAX_WAIT)).unwrap() < Duration::from_millis(100));
-        // A 429 holds everybody off.
+        // A 429 holds everybody off, and a turn reserved before it waits it out or is refused.
+        let reserved = research.reserve(Provider::Scryfall, Some(MAX_WAIT)).unwrap();
         research.hold_off(Provider::Scryfall, Duration::from_secs(30));
         assert!(research.reserve(Provider::Scryfall, Some(MAX_WAIT)).is_err());
+        assert!(research.take_turn(Provider::Scryfall, reserved, Some(MAX_WAIT)).await.is_err());
+        research.hold_off(Provider::Edhrec, Duration::from_millis(300));
+        let started = Instant::now();
+        research.take_turn(Provider::Edhrec, Duration::ZERO, Some(MAX_WAIT)).await.unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(250));
     }
 
     #[test]
@@ -593,11 +632,15 @@ mod tests {
     #[test]
     fn each_person_has_a_budget_of_outside_requests() {
         let research = Research::default();
-        for _ in 0..BUDGET.0 {
-            research.spend("a").unwrap();
+        // Checking costs nothing.
+        for _ in 0..BUDGET.0 * 2 {
+            research.spend("a", true).unwrap();
         }
-        assert!(matches!(research.spend("a"), Err(AppError::TooManyRequests { .. })));
-        research.spend("b").unwrap();
+        for _ in 0..BUDGET.0 {
+            research.spend("a", false).unwrap();
+        }
+        assert!(matches!(research.spend("a", true), Err(AppError::TooManyRequests { .. })));
+        research.spend("b", false).unwrap();
     }
 
     fn doc(n: usize) -> Document {
