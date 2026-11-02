@@ -225,7 +225,7 @@ fn same(name: &str) -> String {
 /// different builds the same.
 fn counts(list: &str) -> (Vec<String>, HashMap<String, i64>) {
     let lines = crate::decks::parse_list(list, true);
-    let (mut order, mut n) = (Vec::new(), HashMap::new());
+    let (mut order, mut n): (Vec<String>, HashMap<String, i64>) = (Vec::new(), HashMap::new());
     for line in lines.into_iter().filter(|l| l.board != Board::Side) {
         let copies = n.entry(same(&line.name)).or_insert(0);
         if *copies == 0 {
