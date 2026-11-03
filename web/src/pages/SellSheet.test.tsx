@@ -45,3 +45,14 @@ describe("the sell list sheet", () => {
     expect(h).toMatch(/<b class="num">1 card<\/b>/);
   });
 });
+
+it("checks etched copies at Mothership independently of Card Kingdom's export restrictions", () => {
+  vi.stubGlobal("localStorage", { getItem: () => "cardkingdom", setItem: () => undefined });
+  try {
+    const h=html([item({name:"Panharmonicon",finish:"etched"})]);
+    expect(h).toContain("Check Mothership (1)");
+    expect(h).toContain("Card Kingdom");
+  } finally {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
+  }
+});

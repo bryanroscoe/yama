@@ -163,7 +163,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           </Details>
         )}
 
-        <Details label="Local buylist offers"><SellOffers cards={chosen} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} /></Details>
+        <Details label="Local buylist offers"><SellOffers cards={shown.filter((c) => qty(c) > 0)} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} /></Details>
 
         {cards.length > 0 && (
           <>
