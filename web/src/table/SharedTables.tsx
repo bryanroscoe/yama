@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Link } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
-import { forgetTable, useFollowedTable } from "./following";
+import { forgetTable, rememberTable, useFollowedTable } from "./following";
 import { joinFragment, type Relay } from "./share";
 
 interface ActiveTable {
@@ -18,7 +19,7 @@ interface ActiveTable {
 export function SharedTables({ localGameId }: { localGameId?: string }) {
   const me = useMe();
   const user = me.data?.id ?? null;
-  const followed = useFollowedTable(user);
+  const saved = useFollowedTable(user);
   const tables = useQuery({
     queryKey: ["table-active", user],
     queryFn: ({ signal }) => api<ActiveTable[]>("/api/table/active", { signal }),
@@ -27,6 +28,19 @@ export function SharedTables({ localGameId }: { localGameId?: string }) {
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
   });
+  // A host moving devices/relays can keep the game id while rotating its join key.
+  // Prefer current discovery immediately, and keep that address for the next app open.
+  const rediscovered = tables.dataUpdatedAt >= (saved?.at ?? 0) ? tables.data?.find((t) => t.id === saved?.gameId && t.key) : undefined;
+  const followed = saved && rediscovered?.key ? { ...saved, key: rediscovered.key, relay: rediscovered.relay } : saved;
+  const gameId = saved?.gameId;
+  const names = saved?.names;
+  const key = followed?.key;
+  const relay = followed?.relay;
+  useEffect(() => {
+    if (gameId && names !== undefined && key && relay && (key !== saved?.key || relay !== saved?.relay)) {
+      rememberTable(user, { gameId, names, key, relay });
+    }
+  }, [user, gameId, names, key, relay, saved?.key, saved?.relay]);
   const active = tables.data?.filter((t) => t.id !== localGameId && t.id !== followed?.gameId) ?? [];
   if (!followed && !active.length) return null;
   return (

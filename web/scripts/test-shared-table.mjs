@@ -137,6 +137,30 @@ try {
   assert(await host.getByRole("button", { name: "Host gains 1 life", exact: true }).isVisible(), "original host keeps its counter");
   assert.equal(uploads.filter((p) => p === secondary).length, 0, "passive second tab must not upload stale state, even at startup");
   await secondary.close();
+  // The same game can be resumed by a new host device with a different key/relay.
+  // Fresh playgroup discovery must replace a saved offline room, including on reload.
+  const returning = await phone("returning-friend");
+  await returning.context().addInitScript((gameId) => {
+    if (localStorage.getItem("synthetic-return-seeded")) return;
+    localStorage.setItem("synthetic-return-seeded", "1");
+    localStorage.setItem("yama.table.following.account:returning-friend", JSON.stringify({ gameId, key: "b".repeat(32), relay: "server", names: "Host, Friend", at: Date.now() }));
+  }, id);
+  await returning.goto(base);
+  const returnLink = returning.getByRole("link", { name: "Back to the shared table", exact: true });
+  await returnLink.waitFor();
+  await returning.waitForFunction((expected) => {
+    const saved = JSON.parse(localStorage.getItem("yama.table.following.account:returning-friend"));
+    return saved.key === expected && saved.relay === "edge";
+  }, liveKey);
+  assert.equal(await returnLink.getAttribute("href"), `/table/join/${id}#k=${liveKey}&r=cf`);
+  assert.equal(await returning.getByRole("link", { name: "Join the table", exact: true }).count(), 0);
+  await returnLink.click();
+  await returning.getByRole("button", { name: /Friend.*40/ }).click();
+  await returning.getByRole("button", { name: "Whole table", exact: true }).click();
+  await returning.getByRole("button", { name: "Host gains 1 life", exact: true }).waitFor();
+  await returning.reload();
+  await returning.getByRole("button", { name: "Host gains 1 life", exact: true }).waitFor();
+  await returning.context().close();
   const guest = await phone("friend");
   await guest.goto(base);
   await guest.getByRole("heading", { name: "Magic Bros is playing" }).waitFor();
@@ -245,5 +269,5 @@ try {
   await guest.getByRole("link", { name: "Back to Table", exact: true }).click();
   assert.equal(await guest.getByRole("link", { name: "Back to the shared table", exact: true }).count(), 0);
   assert.deepEqual(errors, [], "no browser runtime errors");
-  console.log("PASS: already-open tab marker creation/removal, immediate write fencing, group discovery, host-identical layouts at three sizes, remote life/first-player actions, host-only controls, home return/reload, host reload, rematch/live and sleeping phones, discard/end, old-local isolation, follower-selected lethal prompts, watcher suppression, shared art-off fills, no runtime errors.");
+  console.log("PASS: already-open tab marker creation/removal, immediate write fencing, rediscovered credential rotation and reload, group discovery, host-identical layouts at three sizes, remote life/first-player actions, host-only controls, home return/reload, host reload, rematch/live and sleeping phones, discard/end, old-local isolation, follower-selected lethal prompts, watcher suppression, shared art-off fills, no runtime errors.");
 } finally { await browser.close(); }
