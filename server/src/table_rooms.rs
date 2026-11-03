@@ -17,7 +17,7 @@
 //!
 //! Production tables meet on Yama's Cloudflare relay instead (`relay/`), which keeps working when
 //! this server is offline and needs no account. For those, the host phone leaves the share key
-//! here (`PUT /live`, memory only, for a while) so the creator's own other devices can follow.
+//! here (`PUT /live`, memory only, for a while) so the creator and the selected group can follow.
 //!
 //! Memory: a room keeps its newest snapshot (at most [`MAX_MESSAGE`]) and a short backlog for slow
 //! guests, so anyone but an admin may host at most [`MAX_HOSTED`] tables at once.
@@ -31,7 +31,7 @@ use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -39,6 +39,7 @@ use tokio::sync::{broadcast, mpsc};
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/table/active", get(active))
         .route("/api/table/{game_id}/ws", get(connect))
         .route("/api/table/{game_id}/live", get(live).put(set_live).delete(clear_live))
 }
@@ -102,10 +103,10 @@ struct EdgeShare {
     at: Instant,
 }
 
-/// How long a share key left here stays offered. The sharing phone leaves it again every 20
-/// minutes and takes it back when it stops, so one that closes without stopping (or loses its
+/// How long a share key left here stays offered. The sharing phone leaves it again every
+/// minute and takes it back when it stops, so one that closes without stopping (or loses its
 /// signal) stops being offered soon.
-const EDGE_TTL: Duration = Duration::from_secs(60 * 60);
+const EDGE_TTL: Duration = Duration::from_secs(3 * 60);
 
 struct Room {
     /// Set by the host; guests must match it.
@@ -131,20 +132,58 @@ struct ConnectParams {
     key: String,
 }
 
-/// Whether the creator's phone is sharing this game right now, so their other devices can offer
-/// to follow it, with the Cloudflare relay's share key when it's there. Anyone else gets "no": a
-/// game's room is only found with its share key.
-async fn live(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> Json<serde_json::Value> {
-    let edge = {
-        let map = st.rooms.edge.lock().unwrap();
-        map.get(&game_id).filter(|e| e.user == user.id && e.at.elapsed() < EDGE_TTL).map(|e| e.key.clone())
-    };
-    if let Some(key) = edge {
-        return Json(serde_json::json!({ "hosting": true, "key": key }));
+/// Only current, explicitly shared in-person games are discoverable. Selecting a playgroup
+/// shares its live counter with current members, never the game's private log or account data.
+#[derive(Serialize, sqlx::FromRow)]
+struct ActiveTable {
+    id: String,
+    group_name: Option<String>,
+    host_name: String,
+    started_at: String,
+    #[sqlx(skip)]
+    key: Option<String>,
+    #[sqlx(skip)]
+    relay: String,
+}
+
+async fn active_tables(st: &AppState, user: &str) -> AppResult<Vec<ActiveTable>> {
+    // Copy credentials before any await; the room locks never span database I/O.
+    let mut shared: HashMap<String, (Option<String>, &str)> = st.rooms.rooms.lock().unwrap().iter()
+        .filter(|(_, r)| r.host.is_some())
+        .map(|(id, r)| (id.clone(), (r.key.clone(), "server"))).collect();
+    for (id, e) in st.rooms.edge.lock().unwrap().iter().filter(|(_, e)| e.at.elapsed() < EDGE_TTL) {
+        shared.insert(id.clone(), (Some(e.key.clone()), "edge"));
     }
-    let map = st.rooms.rooms.lock().unwrap();
-    let hosting = map.get(&game_id).is_some_and(|r| r.host_user.as_deref() == Some(user.id.as_str()) && r.host.is_some());
-    Json(serde_json::json!({ "hosting": hosting }))
+    if shared.is_empty() { return Ok(Vec::new()); }
+    let ids = serde_json::to_string(&shared.keys().collect::<Vec<_>>()).unwrap();
+    let mut tables: Vec<ActiveTable> = sqlx::query_as(
+        "SELECT g.id, pg.name AS group_name, u.display_name AS host_name, g.started_at
+         FROM games g JOIN users u ON u.id = g.created_by
+         LEFT JOIN playgroups pg ON pg.id = g.playgroup_id
+         WHERE g.id IN (SELECT value FROM json_each(?)) AND g.mode = 'in_person'
+           AND g.status = 'in_progress' AND u.disabled_at IS NULL
+           AND (g.created_by = ? OR pg.owner_id = ? OR EXISTS (
+             SELECT 1 FROM playgroup_members m WHERE m.playgroup_id = pg.id AND m.user_id = ?))
+         ORDER BY g.started_at DESC, g.id",
+    ).bind(ids).bind(user).bind(user).bind(user).fetch_all(&st.pool).await?;
+    for table in &mut tables {
+        let (key, relay) = shared.remove(&table.id).unwrap();
+        table.key = key;
+        table.relay = relay.into();
+    }
+    Ok(tables)
+}
+
+async fn active(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<ActiveTable>>> {
+    Ok(Json(active_tables(&st, &user.id).await?))
+}
+
+async fn live(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    let table = active_tables(&st, &user.id).await?.into_iter().find(|t| t.id == game_id);
+    Ok(Json(match table {
+        Some(t) => serde_json::json!({ "hosting": true, "key": t.key, "relay": t.relay }),
+        None => serde_json::json!({ "hosting": false }),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -167,7 +206,7 @@ async fn set_live(
     if !is_relay_key(&body.key) {
         return Err(AppError::bad("not a share key"));
     }
-    let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
+    let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ? AND mode = 'in_person' AND status = 'in_progress'")
         .bind(&game_id)
         .fetch_optional(&st.pool)
         .await?;
@@ -225,7 +264,7 @@ async fn connect(
         return Err(AppError::Unauthorized);
     }
     if host {
-        let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?")
+        let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ? AND mode = 'in_person' AND status = 'in_progress'")
             .bind(&game_id)
             .fetch_optional(&st.pool)
             .await?;
@@ -373,6 +412,60 @@ mod tests {
         r.key = Some(key.into());
         r.host_user = Some(host.into());
         r
+    }
+
+    #[tokio::test]
+    async fn live_discovery_requires_current_membership_and_a_current_shared_game() {
+        use crate::testutil::{config, send, state_with, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let pool = crate::db::test_pool().await;
+        let (host, ht) = user(&pool, "host@example.com").await;
+        let (member, mt) = user(&pool, "member@example.com").await;
+        let (_, outsider) = user(&pool, "outsider@example.com").await;
+        let state = state_with(config(), pool.clone()).await;
+        let app = crate::routes::app(state.clone());
+        let (_, pg) = send(&app, Method::POST, "/api/playgroups", Some(&ht), Some(json!({"name":"Magic Bros"}))).await;
+        let pg = pg["id"].as_str().unwrap();
+        sqlx::query("INSERT INTO playgroup_members (id, playgroup_id, user_id, created_at) VALUES ('friend', ?, ?, 'now')")
+            .bind(pg).bind(&member).execute(&pool).await.unwrap();
+        for (id, group, status, mode) in [
+            ("live", Some(pg), "in_progress", "in_person"),
+            ("finished", Some(pg), "finished", "in_person"),
+            ("private", None, "in_progress", "in_person"),
+            ("expired", Some(pg), "in_progress", "in_person"),
+            ("unshared", Some(pg), "in_progress", "in_person"),
+            ("online", Some(pg), "in_progress", "online"),
+            ("server", Some(pg), "in_progress", "in_person"),
+        ] {
+            sqlx::query("INSERT INTO games (id, mode, created_by, playgroup_id, format, status, starting_life, started_at, note) VALUES (?, ?, ?, ?, 'commander', ?, 40, '2026-11-02T19:00:00Z', 'private note')")
+                .bind(id).bind(mode).bind(&host).bind(group).bind(status).execute(&pool).await.unwrap();
+            if id != "unshared" && id != "server" {
+                state.rooms.edge.lock().unwrap().insert(id.into(), EdgeShare { user: host.clone(), key: "a".repeat(32), at: if id == "expired" { Instant::now() - EDGE_TTL } else { Instant::now() } });
+            }
+        }
+        let mut server_room = room(&"b".repeat(32), &host);
+        server_room.host = Some((1, mpsc::unbounded_channel().0));
+        state.rooms.rooms.lock().unwrap().insert("server".into(), server_room);
+        let (_, own) = send(&app, Method::GET, "/api/table/active", Some(&ht), None).await;
+        assert_eq!(own.as_array().unwrap().len(), 3, "creator sees their private and group counters: {own}");
+        let (_, group) = send(&app, Method::GET, "/api/table/active", Some(&mt), None).await;
+        assert_eq!(group.as_array().unwrap().len(), 2, "{group}");
+        assert_eq!(group[0]["group_name"], "Magic Bros");
+        assert!(!group.to_string().contains("private note"));
+        assert!(group.as_array().unwrap().iter().any(|t| t["id"] == "live" && t["relay"] == "edge" && t["key"] == "a".repeat(32)));
+        assert!(group.as_array().unwrap().iter().any(|t| t["id"] == "server" && t["relay"] == "server" && t["key"] == "b".repeat(32)));
+        assert_eq!(send(&app, Method::GET, "/api/table/live/live", Some(&mt), None).await.1["hosting"], true);
+        assert_eq!(send(&app, Method::GET, "/api/table/private/live", Some(&mt), None).await.1["hosting"], false);
+        assert_eq!(send(&app, Method::GET, "/api/table/active", Some(&outsider), None).await.1, json!([]));
+        assert_eq!(send(&app, Method::GET, "/api/table/live/live", Some(&outsider), None).await.1, json!({"hosting":false}));
+        assert_eq!(send(&app, Method::GET, "/api/table/active", None, None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(send(&app, Method::PUT, "/api/table/live/live", Some(&mt), Some(json!({"key":"c".repeat(32)}))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, Method::PUT, "/api/table/finished/live", Some(&ht), Some(json!({"key":"c".repeat(32)}))).await.0, StatusCode::FORBIDDEN);
+        sqlx::query("DELETE FROM playgroup_members WHERE id = 'friend'").execute(&pool).await.unwrap();
+        assert_eq!(send(&app, Method::GET, "/api/table/active", Some(&mt), None).await.1, json!([]));
+        sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = ?").bind(&host).execute(&pool).await.unwrap();
+        assert!(active_tables(&state, &host).await.unwrap().is_empty());
     }
 
     #[test]

@@ -225,3 +225,105 @@ describe("each account's game", () => {
     store.selectSlot(false, null);
   });
 });
+
+
+describe("a second tab following the host", () => {
+  it("cannot edit or upload its old local snapshot, or overwrite the host's newer storage", async () => {
+    guest = false;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    store.startGame(setup("shared-read-only"));
+    await store.sync();
+    calls.length = 0;
+    store.setSharedReadOnly("shared-read-only");
+    const newer = { ...store.getGame()!, log: [{ seq: 1, at: "2026-11-02T20:00:00Z", event: { type: "life", seat: 0, delta: -2 } }] };
+    items.set("yama.table.current.me", JSON.stringify(newer));
+    // The real host also queued a finished game and a deletion while this tab was asleep.
+    const queued = [{ ...newer, setup: { ...newer.setup, id: "finished-offline" } }];
+    items.set("yama.table.outbox", JSON.stringify(queued));
+    items.set("yama.table.deletes", JSON.stringify([{ id: "discarded-elsewhere", owner: "me" }]));
+    store.dispatch({ type: "life", seat: 0, delta: -10 });
+    store.finishGame(0);
+    store.discardGame();
+    await store.sync();
+    expect(store.getGame()!.log).toHaveLength(0);
+    expect(JSON.parse(items.get("yama.table.current.me")!)).toEqual(newer);
+    expect(calls).toEqual([]);
+    expect(JSON.parse(items.get("yama.table.outbox")!)).toEqual(queued);
+    expect(JSON.parse(items.get("yama.table.deletes")!)).toEqual([{ id: "discarded-elsewhere", owner: "me" }]);
+    store.setSharedReadOnly(null);
+  });
+});
+
+
+describe("a sharing marker that appears before its storage event", () => {
+  it("fences writes until this document owns hosting, then releases the fence on removal", async () => {
+    const priorNavigator = globalThis.navigator;
+    vi.stubGlobal("navigator", { locks: {} });
+    try {
+      guest = false;
+      items.set("yama.me", JSON.stringify({ id: "me" }));
+      store.selectSlot(false, "me");
+      store.startGame(setup("marker-race"));
+      await store.sync();
+      calls.length = 0;
+      items.set("yama.table.hosting.me", "marker-race");
+      store.dispatch({ type: "life", seat: 0, delta: -10 });
+      store.finishGame(0);
+      store.discardGame();
+      await store.sync();
+      expect(store.getGame()!.log).toHaveLength(0);
+      expect(calls).toEqual([]);
+      store.setSharedHost("marker-race");
+      store.dispatch({ type: "life", seat: 0, delta: -1 });
+      await store.sync();
+      expect(store.getGame()!.log.at(-1)?.event).toMatchObject({ type: "life", delta: -1 });
+      store.setSharedHost(null);
+      const before = store.getGame();
+      store.dispatch({ type: "life", seat: 0, delta: -3 });
+      expect(store.getGame()).toBe(before);
+      items.delete("yama.table.hosting.me");
+      store.dispatch({ type: "life", seat: 0, delta: 1 });
+      expect(store.getGame()).not.toBe(before);
+    } finally {
+      store.setSharedHost(null);
+      store.setSharedReadOnly(null);
+      items.delete("yama.table.hosting.me");
+      vi.stubGlobal("navigator", priorNavigator);
+    }
+  });
+});
+
+
+describe("persisted game identity at host grant", () => {
+  it("rejects an old claim and fences cached writes before the storage event arrives", async () => {
+    guest = false;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    store.startGame(setup("old-claim"));
+    await store.sync();
+    const replacement = { ...store.getGame()!, setup: setup("new-selected"), log: [] };
+    items.set("yama.table.current.me", JSON.stringify(replacement));
+    calls.length = 0;
+    expect(store.refreshSharedGame("old-claim")).toBe(false);
+    store.dispatch({ type: "life", seat: 0, delta: -10 });
+    await store.sync();
+    expect(calls).toEqual([]);
+    expect(JSON.parse(items.get("yama.table.current.me")!)).toEqual(replacement);
+    // Deliver the new selected slot through the normal account selection boundary.
+    store.selectSlot(true);
+    store.selectSlot(false, "me");
+  });
+  it("refreshes a same-game snapshot before hosting instead of publishing the old log", async () => {
+    guest = false;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    store.startGame(setup("same-claim"));
+    await store.sync();
+    const latest = { ...store.getGame()!, log: [{ seq: 1, at: "2026-11-02T20:00:00Z", event: { type: "life", seat: 0, delta: -2 } }] };
+    items.set("yama.table.current.me", JSON.stringify(latest));
+    expect(store.getGame()!.log).toHaveLength(0);
+    expect(store.refreshSharedGame("same-claim")).toBe(true);
+    expect(store.getGame()!.log).toEqual(latest.log);
+  });
+});
