@@ -5,6 +5,8 @@
 import type { Playgroup } from "../api";
 
 export interface SeatDraft {
+  /** Local setup identity: stays with this seat when another player is removed. */
+  draftId?: string;
   name: string;
   memberId?: string;
   userId?: string;
@@ -80,6 +82,21 @@ export function applySeatPatch(seats: SeatDraft[], i: number, patch: SeatPatch):
   return p ? patchSeat(seats, i, p) : seats;
 }
 
+/** Give setup seats stable local identities, including old saved setups and new blank seats. */
+export function withDraftIds(seats: SeatDraft[]): SeatDraft[] {
+  const seen = new Set<string>();
+  return seats.map((s) => {
+    const draftId = s.draftId && !seen.has(s.draftId) ? s.draftId : crypto.randomUUID();
+    seen.add(draftId);
+    return draftId === s.draftId ? s : { ...s, draftId };
+  });
+}
+
+/** A delayed editor answer follows its surviving seat; a removed seat is no longer a target. */
+export function applyDraftPatch(seats: SeatDraft[], draftId: string, patch: SeatPatch): SeatDraft[] {
+  return applySeatPatch(seats, seats.findIndex((s) => s.draftId === draftId), patch);
+}
+
 /**
  * Whether a seat still holds the deck and commanders a slow lookup was started for. A result
  * that comes back after the seat changed (another deck, other commanders, a removed seat whose
@@ -128,9 +145,10 @@ export function renameSeat(seat: SeatDraft, name: string, me: Me | null | undefi
  * account becomes that person's member row, and picks from another group become guests under the
  * same name. Without one, member picks become typed names, and only your own account stays tied
  * (the server only lets you put a game on your own record without a playgroup).
+ * Explicit group choices may also reconcile unique plain guest names; saved-game rebuilds do not.
  */
-export function fitSeatsToGroup(seats: SeatDraft[], group: Playgroup | undefined, me: Me | null | undefined): SeatDraft[] {
-  return seats.map((s) => {
+export function fitSeatsToGroup(seats: SeatDraft[], group: Playgroup | undefined, me: Me | null | undefined, matchGuestNames = false): SeatDraft[] {
+  const fitted = seats.map((s) => {
     if (group) {
       if (s.memberId && group.members.some((m) => m.id === s.memberId)) return s;
       const member = s.userId ? group.members.find((m) => m.user_id === s.userId) : undefined;
@@ -142,6 +160,20 @@ export function fitSeatsToGroup(seats: SeatDraft[], group: Playgroup | undefined
     }
     if (!s.memberId && (!s.userId || s.userId === me?.id)) return s;
     return { ...s, memberId: undefined, ...(s.userId === me?.id ? {} : NOT_AN_ACCOUNT) };
+  });
+  if (!group || !matchGuestNames) return fitted;
+  // Only an explicit group choice reconciles plain friends by name. Never infer your own
+  // account from a name, override a known identity, or give two seats the same member.
+  const nameKey = (name: string) => name.trim().toLowerCase();
+  return fitted.map((s, i) => {
+    const original = seats[i]!;
+    if (original.memberId || original.userId || original.handle || !nameKey(s.name)) return s;
+    const matches = group.members.filter((m) => nameKey(m.display_name) === nameKey(s.name));
+    if (matches.length !== 1) return s;
+    const member = matches[0]!;
+    if (member.user_id === me?.id || fitted.some((o) => o.memberId === member.id || (!!member.user_id && o.userId === member.user_id))) return s;
+    if (fitted.filter((o) => nameKey(o.name) === nameKey(s.name)).length !== 1) return s;
+    return { ...s, memberId: member.id, userId: member.user_id ?? undefined, handle: member.handle ?? undefined, name: member.display_name };
   });
 }
 
@@ -227,14 +259,14 @@ export function seatHolds(s: Pick<SeatDraft, "name" | "memberId" | "userId">, p:
 export const isOpenSeat = (s: Pick<SeatDraft, "name" | "memberId" | "userId">) => !s.name.trim() && !s.memberId && !s.userId;
 
 /**
- * Who's playing, one tap per person: someone already seated leaves, their seat staying as an
- * open seat (seats never move, so New game's seat editors and their slow lookups stay on the
- * right seat); anyone else takes the first open seat or a new one, up to `max`. The same seats
- * back when there's no room.
+ * Who's playing, one tap per person: someone already seated leaves and their seat is removed,
+ * lowering the player count (at least one seat remains). Others keep their order and decks.
+ * Anyone else takes the first open seat or a new one, up to `max`. The same seats back when
+ * there's no room. Callers must route editor lookups by draft identity when removal changes seat indices.
  */
 export function togglePerson(seats: SeatDraft[], p: SeatPerson, patch: Partial<SeatDraft>, max: number): SeatDraft[] {
   const at = seats.findIndex((s) => seatHolds(s, p));
-  if (at >= 0) return seats.map((s, i) => (i === at ? emptySeat() : s));
+  if (at >= 0) return seats.length === 1 ? [emptySeat()] : seats.filter((_, i) => i !== at);
   const open = seats.findIndex(isOpenSeat);
   if (open >= 0) return patchSeat(seats, open, { ...emptySeat(), ...patch });
   if (seats.length >= max) return seats;
