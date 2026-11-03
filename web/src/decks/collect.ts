@@ -101,7 +101,7 @@ export function summary(p: CollectPreview): string[] {
   if (p.same_elsewhere > 0) {
     out.push(`You own the same printing of ${p.same_elsewhere} of the ${p.missing} missing in another box or binder.`);
   }
-  if (p.proxies > 0) out.push(`${n(p.proxies, "card")} the deck marks as a proxy ${p.proxies === 1 ? "goes" : "go"} in as ${p.proxies === 1 ? "a proxy" : "proxies"}.`);
+  if (p.proxies > 0) out.push(`${n(p.proxies, "new copy", "new copies")} will be recorded as ${p.proxies === 1 ? "a proxy" : "proxies"}.`);
   if (p.no_printing.length) out.push(`Yama has no printing of ${p.no_printing.join(", ")}, so ${p.no_printing.length === 1 ? "it's" : "they're"} left out.`);
   return out;
 }

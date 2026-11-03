@@ -45,3 +45,4 @@ tower = { version = "0.5.3", features = ["util"] }
 mimalloc = "0.1"
 libc = "0.2"
 tempfile = "3.27.0"
+unicode-normalization = "0.1.26"

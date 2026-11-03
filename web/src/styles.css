@@ -2114,7 +2114,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .hero-configs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin: 4px 0 10px;
 }
 .hero-configs a {
@@ -2128,6 +2128,35 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   color: var(--on-art);
   font-size: var(--t-sm);
   text-decoration: none;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  flex-wrap: wrap;
+}
+.hero-configs-legacy {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.hero-configs-legacy summary {
+  width: fit-content;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  border-radius: var(--r-pill);
+  background: rgb(11 12 14 / 0.4);
+  color: var(--on-art);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.hero-configs-legacy-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+}
+@media (pointer: coarse) {
+  .hero-configs a {
+    min-height: 44px;
+  }
 }
 .hero-configs-label {
   align-self: center;

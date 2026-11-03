@@ -350,7 +350,26 @@ export function DeckPage() {
                   </Link>
                 );
               })}
-              {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && <details open={legacyConfiguration(d.configuration)}><summary>Legacy</summary>{d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => <Link key={c.id} className="on-art" to={`/decks/${c.id}`}>{c.configuration ?? c.name}</Link>)}</details>}
+              {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && (
+                <details className="hero-configs-legacy" open={legacyConfiguration(d.configuration)}>
+                  <summary>Legacy</summary>
+                  <div className="hero-configs-legacy-list">
+                    {d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => (
+                      <Link
+                        key={c.id}
+                        className="on-art"
+                        to={`/decks/${c.id}`}
+                        aria-current={c.id === (deck.isPlaceholderData ? id : d.id) ? "page" : undefined}
+                        onMouseEnter={() => prefetch(c.id)}
+                        onFocus={() => prefetch(c.id)}
+                      >
+                        {c.configuration ?? c.name}
+                        {deck.isPlaceholderData && c.id === id && <span className="hero-configs-loading">, opening…</span>}
+                      </Link>
+                    ))}
+                  </div>
+                </details>
+              )}
             </nav>
           )}
           <div className="hero-row">

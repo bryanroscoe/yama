@@ -23,6 +23,7 @@ export function GroupPage() {
 
   return (
     <main className="page group-page">
+      <Link to="/table/games">Game history</Link>
       <ErrorText error={groups.error} />
       {groups.data?.length === 0 && (
         <>

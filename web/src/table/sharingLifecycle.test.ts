@@ -50,6 +50,8 @@ describe("shared table lifecycle", () => {
     vi.useFakeTimers();
     vi.resetModules();
     vi.clearAllMocks();
+    // Node versions expose different navigator APIs; model the browser's available lock.
+    vi.stubGlobal("navigator", { locks: { request: (_name: string, _options: unknown, callback: (lock: object) => Promise<void>) => callback({}) } });
     vi.stubEnv("VITE_RELAY_URL", "wss://relay.yama.ing");
     items.clear(); changes.clear(); ends.clear(); Socket.sockets.length = 0;
     game = { setup, log: [], redo: [], owner: "host", syncedThrough: 0 };
@@ -68,6 +70,14 @@ describe("shared table lifecycle", () => {
     share.stopHosting();
     share.restoreHosting("host");
     expect(Socket.sockets).toHaveLength(1); // Stop sharing stays stopped after a reload.
+  });
+  it("requires an explicit start when the browser has no locks", () => {
+    vi.stubGlobal("navigator", {});
+    items.set("yama.table.hosting.host", "current");
+    share.restoreHosting("host");
+    expect(Socket.sockets).toHaveLength(0);
+    share.startHosting("current");
+    expect(Socket.sockets).toHaveLength(1);
   });
   it.each([4000, 1009])("terminal relay closure %s stays stopped after reload without deleting another host's registration", async (code) => {
     const { api } = await import("../api");
