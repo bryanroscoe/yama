@@ -651,7 +651,11 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
         })}
       </ol>
       {credited.length > 0 && <p className="small dim rg-credit">{artCredits(credited.map((c) => c!.artist))}</p>}
-      <p className="rg-more"><Link to="/group">All games and stats</Link></p>
+      <div className="rg-more row">
+        <Link to="/table/games">All games</Link>
+        <Link to="/table/games?filter=unfinished&order=oldest">Find unfinished games</Link>
+        <Link to="/group">Playgroup stats</Link>
+      </div>
     </section>
   );
 }
