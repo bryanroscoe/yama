@@ -40,30 +40,26 @@ export function OwnershipValue({ o }: { o: DeckView["ownership"] }) {
   </dl>;
 }
 
-/** Cash first (AGENTS.md, deck valuation): what Card Kingdom was buying your near-mint copies for,
- *  each by its printing and finish, with the date. Basics, copies whose price doesn't apply and
- *  copies with no price are counted apart; a missing price is never $0. */
-export function BuylistCash({ b }: { b: BuylistValue }) {
+/** Dated printing-specific references precede market estimates. The public feed cannot establish
+ *  an economical sale, so no automatic cash total or arbitrary bulk-price cutoff is applied. */
+export function BuylistReferences({ b }: { b: BuylistValue }) {
   const notes = [
     b.no_offer_copies > 0 && `${copies(b.no_offer_copies)} with no buylist price (unknown, not $0)`,
     b.unmatched_copies > 0 && `${copies(b.unmatched_copies)} not near-mint English, so the price doesn't apply`,
-    b.basics > 0 && `${b.basics === 1 ? "1 basic land" : `${b.basics} basic lands`} kept apart${b.basics_cash_usd != null ? ` (${usd(b.basics_cash_usd)} offered for them)` : ""}`,
+    b.basics > 0 && `${b.basics === 1 ? "1 basic land" : `${b.basics} basic lands`}; review each printing, including premium versions`,
   ].filter(Boolean);
-  return <section aria-label="Buylist cash">
-    <h2>Buylist cash</h2>
-    {b.copies === 0 && b.basics === 0
+  return <section aria-label="Buylist references">
+    <h2>Buylist references</h2>
+    {b.copies === 0
       ? <p>None of this deck's cards are real copies in your collection, so there's nothing to price for selling.</p>
-      : <p>
-          {b.cash_usd != null
-            ? <><b className="num">{usd(b.cash_usd)}</b> for {b.offered_copies} of your {copies(b.copies)}</>
-            : <>No buylist price for any of your {copies(b.copies)}</>}
-          <span className="dim">. {b.provider}, {shortDate(b.date)}: what Card Kingdom was paying for near-mint copies, not what you'll get or an offer from your stores.</span>
+      : <p>{b.offered_copies > 0 ? `A dated price for ${b.offered_copies} of your ${copies(b.copies)}` : `No buylist price for any of your ${copies(b.copies)}`}.
+          <span className="dim"> {b.provider}, {shortDate(b.date)}: prices for near-mint copies, not a confirmed sale or an offer from your stores.</span>
         </p>}
-    <p className="dim small">Daily reference before quantity limits, shipping, fees and final condition grading. Check the store before selling.</p>
+    <p className="dim small">Review cards individually before estimating saleable cash. Separate ordinary basics and bulk; check premium printings, quantity limits, shipping, fees and final condition grading. These prices are not added into a resale total.</p>
     {notes.length > 0 && <p className="dim small">{notes.join("; ")}.</p>}
-    {b.cards.length > 0 && <Details label="Cards Card Kingdom was buying">
+    {b.cards.length > 0 && <Details label="Prices by printing">
       <ul className="buylist-cards">{b.cards.map((c) => <li key={`${c.name}-${c.set_code}-${c.collector_number}-${c.finish}`}>
-        {c.qty} {c.name} <span className="dim">({c.set_code?.toUpperCase()} {c.collector_number}{c.finish !== "nonfoil" ? `, ${c.finish}` : ""})</span>: <span className="num">{usd(c.offer_usd)}</span>{c.qty > 1 ? " each" : ""}{c.basic ? <span className="dim"> (basic, kept apart)</span> : null}
+        {c.qty} {c.name} <span className="dim">({c.set_code?.toUpperCase()} {c.collector_number}{c.finish !== "nonfoil" ? `, ${c.finish}` : ""})</span>: <span className="num">{usd(c.offer_usd)}</span>{c.qty > 1 ? " each" : ""}{c.basic ? <span className="dim"> (basic land; review this printing)</span> : null}
       </li>)}</ul>
     </Details>}
   </section>;
@@ -71,7 +67,7 @@ export function BuylistCash({ b }: { b: BuylistValue }) {
 
 export function DeckPrices({ singles, sealed, precon = false, ownership, buylist }: { singles: SinglesValue | undefined; sealed?: SealedPrice | null; precon?: boolean; ownership?: DeckView["ownership"]; buylist?: BuylistValue | null }) {
   return <>
-  {buylist && <BuylistCash b={buylist} />}
+  {buylist && <BuylistReferences b={buylist} />}
   <section aria-label="Deck market value">
     <h2>Market value (estimate)</h2>
     {precon && <p>Sealed deck: {sealed ? <><a href={sealed.url} target="_blank" rel="noreferrer">{usd(sealed.usd)}</a>. {sealed.source}, {shortDate(sealed.price_date)} ({sealed.product_name})</> : "No price"}</p>}
@@ -79,7 +75,7 @@ export function DeckPrices({ singles, sealed, precon = false, ownership, buylist
     {ownership && <OwnershipValue o={ownership} />}
     <Details label="How market value is estimated">
       {precon && !sealed && <p>No matching sealed market price yet.</p>}
-      <p>Replacement cost at each card's cheapest eligible nonfoil paper printing. Includes commanders, basics and cards played as proxies; excludes sideboards. Actual printings, finishes and condition affect value. Market references aren't store quotes or resale offers{buylist ? ", and never part of the buylist cash above" : ""}.</p>
+      <p>Replacement cost at each card's cheapest eligible nonfoil paper printing. Includes commanders, basics and cards played as proxies; excludes sideboards. Actual printings, finishes and condition affect value. Market references aren't store quotes or resale offers{buylist ? ", and separate from the buylist references above" : ""}.</p>
     </Details>
   </section>
   </>;

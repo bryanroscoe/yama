@@ -483,24 +483,22 @@ struct DeckView {
 }
 
 /// What Card Kingdom was buying your real copies of a deck's cards for, by each copy's own
-/// printing and finish, on the newest day Yama read its buylist (via MTGJSON). Cash, apart from
-/// store credit and from the market estimate; a copy without a buylist price is unknown, never $0.
+/// printing and finish, on the newest day Yama read its buylist (via MTGJSON). Individual public
+/// references only: the feed cannot establish which copies are economical to sell. No automatic
+/// resale total, bulk cutoff or premium-basic exclusion; missing prices remain unknown.
 #[derive(Serialize, Debug, Default, PartialEq)]
 pub(crate) struct BuylistValue {
     pub provider: &'static str,
     pub date: Option<String>,
-    /// The offers' total, basic lands left out; none when no copy has one.
-    pub cash_usd: Option<f64>,
-    /// Your real copies of the deck's cards (proxies left out), basic lands apart.
+    /// Your real copies of the deck's cards (proxies left out), each counted once.
     pub copies: i64,
     pub offered_copies: i64,
     /// No buylist price for that printing and finish: unknown, not $0.
     pub no_offer_copies: i64,
     /// Not near-mint English copies (or altered, signed, misprinted): the price doesn't apply.
     pub unmatched_copies: i64,
-    /// Ordinary basic lands, apart from the headline; `basics_cash_usd` is any premium printing's.
+    /// Basic copies, whose individual printings must be reviewed (including premium versions).
     pub basics: i64,
-    pub basics_cash_usd: Option<f64>,
     /// Each printing and finish with an offer, highest first.
     pub cards: Vec<BuylistCard>,
 }
@@ -525,13 +523,16 @@ async fn buylist_value(
     container_id: Option<&str>,
 ) -> AppResult<Option<BuylistValue>> {
     let mut picked: Vec<(&crate::collection::Item, i64)> = Vec::new();
+    let mut used: HashMap<&str, i64> = HashMap::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let mut mine: Vec<&crate::collection::Item> = by_oracle.get(c.oracle_id.as_str()).into_iter().flatten().copied().filter(|i| !i.proxy).collect();
         mine.sort_by_key(|i| container_id.is_none() || i.container_id.as_deref() != container_id);
         let mut left = c.qty;
         for i in mine {
-            let take = left.min(i.qty);
+            let consumed = used.entry(i.id.as_str()).or_default();
+            let take = left.min(i.qty - *consumed);
             if take > 0 {
+                *consumed += take;
                 picked.push((i, take));
                 left -= take;
             }
@@ -543,7 +544,6 @@ async fn buylist_value(
         return Ok(None);
     }
     let mut out = BuylistValue { provider: "Card Kingdom buylist via MTGJSON", date, ..Default::default() };
-    let (mut cash, mut basics_cash) = (0i64, 0i64);
     let mut rows: BTreeMap<(String, String), BuylistCard> = BTreeMap::new();
     for (i, n) in picked {
         let name = i.name.clone().unwrap_or_default();
@@ -555,23 +555,17 @@ async fn buylist_value(
         };
         let matches = i.condition == "NM" && i.lang == "en" && !i.altered && !i.signed && !i.misprint;
         let offer = offers.get(&(i.scryfall_id.clone(), series)).copied().filter(|_| matches);
+        out.copies += n;
         if basic {
             out.basics += n;
-        } else {
-            out.copies += n;
-            if !matches {
-                out.unmatched_copies += n;
-            } else if offer.is_none() {
-                out.no_offer_copies += n;
-            }
+        }
+        if !matches {
+            out.unmatched_copies += n;
+        } else if offer.is_none() {
+            out.no_offer_copies += n;
         }
         let Some(cents) = offer else { continue };
-        if basic {
-            basics_cash += cents * n;
-        } else {
-            out.offered_copies += n;
-            cash += cents * n;
-        }
+        out.offered_copies += n;
         let row = rows.entry((i.scryfall_id.clone(), i.finish.clone())).or_insert_with(|| BuylistCard {
             name,
             set_code: i.set_code.clone(),
@@ -583,8 +577,6 @@ async fn buylist_value(
         });
         row.qty += n;
     }
-    out.cash_usd = (out.offered_copies > 0).then_some(cash as f64 / 100.0);
-    out.basics_cash_usd = (basics_cash > 0).then_some(basics_cash as f64 / 100.0);
     out.cards = rows.into_values().collect();
     out.cards.sort_by(|a, b| (b.offer_usd * b.qty as f64).total_cmp(&(a.offer_usd * a.qty as f64)).then(a.name.cmp(&b.name)));
     Ok(Some(out))

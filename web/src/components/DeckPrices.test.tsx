@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BuylistCash, DeckPrices, OwnershipValue } from "./DeckPrices";
+import { BuylistReferences, DeckPrices, OwnershipValue } from "./DeckPrices";
 import type { SinglesValue } from "../api";
 
 const value: SinglesValue = { usd: 4.25, priced_copies: 31, unpriced_copies: 2, oldest_date: "2026-10-25", newest_date: "2026-10-26", source: "TCGplayer market via Scryfall" };
@@ -43,25 +43,34 @@ describe("deck market prices", () => {
 });
 
 
-describe("BuylistCash", () => {
+describe("BuylistReferences", () => {
   const b = {
-    provider: "Card Kingdom buylist via MTGJSON", date: "2026-11-01", cash_usd: 1.25, copies: 3, offered_copies: 1, no_offer_copies: 1, unmatched_copies: 1,
-    basics: 30, basics_cash_usd: 0.3,
-    cards: [{ name: "Sol Ring", set_code: "cmm", collector_number: "410", finish: "nonfoil", qty: 1, offer_usd: 1.25, basic: false }],
+    provider: "Card Kingdom buylist via MTGJSON", date: "2026-11-01", copies: 33, offered_copies: 31, no_offer_copies: 1, unmatched_copies: 1,
+    basics: 30,
+    cards: [
+      { name: "Island", set_code: "lea", collector_number: "287", finish: "nonfoil", qty: 1, offer_usd: 50, basic: true },
+      { name: "Sol Ring", set_code: "cmm", collector_number: "410", finish: "nonfoil", qty: 1, offer_usd: 1.25, basic: false },
+      { name: "Bulk card", set_code: "cmm", collector_number: "411", finish: "nonfoil", qty: 1, offer_usd: 0.01, basic: false },
+    ],
   };
-  it("leads with dated cash for the copies it was buying, and keeps unknowns, mismatches and basics apart", () => {
-    const html = renderToStaticMarkup(<DeckPrices singles={{ usd: 99, priced_copies: 3, unpriced_copies: 0, oldest_date: "2026-11-01", newest_date: "2026-11-01", source: "TCGplayer market via Scryfall" }} buylist={b} />);
-    expect(html.indexOf("Buylist cash")).toBeLessThan(html.indexOf("Market value (estimate)"));
-    expect(html).toContain("$1.25</b> for 1 of your 3 copies");
+  it("keeps premium basics and penny prices individually visible without inventing saleable cash", () => {
+    const html = renderToStaticMarkup(<DeckPrices singles={value} buylist={b} />);
+    expect(html.indexOf("Buylist references")).toBeLessThan(html.indexOf("Market value (estimate)"));
+    expect(html).toContain("A dated price for 31 of your 33 copies");
     expect(html).toContain("Card Kingdom buylist via MTGJSON, Nov 1");
-    expect(html).toContain("not what you&#x27;ll get or an offer from your stores");
+    expect(html).toContain("$50.00");
+    expect(html).toContain("LEA 287");
+    expect(html).toContain("$0.01");
+    expect(html).toContain("not added into a resale total");
+    expect(html).not.toContain("$51.26");
+    expect(html).not.toContain("Buylist cash");
     expect(html).toContain("1 copy with no buylist price (unknown, not $0)");
     expect(html).toContain("1 copy not near-mint English");
-    expect(html).toContain("30 basic lands kept apart ($0.30 offered for them)");
+    expect(html).toContain("including premium versions");
   });
-  it("never shows a missing price as zero", () => {
-    const html = renderToStaticMarkup(<BuylistCash b={{ ...b, cash_usd: null, offered_copies: 0, cards: [] }} />);
-    expect(html).toContain("No buylist price for any of your 3 copies");
+  it("never shows missing prices as zero", () => {
+    const html = renderToStaticMarkup(<BuylistReferences b={{ ...b, offered_copies: 0, cards: [] }} />);
+    expect(html).toContain("No buylist price for any of your 33 copies");
     expect(html).not.toContain("$0.00");
   });
 });

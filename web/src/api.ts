@@ -376,18 +376,16 @@ export interface DeckEntry extends DeckCard {
 }
 
 /** What Card Kingdom was buying your real copies of a deck's cards for, each by its own printing and finish, on one
- *  date (via MTGJSON). Cash, apart from the market estimate; a copy with no buylist price is unknown, never $0. */
+ *  date (via MTGJSON). Individual references, without an unverified resale total; missing stays unknown. */
 export interface BuylistValue {
   provider: string;
   date: string | null;
-  cash_usd: number | null;
   copies: number;
   offered_copies: number;
   no_offer_copies: number;
   /** Not near-mint English (or altered, signed, misprinted): the price doesn't apply. */
   unmatched_copies: number;
   basics: number;
-  basics_cash_usd: number | null;
   cards: { name: string; set_code: string | null; collector_number: string | null; finish: string; qty: number; offer_usd: number; basic: boolean }[];
 }
 

@@ -542,49 +542,38 @@ async fn each_days_file_writes_what_the_replay_would() {
 }
 
 #[tokio::test]
-async fn a_decks_buylist_value_counts_only_matching_copies_and_never_a_missing_price() {
+async fn a_decks_buylist_references_count_each_copy_once_without_a_saleable_total() {
     use crate::testutil::{app, send, user};
     let (app, pool) = app().await;
     let (owner, token) = user(&pool, "me@example.com").await;
-    for (oracle, name) in [("o-ring", "Sol Ring"), ("o-isl", "Island"), ("o-bolt", "Lightning Bolt"), ("o-tomb", "Ancient Tomb")] {
+    let names = [("ring", "Sol Ring"), ("isl", "Island"), ("bolt", "Lightning Bolt"), ("tomb", "Ancient Tomb"), ("bulk", "Arcane Signet"), ("unknown", "Command Tower")];
+    for (oracle, name) in names {
         sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?, ?, 'Artifact', 'now')").bind(oracle).bind(name).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name.to_lowercase()).bind(oracle).execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES (?, ?, ?, 'cmm', 'Set', '1', 'en', '[\"nonfoil\",\"foil\"]', 'now')")
-            .bind(format!("p-{oracle}"))
-            .bind(oracle)
-            .bind(name)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES (?, ?, ?, 'cmm', 'Set', '1', 'en', '[\"nonfoil\"]', 'now')")
+            .bind(format!("p-{oracle}")).bind(oracle).bind(name).execute(&pool).await.unwrap();
     }
-    let cards = ["Sol Ring", "Island", "Lightning Bolt", "Ancient Tomb"]
-        .iter()
-        .zip(["o-ring", "o-isl", "o-bolt", "o-tomb"])
-        .map(|(n, o)| crate::decks::DeckCard { oracle_id: o.into(), name: n.to_string(), qty: if *n == "Island" { 30 } else { 1 }, board: crate::decks::Board::Main })
-        .collect();
+    // A premium basic is the same oracle card, but keeps its own printing and reference price.
+    sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES ('p-premium', 'isl', 'Island', 'lea', 'Limited Edition Alpha', '287', 'en', '[\"nonfoil\"]', 'now')")
+        .execute(&pool).await.unwrap();
+    let mut cards: Vec<_> = names.iter().map(|(o, n)| crate::decks::DeckCard {
+        oracle_id: o.to_string(), name: n.to_string(), qty: if *o == "isl" { 31 } else { 1 }, board: crate::decks::Board::Main,
+    }).collect();
+    // The same oracle in two deck sections must not consume the same physical copy twice.
+    cards.push(crate::decks::DeckCard { oracle_id: "ring".into(), name: "Sol Ring".into(), qty: 1, board: crate::decks::Board::Commander });
     let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Test", None, cards).await.unwrap();
-    // A near-mint Sol Ring, an Island, a played Lightning Bolt, a proxy Ancient Tomb.
-    for (id, card, condition, proxy, qty) in [("i1", "o-ring", "NM", 0, 1), ("i2", "o-isl", "NM", 0, 30), ("i3", "o-bolt", "LP", 0, 1), ("i4", "o-tomb", "NM", 1, 1)] {
+    for (printing, condition, proxy, qty) in [("p-ring", "NM", 0, 1), ("p-isl", "NM", 0, 30), ("p-premium", "NM", 0, 1), ("p-bolt", "LP", 0, 1), ("p-tomb", "NM", 1, 1), ("p-bulk", "NM", 0, 1), ("p-unknown", "NM", 0, 1)] {
         sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, proxy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'now', 'now')")
-            .bind(id)
-            .bind(&owner)
-            .bind(format!("p-{card}"))
-            .bind(qty)
-            .bind(condition)
-            .bind(proxy)
-            .execute(&pool)
-            .await
-            .unwrap();
+            .bind(printing).bind(&owner).bind(printing).bind(qty).bind(condition).bind(proxy).execute(&pool).await.unwrap();
     }
     let (_, before) = send(&app, axum::http::Method::GET, &format!("/api/decks/{deck}"), Some(&token), None).await;
-    assert!(before["buylist"].is_null(), "no Card Kingdom prices in yet: {}", before["buylist"]);
-    // Card Kingdom buys Sol Ring at $1.25, Lightning Bolt at $0.50, Island at $0.01 and not Ancient Tomb.
+    assert!(before["buylist"].is_null());
     let dir = tempfile::tempdir().unwrap();
     let ids = dir.path().join("ids.csv");
-    std::fs::write(&ids, "uuid,scryfallId\nur,p-o-ring\nui,p-o-isl\nub,p-o-bolt\nut,p-o-tomb\n").unwrap();
+    std::fs::write(&ids, "uuid,scryfallId\nur,p-ring\nui,p-isl\nup,p-premium\nub,p-bolt\nuq,p-bulk\n").unwrap();
     let prices = dir.path().join("today.json");
-    let ck = |buy: f64| serde_json::json!({"paper": {"cardkingdom": {"buylist": {"normal": {D3: buy}}, "retail": {"normal": {D3: buy * 3.0}}, "currency": "USD"}}});
-    std::fs::write(&prices, serde_json::json!({"meta": {"date": D3}, "data": {"ur": ck(1.25), "ui": ck(0.01), "ub": ck(0.5), "ut": {"paper": {"cardkingdom": {"buylist": {}, "retail": {"normal": {D3: 30.0}}, "currency": "USD"}}}}}).to_string()).unwrap();
+    let ck = |buy: f64| serde_json::json!({"paper": {"cardkingdom": {"buylist": {"normal": {D3: buy}}, "currency": "USD"}}});
+    std::fs::write(&prices, serde_json::json!({"meta": {"date": D3}, "data": {"ur": ck(1.25), "ui": ck(0.01), "up": ck(50.0), "ub": ck(0.5), "uq": ck(0.01)}}).to_string()).unwrap();
     let writer = Writer::acquire(&pool).await.unwrap();
     mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "run").await.unwrap();
     writer.release().await;
@@ -592,13 +581,14 @@ async fn a_decks_buylist_value_counts_only_matching_copies_and_never_a_missing_p
     let b = &view["buylist"];
     assert_eq!(b["provider"], "Card Kingdom buylist via MTGJSON");
     assert_eq!(b["date"], D3);
-    // Only the near-mint Sol Ring: the played Bolt's price doesn't apply, the proxy isn't yours to
-    // sell, and the Islands are apart from the headline.
-    assert_eq!(b["cash_usd"], 1.25);
-    assert_eq!((b["copies"].as_i64(), b["offered_copies"].as_i64(), b["unmatched_copies"].as_i64(), b["no_offer_copies"].as_i64()), (Some(2), Some(1), Some(1), Some(0)));
-    assert_eq!((b["basics"].as_i64(), b["basics_cash_usd"].as_f64()), (Some(30), Some(0.3)));
-    assert_eq!(b["cards"][0]["name"], "Sol Ring");
-    // The market value is its own figure, never added to it.
+    assert_eq!((b["copies"].as_i64(), b["offered_copies"].as_i64(), b["unmatched_copies"].as_i64(), b["no_offer_copies"].as_i64()), (Some(35), Some(33), Some(1), Some(1)));
+    assert!(b.get("cash_usd").is_none() && b.get("basics_cash_usd").is_none(), "no invented resale total");
+    let references = b["cards"].as_array().unwrap();
+    let premium = references.iter().find(|c| c["set_code"] == "lea").unwrap();
+    assert_eq!((premium["name"].as_str(), premium["offer_usd"].as_f64()), (Some("Island"), Some(50.0)));
+    assert_eq!(references.iter().find(|c| c["name"] == "Sol Ring").unwrap()["qty"], 1);
+    assert_eq!(references.iter().find(|c| c["name"] == "Arcane Signet").unwrap()["offer_usd"], 0.01);
+    assert_eq!(b["basics"], 31);
     assert!(view["singles_value"].is_object());
 }
 
