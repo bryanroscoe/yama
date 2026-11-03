@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { formatLabel, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
@@ -93,6 +93,9 @@ export function setupFromServer(g: GameDetail): { setup: TableSetup; log: Logged
 export function GameDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { history?: string } | null)?.history;
+  const back = from?.startsWith("/table/games?") ? from : "/";
   const local = useTable();
   const game = useQuery({ queryKey: ["game", id], queryFn: ({ signal }) => api<GameDetail>(`/api/games/${id}`, { signal }) });
   const g = game.data;
@@ -144,7 +147,7 @@ export function GameDetailPage() {
     // Offline, it's gone from this device now and from Yama once the connection is back.
     onSuccess: () => {
       for (const key of ["games", "stats", "deck-results", "game"]) void qc.invalidateQueries({ queryKey: [key] });
-      navigate("/", { replace: true });
+      navigate(back, { replace: true });
     },
   });
 
@@ -152,7 +155,7 @@ export function GameDetailPage() {
   if (!g) {
     return (
       <main className="page">
-        <p><Link to="/">Table</Link></p>
+        <p><Link to={back}>{back === "/" ? "Table" : "Game history"}</Link></p>
         <ErrorText error={game.error ?? new Error("That game isn't here.")} />
       </main>
     );
@@ -185,7 +188,7 @@ export function GameDetailPage() {
 
   return (
     <main className="page game-detail">
-      <p className="gd-back"><Link to="/">Table</Link></p>
+      <p className="gd-back"><Link to={back}>{back === "/" ? "Table" : "Game history"}</Link></p>
       <header className="gd-head">
         <ArtMosaic className="gd-art" arts={(winner ? [art.get(splitPair(winner).commander ?? "")] : shown).filter((a) => !!a?.art).slice(0, 4).map((a) => a!.art)} />
         <div className="gd-title">
