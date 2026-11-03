@@ -839,11 +839,15 @@ async fn rename_container(
 
 /// Deleting a container keeps its cards; they become unfiled.
 async fn delete_container(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    let mut tx = st.pool.begin().await?;
+    delete_container_for_owner(&st.pool, &user.id, &id).await
+}
+
+async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
+    let mut tx = pool.begin().await?;
     // Unfiling can collide with an identical unfiled row, so re-add rather than update.
     let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE container_id = ? AND owner_id = ?")
-        .bind(&id)
-        .bind(&user.id)
+        .bind(id)
+        .bind(owner)
         .fetch_all(&mut *tx)
         .await?;
     for item_id in ids {
@@ -863,9 +867,11 @@ async fn delete_container(State(st): State<AppState>, CurrentUser(user): Current
                 split: None,
             },
         };
-        apply_op(&mut tx, &user.id, &op).await?;
+        apply_op(&mut tx, owner, &op).await?;
     }
-    sqlx::query("DELETE FROM containers WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE decks SET container_id = NULL WHERE container_id = ? AND owner_id = ?")
+        .bind(id).bind(owner).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM containers WHERE id = ? AND owner_id = ?").bind(id).bind(owner).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -979,6 +985,48 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_container_keeps_cards_and_decks_and_is_owner_scoped() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u2','other@example.com','Other','now')")
+            .execute(&pool).await.unwrap();
+        let box_id = ensure_container(&pool, &owner, "box", "Reality lab").await.unwrap();
+        sqlx::query("INSERT INTO decks (id, owner_id, name, container_id, created_at, updated_at) VALUES ('d1', ?, 'Saved deck', ?, 'now', 'now')")
+            .bind(&owner).bind(&box_id).execute(&pool).await.unwrap();
+        for (op_id, qty, container_id) in [("loose", 2, None), ("boxed", 3, Some(box_id.clone()))] {
+            let mut tx = pool.begin().await.unwrap();
+            apply_op(&mut tx, &owner, &Op {
+                op_id: op_id.into(), device_id: None,
+                op: OpKind::Add {
+                    scryfall_id: "p1".into(), qty,
+                    copy: CopyKind { condition: nm(), finish: nonfoil(), lang: en(), ..Default::default() },
+                    container_id, purchase_price: None, purchase_currency: None,
+                },
+            }).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+        delete_container_for_owner(&pool, "u2", &box_id).await.unwrap();
+        let linked: Option<String> = sqlx::query_scalar("SELECT container_id FROM decks WHERE id = 'd1'").fetch_one(&pool).await.unwrap();
+        assert_eq!(linked.as_deref(), Some(box_id.as_str()));
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(&box_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 1);
+
+        delete_container_for_owner(&pool, &owner, &box_id).await.unwrap();
+        delete_container_for_owner(&pool, &owner, &box_id).await.unwrap(); // retry after a lost response
+        let rows: Vec<(i64, Option<String>)> = sqlx::query_as("SELECT qty, container_id FROM collection_items WHERE owner_id = ?")
+            .bind(&owner).fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![(5, None)]);
+        let linked: Option<String> = sqlx::query_scalar("SELECT container_id FROM decks WHERE id = 'd1'").fetch_one(&pool).await.unwrap();
+        assert_eq!(linked, None); // the saved deck survives without a dangling box
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(&box_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
+        let empty = ensure_container(&pool, &owner, "box", "Empty").await.unwrap();
+        delete_container_for_owner(&pool, &owner, &empty).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(empty).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]
