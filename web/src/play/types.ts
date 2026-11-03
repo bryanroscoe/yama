@@ -866,6 +866,11 @@ export type ServerMessage =
 export interface OnlineGame {
   /** This live game can use the installed current-runtime Phase board. */
   phase_board?: boolean;
+  /** A game the server is playing, from your view of the board: its turn, whose turn it is, and
+   *  whether you have a move other than passing (the games list only). */
+  turn?: number;
+  active?: number;
+  your_move?: boolean;
   /** Preserved game cannot currently run on its verified historical runtime. */
   runtime_error?: string | null;
   id: string;

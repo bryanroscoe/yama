@@ -28,6 +28,8 @@ pub fn router() -> Router<AppState> {
                 .post(save_route)
                 .layer(DefaultBodyLimit::max(MAX_BYTES)),
         )
+        // Outside /api/research/{id}, where a note could be called "builds".
+        .route("/api/research-builds", get(builds_route))
         .route("/api/research/{id}", get(get_route))
         .route("/api/research/{id}/reviews", post(review_route))
         .route("/api/research/{id}/sharing", put(sharing_route))
@@ -584,6 +586,70 @@ pub async fn list(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     Ok(json!(rows))
 }
 
+/// Only these of an object's fields.
+fn pick(v: &Value, keys: &[&str]) -> Value {
+    Value::Object(keys.iter().filter_map(|k| v.get(*k).map(|x| (k.to_string(), x.clone()))).collect())
+}
+
+/// Copies an acquisition lists, as the ownership check counts them (card, kind and quantity).
+fn rows(v: &Value) -> Value {
+    Value::Array(v.as_array().into_iter().flatten().map(|r| pick(r, &["card", "kind", "qty"])).collect())
+}
+
+/// What the build choices and the deck check read from a build (web/src/decks/buildCatalog.ts,
+/// web/src/research/availability.ts): a page that reads another field adds it here.
+fn build_summary(b: &Value) -> Value {
+    let mut out = pick(b, &["id", "label", "bracket", "prospective", "list", "risks", "accounting"]);
+    if let Some(swaps) = b["swaps"].as_array() {
+        out["swaps"] = swaps
+            .iter()
+            .map(|s| {
+                let mut s2 = pick(s, &["card_out", "card_in", "why"]);
+                if s.get("acquisition").is_some() {
+                    s2["acquisition"] = pick(&s["acquisition"], &["transfer", "source_deck", "detail", "kind", "store"]);
+                }
+                s2
+            })
+            .collect();
+    }
+    if let Some(a) = b.get("acquisition").filter(|a| a.is_object()) {
+        let mut a2 = pick(a, &["track", "scenario"]);
+        for list in ["owned", "basics", "buys", "prints", "sealed_purchases"] {
+            if a.get(list).is_some() {
+                a2[list] = rows(&a[list]);
+            }
+        }
+        out["acquisition"] = a2;
+    }
+    out
+}
+
+/// Every note's builds in one response, for the build choices and the deck check: each note's
+/// id, title, revision and date, and its decks' keys, names and builds, as much of each build as
+/// those pages read ([`build_summary`]), without the rest of a note (up to 4 MiB each). A note
+/// that doesn't read as JSON is left out, as the page would.
+pub async fn builds(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
+    let rows: Vec<(String, i64, String)> =
+        sqlx::query_as("SELECT document,revision,updated_at FROM research_reports WHERE owner_id=? ORDER BY updated_at DESC,id")
+            .bind(owner)
+            .fetch_all(pool)
+            .await?;
+    let notes: Vec<Value> = rows
+        .into_iter()
+        .filter_map(|(text, revision, updated_at)| {
+            let doc: Value = serde_json::from_str(&text).ok()?;
+            let decks: Vec<Value> = doc["decks"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|d| json!({"key": d["key"], "name": d["name"], "builds": d["builds"].as_array().into_iter().flatten().map(build_summary).collect::<Vec<_>>()}))
+                .collect();
+            Some(json!({"document": {"id": doc["id"], "title": doc["title"], "decks": decks}, "revision": revision, "updated_at": updated_at}))
+        })
+        .collect();
+    Ok(json!(notes))
+}
+
 pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult<Value> {
     targets(document)?;
     let id = document["id"].as_str().unwrap();
@@ -935,6 +1001,9 @@ async fn list_route(
     CurrentUser(u): CurrentUser,
 ) -> AppResult<Json<Value>> {
     Ok(Json(list(&st.pool, &u.id).await?))
+}
+async fn builds_route(State(st): State<AppState>, CurrentUser(u): CurrentUser) -> AppResult<Json<Value>> {
+    Ok(Json(builds(&st.pool, &u.id).await?))
 }
 async fn save_route(
     State(st): State<AppState>,

@@ -652,6 +652,20 @@ async fn online_games_start_with_loop_detection_and_save_it() {
     assert_eq!(replay["header"]["match_config"]["loop_detection"], serde_json::json!({ "type": "Interactive" }));
     let resumed = engine().resume(&replay.to_string(), &[(1, Difficulty::Easy)]).unwrap();
     assert_eq!(resumed.loops(), yama_play::LoopDetectionMode::Interactive);
+    // The games list says whose turn it is and whether it's your move, without the board.
+    let mut item = serde_json::Value::Null;
+    for _ in 0..100 {
+        let (status, list) = request(&app, Method::GET, "/api/play", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        item = list.as_array().unwrap().iter().find(|g| g["id"] == id.as_str()).cloned().unwrap();
+        if item.get("turn").is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(item["turn"].as_u64().is_some_and(|t| t >= 1), "{item}");
+    assert!(item["active"].as_u64().is_some(), "{item}");
+    assert!(item["your_move"].is_boolean(), "{item}");
     hub.stop(&id);
 }
 

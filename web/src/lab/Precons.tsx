@@ -1,6 +1,6 @@
 import { UpgradeabilitySummary } from "./Upgradeability";
 import { SinglesPrice } from "../components/DeckPrices";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { identityName, MANA, type ManaKey } from "@yama/core";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -9,7 +9,7 @@ import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
 import { Details, ErrorText, Pips } from "../components/ui";
 import { usePlan } from "../plan/store";
-import type { PreconItem, PreconList, Rating, RunDetail, RunLabel, RunListItem } from "./api";
+import type { PreconItem, PreconList, Rating, RunLabel, RunListItem } from "./api";
 import { LabHead } from "./LabLayout";
 import { ConfidenceMark } from "./confidence";
 import {
@@ -106,17 +106,13 @@ function useMyLists(): MyList[] {
   const runs = useRuns();
   const userId = useMe().data?.id;
   const plan = usePlan(userId);
-  const mine = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired" && r.paired);
-  const details = useQueries({
-    queries: mine.map((r) => ({ queryKey: ["lab", "run", r.id], queryFn: ({ signal }) => api<RunDetail>(`/api/lab/runs/${r.id}`, { signal }), staleTime: 5 * 60_000 })),
-  });
   return useMemo(() => {
+    const mine = (runs.data ?? []).filter((r) => !r.global && r.kind === "paired" && r.paired);
     const out: MyList[] = [];
-    mine.forEach((run, i) => {
-      const d = details[i]?.data;
-      if (!d) return;
+    mine.forEach((run) => {
+      // Each list's rating comes with the runs list, so no run's detail is fetched.
       for (const v of run.paired!.variants) {
-        const rating = d.ratings.find((r) => r.deck_ref === v.id);
+        const rating = v.rating;
         if (!rating) continue;
         const deck = plan.bundle?.decks.find((p) => variantState(v.id, p.key) != null);
         const state = deck ? variantState(v.id, deck.key)! : (/,\s*([^,)]+)\)\s*$/.exec(v.name)?.[1] ?? "list");
@@ -125,8 +121,7 @@ function useMyLists(): MyList[] {
       }
     });
     return out.sort((a, b) => (b.rating.p4_field ?? -1) - (a.rating.p4_field ?? -1));
-    // `details` is a new array each render; its data is what matters.
-  }, [mine.map((r) => r.id).join(), details.map((d) => d.dataUpdatedAt).join(), plan.bundle]);
+  }, [runs.data, plan.bundle]);
 }
 
 export function PreconsPage() {

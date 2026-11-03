@@ -603,7 +603,7 @@ const RUN_COLUMNS: &str = "lab_runs.id, lab_runs.name, lab_runs.kind, lab_runs.o
     IFNULL(json_extract(lab_runs.summary, '$.warnings'), '[]') AS warnings, json_extract(lab_runs.summary, '$.confidence') AS confidence";
 
 /// One deck's simulated rating in a run. `None` fields weren't in the summary.
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, sqlx::FromRow)]
 pub struct Rating {
     pub deck_ref: String,
     /// 1 = geometric mean of the run's field; `lo`/`hi` its interval.
@@ -1013,6 +1013,10 @@ pub struct BatchVariant {
     /// From the list's rating in the same run (the paired part doesn't carry it).
     #[serde(default)]
     pub confidence: Option<Confidence>,
+    /// The list's whole rating in the same run, so a list of runs needs no run's detail (the
+    /// Lab's "Your lists").
+    #[serde(default, skip_deserializing)]
+    pub rating: Option<Rating>,
 }
 
 /// One comparison of a paired batch run (analyze.py's `paired.comparisons`), with the lists' names
@@ -1070,62 +1074,94 @@ struct RawPaired {
 /// A paired run's lists and comparisons, named from its ratings; `None` for any other run or a
 /// summary without a readable `paired` part.
 async fn batch_paired(pool: &SqlitePool, run: &RunLabel) -> AppResult<Option<BatchPaired>> {
-    if run.kind != "paired" {
-        return Ok(None);
+    Ok(batch_paired_many(pool, std::slice::from_ref(run)).await?.remove(&run.id))
+}
+
+#[derive(sqlx::FromRow)]
+struct RatingOfRun {
+    run_id: String,
+    #[sqlx(flatten)]
+    rating: Rating,
+}
+
+/// [`batch_paired`] for many runs at once, by run id: three queries however many runs (their
+/// summaries, the lists' names and confidence, and their ratings).
+async fn batch_paired_many(pool: &SqlitePool, runs: &[RunLabel]) -> AppResult<HashMap<String, BatchPaired>> {
+    let ids: Vec<&str> = runs.iter().filter(|r| r.kind == "paired").map(|r| r.id.as_str()).collect();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
     }
-    let text: Option<String> = sqlx::query_scalar("SELECT json_extract(summary, '$.paired') FROM lab_runs WHERE id = ?").bind(&run.id).fetch_one(pool).await?;
-    let Some(raw) = text.and_then(|t| serde_json::from_str::<RawPaired>(&t).ok()) else { return Ok(None) };
-    type Row = (String, Option<String>, Option<sqlx::types::Json<Option<Confidence>>>);
+    let ids = serde_json::to_string(&ids).map_err(anyhow::Error::from)?;
+    let summaries: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, json_extract(summary, '$.paired') FROM lab_runs WHERE id IN (SELECT value FROM json_each(?))")
+            .bind(&ids)
+            .fetch_all(pool)
+            .await?;
+    type Row = (String, String, Option<String>, Option<sqlx::types::Json<Option<Confidence>>>);
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT r.deck_ref, IFNULL(p.name, json_extract(r.extra, '$.name')), json_extract(r.extra, '$.confidence')
-         FROM lab_ratings r LEFT JOIN precons p ON p.lab_id = r.deck_ref WHERE r.run_id = ?",
+        "SELECT r.run_id, r.deck_ref, IFNULL(p.name, json_extract(r.extra, '$.name')), json_extract(r.extra, '$.confidence')
+         FROM lab_ratings r LEFT JOIN precons p ON p.lab_id = r.deck_ref WHERE r.run_id IN (SELECT value FROM json_each(?))",
     )
-    .bind(&run.id)
+    .bind(&ids)
     .fetch_all(pool)
     .await?;
-    let mut names: HashMap<String, String> = HashMap::new();
-    let mut confidence: HashMap<String, Confidence> = HashMap::new();
-    for (id, n, c) in rows {
+    let mut names: HashMap<(String, String), String> = HashMap::new();
+    let mut confidence: HashMap<(String, String), Confidence> = HashMap::new();
+    for (run, id, n, c) in rows {
         if let Some(c) = c.and_then(|c| c.0) {
-            confidence.insert(id.clone(), c);
+            confidence.insert((run.clone(), id.clone()), c);
         }
         if let Some(n) = n {
-            names.insert(id, n);
+            names.insert((run, id), n);
         }
     }
-    let name = |id: &str| names.get(id).cloned().unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string());
-    let variants = raw
-        .variants
-        .into_iter()
-        .map(|v| BatchVariant { name: name(&v.id), confidence: confidence.get(&v.id).cloned(), ..v })
-        .collect();
-    let comparisons = raw
-        .comparisons
-        .into_iter()
-        .map(|c| {
-            let paired = stats::Paired {
-                pods: u32::try_from(c.templates).unwrap_or(0),
-                delta_win_rate: c.delta_win_rate,
-                delta_ci: c.delta_win_rate_ci,
-                ..Default::default()
-            };
-            BatchComparison {
-                base_name: name(&c.base),
-                variant_name: name(&c.variant),
-                verdict: stats::verdict(&paired, true),
-                base: c.base,
-                variant: c.variant,
-                pods: c.templates,
-                delta_win_rate: c.delta_win_rate,
-                delta_ci: c.delta_win_rate_ci,
-                delta_avg_place: c.delta_avg_place,
-                delta_avg_place_ci: c.delta_avg_place_ci,
-                variant_only: c.variant_only_wins,
-                base_only: c.base_only_wins,
-            }
-        })
-        .collect();
-    Ok(Some(BatchPaired { templates: raw.templates, variants, comparisons }))
+    let mut ratings: HashMap<(String, String), Rating> =
+        sqlx::query_as::<_, RatingOfRun>(AssertSqlSafe(format!("SELECT r.run_id, {RATING_COLUMNS} FROM lab_ratings r WHERE r.run_id IN (SELECT value FROM json_each(?))")))
+            .bind(&ids)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|r| ((r.run_id, r.rating.deck_ref.clone()), r.rating))
+            .collect();
+    let mut out = HashMap::new();
+    for (run_id, text) in summaries {
+        let Some(raw) = text.and_then(|t| serde_json::from_str::<RawPaired>(&t).ok()) else { continue };
+        let key = |id: &str| (run_id.clone(), id.to_string());
+        let name = |id: &str| names.get(&key(id)).cloned().unwrap_or_else(|| id.rsplit('/').next().unwrap_or(id).to_string());
+        let variants = raw
+            .variants
+            .into_iter()
+            .map(|v| BatchVariant { name: name(&v.id), confidence: confidence.get(&key(&v.id)).cloned(), rating: ratings.remove(&key(&v.id)), ..v })
+            .collect();
+        let comparisons = raw
+            .comparisons
+            .into_iter()
+            .map(|c| {
+                let paired = stats::Paired {
+                    pods: u32::try_from(c.templates).unwrap_or(0),
+                    delta_win_rate: c.delta_win_rate,
+                    delta_ci: c.delta_win_rate_ci,
+                    ..Default::default()
+                };
+                BatchComparison {
+                    base_name: name(&c.base),
+                    variant_name: name(&c.variant),
+                    verdict: stats::verdict(&paired, true),
+                    base: c.base,
+                    variant: c.variant,
+                    pods: c.templates,
+                    delta_win_rate: c.delta_win_rate,
+                    delta_ci: c.delta_win_rate_ci,
+                    delta_avg_place: c.delta_avg_place,
+                    delta_avg_place_ci: c.delta_avg_place_ci,
+                    variant_only: c.variant_only_wins,
+                    base_only: c.base_only_wins,
+                }
+            })
+            .collect();
+        out.insert(run_id, BatchPaired { templates: raw.templates, variants, comparisons });
+    }
+    Ok(out)
 }
 
 /// Global runs and the caller's own, newest first.
@@ -1136,13 +1172,25 @@ pub async fn runs_for(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<RunList
     .bind(user_id)
     .fetch_all(pool)
     .await?;
-    let mut out = Vec::with_capacity(runs.len());
-    for run in runs {
-        let decks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_ratings WHERE run_id = ?").bind(&run.id).fetch_one(pool).await?;
-        let paired = batch_paired(pool, &run).await?;
-        out.push(RunListItem { run, decks, paired });
-    }
-    Ok(out)
+    // Every run's list count in one query.
+    let counts: HashMap<String, i64> = sqlx::query_as::<_, (String, i64)>(
+        "SELECT r.run_id, COUNT(*) FROM lab_ratings r JOIN lab_runs l ON l.id = r.run_id
+          WHERE l.owner_id IS NULL OR l.owner_id = ? GROUP BY r.run_id",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+    let mut paired = batch_paired_many(pool, &runs).await?;
+    Ok(runs
+        .into_iter()
+        .map(|run| {
+            let decks = counts.get(&run.id).copied().unwrap_or(0);
+            let paired = paired.remove(&run.id);
+            RunListItem { run, decks, paired }
+        })
+        .collect())
 }
 
 /// The list state a paired-run variant id names for a plan deck: `bryan/riders-of-rohan-after`
@@ -1161,11 +1209,14 @@ pub async fn paired_for_plan(pool: &SqlitePool, owner: &str, key: &str) -> AppRe
     .bind(owner)
     .fetch_all(pool)
     .await?;
-    let mut items = Vec::with_capacity(runs.len());
-    for run in runs {
-        let paired = batch_paired(pool, &run).await?;
-        items.push(RunListItem { run, decks: 0, paired });
-    }
+    let mut paired = batch_paired_many(pool, &runs).await?;
+    let items: Vec<RunListItem> = runs
+        .into_iter()
+        .map(|run| {
+            let paired = paired.remove(&run.id);
+            RunListItem { run, decks: 0, paired }
+        })
+        .collect();
     Ok(items
         .into_iter()
         .filter(|r| r.paired.as_ref().is_some_and(|p| p.variants.iter().any(|v| variant_state(&v.id, key).is_some())))

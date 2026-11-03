@@ -4,11 +4,13 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeckView } from "../api";
 import { DeckCheckPage } from "./DeckCheckPage";
+import { buildNotesKey } from "../research/api";
 
 const entry = (name: string, board: "commander" | "main", qty = 1, owned = 1) =>
   ({ oracle_id: name, name, qty, board, owned, proxies: 0, locations: owned ? { "Prismari box": owned } : {} }) as unknown as DeckView["cards"][number];
 
-function page(saved?: object, research?: object[], { decksFail = false } = {}) {
+/** `research`: the notes' builds; null leaves them still loading. */
+function page(saved?: object, research?: object[] | null, { decksFail = false } = {}) {
   const mem = new Map<string, string>();
   if (saved) mem.set("yama.deckCheck.d1", JSON.stringify(saved));
   vi.stubGlobal("localStorage", { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) });
@@ -22,7 +24,7 @@ function page(saved?: object, research?: object[], { decksFail = false } = {}) {
   client.setQueryData(["deck", "d1"], deck);
   if (decksFail) client.getQueryCache().build(client, { queryKey: ["decks"] }).setState({ status: "error", fetchStatus: "idle", error: new Error("Server unavailable") });
   else client.setQueryData(["decks"], [{ id: "d1", name: "Prismari Artistry", parent_id: null, configuration: null, bracket: 4, updated_at: "2026-10-31T00:00:00Z" }]);
-  client.setQueryData(["research", "u1", "list"], research ?? []);
+  if (research !== null) client.setQueryData(buildNotesKey("u1"), research ?? []);
   client.setQueryData(["deck-versions", "d1", "v2"], [{ id: "v2", note: "Installed", created_at: "2026-10-31T10:00:00Z" }, { id: "v1", note: "Stock", created_at: "2026-10-20T10:00:00Z" }]);
   client.setQueryData(["plan", "u1"], {
     orders: [], stores: [], head: { guide_version: 28 },
@@ -91,7 +93,7 @@ describe("Check this deck", () => {
   it("waits for a saved research target to load rather than check against the wrong list", () => {
     const html = page(
       { v: 1, deckId: "d1", commanders: [], target: "research:r1:prismari-artistry:b2-owned-now", cards: [card("k0", "Ancient Tomb", 1)] },
-      [{ id: "r1", title: "Buildable now", revision: 1, updated_at: "2026-10-31T00:00:00Z" }],
+      null,
     );
     expect(html).toContain("Loading the list this check was against…");
     expect(html).toContain("Loading the list…");

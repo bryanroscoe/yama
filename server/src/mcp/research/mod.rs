@@ -444,7 +444,7 @@ async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     let card: Option<String> = sqlx::query_scalar(
         "SELECT json_object('oracle_id', oracle_id, 'name', name, 'mana_cost', mana_cost, 'cmc', cmc, 'type_line', type_line,
                 'oracle_text', oracle_text, 'color_identity', color_identity, 'legalities', json(legalities), 'keywords', json(keywords),
-                'game_changer', game_changer = 1, 'produced_mana', produced_mana)
+                'game_changer', json(CASE game_changer WHEN 1 THEN 'true' WHEN 0 THEN 'false' END), 'produced_mana', produced_mana)
            FROM cards WHERE oracle_id = ?",
     )
     .bind(&oracle_id)
