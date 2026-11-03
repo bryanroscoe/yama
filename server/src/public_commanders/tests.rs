@@ -86,7 +86,7 @@ fn scored(ids: &[&str], name: &str, s: f64, lo: f64, hi: f64, games: u64) -> Val
     // Dataset keys allow no "+", so pairs join with "." as the Mythic converter does.
     let key = ids.join(".");
     json!({"id":format!("mythic:{key}"),"kind":"commander","entity":format!("mythic:commander:{key}"),"sources":[SHA],
-        "data":{"name":name,"oracle_ids":ids,"score_0_100":s,"interval_low":lo,"interval_high":hi,"games":games,"decks":games / 3,"baseline":0.367,"prior_strength":100}})
+        "data":{"name":name,"oracle_ids":ids,"score_0_100":s,"interval_low":lo,"interval_high":hi,"games":games,"decks":games / 3,"baseline":0.367,"prior_strength":100,"win_rate":0.30}})
 }
 
 async fn import(pool: &SqlitePool, owner: &str, doc: &Value) {
@@ -136,14 +136,6 @@ async fn fixture() -> (AppState, String) {
     (st, owner)
 }
 
-#[test]
-fn agreement_wording_follows_the_correlation() {
-    assert_eq!(html::agreement_words(0.8), "agree closely");
-    assert_eq!(html::agreement_words(0.5), "broadly agree");
-    assert_eq!(html::agreement_words(0.0), "show no clear agreement");
-    assert_eq!(html::agreement_words(-0.5), "disagree");
-}
-
 #[tokio::test]
 async fn only_enabled_sources_feed_the_ranking_and_they_combine() {
     let (st, owner) = fixture().await;
@@ -170,6 +162,9 @@ async fn only_enabled_sources_feed_the_ranking_and_they_combine() {
     let combined = both.commanders.iter().find(|c| c.key == "o-strong").unwrap();
     assert_eq!(combined.sources.len(), 2);
     assert_eq!(combined.games, 5100);
+    assert_eq!(combined.win_rate_games, 5100);
+    assert_eq!(combined.win_rate_sources, 2);
+    assert!(close(combined.win_rate.unwrap(), (500.0 + 0.30 * 4000.0) / 5100.0, 1e-12));
     assert!(combined.hi - combined.lo < strong.hi - strong.lo, "a second source narrows the interval");
     let mythic_only = both.commanders.iter().find(|c| c.key == "o-mythic").unwrap();
     assert!(close(mythic_only.score, 40.0, 1e-6));
@@ -216,6 +211,10 @@ async fn the_public_page_lists_commanders_without_signing_in() {
     for text in ["Strong Commander", "Partner A + Partner B", "Mythic Tools", "Playgroup.gg attribution", "Test licence", "href=\"/precons/pair-precon\"", "Art by Test Artist"] {
         assert!(html.contains(text), "{text} missing");
     }
+    assert!(html.contains("Combined win rate") && html.contains("Method and sources"));
+    assert!(html.contains("<details class=\"commander-sources\"><summary>2 sources</summary>"));
+    assert!(!html.contains("<th scope=\"col\">Mythic Tools"), "source names stay in collapsed details");
+    assert!(!html.contains("0–100, 50 is average"));
     assert!(!html.contains("operator@example.com"), "no account details");
     assert!(html.contains("action=\"/commanders\" data-live"), "the form filters live");
     assert!(html.contains("<div id=\"results\" data-matched=\""), "the script swaps this container");
@@ -232,7 +231,7 @@ async fn the_public_page_lists_commanders_without_signing_in() {
     assert!(!html.contains("<h2>Strong Commander</h2>") || html.contains("Strong Commander</strong>"), "the featured commander is one the filter lists");
     assert!(html.contains("href=\"/commanders?g=0&amp;src=s%3AMythic+Tools&amp;page=1\""), "the chip links to the filter");
     let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders?g=0&src=all")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
-    assert!(html.contains("Strong Commander</strong>") && !html.contains("Mythic Only</strong>") && html.contains("Both sources"));
+    assert!(html.contains("Strong Commander</strong>") && !html.contains("Mythic Only</strong>") && html.contains("<summary>2 sources</summary>"));
     let html = String::from_utf8(to_bytes(app.clone().oneshot(get("/commanders?g=0&q=weak")).await.unwrap().into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
     assert!(html.contains("Not covered"), "a source without the commander says so rather than showing no games");
     assert!(!html.contains("Rank #1<"), "a search keeps the overall rank");
@@ -242,4 +241,101 @@ async fn the_public_page_lists_commanders_without_signing_in() {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let res = app.clone().oneshot(get("/commanders?g=7")).await.unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[test]
+fn observed_rates_use_games_not_source_count_or_adjusted_scores() {
+    let make = |rate, games| Figure {
+        source: "Test".into(),
+        games,
+        win_rate: rate,
+        decks: None,
+        score: 99.0,
+        estimate: None,
+        prior_var: f64::INFINITY,
+    };
+    let a = make(Some(0.4), 100);
+    let b = make(Some(0.2), 900);
+    let legacy = make(None, 1_000_000);
+    let (rate, games, sources) = combined_win_rate(&[a.clone(), b.clone(), legacy]).unwrap();
+    assert!(close(rate, 0.22, 1e-12));
+    assert_eq!((games, sources), (1000, 2));
+    assert!(close(combined_win_rate(&[b, a]).unwrap().0, rate, 1e-12));
+    assert_eq!(
+        combined_win_rate(&[make(Some(0.0), 100)]),
+        Some((0.0, 100, 1))
+    );
+    assert_eq!(
+        combined_win_rate(&[make(Some(1.0), 100)]),
+        Some((1.0, 100, 1))
+    );
+    assert!(combined_win_rate(&[make(None, 100), make(Some(0.5), 0)]).is_none());
+    assert!(combined_win_rate(&[make(Some(0.5), u64::MAX), make(Some(0.5), 1)]).is_none());
+}
+
+#[tokio::test]
+async fn legacy_scores_do_not_invent_a_rate_or_dilute_known_games() {
+    let (st, owner) = fixture().await;
+    let mut legacy = scored(
+        &["o-strong"],
+        "Strong Commander",
+        99.0,
+        98.0,
+        99.9,
+        1_000_000,
+    );
+    legacy["data"].as_object_mut().unwrap().remove("win_rate");
+    import(
+        &st.pool,
+        &owner,
+        &document("mythic", "Mythic Tools", vec![legacy.clone()]),
+    )
+    .await;
+    enable(&st.pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(&st.pool, &owner, "Mythic Tools").await.unwrap();
+    let r = derive(&st.pool).await.unwrap();
+    let c = r.commanders.iter().find(|c| c.key == "o-strong").unwrap();
+    assert!(close(c.win_rate.unwrap(), 500.0 / 1100.0, 1e-12));
+    assert_eq!((c.win_rate_games, c.win_rate_sources), (1100, 1));
+    // Invalid imported rate values stay unknown rather than turning into a percentage.
+    for rate in [json!(-0.1), json!(1.1), json!("NaN"), json!("inf")] {
+        legacy["data"]["win_rate"] = rate;
+        assert!(matches!(
+            parse(&legacy["data"]).unwrap().shape,
+            Shape::Score { win_rate: None, .. }
+        ));
+    }
+    disable(&st.pool, &owner, "Playgroup.gg").await.unwrap();
+    let r = derive(&st.pool).await.unwrap();
+    assert_eq!(r.commanders[0].win_rate, None);
+    assert_eq!(r.commanders[0].win_rate_games, 0);
+}
+
+#[tokio::test]
+async fn all_wins_or_no_wins_are_still_real_observed_rates() {
+    let (st, owner) = fixture().await;
+    enable(&st.pool, &owner, "Playgroup.gg").await.unwrap();
+    for wins in [0, 100] {
+        import(&st.pool, &owner, &document("pg", "Playgroup.gg", vec![counts(1, "Strong Commander", "p-strong", wins, 100)])).await;
+        let r = derive(&st.pool).await.unwrap();
+        assert_eq!(r.commanders.len(), 1);
+        assert_eq!(r.commanders[0].win_rate, Some(wins as f64 / 100.0));
+        assert_eq!(r.commanders[0].win_rate_games, 100);
+    }
+}
+
+#[tokio::test]
+async fn zero_game_source_details_never_show_a_percentage() {
+    let (st, owner) = fixture().await;
+    let mut zero = scored(&["o-mythic"], "Mythic Only", 50.0, 30.0, 70.0, 0);
+    zero["data"]["win_rate"] = json!(0.0);
+    import(&st.pool, &owner, &document("mythic", "Mythic Tools", vec![zero])).await;
+    enable(&st.pool, &owner, "Mythic Tools").await.unwrap();
+    let r = derive(&st.pool).await.unwrap();
+    assert_eq!(r.commanders[0].sources[0].win_rate, None);
+    let app = crate::routes::app(st);
+    let res = app.oneshot(Request::get("/commanders?g=0").header("x-forwarded-for", "203.0.113.19").body(Body::empty()).unwrap()).await.unwrap();
+    let html = String::from_utf8(to_bytes(res.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("Win rate unavailable"));
+    assert!(!html.contains("0.0%"));
 }

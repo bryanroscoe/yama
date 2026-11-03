@@ -320,6 +320,7 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
         .bind(&g.id)
         .fetch_optional(&mut *tx)
         .await?;
+    let mut status = found.as_ref().map(|row| row.3.clone()).unwrap_or_else(|| "in_progress".into());
     let existing = match found {
         None => {
             sqlx::query(
@@ -403,10 +404,51 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
                             .await?;
                     }
                 }
-                // The same players, but a seat may have changed commanders mid-game: keep the newest,
-                // and the deck it's playing now (checked against its owner by resolve_seat; none
-                // once it isn't the deck it started with).
-                for s in &sent {
+                // Validate/append first, in this same transaction. A seat event may have
+                // already arrived through /events; only its latest state can explain a resave.
+                insert_events(&mut *tx, &g.id, &g.events).await?;
+                let latest: Vec<(Option<i64>, String)> = sqlx::query_as(
+                    "SELECT e.actor_seat,e.payload FROM game_events e JOIN
+                     (SELECT actor_seat,MAX(seq) seq FROM game_events WHERE game_id=? AND kind='seat' GROUP BY actor_seat) last
+                     ON e.game_id=? AND e.seq=last.seq",
+                ).bind(&g.id).bind(&g.id).fetch_all(&mut *tx).await?;
+                let commander_events: HashMap<i64, serde_json::Value> = latest.into_iter()
+                    .filter_map(|(seat, payload)| Some((seat?, serde_json::from_str(&payload).ok()?))).collect();
+                for (s, old) in sent.iter().zip(&stored) {
+                    let change = commander_events.get(&s.seat);
+                    if change.is_none() && s.deck_label == old.deck_label && s.commander_name == old.commander_name && s.deck_version_id == old.deck_version_id {
+                        continue;
+                    }
+                    // Older clients can omit the recorder's unchanged version on a player
+                    // rename. Preserve that attribution instead of treating omission as a cut.
+                    if change.is_none() && s.deck_label == old.deck_label && s.commander_name == old.commander_name && s.deck_version_id.is_none()
+                        && !changed.iter().any(|(player, _)| player.seat == s.seat) {
+                        continue;
+                    }
+                    let label = change.and_then(|p| {
+                        let label = p.get("deckLabel").and_then(|v| v.as_str());
+                        let commander = p.get("commanderName").and_then(|v| v.as_str());
+                        if let (Some(commander), Some(partner)) = (commander, p.get("partnerName").and_then(|v| v.as_str()))
+                            && label.is_none_or(|s| s.is_empty() || s == commander) {
+                            return Some(format!("{commander} and {partner}"));
+                        }
+                        label.or(commander).map(str::to_string)
+                    });
+                    let version: Option<String> = match change.and_then(|p| p.get("deckVersionId")).and_then(|v| v.as_str()) {
+                        Some(v) => sqlx::query_scalar("SELECT v.id FROM deck_versions v JOIN decks d ON d.id=v.deck_id WHERE v.id=? AND d.owner_id=?")
+                            .bind(v).bind(s.user_id.as_deref().unwrap_or(user)).fetch_optional(&mut *tx).await?,
+                        None => None,
+                    };
+                    // Reassigning a player can detach the previous account's private deck
+                    // version without changing commanders; that identity change was checked above.
+                    let detached = s.deck_label == old.deck_label && s.commander_name == old.commander_name && s.deck_version_id.is_none()
+                        && changed.iter().any(|(player, _)| player.seat == s.seat);
+                    if !detached && change.is_none_or(|p| p.get("type").and_then(|v| v.as_str()) != Some("seat")
+                        || p.get("seat").and_then(|v| v.as_i64()) != Some(s.seat)
+                        || p.get("commanderName").and_then(|v| v.as_str()) != s.commander_name.as_deref()
+                        || label != s.deck_label || version != s.deck_version_id) {
+                        return Err(AppError::Conflict("This game's decks changed in another window. Refresh to see the saved game.".into()));
+                    }
                     sqlx::query("UPDATE game_seats SET deck_label = ?, commander_name = ?, deck_version_id = ? WHERE game_id = ? AND seat = ?")
                         .bind(&s.deck_label)
                         .bind(&s.commander_name)
@@ -416,7 +458,6 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
                         .execute(&mut *tx)
                         .await?;
                 }
-                insert_events(&mut *tx, &g.id, &g.events).await?;
             }
             true
         }
@@ -425,8 +466,10 @@ pub(crate) async fn create_game_in(tx: &mut sqlx::SqliteConnection, user: &str, 
     };
     if let Some(f) = g.finish {
         finish_in(&mut *tx, &g.id, f).await?;
+        status = "finished".into();
     }
-    Ok(serde_json::json!({ "id": g.id, "existing": existing }))
+    // Restored local counters need to know when another window already finished this game.
+    Ok(serde_json::json!({ "id": g.id, "existing": existing, "status": status }))
 }
 
 /// Whether a seat as sent is the player a table "player" event names: the same member and account,
@@ -509,6 +552,10 @@ async fn insert_events(tx: &mut sqlx::SqliteConnection, game: &str, events: &[Ev
             }
         }
         n += added;
+    }
+    if n > 0 {
+        let finished: bool = sqlx::query_scalar("SELECT status='finished' FROM games WHERE id=?").bind(game).fetch_one(&mut *tx).await?;
+        if finished { return Err(AppError::Conflict("This game has already finished. Open Game history to see the saved result.".into())); }
     }
     Ok(n)
 }
@@ -1425,6 +1472,10 @@ mod tests {
         let mut again = new_game(id, None);
         again.seats[1].commander_name = Some("Atraxa, Praetors' Voice".into());
         again.seats[1].deck_label = Some("Atraxa, Praetors' Voice".into());
+        again.events = vec![serde_json::from_value(json!({
+            "seq": 1, "actor_seat": 1, "kind": "seat",
+            "payload": { "type": "seat", "seat": 1, "commanderName": "Atraxa, Praetors' Voice" },
+        })).unwrap()];
         assert_eq!(create_game(&pool, "me", again).await.unwrap()["existing"], true);
         let stored: (Option<String>, Option<String>) = sqlx::query_as("SELECT commander_name, deck_label FROM game_seats WHERE game_id = ? AND seat = 1")
             .bind(id)
@@ -1433,6 +1484,48 @@ mod tests {
             .unwrap();
         assert_eq!(stored.0.as_deref(), Some("Atraxa, Praetors' Voice"));
         assert_eq!(stored.1.as_deref(), Some("Atraxa, Praetors' Voice"));
+        // A sleeping window sends its original seats, with no newer commander change.
+        // Refuse it before it can put the old commanders back or finish that stale snapshot.
+        let old = new_game(id, Some(json!({ "winner_seat": 0, "seats": [] })));
+        assert!(matches!(create_game(&pool, "me", old).await, Err(AppError::Conflict(_))));
+        let (status, commander): (String, String) = sqlx::query_as("SELECT g.status,s.commander_name FROM games g JOIN game_seats s ON s.game_id=g.id WHERE g.id=? AND s.seat=1")
+            .bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!((status.as_str(), commander.as_str()), ("in_progress", "Atraxa, Praetors' Voice"));
+    }
+
+    #[tokio::test]
+    async fn changed_commanders_and_winner_save_together_and_survive_old_snapshots() {
+        let pool = setup().await;
+        let id = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0018";
+        let mut initial = new_game(id, None);
+        initial.seats.truncate(2);
+        create_game(&pool, "me", initial).await.unwrap();
+        let complete = || {
+            let mut g = new_game(id, Some(json!({ "winner_seat": 0, "ended_at": "2026-11-02T03:00:00Z", "seats": [] })));
+            g.seats.truncate(2);
+            for (seat, name) in [(0, "Jace, Multiverse Architect"), (1, "Omo, Queen of Vesuva")] {
+                g.seats[seat].commander_name = Some(name.into());
+                g.seats[seat].deck_label = Some(name.into());
+                g.seats[seat].deck_version_id = None;
+                g.events.push(serde_json::from_value(json!({
+                    "seq": seat + 1, "actor_seat": seat, "kind": "seat",
+                    "payload": { "type": "seat", "seat": seat, "commanderName": name },
+                })).unwrap());
+            }
+            g.events.push(serde_json::from_value(json!({ "seq": 3, "kind": "finish", "payload": { "type": "finish", "winnerSeat": 0 } })).unwrap());
+            g
+        };
+        assert_eq!(create_game(&pool, "me", complete()).await.unwrap()["status"], "finished");
+        create_game(&pool, "me", complete()).await.unwrap(); // Lost-response retry.
+        let mut stale = new_game(id, None);
+        stale.seats.truncate(2);
+        assert!(matches!(create_game(&pool, "me", stale).await, Err(AppError::Conflict(_))));
+        let (status, winner, events): (String, i64, i64) = sqlx::query_as("SELECT status,winner_seat,(SELECT COUNT(*) FROM game_events WHERE game_id=games.id) FROM games WHERE id=?")
+            .bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!((status.as_str(), winner, events), ("finished", 0, 3));
+        let names: Vec<String> = sqlx::query_scalar("SELECT commander_name FROM game_seats WHERE game_id=? ORDER BY seat")
+            .bind(id).fetch_all(&pool).await.unwrap();
+        assert_eq!(names, ["Jace, Multiverse Architect", "Omo, Queen of Vesuva"]);
     }
 
     #[tokio::test]
@@ -1543,6 +1636,34 @@ mod tests {
 
         async fn stored(pool: &sqlx::SqlitePool, id: &str) -> Vec<Option<String>> {
             sqlx::query_scalar("SELECT deck_version_id FROM game_seats WHERE game_id = ? ORDER BY seat").bind(id).fetch_all(pool).await.unwrap()
+        }
+
+        #[tokio::test]
+        async fn a_separately_uploaded_commander_event_can_be_resaved_and_finished() {
+            let (app, pool) = app().await;
+            let (me, token) = user(&pool, "me@example.com").await;
+            let id = uuid::Uuid::new_v4().to_string();
+            let mut body = game(&id, json!([{ "seat": 0, "user_id": me, "commander_name": "Hearthhull, the Worldseed" }]));
+            assert_eq!(send(&app, Method::POST, "/api/games", Some(&token), Some(body.clone())).await.0, StatusCode::OK);
+            let events = json!([{ "seq": 1, "kind": "seat", "actor_seat": 0, "payload": { "type": "seat", "seat": 0, "commanderName": "Jace, Multiverse Architect" } }]);
+            assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&token), Some(events.clone())).await.0, StatusCode::OK);
+            let mut stale = body.clone();
+            stale["finish"] = json!({ "winner_seat": 0, "seats": [] });
+            assert_eq!(send(&app, Method::POST, "/api/games", Some(&token), Some(stale)).await.0, StatusCode::CONFLICT);
+            body["seats"][0]["commander_name"] = json!("Jace, Multiverse Architect");
+            body["seats"][0]["deck_label"] = json!("Jace, Multiverse Architect");
+            body["finish"] = json!({ "winner_seat": 0, "seats": [] });
+            let (status, answer) = send(&app, Method::POST, "/api/games", Some(&token), Some(body.clone())).await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            assert_eq!(send(&app, Method::POST, "/api/games", Some(&token), Some(body)).await.0, StatusCode::OK);
+            let (_, result) = send(&app, Method::GET, &format!("/api/games/{id}"), Some(&token), None).await;
+            assert_eq!(result["status"], "finished");
+            assert_eq!(result["winner_seat"], 0);
+            assert_eq!(result["seats"][0]["commander_name"], "Jace, Multiverse Architect");
+            // Finished histories admit exact lost-response retries, but no new counter events.
+            assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&token), Some(events)).await.0, StatusCode::OK);
+            let late = json!([{ "seq": 2, "kind": "life", "actor_seat": 0, "payload": { "type": "life", "seat": 0, "delta": -1 } }]);
+            assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&token), Some(late)).await.0, StatusCode::CONFLICT);
         }
 
         #[tokio::test]
