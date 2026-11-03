@@ -28,7 +28,8 @@ pub fn router() -> Router<AppState> {
                 .post(save_route)
                 .layer(DefaultBodyLimit::max(MAX_BYTES)),
         )
-        .route("/api/research/builds", get(builds_route))
+        // Outside /api/research/{id}, where a note could be called "builds".
+        .route("/api/research-builds", get(builds_route))
         .route("/api/research/{id}", get(get_route))
         .route("/api/research/{id}/reviews", post(review_route))
         .route("/api/research/{id}/sharing", put(sharing_route))

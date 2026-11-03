@@ -7,14 +7,14 @@ import { AreaHead } from "../components/DeckTabs";
 import { ErrorText } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
-import { buildNotes } from "../research/api";
+import { buildNotes, buildNotesKey } from "../research/api";
 import { buildFamilies, buildTargets, resolveBuildFamily, duplexPages, exactChanges, printList, slotsText, type BuildChoice, type BuildFamily, type DuplexFace } from "./buildCatalog";
 import "./build-choices.css";
 
 export function BuildChoicesPage() {
   const [params, setParams] = useSearchParams();
   const userId = useMe().data?.id;
-  const notes = useQuery({ queryKey: ["research", userId, "builds"], queryFn: buildNotes, enabled: !!userId });
+  const notes = useQuery({ queryKey: buildNotesKey(userId), queryFn: buildNotes, enabled: !!userId });
   const plan = usePlan(userId);
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const families = buildFamilies(notes.data ?? [], plan.bundle, decks.data ?? []);

@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DeckView } from "../api";
 import { DeckCheckPage } from "./DeckCheckPage";
+import { buildNotesKey } from "../research/api";
 
 const entry = (name: string, board: "commander" | "main", qty = 1, owned = 1) =>
   ({ oracle_id: name, name, qty, board, owned, proxies: 0, locations: owned ? { "Prismari box": owned } : {} }) as unknown as DeckView["cards"][number];
@@ -23,7 +24,7 @@ function page(saved?: object, research?: object[] | null, { decksFail = false } 
   client.setQueryData(["deck", "d1"], deck);
   if (decksFail) client.getQueryCache().build(client, { queryKey: ["decks"] }).setState({ status: "error", fetchStatus: "idle", error: new Error("Server unavailable") });
   else client.setQueryData(["decks"], [{ id: "d1", name: "Prismari Artistry", parent_id: null, configuration: null, bracket: 4, updated_at: "2026-10-31T00:00:00Z" }]);
-  if (research !== null) client.setQueryData(["research", "u1", "builds"], research ?? []);
+  if (research !== null) client.setQueryData(buildNotesKey("u1"), research ?? []);
   client.setQueryData(["deck-versions", "d1", "v2"], [{ id: "v2", note: "Installed", created_at: "2026-10-31T10:00:00Z" }, { id: "v1", note: "Stock", created_at: "2026-10-20T10:00:00Z" }]);
   client.setQueryData(["plan", "u1"], {
     orders: [], stores: [], head: { guide_version: 28 },

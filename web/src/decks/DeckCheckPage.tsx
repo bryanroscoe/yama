@@ -11,7 +11,7 @@ import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type Deck
 import { useMe } from "../auth";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { usePlan } from "../plan/store";
-import { buildNotes } from "../research/api";
+import { buildNotes, buildNotesKey } from "../research/api";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import { buildFamilies, resolveBuildFamily } from "./buildCatalog";
@@ -189,7 +189,7 @@ function useTargetOptions(deck: DeckView | undefined) {
   const userId = useMe().data?.id;
   const plan = usePlan(userId);
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
-  const notes = useQuery({ queryKey: ["research", userId, "builds"], queryFn: buildNotes, enabled: !!userId });
+  const notes = useQuery({ queryKey: buildNotesKey(userId), queryFn: buildNotes, enabled: !!userId });
   const versions = useQuery({ queryKey: ["deck-versions", deck?.id, deck?.version_id], queryFn: ({ signal }) => api<DeckVersionRow[]>(`/api/decks/${deck!.id}/versions`, { signal }), enabled: !!deck });
   return useMemo(() => {
     const families = buildFamilies(notes.data ?? [], plan.bundle, decks.data ?? []);

@@ -315,3 +315,32 @@ fn complete_accounting_and_new_rendered_fields_are_checked() {
     d["scenarios"] = json!([{"id":"buy","label":"Buy","sealed_purchases":[{"price":"free"}]}]);
     assert!(targets(&d).is_err());
 }
+
+#[tokio::test]
+async fn every_notes_builds_come_in_one_response_and_a_note_called_builds_still_opens() {
+    let (app, pool) = app().await;
+    let (_, session) = user(&pool, "a@example.com").await;
+    let (_, other) = user(&pool, "b@example.com").await;
+    let mut named_builds = doc();
+    named_builds["id"] = "builds".into();
+    for d in [doc(), named_builds] {
+        let (s, r) = send(&app, Method::POST, "/api/research", Some(&session), Some(d)).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+    }
+    // The note called "builds" is still itself at its own address.
+    let (s, r) = send(&app, Method::GET, "/api/research/builds", Some(&session), None).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["document"]["id"], "builds");
+    assert!(r["reviews"].is_array());
+    // Both notes' builds in one response: what the build pages read, not the rest.
+    let (s, r) = send(&app, Method::GET, "/api/research-builds", Some(&session), None).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r.as_array().unwrap().len(), 2);
+    let build = &r[0]["document"]["decks"][0]["builds"][0];
+    assert_eq!(build["id"], "b3");
+    assert_eq!(build["swaps"][0], json!({"card_in": "Thought Monitor", "card_out": "Glimmer of Genius"}));
+    assert!(r[0]["document"].get("extra_evidence").is_none() && r[0]["document"]["decks"][0].get("commander").is_none());
+    // Nobody else's.
+    let (_, theirs) = send(&app, Method::GET, "/api/research-builds", Some(&other), None).await;
+    assert_eq!(theirs, json!([]));
+}

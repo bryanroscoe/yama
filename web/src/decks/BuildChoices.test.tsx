@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { BuildChoicesPage, SwapFace } from "./BuildChoices";
 import { duplexPages, type BuildChoice } from "./buildCatalog";
+import { buildNotesKey } from "../research/api";
 
 // Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
 vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
@@ -31,7 +32,7 @@ describe("build data privacy", () => {
   it("uses the shared owner plan cache and loses it when device plan data is purged", () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
     qc.setQueryData(["me"], { id: "owner-a" });
-    qc.setQueryData(["research", "owner-a", "builds"], []);
+    qc.setQueryData(buildNotesKey("owner-a"), []);
     qc.setQueryData(["decks"], []);
     const plan = { decks: [{ key: "private", name: "Private paid-price plan", states: {} }] };
     qc.setQueryData(["plan", "owner-a"], plan);
@@ -49,9 +50,9 @@ describe("build data privacy", () => {
     qc.setQueryData(["me"], { id: "owner-b" });
     qc.setQueryData(["decks"], []);
     qc.setQueryData(["plan", "owner-a"], { decks: [{ key: "private", name: "Owner A private plan", states: {} }] });
-    qc.setQueryData(["research", "owner-a", "builds"], [{ document: { id: "private-report", title: "Private", decks: [{ key: "k", name: "Owner A private research", builds: [] }] }, revision: 1, updated_at: "2026-10-31" }]);
+    qc.setQueryData(buildNotesKey("owner-a"), [{ document: { id: "private-report", title: "Private", decks: [{ key: "k", name: "Owner A private research", builds: [] }] }, revision: 1, updated_at: "2026-10-31" }]);
     qc.setQueryData(["plan", "owner-b"], { decks: [] });
-    qc.setQueryData(["research", "owner-b", "builds"], []);
+    qc.setQueryData(buildNotesKey("owner-b"), []);
     const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
     expect(html).not.toContain("Owner A private");
     expect(html).toContain("No saved decks or researched bracket builds yet");
