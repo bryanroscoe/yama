@@ -34,8 +34,8 @@ import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/
 import { panelArt, setShowArt, useShowArt } from "./art";
 import { tableLayout, useLandscape, useLayoutChoice } from "./layouts";
 import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
-import { announceNext, JoinSheet, ShareCard, startHosting, useHosting } from "./share";
-import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable } from "./store";
+import { announceNext, JoinSheet, ShareCard, startHosting, useHosting, joinUrl } from "./share";
+import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame } from "./store";
 import { history } from "./history";
 import { DiceSheet, roll as rollDie } from "./DiceSheet";
 import { spinSchedule } from "./spin";
@@ -55,7 +55,50 @@ export { uprightLayout } from "./layouts";
 
 export function TablePlay() {
   const { game, state } = useTable();
+  const hosting = useHosting();
+  if (hosting.following) {
+    const url = new URL(joinUrl(hosting.following));
+    return <Navigate to={`${url.pathname}${url.hash}`} replace />;
+  }
+  if (!game || !state) return <Navigate to="/" replace />;
+  return <TableScreen game={game} state={state} />;
+}
+
+export interface FollowingTable {
+  seat: number | null;
+  onChooseSeat: (seat: number) => void;
+  status: string;
+  layout?: import("./layouts").LayoutKey;
+  countTurns?: boolean;
+  showArt?: boolean;
+}
+
+/** The same counter, panels and menu on the host and every phone following it. */
+export function TableScreen({ game, state, following }: { game: Pick<LocalGame, "setup" | "log"> & { owner?: string }; state: TableState; following?: FollowingTable }) {
   const [menu, setMenu] = useState(false);
+  const [view, setView] = useState<"mine" | "table">(() => {
+    const saved = localStorage.getItem("yama.table.view") ?? localStorage.getItem("yama.guest.view");
+    return saved === "mine" || (!saved && following && following.seat !== -1) ? "mine" : "table";
+  });
+  const [ownSeat, setOwnSeat] = useState<number | null>(() => {
+    const saved = localStorage.getItem(`yama.guest.${game.setup.id}`);
+    return saved !== null ? Number(saved) : game.setup.players.find((p) => p.userId && p.userId === game.owner)?.seat ?? 0;
+  });
+  const [choosingSeat, setChoosingSeat] = useState(false);
+  const mySeat = following ? following.seat : ownSeat;
+  const me = state.players.find((p) => p.seat === mySeat);
+  const chooseView = (next: "mine" | "table") => {
+    setView(next);
+    localStorage.setItem("yama.table.view", next);
+    if (next === "mine" && !me) setChoosingSeat(true);
+    setAttack(null);
+    setTaking(null);
+  };
+  const chooseSeat = (seat: number) => {
+    if (following) following.onChooseSeat(seat);
+    else { setOwnSeat(seat); localStorage.setItem(`yama.guest.${game.setup.id}`, String(seat)); }
+    setChoosingSeat(false);
+  };
   const [sheetSeat, setSheetSeat] = useState<number | null>(null);
   const [knockSeat, setKnockSeat] = useState<number | null>(null);
   /** The winner being recorded (null = a draw), while the finish questions are open. */
@@ -67,9 +110,9 @@ export function TablePlay() {
   /** The join code, full screen: straight after setup when the table chose everyone's phones. */
   const location = useLocation();
   const opened = location.state as { share?: boolean; fresh?: boolean } | null;
-  const [joining, setJoining] = useState(() => !!opened?.share);
+  const [joining, setJoining] = useState(() => !following && !!opened?.share);
   /** "Who goes first?", as a game opens from New game or Save and play again. */
-  const [askFirst, setAskFirst] = useState(() => !!opened?.fresh);
+  const [askFirst, setAskFirst] = useState(() => !following && !!opened?.fresh);
   const [dice, setDice] = useState(false);
   const navigate = useNavigate();
   const hosting = useHosting();
@@ -86,49 +129,56 @@ export function TablePlay() {
   // Keep the screen on during a game where supported.
   useScreenAwake();
 
-  const artFor = useTableArt(state?.players ?? []);
+  const artFor = useTableArt(state.players, following?.showArt);
   const lethal = useLethalPrompt(state);
 
-  if (!game || !state) return <Navigate to="/" replace />;
-  const { cols, rows, cells } = tableLayout(state.players.length, layoutKey, landscape);
+  const { cols, rows, cells } = tableLayout(state.players.length, following?.layout ?? layoutKey, landscape);
   const alive = remaining(state);
   const fills = panelFills(state.players.map((p) => p.colorIdentity));
   // Whose turn it is shows only on a device counting turns; most tables don't.
-  const counting = countTurns;
+  const counting = following?.countTurns ?? countTurns;
   const sharing = hosting.gameId === state.setup.id;
   const leave = () => navigate("/");
+  const personal = view === "mine" && !!me && !attack && taking === null;
+  const panel = (seat: number, rot: number, area: string, vertical = false) => {
+    const p = state.players.find((x) => x.seat === seat);
+    if (!p) return null;
+    return <Panel key={seat} p={p} rot={rot} area={area} vertical={vertical}
+      active={counting && state.activeSeat === seat} state={state} pending={pendingDelta(game.log, seat)}
+      fill={fills[state.players.indexOf(p)]!} artFor={artFor}
+      onOpen={() => setSheetSeat(seat)} onKnockOut={() => setKnockSeat(seat)} attack={attack}
+      onAttack={(partner) => { setTaking(null); setAttack(attack?.seat === seat && attack.partner === partner ? null : { seat, partner }); }}
+      taking={taking} onTake={() => { setAttack(null); setTaking(taking === seat ? null : seat); }} />;
+  };
 
   return (
-    <div className={`table${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
-      {cells.map(({ seat, rot, area }) => {
-        const p = state.players.find((x) => x.seat === seat);
-        if (!p) return null;
-        return (
-          <Panel
-            key={seat}
-            p={p}
-            rot={rot}
-            area={area}
-            active={counting && state.activeSeat === seat}
-            state={state}
-            pending={pendingDelta(game.log, seat)}
-            fill={fills[state.players.indexOf(p)]!}
-            artFor={artFor}
-            onOpen={() => setSheetSeat(seat)}
-            onKnockOut={() => setKnockSeat(seat)}
-            attack={attack}
-            onAttack={(partner) => {
-              setTaking(null);
-              setAttack(attack?.seat === seat && attack.partner === partner ? null : { seat, partner });
-            }}
-            taking={taking}
-            onTake={() => {
-              setAttack(null);
-              setTaking(taking === seat ? null : seat);
-            }}
-          />
-        );
-      })}
+    <>
+      <div className="table-view-switch">
+        <div className="segmented" role="group" aria-label="View">
+          <button aria-pressed={personal} onClick={() => chooseView("mine")}>My seat</button>
+          <button aria-pressed={!personal} onClick={() => chooseView("table")}>Whole table</button>
+        </div>
+        <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
+        <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
+      </div>
+      <div className={`table with-view-switch${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+      {personal ? <>
+        <ul className="personal-others" aria-label="Everyone else">
+          {state.players.filter((p) => p.seat !== me.seat).map((p) => {
+            const a = artFor(p.seat);
+            return <li key={p.seat}>
+              <button className="guest-tile-btn" onClick={() => setSheetSeat(p.seat)} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Open`}>
+                <ArtPanel as="span" className={`guest-tile${p.eliminated ? " out" : ""}`} art={a?.art} artist={a?.artist} wash="bottom" credit={false}>
+                  <span className="guest-tile-name">{p.name}</span>
+                  <b className="num">{p.eliminated ? "Out" : p.life}</b>
+                </ArtPanel>
+              </button>
+            </li>;
+          })}
+        </ul>
+        {state.players.some((p) => p.seat !== me.seat && artFor(p.seat)) && <p className="personal-credit">{artCredits(state.players.filter((p) => p.seat !== me.seat).map((p) => artFor(p.seat)?.artist))}</p>}
+        <div className="table-my-panel">{panel(me.seat, 0, "1 / 1", true)}</div>
+      </> : cells.map(({ seat, rot, area }) => panel(seat, rot, area))}
       {attack || taking !== null ? (
         <button className="hub hub-done" onClick={() => { setAttack(null); setTaking(null); }} aria-label="Done with commander damage">
           <span>Done</span>
@@ -145,10 +195,21 @@ export function TablePlay() {
         </button>
       )}
 
+      {choosingSeat && (
+        <Sheet label="Which seat is yours?" onClose={() => setChoosingSeat(false)}>
+          <h2>Which seat is yours?</h2>
+          <div className="list">
+            {state.players.map((p) => <button key={p.seat} className="list-row" onClick={() => chooseSeat(p.seat)}>
+              <Pips identity={p.colorIdentity} /><span>{p.name}</span><span className="num">{p.life}</span>
+            </button>)}
+          </div>
+        </Sheet>
+      )}
       {menu && (
         <Sheet label="Table menu" onClose={() => setMenu(false)}>
           <TableMenu
             state={state}
+            following={following}
             onClose={() => setMenu(false)}
             onLeave={leave}
             onFinish={(winner) => {
@@ -185,11 +246,11 @@ export function TablePlay() {
               setTaking(sheetSeat);
               setSheetSeat(null);
             }}
-            onWin={() => {
+            onWin={following ? undefined : () => {
               setSheetSeat(null);
               setFinishing({ winner: sheetSeat });
             }}
-            host
+            host={!following}
           />
         </Sheet>
       )}
@@ -246,7 +307,7 @@ export function TablePlay() {
           <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
         </Sheet>
       )}
-      {alive.length === 1 && state.players.length > 1 && !menu && !finishing && (
+      {!following && alive.length === 1 && state.players.length > 1 && !menu && !finishing && (
         <div className="winner-banner" role="status">
           <p>{alive[0]!.name} is the last one standing.</p>
           <div className="row">
@@ -257,6 +318,7 @@ export function TablePlay() {
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -269,8 +331,9 @@ export type ArtFor = (seat: number, partner?: boolean) => CardArt | null;
  * Nothing shows while this device has art switched off, and only art that passes `panelArt`
  * (Scryfall's image host, artist known) is drawn.
  */
-export function useTableArt(players: PlayerState[]): ArtFor {
-  const showArt = useShowArt();
+export function useTableArt(players: PlayerState[], sharedShowArt?: boolean): ArtFor {
+  const localShowArt = useShowArt();
+  const showArt = sharedShowArt ?? localShowArt;
   const fromSetup = (p: PlayerState) => panelArt(p);
   const partnerFromSetup = (p: PlayerState) => panelArt({ art: p.partnerArt, artist: p.partnerArtist });
   const looked = useCardArt(showArt ? players.flatMap((p) => [fromSetup(p) ? null : p.commanderName, partnerFromSetup(p) ? null : p.partnerName]) : []);
@@ -1138,7 +1201,8 @@ export const CloseIcon = () => (
 
 type Marker = "monarch" | "initiative" | "first";
 
-function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, turnSince }: {
+function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, turnSince }: {
+  following?: FollowingTable;
   state: TableState;
   onClose: () => void;
   onLeave: () => void;
@@ -1152,6 +1216,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
   /** When the current turn started: the last pass, or the start of the game. */
   turnSince: string;
 }) {
+  const dispatch = useContext(DispatchContext);
   const artists = state.players.map((p) => artFor(p.seat)).filter((a): a is CardArt => !!a).map((a) => a.artist);
   const sync = useSyncStatus();
   const showArt = useShowArt();
@@ -1164,7 +1229,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
   const next = nextPlayer(state);
   const first = state.players.find((p) => p.seat === state.firstSeat);
   const minutes = Math.floor((Date.now() - Date.parse(turnSince)) / 60_000);
-  const counting = countTurns;
+  const counting = following?.countTurns ?? countTurns;
   const played = Math.floor((Date.now() - Date.parse(state.setup.startedAt)) / 60_000);
   const holder = (m: Marker) => state.players.find((p) => p.seat === (m === "monarch" ? state.monarch : m === "initiative" ? state.initiative : state.firstSeat));
   const give = (m: Marker, seat: number | null) => {
@@ -1219,7 +1284,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
           {next ? `Pass the turn to ${next.name}` : "Pass the turn"}
         </button>
       )}
-      <div className="tm-pass">
+      {!following && <div className="tm-pass">
         <button className={confirmEnd ? "outline" : "primary"} onClick={() => setConfirmEnd((c) => !c)} aria-expanded={confirmEnd}>
           <TrophyIcon /> Finish the game
         </button>
@@ -1229,7 +1294,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
         <button className="tm-icon" onClick={redo} aria-label="Redo">
           <RedoIcon />
         </button>
-      </div>
+      </div>}
       {confirmEnd && (
         <section className="tm-finish" aria-labelledby="tm-who-won">
           <h3 id="tm-who-won">Who won?</h3>
@@ -1250,7 +1315,14 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
       )}
 
       {/* Sharing the table with everyone's phones needs an account. */}
-      {isGuest() ? (
+      {following ? (
+        <section className="stack" aria-label="Following the table">
+          <p role="status">{following.status}</p>
+          <div className="row">
+            <button onClick={onClose}>Back to the table</button>
+          </div>
+        </section>
+      ) : isGuest() ? (
         <p className="small dim tm-guest-share">To share this table with everyone's phones, sign in with Google from the Table page. This game stays on this phone.</p>
       ) : (
         <ShareCard gameId={state.setup.id} onBigger={onJoin} />
@@ -1299,12 +1371,12 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
         <RollButton state={state} />
         <button onClick={onDice}>Dice and coin</button>
       </div>
-      <LayoutPicker n={state.players.length} className="tm-layout" />
+      {!following && <LayoutPicker n={state.players.length} className="tm-layout" />}
       <GameLog state={state} log={log} />
 
       <section className="tm-section tm-settings" aria-labelledby="tm-settings">
         <h3 id="tm-settings">This phone</h3>
-        <label className="check-row">
+        {!following && <label className="check-row">
           <input type="checkbox" checked={countTurns} onChange={(e) => setCountTurns(e.target.checked)} />
           <span>
             Count turns
@@ -1312,9 +1384,9 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
               {countTurns ? " A Pass the turn button, and the turn number in the middle. A count started mid-game isn't saved as the game's length." : " Off: nobody has to remember to pass."}
             </span>
           </span>
-        </label>
+        </label>}
         {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
-        {(artists.length > 0 || !showArt) && (
+        {!following && (artists.length > 0 || !showArt) && (
           <label className="check-row">
             <input type="checkbox" checked={showArt} onChange={(e) => setShowArt(e.target.checked)} />
             <span>Commander art behind each player</span>
@@ -1329,7 +1401,7 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
 
       <div className="tm-leave">
         <button className="outline" onClick={onLeave}>Leave the table</button>
-        <button
+        {!following && <button
           className="outline tm-discard"
           onClick={() => {
             if (confirm("Throw this game away? It won't count, and it's deleted from Yama.")) {
@@ -1339,12 +1411,12 @@ function TableMenu({ state, onClose, onLeave, onFinish, onJoin, onDice, aliveCou
           }}
         >
           Discard game
-        </button>
+        </button>}
       </div>
-      <p className="small dim tm-leave-note">Leaving keeps the game going on this phone: it's on the Table page to come back to.</p>
+      <p className="small dim tm-leave-note">{following ? "The host keeps the game. Open Table to follow it again." : "Leaving keeps the game going on this phone: it’s on the Table page to come back to."}</p>
       <div className="tm-foot">
         <span>
-          {isGuest() ? "Kept on this phone. Sign in to save it to Yama." : sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
+          {following ? following.status : isGuest() ? "Kept on this phone. Sign in to save it to Yama." : sync.syncing ? "Saving to Yama…" : sync.error ? `Not saved to Yama yet (${sync.error}). It's safe on this device.` : sync.lastSyncedAt ? "Saved to Yama" : "Saved on this device"}
         </span>
       </div>
       {artists.length > 0 && <p className="tm-credit">Commander art: {artCredits(artists)}</p>}
@@ -1457,6 +1529,7 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
 
 /** Picks a random player to go first and records it, so the turn and the stats both know. */
 function RollButton({ state }: { state: TableState }) {
+  const dispatch = useContext(DispatchContext);
   const [result, setResult] = useState<string | null>(null);
   const roll = () => {
     const r = new Uint32Array(1);

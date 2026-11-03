@@ -23,3 +23,9 @@ export function setCountTurns(on: boolean) {
   localStorage.setItem(KEY, on ? "on" : "off");
   for (const l of listeners) l();
 }
+
+export const getCountTurns = () => countTurns;
+export function subscribeCountTurns(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}

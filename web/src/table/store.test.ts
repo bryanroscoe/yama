@@ -225,3 +225,32 @@ describe("each account's game", () => {
     store.selectSlot(false, null);
   });
 });
+
+
+describe("a second tab following the host", () => {
+  it("cannot edit or upload its old local snapshot, or overwrite the host's newer storage", async () => {
+    guest = false;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    store.startGame(setup("shared-read-only"));
+    await store.sync();
+    calls.length = 0;
+    store.setSharedReadOnly("shared-read-only");
+    const newer = { ...store.getGame()!, log: [{ seq: 1, at: "2026-11-02T20:00:00Z", event: { type: "life", seat: 0, delta: -2 } }] };
+    items.set("yama.table.current.me", JSON.stringify(newer));
+    // The real host also queued a finished game and a deletion while this tab was asleep.
+    const queued = [{ ...newer, setup: { ...newer.setup, id: "finished-offline" } }];
+    items.set("yama.table.outbox", JSON.stringify(queued));
+    items.set("yama.table.deletes", JSON.stringify([{ id: "discarded-elsewhere", owner: "me" }]));
+    store.dispatch({ type: "life", seat: 0, delta: -10 });
+    store.finishGame(0);
+    store.discardGame();
+    await store.sync();
+    expect(store.getGame()!.log).toHaveLength(0);
+    expect(JSON.parse(items.get("yama.table.current.me")!)).toEqual(newer);
+    expect(calls).toEqual([]);
+    expect(JSON.parse(items.get("yama.table.outbox")!)).toEqual(queued);
+    expect(JSON.parse(items.get("yama.table.deletes")!)).toEqual([{ id: "discarded-elsewhere", owner: "me" }]);
+    store.setSharedReadOnly(null);
+  });
+});
