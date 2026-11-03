@@ -269,6 +269,8 @@ export interface DeckCard {
 }
 
 export interface DeckSummary {
+  /** Owner-confirmed deck acquisition, independent of collection overlap. Private. */
+  acquisition_status?: "owned" | "planned" | null;
   singles_value?: SinglesValue;
   id: string;
   name: string;
@@ -376,6 +378,7 @@ export interface DeckEntry extends DeckCard {
 }
 
 export interface DeckView {
+  acquisition_status?: "owned" | "planned" | null;
   singles_value?: SinglesValue;
   id: string;
   name: string;

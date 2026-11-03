@@ -343,3 +343,4 @@
 .import-diff li {
   padding: 2px 0;
 }
+.import-page .import-drop textarea { min-height: 24rem; }

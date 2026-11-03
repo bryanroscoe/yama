@@ -16,7 +16,7 @@ import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView, type PlanView } from "../plan/view";
 import "./decks.css";
-import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
+import { ArtPanel, ArtCredits, artCredit, artCredits } from "../components/ArtPanel";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
 import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
@@ -35,6 +35,8 @@ import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
+import { DeckTextList, type TextDrafts } from "../decks/DeckTextList";
+import { PlaygroupBuilds } from "../decks/PlaygroupBuilds";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
@@ -102,7 +104,7 @@ export function DecksPage() {
         ))}
       </ul>
       {!!decks.data?.some((d) => d.commander_image) && (
-        <p className="small dim art-credits">{artCredits(decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist))}</p>
+        <ArtCredits artists={decks.data.filter((d) => d.commander_image).map((d) => d.commander_artist)} />
       )}
     </main>
   );
@@ -111,7 +113,7 @@ export function DecksPage() {
 const SHARED_LABEL: Record<string, string> = { link: "Shared by link", public: "Public" };
 
 function DeckTile({ d }: { d: DeckSummary }) {
-  const own = ownership(d.owned, d.card_count, d.proxies ?? 0);
+  const own = d.acquisition_status === "planned" ? null : ownership(d.owned, d.card_count, d.proxies ?? 0);
   const played = record(d);
   return (
     <Link to={`/decks/${d.id}`} className="deck-tile">
@@ -127,7 +129,7 @@ function DeckTile({ d }: { d: DeckSummary }) {
         )}
         <span className="deck-tile-meta"><SinglesPrice value={d.singles_value} /></span>
         <span className="deck-tile-foot num">
-          {own ? (
+          {d.acquisition_status === "planned" ? <span>Planned deck</span> : own ? (
             <span className={`deck-own ${own.tone}`}>
               <span className="wide-only">{own.text}</span>
               <span className="phone-only">{own.short}</span>
@@ -161,12 +163,14 @@ export function DeckPage() {
   const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${other}`, { signal }), staleTime: 30_000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [view, setView] = useState<"all" | "needed">("all");
-  const [layout, setLayoutState] = useState<"stacks" | "list">(() => {
+  const textDrafts = useRef<TextDrafts>(new Map());
+  const [layout, setLayoutState] = useState<"stacks" | "list" | "text">(() => {
     const saved = localStorage.getItem("yama.deck.layout");
-    if (saved === "stacks" || saved === "list") return saved;
+    if (saved === "stacks" || saved === "list" || saved === "text") return saved;
     return window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list";
   });
-  const setLayout = (l: "stacks" | "list") => {
+  const setLayout = (l: "stacks" | "list" | "text") => {
+    if (l === "text") setView("all");
     localStorage.setItem("yama.deck.layout", l);
     setLayoutState(l);
   };
@@ -239,11 +243,11 @@ export function DeckPage() {
   const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
   const proxies = o.proxies ?? 0;
-  const stats = (
+  const stats = d.acquisition_status === "planned" ? <span className="deck-stat"><b>Planned</b><span>Deck not acquired</span></span> : (
     <>
       <span className="deck-stat">
         <b className="num">{o.owned}/{o.cards}</b>
-        <span>{o.owned === o.cards ? "real cards, all of them" : "real cards"}</span>
+        <span>real cards</span>
       </span>
       {proxies > 0 && (
         <span className="deck-stat">
@@ -252,10 +256,10 @@ export function DeckPage() {
         </span>
       )}
       <span className="deck-stat">
-        <b className="num">{o.needed ? usd(neededCost(o)) : "Done"}</b>
+        <b className="num">{o.needed ? usd(neededCost(o)) : "Complete"}</b>
         <span>
-          {o.needed ? `to get the last ${o.needed}, basics excluded` : "nothing left to get"}
-          {o.needed_without_price > 0 ? `; ${o.needed_without_price} with no price` : ""}. {priced}
+          {o.needed ? `${o.needed} missing, basics excluded` : "Cards accounted for"}
+          {o.needed_without_price > 0 ? `; ${o.needed_without_price} unpriced` : ""}{o.needed > 0 ? `. ${priced}` : ""}
         </span>
       </span>
       {played && summary?.games ? (
@@ -266,24 +270,24 @@ export function DeckPage() {
       ) : null}
     </>
   );
-  const actions = (
-    <>
-      <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
-      <button className="on-art" onClick={() => setEditing(true)}>Edit deck</button>
-      <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
-      <Link className="button on-art" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
-      <Link className="button on-art" to={`/decks/${d.id}/check`}>Check this deck</Link>
-      <button className="on-art" onClick={() => setCollecting(true)}>Add to my collection</button>
-      <button className="on-art" onClick={() => setSharing(true)}>Share</button>
-      <button className="on-art" onClick={() => setExporting(true)}>Export</button>
-      <MythicSendButton className="on-art" onClick={() => setMythic(true)} />
-      <button className="on-art" onClick={() => setHistory(true)}>History</button>
-      <button className="on-art" onClick={() => setConfiguring(true)}>New configuration</button>
-      <Link className="button on-art" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
-      <AskClaude className="on-art" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
-      <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
-    </>
-  );
+  const moreActions = (className: string) => <>
+    <button className={className} onClick={() => setEditing(true)}>Deck settings</button>
+    <Link className={`button ${className}`} to={`/decks/${d.id}/scan`}>Scan cards</Link>
+    <Link className={`button ${className}`} to={`/decks/${d.id}/check`}>Check cards</Link>
+    <button className={className} onClick={() => setCollecting(true)}>Add to collection</button>
+    <button className={className} onClick={() => setExporting(true)}>Export</button>
+    <MythicSendButton className={className} onClick={() => setMythic(true)} />
+    <button className={className} onClick={() => setHistory(true)}>History</button>
+    <button className={className} onClick={() => setConfiguring(true)}>New configuration</button>
+    <AskClaude className={className} context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
+  </>;
+  const actions = <>
+    <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
+    <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
+    <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+    <button className="on-art" onClick={() => setSharing(true)}>Share</button>
+    <details className="deck-actions-more"><summary>More</summary><div className="deck-extra-actions">{moreActions("on-art")}</div></details>
+  </>;
   const legal = v.ok ? <span className="pill good deck-legal-pill">Commander-legal</span> : <span className="pill bad deck-legal-pill">Not legal yet</span>;
   const planLink = plan && (
     <Link to={`/decks/plan/d/${plan.deck.key}`} className="deck-plan-link">
@@ -328,10 +332,9 @@ export function DeckPage() {
               </span>
             </span>
           </span>
-          <h1 className="hero-title">{d.name}</h1>
+          <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
           {d.configurations.length > 1 && (
             <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
-              <span className="hero-configs-label">Configurations</span>
               {d.configurations.filter((c, i) => i === 0 || !legacyConfiguration(c.configuration)).map((c, i) => {
                 const label = configurationLabel(c.configuration, c.name, i === 0);
                 const loading = deck.isPlaceholderData && c.id === id;
@@ -345,14 +348,14 @@ export function DeckPage() {
                     onFocus={() => prefetch(c.id)}
                   >
                     {label}
-                    {i === 0 ? ", in the deck" : ""}
+
                     {loading && <span className="hero-configs-loading">, opening…</span>}
                   </Link>
                 );
               })}
               {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && (
                 <details className="hero-configs-legacy" open={legacyConfiguration(d.configuration)}>
-                  <summary>Legacy</summary>
+                  <summary>Older snapshots</summary>
                   <div className="hero-configs-legacy-list">
                     {d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => (
                       <Link
@@ -380,46 +383,33 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body" inert={deck.isPlaceholderData} aria-busy={deck.isPlaceholderData}>
-        <DeckPrices singles={d.singles_value} ownership={o} />
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
+          {d.acquisition_status === "planned" ? <span className="deck-stat"><b>Planned</b><span>Deck not acquired</span></span> : <>
           <span className="deck-stat">
             <b className="num">{o.owned}</b>
             <span>{proxies ? `of ${o.cards} real, ${proxies} ${proxies === 1 ? "proxy" : "proxies"}` : `of ${o.cards} owned`}</span>
           </span>
           <span className="deck-stat">
-            <b className="num">{o.needed ? usd(neededCost(o)) : "Done"}</b>
-            <span>{o.needed ? `for the last ${o.needed}${priceDay ? `, ${priceDay}` : ""}` : "nothing to buy"}</span>
+            <b className="num">{o.needed ? usd(neededCost(o)) : "Complete"}</b>
+            <span>{o.needed ? `for the last ${o.needed}${priceDay ? `, ${priceDay}` : ""}` : "Cards accounted for"}</span>
           </span>
           <span className="deck-stat">
             <b className="num">{summary?.games ? `${summary.wins ?? 0}–${losses}` : "0"}</b>
             <span>{summary?.games ? "in Yama games" : "games played"}</span>
           </span>
+          </>}
         </div>
-        {o.needed > 0 && (
+        {d.acquisition_status !== "planned" && o.needed > 0 && (
           <p className="deck-price-note phone-only">
             To finish: basics excluded{o.needed_without_price > 0 ? `, ${o.needed_without_price} with no price` : ""}. {priced}.
           </p>
         )}
         {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
         <div className="row deck-actions-phone">
-          <button className="outline" onClick={() => setEditing(true)}>Edit deck</button>
-          <details className="deck-actions-more">
-            <summary>More actions</summary>
-            <div className="deck-extra-actions">
-              <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
-              <Link className="button outline" to={`/decks/${d.id}/scan`}>Scan this deck</Link>
-              <Link className="button outline" to={`/decks/${d.id}/check`}>Check this deck</Link>
-              <button className="outline" onClick={() => setCollecting(true)}>Add to my collection</button>
-              <button className="outline" onClick={() => setSharing(true)}>Share</button>
-              <button className="outline" onClick={() => setExporting(true)}>Export</button>
-              <MythicSendButton className="outline" onClick={() => setMythic(true)} />
-              <button className="outline" onClick={() => setHistory(true)}>History</button>
-              <button className="outline" onClick={() => setConfiguring(true)}>New configuration</button>
-              <Link className="button outline" to={`/decks/builds?savedDeck=${encodeURIComponent(d.id)}`}>Bracket builds and swap cards</Link>
-              <AskClaude className="outline" context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
-            </div>
-          </details>
+          <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+          <button className="outline" onClick={() => setSharing(true)}>Share</button>
+          <details className="deck-actions-more"><summary>More</summary><div className="deck-extra-actions">{moreActions("outline")}</div></details>
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}
@@ -430,6 +420,7 @@ export function DeckPage() {
         </div>
         {!v.ok && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
         <DeckLists deck={d} />
+        <PlaygroupBuilds deckId={d.id} />
 
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
@@ -441,19 +432,21 @@ export function DeckPage() {
         {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
 
         <div className="deck-toolbar">
-          <div className="deck-show" role="tablist" aria-label="Show">
+          {layout !== "text" && <div className="deck-show" role="tablist" aria-label="Show">
             <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
             <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Still need {o.needed}</button>
-          </div>
+          </div>}
           <div className="deck-layout" role="group" aria-label="View">
             <button aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
             <button aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
+            <button aria-pressed={layout === "text"} onClick={() => setLayout("text")}>Text</button>
           </div>
         </div>
 
         {groups.length === 0 && <p className="empty">Nothing left to get for this deck.</p>}
 
-        {layout === "stacks" ? (
+        <div hidden={layout !== "text"}><DeckTextList key={d.id} deck={d} drafts={textDrafts.current} /></div>
+        {layout === "text" ? null : layout === "stacks" ? (
           <div className="deck-stacks-wrap">
             <div className="deck-stacks">
               {groups.map(([group, entries]) => {
@@ -544,15 +537,12 @@ export function DeckPage() {
                 </div>
               </section>
             ))}
-            {listArtists.some(Boolean) && <p className="small dim art-credits">{artCredits(listArtists)}</p>}
           </>
         )}
-        <p className="small dim">
-          Cheapest printing per copy. {priced}.
-        </p>
 
         {/* Everything else about the deck, under the cards. */}
         <section className="deck-more" aria-label="More about this deck">
+          <details className="deck-value-details"><summary>Market value and card inventory</summary><DeckPrices singles={d.singles_value} ownership={o} /></details>
           <div className="deck-legal">
             <p className="dim small">
               {v.ok ? "Commander-legal" : "Not legal yet"} by size, singleton, color identity and the ban list in our card data.
@@ -592,6 +582,7 @@ export function DeckPage() {
           <DeckResults deckId={d.id} versionId={d.version_id} />
           <DeckStatsPanel cards={d.cards} />
         </section>
+        <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
       </div>
 
@@ -684,6 +675,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   // The bracket panel has already asked whether this server sends lists to Spellbook.
   const checksOn = qc.getQueryData<DeckCheck>(["deck-check", deck.id, deck.version_id])?.enabled === true;
   const [name, setName] = useState(deck.name);
+  const [acquired, setAcquired] = useState(deck.acquisition_status ?? "");
   const [container, setContainer] = useState(deck.container_id ?? "");
   const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
@@ -710,6 +702,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         method: "PATCH",
         json: {
           name,
+          ...(!deck.parent_id && !parent ? { acquisition_status: acquired || null } : {}),
           container_id: container || null,
           bracket: bracket ? Number(bracket) : null,
           configuration: configuration.trim() || null,
@@ -747,6 +740,12 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
+        {!deck.parent_id && <label>Deck ownership
+          <select value={acquired} onChange={(e) => setAcquired(e.target.value as typeof acquired)}>
+            <option value="">Not recorded</option><option value="owned">Owned</option><option value="planned">Planned, not acquired</option>
+          </select>
+          <span className="hint">Card inventory is tracked separately in Collection.</span>
+        </label>}
         <label>
           Bracket
           {checksOn && <span className="hint">{SENDS_LIST}</span>}
@@ -769,7 +768,7 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
         </label>
         <label>
           Configuration name
-          <input value={configuration} onChange={(e) => setConfiguration(e.target.value)} maxLength={60} placeholder={parent ? "stock" : "Main"} />
+          <input value={configuration} onChange={(e) => setConfiguration(e.target.value)} maxLength={60} placeholder={parent ? "Stock, Bracket 2…" : "Current"} />
         </label>
         <label>
           Collection box

@@ -7,6 +7,7 @@ import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe } from "./components/RailMe";
 import { SiteLinks } from "./components/SiteLinks";
+import { AppUpdate } from "./components/AppUpdate";
 import { SiteNotice } from "./components/SiteNotice";
 import { StandIn } from "./components/StandIn";
 import { AdminIcon, CardsIcon, CollectionIcon, DecksIcon, GroupIcon, LabIcon, PlayIcon, TableIcon } from "./components/icons";
@@ -137,6 +138,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
       </nav>
       {/* What's new is for people using Yama, not someone looking around. */}
       {me.data && <NewsNotice />}
+      <AppUpdate />
       <SiteLinks />
       {pending ? <StandIn /> : <Outlet />}
       <div className="site-footer"><a href="/precons">Public precon reference</a><SiteNotice /></div>

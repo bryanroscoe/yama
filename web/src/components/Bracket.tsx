@@ -242,7 +242,7 @@ function PowerBreakdown({ power, onCard }: { power: PowerEstimate; onCard: (name
   return (
     <Details label="How the power estimate adds up">
       <p>
-        Some playgroups still talk in the older 1 to 10 scale, so Yama translates the list into it. This is Yama's own heuristic, not an official scale, and it reads the card list, not how the deck plays. The starting suggestion of bracket {power.bracket} sets the range, {lo} to {hi}. Each factor below moves the estimate up within it, to a cap, so no single kind of card carries it.
+        Yama's unofficial 1–10 estimate uses this list and its stored Spellbook check. Other sites use different formulas; their numbers aren't directly comparable. The bracket {power.bracket} suggestion sets a {lo}–{hi} range, then the factors below move the score within it. This measures card-list signals, not played performance.
       </p>
       <ul className="power-factors">
         {power.factors.map((f) => (

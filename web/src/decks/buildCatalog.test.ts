@@ -96,7 +96,9 @@ describe("build catalog", () => {
     expect(legacyConfiguration("after prints")).toBe(true);
     expect(legacyConfiguration("Legacy: October upgrades")).toBe(true);
     for (const label of [null, "stock", "original", "[2]", "Bracket 4", "budget"]) expect(legacyConfiguration(label)).toBe(false);
-    expect(configurationLabel("stock", "Deck")).toBe("Original");
+    expect(configurationLabel("stock", "Deck")).toBe("Stock");
+    expect(configurationLabel("Bracket 2", "Deck")).toBe("[2]");
+    expect(configurationLabel("Bracket 4 — Lower friction", "Deck")).toBe("[4] Lower friction");
     expect(configurationLabel(null, "Deck", true)).toBe("Current");
   });
   it("preserves distinct deck names after child configuration labels are cleared", () => {

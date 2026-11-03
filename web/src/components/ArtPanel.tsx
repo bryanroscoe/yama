@@ -17,6 +17,10 @@ export function artCredits(artists: (string | null | undefined)[]): string {
   return `Art by ${list}. ™ & © Wizards of the Coast.`;
 }
 
+export function ArtCredits({ artists }: { artists: (string | null | undefined)[] }) {
+  return <details className="art-credits small dim"><summary>Art credits</summary><p>{artCredits(artists)}</p></details>;
+}
+
 /**
  * Commander art behind a player or a deck: Scryfall's art crop, loaded at runtime, cover-fitted.
  * The image is never filtered (no blur, fade or color change); all darkening comes from the wash,

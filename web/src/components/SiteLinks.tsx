@@ -8,6 +8,5 @@ export function SiteLinks() {
     <NavLink to="/sharing">Sharing</NavLink>
     <a href={`${origin}/precons`}>Precons</a>
     <a href={`${origin}/commanders`}>Commanders</a>
-    <a href={`${origin}/docs/mcp/`}>MCP guide</a>
   </nav>;
 }

@@ -561,7 +561,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         .filter_map(|g| {
             Some(SharedLink {
                 token: g.share_token.clone()?,
-                label: g.configuration.clone().unwrap_or_else(|| if g.id == group[0].id { "Main".into() } else { g.name.clone() }),
+                label: display_configuration(g.configuration.as_deref(), &g.name, g.id == group[0].id),
                 current: g.id == row.id,
             })
         })
@@ -645,6 +645,29 @@ struct PublicRow {
     current_version_id: Option<String>,
 }
 
+fn display_configuration(label: Option<&str>, name: &str, main: bool) -> String {
+    if !main && let Some(s) = label.map(str::trim)
+        && s.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("bracket "))
+    {
+        let (number, suffix) = s[8..].split_once(' ').unwrap_or((&s[8..], ""));
+        if matches!(number, "1" | "2" | "3" | "4" | "5") {
+            let suffix = suffix.trim_start_matches([' ', '—', ':', '-']);
+            return format!("[{number}]{}", if suffix.is_empty() { String::new() } else { format!(" {suffix}") });
+        }
+    }
+    match label.map(str::trim).filter(|s| !s.is_empty()) {
+        None => if main { "Current".into() } else { name.into() },
+        Some(s) if main && matches!(s.to_lowercase().as_str(), "main" | "current") => "Current".into(),
+        Some(s) if !main && matches!(s.to_lowercase().as_str(), "stock" | "original") => "Stock".into(),
+        Some(s) => s.into(),
+    }
+}
+
+fn legacy_configuration(label: &str) -> bool {
+    let lower = label.trim().to_lowercase();
+    matches!(lower.as_str(), "now" | "after prints" | "after-prints") || lower == "legacy" || lower.starts_with("legacy:") || lower.starts_with("legacy ")
+}
+
 pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<Vec<ProfileDeck>> {
     let rows: Vec<PublicRow> = sqlx::query_as(
         "SELECT id, name, share_token, parent_id, configuration, current_version_id FROM decks
@@ -660,9 +683,9 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
         let mut configurations: Vec<(String, String)> = rows
             .iter()
             .filter(|c| c.parent_id.as_deref() == Some(r.id.as_str()))
-            .map(|c| (c.share_token.clone(), c.configuration.clone().unwrap_or_else(|| c.name.clone())))
+            .map(|c| (c.share_token.clone(), display_configuration(c.configuration.as_deref(), &c.name, false)))
             .collect();
-        configurations.sort_by_key(|c| c.1.to_lowercase());
+        configurations.sort_by_key(|c| (c.1 != "Stock", c.1.to_lowercase()));
         let face = deck_face(pool, r.current_version_id.as_deref()).await?;
         // A configuration listed on its own (its main deck isn't public) keeps its full name.
         out.push(ProfileDeck {
@@ -672,7 +695,7 @@ pub(crate) async fn profile_decks(pool: &SqlitePool, owner: &str) -> AppResult<V
             color_identity: face.color_identity,
             art: face.art,
             card_count: face.card_count,
-            label: r.configuration.clone().unwrap_or_else(|| "Main".into()),
+            label: display_configuration(r.configuration.as_deref(), &r.name, r.parent_id.is_none()),
             configurations,
         });
     }
