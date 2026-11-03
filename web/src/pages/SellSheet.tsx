@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SellOffers } from "./SellOffers";
 import { shortDate, usd } from "../api";
 import { saveFile } from "../download";
 import { Details, ErrorText, Sheet } from "../components/ui";
@@ -124,7 +125,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           {text.copies > 0 && (
             <span className="dim">
               {" "}
-              {valueless < text.copies ? `${usd(value)} market value (TCGplayer market via Scryfall, ${dates})${valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}.` : "No market price for any of them."} A buylist pays less than market; each store sets its own offer.
+              {valueless < text.copies ? `${usd(value)} market value (TCGplayer market via Scryfall, ${dates})${valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}.` : "No market price for any of them."} Each store sets its own offer.
             </span>
           )}
         </p>
@@ -161,6 +162,8 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             </ul>
           </Details>
         )}
+
+        <Details label="Local buylist offers"><SellOffers cards={shown.filter((c) => qty(c) > 0)} qty={qty} onChoose={(counts) => { setRest("none"); setCounts(new Map(counts)); setFormat("storepass"); }} /></Details>
 
         {cards.length > 0 && (
           <>
