@@ -15,6 +15,7 @@ use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use unicode_normalization::UnicodeNormalization;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -720,6 +721,10 @@ struct HistoryCandidate {
     names: sqlx::types::Json<Vec<[String; 2]>>,
 }
 
+fn history_search_text(text: &str) -> String {
+    text.to_lowercase().nfc().collect()
+}
+
 /// Personal history, including old unfinished tables beyond the recent list's 200-game cap.
 /// Search/filter before pagination. A playgroup alone never grants access to this endpoint.
 async fn game_history(
@@ -746,7 +751,7 @@ async fn game_history(
     if q.len() > 200 {
         return Err(AppError::bad("search is too long"));
     }
-    let folded = q.to_lowercase();
+    let folded = history_search_text(q);
     let query = sqlx::query_as::<_, HistoryCandidate>(sqlx::AssertSqlSafe(format!(
         "WITH human_seats AS (
             SELECT s.game_id, lower(trim(COALESCE(u.display_name,s.guest_name,m.guest_name,''))) AS name
@@ -767,13 +772,13 @@ async fn game_history(
     .bind(if q.is_empty() { 51_i64 } else { -1 })
     .bind(if q.is_empty() { i64::from(p.offset) } else { 0 });
     // SQLite lower() only folds ASCII (so it misses éowyn against Éowyn). Stream personal
-    // candidates and fold their current names in Rust, stopping after this matching page.
+    // candidates and normalize/fold current names in Rust, stopping after this matching page.
     // Searches still paginate after matching, and never collect the entire history in memory.
     let mut candidates = query.fetch(&st.pool);
     let mut skip = if q.is_empty() { 0 } else { u64::from(p.offset) };
     let mut games = Vec::new();
     while let Some(candidate) = candidates.try_next().await? {
-        if !q.is_empty() && !candidate.names.iter().flatten().any(|name| name.to_lowercase().contains(&folded)) {
+        if !q.is_empty() && !candidate.names.iter().flatten().any(|name| history_search_text(name).contains(&folded)) {
             continue;
         }
         if skip > 0 {
@@ -1000,10 +1005,16 @@ mod tests {
         assert_eq!(searched_page["games"].as_array().unwrap().len(), 40);
         assert_eq!(searched_page["has_more"], false);
         sqlx::query("UPDATE game_seats SET guest_name='Élodie',commander_name='Éowyn, Shieldmaiden' WHERE game_id='history-000'").execute(&pool).await.unwrap();
-        for q in ["q=%C3%A9owyn", "q=%C3%89OWYN", "q=%C3%A9lodie"] {
+        for q in ["q=%C3%A9owyn", "q=%C3%89OWYN", "q=e%CC%81owyn", "q=%C3%A9lodie"] {
             let (_, page) = send(&app, Method::GET, &get(q), Some(&token), None).await;
             assert_eq!(page["games"][0]["id"], "history-000", "Unicode player and commander search: {q}");
             assert_eq!(page["has_more"], false);
+        }
+        sqlx::query("UPDATE game_seats SET guest_name=?,commander_name=? WHERE game_id='history-000'")
+            .bind("E\u{301}lodie").bind("E\u{301}owyn, Shieldmaiden").execute(&pool).await.unwrap();
+        for q in ["q=%C3%A9owyn", "q=%C3%A9lodie"] {
+            let (_, page) = send(&app, Method::GET, &get(q), Some(&token), None).await;
+            assert_eq!(page["games"][0]["id"], "history-000", "canonically equivalent Unicode search: {q}");
         }
         for q in ["q=%25", "q=%27%20OR%201%3D1--"] {
             let (_, page) = send(&app, Method::GET, &get(q), Some(&token), None).await;
