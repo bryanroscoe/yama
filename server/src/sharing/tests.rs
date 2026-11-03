@@ -18,6 +18,58 @@ async fn token_of(pool: &SqlitePool, deck: &str) -> String {
     sqlx::query_scalar("SELECT share_token FROM decks WHERE id = ?").bind(deck).fetch_one(pool).await.unwrap()
 }
 
+#[tokio::test]
+async fn acquisition_is_owner_metadata_not_collection_or_public_data() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "owner@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    let (id, version) = deck(&pool, &owner, "A planned deck").await;
+    let path = format!("/api/decks/{id}");
+    for status in ["planned", "owned"] {
+        assert_eq!(send(&app, Method::PATCH, &path, Some(&auth), Some(json!({"acquisition_status": status}))).await.0, StatusCode::OK);
+        let (_, d) = send(&app, Method::GET, &path, Some(&auth), None).await;
+        assert_eq!(d["acquisition_status"], status);
+        assert_eq!(d["version_id"], version);
+        let (_, decks) = send(&app, Method::GET, "/api/decks", Some(&auth), None).await;
+        assert_eq!(decks[0]["acquisition_status"], status);
+    }
+    assert_eq!(send(&app, Method::PATCH, &path, Some(&other), Some(json!({"acquisition_status":"planned"}))).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::PATCH, &path, Some(&auth), Some(json!({"acquisition_status":"arriving"}))).await.0, StatusCode::BAD_REQUEST);
+    send(&app, Method::PATCH, &path, Some(&auth), Some(json!({"visibility":"public"}))).await;
+    let token = token_of(&pool, &id).await;
+    let (_, public) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
+    assert!(public.get("acquisition_status").is_none());
+    let copies: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_items WHERE owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert_eq!(copies, 0);
+    let (_, config) = send(&app, Method::POST, &format!("{path}/configurations"), Some(&auth), Some(json!({"configuration":"Bracket 3","op_id":"acquisition-config"}))).await;
+    let child = format!("/api/decks/{}", config["id"].as_str().unwrap());
+    send(&app, Method::PATCH, &path, Some(&auth), Some(json!({"acquisition_status":"planned"}))).await;
+    assert_eq!(send(&app, Method::GET, &child, Some(&auth), None).await.1["acquisition_status"], "planned");
+    assert_eq!(send(&app, Method::PATCH, &child, Some(&auth), Some(json!({"acquisition_status":"owned"}))).await.0, StatusCode::BAD_REQUEST);
+    let (_, summaries) = send(&app, Method::GET, "/api/decks", Some(&auth), None).await;
+    assert!(summaries.as_array().unwrap().iter().all(|d| d["acquisition_status"] == "planned"));
+    assert_eq!(send(&app, Method::PATCH, &path, Some(&auth), Some(json!({"acquisition_status":null}))).await.0, StatusCode::OK);
+    assert!(send(&app, Method::GET, &path, Some(&auth), None).await.1["acquisition_status"].is_null());
+}
+
+#[tokio::test]
+async fn profiles_prioritize_current_stock_and_brackets_over_old_snapshots() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "builds@example.com").await;
+    let (root, _) = deck(&pool, &owner, "Builds").await;
+    sqlx::query("UPDATE users SET handle = 'builds' WHERE id = ?").bind(&owner).execute(&pool).await.unwrap();
+    send(&app, Method::PATCH, &format!("/api/decks/{root}"), Some(&auth), Some(json!({"visibility":"public"}))).await;
+    for label in ["stock", "after prints", "Bracket 2", "Bracket 3", "Bracket 4"] {
+        send(&app, Method::POST, &format!("/api/decks/{root}/configurations"), Some(&auth), Some(json!({"configuration":label,"op_id":label}))).await;
+    }
+    let (_, _, html) = page(&app, "/u/builds").await;
+    let nav = html.split("class=\"share-deck-configs\"").nth(1).unwrap().split("</nav>").next().unwrap();
+    for label in ["Current", "Stock", "[2]", "[3]", "[4]"] { assert!(nav.contains(label), "{label}"); }
+    assert!(!nav.contains("after prints"));
+    assert!(html.contains("<summary>Older snapshots</summary>"));
+    assert!(html.contains("after prints"));
+}
+
 async fn card(pool: &SqlitePool, oracle: &str, name: &str, type_line: &str, printing: &str, set: &str, number: &str) {
     sqlx::query("INSERT OR IGNORE INTO cards (oracle_id, name, type_line, color_identity, legalities, updated_at) VALUES (?, ?, ?, 'W', '{}', 'now')")
         .bind(oracle)
@@ -266,10 +318,10 @@ async fn configurations_group_one_level_deep() {
     assert_eq!(status, StatusCode::OK);
     assert!(own.contains("secret tech"));
     let (_, _, shared) = page(&app, &format!("/d/{}", token_of(&pool, &main).await)).await;
-    assert!(shared.contains("Configurations") && shared.contains(">Main<") && shared.contains(">stock<"));
+    assert!(shared.contains("Configurations") && shared.contains(">Current<") && shared.contains(">Stock<"));
     assert!(!shared.contains("secret tech"));
     let (_, _, profile) = page(&app, "/u/saget").await;
-    assert!(profile.contains(">Main<") && profile.contains(">stock<") && !profile.contains("secret tech"));
+    assert!(profile.contains(">Current<") && profile.contains(">Stock<") && !profile.contains("secret tech"));
 
     // A configuration of a private deck stays private, even when new decks start public.
     send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "new_deck_visibility": "public" }))).await;

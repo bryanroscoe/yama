@@ -2173,3 +2173,5 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   border-color: var(--on-art);
   color: var(--ground);
 }
+.app-update { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px var(--page-pad); border-bottom: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
+.app-update button { min-height: 44px; }

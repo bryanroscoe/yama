@@ -1,6 +1,6 @@
 # Yama
 
-Bracket builds and reversible deck-box inserts: `/decks/builds` brings saved Current/Original lists, plan bracket builds and researched alternatives together. Older now/after-prints snapshots remain under Legacy. Choose two complete lists for 2.5 × 3.5 inch duplex swap cards.
+Bracket builds and reversible deck-box inserts: `/decks/builds` brings saved Current/Stock lists, plan bracket builds and researched alternatives together. Older now/after-prints snapshots remain under Legacy. Choose two complete lists for 2.5 × 3.5 inch duplex swap cards.
 
 Yet Another Magic App: a free Magic: The Gathering app with a public precon reference and private accounts for playing and tracking Commander. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -16,7 +16,7 @@ Precon comparisons and detail pages show [source-backed upgradeability](docs/pre
 Production: [yama.ing](https://yama.ing). Existing users should sync pending changes on the old
 site before signing in at the new address; installed apps and MCP connectors need the new URL.
 
-Sharing is reachable from the main app navigation and from Decks. It brings together your public profile, shared decks and alternate configurations, shared groups of builds from Agent notes, copyable links and sharing settings. Precons, Commanders and the MCP guide stay in the same navigation.
+Sharing is reachable from the main app navigation and from Decks. It brings together your public profile, shared decks and alternate configurations, shared groups of builds from Agent notes, copyable links and sharing settings. Precons and Commanders stay in the same navigation; assistant setup stays with connected apps.
 
 ## What works today
 

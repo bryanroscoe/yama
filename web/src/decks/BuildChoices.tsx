@@ -25,8 +25,8 @@ export function BuildChoicesPage() {
   const loading = notes.isPending || plan.pending || decks.isPending;
   return <main className="page build-choices">
     <div className="bc-controls">
-      <AreaHead title="Bracket builds and swap cards" back={{ to: "/decks", label: "Decks" }} />
-      <p>Choose two lists to print a double-sided swap card.</p>
+      <AreaHead title="Compare builds" back={{ to: "/decks", label: "Decks" }} />
+      <p>Compare two lists or print their swaps.</p>
       <ErrorText error={notes.error || plan.error || decks.error} />
       {plan.offline && <p role="status">No connection. Showing the plan copy saved on this device.</p>}
       {loading ? <p>Loading your saved builds…</p> : <label>Deck <select value={family?.key ?? ""} onChange={(e) => setParams({ deck: e.target.value })}>
@@ -43,7 +43,7 @@ const groups = ["current", "original", "bracket", "legacy"] as const;
 function Choices({ choices }: { choices: BuildChoice[] }) {
   return <>{groups.map((kind) => {
     const cs = choices.filter((c) => c.kind === kind).sort((a, b) => (a.bracket ?? 0) - (b.bracket ?? 0));
-    return cs.length > 0 && <optgroup key={kind} label={kind === "bracket" ? "Bracket builds" : kind === "legacy" ? "Legacy snapshots" : kind === "original" ? "Original references" : "Current saved deck"}>{cs.map((c) => <option key={c.id} value={c.id}>{c.label} — {sourceAfterLabel(c)}</option>)}</optgroup>;
+    return cs.length > 0 && <optgroup key={kind} label={kind === "bracket" ? "Bracket builds" : kind === "legacy" ? "Legacy snapshots" : kind === "original" ? "Stock references" : "Current saved deck"}>{cs.map((c) => <option key={c.id} value={c.id}>{c.label} — {sourceAfterLabel(c)}</option>)}</optgroup>;
   })}</>;
 }
 /** The source without the label it repeats: "[2] Buildable now — decks from cards already at home",
