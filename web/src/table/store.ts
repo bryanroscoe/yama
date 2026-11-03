@@ -17,8 +17,11 @@ import { api, ApiError } from "../api";
 import { isViewing } from "../viewingFlag";
 import { isGuest } from "../guest";
 import { keepStorage } from "../storage";
+import { acknowledgeFinished, finishedRecords, hasEnded, isFinishedStorageKey, rejectFinished, rememberServerFinish, saveFinished } from "./finished";
 
 export interface LocalGame {
+  /** Durable finished-result record; bulk queues may be rebuilt from it after a stale write. */
+  saveId?: string;
   setup: TableSetup;
   log: LoggedEvent[];
   /** Undone events, newest last, for redo. Cleared by any new event. */
@@ -67,14 +70,24 @@ const GUEST_GAMES = "yama.table.guestGames";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
+// Storage notifications may be delayed while another app window is asleep. Compare the
+// actual persisted snapshots before writing, including queues when the active game is unchanged.
+const observed = new Map<string, string | null>();
 
 function read<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
+    observed.set(key, raw);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
   }
+}
+
+function write(key: string, value: unknown) {
+  const raw = JSON.stringify(value);
+  localStorage.setItem(key, raw);
+  observed.set(key, raw);
 }
 
 let current: LocalGame | null = read<LocalGame | null>(CURRENT, null);
@@ -110,17 +123,17 @@ function pendingHostLock(game: LocalGame | null): string | null {
   return typeof navigator !== "undefined" && navigator.locks && game?.owner &&
     localStorage.getItem(`yama.table.hosting.${game.owner}`) === game.setup.id ? game.setup.id : null;
 }
-// Last persisted identity observed for this slot. An intentional transition (including
-// null on deletion) may be emitted only while the slot still holds that identity.
-let currentIdentity: string | null = current?.setup.id ?? null;
-const sameStoredIdentity = () => read<LocalGame | null>(currentKey(), null)?.setup.id === (currentIdentity ?? undefined);
+// A matching game ID is insufficient: a newer commander/log or pending result can have
+// the same ID. Never replace snapshots we have not observed, even before their storage event.
+const storageKeys = () => [currentKey(), OUTBOX, REJECTED, DELETES, GUEST_GAMES, GUEST_CURRENT];
+const sameStoredSnapshot = () => storageKeys().every((key) => localStorage.getItem(key) === (observed.get(key) ?? null));
 let readOnlyGame: string | null = pendingHostLock(current);
 /** This document has been granted hosting ownership (a browser lock where supported). */
 let sharedHost: string | null = null;
 export function setSharedHost(gameId: string | null) { sharedHost = gameId; }
 function canWriteShared() {
   const marked = pendingHostLock(current);
-  return readOnlyGame === null && sameStoredIdentity() && (!marked || marked === sharedHost);
+  return readOnlyGame === null && sameStoredSnapshot() && (!marked || marked === sharedHost);
 }
 /** Another tab owns this shared counter; this tab may follow it, never write its old copy. */
 export function setSharedReadOnly(gameId: string | null) {
@@ -132,29 +145,79 @@ function reloadQueues() {
   rejected = read(REJECTED, []);
   guestGames = read<LocalGame[]>(GUEST_GAMES, []);
   deletes = read<(QueuedDelete | string)[]>(DELETES, []).map((d) => typeof d === "string" ? { id: d, owner: null } : d);
+  restoreFinished();
 }
-const mayEditCurrent = () => canWriteShared();
+function restoreFinished() {
+  const saved = finishedRecords();
+  // Preserve results queued by builds from before individual durable saves existed.
+  const upgrade = (game: LocalGame, error?: string): LocalGame | undefined => {
+    if (game.saveId || !game.log.some((entry) => entry.event.type === "finish")) return game;
+    const existing = saved.find((row) => row.game.setup.id === game.setup.id && row.game.owner === game.owner
+      && row.game.guest === game.guest && JSON.stringify(row.game.setup) === JSON.stringify(game.setup) && JSON.stringify(row.game.log) === JSON.stringify(game.log));
+    if (existing) return existing.game;
+    // A stale pre-upgrade queue must not recreate a discarded/adopted/acknowledged result.
+    if (!saved.some((row) => row.game.setup.id === game.setup.id && row.game.owner === game.owner && row.game.guest === game.guest) && hasEnded(game)) return undefined;
+    let durable: LocalGame;
+    try { durable = saveFinished(game, error); } catch { return game; } // A readable legacy queue still uploads when storage is full.
+    saved.push({ game: durable, ...(error ? { error } : {}) });
+    return durable;
+  };
+  outbox = outbox.flatMap((game) => { const next = upgrade(game); return next ? [next] : []; });
+  guestGames = guestGames.flatMap((game) => { const next = upgrade(game); return next ? [next] : []; });
+  rejected = rejected.flatMap((row) => { const game = upgrade(row.game, row.error); return game ? [{ ...row, game }] : []; });
+  const live = new Set(saved.map((r) => r.game.saveId));
+  // An absent record was acknowledged or explicitly discarded by another window.
+  outbox = outbox.filter((g) => !g.saveId || live.has(g.saveId));
+  guestGames = guestGames.filter((g) => !g.saveId || live.has(g.saveId));
+  rejected = rejected.filter((r) => !r.game.saveId || live.has(r.game.saveId));
+  for (const { game, error } of saved) {
+    if (error) {
+      outbox = outbox.filter((g) => g.saveId !== game.saveId);
+      if (!rejected.some((r) => r.game.saveId === game.saveId)) rejected = [...rejected, { game, error }];
+    } else if (game.guest) {
+      if (!guestGames.some((g) => g.saveId === game.saveId)) guestGames = [...guestGames, game];
+    } else if (!outbox.some((g) => g.saveId === game.saveId)) outbox = [...outbox, game];
+  }
+  if (current && hasEnded(current)) {
+    current = null;
+    derived = null;
+  }
+  if (waitingGuest && hasEnded(waitingGuest)) waitingGuest = null;
+}
+const mayEditCurrent = () => canWriteShared() && (!current || !hasEnded(current));
+
+function persist() {
+  if (canWriteShared()) {
+    if (current && hasEnded(current)) { current = null; derived = null; }
+    // Queue first: a finish must be durable before its active-game slot is cleared.
+    try {
+      // A legacy result may still lack a journal at quota. Keep its old outbox copy
+      // until a rejection copy can be persisted, rather than clearing it first.
+      write(REJECTED, rejected);
+      write(OUTBOX, outbox);
+      write(DELETES, deletes);
+      write(GUEST_GAMES, guestGames);
+      write(currentKey(), current);
+    } catch {
+      // Durable result records remain authoritative; a full auxiliary queue must not
+      // prevent uploading them or permanently wedge the in-flight sync promise.
+      syncState = { ...syncState, error: "This phone couldn't keep the latest changes. Keep Yama open and try again." };
+    }
+  }
+}
 
 function emit() {
-  if (canWriteShared()) {
-    localStorage.setItem(currentKey(), JSON.stringify(current));
-    currentIdentity = current?.setup.id ?? null;
-    localStorage.setItem(OUTBOX, JSON.stringify(outbox));
-    localStorage.setItem(REJECTED, JSON.stringify(rejected));
-    localStorage.setItem(DELETES, JSON.stringify(deletes));
-    localStorage.setItem(GUEST_GAMES, JSON.stringify(guestGames));
-  }
+  persist();
   for (const l of listeners) l();
 }
 
 function setCurrent(next: LocalGame | null): boolean {
-  if (!canWriteShared()) return false;
+  if (!canWriteShared() || (next && hasEnded(next))) return false;
   current = next;
   derived = next ? replay(next.setup, next.log) : null;
   // Saved now; anything already showing hears about it in a moment, not in the middle of a
   // render or commit.
-  localStorage.setItem(currentKey(), JSON.stringify(current));
-  currentIdentity = current?.setup.id ?? null;
+  persist();
   queueMicrotask(emit);
   return true;
 }
@@ -169,21 +232,20 @@ export function selectSlot(guest: boolean, user?: string | null) {
   if (slot === want) return;
   slot = want;
   current = read<LocalGame | null>(currentKey(), null);
-  currentIdentity = current?.setup.id ?? null;
+  reloadQueues();
   // A game kept under the old shared key comes along only for its own account (or one from before
   // games recorded theirs); another account's stays where it is until that account signs in.
   if (!guest && user && !current) {
     const old = read<LocalGame | null>(CURRENT, null);
-    if (old && (!old.owner || old.owner === user) && sameStoredIdentity()) {
+    if (old && (!old.owner || old.owner === user) && !hasEnded(old) && !hasEnded({ ...old, owner: old.owner ?? user }) && sameStoredSnapshot()) {
       current = { ...old, owner: old.owner ?? user };
-      localStorage.setItem(currentKey(), JSON.stringify(current));
-      currentIdentity = current.setup.id;
+      write(currentKey(), current);
       localStorage.removeItem(CURRENT);
     }
   }
   readOnlyGame = pendingHostLock(current);
   derived = current ? replay(current.setup, current.log) : null;
-  waitingGuest = slot !== "guest" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
+  waitingGuest = slot !== "guest" ? readWaitingGuest() : null;
   // Pages that render from now on read the new game; anything already showing hears about it
   // in a moment, before the screen updates.
   queueMicrotask(emit);
@@ -191,7 +253,11 @@ export function selectSlot(guest: boolean, user?: string | null) {
 
 /** The game going without an account, as the signed-in account sees it: waiting to be saved. */
 // The device starts on the account's slot, so whatever waits in the guest slot is known from the start.
-let waitingGuest: LocalGame | null = read<LocalGame | null>(GUEST_CURRENT, null);
+function readWaitingGuest(): LocalGame | null {
+  const game = read<LocalGame | null>(GUEST_CURRENT, null);
+  return game && !hasEnded(game) ? game : null;
+}
+let waitingGuest: LocalGame | null = readWaitingGuest();
 export function useWaitingGuestGame() {
   return useSyncExternalStore(subscribe, () => waitingGuest);
 }
@@ -225,32 +291,57 @@ export function saveGuestGames() {
   if (!canWriteShared()) return;
   // Saved by the account signed in now: theirs, uploaded only while they're signed in here.
   const owner = signedInUser() ?? undefined;
-  outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => ({ ...g, owner }))];
-  guestGames = [];
-  // A game marked as counted without an account in the account's own slot (left by an older
-  // version) is saved where it is.
-  if (current?.guest) {
-    const { guest: _, ...g } = current;
-    current = { ...g, owner };
-  }
-  if (slot !== "guest" && waitingGuest && !current) {
-    const { guest: _, ...g } = waitingGuest;
-    if (setCurrent({ ...g, owner })) {
-      waitingGuest = null;
-      localStorage.removeItem(GUEST_CURRENT);
+  const adoptCurrent = (game: LocalGame) => {
+    const { guest: _, ...g } = game;
+    const next = { ...g, owner };
+    if (!canWriteShared() || hasEnded(next)) return false;
+    // The account copy must be durable before removing the guest's active slot.
+    write(currentKey(), next);
+    current = next;
+    derived = replay(next.setup, next.log);
+    return true;
+  };
+  try {
+    const remaining: LocalGame[] = [];
+    for (const game of guestGames) {
+      try {
+        const { guest: _, ...g } = game;
+        const adopted = saveFinished({ ...g, owner });
+        acknowledgeFinished(game, true);
+        outbox = [...outbox, adopted];
+      } catch {
+        remaining.push(game);
+        syncState = { ...syncState, error: "Some games are still on this phone. Keep Yama open and try saving them again." };
+      }
     }
+    guestGames = remaining;
+    // A guest counter left in the account's own slot by an older version stays there.
+    if (current?.guest) adoptCurrent(current);
+    if (slot !== "guest" && waitingGuest && !current && adoptCurrent(waitingGuest)) {
+      localStorage.removeItem(GUEST_CURRENT);
+      observed.set(GUEST_CURRENT, null);
+      waitingGuest = null;
+    }
+  } catch {
+    syncState = { ...syncState, error: "Some games are still on this phone. Keep Yama open and try saving them again." };
+  } finally {
+    // A later adoption can hit quota after an earlier one succeeded. Reconcile those
+    // durable account copies and upload them now; keep the remaining guest records.
+    restoreFinished();
+    emit();
+    void settle();
   }
-  emit();
-  void sync();
 }
 
 /** Throw away the games counted here without an account, the one going included. */
 export function dropGuestGames() {
   if (!canWriteShared()) return;
+  for (const game of guestGames) acknowledgeFinished(game, true);
   guestGames = [];
   if (slot !== "guest" && waitingGuest) {
     waitingGuest = null;
     localStorage.removeItem(GUEST_CURRENT);
+    observed.set(GUEST_CURRENT, null);
   }
   emit();
 }
@@ -275,6 +366,9 @@ export function usePendingDeletes() {
  */
 export async function deleteGame(gameId: string): Promise<boolean> {
   if (!canWriteShared()) return false;
+  for (const { game } of finishedRecords()) {
+    if (game.setup.id === gameId && !game.guest && mineGame(game)) acknowledgeFinished(game, true);
+  }
   if (current?.setup.id === gameId) {
     for (const l of endListeners) l(current);
     forgetPrompts(gameId);
@@ -374,12 +468,14 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back. One counted
   // without an account waits on this phone instead.
-  if (current.guest) guestGames = [...guestGames, { ...current, log, frozenThrough: undefined }];
-  else outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
-  for (const l of endListeners) l({ ...current, log });
-  forgetPrompts(current.setup.id);
+  const saved = saveFinished({ ...current, log, frozenThrough: undefined });
+  if (current.guest) guestGames = [...guestGames, saved];
+  else outbox = [...outbox, saved];
+  for (const l of endListeners) l(saved);
+  forgetPrompts(saved.setup.id);
   setCurrent(null);
-  void sync();
+  // If an earlier upload was already running, drain this newly queued result when it ends.
+  void settle();
 }
 
 /**
@@ -415,13 +511,14 @@ export function deckLabel(p: { deckLabel?: string; commanderName?: string; partn
   return p.deckLabel ?? p.commanderName ?? null;
 }
 
-async function pushGame(g: LocalGame): Promise<number> {
+async function pushGame(g: LocalGame): Promise<boolean> {
   const s = g.setup;
   // A seat that changed commanders or players mid-game uploads the one it has now.
   const now = new Map(replay(s, g.log).players.map((p) => [p.seat, p]));
   const upTo = g.frozenThrough ?? Infinity;
   const fresh = g.log.filter((l) => l.seq > g.syncedThrough && l.seq <= upTo);
-  await api("/api/games", {
+  const finish = toServerFinish(s, g.log);
+  const saved = await api<{ status?: string }>("/api/games", {
     method: "POST",
     json: {
       id: s.id,
@@ -444,13 +541,12 @@ async function pushGame(g: LocalGame): Promise<number> {
       // The events ride along, so a seat's new player arrives with the "player" event that
       // explains it (Yama refuses different players without one).
       events: toServerEvents(fresh),
+      // Result, current commanders and final events commit in one server transaction.
+      finish,
     },
   });
   posted.add(s.id);
-  // Built from the log alone, so a retry sends exactly the same finish.
-  const finish = toServerFinish(s, g.log);
-  if (finish) await api(`/api/games/${s.id}/finish`, { method: "POST", json: finish });
-  return upTo === Infinity ? (g.log[g.log.length - 1]?.seq ?? 0) : upTo;
+  return saved.status === "finished";
 }
 
 let inflight: Promise<void> | null = null;
@@ -462,6 +558,7 @@ export function isPosted(gameId: string): boolean {
 }
 
 export function sync(): Promise<void> {
+  restoreFinished();
   // An admin viewing as someone sends nothing: games recorded on this device wait until the view
   // ends (the server would refuse them, and they'd be set aside as rejected).
   if (isViewing() || !canWriteShared()) return Promise.resolve();
@@ -469,19 +566,25 @@ export function sync(): Promise<void> {
   if (isGuest()) return Promise.resolve();
   if (inflight) return inflight;
   inflight = (async () => {
-    syncState = { ...syncState, syncing: true };
-    emit();
+    await Promise.resolve(); // Assign inflight before any synchronous error/finally can reset it.
     try {
+      syncState = { ...syncState, syncing: true };
+      emit();
       // Finished games first: they're complete and the most valuable.
       // Another account's games wait until it signs in here again.
       for (let g = outbox.find(mineGame); g && canWriteShared(); g = outbox.find(mineGame)) {
         try {
           await pushGame(g);
+          acknowledgeFinished(g);
         } catch (e) {
           if (!isPermanent(e)) throw e;
           // Set it aside so the games behind it still upload; one deleted meanwhile, or deleted
           // on another device (410), is simply gone.
-          if (!deletes.some((d) => d.id === g.setup.id) && !isGone(e)) rejected = [...rejected, { game: g, error: e instanceof Error ? e.message : String(e) }];
+          if (!deletes.some((d) => d.id === g.setup.id) && !isGone(e)) {
+            const error = e instanceof Error ? e.message : String(e);
+            rejectFinished(g, error);
+            rejected = [...rejected, { game: g, error }];
+          } else acknowledgeFinished(g, true);
         }
         // By identity: a delete while this one uploaded may have changed the list.
         outbox = outbox.filter((o) => o !== g);
@@ -494,20 +597,37 @@ export function sync(): Promise<void> {
         const through = current.log[current.log.length - 1]?.seq ?? 0;
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
         emit();
+        if (!current) return;
         const snapshot = current;
+        const snapshotSlot = slot;
+        const stillCurrent = () => slot === snapshotSlot && current?.setup.id === snapshot.setup.id && current.owner === snapshot.owner && mineGame(snapshot);
+        let finished = false;
         try {
-          await pushGame(snapshot);
+          finished = await pushGame(snapshot);
         } catch (e) {
-          if (!isGone(e)) throw e;
+          if (e instanceof ApiError && e.status === 409 && stillCurrent() && !snapshot.log.some((entry) => entry.seq > snapshot.syncedThrough)) {
+            // Old commanders may conflict before POST can return the finished status.
+            // Confirm ownership and status; never discard unconfirmed local events.
+            const saved = await api<{ status: string; can_delete: boolean }>(`/api/games/${snapshot.setup.id}`);
+            if (saved.status !== "finished" || !saved.can_delete) throw e;
+            finished = true;
+          } else if (!isGone(e)) throw e;
           // Whoever recorded it deleted it on another device: it goes from this one too.
-          if (current?.setup.id === snapshot.setup.id) {
+          else if (stillCurrent()) {
             forgetPrompts(snapshot.setup.id);
             current = null;
             derived = null;
           }
         }
+        if (finished && stillCurrent()) {
+          if (current!.log !== snapshot.log) throw new Error("This game has finished on Yama. Your newer changes are kept on this phone; check Game history before continuing.");
+          current = null;
+          derived = null;
+          emit(); // Free the obsolete counter before retaining its small ended marker.
+          rememberServerFinish(snapshot);
+        }
         // Only advance if the game is still the same one (it may have been finished meanwhile).
-        if (current && current.setup.id === snapshot.setup.id) {
+        if (current && stillCurrent()) {
           current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };
         }
       }
@@ -516,6 +636,7 @@ export function sync(): Promise<void> {
       syncState = { ...syncState, syncing: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
       inflight = null;
+      syncState = { ...syncState, syncing: false };
       emit();
     }
   })();
@@ -527,13 +648,15 @@ if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
     const markerKey = current?.owner ? `yama.table.hosting.${current.owner}` : null;
     const markerChanged = event.key === null || (!!markerKey && event.key === markerKey);
-    if (!markerChanged && ![currentKey(), OUTBOX, REJECTED, DELETES, GUEST_GAMES].includes(event.key ?? "")) return;
+    const finishedChanged = isFinishedStorageKey(event.key);
+    if (!markerChanged && !finishedChanged && !storageKeys().includes(event.key ?? "")) return;
     reloadQueues();
-    if (event.key === null || event.key === currentKey()) {
+    if (event.key === null || event.key === currentKey() || finishedChanged) {
       current = read<LocalGame | null>(currentKey(), null);
-      currentIdentity = current?.setup.id ?? null;
       derived = current ? replay(current.setup, current.log) : null;
+      restoreFinished();
     }
+    if (event.key === null || event.key === GUEST_CURRENT) waitingGuest = slot !== "guest" ? readWaitingGuest() : null;
     if (markerChanged) {
       const marked = pendingHostLock(current);
       setSharedReadOnly(marked && marked !== sharedHost ? marked : null);
@@ -543,6 +666,7 @@ if (typeof window !== "undefined") {
   });
   // A game or finished games left on this device from before (a reload, a phone that was off)
   // go up straight away, so sharing and other devices can find them.
+  restoreFinished();
   if (current || outbox.length || deletes.some(mine)) queueMicrotask(() => void sync());
   setInterval(() => {
     if (navigator.onLine && (current || outbox.length || deletes.some(mine))) void sync();
@@ -567,10 +691,12 @@ export function prepareSharing() { emit(); }
 
 /** Revalidate the selected game under the granted host lock, before publishing any state. */
 export function refreshSharedGame(gameId: string): boolean {
-  const saved = read<LocalGame | null>(currentKey(), null);
+  const raw = localStorage.getItem(currentKey());
+  let saved: LocalGame | null;
+  try { saved = raw ? JSON.parse(raw) as LocalGame : null; } catch { return false; }
   if (!saved || current?.setup.id !== gameId || saved.setup.id !== gameId || saved.owner !== current.owner || !mineGame(saved)) return false;
   current = saved;
-  currentIdentity = saved.setup.id;
+  observed.set(currentKey(), raw);
   derived = replay(saved.setup, saved.log);
   reloadQueues();
   queueMicrotask(() => { for (const l of listeners) l(); });
