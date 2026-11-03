@@ -1055,6 +1055,10 @@ Bryan (2026-10-22): "we need to work on importing decks. Make that better." Add 
 - **Checking it** (`web/src/decks/importLogic.ts`): count to 100, commander (marked, guessed or picked), colour identity, extra copies, unknown names with "did you mean" buttons. Count, colours and copies warn; only unknown names and a missing name block saving.
 - **Saving:** the deck routes, with the cards and the printings the source named (`prints`, kept in `deck_prints`, migration 0013; exports prefer an owned copy, then this printing, then a paper default). "Update from a list" on a deck's page saves a new version and shows what goes in and out first.
 
+### Deleting collection containers (2026-11-02)
+
+Selecting a binder, box, deck box or list in Collection exposes a delete action beside its heading. A confirmation explains that cards become loose cards and saved decks remain. The owner-scoped delete transaction merges matching loose rows through collection ops, unlinks saved decks and removes the container. The page refreshes collection totals, containers and deck ownership views after success; failed requests keep the confirmation open for retry.
+
 ### A deck's cards in the collection, and Mythic re-imports (2026-10-23)
 
 Bryan (2026-10-23): "there should be an option to add all the cards from a deck you imported to your collection". His collection came from a Mythic Tools export of his bulk boxes only, so his decks showed 13 to 33 of 100 cards as owned; and a newer Mythic export added every row again. Both are fixed for everyone (`server/src/collection/deck_box.rs`, `server/src/collection/mythic.rs`, migration 0021). Server-planned bulk changes are applied as ordinary collection ops in one transaction; their ids carry the count of the owner's applied ops (`collection::op_stamp`), so a retried request applies once and a later run after any change gets fresh ids.
