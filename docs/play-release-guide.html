@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Put Yama on Google Play — Bryan's walkthrough</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --foreground: light-dark(#17191c, #f1f2f4);
+      --muted-foreground: light-dark(#505660, #b5bbc4);
+      --card: light-dark(#f1f3f5, #202329);
+      --border: light-dark(#c9cdd4, #454b55);
+      --primary: light-dark(#202329, #f1f2f4);
+      --primary-foreground: light-dark(#fff, #17191c);
+      --code-background: light-dark(#eef0f3, #202329);
+      --radius: 12px;
+      --font-sans: system-ui, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--foreground); font: 16px/1.6 var(--font-sans); }
+    main { max-width: 780px; margin: 0 auto; }
+    h1 { font-size: clamp(28px, 5vw, 38px); line-height: 1.15; margin: 16px 0; letter-spacing: -.025em; }
+    h2 { font-size: 25px; line-height: 1.25; margin: 0 0 12px; }
+    h3 { font-size: 18px; margin: 24px 0 8px; }
+    p { margin: 12px 0; }
+    a { color: inherit; text-underline-offset: .2em; overflow-wrap: anywhere; }
+    button, select { font: inherit; }
+    button, .button, select { color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; background: transparent; padding: 9px 12px; min-height: 44px; }
+    button, .button { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { color: var(--primary-foreground); background: var(--primary); border-color: var(--primary); }
+    :focus-visible { outline: 3px solid var(--foreground); outline-offset: 4px; }
+    .subtle, .eyebrow { color: var(--muted-foreground); }
+    .eyebrow { font-size: 14px; margin-bottom: 8px; }
+    .summary, .check { background: var(--card); padding: 16px; border-radius: var(--radius); margin: 20px 0; }
+    .summary p:first-child, .check p:first-child { margin-top: 0; }
+    .summary p:last-child, .check p:last-child { margin-bottom: 0; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+    select { max-width: 100%; width: 100%; }
+    progress { display: block; width: 100%; height: 8px; accent-color: var(--foreground); margin: 12px 0; }
+    section.step { margin: 28px 0; padding-top: 24px; border-top: 1px solid var(--border); scroll-margin-top: 16px; }
+    ol, ul { padding-left: 25px; }
+    li { padding-left: 3px; margin: 10px 0; }
+    code { font: .9em/1.5 var(--font-mono); overflow-wrap: anywhere; }
+    p code, li code, td code, dd code { background: var(--code-background); border-radius: 4px; padding: 2px 4px; }
+    pre { background: var(--code-background); border-radius: 8px; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+    pre code { font-size: 13px; }
+    .copy { margin-top: -4px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { text-align: left; vertical-align: top; padding: 12px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+    th:first-child, td:first-child { padding-left: 0; }
+    th:last-child, td:last-child { padding-right: 0; }
+    th { font-size: 14px; }
+    .facts { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: 10px 16px; }
+    dt { color: var(--muted-foreground); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .done { display: flex; align-items: start; gap: 10px; padding: 14px 0; cursor: pointer; }
+    .done input { margin-top: 6px; width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--foreground); }
+    .controls { border-top: 1px solid var(--border); padding-top: 16px; justify-content: space-between; }
+    .controls .toolbar { margin: 0; }
+    footer { margin: 30px 0; font-size: 14px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 480px) {
+      .facts { grid-template-columns: 1fr; gap: 2px; }
+      dd { margin-bottom: 10px; }
+      th, td { padding: 10px 5px; font-size: 14px; }
+      pre { padding: 12px; }
+    }
+    @media print {
+      :root { color-scheme: light; }
+      main { max-width: none; }
+      .toolbar, .controls, .done, progress, #progress-note, #storage-note, .copy, .jump { display: none !important; }
+      section.step[hidden] { display: block !important; }
+      section.step { break-inside: auto; }
+      h2, h3 { break-after: avoid; }
+      a::after { content: " (" attr(href) ")"; font-size: 10px; overflow-wrap: anywhere; }
+      a[href^="#"]::after { content: none; }
+    }
+  </style>
+</head>
+<body>
+<main id="guide">
+  <header>
+    <p class="eyebrow">Yama / Google Play / Checked 3 November 2026</p>
+    <h1>Get Yama onto your phone.<br>Then invite your friends.</h1>
+    <p>Work through one step at a time. Each step says where to go, what to enter, and what you should see before moving on. You can stop between steps and return later.</p>
+    <div class="summary">
+      <p><strong>The goal:</strong> a free Android app on Google Play's <strong>closed testing</strong> track, available to the friends you choose.</p>
+      <p>The app code, power-user restrictions, and account-deletion feature are merged. This guide covers the remaining setup and verification; it does not mean the app has already been published or that real-device Google sign-in has passed.</p>
+      <p><strong>You will use three places:</strong> Google Cloud for sign-in, GitHub for builds, and Play Console for distribution. They are separate websites.</p>
+    </div>
+  </header>
+
+  <div class="jump" hidden>
+    <label for="step-picker"><strong>Jump to a step</strong></label>
+    <select id="step-picker"></select>
+  </div>
+  <div class="toolbar" id="view-controls" hidden>
+    <button id="view-all" type="button" aria-pressed="false">Show all steps</button>
+    <button id="print" type="button">Print / save as PDF</button>
+  </div>
+  <p id="progress-note" class="subtle" aria-live="polite" hidden></p>
+  <progress id="progress" max="12" value="0" aria-label="Steps you have marked complete" hidden></progress>
+  <p id="storage-note" class="subtle" hidden></p>
+  <noscript><p>JavaScript is off, so every step is shown below. The guide is still readable and printable; progress and copy buttons need JavaScript.</p></noscript>
+
+  <section class="step" id="step-1" data-title="Get your tabs and details ready">
+    <p class="eyebrow">Step 1 of 12 / Before you start</p>
+    <h2>Get your tabs and details ready</h2>
+    <ol>
+      <li>Open <a href="https://console.cloud.google.com/auth/clients?project=yama-512101" target="_blank" rel="noopener noreferrer">Google Cloud: Yama's sign-in clients</a>.</li>
+      <li>Open <a href="https://github.com/bryanroscoe/yama" target="_blank" rel="noopener noreferrer">the private Yama GitHub repository</a>.</li>
+      <li>Open <a href="https://play.google.com/console/" target="_blank" rel="noopener noreferrer">Google Play Console</a>. Use your existing personal developer account.</li>
+      <li>Have 1Password available, plus an Android phone signed into a Google account and connected to the internet.</li>
+    </ol>
+    <dl class="facts">
+      <dt>App name</dt><dd>Yama</dd>
+      <dt>Package name</dt><dd><code>ing.yama.app</code> — use this exact value.</dd>
+      <dt>Cloud project</dt><dd><code>yama-512101</code> — confirm this contains the existing Yama Web OAuth client.</dd>
+      <dt>Live server</dt><dd><a href="https://yama.ing/" target="_blank" rel="noopener noreferrer">https://yama.ing</a></dd>
+      <dt>Privacy policy</dt><dd><a href="https://yama.ing/privacy/" target="_blank" rel="noopener noreferrer">https://yama.ing/privacy/</a></dd>
+      <dt>Delete-account link</dt><dd><a href="https://yama.ing/delete-account/" target="_blank" rel="noopener noreferrer">https://yama.ing/delete-account/</a></dd>
+    </dl>
+    <h3>One product choice before submission</h3>
+    <p>The current Android build includes the full app, including online Play. Ordinary users still cannot use Ask Claude or start simulations; an admin must grant power-user access.</p>
+    <p>You can follow the setup with this build. Before submitting it, decide whether you want to keep the full app or ask the coding agent for a companion-only build. There is currently <strong>no Console switch</strong> that removes online Play. A companion-only build needs a code change and a new bundle. Do not advertise native ML Kit scanning as shipped; that is future work.</p>
+    <div class="check"><strong>Done when:</strong> you can access all three websites, have identified the Yama Cloud project, and understand which build you are preparing.</div>
+  </section>
+
+  <section class="step" id="step-2" data-title="Tell Google about the debug app">
+    <p class="eyebrow">Step 2 of 12 / Google Cloud</p>
+    <h2>Tell Google about the debug app</h2>
+    <p>This lets the test APK built by GitHub use Google sign-in. An <strong>OAuth client</strong> is Google's registration for this particular app and signing certificate.</p>
+    <ol>
+      <li>In <a href="https://console.cloud.google.com/auth/clients?project=yama-512101" target="_blank" rel="noopener noreferrer">Google Auth Platform → Clients</a>, confirm the selected project is <code>yama-512101</code>. Older menus may put this under <strong>APIs &amp; Services → Credentials</strong>.</li>
+      <li>Leave the existing <strong>Web application</strong> client alone. The server and app already use its ID.</li>
+      <li>Look for an Android client with the package and fingerprint below. If it exists, reuse it. Otherwise click <strong>Create client</strong>, then select <strong>Android</strong>.</li>
+      <li>Enter these values, then click <strong>Create</strong>:</li>
+    </ol>
+    <dl class="facts">
+      <dt>Name</dt><dd><code>Yama Android — debug</code> (a label for you)</dd>
+      <dt>Package name</dt><dd><code>ing.yama.app</code></dd>
+      <dt>SHA-1 fingerprint</dt><dd><code id="debug-sha">6C:A1:81:95:06:8A:FA:72:F9:3F:FB:6F:52:0C:EB:F3:5F:0F:4F:F7</code></dd>
+    </dl>
+    <button class="copy" data-copy="debug-sha" type="button" hidden>Copy debug SHA-1</button>
+    <p>The fingerprint comes from Yama's checked-in debug keystore. It is public certificate information, not a password. Copy <strong>SHA-1</strong>, not SHA-256.</p>
+    <p>You do not need to paste the new Android client ID into Yama, change the existing Web client, or add Android IDs to <code>YAMA_GOOGLE_CLIENT_IDS</code>. If Google says the package/fingerprint pair already exists, find that client rather than generating a different key.</p>
+    <p class="subtle">If Google Auth Platform asks for initial setup or you cannot find the existing Web client, stop and confirm the project rather than creating a second project. <a href="https://support.google.com/cloud/answer/15549257?hl=en" target="_blank" rel="noopener noreferrer">Google's client setup instructions</a>.</p>
+    <div class="check"><strong>Done when:</strong> the Clients list contains an Android registration for <code>ing.yama.app</code> with this exact debug SHA-1.</div>
+  </section>
+
+  <section class="step" id="step-3" data-title="Create and save your upload key">
+    <p class="eyebrow">Step 3 of 12 / Your Mac and 1Password</p>
+    <h2>Create and save your upload key</h2>
+    <p>The upload key signs the file you send to Google. Google later signs the app people install with a different key. Keep your upload key for future updates.</p>
+    <ol>
+      <li>Open <strong>Terminal</strong> on your Mac (Spotlight → type “Terminal” → Return).</li>
+      <li>Paste the following block and press Return. This saves the key outside every Git repository. If a key already exists, the command says so and leaves it alone; use the saved key and its known passwords.</li>
+    </ol>
+    <pre><code id="key-command">umask 077
+mkdir -p "$HOME/.config/yama/android"
+chmod 700 "$HOME/.config/yama/android"
+if [ -e "$HOME/.config/yama/android/yama-upload.jks" ]; then
+  printf 'An upload key already exists. Reuse it and its saved passwords.\n'
+else
+  /opt/homebrew/opt/openjdk@21/bin/keytool -genkeypair \
+    -storetype JKS \
+    -keystore "$HOME/.config/yama/android/yama-upload.jks" \
+    -alias upload -keyalg RSA -keysize 2048 -validity 10950
+fi
+if [ -f "$HOME/.config/yama/android/yama-upload.jks" ]; then
+  chmod 600 "$HOME/.config/yama/android/yama-upload.jks"
+fi</code></pre>
+    <button class="copy" data-copy="key-command" type="button" hidden>Copy key-creation command</button>
+    <ol start="3">
+      <li>When asked for a keystore password, generate and save a strong password in 1Password. Terminal hides password typing; that is normal.</li>
+      <li>Answer the certificate identity questions with your personal details. Do not use your work email. Confirm the details when asked. At the separate key-password prompt, press Return to reuse the keystore password.</li>
+      <li>In 1Password, save an item named <strong>Yama Android upload signing</strong>. Attach <code>yama-upload.jks</code> from <code>~/.config/yama/android/</code>; Finder → Go → Go to Folder can open that path. Save the alias <code>upload</code>, keystore password, and key password in the same item.</li>
+    </ol>
+    <p><strong>If “No such file or directory” names keytool:</strong> JDK 21 is missing from the expected Homebrew location. Ask the coding agent to locate or install JDK 21. You do not need to install Android Studio or the Android SDK to make this key.</p>
+    <p><strong>If you already had a key but lost its passwords:</strong> stop here and recover the saved item. Do not overwrite an existing signing key.</p>
+    <p class="subtle"><a href="https://developer.android.com/studio/publish/app-signing" target="_blank" rel="noopener noreferrer">Google's explanation of upload keys and Play App Signing</a>.</p>
+    <div class="check"><strong>Done when:</strong> the key exists locally and a recoverable copy, alias, and both passwords are in 1Password. Do not put any of these in this guide, a commit, a screenshot, or chat.</div>
+  </section>
+
+  <section class="step" id="step-4" data-title="Give GitHub the four signing secrets">
+    <p class="eyebrow">Step 4 of 12 / GitHub</p>
+    <h2>Give GitHub the four signing secrets</h2>
+    <ol>
+      <li>Open <a href="https://github.com/bryanroscoe/yama/settings/secrets/actions" target="_blank" rel="noopener noreferrer">Yama → Settings → Secrets and variables → Actions</a>.</li>
+      <li>Under <strong>Repository secrets</strong>, use <strong>New repository secret</strong>. These are secrets, not repository variables or environment secrets.</li>
+      <li>Add each of the four names below exactly. If a secret already exists, update it only with the matching saved key's value.</li>
+    </ol>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Secret name</th><th>What goes in it</th></tr></thead>
+      <tbody>
+        <tr><td><code>ANDROID_UPLOAD_KEYSTORE_BASE64</code></td><td>The encoded keystore copied by the command below.</td></tr>
+        <tr><td><code>ANDROID_UPLOAD_KEYSTORE_PASSWORD</code></td><td>Your keystore password from 1Password.</td></tr>
+        <tr><td><code>ANDROID_UPLOAD_KEY_ALIAS</code></td><td><code>upload</code>, if you created the key in step 3.</td></tr>
+        <tr><td><code>ANDROID_UPLOAD_KEY_PASSWORD</code></td><td>Your key password. Same as the keystore password if you pressed Return at that prompt.</td></tr>
+      </tbody>
+    </table></div>
+    <p>For the first secret, run this in Terminal. It copies the encoded key to your clipboard without printing it:</p>
+    <pre><code id="base64-command">base64 -i "$HOME/.config/yama/android/yama-upload.jks" | pbcopy</code></pre>
+    <button class="copy" data-copy="base64-command" type="button" hidden>Copy encoding command</button>
+    <p>Then paste into the <strong>Secret</strong> field for <code>ANDROID_UPLOAD_KEYSTORE_BASE64</code> and save. Afterward you can clear the clipboard with <code>printf '' | pbcopy</code>. Paste passwords only into GitHub's secret fields; never put them in a shell command.</p>
+    <div class="check"><strong>Done when:</strong> GitHub lists all four repository-secret names. GitHub will not show their saved values again; that is expected.</div>
+  </section>
+
+  <section class="step" id="step-5" data-title="Build the APK and Play bundle">
+    <p class="eyebrow">Step 5 of 12 / GitHub Actions</p>
+    <h2>Build the APK and Play bundle</h2>
+    <p>This is one manual Android build. It uses GitHub Actions minutes. General CI tests are currently switched off; <strong>do not turn them on</strong> just to do this. The Android workflow permits a manual run while they are off.</p>
+    <ol>
+      <li>Open <a href="https://github.com/bryanroscoe/yama/actions/workflows/android.yml" target="_blank" rel="noopener noreferrer">Yama → Actions → Android</a>.</li>
+      <li>Click <strong>Run workflow</strong>, select branch <strong>main</strong>, then confirm <strong>Run workflow</strong>.</li>
+      <li>Open the new run. The job is named <strong>Build the Android app</strong>. The running job has a <strong>30-minute timeout</strong>; time sitting in GitHub's queue is separate.</li>
+      <li>If it fails, open the first failed step. A build-password error means check the four secrets; an Actions billing error means resolve the account limit or ask the agent to build locally under the disk/compiler rules. Do not enable unrelated CI or repeatedly retry the same failure.</li>
+      <li>When it succeeds, open <strong>Signing certificates (for the Android OAuth clients)</strong>. Check that the release variant has a real signing configuration and SHA-1. If the log says <strong>“No upload key in secrets: the release bundle stays unsigned”</strong>, the green build is not ready for Play. Fix the secrets and start a new run.</li>
+      <li>On the run's summary page, scroll to <strong>Artifacts</strong> and download <code>yama-android-N</code>, where N is the run number. Unzip it.</li>
+    </ol>
+    <dl class="facts">
+      <dt><code>app-debug.apk</code></dt><dd>Install this on your own phone for step 6. It uses the debug certificate from step 2.</dd>
+      <dt><code>app-release.aab</code></dt><dd>Upload this to Play Console in step 8. An AAB cannot be installed by tapping it on a phone.</dd>
+    </dl>
+    <p>Keep the run URL and bundle together. Artifacts expire after <strong>14 days</strong>. Each fresh workflow run gets a new version code; <strong>start a new run</strong> for a new Play upload instead of rerunning an old run. Play requires increasing version codes.</p>
+    <p><strong>About the third certificate:</strong> the upload SHA-1 printed here is not Play's app-signing SHA-1. You only need an additional “Yama Android — upload” OAuth client if you later install a release APK signed directly with this upload key. The current workflow emits a debug APK and an AAB, so that extra client is optional for this walkthrough.</p>
+    <div class="check"><strong>Done when:</strong> you have a successful run, a signed release bundle, and the debug APK downloaded.</div>
+  </section>
+
+  <section class="step" id="step-6" data-title="Try Google sign-in on your phone">
+    <p class="eyebrow">Step 6 of 12 / Your Android phone</p>
+    <h2>Try Google sign-in on your phone</h2>
+    <ol>
+      <li>Transfer <code>app-debug.apk</code> to your phone using a USB cable or your own private file transfer. Open it in Files or Downloads.</li>
+      <li>If Android asks, allow that file-opening app to <strong>install unknown apps</strong>, then install Yama. You can revoke that permission afterward.</li>
+      <li>Open Yama. Confirm the life counter and navigation appear.</li>
+      <li>Tap <strong>Sign in → Sign in with Google</strong>, pick your Google account, and complete sign-in.</li>
+      <li>Open a private page, such as your Decks or Collection. Seeing your own data is the proof of sign-in; just seeing Google's account picker is not enough.</li>
+    </ol>
+    <h3>If sign-in fails</h3>
+    <ul>
+      <li><strong>Account picker opens, then errors:</strong> check step 2's project, package, and debug SHA-1. Cloud changes can take time to propagate; allow a few minutes before testing again.</li>
+      <li><strong>Google says access is blocked or restricted:</strong> check Google Auth Platform → Audience. If the OAuth project is in testing and Google restricts access, add your tester account there. This list is separate from Play's testers. Do not change scopes or the existing Web client to guess at a fix.</li>
+      <li><strong>No data loads:</strong> open <a href="https://yama.ing/" target="_blank" rel="noopener noreferrer">yama.ing</a> in the phone browser. If the website works but the app does not, give the agent the exact error and build-run URL.</li>
+      <li><strong>“App not installed” / signature conflict:</strong> another Yama install may use a different signing key. Sync anything you want to keep before uninstalling it; uninstalling removes its local app data.</li>
+    </ul>
+    <div class="check"><strong>Done when:</strong> you have signed into the installed APK on a real phone and opened your private data successfully.</div>
+  </section>
+
+  <section class="step" id="step-7" data-title="Create Yama in Play Console">
+    <p class="eyebrow">Step 7 of 12 / Play Console</p>
+    <h2>Create Yama in Play Console</h2>
+    <ol>
+      <li>Open <a href="https://play.google.com/console/" target="_blank" rel="noopener noreferrer">Play Console</a>. If Yama already exists, open it instead of creating another app.</li>
+      <li>Otherwise click <strong>Create app</strong>. Enter name <strong>Yama</strong>, choose your default language, select <strong>App</strong> for the current companion/tracking listing, and choose <strong>Free</strong>. If you decide to market the full game client, revisit its category and disclosures before submission.</li>
+      <li>Read and complete Google's declarations, then click <strong>Create app</strong>. Complete any developer identity, contact, or device-verification tasks the Console shows for your account.</li>
+      <li>In the app Dashboard, note any production-access testing requirement. Your account's age has not been verified here. Google's 12-testers-for-14-days rule applies to personal accounts created after <strong>13 November 2023</strong>; use what the Console says for this account.</li>
+    </ol>
+    <p>Choosing “Free” is intentional: Yama is free. The package <code>ing.yama.app</code> comes from the uploaded bundle and identifies this app permanently on Play.</p>
+    <p class="subtle"><a href="https://support.google.com/googleplay/android-developer/answer/14151465?hl=en" target="_blank" rel="noopener noreferrer">Google's account-specific testing requirements</a>. Closed testing is still the plan even if your older account has no production-access gate.</p>
+    <div class="check"><strong>Done when:</strong> you are inside Yama's Play Console dashboard and know which account-verification or testing tasks it requires.</div>
+  </section>
+
+  <section class="step" id="step-8" data-title="Upload the bundle and let Google sign it">
+    <p class="eyebrow">Step 8 of 12 / Play Console</p>
+    <h2>Upload the bundle and let Google sign it</h2>
+    <ol>
+      <li>Go to <strong>Test and release → Testing → Closed testing</strong>. Use or create the first closed track; call it <strong>Friends beta</strong> if a track name is requested.</li>
+      <li>Click <strong>Create new release</strong>. Follow the Play App Signing setup. For this new app, let Google generate and protect the app-signing key.</li>
+      <li>Upload <code>app-release.aab</code> from step 5. Let Play finish processing it. Confirm the package is <code>ing.yama.app</code> and check for signing or target-API errors. The repository currently targets API 36.</li>
+      <li>Give it a release name such as <strong>First friends beta</strong> and release notes such as “First closed test of Yama on Android. Please try sign-in, collection, decks, scanning and the life counter.”</li>
+      <li><strong>Save the draft.</strong> Complete steps 9 and 10 before submitting or rolling it out. If Console asks for unfinished app details first, complete those in step 10, then return here.</li>
+    </ol>
+    <h3>If Play refuses the file</h3>
+    <ul>
+      <li><strong>Unsigned:</strong> fix step 4's secrets and start a fresh Android workflow run.</li>
+      <li><strong>Version code already used:</strong> start a fresh workflow run, download its new AAB, and upload that file.</li>
+      <li><strong>Wrong upload certificate:</strong> find the key already registered for this Play app. Do not generate replacement keys at random; an existing app may require an upload-key reset.</li>
+    </ul>
+    <p class="subtle">A successful server deploy does not publish an Android release. Uploading a draft also does not distribute it. <a href="https://developer.android.com/studio/publish/app-signing" target="_blank" rel="noopener noreferrer">Signing documentation</a> and <a href="https://support.google.com/googleplay/android-developer/answer/11926878?hl=en" target="_blank" rel="noopener noreferrer">target API requirements</a>.</p>
+    <div class="check"><strong>Done when:</strong> Play has accepted the signed AAB into a saved draft and Play App Signing is configured.</div>
+  </section>
+
+  <section class="step" id="step-9" data-title="Register Google's Play signing certificate">
+    <p class="eyebrow">Step 9 of 12 / Play Console, then Google Cloud</p>
+    <h2>Register Google's Play signing certificate</h2>
+    <p>This is the step that makes Google sign-in work for people who install from Play. A working debug APK does not prove the Play-installed app can sign in.</p>
+    <ol>
+      <li>In Play Console, open <strong>Test and release → Setup → App integrity</strong> (some Console layouts place <strong>App integrity</strong> directly under Test and release). Open its <strong>App signing</strong> section.</li>
+      <li>Find <strong>App signing key certificate</strong>. Copy its <strong>SHA-1 certificate fingerprint</strong>. Do not copy the nearby <strong>Upload key certificate</strong> fingerprint.</li>
+      <li>Return to <a href="https://console.cloud.google.com/auth/clients?project=yama-512101" target="_blank" rel="noopener noreferrer">Google Auth Platform → Clients</a> in the same Yama project used in step 2.</li>
+      <li>Create another <strong>Android</strong> client: name <code>Yama Android — Play</code>, package <code>ing.yama.app</code>, SHA-1 equal to the <strong>app-signing</strong> fingerprint you just copied. If it already exists with that exact pair, reuse it.</li>
+      <li>Keep the debug client as well. These registrations can coexist. This change does not require rebuilding the AAB or replacing the existing Web client.</li>
+    </ol>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Certificate</th><th>Used for</th><th>OAuth registration</th></tr></thead>
+      <tbody>
+        <tr><td>Debug</td><td><code>app-debug.apk</code></td><td>Step 2's fixed SHA-1</td></tr>
+        <tr><td>Upload</td><td>Signing the AAB sent to Google</td><td>Optional for this walkthrough; not the installed Play app</td></tr>
+        <tr><td>Play app signing</td><td>The app installed from Google Play</td><td>This step's SHA-1 from App integrity</td></tr>
+      </tbody>
+    </table></div>
+    <p>Use regular closed testing here, not <strong>Internal app sharing</strong>. Internal app sharing can use a separate signing certificate and would need its own Google registration.</p>
+    <p class="subtle"><a href="https://developers.google.com/android/guides/client-auth" target="_blank" rel="noopener noreferrer">Google's certificate and SHA-1 instructions</a>.</p>
+    <div class="check"><strong>Done when:</strong> Google Cloud has an Android OAuth client for the actual Play app-signing fingerprint, alongside the debug client.</div>
+  </section>
+
+  <section class="step" id="step-10" data-title="Complete the listing and app-content forms">
+    <p class="eyebrow">Step 10 of 12 / Play Console</p>
+    <h2>Complete the listing and app-content forms</h2>
+    <p>Follow the remaining setup tasks in Yama's Dashboard. Console labels move; the page names below are the useful things to look for.</p>
+    <h3>Store listing and contact details</h3>
+    <ol>
+      <li>Open <strong>Grow users → Store presence → Main store listing</strong>. Use app name <strong>Yama</strong> and short description <strong>Track Commander games, life totals, decks and your Magic card collection.</strong></li>
+      <li>For the full description, explain the tracking features, Google sign-in, and the friends beta. Include: <strong>“Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.”</strong> Describe only features in the uploaded build; AI tools and simulations are restricted to approved power users.</li>
+      <li>Upload a <strong>512 × 512 PNG icon</strong>, a <strong>1024 × 500 feature graphic</strong>, and at least <strong>two actual phone screenshots</strong>. Follow the Console's dimension checks. Use screens and original artwork you can distribute; the project rule is no Wizards logos or card images in the listing. Take screenshots with private account information hidden and card-art backgrounds turned off.</li>
+      <li>In <strong>Store settings</strong>, set support email <code>bryanroscoe@gmail.com</code> and website <code>https://yama.ing</code>. Choose the category and tags that accurately describe the build.</li>
+    </ol>
+    <p class="subtle"><a href="https://support.google.com/googleplay/android-developer/answer/9866151?hl=en" target="_blank" rel="noopener noreferrer">Official asset requirements</a>. Assets are not generated by this guide; prepare the missing icon/feature graphic/screenshots before submission.</p>
+    <h3>App content</h3>
+    <p>Open <strong>Policy and programs → App content</strong> (or its Dashboard tasks), then work through each required declaration:</p>
+    <ul>
+      <li><strong>Privacy policy:</strong> enter <code>https://yama.ing/privacy/</code>. Open it and the deletion page on your phone to check both load.</li>
+      <li><strong>Ads:</strong> the current app has no advertising; confirm this still matches the uploaded build.</li>
+      <li><strong>App access:</strong> some features require Google sign-in. Explain how a reviewer signs in with their own verified Google account; ordinary accounts need no invitation. State that AI and simulation controls are intentionally role-restricted. Use the Console's instructions to supply any further reviewer access it requires. Do not claim the whole app works without sign-in or give away your personal Google credentials. If Google requires access to restricted features, ask the agent to arrange a review path before submitting.</li>
+      <li><strong>Content rating:</strong> answer the questionnaire for what is actually included, including online interactions and the game client if kept. Let the questionnaire determine the rating.</li>
+      <li><strong>Target audience:</strong> choose the ages you actually intend to serve. The current privacy policy says the app is not intended for children under 13. Do not choose children's audiences as a way to fill a blank; reconcile any conflicting choices with the policy first.</li>
+      <li><strong>Other Dashboard declarations:</strong> complete any account-specific or category-specific tasks shown. Read each one rather than selecting “No” across the board.</li>
+    </ul>
+    <h3>Data safety: use the app's real behavior</h3>
+    <p>Yama stores account information and saved user content on its server, so <strong>“collects no data” is not accurate</strong>. This table is a starting inventory, not a pre-approved form:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>What to inspect</th><th>Current implementation to account for</th></tr></thead>
+      <tbody>
+        <tr><td>Name, email, user IDs</td><td>Basic Google profile and account ID are stored for account management and app functionality.</td></tr>
+        <tr><td>User content</td><td>Decks, collection, games, playgroups, plans, and any other content saved by signed-in users.</td></tr>
+        <tr><td>Sharing and providers</td><td>Opt-in public decks/collection, connected MCP apps, and power-user AI features; Google, Cloudflare, Scryfall, and Commander Spellbook. Review Google's definitions and service-provider/user-directed-transfer exceptions before classifying “shared.”</td></tr>
+        <tr><td>Camera and photos</td><td>Inspect the scanner and all included SDKs. A permission alone does not establish that photos leave the device; do not guess either way.</td></tr>
+        <tr><td>Security and deletion</td><td>HTTPS, Google sign-in, and account deletion in Group → You → Delete account. Enter web deletion URL <code>https://yama.ing/delete-account/</code>.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Use the privacy policy and an agent review of the exact build to finish the form, including required/optional data, purposes, third-party SDKs, and retention. Do not promise immediate erasure from every backup; confirm the current retention policy. This applies to power-user features too if they remain in the shipped package.</p>
+    <p class="subtle"><a href="https://support.google.com/googleplay/android-developer/answer/10787469?hl=en" target="_blank" rel="noopener noreferrer">Google's Data safety definitions</a> and <a href="https://support.google.com/googleplay/android-developer/answer/13327111?hl=en" target="_blank" rel="noopener noreferrer">account-deletion requirements</a>.</p>
+    <div class="check"><strong>Done when:</strong> the required Dashboard tasks are complete, actual listing assets are uploaded, and the declarations accurately match the bundle. If data handling or reviewer access remains unanswered, leave the release as a draft and resolve it.</div>
+  </section>
+
+  <section class="step" id="step-11" data-title="Choose testers and release the closed test">
+    <p class="eyebrow">Step 11 of 12 / Play Console</p>
+    <h2>Choose testers and release the closed test</h2>
+    <ol>
+      <li>Return to <strong>Test and release → Testing → Closed testing</strong> and open your Friends beta track.</li>
+      <li>On its <strong>Testers</strong> tab, create an email list with your own Google-account email first. Add the Google-account emails of the friends you want to invite, or choose a Google Group you control. Save.</li>
+      <li>Select the countries/regions where your testers live. Check the track's availability settings, not just the email list.</li>
+      <li>Open the saved release. Review the bundle, notes, and Console errors. Fix blocking errors; then use the Console's <strong>Review release</strong>, <strong>Send for review</strong>, or <strong>Start rollout to closed testing</strong> actions as shown.</li>
+      <li>Check <strong>Publishing overview</strong>. If managed publishing is enabled, approval can still require a separate <strong>Publish changes</strong> action. Wait for the release to become available, not merely saved or sent for review.</li>
+      <li>Copy the track's <strong>opt-in link</strong> from the Testers page. First open it yourself using the same Google account you added. Join the test, then follow the link to install from Google Play.</li>
+      <li>Once your own Play install passes step 12, send friends the opt-in link. Tell them which Google account must open it, and ask them to join the test before installing.</li>
+    </ol>
+    <p>If the link says the app is unavailable, check tester email, opt-in status, selected countries, and release availability. First-time test links may take several hours to become available. Approval is not instant.</p>
+    <p><strong>Switching from the debug APK:</strong> Play's signing certificate differs, so Android may require uninstalling the debug app. Sync saved work first. Uninstalling deletes the app's local data. Then install from the regular closed-testing Play link.</p>
+    <p class="subtle"><a href="https://support.google.com/googleplay/android-developer/answer/9845334?hl=en" target="_blank" rel="noopener noreferrer">Google's testing-track instructions</a>. Closed testing limits distribution; it does not automatically make someone a Yama power user.</p>
+    <div class="check"><strong>Done when:</strong> the closed release is available and you have installed it from Google Play using an eligible, opted-in account.</div>
+  </section>
+
+  <section class="step" id="step-12" data-title="Verify the Play install and record the handoff">
+    <p class="eyebrow">Step 12 of 12 / Your phone and Yama</p>
+    <h2>Verify the Play install and record the handoff</h2>
+    <p>Use the app installed from <strong>Google Play</strong>, not the debug APK or the website.</p>
+    <ol>
+      <li><strong>Google sign-in:</strong> sign in and open your private Collection or Decks. If debug sign-in worked but this fails, recheck step 9's Play app-signing SHA-1.</li>
+      <li><strong>Ordinary-account restrictions:</strong> use a non-admin, non-power-user account to confirm Ask Claude and simulation-start controls are unavailable. Existing results should remain readable where authorized. Do not grant every tester power-user access; if desired, grant specific friends in <strong>Admin → People</strong>.</li>
+      <li><strong>Phone features:</strong> try camera scanning, Android Back, one deck/collection export through the share sheet, and opening the privacy link in the browser. After the app has loaded, try the life counter offline, then reconnect and verify saved changes sync.</li>
+      <li><strong>Deletion:</strong> use only a disposable, non-admin test account with no data you need. Check <strong>Group → You → Delete account</strong>, confirm that account's email, and verify its old session loses access. Do not run this test on your main account. The website's <code>/delete-account/</code> instructions must also work without the Android app.</li>
+      <li><strong>Record the release:</strong> put the build-run URL, version code, closed-track name, test opt-in link, date, and test results into a private release note or the PR. Certificate fingerprints are public; keep signing keys and passwords in 1Password and the local credential folder.</li>
+    </ol>
+    <div class="check"><strong>The friends beta is ready when:</strong> a Play-installed copy can sign in, the checks above pass, and invited testers can join through the saved link. A green build, successful upload, or healthy website alone does not prove that.</div>
+    <h3>Later: going beyond the friends beta</h3>
+    <p>Keep the closed test running while you gather feedback. If the account has the newer-personal-account gate, meet the Console's 12-testers/14-continuous-days requirement and apply for production access. Production or open testing is a separate release decision; finishing this guide does not publish to everyone.</p>
+    <h3>If an agent or build gets stuck</h3>
+    <p>The Android build job already has a 30-minute running limit. If a job stays queued for 10 minutes, inspect Actions capacity/billing before starting more jobs. Google review and certificate propagation are external waits; check their actual status rather than launching more builds.</p>
+    <p>The earlier stop guard only covers Claude turn endings. A timeout mechanism across every agent is <strong>not implemented by this guide</strong>. Give an agent this instruction when handing work back:</p>
+    <pre><code id="handoff-command">Report the exact build/PR/deploy and its current state. Bound each wait to at most two hours and arrange a supported wake-up. On timeout, inspect the real state and report the blocker. Do not claim that a skipped check, uploaded draft, or debug sign-in proves the Play release works.</code></pre>
+    <button class="copy" data-copy="handoff-command" type="button" hidden>Copy agent handoff</button>
+  </section>
+
+  <div class="controls toolbar" id="navigation" hidden>
+    <button id="previous" type="button">Previous</button>
+    <div class="toolbar">
+      <button id="mark-done" type="button">Mark complete</button>
+      <button id="next" class="primary" type="button">Next step</button>
+    </div>
+  </div>
+  <footer>
+    <p>This is a private operator guide, kept in the repository rather than the public app. It makes no Cloud, GitHub, or Play changes automatically. Progress is a checklist you control, not a live verification of those accounts.</p>
+    <p>Repository details checked against <code>.github/workflows/android.yml</code>, <code>web/android/app/build.gradle</code>, <code>web/src/native.ts</code>, and <code>docs/ci.md</code> on 3 November 2026. See <a href="mobile.md">the mobile architecture notes</a> for implementation details. Google changes Console labels and requirements; follow linked official documentation and the current Dashboard when they differ.</p>
+    <p id="interaction-status" role="status" aria-live="polite"></p>
+  </footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const steps = Array.from(document.querySelectorAll('.step'));
+  const picker = document.getElementById('step-picker');
+  const key = 'yama-play-release-guide-v1';
+  let selected = 0;
+  let all = false;
+  let completed = [];
+  let storageWorks = true;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || '{}');
+    if (Array.isArray(saved.completed)) completed = [...new Set(saved.completed.filter(id => steps.some(step => step.id === id)))];
+    if (Number.isInteger(saved.selected) && saved.selected >= 0 && saved.selected < steps.length) selected = saved.selected;
+  } catch { storageWorks = false; }
+  function save() {
+    try { localStorage.setItem(key, JSON.stringify({ selected, completed })); }
+    catch { storageWorks = false; }
+    const note = document.getElementById('storage-note');
+    note.hidden = false;
+    note.textContent = storageWorks
+      ? 'Progress stays in this browser on this device. Opening another copy or clearing browser data may reset it. No passwords are saved here.'
+      : 'This browser is blocking local storage. You can use the guide, but progress will not survive closing it. Print a copy to keep your place.';
+  }
+  steps.forEach((step, index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    picker.append(option);
+    const label = document.createElement('label');
+    label.className = 'done';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = completed.includes(step.id);
+    box.addEventListener('change', () => {
+      completed = completed.filter(id => id !== step.id);
+      if (box.checked) completed.push(step.id);
+      save(); render();
+    });
+    const text = document.createElement('span');
+    text.textContent = 'I checked the “Done when” result for this step.';
+    label.append(box, text);
+    step.append(label);
+    step.querySelector('h2').tabIndex = -1;
+  });
+  function render() {
+    steps.forEach((step, index) => {
+      step.hidden = !all && index !== selected;
+      step.querySelector('input[type="checkbox"]').checked = completed.includes(step.id);
+      picker.options[index].textContent = `${completed.includes(step.id) ? '✓ ' : ''}${index + 1}. ${step.dataset.title}`;
+    });
+    picker.value = String(selected);
+    document.getElementById('previous').disabled = selected === 0;
+    document.getElementById('next').disabled = selected === steps.length - 1;
+    document.getElementById('mark-done').textContent = completed.includes(steps[selected].id) ? 'Mark incomplete' : 'Mark complete';
+    document.getElementById('view-all').textContent = all ? 'Show one step' : 'Show all steps';
+    document.getElementById('view-all').setAttribute('aria-pressed', String(all));
+    document.getElementById('navigation').hidden = all;
+    document.getElementById('progress').value = completed.length;
+    document.getElementById('progress-note').textContent = `${completed.length} of ${steps.length} steps marked complete. ${all ? 'Showing all steps.' : `Reading step ${selected + 1}.`}`;
+  }
+  function go(index) {
+    selected = Math.max(0, Math.min(steps.length - 1, index));
+    all = false;
+    save(); render();
+    steps[selected].querySelector('h2').focus();
+  }
+  picker.addEventListener('change', () => go(Number(picker.value)));
+  document.getElementById('previous').addEventListener('click', () => go(selected - 1));
+  document.getElementById('next').addEventListener('click', () => go(selected + 1));
+  document.getElementById('mark-done').addEventListener('click', () => steps[selected].querySelector('input[type="checkbox"]').click());
+  document.getElementById('view-all').addEventListener('click', () => { all = !all; render(); });
+  document.getElementById('print').addEventListener('click', () => window.print());
+  document.querySelectorAll('[data-copy]').forEach(button => {
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      const target = document.getElementById(button.dataset.copy);
+      try {
+        await navigator.clipboard.writeText(target.textContent);
+        document.getElementById('interaction-status').textContent = 'Copied to clipboard.';
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = original; }, 1600);
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const selection = window.getSelection();
+        selection.removeAllRanges(); selection.addRange(range);
+        document.getElementById('interaction-status').textContent = 'Clipboard access is unavailable. The text is selected; use Copy or press Command+C.';
+        button.textContent = 'Text selected — copy manually';
+      }
+    });
+  });
+  document.querySelector('.jump').hidden = false;
+  document.getElementById('view-controls').hidden = false;
+  document.getElementById('progress-note').hidden = false;
+  document.getElementById('progress').hidden = false;
+  save(); render();
+})();
+</script>
+</body>
+</html>

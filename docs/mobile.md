@@ -1,5 +1,11 @@
 # Phone apps
 
+For the remaining Google Cloud, signing, real-phone testing and Play Console steps, open
+the [Google Play release walkthrough](play-release-guide.html) in a browser. It is a
+self-contained private operator guide with a saved checklist, exact field values,
+troubleshooting and links to Google's documentation (checked 3 November 2026).
+It is repository documentation, not a page served by the public app.
+
 ## Plan: a semi-public Google Play release (Bryan, 2026-10-31)
 
 Google Play only, as a Capacitor app with the web build bundled inside it (not a Trusted Web Activity, which is only Chrome showing the site and adds nothing the installable web app lacks). Bundling the build and using native features also keeps clear of Play's rejection of apps that only wrap a website.
@@ -34,10 +40,10 @@ Anything about iOS is shelved.
 - **Server:** `YAMA_CORS_ORIGINS: https://localhost` in `deploy/compose.yaml`, so releases set it (the app sends a bearer token, never cookies, so no credentialed CORS).
 - **Sign-in:** `web/src/native.ts` signs in through Android's Credential Manager (`@capgo/capacitor-social-login`, Google only; the other providers' SDKs are switched off in `capacitor.config.ts`). It asks for an ID token for the server's Web client ID from `/api/auth/config`, which `/api/auth/google` already accepts. Google Cloud also needs an **Android** OAuth client per signing key, with package `ing.yama.app` and that key's SHA-1, in the same project as the Web client; those client IDs never go in `YAMA_GOOGLE_CLIENT_IDS`:
   - the debug key, `web/android/app/debug.keystore` (checked in, not a secret, so every debug build shares it): SHA-1 `6C:A1:81:95:06:8A:FA:72:F9:3F:FB:6F:52:0C:EB:F3:5F:0F:4F:F7`;
-  - the upload key, once made (below);
+  - the upload key, only if directly installing a release APK signed with it (the current workflow emits a debug APK and AAB, so this client is optional);
   - Play's app signing key, from Play Console, Test and release, App integrity, after the first upload.
 - **Inside the app:** links to server-rendered pages (`/precons`, `/commanders`, `/about/`, `/privacy/`, `/tos/`, `/delete-account/`, `/docs/`, shared `/u/`, `/d/`, `/r/`) open on yama.ing in the browser; shared links and the MCP address use `publicOrigin()` (the server), never the app's origin; Android's back button goes back through the app's pages; downloads and exports (deck lists, collection CSV, game history, datasets) go to Android's share sheet from the app's cache (`web/src/download.ts`), fetched with the app's token; requests carry no cookies (`FETCH_CREDENTIALS`), since the server allows the app's origin without credentials; no service worker; app backups are off, since local storage holds the session token. Permissions: internet, camera (asked when the scanner opens), vibrate.
-- **Builds:** `.github/workflows/android.yml` (manual, and on PRs that touch the app) builds a debug APK and the release bundle on GitHub's runners and uploads both as an artifact for 14 days; the version code is the run number. Locally: JDK 21 (`brew install openjdk@21`; Capacitor 8 needs 21, and Gradle 8 can't run on Homebrew's default JDK 27) and the SDK at `~/Android/Sdk`:
+- **Builds:** `.github/workflows/android.yml` builds a debug APK and the release bundle on GitHub's runners and uploads both as an artifact for 14 days; the version code is the run number. Automatic PR builds follow `CI_TESTS` and are currently off; a manual run still builds and uses Actions minutes, so start one only when Bryan asks (docs/ci.md). Start a new run for a new Play upload: rerunning an old run reuses its version code. Locally: JDK 21 (`brew install openjdk@21`; Capacitor 8 needs 21, and Gradle 8 can't run on Homebrew's default JDK 27) and the SDK at `~/Android/Sdk`:
 
 ```sh
 npm run android:sync -w web       # web build for https://yama.ing, copied into web/android
@@ -47,7 +53,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradl
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-- **Upload key (Bryan's to make and keep):** `keytool -genkeypair -keystore yama-upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10950`, saved in 1Password. Then set the repository secrets `ANDROID_UPLOAD_KEYSTORE_BASE64` (`base64 -i yama-upload.jks`), `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_KEY_PASSWORD`; the workflow then signs the bundle, and its log prints the SHA-1 for the Android OAuth client. With Play App Signing a lost upload key can be reset through Play support; the app signing key stays with Google.
+- **Upload key (Bryan's to make and keep):** keep the local copy at `~/.config/yama/android/yama-upload.jks` (directory 700, file 600), with a recoverable copy, alias and passwords in 1Password. The [walkthrough](play-release-guide.html) has the interactive creation command and exact secret setup. Set repository secrets `ANDROID_UPLOAD_KEYSTORE_BASE64`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS` and `ANDROID_UPLOAD_KEY_PASSWORD`; the workflow then signs the bundle. Do not put passwords on command lines or print the encoded keystore. The debug APK uses the debug certificate; the Play-installed app uses Google's app-signing certificate. An upload-key Android OAuth client is needed only for a directly installed release APK signed with that key, not merely for uploading an AAB. With Play App Signing a lost upload key can be reset through Play support; the app signing key stays with Google.
 
 ## Still to decide or build
 
@@ -60,7 +66,7 @@ Checked 2026-10-28; Play's rules change, so recheck the Play Console help before
 - **Which app.** A Trusted Web Activity (Bubblewrap or PWABuilder) is the installable web app in a Play listing: little work, but the camera is still Chrome's, so it does nothing for the scanner. The Capacitor app is the one that buys native camera control and ML Kit text recognition, and it needs native Google sign-in (Google blocks its web sign-in inside a web view).
 - **Build:** the Android SDK and a JDK on a machine with room for them; a signed Android App Bundle (`.aab`) with Play App Signing; target API 36 (Android 16), the floor for new apps and updates since 31 Aug 2026.
 - **Account:** a Play Console developer account. A personal account made after 13 Nov 2023 must run a closed test with at least 12 testers opted in for 14 days in a row before it can publish to production. Organization accounts are exempt.
-- **Policy:** a privacy policy URL (`/privacy/`), the Data safety form, the content rating questionnaire and target audience (not children). Apps with sign-up must offer account deletion both in the app and at a web link that works without the app; today deletion is by email to Bryan (privacy page), which is likely not enough.
+- **Policy:** a privacy policy URL (`/privacy/`), the Data safety form, the content rating questionnaire and target audience (not children). Account deletion is implemented in Group, You, Delete account and at the public instruction page `https://yama.ing/delete-account/`, including an email route without sign-in. Verify the exact Play-installed build and current data-handling declarations before submission; implementation alone does not establish Play approval.
 - **What goes in it (Bryan's call before a release):** the ordinary web build includes Play (the game client). A public listing for a full game client is a bigger IP target than a companion (ARCHITECTURE.md §11). If the Play build should be the collection and scanner companion only, add a build flag that drops the Play routes and navigation, and build the Android app with it.
 - **Listing:** name, descriptions, 512 px icon, 1024×500 feature graphic, phone screenshots. Keep the unofficial, not-endorsed-by-Wizards notice and use no Wizards logos or card images in the listing.
 - **Server:** for a TWA, a Digital Asset Links file at `/.well-known/assetlinks.json` with the signing key's fingerprint; for Capacitor, an Android OAuth client registered with the Play signing key's SHA-1 (sign-in, above) and the app origin in `YAMA_CORS_ORIGINS`.
