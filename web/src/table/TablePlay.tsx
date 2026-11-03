@@ -129,8 +129,10 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   // Keep the screen on during a game where supported.
   useScreenAwake();
 
-  const artFor = useTableArt(state.players, following?.showArt);
-  const lethal = useLethalPrompt(state);
+  const localShowArt = useShowArt();
+  const showArt = following?.showArt ?? localShowArt;
+  const artFor = useTableArt(state.players, showArt);
+  const lethal = useLethalPrompt(state, following ? me?.seat ?? null : undefined);
 
   const { cols, rows, cells } = tableLayout(state.players.length, following?.layout ?? layoutKey, landscape);
   const alive = remaining(state);
@@ -145,7 +147,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
     if (!p) return null;
     return <Panel key={seat} p={p} rot={rot} area={area} vertical={vertical}
       active={counting && state.activeSeat === seat} state={state} pending={pendingDelta(game.log, seat)}
-      fill={fills[state.players.indexOf(p)]!} artFor={artFor}
+      fill={fills[state.players.indexOf(p)]!} artFor={artFor} showArt={showArt}
       onOpen={() => setSheetSeat(seat)} onKnockOut={() => setKnockSeat(seat)} attack={attack}
       onAttack={(partner) => { setTaking(null); setAttack(attack?.seat === seat && attack.partner === partner ? null : { seat, partner }); }}
       taking={taking} onTake={() => { setAttack(null); setTaking(taking === seat ? null : seat); }} />;
@@ -328,7 +330,7 @@ export type ArtFor = (seat: number, partner?: boolean) => CardArt | null;
 /**
  * Each seat's commander art. The art crop picked at setup travels with the game (so it shows
  * offline and on guests' phones); anything missing is looked up by name, like the online board.
- * Nothing shows while this device has art switched off, and only art that passes `panelArt`
+ * The shared choice overrides a follower’s local art setting. Only art that passes `panelArt`
  * (Scryfall's image host, artist known) is drawn.
  */
 export function useTableArt(players: PlayerState[], sharedShowArt?: boolean): ArtFor {
@@ -474,6 +476,8 @@ function useTick(active: boolean) {
 }
 
 export function Panel(props: {
+  /** Effective art choice, shared from the host on a following phone. */
+  showArt?: boolean;
   p: PlayerState;
   rot: number;
   area: string;
@@ -500,15 +504,16 @@ export function Panel(props: {
   const { p, rot, area, active, pending, onOpen, onKnockOut, state, fill, artFor, vertical = false, attack = null, onAttack, taking = null, onTake } = props;
   useTick(pending !== null); // clear the bubble once the burst ends
   const dispatch = useContext(DispatchContext);
-  const showArt = useShowArt();
-  // useTableArt already honours the per-device "mana colors instead of art" switch.
+  const localShowArt = useShowArt();
+  const showArt = props.showArt ?? localShowArt;
+  // useTableArt already honours the effective "mana colors instead of art" switch.
   // Partners (and a Background) share the panel, each with its own half; either one alone fills it.
   const mainArt = artFor?.(p.seat) ?? null;
   const secondArt = artFor?.(p.seat, true) ?? null;
   const art = mainArt ?? secondArt;
   const partnerArt = mainArt ? secondArt : null;
   // With art on, a seat whose art is missing is a raised block, not a mana fill; the identity
-  // band along its top still says whose it is. Plain colors are the per-device choice.
+  // band along its top still says whose it is. Plain colors use the same effective choice.
   const noArt = showArt && !art;
   const keys = identityKeys(p.colorIdentity);
   const base = MANA[fill];

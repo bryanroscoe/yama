@@ -35,6 +35,7 @@ try {
       localStorage.setItem(`yama.table.current.${user}`, JSON.stringify(game));
       localStorage.setItem("yama.table.layout.4", "ends");
       localStorage.setItem("yama.table.turns", "on");
+      localStorage.setItem("yama.table.art", host ? "off" : "on");
       if (host) localStorage.setItem(`yama.table.hosting.${user}`, id);
     }, { user, game: local(host ? setup : old, user), id, host });
     await context.route("**/*", async (route) => {
@@ -115,7 +116,7 @@ try {
   await guest.locator(".table-my-panel").waitFor();
   await guest.getByRole("button", { name: "Whole table", exact: true }).click();
   async function geometry(page) {
-    return page.locator(".table > .panel").evaluateAll((panels) => panels.map((p) => ({ area: p.style.gridArea, transform: p.querySelector(".panel-inner").style.transform })));
+    return page.locator(".table > .panel").evaluateAll((panels) => panels.map((p) => ({ area: p.style.gridArea, transform: p.querySelector(".panel-inner").style.transform, noArt: p.classList.contains("no-art") })));
   }
   for (const [name, width, height] of [["mobile", 390, 844], ["tablet", 820, 1180], ["laptop", 1440, 900]]) {
     await host.setViewportSize({ width, height }); await guest.setViewportSize({ width, height });
@@ -133,6 +134,44 @@ try {
   await guest.getByRole("button", { name: "Host loses 1 life", exact: true }).click();
   await host.locator(".panel").filter({ has: host.getByRole("button", { name: "Host gains 1 life", exact: true }) }).locator(".life").getByText("39", { exact: true }).waitFor();
   assert.equal(events.at(-1).type, "life");
+  // The host's art-off choice must override the follower's locally enabled art setting,
+  // including mana fills rather than neutral "missing art" panels in both views.
+  assert.equal(await guest.locator(".panel.no-art").count(), 0);
+  await guest.getByRole("button", { name: "My seat", exact: true }).click();
+  assert.equal(await guest.locator(".table-my-panel .panel.no-art").count(), 0);
+  await guest.getByRole("button", { name: "Whole table", exact: true }).click();
+  const observer = await phone("observer");
+  await observer.goto(`${base}/table/join/${id}#k=${liveKey}&r=cf`);
+  await observer.getByRole("button", { name: /Just following/ }).click();
+  await observer.getByRole("button", { name: "Host gains 1 life", exact: true }).waitFor();
+  await guest.clock.install();
+  await observer.clock.install();
+  const deliver = (event) => rooms.get(id).host.send(JSON.stringify({ type: "event", event }));
+  const life = (page, name, value) => page.getByRole("region", { name: new RegExp(`^${name}, ${value} life`) });
+  // Other seats' lethal totals prompt the host, not this selected follower or a watcher.
+  deliver({ type: "life", seat: 0, delta: -40 });
+  await life(guest, "Host", -1).waitFor();
+  await life(observer, "Host", -1).waitFor();
+  await guest.clock.fastForward(1200); await observer.clock.fastForward(1200);
+  await host.getByRole("dialog", { name: "Out of the game?", exact: true }).waitFor();
+  assert.equal(await guest.getByRole("dialog", { name: "Out of the game?", exact: true }).count(), 0);
+  assert.equal(await observer.getByRole("dialog", { name: "Out of the game?", exact: true }).count(), 0);
+  await host.getByRole("button", { name: "Not out, keep playing", exact: true }).click();
+  deliver({ type: "life", seat: 0, delta: 40 });
+  await life(guest, "Host", 39).waitFor();
+  // The follower still gets their own lethal prompt; a watcher never gets one.
+  deliver({ type: "life", seat: 1, delta: -40 });
+  await life(guest, "Friend", 0).waitFor();
+  await life(observer, "Friend", 0).waitFor();
+  await guest.clock.fastForward(1200); await observer.clock.fastForward(1200);
+  await guest.getByRole("dialog", { name: "Out of the game?", exact: true }).waitFor();
+  await host.getByRole("dialog", { name: "Out of the game?", exact: true }).waitFor();
+  assert.equal(await observer.getByRole("dialog", { name: "Out of the game?", exact: true }).count(), 0);
+  await guest.getByRole("button", { name: "Not out, keep playing", exact: true }).click();
+  await host.getByRole("button", { name: "Not out, keep playing", exact: true }).click();
+  deliver({ type: "life", seat: 1, delta: 40 });
+  await life(guest, "Friend", 40).waitFor();
+  await observer.close();
   await guest.getByRole("button", { name: /Open table menu/ }).click();
   assert.equal(await guest.getByRole("button", { name: "Finish the game", exact: true }).count(), 0);
   assert.equal(await guest.getByRole("button", { name: "Discard game", exact: true }).count(), 0);
@@ -169,5 +208,5 @@ try {
   await guest.getByRole("link", { name: "Back to Table", exact: true }).click();
   assert.equal(await guest.getByRole("link", { name: "Back to the shared table", exact: true }).count(), 0);
   assert.deepEqual(errors, [], "no browser runtime errors");
-  console.log("PASS: group discovery, host-identical layouts at three sizes, remote life/first-player actions, host-only controls, home return/reload, host reload, rematch/live and sleeping phones, discard/end, old-local isolation, no runtime errors.");
+  console.log("PASS: group discovery, host-identical layouts at three sizes, remote life/first-player actions, host-only controls, home return/reload, host reload, rematch/live and sleeping phones, discard/end, old-local isolation, follower-selected lethal prompts, watcher suppression, shared art-off fills, no runtime errors.");
 } finally { await browser.close(); }
