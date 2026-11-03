@@ -288,3 +288,68 @@ async fn the_routes_preview_apply_and_keep_decks_private() {
     let (_, decks) = send(&app, Method::GET, "/api/decks", Some(&ann_token), None).await;
     assert_eq!((decks[0]["owned"].as_i64(), decks[0]["card_count"].as_i64()), (Some(5), Some(6)));
 }
+
+#[tokio::test]
+async fn proxy_choices_reconcile_plain_lists_without_reclassifying_existing_copies() {
+    let (pool, owner) = setup().await;
+    let id = deck(&pool, &owner, "Printed deck").await;
+    let box_id = crate::collection::ensure_container(&pool, &owner, "deck", "Printed deck").await.unwrap();
+    // An existing real commander stays real, even if selected as a proxy. A loose real
+    // Sol Ring must not be moved to satisfy a proxy choice for the same printing.
+    give(&pool, &owner, "commander", "p-omo", 1, "nonfoil", Some(&box_id)).await;
+    give(&pool, &owner, "loose-sol", "p-sol-cmm", 1, "nonfoil", None).await;
+    let proxies = vec!["o-omo".into(), "o-sol".into(), "o-forest".into()];
+    let preview = add_deck_with_proxies(&pool, &owner, &id, SamePrinting::Move, Some(&proxies), true).await.unwrap();
+    assert_eq!((preview.proxies, preview.outcome.added, preview.outcome.moved), (3, 5, 0));
+    assert_eq!(inside(&pool, &box_id).await, vec![row("p-omo", "nonfoil", false, 1)]);
+    let applied = add_deck_with_proxies(&pool, &owner, &id, SamePrinting::Move, Some(&proxies), false).await.unwrap();
+    assert_eq!(applied.proxies, 3);
+    assert_eq!(
+        inside(&pool, &box_id).await,
+        vec![
+            row("p-crypt", "nonfoil", false, 1), // Explicit selection can clear an imported proxy flag.
+            row("p-forest-a", "nonfoil", true, 2),
+            row("p-omo", "nonfoil", false, 1),
+            row("p-sig", "foil", false, 1),
+            row("p-sol-cmm", "nonfoil", true, 1),
+        ]
+    );
+    let loose: i64 = sqlx::query_scalar("SELECT SUM(qty) FROM collection_items WHERE container_id IS NULL AND proxy = 0").fetch_one(&pool).await.unwrap();
+    assert_eq!(loose, 1);
+    let repeat = add_deck_with_proxies(&pool, &owner, &id, SamePrinting::Move, Some(&proxies), false).await.unwrap();
+    assert_eq!((repeat.missing, repeat.outcome.added, repeat.outcome.moved, repeat.applied), (0, 0, 0, false));
+}
+
+#[tokio::test]
+async fn proxy_choice_routes_validate_the_selection_and_preserve_owner_isolation() {
+    let (app, pool) = app().await;
+    cards(&pool).await;
+    let (ann, token) = user(&pool, "ann@example.com").await;
+    let (_, other) = user(&pool, "bob@example.com").await;
+    let id = deck(&pool, &ann, "Printed deck").await;
+    let route = format!("/api/decks/{id}/collect");
+    for method in [Method::GET, Method::POST] {
+        let url = if method == Method::GET { format!("{route}?proxies=o-sol,o-forest") } else { route.clone() };
+        let (status, _) = send(&app, method, &url, Some(&other), Some(serde_json::json!({"proxies":["o-sol"]}))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    // Reject sideboard and unknown IDs before creating a box or adding any cards.
+    for oid in ["o-bolt", "someone-elses-card"] {
+        let (status, _) = send(&app, Method::POST, &route, Some(&token), Some(serde_json::json!({"proxies":[oid]}))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collection_items").fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 0);
+    let (status, body) = send(&app, Method::GET, &format!("{route}?proxies="), Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["proxies"], 0);
+    let (status, preview) = send(&app, Method::GET, &format!("{route}?proxies=o-sol,o-forest"), Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["proxies"], 3);
+    let (status, result) = send(&app, Method::POST, &route, Some(&token), Some(serde_json::json!({"proxies":["o-sol","o-forest"]}))).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(result["proxies"], preview["proxies"]);
+    let (status, view) = send(&app, Method::GET, &format!("/api/decks/{id}"), Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["ownership"]["needed"], 0);
+}

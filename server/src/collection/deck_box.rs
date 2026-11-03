@@ -101,7 +101,7 @@ pub struct Line {
     pub missing: i64,
     /// `None`: Yama has no printing of this card, so none is added.
     pub printing: Option<Printing>,
-    /// The deck marks this card as a proxy: new copies are proxies.
+    /// New copies are proxies (from the import or the owner’s collection choice).
     pub proxy: bool,
     pub elsewhere: Vec<Elsewhere>,
     /// What the chosen option does with this card.
@@ -158,15 +158,32 @@ pub struct Preview {
 struct Choice {
     #[serde(default)]
     same: SamePrinting,
+    /// When supplied, the complete selection of missing cards to record as proxies.
+    /// Omitted by older clients and the CLI: keep the import's proxy choices.
+    proxies: Option<Vec<String>>,
 }
 
-async fn preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, Query(c): Query<Choice>) -> AppResult<Json<Preview>> {
-    Ok(Json(add_deck(&st.pool, &user.id, &id, c.same, true).await?))
+#[derive(Deserialize, Default)]
+struct PreviewQuery {
+    #[serde(default)]
+    same: SamePrinting,
+    /// Comma-separated Oracle IDs; an empty value explicitly selects no proxies.
+    proxies: Option<String>,
+}
+
+async fn preview(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(id): Path<String>,
+    Query(c): Query<PreviewQuery>,
+) -> AppResult<Json<Preview>> {
+    let proxies = c.proxies.map(|s| if s.is_empty() { vec![] } else { s.split(',').map(str::to_string).collect() });
+    Ok(Json(add_deck_with_proxies(&st.pool, &user.id, &id, c.same, proxies.as_deref(), true).await?))
 }
 
 async fn apply(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, Json(c): Json<Choice>) -> AppResult<Json<Preview>> {
     st.limits.imports.check_user(&user)?;
-    Ok(Json(add_deck(&st.pool, &user.id, &id, c.same, false).await?))
+    Ok(Json(add_deck_with_proxies(&st.pool, &user.id, &id, c.same, c.proxies.as_deref(), false).await?))
 }
 
 /// The deck box, as it is or as it would be made.
@@ -181,6 +198,17 @@ struct DeckBox {
 /// Preview (`dry_run`) or make the deck's box hold its list. Everything is read and written in one
 /// transaction, so what's applied is what was planned.
 pub async fn add_deck(pool: &SqlitePool, owner: &str, deck_id: &str, same: SamePrinting, dry_run: bool) -> AppResult<Preview> {
+    add_deck_with_proxies(pool, owner, deck_id, same, None, dry_run).await
+}
+
+async fn add_deck_with_proxies(
+    pool: &SqlitePool,
+    owner: &str,
+    deck_id: &str,
+    same: SamePrinting,
+    proxies: Option<&[String]>,
+    dry_run: bool,
+) -> AppResult<Preview> {
     let mut tx = pool.begin().await?;
     let (deck_name, version_id, linked): (String, Option<String>, Option<String>) =
         sqlx::query_as("SELECT name, current_version_id, container_id FROM decks WHERE id = ? AND owner_id = ?")
@@ -192,6 +220,12 @@ pub async fn add_deck(pool: &SqlitePool, owner: &str, deck_id: &str, same: SameP
     let Some(version) = version_id.clone() else { return Err(AppError::bad("the deck has no cards yet")) };
     let cards: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(&version).fetch_one(&mut *tx).await?;
     let cards: Vec<DeckCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
+    if let Some(proxies) = proxies {
+        let allowed: HashSet<&str> = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.oracle_id.as_str()).collect();
+        if proxies.len() > allowed.len() || proxies.iter().any(|id| !allowed.contains(id.as_str())) {
+            return Err(AppError::bad("proxy choices must name cards in this deck's commander or main list"));
+        }
+    }
     let mut target = find_box(&mut tx, owner, deck_id, &deck_name, linked.as_deref()).await?;
     let box_existed = target.id.is_some();
     if !dry_run {
@@ -264,7 +298,7 @@ pub async fn add_deck(pool: &SqlitePool, owner: &str, deck_id: &str, same: SameP
         }
         preview.missing += missing;
         let chosen = prints.get(&card.oracle_id);
-        let proxy = chosen.is_some_and(|p| p.proxy);
+        let proxy = proxies.map_or_else(|| chosen.is_some_and(|p| p.proxy), |ids| ids.contains(&card.oracle_id));
         let printing = printing_for(&mut tx, &card.oracle_id, chosen).await?;
         let elsewhere: Vec<Elsewhere> = match &printing {
             Some(p) => copies
