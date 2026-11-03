@@ -46,6 +46,7 @@ describe("shared table lifecycle", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetModules();
+    vi.clearAllMocks();
     vi.stubEnv("VITE_RELAY_URL", "wss://relay.yama.ing");
     items.clear(); changes.clear(); ends.clear(); Socket.sockets.length = 0;
     game = { setup, log: [], redo: [], owner: "host", syncedThrough: 0 };
@@ -64,6 +65,51 @@ describe("shared table lifecycle", () => {
     share.stopHosting();
     share.restoreHosting("host");
     expect(Socket.sockets).toHaveLength(1); // Stop sharing stays stopped after a reload.
+  });
+  it.each([4000, 1009])("terminal relay closure %s stays stopped after reload without deleting another host's registration", async (code) => {
+    const { api } = await import("../api");
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    expect(items.get("yama.table.hosting.host")).toBe("current");
+    ws.onclose?.({ code });
+    expect(items.has("yama.table.hosting.host")).toBe(false);
+    share.restoreHosting("host");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(Socket.sockets).toHaveLength(1);
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+  });
+  it("a live registration completing after replacement cannot erase the successor's key", async () => {
+    const { api } = await import("../api");
+    let complete!: (value: unknown) => void;
+    vi.mocked(api).mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    share.startHosting("current");
+    await vi.waitFor(() => expect(complete).toBeTypeOf("function"));
+    Socket.sockets[0]!.onclose?.({ code: 4000 });
+    complete({});
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    expect(Socket.sockets).toHaveLength(1);
+  });
+  it("an explicit stop cleans up a registration that completes late", async () => {
+    const { api } = await import("../api");
+    let complete!: (value: unknown) => void;
+    vi.mocked(api).mockImplementationOnce(() => new Promise((resolve) => { complete = resolve; }));
+    share.startHosting("current");
+    await vi.waitFor(() => expect(complete).toBeTypeOf("function"));
+    share.stopHosting();
+    complete({});
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(vi.mocked(api).mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(2);
+    expect(items.has("yama.table.hosting.host")).toBe(false);
+  });
+  it("a terminal close cannot clear a newer game's restore marker", () => {
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    items.set("yama.table.hosting.host", "next");
+    ws.onclose?.({ code: 4000 });
+    expect(items.get("yama.table.hosting.host")).toBe("next");
   });
   it("publishes the host's layout/settings and an explicit end before the socket closes", () => {
     share.startHosting("current");

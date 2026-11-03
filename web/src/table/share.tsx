@@ -135,6 +135,7 @@ let unsubscribe: (() => void) | null = null;
 let retry: number | null = null;
 let postWait: number | null = null;
 let liveTimer: number | null = null;
+let liveRegistration: { preserveOnStop: boolean } | null = null;
 let lastGame: ReturnType<typeof getGame> = null;
 let nextGame: { gameId: string; key: string; relay?: string } | null = null;
 const hostingKey = (owner: string) => `yama.table.hosting.${owner}`;
@@ -202,7 +203,7 @@ function open(gameId: string, attempt = 0) {
     if (e.code === REPLACED || e.code === TOO_LARGE) {
       // Not this phone's to share any more (another tab has the same game), or never will be:
       // stop, but leave the share key with the server for whoever took over.
-      reset();
+      reset({ preserveLive: true });
       return;
     }
     setStatus({ connected: false });
@@ -331,19 +332,28 @@ const LIVE_REFRESH_MS = 60 * 1000;
  * table doesn't need it.
  */
 async function tellOwnDevices(gameId: string) {
-  if (!(await untilPosted(gameId))) return;
-  const put = () => api(livePath(gameId), { method: "PUT", json: { key: shareKey(gameId) } }).catch(() => undefined);
+  const attempt = hostAttempt;
+  const registration = { preserveOnStop: false };
+  liveRegistration = registration;
+  if (!(await untilPosted(gameId)) || attempt !== hostAttempt) return;
+  const put = () => attempt === hostAttempt
+    ? api(livePath(gameId), { method: "PUT", json: { key: shareKey(gameId) } }).catch(() => undefined)
+    : Promise.resolve();
   await put();
-  // Stopped while that was on its way: take it back.
-  if (status.gameId !== gameId) {
-    await api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
+  // A terminal closure must not erase a successor's key when an older PUT finishes late.
+  // An explicit stop still cleans up its delayed PUT, unless this phone started it again.
+  if (attempt !== hostAttempt) {
+    if (!registration.preserveOnStop && status.gameId !== gameId) await api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
     return;
   }
   liveTimer = window.setInterval(() => void put(), LIVE_REFRESH_MS);
 }
 
 /** Stop sharing on this phone, without telling the server. */
-function reset() {
+function reset({ preserveLive = false }: { preserveLive?: boolean } = {}) {
+  if (liveRegistration) liveRegistration.preserveOnStop = preserveLive;
+  liveRegistration = null;
+  if (lastGame?.owner && localStorage.getItem(hostingKey(lastGame.owner)) === status.gameId) localStorage.removeItem(hostingKey(lastGame.owner));
   for (const t of [retry, postWait, snapshotTimer]) if (t) window.clearTimeout(t);
   if (liveTimer) window.clearInterval(liveTimer);
   retry = postWait = liveTimer = snapshotTimer = null;
@@ -364,7 +374,6 @@ function reset() {
 
 export function stopHosting() {
   const gameId = status.gameId;
-  if (lastGame?.owner && localStorage.getItem(hostingKey(lastGame.owner)) === gameId) localStorage.removeItem(hostingKey(lastGame.owner));
   if (gameId && hostRelay(gameId) === "edge") void api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
   reset();
 }
