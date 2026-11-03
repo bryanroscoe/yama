@@ -4,7 +4,7 @@
     python3 -I scripts/mythic-commander-dataset.py DELIVER_DIR OUT.json
 
 DELIVER_DIR is the clean room's deliver/ directory: commander_scores.csv and
-analysis_summary.json, derived scores only (ARCHITECTURE.md, "Public commander ranking"). Mythic's
+analysis_summary.json, derived rates and scores (ARCHITECTURE.md, "Public commander ranking"). Mythic's
 responses never pass through here and the output never goes into git. Import it as a private
 dataset, then let it feed /commanders:
 
@@ -39,12 +39,18 @@ def main(deliver: Path, out: Path) -> None:
             score, lo, hi = (float(row[k]) for k in ("score_0_100", "interval_low", "interval_high"))
             if not (0 < lo <= score <= hi < 100):
                 sys.exit(f"score out of range for {row['commander']}")
+            rate = float(row["win_rate"]) if row.get("win_rate", "").strip() else None
+            if rate is not None and not 0 <= rate <= 1:
+                sys.exit(f"win rate out of range for {row['commander']}")
+            if rate is not None and int(row["games"]) <= 0:
+                sys.exit(f"observed win rate requires reported games for {row['commander']}")
             records.append({
                 "id": f"mythic:commander:{key}",
                 "kind": "commander",
                 "entity": f"mythic:commander:{key}",
                 "sources": [digest, summary_digest],
                 "data": {
+                    **({"win_rate": rate} if rate is not None else {}),
                     "name": row["commander"],
                     "oracle_ids": ids,
                     "score_0_100": score,
@@ -75,11 +81,11 @@ def main(deliver: Path, out: Path) -> None:
         "source": {
             "name": "Mythic Tools",
             "url": "https://mythic.tools",
-            "attribution": "Derived from Mythic Tools' aggregate per-commander game records (mythic.tools, Studio Laganne SAS). Yama shows derived scores only, not Mythic's data.",
-            "license": "No published terms; derived scores only",
+            "attribution": "Derived from Mythic Tools' aggregate per-commander game records (mythic.tools, Studio Laganne SAS). Yama shows derived win rates and scores, not Mythic's responses.",
+            "license": "No published terms; derived rates and scores only",
         },
         "method": (
-            "Clean-room derivation (deliver/METHOD.md): per commander, wins and losses from Mythic's platform aggregate, "
+            "Clean-room derivation (deliver/METHOD.md): observed win_rate is wins / all reported games (draws included in the denominator), when supplied; legacy scores do not imply an observed rate. The adjusted score uses wins and losses from Mythic's platform aggregate, "
             f"Beta prior of strength {prior:g} at the cohort mean {baseline:.4f}, effective sample min(N/4, 4 x decks, 2000); "
             f"score = 100 * logistic((logit(p) - logit(p0)) / 0.5) with a 95% credible interval. {cohort}"
         ),
@@ -91,7 +97,7 @@ def main(deliver: Path, out: Path) -> None:
             "source_as_of": None,
             "captured_at": None,
             "flags": [],
-            "transformation": "commander_scores.csv from the clean-room deliver/ hand-off; derived scores and counts only",
+            "transformation": "commander_scores.csv from the clean-room deliver/ hand-off; derived rates, scores and counts only",
             "original_response_sha256": None,
         }, {
             "sha256": summary_digest,

@@ -1493,3 +1493,15 @@ a.source-chip:hover,a.source-chip:focus-visible {
   margin-top:2px;
   font-size:11px
 }
+
+/* Commander win rates keep their provenance within reach without wide source columns. */
+.commander-sources { margin-top:8px; font-size:.85rem; }
+.commander-sources summary { cursor:pointer; color:var(--dim); }
+.commander-sources[open] { overflow-wrap:anywhere; }
+.commander-sources>div { margin-top:12px; }
+.commander-sources strong { display:block; font-size:.85rem; }
+
+@media(max-width:600px) {
+  .commander-table tr { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .commander-table td:last-child { grid-column:1/-1; }
+}
