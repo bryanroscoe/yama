@@ -82,6 +82,7 @@ export function CollectionPage() {
   const [newContainer, setNewContainer] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [selling, setSelling] = useState(false);
+  const [deleting, setDeleting] = useState<Container | null>(null);
 
   const s = summary.data;
   const proxies = s?.proxies ?? 0;
@@ -199,6 +200,7 @@ export function CollectionPage() {
       <section className="coll-cards" aria-labelledby="coll-cards-h">
         <div className="coll-cards-head">
           <h2 id="coll-cards-h">{heading}</h2>
+          {chosen && <button className="outline small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</button>}
           {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
           <div className="segmented coll-sort" role="group" aria-label="Order">
             <button aria-pressed={sort === "value"} onClick={() => setSort("value")}>By value</button>
@@ -302,6 +304,11 @@ export function CollectionPage() {
           onClose={() => setSelling(false)}
         />
       )}
+      {deleting && <DeleteContainer container={deleting} onClose={() => setDeleting(null)} onDeleted={() => {
+        setContainer("");
+        setDeleting(null);
+        setDone(`Deleted “${deleting.name}”. Its cards are still in your collection as loose cards.`);
+      }} />}
       {importing && <ImportSheet onClose={() => setImporting(false)} />}
       {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
     </main>
@@ -407,6 +414,31 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
             )}
           </>
         )}
+      </div>
+    </Sheet>
+  );
+}
+
+export function DeleteContainer({ container, onClose, onDeleted }: { container: Container; onClose: () => void; onDeleted: () => void }) {
+  const qc = useQueryClient();
+  const label = (KIND_LABEL[container.kind] ?? "container").toLowerCase();
+  const remove = useMutation({
+    mutationFn: () => api(`/api/containers/${encodeURIComponent(container.id)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || ["containers", "decks", "deck", "deck-collect"].includes(String(q.queryKey[0])) });
+      onDeleted();
+    },
+  });
+  return (
+    <Sheet label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
+      <div className="stack">
+        <h2>Delete “{container.name}”?</h2>
+        <p>Any cards inside will stay in your collection as loose cards. Saved decks and their lists will stay too.</p>
+        <div className="row">
+          <button className="coll-danger" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : `Delete ${label}`}</button>
+          <button className="quiet" disabled={remove.isPending} onClick={onClose}>Cancel</button>
+        </div>
+        <ErrorText error={remove.error} />
       </div>
     </Sheet>
   );
