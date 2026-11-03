@@ -482,6 +482,109 @@ struct DeckView {
     game_changers: Option<Vec<String>>,
     /// Date of the Scryfall data the flags come from (YYYY-MM-DD), if loaded.
     game_changers_as_of: Option<String>,
+    /// What Card Kingdom was buying your copies for (the AGENTS.md deck valuation rule); none
+    /// before any Card Kingdom prices are in.
+    buylist: Option<BuylistValue>,
+}
+
+/// What Card Kingdom was buying your real copies of a deck's cards for, by each copy's own
+/// printing and finish, on the newest day Yama read its buylist (via MTGJSON). Individual public
+/// references only: the feed cannot establish which copies are economical to sell. No automatic
+/// resale total, bulk cutoff or premium-basic exclusion; missing prices remain unknown.
+#[derive(Serialize, Debug, Default, PartialEq)]
+pub(crate) struct BuylistValue {
+    pub provider: &'static str,
+    pub date: Option<String>,
+    /// Your real copies of the deck's cards (proxies left out), each counted once.
+    pub copies: i64,
+    pub offered_copies: i64,
+    /// No buylist price for that printing and finish: unknown, not $0.
+    pub no_offer_copies: i64,
+    /// Not near-mint English copies (or altered, signed, misprinted): the price doesn't apply.
+    pub unmatched_copies: i64,
+    /// Basic copies, whose individual printings must be reviewed (including premium versions).
+    pub basics: i64,
+    /// Each printing and finish with an offer, highest first.
+    pub cards: Vec<BuylistCard>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+pub(crate) struct BuylistCard {
+    pub name: String,
+    pub set_code: Option<String>,
+    pub collector_number: Option<String>,
+    pub finish: String,
+    pub qty: i64,
+    pub offer_usd: f64,
+    pub basic: bool,
+}
+
+/// [`BuylistValue`] for `cards` from your copies of them (`by_oracle`), the deck box's first, up to
+/// each card's count.
+async fn buylist_value(
+    pool: &SqlitePool,
+    cards: &[DeckCard],
+    by_oracle: &HashMap<&str, Vec<&crate::collection::Item>>,
+    container_id: Option<&str>,
+) -> AppResult<Option<BuylistValue>> {
+    let mut picked: Vec<(&crate::collection::Item, i64)> = Vec::new();
+    let mut used: HashMap<&str, i64> = HashMap::new();
+    for c in cards.iter().filter(|c| c.board != Board::Side) {
+        let mut mine: Vec<&crate::collection::Item> = by_oracle.get(c.oracle_id.as_str()).into_iter().flatten().copied().filter(|i| !i.proxy).collect();
+        mine.sort_by_key(|i| container_id.is_none() || i.container_id.as_deref() != container_id);
+        let mut left = c.qty;
+        for i in mine {
+            let consumed = used.entry(i.id.as_str()).or_default();
+            let take = left.min(i.qty - *consumed);
+            if take > 0 {
+                *consumed += take;
+                picked.push((i, take));
+                left -= take;
+            }
+        }
+    }
+    let ids: Vec<&str> = picked.iter().map(|(i, _)| i.scryfall_id.as_str()).collect();
+    let (date, offers) = crate::prices::current_values(pool, crate::prices::mtgjson::CARDKINGDOM, 23, 25, &ids).await?;
+    if date.is_none() {
+        return Ok(None);
+    }
+    let mut out = BuylistValue { provider: "Card Kingdom buylist via MTGJSON", date, ..Default::default() };
+    let mut rows: BTreeMap<(String, String), BuylistCard> = BTreeMap::new();
+    for (i, n) in picked {
+        let name = i.name.clone().unwrap_or_default();
+        let basic = is_basic(&name);
+        let series = 23 + match i.finish.as_str() {
+            "foil" => 1,
+            "etched" => 2,
+            _ => 0,
+        };
+        let matches = i.condition == "NM" && i.lang == "en" && !i.altered && !i.signed && !i.misprint;
+        let offer = offers.get(&(i.scryfall_id.clone(), series)).copied().filter(|_| matches);
+        out.copies += n;
+        if basic {
+            out.basics += n;
+        }
+        if !matches {
+            out.unmatched_copies += n;
+        } else if offer.is_none() {
+            out.no_offer_copies += n;
+        }
+        let Some(cents) = offer else { continue };
+        out.offered_copies += n;
+        let row = rows.entry((i.scryfall_id.clone(), i.finish.clone())).or_insert_with(|| BuylistCard {
+            name,
+            set_code: i.set_code.clone(),
+            collector_number: i.collector_number.clone(),
+            finish: i.finish.clone(),
+            qty: 0,
+            offer_usd: cents as f64 / 100.0,
+            basic,
+        });
+        row.qty += n;
+    }
+    out.cards = rows.into_values().collect();
+    out.cards.sort_by(|a, b| (b.offer_usd * b.qty as f64).total_cmp(&(a.offer_usd * a.qty as f64)).then(a.name.cmp(&b.name)));
+    Ok(Some(out))
 }
 
 #[derive(Serialize, sqlx::FromRow, Clone)]
@@ -759,6 +862,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         .collect();
     let choices = printing_choices_for(&st.pool, &unprinted).await?;
     let mana = produced_mana(&st.pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let buylist = buylist_value(&st.pool, &cards, &by_oracle, container_id.as_deref()).await?;
     let mut entries = Vec::new();
     let mut totals = OwnershipTotals::default();
     for c in cards {
@@ -853,6 +957,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         ownership: totals,
         game_changers,
         game_changers_as_of,
+        buylist,
     }))
 }
 

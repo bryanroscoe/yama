@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-03-buylist-references",
+    date: "2026-11-03",
+    title: "Buylist prices by printing",
+    items: [
+      "A deck's page now lists dated Card Kingdom buylist prices for your near-mint real copies, each by its own printing and finish, via MTGJSON.",
+      "Missing prices stay unknown; proxies and condition mismatches are excluded. Premium basics and small offers stay visible by printing for individual review. Public references are never added into an unverified resale total, and the market estimate stays separate.",
+      "Yama now also keeps Card Kingdom's retail prices and Mana Pool's lowest listings each day, each as its own series.",
+    ],
+  },
+  {
     id: "2026-11-02-local-sell-offers",
     date: "2026-11-02",
     title: "Mothership buylist offers",

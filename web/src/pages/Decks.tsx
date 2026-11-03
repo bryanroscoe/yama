@@ -1,5 +1,5 @@
 import { CardHover, CardRef } from "../components/CardRef";
-import { DeckPrices, neededCost, SinglesPrice } from "../components/DeckPrices";
+import { BuylistReferences, DeckPrices, neededCost, SinglesPrice } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
@@ -383,6 +383,7 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body" inert={deck.isPlaceholderData} aria-busy={deck.isPlaceholderData}>
+        {d.buylist && <BuylistReferences b={d.buylist} />}
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
           {d.acquisition_status === "planned" ? <span className="deck-stat"><b>Planned</b><span>Deck not acquired</span></span> : <>
