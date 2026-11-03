@@ -26,9 +26,9 @@ let liveKey = "a".repeat(32);
 let activeId = id;
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  async function phone(user, host = false) {
+  async function phone(user, host = false, shareAtBoot = true) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
-    await context.addInitScript(({ user, game, id, host }) => {
+    await context.addInitScript(({ user, game, id, host, shareAtBoot }) => {
       if (localStorage.getItem("synthetic-seeded")) return;
       localStorage.setItem("synthetic-seeded", "1");
       localStorage.setItem("yama.me", JSON.stringify({ id: user, email: `${user}@example.com`, display_name: user, is_admin: false }));
@@ -36,8 +36,8 @@ try {
       localStorage.setItem("yama.table.layout.4", "ends");
       localStorage.setItem("yama.table.turns", "on");
       localStorage.setItem("yama.table.art", host ? "off" : "on");
-      if (host) localStorage.setItem(`yama.table.hosting.${user}`, id);
-    }, { user, game: local(host ? setup : old, user), id, host });
+      if (host && shareAtBoot) localStorage.setItem(`yama.table.hosting.${user}`, id);
+    }, { user, game: local(host ? setup : old, user), id, host, shareAtBoot });
     await context.route("**/*", async (route) => {
       const url = new URL(route.request().url());
       if (url.origin !== base) return route.abort();
@@ -87,9 +87,46 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     return page;
   }
-  const host = await phone("host", true);
+  const host = await phone("host", true, false);
   await host.goto(`${base}/table/play`);
   await host.getByRole("button", { name: "Host gains 1 life", exact: true }).waitFor();
+  // Start with two already-open, unshared copies. Starting sharing must fence the old
+  // second document immediately, without relying on a reload or changed game ID.
+  const preopened = await host.context().newPage();
+  preopened.on("pageerror", (error) => errors.push(error.message));
+  await preopened.goto(`${base}/table/play`);
+  await preopened.getByRole("button", { name: "Host gains 1 life", exact: true }).waitFor();
+  await preopened.evaluate(async () => { await (await import("/src/table/store.ts")).sync(); });
+  const previousUploads = uploads.filter((p) => p === preopened).length;
+  await host.getByRole("button", { name: "Table menu", exact: true }).click();
+  await host.getByRole("button", { name: "Show the code", exact: true }).click();
+  await preopened.waitForURL("**/table/join/**");
+  await preopened.getByRole("button", { name: /Host.*40/ }).click();
+  await preopened.getByRole("button", { name: "Whole table", exact: true }).click();
+  await preopened.evaluate(async () => {
+    const store = await import("/src/table/store.ts");
+    store.dispatch({ type: "life", seat: 0, delta: -10 });
+    await store.sync();
+  });
+  assert.equal(uploads.filter((p) => p === preopened).length, previousUploads, "an already-open follower makes no stale uploads");
+  assert.equal(await preopened.evaluate(() => JSON.parse(localStorage.getItem("yama.table.current.host")).log.length), 0);
+  await host.getByRole("button", { name: "Stop sharing", exact: true }).click();
+  await host.getByRole("button", { name: "Back to the game", exact: true }).click();
+  // Removal must clear following/read-only state in that same document. Navigate through
+  // the app, without reloading it, and confirm the local counter is editable again.
+  await preopened.getByRole("button", { name: "Table menu", exact: true }).click();
+  await preopened.getByRole("button", { name: "Leave the table", exact: true }).click();
+  await preopened.getByRole("button", { name: "Back to the table", exact: true }).click();
+  await preopened.waitForURL(`${base}/table/play`);
+  await preopened.getByRole("button", { name: "Host gains 1 life", exact: true }).click();
+  await host.getByRole("region", { name: /^Host, 41 life/ }).waitFor();
+  await host.getByRole("button", { name: "Host loses 1 life", exact: true }).click();
+  await preopened.getByRole("region", { name: /^Host, 40 life/ }).waitFor();
+  await preopened.close();
+  await host.getByRole("button", { name: "Table menu", exact: true }).click();
+  await host.getByRole("button", { name: "Show the code", exact: true }).click();
+  await host.getByRole("button", { name: "Back to the game", exact: true }).click();
+  await host.evaluate((id) => localStorage.removeItem(`yama.guest.${id}`), id);
   const secondary = await host.context().newPage();
   secondary.on("pageerror", (error) => errors.push(error.message));
   await secondary.goto(`${base}/table/play`);
@@ -208,5 +245,5 @@ try {
   await guest.getByRole("link", { name: "Back to Table", exact: true }).click();
   assert.equal(await guest.getByRole("link", { name: "Back to the shared table", exact: true }).count(), 0);
   assert.deepEqual(errors, [], "no browser runtime errors");
-  console.log("PASS: group discovery, host-identical layouts at three sizes, remote life/first-player actions, host-only controls, home return/reload, host reload, rematch/live and sleeping phones, discard/end, old-local isolation, follower-selected lethal prompts, watcher suppression, shared art-off fills, no runtime errors.");
+  console.log("PASS: already-open tab marker creation/removal, immediate write fencing, group discovery, host-identical layouts at three sizes, remote life/first-player actions, host-only controls, home return/reload, host reload, rematch/live and sleeping phones, discard/end, old-local isolation, follower-selected lethal prompts, watcher suppression, shared art-off fills, no runtime errors.");
 } finally { await browser.close(); }

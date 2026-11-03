@@ -4,7 +4,7 @@
 import { RELAY_TOKEN, relayShareKey, type TableEvent } from "@yama/core";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { api, API_BASE, publicOrigin } from "../api";
-import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, useTable as useCurrentTable, setSharedReadOnly } from "./store";
+import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, useTable as useCurrentTable, setSharedReadOnly, setSharedHost, prepareSharing, refreshSharedGame } from "./store";
 import { chosenLayout, subscribeLayout } from "./layouts";
 import { getShowArt, subscribeShowArt } from "./art";
 import { getCountTurns, subscribeCountTurns } from "./turns";
@@ -258,6 +258,7 @@ let releaseHostLock: (() => void) | null = null;
 
 export function startHosting(gameId: string) {
   if (status.gameId === gameId) return;
+  prepareSharing();
   stopHosting();
   const attempt = ++hostAttempt;
   setStatus({ gameId, connected: false, following: null });
@@ -271,19 +272,21 @@ export function startHosting(gameId: string) {
         setStatus({ gameId: null, connected: false, following: gameId });
         return;
       }
-      setSharedReadOnly(null);
-      activateHosting(gameId);
-      await new Promise<void>((resolve) => { releaseHostLock = resolve; });
+      const held = new Promise<void>((resolve) => { releaseHostLock = resolve; });
+      if (!activateHosting(gameId)) return;
+      await held;
     });
   } else {
     // Older embedded browsers can still explicitly host; automatic reload recovery below
     // requires browser locks so merely opening another app window never takes over.
-    setSharedReadOnly(null);
     activateHosting(gameId);
   }
 }
 
-function activateHosting(gameId: string) {
+function activateHosting(gameId: string): boolean {
+  if (!refreshSharedGame(gameId)) { reset(); return false; }
+  setSharedHost(gameId);
+  setSharedReadOnly(null);
   const game = getGame();
   if (game?.owner) localStorage.setItem(hostingKey(game.owner), gameId);
   lastGame = game;
@@ -306,6 +309,7 @@ function activateHosting(gameId: string) {
     // The server's relay only lets the game's creator host a game it already has.
     void untilPosted(gameId).then((ok) => ok && !socket && open(gameId));
   }
+  return true;
 }
 
 /**
@@ -368,6 +372,7 @@ function reset({ preserveLive = false }: { preserveLive?: boolean } = {}) {
   hostAttempt++;
   releaseHostLock?.();
   releaseHostLock = null;
+  setSharedHost(null);
   setSharedReadOnly(null);
   setStatus({ gameId: null, connected: false, following: null });
 }
@@ -379,14 +384,23 @@ export function stopHosting() {
 }
 
 /** A reload resumes only sharing explicitly started for this account's current game. */
-export function restoreHosting(user: string | null) {
+export function restoreHosting(user: string | null, markerChanged = false) {
   const game = getGame();
-  if ((status.gameId || status.following) && (!user || !game || game.owner !== user || game.setup.id !== (status.gameId ?? status.following))) stopHosting();
-  if (user && game?.owner === user && localStorage.getItem(hostingKey(user)) === game.setup.id && (typeof navigator === "undefined" || navigator.locks)) startHosting(game.setup.id);
+  const marked = !!user && game?.owner === user && localStorage.getItem(hostingKey(user)) === game.setup.id;
+  const starting = status.gameId === game?.setup.id && lastGame === null;
+  if ((status.gameId || status.following) && (!user || game?.owner !== user || game?.setup.id !== (status.gameId ?? status.following) || (!marked && (!starting || markerChanged)))) stopHosting();
+  if (marked && game && (typeof navigator === "undefined" || navigator.locks)) startHosting(game.setup.id);
 }
 export function useRestoreHosting(user: string | null) {
   const { game } = useCurrentTable();
-  useEffect(() => restoreHosting(user), [user, game?.setup.id]);
+  useEffect(() => {
+    restoreHosting(user);
+    const onStorage = (event: StorageEvent) => {
+      if (user && (event.key === null || event.key === hostingKey(user))) restoreHosting(user, true);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [user, game?.setup.id]);
 }
 
 export function useHosting() {

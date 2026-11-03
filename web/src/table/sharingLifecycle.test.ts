@@ -24,6 +24,9 @@ vi.mock("./store", () => ({
   isPosted: () => true,
   dispatch: vi.fn(),
   setSharedReadOnly: vi.fn(),
+  setSharedHost: vi.fn(),
+  prepareSharing: vi.fn(),
+  refreshSharedGame: (id: string) => game?.setup.id === id,
   sync: vi.fn(async () => {}),
   subscribeTable: (f: () => void) => { changes.add(f); return () => { changes.delete(f); }; },
   subscribeTableEnd: (f: (g: LocalGame) => void) => { ends.add(f); return () => { ends.delete(f); }; },
@@ -110,6 +113,18 @@ describe("shared table lifecycle", () => {
     items.set("yama.table.hosting.host", "next");
     ws.onclose?.({ code: 4000 });
     expect(items.get("yama.table.hosting.host")).toBe("next");
+  });
+  it("does not activate a claim after its game changed before the lock callback", async () => {
+    const priorNavigator = globalThis.navigator;
+    let claim!: (lock: object | null) => Promise<void>;
+    vi.stubGlobal("navigator", { locks: { request: (_name: string, _options: unknown, callback: typeof claim) => { claim = callback; return Promise.resolve(); } } });
+    try {
+      share.startHosting("current");
+      game = { ...game!, setup: { ...setup, id: "replacement" } };
+      await claim({});
+      expect(Socket.sockets).toHaveLength(0);
+      expect(items.has("yama.table.hosting.host")).toBe(false);
+    } finally { vi.stubGlobal("navigator", priorNavigator); }
   });
   it("publishes the host's layout/settings and an explicit end before the socket closes", () => {
     share.startHosting("current");
