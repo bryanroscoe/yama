@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, applySeatPatch, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, personPatch, renameSeat, seatDeckLabel, seatHolds, togglePerson, type SeatDraft } from "./seats";
+import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, personPatch, renameSeat, seatDeckLabel, seatHolds, togglePerson, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -58,6 +58,30 @@ describe("fitSeatsToGroup", () => {
     const seats = fitSeatsToGroup([{ ...mine, memberId: "m-me" }, { ...emptySeat(), name: "Jo", memberId: "m-jo" }], undefined, me);
     expect(seats[0]).toMatchObject({ memberId: undefined, userId: "u-me", deckVersionId: "v1" });
     expect(seats[1]).toMatchObject({ memberId: undefined, userId: undefined, name: "Jo" });
+  });
+
+  it("keeps a plain friend selected on an explicit group switch, including their deck", () => {
+    const friend = { ...emptySeat(), name: " sam smith ", deckLabel: "Riders", deckVersionId: "v-sam", commanderName: "Éowyn" };
+    const [seat] = fitSeatsToGroup([friend], group, me, true);
+    expect(seat).toMatchObject({ ...friend, name: "Sam Smith", memberId: "m-sam", userId: "u-sam", handle: "sam" });
+    expect(seatHolds(seat!, { name: "Sam Smith", memberId: "m-sam" })).toBe(true);
+    expect(togglePerson([seat!], { name: "Sam Smith", memberId: "m-sam" }, {}, 6)).toEqual([emptySeat()]);
+    // Rebuilding historical guest seats must not attach accounts by name.
+    expect(rebuildForGroup([friend], group, me)).toEqual([friend]);
+    const guest = { ...emptySeat(), name: "Jo" };
+    expect(fitSeatsToGroup([guest], group, me, true)[0]).toMatchObject({ memberId: "m-jo", userId: undefined });
+  });
+
+  it("does not infer yourself, ambiguous names, duplicate seats or conflicting identities", () => {
+    const sam = { ...emptySeat(), name: "Sam Smith" };
+    const duplicateGroup = { ...group, members: [...group.members, { ...group.members[2]!, id: "m-other", user_id: "u-other" }] };
+    expect(fitSeatsToGroup([sam], duplicateGroup, me, true)).toEqual([sam]);
+    expect(fitSeatsToGroup([sam, sam], group, me, true)).toEqual([sam, sam]);
+    const occupied = { ...sam, memberId: "m-sam", userId: "u-sam" };
+    expect(fitSeatsToGroup([occupied, sam], group, me, true)).toEqual([occupied, sam]);
+    for (const seat of [{ ...emptySeat(), name: "Bryan" }, { ...sam, userId: "u-stranger" }, { ...sam, memberId: "m-elsewhere" }, { ...sam, handle: "elsewhere" }]) {
+      expect(fitSeatsToGroup([seat], group, me, true)[0]!.memberId).toBeUndefined();
+    }
   });
 
   it("someone found by their handle becomes their member row when they're in the group", () => {
@@ -198,21 +222,66 @@ describe("togglePerson (Who's playing)", () => {
     expect(togglePerson(s, { name: "Kim" }, { name: "Kim" }, 4)).toBe(s);
   });
 
-  it("a second tap takes them off, leaving their seat open where it was", () => {
+  it("a second tap removes their seat and lowers the count, keeping other decks", () => {
     let s = togglePerson(start(), sam, personPatch(sam, group, me)!, 6);
     s = togglePerson(s, jo, personPatch(jo, group, me)!, 6);
+    s = patchSeat(s, 2, { deckLabel: "Jo's deck", commanderName: "Atraxa" });
+    const remaining = s[2];
     s = togglePerson(s, sam, personPatch(sam, group, me)!, 6);
-    // Jo stays in seat 3: seats never move.
-    expect(s.map((x) => x.name)).toEqual(["Bryan", "", "Jo"]);
-    expect(s[1]).toEqual(emptySeat());
-    // The next one tapped fills the open seat. A guest is matched by name, whatever the case.
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "Jo"]);
+    expect(s[1]).toBe(remaining);
     s = togglePerson(s, { name: "Alex" }, { name: "Alex" }, 6);
-    expect(s.map((x) => x.name)).toEqual(["Bryan", "Alex", "Jo"]);
-    expect(seatHolds(s[1]!, { name: "alex" })).toBe(true);
+    expect(s.map((x) => x.name)).toEqual(["Bryan", "Jo", "Alex"]);
+    expect(seatHolds(s[2]!, { name: "alex" })).toBe(true);
+  });
+
+  it("decreases from six seats and keeps one editable seat when the last person leaves", () => {
+    const people = ["A", "B", "C", "D", "E", "F"].map((name) => ({ ...emptySeat(), name }));
+    let s = togglePerson(people, { name: "F" }, {}, 6);
+    expect(s).toHaveLength(5);
+    s = togglePerson(s, { name: "A" }, {}, 6);
+    expect(s.map((x) => x.name)).toEqual(["B", "C", "D", "E"]);
+    expect(togglePerson([people[0]!], { name: "A" }, {}, 6)).toEqual([emptySeat()]);
+    expect(togglePerson([emptySeat()], { name: "A" }, { name: "A" }, 6)).toEqual([people[0]]);
   });
 
   it("without a playgroup a friend sits as a guest by name, and only you keep your account", () => {
     expect(personPatch(sam, undefined, me)).toMatchObject({ name: "Sam", memberId: undefined, userId: undefined });
     expect(personPatch({ name: "Bryan", userId: "u1" }, undefined, me)).toMatchObject({ userId: "u1" });
+  });
+});
+
+
+describe("setup draft identities", () => {
+  it("lets a pending partner lookup follow a surviving seat after another player leaves", async () => {
+    let seats = withDraftIds([
+      { ...emptySeat(), name: "Jo" },
+      { ...emptySeat(), name: "Sam", commanderName: "Frodo, Adventurous Hobbit", deckLabel: "Food and Fellowship" },
+    ]);
+    const id = seats[1]!.draftId!;
+    let resolve!: (patch: Partial<SeatDraft>) => void;
+    const answer = new Promise<Partial<SeatDraft>>((done) => { resolve = done; }).then((patch) => {
+      seats = applyDraftPatch(seats, id, (now) => now.commanderName === "Frodo, Adventurous Hobbit" ? patch : null);
+    });
+    seats = withDraftIds(togglePerson(seats, { name: "Jo" }, {}, 6));
+    resolve({ partnerName: "Sam, Loyal Attendant" });
+    await answer;
+    expect(seats).toHaveLength(1);
+    expect(seats[0]).toMatchObject({ name: "Sam", draftId: id, partnerName: "Sam, Loyal Attendant", deckLabel: "Food and Fellowship" });
+  });
+
+  it("drops answers for a removed seat even when its replacement has the same commanders", () => {
+    const [removed] = withDraftIds([{ ...emptySeat(), name: "Sam", commanderName: "Atraxa" }]);
+    const seats = withDraftIds(togglePerson([removed!], { name: "Sam" }, {}, 6));
+    const replacement = patchSeat(seats, 0, { name: "Jo", commanderName: "Atraxa" });
+    expect(applyDraftPatch(replacement, removed!.draftId!, { art: "old.jpg" })).toBe(replacement);
+  });
+
+  it("preserves surviving ids and gives added, restored and duplicate-id seats their own identity", () => {
+    const seats = withDraftIds([emptySeat(), emptySeat()]);
+    expect(seats[0]!.draftId).not.toBe(seats[1]!.draftId);
+    expect(withDraftIds(seats)).toEqual(seats);
+    const copies = withDraftIds([seats[0]!, seats[0]!]);
+    expect(copies[0]!.draftId).not.toBe(copies[1]!.draftId);
   });
 });

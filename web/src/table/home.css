@@ -27,7 +27,7 @@
 }
 .new-game2 .ng-sub {
   margin: 0;
-  display: none;
+  display: block;
 }
 .new-game2 .setup-controls {
   gap: 10px 32px;
@@ -49,7 +49,8 @@
   gap: 16px;
 }
 .ng-phone {
-  flex: 1 1 220px;
+  flex: 0 0 220px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -64,10 +65,6 @@
   color: var(--dim);
   font-size: var(--t-label);
   max-width: 24ch;
-}
-.new-game2 .ng-head .primary {
-  min-height: var(--target-primary);
-  padding: 0 28px;
 }
 @media (min-width: 900px) {
   .new-game2 {
@@ -84,8 +81,8 @@
 /* The life counter in miniature: each seat's art (or a raised block) with its number, turned to
    face its player. A dark veil over the art keeps the number readable; the art is never filtered. */
 .phone-sketch {
-  width: 150px;
-  height: 300px;
+  width: 112px;
+  height: 224px;
   padding: 5px;
   border-radius: 24px;
   background: #000;
@@ -592,19 +589,10 @@ a.rg-row:focus-visible {
   font-weight: 400;
   color: var(--on-art-dim);
 }
-.ng-start-wide {
-  display: grid;
-  justify-items: end;
-  gap: 4px;
-}
 .new-game2 .ng-start {
   display: grid;
   place-content: center;
   gap: 2px;
-}
-.ng-start-sub {
-  font-size: var(--t-sm);
-  font-weight: 400;
 }
 
 /* ── one game (table/GameDetail.tsx) ────────────────────────────────────── */
@@ -737,9 +725,6 @@ a.rg-row:focus-visible {
 .new-game2 .ng-layout {
   margin-top: 4px;
 }
-.new-game2 .ng-shuffle {
-  align-self: flex-start;
-}
 .new-game2 .ng-phone .ng-layout .field-label {
   text-align: center;
 }
@@ -779,7 +764,7 @@ a.rg-row:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 4px 0 20px;
+  margin: 0;
 }
 .who-chips {
   display: flex;
@@ -838,4 +823,177 @@ a.rg-row:focus-visible {
     flex: none;
     white-space: nowrap;
   }
+}
+
+/* New game: settings, people, decks, then one start action at every size. */
+.new-game2 {
+  gap: 24px;
+}
+.new-game2 h2 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.15;
+}
+.new-game2 .ng-sub {
+  display: block;
+  font-size: var(--t-label);
+  line-height: 1.5;
+}
+.ng-settings {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+.ng-settings > p {
+  margin: 0;
+}
+.new-game2 .setup-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  align-items: start;
+}
+.new-game2 .setup-choice {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.new-game2 .setup-choice .segmented {
+  max-width: 100%;
+  flex-wrap: wrap;
+  border-radius: 24px;
+}
+.ng-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ng-section-head + .ng-body,
+.ng-section-head + .ng-rows {
+  margin-top: -8px;
+}
+.new-game2 .who-playing {
+  gap: 16px;
+}
+.new-game2 .who-help {
+  margin: 0;
+}
+.new-game2 .who-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  white-space: normal;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.who-check {
+  flex: none;
+  font-size: 14px;
+}
+.new-game2 .ng-phone {
+  gap: 20px;
+  padding: 20px 16px;
+  box-sizing: border-box;
+}
+.ng-phone h2 {
+  align-self: flex-start;
+}
+.new-game2 .ng-phone .layout-picker {
+  width: 100%;
+}
+.ng-layout-details {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.ng-layout-details > summary {
+  min-height: 44px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.new-game2 .ng-layout-details .ng-layout {
+  margin-top: 12px;
+}
+.new-game2 .seat-row-name {
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  font-size: 28px;
+}
+.new-game2 .seat-row-art.art-panel {
+  min-height: 104px;
+  height: auto;
+}
+.new-game2 .seat-row-art > .art-body {
+  padding-block: 16px;
+}
+.ng-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.new-game2 .ng-footer .ng-start {
+  width: auto;
+  min-width: 180px;
+  font-size: 1rem;
+}
+@media (max-width: 599px) {
+  .ng-settings {
+    padding: 16px;
+  }
+  .new-game2 .setup-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .new-game2 .setup-choice .segmented > button {
+    padding-inline: 12px;
+  }
+  .ng-footer > span,
+  .new-game2 .ng-footer .ng-start {
+    width: 100%;
+  }
+}
+@media (min-width: 1200px) {
+  .new-game2 .setup-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Keep setup and its seat sheets comfortable to use on touch screens. */
+.table-home .combo-toggle {
+  width: 44px;
+  height: 44px;
+  right: 0;
+}
+.table-home .has-toggle > .combo-trailing {
+  right: 48px;
+}
+.table-home .rg-more a,
+.shell:has(.table-home) .site-notice > p:first-child > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+}
+.table-home .rg-log {
+  min-height: 44px;
+}
+.new-game2 .setup-choice .segmented > button {
+  padding-inline: 12px;
+}
+
+.table-home .recent-games > p {
+  margin: 0;
+}
+.table-home .rg-list:empty {
+  display: none;
 }

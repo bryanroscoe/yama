@@ -10,7 +10,7 @@ import { ErrorText, Pips, Sheet } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
-import { afterRemoving, applySeatPatch, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
+import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
 import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
 import { isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
@@ -52,16 +52,6 @@ export function seatWhere(i: number, n: number): string {
   if (i === n - 1) return "right";
   if (i === 1 && n >= 4) return "left";
   return "across";
-}
-
-/** "Same seats as last Thursday" when the last setup is from this past week, else its date. */
-function sameSeatsLine(at: string | undefined): string {
-  if (!at) return "Same seats as last time. Change anyone who swapped decks.";
-  const then = new Date(at);
-  const days = (Date.now() - then.getTime()) / 86_400_000;
-  const when =
-    days < 1 ? "earlier today" : days < 7 ? `last ${then.toLocaleDateString("en-US", { weekday: "long" })}` : `on ${then.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-  return `Same seats as ${when}. Change anyone who swapped decks.`;
 }
 
 export function TableHome() {
@@ -240,28 +230,26 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   });
   const wide = useWide();
   const [editing, setEditing] = useState<number | null>(null);
-  // When the seats came back from the last game set up on this phone, and when that was.
-  const [restored] = useState<{ at?: string } | null>(() => {
+  const [restored] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
-      return saved?.seats?.length ? { at: saved.at } : null;
+      return !!JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null")?.seats?.length;
     } catch {
-      return null;
+      return false;
     }
   });
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
-      if (saved?.seats?.length) return saved.seats;
+      if (saved?.seats?.length) return withDraftIds(saved.seats);
     } catch {
       /* ignore */
     }
-    return [
+    return withDraftIds([
       { ...emptySeat(), name: me.data?.display_name ?? "Me", userId: me.data?.id },
       emptySeat(),
       emptySeat(),
       emptySeat(),
-    ];
+    ]);
   });
   useEffect(() => {
     try {
@@ -309,15 +297,14 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     });
     // Only onto the seat as it was set here: a commander chosen from the deck's list meanwhile stays.
     const first = d.commanders[0] ?? "";
-    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.deckId === d.id && all[0].commanderName === first && !all[0].partnerName ? patchSeat(all, 0, c) : all)));
+    void deckCommanders(d).then((c) => c && setSeats((all) => (all[0]?.userId === me.data?.id && all[0]?.deckId === d.id && all[0].commanderName === first && !all[0].partnerName ? patchSeat(all, 0, c) : all)));
     navigate(".", { replace: true, state: null });
   }, [wanted, decks.data, me.data, navigate, groupId, groups.data]);
 
   const group = groups.data?.find((g) => g.id === groupId);
-  const update = (i: number, patch: SeatPatch) => setSeats((s) => applySeatPatch(s, i, patch));
   const chooseGroup = (id: string) => {
     setGroupId(id);
-    setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
+    setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data, true));
   };
   const chooseFormat = (f: TableFormat) => {
     setFormat(f);
@@ -329,8 +316,14 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     if (groupId && groups.data && !groups.data.some((g) => g.id === groupId)) chooseGroup("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups.data, groupId]);
-  const setCount = (n: number) => setSeats((s) => (n > s.length ? [...s, ...Array.from({ length: n - s.length }, emptySeat)] : s.slice(0, n)));
-  const shuffle = () => setSeats((s) => shuffled(s));
+  const setCount = (n: number) => {
+    setEditing(null);
+    setSeats((s) => (n > s.length ? withDraftIds([...s, ...Array.from({ length: n - s.length }, emptySeat)]) : s.slice(0, n)));
+  };
+  const shuffle = () => {
+    setEditing(null);
+    setSeats((s) => shuffled(s));
+  };
   const layoutKey = useLayoutChoice(seats.length);
   const seatArt = (i: number) => seats[i]?.art;
 
@@ -378,15 +371,22 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   // Tap someone in Who's playing: they take the next open seat, or leave theirs.
   const toggle = (p: Person) => {
     const patch = personPatch(p, group, me.data);
-    if (patch) setSeats((s) => togglePerson(s, p, patch, MAX_SEATS));
+    if (!patch) return;
+    if (seats.some((s) => seatHolds(s, p))) {
+      setEditing(null);
+    }
+    setSeats((s) => withDraftIds(togglePerson(s, p, patch, MAX_SEATS)));
   };
   const seatProps = (i: number) => {
     const s = seats[i]!;
+    const draftId = s.draftId!;
     return {
       index: i,
       seat: s,
       where: seatWhere(i, seats.length),
-      onChange: (p: SeatPatch) => update(i, p),
+      onChange: (p: SeatPatch) => {
+        setSeats((all) => applyDraftPatch(all, draftId, p));
+      },
       group,
       decks: decks.data,
       deckName: decks.data?.find((d) => d.id === s.deckId)?.name ?? s.deckLabel,
@@ -396,7 +396,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       commander: format === "commander",
     };
   };
-  const startLabel = `Start the ${formatLabel(format)} game`;
+  const startLabel = starting ? "Starting…" : "Start game";
   const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life`;
   const artists = seats.filter((s) => s.art).map((s) => s.artist);
   const people = usePeople(group, groups.data);
@@ -406,60 +406,53 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       <div className="ng-head">
         <div className="ng-title">
           <h1>New game</h1>
-          {restored && <p className="dim ng-sub">{sameSeatsLine(restored.at)}</p>}
+          {restored && <p className="dim ng-sub">Restored your last players and decks.</p>}
         </div>
-        {wide && (
-          <span className="ng-start-wide">
-            <button className="primary" onClick={() => void start()} disabled={starting}>{startLabel}</button>
-            <span className="small dim">{startSub}</span>
-          </span>
-        )}
       </div>
-      <div className="setup-controls">
-        <Choice label="Game" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
-        <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
-        <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
-        {/* Sharing the table with everyone's phones needs an account. */}
-        {!guest && !groupId && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
-      </div>
-      {!guest && groupId ? (
-        <p className="small dim ng-note">Members of {group?.name ?? "your playgroup"} can join from Table when this game starts. You can stop sharing from the table menu.</p>
-      ) : phones === "everyone" && (
-        <p className="small dim ng-note">Join code available when the game starts.</p>
-      )}
+      <section className="ng-settings" aria-labelledby="game-settings-title">
+        <h2 id="game-settings-title">Game settings</h2>
+        <div className="setup-controls">
+          <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
+          <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
+          <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
+          {!guest && !groupId && <Choice label="Devices" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "One phone" : "Separate phones")} />}
+        </div>
+        {!guest && groupId ? (
+          <p className="small dim">Members of {group?.name ?? "your playgroup"} can join from Table when this game starts. You can stop sharing from the table menu.</p>
+        ) : phones === "everyone" && <p className="small dim">A join code appears when you start the game.</p>}
+      </section>
       {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}
-      {!wide && <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />}
+      <div className="ng-section-head">
+        <h2>{format === "commander" ? "Players and decks" : "Players"}</h2>
+        {seats.length > 2 && <button className="quiet small" onClick={shuffle}>Shuffle seats</button>}
+      </div>
       {wide ? (
         <div className="ng-body">
           <div className="ng-seats">
-            {seats.map((_, i) => (
-              <SeatEditor key={i} {...seatProps(i)} />
+            {seats.map((s, i) => (
+              <SeatEditor key={s.draftId} {...seatProps(i)} />
             ))}
           </div>
-          <aside className="ng-phone" aria-label="How the panels sit">
+          <aside className="ng-phone" aria-label="Table layout">
+            <h2>Table layout</h2>
             <LayoutSketch n={seats.length} layout={layoutKey} art={seatArt} className="phone-sketch" />
             <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />
-            {seats.length > 2 && <button className="quiet small" onClick={shuffle}>Shuffle the seats</button>}
           </aside>
         </div>
       ) : (
         <>
           <ol className="ng-rows" aria-label="Seats, clockwise from you">
             {seats.map((s, i) => (
-              <li key={i}>
+              <li key={s.draftId}>
                 <SeatRow index={i} seat={s} deckName={seatProps(i).deckName} onOpen={() => setEditing(i)} commander={format === "commander"} />
               </li>
             ))}
           </ol>
-          {seats.length > 2 && <button className="quiet small ng-shuffle" onClick={shuffle}>Shuffle the seats</button>}
-          <p className="small dim ng-note">
-            Seats go clockwise from you.
-            {artists.length > 0 && ` ${artCredits(artists)}`}
-          </p>
-          <button className="primary ng-start" onClick={() => void start()} disabled={starting}>
-            <span>{startLabel}</span>
-            <span className="ng-start-sub">{startSub}</span>
-          </button>
+          {artists.length > 0 && <p className="small dim ng-note">{artCredits(artists)}</p>}
+          {seats.length > 1 && <details className="ng-layout-details">
+            <summary>Table layout</summary>
+            <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />
+          </details>}
           {editing !== null && seats[editing] && (
             <Sheet label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
               <div className="stack">
@@ -470,6 +463,10 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
           )}
         </>
       )}
+      <div className="ng-footer">
+        <span className="dim">{startSub}</span>
+        <button className="primary ng-start" onClick={() => void start()} disabled={starting}>{startLabel}</button>
+      </div>
     </section>
   );
 }
@@ -503,10 +500,13 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
   const full = seats.length >= MAX_SEATS && !seats.some((s) => !s.name.trim() && !s.memberId && !s.userId);
   return (
     <section className="who-playing" aria-labelledby={headId}>
+      <div className="ng-section-head">
+        <h2 id={headId}>Who's playing</h2>
+      </div>
       {groups.length > 0 && (
-        <Choice label="Playing with" options={["", ...groups.map((g) => g.id)]} value={groupId} onChange={onGroup} name={(id) => (id ? groups.find((g) => g.id === id)!.name : "Friends")} />
+        <Choice label="Playgroup" options={["", ...groups.map((g) => g.id)]} value={groupId} onChange={onGroup} name={(id) => (id ? groups.find((g) => g.id === id)!.name : "No playgroup")} />
       )}
-      <span id={headId} className="field-label">Who's playing</span>
+      <p className="small dim who-help">Tap a player to add or remove them.</p>
       {!groupReady ? (
         <p className="small dim" style={{ margin: 0 }}>Loading players…</p>
       ) : people.length > 0 ? (
@@ -515,6 +515,7 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
             const on = seats.some((s) => seatHolds(s, p));
             return (
               <button key={p.memberId ?? p.userId ?? `name:${p.name}`} type="button" className="who-chip" aria-pressed={on} disabled={!on && full} onClick={() => onToggle(p)}>
+                {on && <span aria-hidden="true" className="who-check">✓</span>}
                 {p.name}
                 {p.sub === "You" && <span className="who-chip-sub"> (you)</span>}
               </button>
@@ -528,8 +529,8 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
         <p className="small dim" style={{ margin: 0 }}>No recent players.</p>
       )}
       <p className="small dim" style={{ margin: 0 }}>
-        {groupId ? "Counts toward this playgroup's stats." : "Choose a playgroup to record stats."}
-        {full ? ` ${MAX_SEATS} seats is the most.` : ""}
+        {groupId ? `Games count toward ${groups.find((g) => g.id === groupId)?.name ?? "this playgroup"}'s stats.` : "No playgroup stats are recorded."}
+        {full ? ` All ${MAX_SEATS} seats are filled.` : ""}
       </p>
     </section>
   );
@@ -740,7 +741,7 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   };
   const chooseGroup = (id: string) => {
     setGroupId(id);
-    setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data));
+    setSeats((s) => fitSeatsToGroup(s, groups.data?.find((g) => g.id === id), me.data, true));
   };
   // Once the playgroups are here: a game copied from someone else's playgroup (you sat in but
   // aren't a member of) is logged without it, its members becoming names; and seats rebuilt from
