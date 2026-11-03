@@ -58,6 +58,14 @@ export interface ResearchDocument {
 }
 export interface Review { target: string; decision: string | null; note: string | null; target_hash: string; version: number; updated_at: string }
 export interface ResearchBundle { document: ResearchDocument; revision: number; updated_at: string; target_hashes: Record<string, string>; reviews: Review[]; visibility?: Visibility; share_token?: string | null }
+/** What the build choices and the deck check read from a note: its decks' builds (`/api/research/builds`). A full bundle is one too.
+ *  The server sends only the build fields those pages read (`build_summary` in server/src/deck_research.rs); reading another
+ *  field means adding it there. */
+export interface BuildNote {
+  document: Pick<ResearchDocument, "id" | "title"> & { decks: Pick<ResearchDeck, "key" | "name" | "builds">[] };
+  revision: number;
+  updated_at: string;
+}
 export interface ReportSummary { id: string; title: string; revision: number; updated_at: string; visibility?: Visibility; share_token?: string | null }
 export interface NoteSharing { id: string; visibility: Visibility; share_token: string | null; link: string | null }
 export interface ReviewOp { op_id: string; target: string; decision: string | null; note: string | null; expected_version: number; target_hash: string }
@@ -65,6 +73,8 @@ export interface ReviewOp { op_id: string; target: string; decision: string | nu
 /** Usable as a query function: React Query's signal cancels the request when it's no longer wanted. */
 export const reports = ({ signal }: { signal?: AbortSignal } = {}) => api<ReportSummary[]>("/api/research", { signal });
 export const report = (id: string, signal?: AbortSignal) => api<ResearchBundle>(`/api/research/${encodeURIComponent(id)}`, { signal });
+/** Every note's builds in one request, instead of every note in full. */
+export const buildNotes = ({ signal }: { signal?: AbortSignal } = {}) => api<BuildNote[]>("/api/research/builds", { signal });
 export const saveReview = (id: string, op: ReviewOp) => api<Review>(`/api/research/${encodeURIComponent(id)}/reviews`, { method: "POST", json: op });
 export const setNoteSharing = (id: string, visibility: Visibility) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/sharing`, { method: "PUT", json: { visibility } });
 export const resetNoteLink = (id: string) => api<NoteSharing>(`/api/research/${encodeURIComponent(id)}/share-link`, { method: "POST" });

@@ -13,7 +13,7 @@ import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
 import { useMe, usePower } from "../auth";
-import type { OnlineGame, SeatInfo, ServerMessage } from "./types";
+import type { OnlineGame, SeatInfo } from "./types";
 import "./play.css";
 
 const SKILLS = ["Easy", "Medium", "Hard"] as const;
@@ -24,7 +24,6 @@ interface SeatPlan {
   difficulty: string;
 }
 
-type ViewMessage = Extract<ServerMessage, { type: "view" }>;
 
 /** "You, Sam and 2 computers" from a game's seats. */
 export function tableWho(seats: SeatInfo[], you: number | null): string {
@@ -127,32 +126,20 @@ export function PlayHome() {
 }
 
 /**
- * Your game in progress, on every seat's commander art. The headline needs the game's board (25 to
- * 100 KB), which used to be asked for every 10 s: now it's asked when the games list says the game
- * moved on (`updated_at`), and otherwise once a minute, since `updated_at` counts whole seconds and
- * two moves in one second look like one.
+ * Your game in progress, on every seat's commander art. The games list says the turn, whose turn
+ * it is and whether it's your move, so the headline needs no board (25 to 100 KB) of its own; it
+ * moves on as the list refreshes.
  */
 function ContinueHero({ game }: { game: OnlineGame }) {
-  const view = useQuery({
-    queryKey: ["play-view", game.id, game.updated_at ?? game.created_at],
-    queryFn: ({ signal }) => api<ViewMessage>(`/api/play/${game.id}/view`, { signal }),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-    // Keeps the last headline while the next one loads, for this game only: another game taking
-    // its place starts without one.
-    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === game.id ? prev : undefined),
-  });
-  const v = view.data?.view;
   const seats = game.seats.slice(0, 4);
-  const yourMove = !!v?.decision && !(v.decision.options.length === 1 && v.decision.options[0]!.label.startsWith("Pass"));
-  const active = v ? game.seats.find((s) => s.seat === v.active) : undefined;
-  const headline = !v
+  const active = game.active != null ? game.seats.find((s) => s.seat === game.active) : undefined;
+  const headline = game.turn == null
     ? "Your game"
-    : yourMove
-      ? `Your move, turn ${v.turn}`
-      : v.active === game.you
-        ? `Your turn ${v.turn}`
-        : `${active?.ai ? "The computer" : active?.name ?? "Someone"}'s move, turn ${v.turn}`;
+    : game.your_move
+      ? `Your move, turn ${game.turn}`
+      : game.active === game.you
+        ? `Your turn ${game.turn}`
+        : `${active?.ai ? "The computer" : active?.name ?? "Someone"}'s move, turn ${game.turn}`;
   // One tile per distinct commander: the same art repeated across seats looked like a tiling bug.
   const tiles = seats.filter((s, i) => !s.commander_art || seats.findIndex((o) => o.commander_art === s.commander_art) === i);
   return (

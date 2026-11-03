@@ -216,68 +216,65 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     .bind(&user.id)
     .fetch_all(&st.pool)
     .await?;
-    let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
-    let (mut owned_by_oracle, mut proxies_by_oracle): (HashMap<&str, i64>, HashMap<&str, i64>) = (HashMap::new(), HashMap::new());
-    for i in &items {
-        if let Some(o) = &i.oracle_id {
-            let m = if i.proxy { &mut proxies_by_oracle } else { &mut owned_by_oracle };
-            *m.entry(o.as_str()).or_insert(0) += i.qty;
-        }
-    }
+    // A fixed number of queries however many decks: ownership counted per card in SQL, every
+    // version's cards, prices, check estimates, game results and commanders each in one.
+    let owned = crate::collection::owned_by_oracle(&st.pool, &user.id).await?;
     let versions: Vec<String> = decks.iter().filter_map(|d| d.current_version_id.clone()).collect();
     let mut estimates = crate::deck_checks::estimates(&st.pool, &versions).await?;
-    let mut cards_by_version: HashMap<String, Vec<DeckCard>> = HashMap::new();
-    for v in &versions {
-        cards_by_version.insert(v.clone(), load_version_cards(&st.pool, v).await?);
-    }
+    let cards_by_version = load_versions_cards(&st.pool, &versions).await?;
     // Price only the cards these decks hold, not every card Yama knows.
     let ids: std::collections::BTreeSet<&str> = cards_by_version.values().flatten().map(|c| c.oracle_id.as_str()).collect();
     let market_prices = crate::deck_prices::prices_for(&st.pool, &ids.into_iter().collect::<Vec<_>>()).await?;
+    // Same rule as the deck page's results (stats::results_by_version): only seats where the
+    // owner played the deck themselves, so the computer piloting it online doesn't count.
+    let results: HashMap<String, (i64, i64, i64)> = sqlx::query_as::<_, (String, i64, i64, i64)>(
+        "SELECT v.deck_id, COUNT(*), IFNULL(SUM(g.winner_seat = s.seat), 0), IFNULL(SUM(g.winner_seat IS NULL), 0)
+         FROM game_seats s JOIN games g ON g.id = s.game_id JOIN deck_versions v ON v.id = s.deck_version_id
+         JOIN decks d ON d.id = v.deck_id
+         WHERE d.owner_id = ?1 AND d.archived = 0 AND g.status = 'finished' AND s.ai_kind IS NULL AND s.user_id = ?1
+         GROUP BY v.deck_id",
+    )
+    .bind(&user.id)
+    .fetch_all(&st.pool)
+    .await?
+    .into_iter()
+    .map(|(deck, games, wins, draws)| (deck, (games, wins, draws)))
+    .collect();
+    let commander_ids: Vec<&str> = cards_by_version.values().flatten().filter(|c| c.board == Board::Commander).map(|c| c.oracle_id.as_str()).collect();
+    let commander_cards: HashMap<String, (String, Option<String>, Option<String>)> = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+        "SELECT oracle_id, color_identity, image_art_crop, artist FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(serde_json::to_string(&commander_ids).map_err(anyhow::Error::from)?)
+    .fetch_all(&st.pool)
+    .await?
+    .into_iter()
+    .map(|(id, ci, art, artist)| (id, (ci, art, artist)))
+    .collect();
     for d in &mut decks {
         d.estimate = d.current_version_id.as_ref().and_then(|v| estimates.remove(v));
-        // Same rule as the deck page's results (stats::results_by_version): only seats where the
-        // owner played the deck themselves, so the computer piloting it online doesn't count.
-        let (games, wins, draws): (i64, i64, i64) = sqlx::query_as(
-            "SELECT COUNT(*), IFNULL(SUM(g.winner_seat = s.seat), 0), IFNULL(SUM(g.winner_seat IS NULL), 0)
-             FROM game_seats s JOIN games g ON g.id = s.game_id JOIN deck_versions v ON v.id = s.deck_version_id
-             WHERE v.deck_id = ? AND g.status = 'finished' AND s.ai_kind IS NULL AND s.user_id = ?",
-        )
-        .bind(&d.id)
-        .bind(&user.id)
-        .fetch_one(&st.pool)
-        .await?;
-        (d.games, d.wins, d.draws) = (games, wins, draws);
-        if let Some(v) = &d.current_version_id {
-            let cards = match cards_by_version.remove(v) {
-                Some(cards) => cards,
-                None => load_version_cards(&st.pool, v).await?,
-            };
-            d.singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &market_prices);
-            d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
-            for c in cards.iter().filter(|c| c.board != Board::Side) {
-                let real = c.qty.min(owned_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0));
-                d.owned += real;
-                d.proxies += (c.qty - real).min(proxies_by_oracle.get(c.oracle_id.as_str()).copied().unwrap_or(0));
-            }
-            let commanders: Vec<&DeckCard> = cards.iter().filter(|c| c.board == Board::Commander).collect();
-            d.commanders = commanders.iter().map(|c| c.name.clone()).collect();
-            let mut identity = String::new();
-            for c in &commanders {
-                let row: Option<(String, Option<String>, Option<String>)> =
-                    sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?")
-                        .bind(&c.oracle_id)
-                        .fetch_optional(&st.pool)
-                        .await?;
-                if let Some((ci, art, artist)) = row {
-                    identity.push_str(&ci);
-                    if d.commander_image.is_none() && art.is_some() {
-                        d.commander_image = art;
-                        d.commander_artist = artist;
-                    }
+        (d.games, d.wins, d.draws) = results.get(&d.id).copied().unwrap_or_default();
+        let Some(cards) = d.current_version_id.as_ref().and_then(|v| cards_by_version.get(v)) else { continue };
+        d.singles_value = crate::deck_prices::singles(&serde_json::to_value(cards).map_err(anyhow::Error::from)?, &market_prices);
+        d.card_count = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
+        for c in cards.iter().filter(|c| c.board != Board::Side) {
+            let (have, proxies) = owned.get(&c.oracle_id).copied().unwrap_or_default();
+            let real = c.qty.min(have);
+            d.owned += real;
+            d.proxies += (c.qty - real).min(proxies);
+        }
+        let commanders: Vec<&DeckCard> = cards.iter().filter(|c| c.board == Board::Commander).collect();
+        d.commanders = commanders.iter().map(|c| c.name.clone()).collect();
+        let mut identity = String::new();
+        for c in &commanders {
+            if let Some((ci, art, artist)) = commander_cards.get(&c.oracle_id) {
+                identity.push_str(ci);
+                if d.commander_image.is_none() && art.is_some() {
+                    d.commander_image = art.clone();
+                    d.commander_artist = artist.clone();
                 }
             }
-            d.color_identity = "WUBRG".chars().filter(|c| identity.contains(*c)).collect();
         }
+        d.color_identity = "WUBRG".chars().filter(|c| identity.contains(*c)).collect();
     }
     Ok(Json(decks))
 }
@@ -430,6 +427,18 @@ pub(crate) async fn insert_saved_version_in(
     Ok((vid, stamp))
 }
 
+/// Several versions' cards in one query, by version id.
+pub async fn load_versions_cards(pool: &SqlitePool, version_ids: &[String]) -> AppResult<HashMap<String, Vec<DeckCard>>> {
+    if version_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, cards FROM deck_versions WHERE id IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(version_ids).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?;
+    rows.into_iter().map(|(id, json)| Ok((id, serde_json::from_str(&json).map_err(anyhow::Error::from)?))).collect()
+}
+
 pub async fn load_version_cards(pool: &SqlitePool, version_id: &str) -> AppResult<Vec<DeckCard>> {
     let json: String = sqlx::query_scalar("SELECT cards FROM deck_versions WHERE id = ?").bind(version_id).fetch_one(pool).await?;
     Ok(serde_json::from_str(&json).map_err(anyhow::Error::from)?)
@@ -578,6 +587,33 @@ impl PrintingChoice {
     }
 }
 
+#[derive(sqlx::FromRow)]
+struct ChoiceRow {
+    oracle_id: String,
+    #[sqlx(flatten)]
+    choice: PrintingChoice,
+}
+
+/// Every printing of several cards, by oracle id, in one query.
+pub(crate) async fn printing_choices_for<'e, E: sqlx::SqliteExecutor<'e>>(db: E, oracle_ids: &[&str]) -> AppResult<HashMap<String, Vec<PrintingChoice>>> {
+    let mut out: HashMap<String, Vec<PrintingChoice>> = HashMap::new();
+    if oracle_ids.is_empty() {
+        return Ok(out);
+    }
+    let rows = sqlx::query_as::<_, ChoiceRow>(
+        "SELECT p.oracle_id, p.scryfall_id, p.set_code, p.collector_number, p.finishes, p.lang, p.released_at, p.digital, p.set_type,
+                (p.scryfall_id IS c.default_printing) AS is_default
+         FROM printings p JOIN cards c ON c.oracle_id = p.oracle_id WHERE p.oracle_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(serde_json::to_string(oracle_ids).map_err(anyhow::Error::from)?)
+    .fetch_all(db)
+    .await?;
+    for r in rows {
+        out.entry(r.oracle_id).or_default().push(r.choice);
+    }
+    Ok(out)
+}
+
 /// Every printing of a card, for [`paper_printing`] and [`collection_printing`].
 pub(crate) async fn printing_choices(conn: &mut SqliteConnection, oracle_id: &str) -> AppResult<Vec<PrintingChoice>> {
     Ok(sqlx::query_as::<_, PrintingChoice>(
@@ -693,14 +729,31 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             .await?;
     let configurations = configuration_group(&st.pool, &user.id, &id).await?;
 
-    // Ownership, by oracle ID, across the whole collection.
-    let items = crate::collection::items_for_owner(&st.pool, &user.id).await?;
+    // Your copies of these cards, wherever they are, grouped by card once.
+    let items = crate::collection::items_for_cards(&st.pool, &user.id, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let mut by_oracle: HashMap<&str, Vec<&crate::collection::Item>> = HashMap::new();
+    for i in &items {
+        if let Some(o) = i.oracle_id.as_deref() {
+            by_oracle.entry(o).or_default().push(i);
+        }
+    }
     // Printings an import named for this deck.
     let chosen = crate::deck_import::deck_prints(&st.pool, &id).await?;
+    // Cards with no copy of yours and no printing named: their printings, all in one query.
+    let unprinted: Vec<&str> = cards
+        .iter()
+        .filter(|c| {
+            let mine = by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default();
+            owned_printing(mine, container_id.as_deref()).is_none() && chosen.get(&c.oracle_id).and_then(|p| p.collector_number.as_ref()).is_none()
+        })
+        .map(|c| c.oracle_id.as_str())
+        .collect();
+    let choices = printing_choices_for(&st.pool, &unprinted).await?;
+    let mana = produced_mana(&st.pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
     let mut entries = Vec::new();
     let mut totals = OwnershipTotals::default();
     for c in cards {
-        let mine: Vec<_> = items.iter().filter(|i| i.oracle_id.as_deref() == Some(&c.oracle_id)).collect();
+        let mine: Vec<&crate::collection::Item> = by_oracle.get(c.oracle_id.as_str()).cloned().unwrap_or_default();
         let owned: i64 = mine.iter().filter(|i| !i.proxy).map(|i| i.qty).sum();
         let proxies: i64 = mine.iter().filter(|i| i.proxy).map(|i| i.qty).sum();
         let in_deck_container: i64 = mine
@@ -764,13 +817,9 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         });
         let printing = match owned_printing(&mine, container_id.as_deref()).or(chosen_print) {
             Some(p) => Some(p),
-            None => paper_printing(&printing_choices(&mut *st.pool.acquire().await?, &c.oracle_id).await?),
+            None => paper_printing(choices.get(&c.oracle_id).map(Vec::as_slice).unwrap_or_default()),
         };
-        let produced_mana: Option<String> = sqlx::query_scalar("SELECT produced_mana FROM cards WHERE oracle_id = ?")
-            .bind(&c.oracle_id)
-            .fetch_optional(&st.pool)
-            .await?
-            .flatten();
+        let produced_mana = mana.get(&c.oracle_id).cloned().flatten();
         entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, printing, produced_mana });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
@@ -1332,21 +1381,29 @@ pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option
 }
 
 /// Card data for a list, by oracle ID; cards not in the data are left out.
+/// The cards a list names, by oracle id, in one query.
 pub(crate) async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResult<HashMap<String, Card>> {
-    let mut info = HashMap::new();
-    for c in cards {
-        if info.contains_key(&c.oracle_id) {
-            continue;
-        }
-        if let Some(card) = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id = ?")))
-            .bind(&c.oracle_id)
-            .fetch_optional(pool)
-            .await?
-        {
-            info.insert(c.oracle_id.clone(), card);
-        }
+    let ids: std::collections::BTreeSet<&str> = cards.iter().map(|c| c.oracle_id.as_str()).collect();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
     }
-    Ok(info)
+    let rows = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")))
+        .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|c| (c.oracle_id.clone(), c)).collect())
+}
+
+/// The mana each card makes (`cards.produced_mana`), by oracle id, in one query.
+pub(crate) async fn produced_mana(pool: &SqlitePool, oracle_ids: &[&str]) -> AppResult<HashMap<String, Option<String>>> {
+    if oracle_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as("SELECT oracle_id, produced_mana FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(oracle_ids).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().collect())
 }
 
 // ── validation ─────────────────────────────────────────────────────────────

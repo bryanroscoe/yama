@@ -31,7 +31,7 @@ describe("build data privacy", () => {
   it("uses the shared owner plan cache and loses it when device plan data is purged", () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
     qc.setQueryData(["me"], { id: "owner-a" });
-    qc.setQueryData(["research", "owner-a", "list"], []);
+    qc.setQueryData(["research", "owner-a", "builds"], []);
     qc.setQueryData(["decks"], []);
     const plan = { decks: [{ key: "private", name: "Private paid-price plan", states: {} }] };
     qc.setQueryData(["plan", "owner-a"], plan);
@@ -49,10 +49,9 @@ describe("build data privacy", () => {
     qc.setQueryData(["me"], { id: "owner-b" });
     qc.setQueryData(["decks"], []);
     qc.setQueryData(["plan", "owner-a"], { decks: [{ key: "private", name: "Owner A private plan", states: {} }] });
-    qc.setQueryData(["research", "owner-a", "list"], [{ id: "private-report" }]);
-    qc.setQueryData(["research", "owner-a", "private-report"], { document: { decks: [{ name: "Owner A private research" }] } });
+    qc.setQueryData(["research", "owner-a", "builds"], [{ document: { id: "private-report", title: "Private", decks: [{ key: "k", name: "Owner A private research", builds: [] }] }, revision: 1, updated_at: "2026-10-31" }]);
     qc.setQueryData(["plan", "owner-b"], { decks: [] });
-    qc.setQueryData(["research", "owner-b", "list"], []);
+    qc.setQueryData(["research", "owner-b", "builds"], []);
     const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
     expect(html).not.toContain("Owner A private");
     expect(html).toContain("No saved decks or researched bracket builds yet");

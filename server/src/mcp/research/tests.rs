@@ -658,6 +658,7 @@ async fn card_printings_come_from_local_data_with_dated_prices() {
     }
     let out: Value = serde_json::from_str(&call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring"})).await.unwrap()).unwrap();
     assert_eq!(out["card"]["oracle_id"], "ring");
+    assert_eq!(out["card"]["game_changer"], false);
     assert_eq!(out["total_printings"], 2);
     // Cheapest first; a printing with no price is last, its price unknown rather than zero.
     assert_eq!(out["printings"][0]["id"], "ring2");

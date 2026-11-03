@@ -761,6 +761,28 @@ struct OnlineGame {
     runtime_error: Option<String>,
     /// The live game uses the exact runtime supported by the installed Phase board.
     phase_board: bool,
+    /// For a game this server is playing, from your view of the board: its turn, whose turn it is,
+    /// and whether you have a move other than passing (the Play headline, without the board).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turn: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    your_move: Option<bool>,
+}
+
+/// A live game's turn, active seat, and whether `you` have a move other than passing, from the
+/// view `you` would get (a spectator's if none).
+fn headline(snap: &Snapshot, you: Option<u8>) -> Option<(u32, u8, bool)> {
+    let real_move = |options: &[&str]| !options.is_empty() && !(options.len() == 1 && options[0].starts_with("Pass"));
+    if let Some(v) = snap.historical_views.get(&you).or_else(|| snap.historical_views.get(&None)) {
+        let options: Vec<&str> = v["decision"]["options"].as_array().into_iter().flatten().filter_map(|o| o["label"].as_str()).collect();
+        let decided = !v["decision"].is_null();
+        return Some((v["turn"].as_u64()? as u32, v["active"].as_u64()? as u8, decided && real_move(&options)));
+    }
+    let v = snap.views.get(&you).or_else(|| snap.views.get(&None))?;
+    let options: Vec<&str> = v.decision.iter().flat_map(|d| d.options.iter().map(|o| o.label.as_str())).collect();
+    Some((v.turn, v.active, v.decision.is_some() && real_move(&options)))
 }
 
 /// A rematch lobby: its id, the code to join it, and the deck you played here, to join with.
@@ -874,6 +896,12 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> App
                 let mut game = summarize(r, &user.id, HashMap::new(), &estimates, &arts);
                 game.runtime_error = st.play.game_error(r);
                 game.phase_board = st.cfg.board_dist.is_some() && board::supports_runtime(&r.stage, r.engine_version.as_deref());
+                if r.stage != "over"
+                    && let Some(live) = st.play.live(&r.game_id)
+                    && let Some((turn, active, your_move)) = headline(&live.views.borrow(), game.you)
+                {
+                    (game.turn, game.active, game.your_move) = (Some(turn), Some(active), Some(your_move));
+                }
                 game
             })
             .collect(),
@@ -908,6 +936,9 @@ fn summarize(
         rematch: None,
         runtime_error: None,
         phase_board: false,
+        turn: None,
+        active: None,
+        your_move: None,
     }
 }
 

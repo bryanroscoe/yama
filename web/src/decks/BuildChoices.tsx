@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, type DeckSummary, type DeckView } from "../api";
@@ -7,29 +7,27 @@ import { AreaHead } from "../components/DeckTabs";
 import { ErrorText } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
-import { report, reports } from "../research/api";
+import { buildNotes } from "../research/api";
 import { buildFamilies, buildTargets, resolveBuildFamily, duplexPages, exactChanges, printList, slotsText, type BuildChoice, type BuildFamily, type DuplexFace } from "./buildCatalog";
 import "./build-choices.css";
 
 export function BuildChoicesPage() {
   const [params, setParams] = useSearchParams();
   const userId = useMe().data?.id;
-  const index = useQuery({ queryKey: ["research", userId, "list"], queryFn: reports, enabled: !!userId });
-  const notes = useQueries({ queries: (index.data ?? []).map((r) => ({ queryKey: ["research", userId, r.id], queryFn: ({ signal }) => report(r.id, signal), enabled: !!userId })) });
+  const notes = useQuery({ queryKey: ["research", userId, "builds"], queryFn: buildNotes, enabled: !!userId });
   const plan = usePlan(userId);
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
-  const bundles = notes.flatMap((r) => r.data ? [r.data] : []);
-  const families = buildFamilies(bundles, plan.bundle, decks.data ?? []);
+  const families = buildFamilies(notes.data ?? [], plan.bundle, decks.data ?? []);
   const key = params.get("deck");
   const savedDeck = params.get("savedDeck");
   const planKey = params.get("planKey");
   const family = resolveBuildFamily(families, key, savedDeck, planKey);
-  const loading = index.isPending || plan.pending || decks.isPending || notes.some((r) => r.isPending);
+  const loading = notes.isPending || plan.pending || decks.isPending;
   return <main className="page build-choices">
     <div className="bc-controls">
       <AreaHead title="Bracket builds and swap cards" back={{ to: "/decks", label: "Decks" }} />
       <p>Choose two lists to print a double-sided swap card.</p>
-      <ErrorText error={index.error || plan.error || decks.error || notes.find((r) => r.error)?.error} />
+      <ErrorText error={notes.error || plan.error || decks.error} />
       {plan.offline && <p role="status">No connection. Showing the plan copy saved on this device.</p>}
       {loading ? <p>Loading your saved builds…</p> : <label>Deck <select value={family?.key ?? ""} onChange={(e) => setParams({ deck: e.target.value })}>
         {!family && <option value="">Choose a deck</option>}{families.map((f) => <option key={f.key} value={f.key}>{f.name}{families.filter((other) => other.name === f.name).length > 1 ? ` — ${f.detail}` : ""}</option>)}

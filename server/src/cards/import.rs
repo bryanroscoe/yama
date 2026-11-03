@@ -762,7 +762,6 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
     if count == 0 {
         bail!("no cards found in {}", path.display());
     }
-    sqlx::query("INSERT INTO cards_fts(cards_fts) VALUES('rebuild')").execute(pool).await?;
     Ok(count)
 }
 
