@@ -1,0 +1,22 @@
+.game-history { display: flex; flex-direction: column; gap: 16px; }
+.game-history h1, .game-history p { margin: 0; }
+.gh-head { display: flex; flex-direction: column; gap: 8px; }
+.gh-crumbs, .gh-game-head, .gh-pages { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.gh-crumbs a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+.gh-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.gh-filters button[aria-pressed="true"] { background: var(--text); color: var(--ground); }
+.gh-search { display: flex; gap: 16px; flex-wrap: wrap; }
+.gh-search label { display: flex; flex-direction: column; gap: 8px; flex: 1 1 240px; }
+.gh-search label:last-child { flex: 0 1 180px; }
+.gh-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.game-history .gh-game { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 16px; background: var(--surface); color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.gh-game:hover { background: var(--raised); }
+.gh-game time, .gh-players, .gh-meta { color: var(--dim); font-size: var(--t-label); }
+.gh-game-head time { white-space: nowrap; }
+.gh-pages { justify-content: center; }
+@media (max-width: 500px) {
+  .gh-search label, .gh-search label:last-child { flex-basis: 100%; }
+  .gh-filters { gap: 8px; }
+  .gh-filters button { padding-inline: 12px; }
+  .gh-filters button { flex-grow: 1; }
+}

@@ -11,6 +11,7 @@ use crate::util::now;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ use std::collections::HashMap;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/games", get(list).post(create))
+        .route("/api/games/history", get(game_history))
         .route("/api/games/{id}", get(detail).delete(remove))
         .route("/api/games/{id}/events", post(append_events))
         .route("/api/games/{id}/finish", post(finish))
@@ -676,6 +678,121 @@ struct ListParams {
     playgroup: Option<String>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum HistoryFilter {
+    #[default]
+    All,
+    Unfinished,
+    Unnamed,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum HistoryOrder {
+    #[default]
+    Newest,
+    Oldest,
+}
+
+#[derive(Default, Deserialize)]
+struct HistoryParams {
+    #[serde(default)]
+    filter: HistoryFilter,
+    #[serde(default)]
+    order: HistoryOrder,
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    offset: u32,
+}
+
+#[derive(Serialize)]
+struct HistoryPage {
+    games: Vec<GameRow>,
+    has_more: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct HistoryCandidate {
+    #[sqlx(flatten)]
+    game: GameRow,
+    names: sqlx::types::Json<Vec<[String; 2]>>,
+}
+
+/// Personal history, including old unfinished tables beyond the recent list's 200-game cap.
+/// Search/filter before pagination. A playgroup alone never grants access to this endpoint.
+async fn game_history(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Query(p): Query<HistoryParams>,
+) -> AppResult<Json<HistoryPage>> {
+    let filter = match p.filter {
+        HistoryFilter::All => "1",
+        HistoryFilter::Unfinished => "g.status != 'finished'",
+        // Keep numbered labels in step with web/src/table/playerNames.ts. AI seats aren't
+        // unnamed humans, and corrected seat names (rather than old event payloads) win.
+        HistoryFilter::Unnamed => "EXISTS (SELECT 1 FROM human_seats h WHERE h.game_id = g.id AND
+            (h.name = '' OR
+             (h.name GLOB 'player [0-9]*' AND substr(h.name,8) NOT GLOB '*[^0-9]*') OR
+             (h.name GLOB 'guest [0-9]*' AND substr(h.name,7) NOT GLOB '*[^0-9]*') OR
+             (h.name GLOB 'dude [0-9]*' AND substr(h.name,6) NOT GLOB '*[^0-9]*')))",
+    };
+    let order = match p.order {
+        HistoryOrder::Newest => "g.started_at DESC, g.id DESC",
+        HistoryOrder::Oldest => "g.started_at ASC, g.id ASC",
+    };
+    let q = p.q.trim();
+    if q.len() > 200 {
+        return Err(AppError::bad("search is too long"));
+    }
+    let folded = q.to_lowercase();
+    let query = sqlx::query_as::<_, HistoryCandidate>(sqlx::AssertSqlSafe(format!(
+        "WITH human_seats AS (
+            SELECT s.game_id, lower(trim(COALESCE(u.display_name,s.guest_name,m.guest_name,''))) AS name
+            FROM game_seats s LEFT JOIN users u ON u.id=s.user_id
+            LEFT JOIN playgroup_members m ON m.id=s.member_id WHERE s.ai_kind IS NULL
+         )
+         SELECT {GAME_COLUMNS}, (
+             SELECT json_group_array(json_array(COALESCE(u.display_name,s.guest_name,m.guest_name,''),COALESCE(s.commander_name,'')))
+             FROM game_seats s LEFT JOIN users u ON u.id=s.user_id
+             LEFT JOIN playgroup_members m ON m.id=s.member_id WHERE s.game_id=g.id
+         ) AS names FROM games g
+         WHERE (g.created_by = ? OR g.id IN (SELECT game_id FROM game_seats WHERE user_id = ?))
+           AND ({filter})
+         ORDER BY {order} LIMIT ? OFFSET ?"
+    )))
+    .bind(&user.id)
+    .bind(&user.id)
+    .bind(if q.is_empty() { 51_i64 } else { -1 })
+    .bind(if q.is_empty() { i64::from(p.offset) } else { 0 });
+    // SQLite lower() only folds ASCII (so it misses éowyn against Éowyn). Stream personal
+    // candidates and fold their current names in Rust, stopping after this matching page.
+    // Searches still paginate after matching, and never collect the entire history in memory.
+    let mut candidates = query.fetch(&st.pool);
+    let mut skip = if q.is_empty() { 0 } else { u64::from(p.offset) };
+    let mut games = Vec::new();
+    while let Some(candidate) = candidates.try_next().await? {
+        if !q.is_empty() && !candidate.names.iter().flatten().any(|name| name.to_lowercase().contains(&folded)) {
+            continue;
+        }
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        games.push(candidate.game);
+        if games.len() == 51 { break; }
+    }
+    drop(candidates);
+    let has_more = games.len() > 50;
+    games.truncate(50);
+    let mut seats = seats_for(&st.pool, &games.iter().map(|g| g.id.as_str()).collect::<Vec<_>>()).await?;
+    for g in &mut games {
+        g.seats = seats.remove(&g.id).unwrap_or_default();
+    }
+    Ok(Json(HistoryPage { games, has_more }))
+}
+
 async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(p): Query<ListParams>) -> AppResult<Json<Vec<GameRow>>> {
     let mut games: Vec<GameRow> = match &p.playgroup {
         Some(pg) => {
@@ -833,6 +950,77 @@ mod tests {
                 .unwrap();
         }
         pool
+    }
+
+    #[tokio::test]
+    async fn history_finds_old_games_before_paging_and_keeps_account_boundaries() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        let (app, pool) = app().await;
+        let (me, token) = user(&pool, "me@example.com").await;
+        let (sam, sam_token) = user(&pool, "sam@example.com").await;
+        let mut tx = pool.begin().await.unwrap();
+        for i in 0..240 {
+            let id = format!("history-{i:03}");
+            let status = match i { 0 => "in_progress", 1 => "abandoned", _ => "finished" };
+            sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at) VALUES (?,'in_person',?,?,?)")
+                .bind(&id).bind(&me).bind(status).bind(if i == 0 { "2020-01-01" } else { "2026-11-02" })
+                .execute(&mut *tx).await.unwrap();
+            let name = match i { 0 => "Player 2", 1 => "Dude 2", 2 => "Guest 3", _ => "Kelly" };
+            sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name,ai_kind,commander_name,user_id) VALUES (?,0,?,?,?,?)")
+                .bind(&id).bind(name).bind(if i == 2 { Some("phase-ai") } else { None })
+                .bind("Atraxa, Praetors' Voice").bind(if i == 239 { Some(sam.as_str()) } else { None })
+                .execute(&mut *tx).await.unwrap();
+        }
+        // Owning this group doesn't put another recorder's game in personal history.
+        sqlx::query("INSERT INTO playgroups(id,name,owner_id,join_code,created_at) VALUES ('pg-history','Group',?,'HIST','t')")
+            .bind(&me).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at,playgroup_id) VALUES ('private','in_person',?,'in_progress','2020-01-01','pg-history')")
+            .bind(&sam).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name) VALUES ('private',0,'Player 2')")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let get = |query: &str| format!("/api/games/history?{query}");
+        assert_eq!(send(&app, Method::GET, &get(""), None, None).await.0, StatusCode::UNAUTHORIZED);
+        let (status, unfinished) = send(&app, Method::GET, &get("filter=unfinished&order=oldest"), Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(unfinished["games"].as_array().unwrap().iter().map(|g| g["id"].as_str().unwrap()).collect::<Vec<_>>(), ["history-000", "history-001"]);
+        assert_eq!(unfinished["has_more"], false);
+        let (_, unnamed) = send(&app, Method::GET, &get("filter=unnamed&order=oldest"), Some(&token), None).await;
+        assert_eq!(unnamed["games"].as_array().unwrap().len(), 2, "AI placeholders aren't unnamed people");
+        // An authoritative correction replaces the old suggestion/search/filter name immediately.
+        sqlx::query("UPDATE game_seats SET guest_name='Kelly' WHERE game_id='history-000'").execute(&pool).await.unwrap();
+        let (_, corrected) = send(&app, Method::GET, &get("filter=unnamed"), Some(&token), None).await;
+        assert_eq!(corrected["games"].as_array().unwrap().len(), 1);
+        let (_, kelly) = send(&app, Method::GET, &get("filter=unfinished&q=kelly"), Some(&token), None).await;
+        assert_eq!(kelly["games"][0]["id"], "history-000");
+        let (_, commander) = send(&app, Method::GET, &get("filter=unfinished&q=atraxa"), Some(&token), None).await;
+        assert_eq!(commander["games"].as_array().unwrap().len(), 2);
+        let (_, searched_page) = send(&app, Method::GET, &get("q=atraxa&offset=200"), Some(&token), None).await;
+        assert_eq!(searched_page["games"].as_array().unwrap().len(), 40);
+        assert_eq!(searched_page["has_more"], false);
+        sqlx::query("UPDATE game_seats SET guest_name='Élodie',commander_name='Éowyn, Shieldmaiden' WHERE game_id='history-000'").execute(&pool).await.unwrap();
+        for q in ["q=%C3%A9owyn", "q=%C3%89OWYN", "q=%C3%A9lodie"] {
+            let (_, page) = send(&app, Method::GET, &get(q), Some(&token), None).await;
+            assert_eq!(page["games"][0]["id"], "history-000", "Unicode player and commander search: {q}");
+            assert_eq!(page["has_more"], false);
+        }
+        for q in ["q=%25", "q=%27%20OR%201%3D1--"] {
+            let (_, page) = send(&app, Method::GET, &get(q), Some(&token), None).await;
+            assert!(page["games"].as_array().unwrap().is_empty(), "search is a literal substring");
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for offset in [0, 50, 100, 150, 200] {
+            let (_, page) = send(&app, Method::GET, &get(&format!("offset={offset}")), Some(&token), None).await;
+            assert_eq!(page["has_more"], offset < 200);
+            for g in page["games"].as_array().unwrap() { assert!(ids.insert(g["id"].as_str().unwrap().to_owned())); }
+        }
+        assert_eq!(ids.len(), 240);
+        let (_, sams) = send(&app, Method::GET, &get(""), Some(&sam_token), None).await;
+        assert_eq!(sams["games"].as_array().unwrap().len(), 2, "recorder or account-linked participant only");
+        for invalid in ["filter=broken", "order=garbage", "offset=-1", "offset=4294967296"] {
+            assert_eq!(send(&app, Method::GET, &get(invalid), Some(&token), None).await.0, StatusCode::BAD_REQUEST);
+        }
     }
 
     fn new_game(id: &str, finish: Option<serde_json::Value>) -> NewGame {

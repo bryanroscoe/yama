@@ -43,6 +43,7 @@ const deckCheck = area(() => import("./decks/DeckCheckPage"));
 const consent = area(() => import("./oauth/Consent"));
 const guestTable = area(() => import("./table/GuestTable"));
 const gameDetail = area(() => import("./table/GameDetail"));
+const gameHistory = area(() => import("./table/GameHistory"));
 
 const PlayHome = play.page("PlayHome");
 const PlayGame = play.page("PlayGame");
@@ -91,6 +92,7 @@ const DeckCheckPage = deckCheck.page("DeckCheckPage");
 const OAuthConsent = consent.page("OAuthConsent");
 const GuestTable = guestTable.page("GuestTable");
 const GameDetailPage = gameDetail.page("GameDetailPage");
+const GameHistoryPage = gameHistory.page("GameHistoryPage");
 const TablePlay = tablePlay.page("TablePlay");
 
 /**
@@ -226,6 +228,7 @@ export function App() {
         <Route path="cards" element={<CardsPage />} />
         <Route path="new" element={<WhatsNewPage />} />
         <Route element={<RequireAccount />}>
+          <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />
           <Route path="play" element={<Paged page={PlayHome} title="Play online" />} />
           <Route path="play/watch" element={<Paged page={WatchHome} title="Watch AIs play" />} />

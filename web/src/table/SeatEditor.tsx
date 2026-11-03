@@ -12,6 +12,7 @@ import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { dispatch } from "./store";
 import { isGuest } from "../guest";
+import { suggestedPeople } from "./playerNames";
 import "./seats.css";
 
 const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -98,32 +99,7 @@ export function usePeople(group: Playgroup | undefined, groups: Playgroup[] | un
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }), enabled: !isGuest() });
   // Without an account there's nobody to offer, whatever an earlier session left in the cache.
   if (isGuest()) return [];
-  const out: Person[] = [];
-  const names = new Set<string>();
-  const ids = new Set<string>();
-  // Members and accounts are told apart by id (two Alexes in a group are two people); a bare
-  // name (another group's member, someone from a past game) only if no one listed has it yet.
-  const add = (p: Person) => {
-    const name = p.name.trim().toLowerCase();
-    const id = p.memberId ?? p.userId;
-    if (!name || (id ? ids.has(id) : names.has(name))) return;
-    if (id) ids.add(id);
-    names.add(name);
-    out.push(p);
-  };
-  if (group) {
-    const mine = group.members.find((m) => me && m.user_id === me.id);
-    if (mine) add({ name: mine.display_name, memberId: mine.id, userId: me!.id, handle: mine.handle ?? undefined, sub: "You" });
-    for (const m of group.members) add({ name: m.display_name, memberId: m.id, userId: m.user_id ?? undefined, handle: m.handle ?? undefined, sub: m.user_id ? group.name : `${group.name}, guest` });
-  } else if (me) {
-    add({ name: me.display_name, userId: me.id, sub: "You" });
-  }
-  for (const g of groups ?? []) if (g.id !== group?.id) for (const m of g.members) add({ name: m.display_name, handle: m.handle ?? undefined, sub: g.name });
-  for (const g of games.data ?? []) {
-    const day = new Date(g.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    for (const seat of g.seats) if (seat.display_name && !seat.ai_kind) add({ name: seat.display_name, sub: `Played ${day}` });
-  }
-  return out;
+  return suggestedPeople(me, group, groups, games.data);
 }
 
 export function SeatEditor({ index, seat, onChange, group, decks, deckName, where, people = [], seatedHandles, commander = true, footer }: {
