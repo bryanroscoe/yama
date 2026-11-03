@@ -2,7 +2,7 @@ import { CardRef } from "../components/CardRef";
 // "Add to my collection" for a deck: preview what goes into the deck's box, choose what to do
 // with copies of the same printing elsewhere, then add (server/src/collection/deck_box.rs).
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
 import { Details, ErrorText, Sheet } from "../components/ui";
@@ -14,14 +14,17 @@ import "./collect.css";
 export function CollectSheet({ deckId, offer = false, onClose }: { deckId: string; offer?: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const [same, setSame] = useState<SamePrinting>("move");
+  // null preserves imported proxy flags until the owner makes a choice.
+  const [proxies, setProxies] = useState<string[] | null>(null);
   const [result, setResult] = useState<CollectPreview | null>(null);
   const preview = useQuery({
-    queryKey: ["deck-collect", deckId, same],
-    queryFn: ({ signal }) => api<CollectPreview>(`/api/decks/${deckId}/collect?same=${same}`, { signal }),
+    queryKey: ["deck-collect", deckId, same, proxies],
+    queryFn: ({ signal }) => api<CollectPreview>(`/api/decks/${deckId}/collect?same=${same}${proxies === null ? "" : `&proxies=${encodeURIComponent(proxies.join(","))}`}`, { signal }),
     enabled: !result,
+    placeholderData: keepPreviousData,
   });
   const add = useMutation({
-    mutationFn: () => api<CollectPreview>(`/api/decks/${deckId}/collect`, { method: "POST", json: { same } }),
+    mutationFn: () => api<CollectPreview>(`/api/decks/${deckId}/collect`, { method: "POST", json: { same, ...(proxies === null ? {} : { proxies }) } }),
     onSuccess: (r) => {
       setResult(r);
       void qc.invalidateQueries({ predicate: (q) => ["deck", "decks", "containers", "deck-collect"].includes(String(q.queryKey[0])) || String(q.queryKey[0]).startsWith("collection") });
@@ -57,8 +60,26 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
                 ))}
               </ul>
             )}
+            {!result && p.lines.length > 0 && (
+              <fieldset className="collect-choices" disabled={viewing || add.isPending}>
+                <legend>Which cards are printed proxies?</legend>
+                <p className="small dim">Saving a deck list doesn’t add collection copies. Mark your printed cards here; unmarked cards are added as real copies. Copies already in the box stay as they are.</p>
+                {p.lines.map((line) => (
+                  <label key={line.oracle_id}>
+                    <input type="checkbox" checked={proxies === null ? line.proxy : proxies.includes(line.oracle_id)} onChange={(event) => {
+                      const selected = new Set(proxies ?? p.lines.filter((l) => l.proxy).map((l) => l.oracle_id));
+                      if (event.target.checked) selected.add(line.oracle_id);
+                      else selected.delete(line.oracle_id);
+                      setProxies([...selected].sort());
+                    }} />
+                    {line.missing > 1 ? `${line.missing} ` : ""}{line.name}
+                    <span className="hint">{(proxies === null ? line.proxy : proxies.includes(line.oracle_id)) ? "Proxy" : "Real copy"}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
             {!result && p.same_elsewhere > 0 && (
-              <fieldset className="collect-choices">
+              <fieldset className="collect-choices" disabled={viewing || add.isPending}>
                 <legend>The copies you own in the same printing</legend>
                 {SAME_CHOICES.map((c) => (
                   <label key={c.value}>
@@ -94,8 +115,8 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
             <ErrorText error={add.error} />
             {!result && (
               <div className="row">
-                <button type="button" className="primary" disabled={viewing || add.isPending || p.added + p.moved === 0} onClick={() => add.mutate()}>
-                  {add.isPending ? "Adding…" : buttonText(p)}
+                <button type="button" className="primary" disabled={viewing || add.isPending || preview.isFetching || !!preview.error || p.added + p.moved === 0} onClick={() => add.mutate()}>
+                  {add.isPending ? "Adding…" : preview.isFetching ? "Checking…" : buttonText(p)}
                 </button>
                 <button type="button" className="quiet" onClick={onClose}>
                   {offer ? "Not now" : "Cancel"}

@@ -64,7 +64,7 @@ describe("add to my collection", () => {
     expect(summary(preview())).toEqual([
       "100 cards in the deck, 0 already in its box.",
       "You own the same printing of 3 of the 100 missing in another box or binder.",
-      "2 cards the deck marks as a proxy go in as proxies.",
+      "2 new copies will be recorded as proxies.",
     ]);
     expect(summary(preview({ in_box: 100, missing: 0, same_elsewhere: 0 }))).toEqual(["100 cards in the deck, 100 already in its box.", "Nothing to add: the box holds the whole list."]);
     expect(summary(preview({ same_elsewhere: 0, proxies: 0, no_printing: ["Plains"] }))[1]).toBe("Yama has no printing of Plains, so it's left out.");

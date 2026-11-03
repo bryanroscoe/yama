@@ -1558,3 +1558,17 @@ source and both control expectations remain unchanged.
 ### Phase retry-tail progress (2026-10-28)
 
 Experiment progress exposes only that experiment's remaining Phase count and deferred retry count. When all remaining Phase games are retries of machine timeouts/hangs, suppress the ordinary recent-completion ETA: easy first attempts do not predict this tail. Web and MCP explain that retries can take minutes and remain unscored; the web labels a finished Phase half separately while Forge continues. This changes reporting only, preserving seeds, budgets, retry policy and scores.
+
+
+### Recording printed copies in a deck box (2026-11-02)
+
+Saving a deck list does not establish collection ownership. The deck’s “Add to my collection”
+sheet lets its owner mark each missing card as a printed proxy before adding it. Imported proxy
+flags remain the default; an explicit selection can set or clear them for the copies being added.
+GET `/api/decks/{id}/collect` accepts optional comma-separated `proxies` Oracle IDs; POST accepts
+that selection as an array. Omitting it preserves imported flags; an empty selection means real
+copies. The server validates the selection against that owner’s commander/main list and uses the
+same choice for previews, same-printing matches and transactional collection ops. Existing copies
+keep their classification, other decks’ copies are never moved, and repeating the action adds
+nothing once the box is full. Deck lists and printing preferences do not change. Collection
+coverage includes real copies and proxies by Oracle ID, regardless of printing.
