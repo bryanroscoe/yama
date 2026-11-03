@@ -282,7 +282,7 @@ async fn deleting_a_game_never_uploaded_stops_it_being_uploaded_later() {
 }
 
 #[tokio::test]
-async fn only_a_games_creator_gets_its_cloudflare_share_key() {
+async fn private_tables_only_reveal_the_cloudflare_key_to_their_creator() {
     let (app, pool) = open_server().await;
     let (bryan, bt) = user(&pool, "bryan@example.com").await;
     let (_, st) = user(&pool, "sam@example.com").await;
@@ -302,7 +302,7 @@ async fn only_a_games_creator_gets_its_cloudflare_share_key() {
     assert_eq!(send(&app, Method::DELETE, &live, Some(&st), None).await.0, StatusCode::OK);
 
     let (_, mine) = get(&app, &bt, &live).await;
-    assert_eq!(mine, json!({ "hosting": true, "key": key }));
+    assert_eq!(mine, json!({ "hosting": true, "key": key, "relay": "edge" }));
     assert_eq!(send(&app, Method::DELETE, &live, Some(&bt), None).await.0, StatusCode::OK);
     let (_, mine) = get(&app, &bt, &live).await;
     assert_eq!(mine, json!({ "hosting": false }));

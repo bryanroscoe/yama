@@ -234,3 +234,8 @@ export function useLandscape(): boolean {
   }, []);
   return on;
 }
+
+export function subscribeLayout(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}

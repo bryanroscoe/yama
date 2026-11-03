@@ -4,7 +4,10 @@
 import { RELAY_TOKEN, relayShareKey, type TableEvent } from "@yama/core";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { api, API_BASE, publicOrigin } from "../api";
-import { dispatch, getGame, isPosted, subscribeTable, sync } from "./store";
+import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, useTable as useCurrentTable, setSharedReadOnly, setSharedHost, prepareSharing, refreshSharedGame } from "./store";
+import { chosenLayout, subscribeLayout } from "./layouts";
+import { getShowArt, subscribeShowArt } from "./art";
+import { getCountTurns, subscribeCountTurns } from "./turns";
 
 /**
  * Where shared tables meet. Set (production): Yama's relay on Cloudflare (relay/), which works
@@ -114,12 +117,12 @@ export function shareKey(gameId: string): string {
 
 /** Guests may adjust the table, but only the host's phone ends the game. */
 const GUEST_EVENTS = new Set<TableEvent["type"]>([
-  "life", "poison", "commander_damage", "counter", "commander_cast", "monarch", "initiative", "day_night", "pass_turn", "eliminate", "revive", "seat",
+  "life", "poison", "commander_damage", "counter", "commander_cast", "monarch", "initiative", "day_night", "pass_turn", "eliminate", "revive", "seat", "set_first",
 ]);
 
 export { publicOrigin } from "../api";
 
-type Status = { gameId: string | null; connected: boolean };
+type Status = { gameId: string | null; connected: boolean; following?: string | null };
 let status: Status = { gameId: null, connected: false };
 const listeners = new Set<() => void>();
 const setStatus = (s: Partial<Status>) => {
@@ -132,6 +135,10 @@ let unsubscribe: (() => void) | null = null;
 let retry: number | null = null;
 let postWait: number | null = null;
 let liveTimer: number | null = null;
+let liveRegistration: { preserveOnStop: boolean } | null = null;
+let lastGame: ReturnType<typeof getGame> = null;
+let nextGame: { gameId: string; key: string; relay?: string } | null = null;
+const hostingKey = (owner: string) => `yama.table.hosting.${owner}`;
 /** The last snapshot sent: the store emits on every sync, and most change nothing. */
 let lastSent: string | null = null;
 
@@ -156,8 +163,9 @@ function queueSnapshot() {
 function sendSnapshot() {
   const g = getGame();
   if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
-  const msg = JSON.stringify({ type: "state", setup: g.setup, log: g.log });
+  const msg = JSON.stringify({ type: "state", setup: g.setup, log: g.log, layout: chosenLayout(g.setup.players.length), countTurns: getCountTurns(), showArt: getShowArt() });
   if (msg === lastSent) return;
+  lastGame = g;
   lastSent = msg;
   lastSentAt = Date.now();
   socket.send(msg);
@@ -195,7 +203,7 @@ function open(gameId: string, attempt = 0) {
     if (e.code === REPLACED || e.code === TOO_LARGE) {
       // Not this phone's to share any more (another tab has the same game), or never will be:
       // stop, but leave the share key with the server for whoever took over.
-      reset();
+      reset({ preserveLive: true });
       return;
     }
     setStatus({ connected: false });
@@ -219,6 +227,7 @@ export function announceNext(nextId: string) {
   if (!socket || socket.readyState !== WebSocket.OPEN || !g || g.setup.id !== status.gameId) return;
   // If the connection is down right now, guests scan the new game's code instead.
   const next = { gameId: nextId, key: shareKey(nextId), ...(hostRelay(nextId) === "edge" ? { relay: EDGE_MARK } : {}) };
+  nextGame = next;
   socket.send(JSON.stringify({ type: "state", setup: g.setup, log: g.log, next }));
 }
 
@@ -244,15 +253,54 @@ function useQrSvg(url: string, on: boolean): string {
   return svg;
 }
 
+let hostAttempt = 0;
+let releaseHostLock: (() => void) | null = null;
+
 export function startHosting(gameId: string) {
   if (status.gameId === gameId) return;
+  prepareSharing();
   stopHosting();
-  setStatus({ gameId, connected: false });
-  unsubscribe = subscribeTable(() => {
+  const attempt = ++hostAttempt;
+  setStatus({ gameId, connected: false, following: null });
+  // A reload may restore sharing, but a second tab must never steal it. The lock is released
+  // by the browser when the document closes; no timers or expired leases decide ownership.
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    setSharedReadOnly(gameId);
+    void navigator.locks.request(`yama-table-host:${gameId}`, { ifAvailable: true }, async (lock) => {
+      if (attempt !== hostAttempt) return;
+      if (!lock) {
+        setStatus({ gameId: null, connected: false, following: gameId });
+        return;
+      }
+      const held = new Promise<void>((resolve) => { releaseHostLock = resolve; });
+      if (!activateHosting(gameId)) return;
+      await held;
+    });
+  } else {
+    // Older embedded browsers can still explicitly host; automatic reload recovery below
+    // requires browser locks so merely opening another app window never takes over.
+    activateHosting(gameId);
+  }
+}
+
+function activateHosting(gameId: string): boolean {
+  if (!refreshSharedGame(gameId)) { reset(); return false; }
+  setSharedHost(gameId);
+  setSharedReadOnly(null);
+  const game = getGame();
+  if (game?.owner) localStorage.setItem(hostingKey(game.owner), gameId);
+  lastGame = game;
+  const off = [subscribeTable(() => {
     const g = getGame();
-    if (!g || g.setup.id !== gameId) stopHosting(); // game finished or discarded
-    else queueSnapshot();
-  });
+    if (!g || g.setup.id !== gameId) {
+      stopHosting();
+    } else queueSnapshot();
+  }), subscribeTableEnd((ended) => {
+    if (ended.setup.id !== gameId || socket?.readyState !== WebSocket.OPEN) return;
+    // Retained by the relay for sleeping phones too. Account switches do not end a game.
+    socket.send(JSON.stringify({ type: "state", setup: ended.setup, log: ended.log, ended: true, ...(nextGame ? { next: nextGame } : {}) }));
+  }), subscribeLayout(queueSnapshot), subscribeShowArt(queueSnapshot), subscribeCountTurns(queueSnapshot)];
+  unsubscribe = () => { for (const f of off) f(); };
   if (hostRelay(gameId) === "edge") {
     // The Cloudflare relay needs nothing from Yama's server, so the table is live at once.
     open(gameId);
@@ -261,6 +309,7 @@ export function startHosting(gameId: string) {
     // The server's relay only lets the game's creator host a game it already has.
     void untilPosted(gameId).then((ok) => ok && !socket && open(gameId));
   }
+  return true;
 }
 
 /**
@@ -278,28 +327,37 @@ async function untilPosted(gameId: string): Promise<boolean> {
 }
 
 const livePath = (gameId: string) => `/api/table/${gameId}/live`;
-/** The server forgets a share key after an hour, so it's left again while sharing goes on. */
-const LIVE_REFRESH_MS = 20 * 60 * 1000;
+/** Live discovery expires after three minutes without a heartbeat. */
+const LIVE_REFRESH_MS = 60 * 1000;
 
 /**
- * Leave the share key with Yama's server, for the creator's own other devices: their game page
- * offers to follow it live. Only them: the server hands it to no one else. Best effort; the
+ * Leave the share key with Yama's server, for the creator's own other devices: the creator and the selected playgroup can
+ * follow it live. Best effort; the
  * table doesn't need it.
  */
 async function tellOwnDevices(gameId: string) {
-  if (!(await untilPosted(gameId))) return;
-  const put = () => api(livePath(gameId), { method: "PUT", json: { key: shareKey(gameId) } }).catch(() => undefined);
+  const attempt = hostAttempt;
+  const registration = { preserveOnStop: false };
+  liveRegistration = registration;
+  if (!(await untilPosted(gameId)) || attempt !== hostAttempt) return;
+  const put = () => attempt === hostAttempt
+    ? api(livePath(gameId), { method: "PUT", json: { key: shareKey(gameId) } }).catch(() => undefined)
+    : Promise.resolve();
   await put();
-  // Stopped while that was on its way: take it back.
-  if (status.gameId !== gameId) {
-    await api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
+  // A terminal closure must not erase a successor's key when an older PUT finishes late.
+  // An explicit stop still cleans up its delayed PUT, unless this phone started it again.
+  if (attempt !== hostAttempt) {
+    if (!registration.preserveOnStop && status.gameId !== gameId) await api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
     return;
   }
   liveTimer = window.setInterval(() => void put(), LIVE_REFRESH_MS);
 }
 
 /** Stop sharing on this phone, without telling the server. */
-function reset() {
+function reset({ preserveLive = false }: { preserveLive?: boolean } = {}) {
+  if (liveRegistration) liveRegistration.preserveOnStop = preserveLive;
+  liveRegistration = null;
+  if (lastGame?.owner && localStorage.getItem(hostingKey(lastGame.owner)) === status.gameId) localStorage.removeItem(hostingKey(lastGame.owner));
   for (const t of [retry, postWait, snapshotTimer]) if (t) window.clearTimeout(t);
   if (liveTimer) window.clearInterval(liveTimer);
   retry = postWait = liveTimer = snapshotTimer = null;
@@ -308,14 +366,41 @@ function reset() {
   const s = socket;
   socket = null;
   lastSent = null;
+  lastGame = null;
+  nextGame = null;
   s?.close();
-  setStatus({ gameId: null, connected: false });
+  hostAttempt++;
+  releaseHostLock?.();
+  releaseHostLock = null;
+  setSharedHost(null);
+  setSharedReadOnly(null);
+  setStatus({ gameId: null, connected: false, following: null });
 }
 
 export function stopHosting() {
   const gameId = status.gameId;
   if (gameId && hostRelay(gameId) === "edge") void api(livePath(gameId), { method: "DELETE" }).catch(() => undefined);
   reset();
+}
+
+/** A reload resumes only sharing explicitly started for this account's current game. */
+export function restoreHosting(user: string | null, markerChanged = false) {
+  const game = getGame();
+  const marked = !!user && game?.owner === user && localStorage.getItem(hostingKey(user)) === game.setup.id;
+  const starting = status.gameId === game?.setup.id && lastGame === null;
+  if ((status.gameId || status.following) && (!user || game?.owner !== user || game?.setup.id !== (status.gameId ?? status.following) || (!marked && (!starting || markerChanged)))) stopHosting();
+  if (marked && game && (typeof navigator === "undefined" || navigator.locks)) startHosting(game.setup.id);
+}
+export function useRestoreHosting(user: string | null) {
+  const { game } = useCurrentTable();
+  useEffect(() => {
+    restoreHosting(user);
+    const onStorage = (event: StorageEvent) => {
+      if (user && (event.key === null || event.key === hostingKey(user))) restoreHosting(user, true);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [user, game?.setup.id]);
 }
 
 export function useHosting() {

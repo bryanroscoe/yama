@@ -19,7 +19,7 @@ import { CardsPage } from "./pages/Cards";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
 // What's new is small and its notice shows on every page.
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
-import { joinLink } from "./table/share";
+import { joinLink, useRestoreHosting } from "./table/share";
 import { tablePlay } from "./table/playLoader";
 import { TableHome } from "./table/TableHome";
 
@@ -144,6 +144,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
 
 export function App() {
   const me = useMe();
+  useRestoreHosting(me.data?.id ?? null);
   const guestChosen = useGuestChosen();
   const qc = useQueryClient();
   const { search } = useLocation();
@@ -154,7 +155,7 @@ export function App() {
   // tab's cache, so nothing of that account shows.
   useEffect(() => {
     if (!signedOutNow) return;
-    const accountLists = new Set(["sharing", "games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
+    const accountLists = new Set(["table-active", "table-live", "sharing", "games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
     // Card searches carry the account's copies; the guest's own (keyed `true`, Cards.tsx) stay,
     // since the Cards page may already be running one.
     const accountSearch = (key: readonly unknown[]) => key[0] === "search" && key[4] !== true;

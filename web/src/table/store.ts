@@ -104,22 +104,59 @@ let syncState: { syncing: boolean; error: string | null; lastSyncedAt: string | 
   lastSyncedAt: null,
 };
 
+// Pause restored shared games before the startup sync microtask, until this document has
+// acquired their host lock. A passive second tab must not upload even its first stale copy.
+function pendingHostLock(game: LocalGame | null): string | null {
+  return typeof navigator !== "undefined" && navigator.locks && game?.owner &&
+    localStorage.getItem(`yama.table.hosting.${game.owner}`) === game.setup.id ? game.setup.id : null;
+}
+// Last persisted identity observed for this slot. An intentional transition (including
+// null on deletion) may be emitted only while the slot still holds that identity.
+let currentIdentity: string | null = current?.setup.id ?? null;
+const sameStoredIdentity = () => read<LocalGame | null>(currentKey(), null)?.setup.id === (currentIdentity ?? undefined);
+let readOnlyGame: string | null = pendingHostLock(current);
+/** This document has been granted hosting ownership (a browser lock where supported). */
+let sharedHost: string | null = null;
+export function setSharedHost(gameId: string | null) { sharedHost = gameId; }
+function canWriteShared() {
+  const marked = pendingHostLock(current);
+  return readOnlyGame === null && sameStoredIdentity() && (!marked || marked === sharedHost);
+}
+/** Another tab owns this shared counter; this tab may follow it, never write its old copy. */
+export function setSharedReadOnly(gameId: string | null) {
+  if (readOnlyGame && !gameId) reloadQueues();
+  readOnlyGame = gameId;
+}
+function reloadQueues() {
+  outbox = read<LocalGame[]>(OUTBOX, []);
+  rejected = read(REJECTED, []);
+  guestGames = read<LocalGame[]>(GUEST_GAMES, []);
+  deletes = read<(QueuedDelete | string)[]>(DELETES, []).map((d) => typeof d === "string" ? { id: d, owner: null } : d);
+}
+const mayEditCurrent = () => canWriteShared();
+
 function emit() {
-  localStorage.setItem(currentKey(), JSON.stringify(current));
-  localStorage.setItem(OUTBOX, JSON.stringify(outbox));
-  localStorage.setItem(REJECTED, JSON.stringify(rejected));
-  localStorage.setItem(DELETES, JSON.stringify(deletes));
-  localStorage.setItem(GUEST_GAMES, JSON.stringify(guestGames));
+  if (canWriteShared()) {
+    localStorage.setItem(currentKey(), JSON.stringify(current));
+    currentIdentity = current?.setup.id ?? null;
+    localStorage.setItem(OUTBOX, JSON.stringify(outbox));
+    localStorage.setItem(REJECTED, JSON.stringify(rejected));
+    localStorage.setItem(DELETES, JSON.stringify(deletes));
+    localStorage.setItem(GUEST_GAMES, JSON.stringify(guestGames));
+  }
   for (const l of listeners) l();
 }
 
-function setCurrent(next: LocalGame | null) {
+function setCurrent(next: LocalGame | null): boolean {
+  if (!canWriteShared()) return false;
   current = next;
   derived = next ? replay(next.setup, next.log) : null;
   // Saved now; anything already showing hears about it in a moment, not in the middle of a
   // render or commit.
   localStorage.setItem(currentKey(), JSON.stringify(current));
+  currentIdentity = current?.setup.id ?? null;
   queueMicrotask(emit);
+  return true;
 }
 
 /**
@@ -132,15 +169,19 @@ export function selectSlot(guest: boolean, user?: string | null) {
   if (slot === want) return;
   slot = want;
   current = read<LocalGame | null>(currentKey(), null);
+  currentIdentity = current?.setup.id ?? null;
   // A game kept under the old shared key comes along only for its own account (or one from before
   // games recorded theirs); another account's stays where it is until that account signs in.
   if (!guest && user && !current) {
     const old = read<LocalGame | null>(CURRENT, null);
-    if (old && (!old.owner || old.owner === user)) {
+    if (old && (!old.owner || old.owner === user) && sameStoredIdentity()) {
       current = { ...old, owner: old.owner ?? user };
+      localStorage.setItem(currentKey(), JSON.stringify(current));
+      currentIdentity = current.setup.id;
       localStorage.removeItem(CURRENT);
     }
   }
+  readOnlyGame = pendingHostLock(current);
   derived = current ? replay(current.setup, current.log) : null;
   waitingGuest = slot !== "guest" ? read<LocalGame | null>(GUEST_CURRENT, null) : null;
   // Pages that render from now on read the new game; anything already showing hears about it
@@ -181,6 +222,7 @@ export function useGuestGames() {
  * another game going it waits, and the question stays until that one is done.
  */
 export function saveGuestGames() {
+  if (!canWriteShared()) return;
   // Saved by the account signed in now: theirs, uploaded only while they're signed in here.
   const owner = signedInUser() ?? undefined;
   outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => ({ ...g, owner }))];
@@ -193,10 +235,10 @@ export function saveGuestGames() {
   }
   if (slot !== "guest" && waitingGuest && !current) {
     const { guest: _, ...g } = waitingGuest;
-    current = { ...g, owner };
-    derived = replay(g.setup, g.log);
-    waitingGuest = null;
-    localStorage.removeItem(GUEST_CURRENT);
+    if (setCurrent({ ...g, owner })) {
+      waitingGuest = null;
+      localStorage.removeItem(GUEST_CURRENT);
+    }
   }
   emit();
   void sync();
@@ -204,6 +246,7 @@ export function saveGuestGames() {
 
 /** Throw away the games counted here without an account, the one going included. */
 export function dropGuestGames() {
+  if (!canWriteShared()) return;
   guestGames = [];
   if (slot !== "guest" && waitingGuest) {
     waitingGuest = null;
@@ -231,7 +274,9 @@ export function usePendingDeletes() {
  * server answers (queued while offline). Resolves true once Yama has removed it.
  */
 export async function deleteGame(gameId: string): Promise<boolean> {
+  if (!canWriteShared()) return false;
   if (current?.setup.id === gameId) {
+    for (const l of endListeners) l(current);
     forgetPrompts(gameId);
     current = null;
     derived = null;
@@ -253,6 +298,7 @@ async function settle() {
 async function pushDeletes() {
   // Another account's deletes wait until it signs in here again.
   for (const { id } of deletes.filter(mine)) {
+    if (!canWriteShared()) return;
     try {
       await api(`/api/games/${id}`, { method: "DELETE" });
     } catch (e) {
@@ -289,13 +335,13 @@ export function startGame(setup: TableSetup) {
 const fixedThrough = (g: LocalGame) => Math.max(g.syncedThrough, g.frozenThrough ?? 0);
 
 export function dispatch(event: TableEvent) {
-  if (!current) return;
+  if (!current || !mayEditCurrent()) return;
   setCurrent({ ...current, log: record(current.log, event, new Date(), fixedThrough(current)), redo: [] });
 }
 
 /** Undo only reaches events not yet sent to the server; older ones are history. */
 export function canUndo() {
-  return !!current && current.log.length > 0 && current.log[current.log.length - 1]!.seq > fixedThrough(current);
+  return !!current && mayEditCurrent() && current.log.length > 0 && current.log[current.log.length - 1]!.seq > fixedThrough(current);
 }
 
 export function undo() {
@@ -305,7 +351,7 @@ export function undo() {
 }
 
 export function redo() {
-  if (!current || current.redo.length === 0) return;
+  if (!current || !mayEditCurrent() || current.redo.length === 0) return;
   const next = current.redo[current.redo.length - 1]!;
   const seq = (current.log[current.log.length - 1]?.seq ?? 0) + 1;
   setCurrent({ ...current, log: [...current.log, { ...next, seq }], redo: current.redo.slice(0, -1) });
@@ -317,7 +363,7 @@ export function redo() {
  * just before it, so the log stays the one record the server copies.
  */
 export function finishGame(winnerSeat: number | null, details: FinishDetails = {}, firstSeat: number | null = null) {
-  if (!current) return;
+  if (!current || !mayEditCurrent()) return;
   const now = new Date();
   let log = current.log;
   if (firstSeat !== null && replay(current.setup, log).firstSeat !== firstSeat) {
@@ -330,6 +376,7 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   // without an account waits on this phone instead.
   if (current.guest) guestGames = [...guestGames, { ...current, log, frozenThrough: undefined }];
   else outbox = [...outbox, { ...current, log, frozenThrough: undefined }];
+  for (const l of endListeners) l({ ...current, log });
   forgetPrompts(current.setup.id);
   setCurrent(null);
   void sync();
@@ -353,7 +400,7 @@ function forgetPrompts(gameId: string) {
 
 /** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
-  if (!current) return;
+  if (!current || !mayEditCurrent()) return;
   // Never uploaded: it only has to go from this phone.
   if (current.guest) {
     forgetPrompts(current.setup.id);
@@ -417,7 +464,7 @@ export function isPosted(gameId: string): boolean {
 export function sync(): Promise<void> {
   // An admin viewing as someone sends nothing: games recorded on this device wait until the view
   // ends (the server would refuse them, and they'd be set aside as rejected).
-  if (isViewing()) return Promise.resolve();
+  if (isViewing() || !canWriteShared()) return Promise.resolve();
   // Nobody is signed in: there's no account to send anything to.
   if (isGuest()) return Promise.resolve();
   if (inflight) return inflight;
@@ -427,7 +474,7 @@ export function sync(): Promise<void> {
     try {
       // Finished games first: they're complete and the most valuable.
       // Another account's games wait until it signs in here again.
-      for (let g = outbox.find(mineGame); g; g = outbox.find(mineGame)) {
+      for (let g = outbox.find(mineGame); g && canWriteShared(); g = outbox.find(mineGame)) {
         try {
           await pushGame(g);
         } catch (e) {
@@ -440,8 +487,9 @@ export function sync(): Promise<void> {
         outbox = outbox.filter((o) => o !== g);
         emit();
       }
+      if (!canWriteShared()) return;
       await pushDeletes();
-      if (current && !current.guest && mineGame(current)) {
+      if (current && mayEditCurrent() && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
         const through = current.log[current.log.length - 1]?.seq ?? 0;
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
@@ -476,6 +524,23 @@ export function sync(): Promise<void> {
 
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => void sync());
+  window.addEventListener("storage", (event) => {
+    const markerKey = current?.owner ? `yama.table.hosting.${current.owner}` : null;
+    const markerChanged = event.key === null || (!!markerKey && event.key === markerKey);
+    if (!markerChanged && ![currentKey(), OUTBOX, REJECTED, DELETES, GUEST_GAMES].includes(event.key ?? "")) return;
+    reloadQueues();
+    if (event.key === null || event.key === currentKey()) {
+      current = read<LocalGame | null>(currentKey(), null);
+      currentIdentity = current?.setup.id ?? null;
+      derived = current ? replay(current.setup, current.log) : null;
+    }
+    if (markerChanged) {
+      const marked = pendingHostLock(current);
+      setSharedReadOnly(marked && marked !== sharedHost ? marked : null);
+    }
+    // Notify without writing it back: storage messages must not create a tab-to-tab loop.
+    for (const l of listeners) l();
+  });
   // A game or finished games left on this device from before (a reload, a phone that was off)
   // go up straight away, so sharing and other devices can find them.
   if (current || outbox.length || deletes.some(mine)) queueMicrotask(() => void sync());
@@ -489,3 +554,25 @@ export function getGame(): LocalGame | null {
   return current;
 }
 export { subscribe as subscribeTable };
+
+/** Explicit finish/discard, apart from a change of account or active game slot. */
+const endListeners = new Set<(game: LocalGame) => void>();
+export function subscribeTableEnd(listener: (game: LocalGame) => void) {
+  endListeners.add(listener);
+  return () => { endListeners.delete(listener); };
+}
+
+/** Flush this document's admitted writes before pausing it for a sharing claim. */
+export function prepareSharing() { emit(); }
+
+/** Revalidate the selected game under the granted host lock, before publishing any state. */
+export function refreshSharedGame(gameId: string): boolean {
+  const saved = read<LocalGame | null>(currentKey(), null);
+  if (!saved || current?.setup.id !== gameId || saved.setup.id !== gameId || saved.owner !== current.owner || !mineGame(saved)) return false;
+  current = saved;
+  currentIdentity = saved.setup.id;
+  derived = replay(saved.setup, saved.log);
+  reloadQueues();
+  queueMicrotask(() => { for (const l of listeners) l(); });
+  return true;
+}
