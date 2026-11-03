@@ -484,17 +484,38 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         None => vec![],
     };
     let chosen = crate::deck_import::deck_prints(pool, &row.id).await?;
-    let items = crate::collection::items_for_owner(pool, &row.owner_id).await?;
+    // The owner's copies of just these cards (for the printing their exports name), each card's
+    // facts, and the printings of cards with neither: one query each, however long the list.
+    let ids: Vec<&str> = list.iter().map(|c| c.oracle_id.as_str()).collect();
+    let items = crate::collection::items_for_cards(pool, &row.owner_id, &ids).await?;
+    let mut by_oracle: HashMap<&str, Vec<&crate::collection::Item>> = HashMap::new();
+    for i in &items {
+        if let Some(o) = i.oracle_id.as_deref() {
+            by_oracle.entry(o).or_default().push(i);
+        }
+    }
+    type Info = (Option<String>, f64, Option<String>, Option<String>, String, Option<String>, Option<String>);
+    let infos: HashMap<String, Info> = sqlx::query_as::<_, (String, Option<String>, f64, Option<String>, Option<String>, String, Option<String>, Option<String>)>(
+        "SELECT oracle_id, type_line, cmc, layout, image_normal, color_identity, image_art_crop, artist FROM cards
+          WHERE oracle_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(id, t, cmc, layout, image, ci, art, artist)| (id, (t, cmc, layout, image, ci, art, artist)))
+    .collect();
+    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).and_then(|p| p.collector_number.as_ref()).is_some();
+    let unprinted: Vec<&str> = list
+        .iter()
+        .filter(|c| !has_chosen(c) && crate::decks::owned_printing(by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default(), row.container_id.as_deref()).is_none())
+        .map(|c| c.oracle_id.as_str())
+        .collect();
+    let choices = crate::decks::printing_choices_for(pool, &unprinted).await?;
     let mut cards = Vec::new();
     let (mut commanders, mut identity, mut art) = (vec![], String::new(), None);
     for c in list.iter().cloned() {
-        let info: Option<(Option<String>, f64, Option<String>, Option<String>, String, Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT type_line, cmc, layout, image_normal, color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?",
-        )
-        .bind(&c.oracle_id)
-        .fetch_optional(pool)
-        .await?;
-        let (type_line, cmc, layout, image, ci, art_crop, artist) = info.unwrap_or((None, 0.0, None, None, String::new(), None, None));
+        let (type_line, cmc, layout, image, ci, art_crop, artist) = infos.get(&c.oracle_id).cloned().unwrap_or((None, 0.0, None, None, String::new(), None, None));
         if c.board == Board::Commander {
             commanders.push(c.name.clone());
             identity.push_str(&ci);
@@ -507,13 +528,13 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         }
         // As the owner's own exports name it: the printing the deck names, a copy of theirs (real
         // before proxy, the one in the deck's box first), else a paper printing.
-        let mine: Vec<_> = items.iter().filter(|i| i.oracle_id.as_deref() == Some(&c.oracle_id)).collect();
+        let mine: &[&crate::collection::Item] = by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default();
         let chosen_print = chosen.get(&c.oracle_id).and_then(|p| {
             p.collector_number.clone().map(|n| PrintRef { set_code: p.set_code.clone(), collector_number: n, finish: p.finish.clone(), from: "chosen" })
         });
-        let printing = match chosen_print.or_else(|| crate::decks::owned_printing(&mine, row.container_id.as_deref())) {
+        let printing = match chosen_print.or_else(|| crate::decks::owned_printing(mine, row.container_id.as_deref())) {
             Some(p) => Some(p),
-            None => crate::decks::paper_printing(&crate::decks::printing_choices(&mut *pool.acquire().await?, &c.oracle_id).await?),
+            None => crate::decks::paper_printing(choices.get(&c.oracle_id).map(Vec::as_slice).unwrap_or_default()),
         };
         cards.push(SharedCard {
             name: c.name,

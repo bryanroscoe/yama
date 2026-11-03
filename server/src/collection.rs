@@ -632,6 +632,35 @@ async fn list_items(
     Ok(Json(q.fetch_all(&st.pool).await?))
 }
 
+/// How many real copies and proxies of each card (by oracle id) an owner has, counted in SQL
+/// rather than by loading every item.
+pub async fn owned_by_oracle(pool: &SqlitePool, owner: &str) -> AppResult<std::collections::HashMap<String, (i64, i64)>> {
+    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT p.oracle_id, SUM(CASE WHEN i.proxy THEN 0 ELSE i.qty END), SUM(CASE WHEN i.proxy THEN i.qty ELSE 0 END)
+           FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
+          WHERE i.owner_id = ? GROUP BY p.oracle_id",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(oracle, real, proxies)| (oracle, (real, proxies))).collect())
+}
+
+/// An owner's copies of just these cards (by oracle id), for a page about one deck, rather than
+/// the whole collection.
+pub async fn items_for_cards(pool: &SqlitePool, owner: &str, oracle_ids: &[&str]) -> AppResult<Vec<Item>> {
+    if oracle_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_as::<_, Item>(sqlx::AssertSqlSafe(format!(
+        "{ITEM_SELECT} WHERE i.owner_id = ? AND p.oracle_id IN (SELECT value FROM json_each(?))"
+    )))
+    .bind(owner)
+    .bind(serde_json::to_string(oracle_ids).map_err(anyhow::Error::from)?)
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn items_for_owner(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Item>> {
     Ok(sqlx::query_as::<_, Item>(sqlx::AssertSqlSafe(format!("{ITEM_SELECT} WHERE i.owner_id = ?")))
         .bind(owner)
@@ -717,28 +746,31 @@ async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentU
     .bind(&user.id)
     .fetch_all(&st.pool)
     .await?;
-    let items = items_for_owner(&st.pool, &user.id).await?;
+    // Every filed item once, with its printing's art, grouped by box.
+    let items: Vec<ListedItem> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ITEM_SELECT} WHERE i.owner_id = ? AND i.container_id IS NOT NULL")))
+        .bind(&user.id)
+        .fetch_all(&st.pool)
+        .await?;
+    let mut by_container: std::collections::HashMap<&str, Vec<&ListedItem>> = std::collections::HashMap::new();
+    for i in &items {
+        if let Some(c) = i.item.container_id.as_deref() {
+            by_container.entry(c).or_default().push(i);
+        }
+    }
     for ct in &mut containers {
-        let inside: Vec<&Item> = items.iter().filter(|i| i.container_id.as_deref() == Some(ct.id.as_str())).collect();
-        for i in inside.iter().filter(|i| !i.proxy) {
+        let inside: Vec<&ListedItem> = by_container.remove(ct.id.as_str()).unwrap_or_default();
+        for i in inside.iter().map(|i| &i.item).filter(|i| !i.proxy) {
             match i.unit_price_usd {
                 Some(p) => ct.market_value_usd += p * i.qty as f64,
                 None => ct.copies_without_price += i.qty,
             }
         }
         ct.market_value_usd = (ct.market_value_usd * 100.0).round() / 100.0;
-        let top = inside.iter().filter(|i| i.oracle_id.is_some() && !i.proxy).max_by(|a, b| {
-            a.unit_price_usd.unwrap_or(-1.0).partial_cmp(&b.unit_price_usd.unwrap_or(-1.0)).unwrap_or(std::cmp::Ordering::Equal)
+        let top = inside.iter().filter(|i| i.item.oracle_id.is_some() && !i.item.proxy).max_by(|a, b| {
+            a.item.unit_price_usd.unwrap_or(-1.0).partial_cmp(&b.item.unit_price_usd.unwrap_or(-1.0)).unwrap_or(std::cmp::Ordering::Equal)
         });
         if let Some(top) = top {
-            let row: Option<(Option<String>, Option<String>)> =
-                sqlx::query_as("SELECT image_art_crop, artist FROM printings WHERE scryfall_id = ?")
-                    .bind(&top.scryfall_id)
-                    .fetch_optional(&st.pool)
-                    .await?;
-            if let Some((art, artist)) = row {
-                (ct.art, ct.artist) = (art, artist);
-            }
+            (ct.art, ct.artist) = (top.image_art_crop.clone(), top.artist.clone());
         }
     }
     Ok(Json(containers))

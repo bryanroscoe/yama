@@ -53,17 +53,27 @@ impl DeckStats {
     }
 }
 
-async fn produced(pool: &SqlitePool, oracle_id: &str) -> sqlx::Result<Option<String>> {
-    Ok(sqlx::query_scalar::<_, Option<String>>("SELECT produced_mana FROM cards WHERE oracle_id = ?")
-        .bind(oracle_id)
-        .fetch_optional(pool)
-        .await?
-        .flatten())
+/// The mana each of these cards makes, in one query.
+async fn produced(pool: &SqlitePool, oracle_ids: &[&str]) -> sqlx::Result<HashMap<String, Option<String>>> {
+    if oracle_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as("SELECT oracle_id, produced_mana FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(oracle_ids).unwrap_or_default())
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().collect())
 }
 
 pub async fn stats(pool: &SqlitePool, cards: &[DeckCard], info: &HashMap<String, Card>) -> sqlx::Result<DeckStats> {
     let mut s = DeckStats::default();
     let mut sources = BTreeMap::<char, i64>::new();
+    let lands: Vec<&str> = cards
+        .iter()
+        .filter(|c| c.board != Board::Side && info.get(&c.oracle_id).is_some_and(|card| card.type_line.split(" // ").any(|f| f.contains("Land"))))
+        .map(|c| c.oracle_id.as_str())
+        .collect();
+    let made = produced(pool, &lands).await?;
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         // Every copy counts toward the deck's size, as in packages/core; an unknown card is
         // only left out of the counts that need its data.
@@ -92,7 +102,7 @@ pub async fn stats(pool: &SqlitePool, cards: &[DeckCard], info: &HashMap<String,
         if !card.type_line.split(" // ").any(|f| f.contains("Land")) {
             continue;
         }
-        let Some(mana) = produced(pool, &c.oracle_id).await? else {
+        let Some(mana) = made.get(&c.oracle_id).cloned().flatten() else {
             s.lands_without_mana_data.push(c.name.clone());
             continue;
         };
@@ -113,7 +123,7 @@ pub async fn stats(pool: &SqlitePool, cards: &[DeckCard], info: &HashMap<String,
                         }
                     }
                 } else if BASIC_TYPES.iter().any(|(t, _)| text.contains(&t.to_lowercase()) && ty.contains(t)) {
-                    match produced(pool, &target.oracle_id).await? {
+                    match made.get(&target.oracle_id).cloned().flatten() {
                         Some(mana) => colors.extend(mana.chars().filter(|c| "WUBRG".contains(*c))),
                         None => s.lands_without_mana_data.push(target.name.clone()),
                     }

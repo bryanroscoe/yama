@@ -13,6 +13,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -641,6 +642,35 @@ async fn seats(pool: &SqlitePool, game: &str) -> AppResult<Vec<Seat>> {
     .await?)
 }
 
+#[derive(sqlx::FromRow)]
+struct GameSeat {
+    game_id: String,
+    #[sqlx(flatten)]
+    seat: Seat,
+}
+
+/// The seats of several games, by game, in one query.
+async fn seats_for(pool: &SqlitePool, games: &[&str]) -> AppResult<HashMap<String, Vec<Seat>>> {
+    let mut out: HashMap<String, Vec<Seat>> = HashMap::new();
+    if games.is_empty() {
+        return Ok(out);
+    }
+    let rows: Vec<GameSeat> = sqlx::query_as(
+        "SELECT s.game_id, s.seat, s.member_id, s.user_id, s.guest_name, s.ai_kind, s.deck_version_id, s.deck_label, s.commander_name,
+                s.final_life, s.eliminated_turn, s.eliminated_by_seat, s.fun,
+                COALESCE(u.display_name, s.guest_name, m.guest_name, s.ai_kind) AS display_name
+         FROM game_seats s LEFT JOIN users u ON u.id = s.user_id LEFT JOIN playgroup_members m ON m.id = s.member_id
+         WHERE s.game_id IN (SELECT value FROM json_each(?)) ORDER BY s.game_id, s.seat",
+    )
+    .bind(serde_json::to_string(games).map_err(anyhow::Error::from)?)
+    .fetch_all(pool)
+    .await?;
+    for r in rows {
+        out.entry(r.game_id).or_default().push(r.seat);
+    }
+    Ok(out)
+}
+
 #[derive(Deserialize)]
 struct ListParams {
     playgroup: Option<String>,
@@ -671,8 +701,9 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(
         .fetch_all(&st.pool)
         .await?,
     };
+    let mut seats = seats_for(&st.pool, &games.iter().map(|g| g.id.as_str()).collect::<Vec<_>>()).await?;
     for g in &mut games {
-        g.seats = seats(&st.pool, &g.id).await?;
+        g.seats = seats.remove(&g.id).unwrap_or_default();
     }
     Ok(Json(games))
 }

@@ -631,21 +631,25 @@ pub async fn view(pool: &SqlitePool, version_id: Option<&str>, enabled: bool) ->
 
 /// The estimated bracket of each version that has an answer: version id → (tag, bracket).
 pub async fn estimates(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<HashMap<String, Estimated>> {
-    let mut out = HashMap::new();
-    for v in version_ids {
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT bracket_tag, checked_at FROM deck_version_checks WHERE version_id = ? AND source = ? AND bracket_tag IS NOT NULL",
-        )
-        .bind(v)
-        .bind(SPELLBOOK)
-        .fetch_optional(pool)
-        .await?;
-        if let Some((tag, checked_at)) = row {
-            let (label, bracket) = bracket_of_tag(&tag);
-            out.insert(v.clone(), Estimated { tag, label, bracket, checked_at });
-        }
+    if version_ids.is_empty() {
+        return Ok(HashMap::new());
     }
-    Ok(out)
+    // One query for every version, however many decks.
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT version_id, bracket_tag, checked_at FROM deck_version_checks
+          WHERE source = ? AND bracket_tag IS NOT NULL AND version_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(SPELLBOOK)
+    .bind(serde_json::to_string(version_ids).unwrap_or_default())
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(v, tag, checked_at)| {
+            let (label, bracket) = bracket_of_tag(&tag);
+            (v, Estimated { tag, label, bracket, checked_at })
+        })
+        .collect())
 }
 
 /// An estimated bracket for chips beside the declared one.

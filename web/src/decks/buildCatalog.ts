@@ -1,7 +1,7 @@
 import type { PlanBundle, Slot } from "@yama/core/plan";
 import { bracketBuilds, slotSource, sourceContext, type PlanDeck, type SourceContext } from "@yama/core/plan";
 import { ownedBuildProblems } from "../research/availability";
-import type { Item, ResearchBundle } from "../research/api";
+import type { BuildNote, Item } from "../research/api";
 import type { DeckSummary } from "../api";
 
 export type BuildKind = "current" | "original" | "bracket" | "legacy";
@@ -59,7 +59,7 @@ export function configurationLabel(label: string | null, name: string, main = fa
 
 /** Keep sources distinct: an approved plan, independent research, and the sleeved list are not
  * interchangeable. No title or bracket label changes an installed list or research approval. */
-export function buildFamilies(research: ResearchBundle[], plan: PlanBundle | undefined, decks: DeckSummary[]): BuildFamily[] {
+export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefined, decks: DeckSummary[]): BuildFamily[] {
   const families = new Map<string, BuildFamily>();
   const aliases = new Map<string, Set<string>>();
   const family = (key: string, name: string, detail?: string) => {

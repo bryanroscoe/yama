@@ -216,6 +216,8 @@ export interface BatchVariant {
   failed: number;
   /** From the list's rating in the same run. */
   confidence: Confidence | null;
+  /** The list's whole rating in the same run (servers from 2026-11-02 on). */
+  rating?: Rating | null;
 }
 
 export interface Verdict {

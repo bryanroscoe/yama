@@ -4,14 +4,14 @@
 // (deckCheck.ts), so no card waits on the server. Nothing is saved but the check in progress, on
 // this device; "Save as a deck scan" hands the cards to Scan this deck.
 
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { usePlan } from "../plan/store";
-import { report, reports } from "../research/api";
+import { buildNotes, buildNotesKey } from "../research/api";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import { buildFamilies, resolveBuildFamily } from "./buildCatalog";
@@ -189,26 +189,21 @@ function useTargetOptions(deck: DeckView | undefined) {
   const userId = useMe().data?.id;
   const plan = usePlan(userId);
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
-  const index = useQuery({ queryKey: ["research", userId, "list"], queryFn: reports, enabled: !!userId });
-  const notes = useQueries({ queries: (index.data ?? []).map((r) => ({ queryKey: ["research", userId, r.id], queryFn: ({ signal }) => report(r.id, signal), enabled: !!userId })) });
+  const notes = useQuery({ queryKey: buildNotesKey(userId), queryFn: buildNotes, enabled: !!userId });
   const versions = useQuery({ queryKey: ["deck-versions", deck?.id, deck?.version_id], queryFn: ({ signal }) => api<DeckVersionRow[]>(`/api/decks/${deck!.id}/versions`, { signal }), enabled: !!deck });
-  // The research queries' array is new each render; this says when any of them changed.
-  const notesKey = notes.map((r) => `${r.status}${r.dataUpdatedAt}`).join();
   return useMemo(() => {
-    const bundles = notes.flatMap((r) => (r.data ? [r.data] : []));
-    const families = buildFamilies(bundles, plan.bundle, decks.data ?? []);
+    const families = buildFamilies(notes.data ?? [], plan.bundle, decks.data ?? []);
     const family = deck ? resolveBuildFamily(families, null, deck.id) : undefined;
     return {
       options: deck ? targetOptions(deck, family, versions.data) : [],
       pool: swapPool(family, plan.bundle),
-      loadingMore: plan.pending || decks.isPending || index.isPending || versions.isPending || notes.some((r) => r.isPending),
+      loadingMore: plan.pending || decks.isPending || notes.isPending || versions.isPending,
       // Research or History not loading leaves the other choices; say so, don't block.
       // The deck catalogue failing too: a saved configuration or build then can't be found, which
       // isn't the same as it being gone.
-      error: plan.error || decks.error || index.error || versions.error || notes.find((r) => r.error)?.error || null,
+      error: plan.error || decks.error || notes.error || versions.error || null,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deck, plan.bundle, plan.pending, plan.error, decks.data, decks.isPending, decks.error, index.isPending, index.error, versions.data, versions.isPending, versions.error, notesKey]);
+  }, [deck, plan.bundle, plan.pending, plan.error, decks.data, decks.isPending, decks.error, notes.data, notes.isPending, notes.error, versions.data, versions.isPending, versions.error]);
 }
 
 /** The chosen list's cards. The deck's own list is already loaded; another saved list or a

@@ -136,23 +136,16 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
     if !search::wants_extras(query) {
         filter = format!("({filter}) AND IFNULL(cards.layout, '') NOT IN {EXTRA_LAYOUTS}");
     }
+    // Each order walks an index (cards_name, cards_cmc, cards_edhrec, migration 0063), so a page
+    // of a broad search stops at its sixtieth card instead of sorting every match.
     let order = match order {
         Some("mv" | "cmc") => "cards.cmc, cards.name",
         Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name",
         Some("color") => "length(cards.colors), cards.colors, cards.name",
-        _ => "cards.name",
+        _ => "cards.name COLLATE NOCASE",
     };
     let page = page.max(1);
-
-    let count_sql = format!("SELECT COUNT(*) FROM cards WHERE {filter}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql));
-    for b in &compiled.binds {
-        count_q = match b {
-            search::Bind::Text(s) => count_q.bind(s),
-            search::Bind::Num(n) => count_q.bind(n),
-        };
-    }
-    let total = count_q.fetch_one(pool).await?;
+    let offset = ((page - 1) * PAGE_SIZE) as i64;
 
     let sql = format!("SELECT {CARD_COLUMNS} FROM cards WHERE {filter} ORDER BY {order} LIMIT {PAGE_SIZE} OFFSET ?");
     let mut q = sqlx::query_as::<_, Card>(AssertSqlSafe(sql));
@@ -162,7 +155,22 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
             search::Bind::Num(n) => q.bind(n),
         };
     }
-    let cards = q.bind(((page - 1) * PAGE_SIZE) as i64).fetch_all(pool).await?;
+    let cards = q.bind(offset).fetch_all(pool).await?;
+    // A page that isn't full is the last one, so it says how many there are; only a full page
+    // (or an empty one past the end) needs counting.
+    let total = if cards.len() < PAGE_SIZE as usize && (offset == 0 || !cards.is_empty()) {
+        offset + cards.len() as i64
+    } else {
+        let count_sql = format!("SELECT COUNT(*) FROM cards WHERE {filter}");
+        let mut count_q = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql));
+        for b in &compiled.binds {
+            count_q = match b {
+                search::Bind::Text(s) => count_q.bind(s),
+                search::Bind::Num(n) => count_q.bind(n),
+            };
+        }
+        count_q.fetch_one(pool).await?
+    };
     let cards = with_price_and_ownership(pool, owner, cards).await?;
     Ok(SearchResult { total, page, page_size: PAGE_SIZE, cards })
 }
@@ -239,14 +247,33 @@ async fn autocomplete(
     if q.chars().count() > 200 {
         return Ok(Json(vec![]));
     }
-    let names: Vec<String> = sqlx::query_scalar(
-        "SELECT name FROM cards WHERE name LIKE ? ESCAPE '\\' AND IFNULL(layout,'') NOT IN ('token','double_faced_token','emblem')
-         ORDER BY (name LIKE ? ESCAPE '\\') DESC, edhrec_rank IS NULL, edhrec_rank, name LIMIT 15",
+    // Names that start with it first, from card_names' index (faces included); then, if there's
+    // room, names that contain it.
+    let mut names: Vec<String> = sqlx::query_scalar(
+        "SELECT c.name FROM card_names n JOIN cards c ON c.oracle_id = n.oracle_id
+          WHERE n.name LIKE ? ESCAPE '\\' AND IFNULL(c.layout,'') NOT IN ('token','double_faced_token','emblem')
+          GROUP BY c.oracle_id ORDER BY c.edhrec_rank IS NULL, c.edhrec_rank, c.name LIMIT 15",
     )
-    .bind(format!("%{}%", escape(q)))
     .bind(format!("{}%", escape(q)))
     .fetch_all(&st.pool)
     .await?;
+    if names.len() < 15 {
+        let more: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM cards WHERE name LIKE ? ESCAPE '\\' AND IFNULL(layout,'') NOT IN ('token','double_faced_token','emblem')
+             ORDER BY edhrec_rank IS NULL, edhrec_rank, name LIMIT 30",
+        )
+        .bind(format!("%{}%", escape(q)))
+        .fetch_all(&st.pool)
+        .await?;
+        for name in more {
+            if names.len() == 15 {
+                break;
+            }
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
     Ok(Json(names))
 }
 
@@ -594,6 +621,33 @@ mod tests {
             .execute(pool)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn autocomplete_puts_names_that_start_with_it_first_and_search_counts_only_full_pages() {
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "me@example.com").await;
+        // The popular card contains "sol"; the obscure one starts with it, as does a face.
+        for (id, name, rank, face) in [("o1", "Absolute Law", 10, None), ("o2", "Solemn Simulacrum", 900, None), ("o3", "Fable // Solar Kiki", 5, Some("solar kiki"))] {
+            sqlx::query("INSERT INTO cards (oracle_id, name, type_line, edhrec_rank, updated_at) VALUES (?, ?, 'Artifact', ?, 'now')")
+                .bind(id)
+                .bind(name)
+                .bind(rank)
+                .execute(&pool)
+                .await
+                .unwrap();
+            for n in std::iter::once(name.to_lowercase()).chain(face.map(String::from)) {
+                sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(n).bind(id).execute(&pool).await.unwrap();
+            }
+        }
+        let (status, names) = send(&app, Method::GET, "/api/cards/autocomplete?q=sol", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(names, serde_json::json!(["Fable // Solar Kiki", "Solemn Simulacrum", "Absolute Law"]));
+        // A page that isn't full gives the total without a count; it's right either way.
+        let r = search(&pool, "", "t:artifact", None, 1).await.unwrap();
+        assert_eq!((r.total, r.cards.len()), (3, 3));
+        assert_eq!(r.cards.iter().map(|c| c.card.name.as_str()).collect::<Vec<_>>(), ["Absolute Law", "Fable // Solar Kiki", "Solemn Simulacrum"]);
+        assert_eq!(search(&pool, "", "t:artifact", None, 2).await.unwrap().total, 3);
     }
 
     #[tokio::test]
