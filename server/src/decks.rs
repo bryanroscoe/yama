@@ -167,6 +167,7 @@ struct DeckSummary {
     folder: Option<String>,
     format: String,
     container_id: Option<String>,
+    acquisition_status: Option<String>,
     current_version_id: Option<String>,
     updated_at: String,
     /// The bracket the owner declares (1-5), or none.
@@ -210,7 +211,10 @@ struct DeckSummary {
 async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<DeckSummary>>> {
     let mut decks: Vec<DeckSummary> = sqlx::query_as(
         "SELECT id, name, folder, format, container_id, current_version_id, updated_at, bracket, parent_id, configuration,
-                visibility, share_token FROM decks
+                visibility, share_token,
+                CASE WHEN parent_id IS NULL THEN acquisition_status ELSE
+                  (SELECT root.acquisition_status FROM decks root WHERE root.id = decks.parent_id AND root.owner_id = decks.owner_id)
+                END AS acquisition_status FROM decks
          WHERE owner_id = ? AND archived = 0 ORDER BY folder, name",
     )
     .bind(&user.id)
@@ -459,6 +463,7 @@ struct DeckView {
     id: String,
     name: String,
     container_id: Option<String>,
+    acquisition_status: Option<String>,
     version_id: Option<String>,
     /// The bracket the owner declares (1-5), or none. Estimates come from `/check`.
     bracket: Option<i64>,
@@ -597,7 +602,9 @@ pub(crate) async fn configuration_group(pool: &SqlitePool, owner: &str, deck: &s
         "WITH root AS (SELECT COALESCE(parent_id, id) AS id FROM decks WHERE id = ? AND owner_id = ?)
          SELECT d.id, d.name, d.configuration, d.visibility, d.share_token FROM decks d, root
          WHERE d.owner_id = ? AND d.archived = 0 AND (d.id = root.id OR d.parent_id = root.id)
-         ORDER BY d.parent_id IS NOT NULL, lower(COALESCE(d.configuration, d.name)), d.created_at",
+         ORDER BY d.parent_id IS NOT NULL,
+                  CASE lower(trim(COALESCE(d.configuration, ''))) WHEN 'stock' THEN 0 WHEN 'original' THEN 0 ELSE 1 END,
+                  lower(COALESCE(d.configuration, d.name)), d.created_at",
     )
     .bind(deck)
     .bind(owner)
@@ -831,6 +838,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             .fetch_one(&st.pool)
             .await?;
     let configurations = configuration_group(&st.pool, &user.id, &id).await?;
+    let acquisition_status = sqlx::query_scalar("SELECT root.acquisition_status FROM decks d JOIN decks root ON root.id = COALESCE(d.parent_id, d.id) AND root.owner_id = d.owner_id WHERE d.id = ? AND d.owner_id = ?")
+        .bind(&id).bind(&user.id).fetch_one(&st.pool).await?;
 
     // Your copies of these cards, wherever they are, grouped by card once.
     let items = crate::collection::items_for_cards(&st.pool, &user.id, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
@@ -935,6 +944,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         id,
         name,
         container_id,
+        acquisition_status,
         version_id,
         bracket,
         parent_id,
@@ -977,6 +987,8 @@ async fn save_version(
 struct UpdateDeck {
     name: Option<String>,
     #[serde(default, deserialize_with = "crate::util::double_option")]
+    acquisition_status: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::util::double_option")]
     folder: Option<Option<String>>,
     #[serde(default, deserialize_with = "crate::util::double_option")]
     container_id: Option<Option<String>>,
@@ -1000,6 +1012,11 @@ async fn update_deck(
     Json(body): Json<UpdateDeck>,
 ) -> AppResult<()> {
     let (name, _, container) = owned_deck(&st.pool, &user.id, &id).await?;
+    if let Some(Some(status)) = &body.acquisition_status
+        && !matches!(status.as_str(), "owned" | "planned")
+    {
+        return Err(AppError::bad("acquisition_status must be owned, planned or null"));
+    }
     if let Some(Some(c)) = &body.container_id {
         let mine: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE id = ? AND owner_id = ?")
             .bind(c)
@@ -1034,6 +1051,9 @@ async fn update_deck(
         Some(label) => configuration_label(label.as_deref())?,
         None => configuration,
     };
+    if body.acquisition_status.is_some() && body.parent_id.as_ref().unwrap_or(&parent_id).is_some() {
+        return Err(AppError::bad("set deck ownership on its main deck"));
+    }
     sqlx::query(
         "UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, visibility = ?, parent_id = ?, configuration = ?,
                 share_token = COALESCE(share_token, ?), updated_at = ? WHERE id = ?",
@@ -1050,6 +1070,10 @@ async fn update_deck(
     .bind(&id)
     .execute(&mut *tx)
     .await?;
+    if let Some(status) = body.acquisition_status {
+        sqlx::query("UPDATE decks SET acquisition_status = ? WHERE id = ? AND owner_id = ?")
+            .bind(status).bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok(())
 }

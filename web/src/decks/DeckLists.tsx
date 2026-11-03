@@ -3,10 +3,11 @@ import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, type ConfigurationRef, type DeckView } from "../api";
 import { ErrorText } from "../components/ui";
+import { configurationLabel } from "./buildCatalog";
 
 /** A configuration's name as the deck page shows it: its label, else Main for the main deck. */
 export function listLabel(c: ConfigurationRef, main: boolean): string {
-  return c.configuration ?? (main ? "Main" : c.name);
+  return configurationLabel(c.configuration, c.name, main);
 }
 
 /**
@@ -45,7 +46,7 @@ export function DeckLists({ deck }: { deck: DeckView }) {
     },
   });
   if (!lists) return null;
-  const { main, here, others } = lists;
+  const { main, here } = lists;
   const mainName = main.name;
   const ask = (c: ConfigurationRef) => {
     setAsking(c);
@@ -68,32 +69,17 @@ export function DeckLists({ deck }: { deck: DeckView }) {
   return (
     <section className="deck-lists" aria-label="Lists for this deck">
       {here === "main" ? (
-        <>
-          <p>
-            <b>Current deck list.</b>
-          </p>
-          <ul className="deck-lists-others">
-            {others.map((c) => (
-              <li key={c.id}>
-                <Link to={`/decks/${c.id}`}>{listLabel(c, false)}</Link>
-                <button className="outline small" onClick={() => ask(c)}>
-                  Put this list in the deck
-                </button>
-              </li>
-            ))}
-          </ul>
-          {use.data && !use.data.changed && <p className="small dim">That list is already the one in the deck.</p>}
-        </>
+        <Link to={`/decks/builds?savedDeck=${main.id}`}>Compare builds and playgroup variants</Link>
       ) : (
         <>
           <p>
-            <b>Alternative list.</b>{" "}
+            <b>Saved configuration.</b>{" "}
             <span className="dim">
               Current deck: <Link to={`/decks/${main.id}`}>{mainName}</Link>.
             </span>
           </p>
           <button className="outline" onClick={() => ask(deck.configurations.find((c) => c.id === deck.id)!)}>
-            Put this list in {mainName}
+            Use this as the current list
           </button>
         </>
       )}

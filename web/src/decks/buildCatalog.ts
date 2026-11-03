@@ -52,8 +52,10 @@ export function legacyConfiguration(label: string | null): boolean {
 }
 export function configurationLabel(label: string | null, name: string, main = false): string {
   const text = label?.trim();
-  if (main) return text || "Current";
-  if (/^(stock|original)$/i.test(text ?? "")) return "Original";
+  if (main) return text && !/^(main|current)$/i.test(text) ? text : "Current";
+  if (/^(stock|original)$/i.test(text ?? "")) return "Stock";
+  const bracket = text?.match(/^bracket\s+([1-5])(?:\s*[—:-]\s*(.+))?$/i);
+  if (bracket) return `[${bracket[1]}]${bracket[2] ? ` ${bracket[2]}` : ""}`;
   return text || name;
 }
 
@@ -109,7 +111,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
     const href = `/decks/plan/d/${encodeURIComponent(deck.key)}`;
     for (const state of ["stock", "now", "after"] as const) {
       const s = deck.states[state]; if (!s) continue;
-      f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Original (plan commander)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), pairs: ctx ? slotPairs(s.cards, ctx, deck) : [], source: `Plan v${plan?.head?.guide_version ?? "?"}, ${s.updated_at.slice(0, 10)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });
+      f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Stock (plan list)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), pairs: ctx ? slotPairs(s.cards, ctx, deck) : [], source: `Plan v${plan?.head?.guide_version ?? "?"}, ${s.updated_at.slice(0, 10)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });
     }
     if (deck.bracket && deck.states.after) {
       for (const b of bracketBuilds(deck.states.after.cards, deck.bracket)) {
@@ -125,7 +127,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
     const f = families.get(`saved:${root.id}`)!;
     const original = /^(stock|original)$/i.test(deck.configuration ?? "");
     const legacy = !!deck.parent_id && legacyConfiguration(deck.configuration);
-    f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Original" : legacy ? `Legacy: ${deck.configuration}` : deck.configuration ?? deck.name, kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, track: "unverified", savedDeck: deck.id, source: `Saved ${deck.updated_at.slice(0, 10)}`, href: `/decks/${deck.id}`, warnings: [] });
+    f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Stock" : legacy ? `Legacy: ${deck.configuration}` : deck.configuration ?? deck.name, kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, track: "unverified", savedDeck: deck.id, source: `Saved ${deck.updated_at.slice(0, 10)}`, href: `/decks/${deck.id}`, warnings: [] });
   }
   return [...families.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }

@@ -115,7 +115,7 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     .unwrap();
     if d.configurations.len() > 1 {
         body.push_str("<nav class=\"share-configs\" aria-label=\"Configurations of this deck\"><span class=\"dim\">Configurations</span><ul>");
-        for c in &d.configurations {
+        for c in d.configurations.iter().filter(|c| c.current || !legacy_configuration(&c.label)) {
             if c.current {
                 write!(body, "<li><a aria-current=\"page\" href=\"/d/{}\">{}</a></li>", e(&c.token), e(&c.label)).unwrap();
             } else {
@@ -123,6 +123,14 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
             }
         }
         body.push_str("</ul></nav>");
+        let older: Vec<_> = d.configurations.iter().filter(|c| !c.current && legacy_configuration(&c.label)).collect();
+        if !older.is_empty() {
+            body.push_str("<details><summary>Older snapshots</summary><ul>");
+            for c in older {
+                write!(body, "<li><a href=\"/d/{}\">{}</a></li>", e(&c.token), e(&c.label)).unwrap();
+            }
+            body.push_str("</ul></details>");
+        }
     }
     body.push_str("<div class=\"public-actions\">");
     for (i, (format, label)) in FORMATS.iter().enumerate() {
@@ -271,17 +279,25 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
             if !d.configurations.is_empty() {
                 // Every configuration in view, the main list first, as on the app's deck list.
                 write!(body, "<nav class=\"share-deck-configs\" aria-label=\"Configurations of {}\"><ul><li><a href=\"/d/{}\">{}</a></li>", e(&d.name), e(&d.token), e(&d.label)).unwrap();
-                for (token, label) in &d.configurations {
+                for (token, label) in d.configurations.iter().filter(|(_, label)| !legacy_configuration(label)) {
                     write!(body, "<li><a href=\"/d/{}\">{}</a></li>", e(token), e(label)).unwrap();
                 }
                 body.push_str("</ul></nav>");
+                let older: Vec<_> = d.configurations.iter().filter(|(_, label)| legacy_configuration(label)).collect();
+                if !older.is_empty() {
+                    body.push_str("<details class=\"share-older\"><summary>Older snapshots</summary><ul>");
+                    for (token, label) in older {
+                        write!(body, "<li><a href=\"/d/{}\">{}</a></li>", e(token), e(label)).unwrap();
+                    }
+                    body.push_str("</ul></details>");
+                }
             }
             body.push_str("</li>");
         }
         body.push_str("</ul>");
         let credits: Vec<String> = decks.iter().filter(|d| d.art.is_some()).map(|d| credit(&d.art)).collect();
         if !credits.is_empty() {
-            write!(body, "<p class=\"art-credits dim\">{}</p>", credits.join(" ")).unwrap();
+            write!(body, "<details class=\"art-credits dim\"><summary>Art credits</summary><p>{}</p></details>", credits.join(" ")).unwrap();
         }
     }
     let notes = crate::deck_research::profile_reports(&st.pool, &sharer.id).await?;
