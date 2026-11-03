@@ -217,7 +217,7 @@ describe("saving after commander changes", () => {
     await store.sync();
     const records = [...items.keys()].filter((key) => key.startsWith("yama.table.saved."));
     expect(records).toHaveLength(1);
-    expect(JSON.parse(items.get(records[0]!)!).error).toBe("HTTP 409");
+    expect(items.get(`yama.table.savedError.${JSON.parse(items.get(records[0]!)!).game.saveId}`)).toBe("HTTP 409");
     items.set("yama.table.rejected", "[]"); // A stale window lost only the projection.
     vi.resetModules();
     const reopened = await import("./store");
@@ -390,6 +390,99 @@ describe("saving after commander changes", () => {
     beforeWrite = null;
     await reopened.sync();
     expect(JSON.parse(items.get("yama.table.outbox")!)).toEqual([]);
+  });
+
+  it("a late rejection cannot recreate a result discarded in another window", async () => {
+    const { acknowledgeFinished } = await import("./finished");
+    store.startGame(setup("discard-during-rejection"));
+    await store.sync();
+    postStatus = 409;
+    beforeWrite = (key) => {
+      if (!key.startsWith("yama.table.savedError.")) return;
+      beforeWrite = null;
+      const record = [...items.keys()].find((k) => k.startsWith("yama.table.saved."))!;
+      acknowledgeFinished(JSON.parse(items.get(record)!).game, true);
+    };
+    store.finishGame(0);
+    await store.sync();
+    expect([...items.keys()].filter((key) => key.startsWith("yama.table.saved."))).toHaveLength(0);
+    vi.resetModules();
+    const reopened = await import("./store");
+    reopened.selectSlot(false, "me");
+    postStatus = null;
+    await reopened.sync();
+    expect(JSON.parse(items.get("yama.table.rejected")!)).toEqual([]);
+    expect([...items.keys()].some((key) => key.startsWith("yama.table.savedError."))).toBe(false);
+  });
+
+  it.each([1, 2])("uploads successful partial guest adoptions when item %s hits quota", async (failAt) => {
+    guest = true;
+    store.selectSlot(true);
+    const ids = [`partial-${failAt}-guest-1`, `partial-${failAt}-guest-2`];
+    for (const id of ids) {
+      store.startGame(setup(id));
+      store.finishGame(0);
+      await store.sync();
+    }
+    guest = false;
+    store.selectSlot(false, "me");
+    let attempts = 0;
+    beforeWrite = (key) => {
+      if (key.startsWith("yama.table.saved.") && ++attempts === failAt) throw new DOMException("Full", "QuotaExceededError");
+    };
+    store.saveGuestGames();
+    await store.sync();
+    const failed = ids[failAt - 1]!;
+    const succeeded = ids[failAt === 1 ? 1 : 0]!;
+    await vi.waitFor(() => expect(uploads.some((body) => body.id === succeeded)).toBe(true));
+    expect(uploads.some((body) => body.id === failed)).toBe(false);
+    expect(JSON.parse(items.get("yama.table.guestGames")!).map((g: { setup: { id: string } }) => g.setup.id)).toEqual([failed]);
+    beforeWrite = null;
+    store.saveGuestGames();
+    await store.sync();
+    await vi.waitFor(() => expect(uploads.some((body) => body.id === failed)).toBe(true));
+    expect(JSON.parse(items.get("yama.table.guestGames")!)).toEqual([]);
+  });
+
+  it("keeps the active guest slot when its account copy cannot be persisted", async () => {
+    guest = true;
+    store.selectSlot(true);
+    store.startGame(setup("active-guest-quota"));
+    const original = items.get("yama.table.guestCurrent");
+    guest = false;
+    store.selectSlot(false, "me");
+    beforeWrite = (key) => { if (key === "yama.table.current.me") throw new DOMException("Full", "QuotaExceededError"); };
+    store.saveGuestGames();
+    await store.sync();
+    expect(items.get("yama.table.guestCurrent")).toBe(original);
+    expect(store.getGame()).toBeNull();
+    beforeWrite = null;
+    store.saveGuestGames();
+    await store.sync();
+    expect(store.getGame()).toMatchObject({ setup: { id: "active-guest-quota" }, owner: "me" });
+    expect(items.has("yama.table.guestCurrent")).toBe(false);
+    await store.deleteGame("active-guest-quota");
+  });
+
+  it("keeps a legacy outbox result when neither its journal nor rejection copy fits", async () => {
+    const legacy = { setup: setup("legacy-rejection-quota"), owner: "me", log: [{ seq: 1, at: "2026-11-02T20:00:00Z", event: { type: "finish", winnerSeat: 0, endedAt: "2026-11-02T20:00:00Z" } }], redo: [], syncedThrough: 0 };
+    items.set("yama.table.outbox", JSON.stringify([legacy]));
+    beforeWrite = (key) => {
+      if (key.startsWith("yama.table.saved.") || key === "yama.table.rejected") throw new DOMException("Full", "QuotaExceededError");
+    };
+    postStatus = 409;
+    vi.resetModules();
+    const reopened = await import("./store");
+    reopened.selectSlot(false, "me");
+    await reopened.sync();
+    expect(JSON.parse(items.get("yama.table.outbox")!)[0].setup.id).toBe("legacy-rejection-quota");
+    beforeWrite = null;
+    postStatus = null;
+    vi.resetModules();
+    const recovered = await import("./store");
+    recovered.selectSlot(false, "me");
+    await recovered.sync();
+    expect(uploads.at(-1)).toMatchObject({ id: "legacy-rejection-quota", finish: { winner_seat: 0 } });
   });
 });
 

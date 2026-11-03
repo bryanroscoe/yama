@@ -191,8 +191,10 @@ function persist() {
     if (current && hasEnded(current)) { current = null; derived = null; }
     // Queue first: a finish must be durable before its active-game slot is cleared.
     try {
-      write(OUTBOX, outbox);
+      // A legacy result may still lack a journal at quota. Keep its old outbox copy
+      // until a rejection copy can be persisted, rather than clearing it first.
       write(REJECTED, rejected);
+      write(OUTBOX, outbox);
       write(DELETES, deletes);
       write(GUEST_GAMES, guestGames);
       write(currentKey(), current);
@@ -289,28 +291,46 @@ export function saveGuestGames() {
   if (!canWriteShared()) return;
   // Saved by the account signed in now: theirs, uploaded only while they're signed in here.
   const owner = signedInUser() ?? undefined;
-  outbox = [...outbox, ...guestGames.map(({ guest: _, ...g }) => {
-    const adopted = saveFinished({ ...g, owner });
-    acknowledgeFinished(g, true);
-    return adopted;
-  })];
-  guestGames = [];
-  // A game marked as counted without an account in the account's own slot (left by an older
-  // version) is saved where it is.
-  if (current?.guest) {
-    const { guest: _, ...g } = current;
-    current = { ...g, owner };
-  }
-  if (slot !== "guest" && waitingGuest && !current) {
-    const { guest: _, ...g } = waitingGuest;
-    if (setCurrent({ ...g, owner })) {
-      waitingGuest = null;
+  const adoptCurrent = (game: LocalGame) => {
+    const { guest: _, ...g } = game;
+    const next = { ...g, owner };
+    if (!canWriteShared() || hasEnded(next)) return false;
+    // The account copy must be durable before removing the guest's active slot.
+    write(currentKey(), next);
+    current = next;
+    derived = replay(next.setup, next.log);
+    return true;
+  };
+  try {
+    const remaining: LocalGame[] = [];
+    for (const game of guestGames) {
+      try {
+        const { guest: _, ...g } = game;
+        const adopted = saveFinished({ ...g, owner });
+        acknowledgeFinished(game, true);
+        outbox = [...outbox, adopted];
+      } catch {
+        remaining.push(game);
+        syncState = { ...syncState, error: "Some games are still on this phone. Keep Yama open and try saving them again." };
+      }
+    }
+    guestGames = remaining;
+    // A guest counter left in the account's own slot by an older version stays there.
+    if (current?.guest) adoptCurrent(current);
+    if (slot !== "guest" && waitingGuest && !current && adoptCurrent(waitingGuest)) {
       localStorage.removeItem(GUEST_CURRENT);
       observed.set(GUEST_CURRENT, null);
+      waitingGuest = null;
     }
+  } catch {
+    syncState = { ...syncState, error: "Some games are still on this phone. Keep Yama open and try saving them again." };
+  } finally {
+    // A later adoption can hit quota after an earlier one succeeded. Reconcile those
+    // durable account copies and upload them now; keep the remaining guest records.
+    restoreFinished();
+    emit();
+    void settle();
   }
-  emit();
-  void sync();
 }
 
 /** Throw away the games counted here without an account, the one going included. */
