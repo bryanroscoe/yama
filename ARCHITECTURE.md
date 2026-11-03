@@ -1069,6 +1069,35 @@ Bryan (2026-11-02): "I need the ability to grab cards from my collection that I 
 - **Formats** (`web/src/pages/sellList.ts`, from each platform's documentation read on 2026-11-02): SortSwift's buylist CSV (Scryfall ID, name, set, number, quantity, condition with DMG as DM, printing Normal/Foil/Etched, language in its codes (ZH-S, KR; a language it does not list is left out), signed/altered/misprint in Notes); Storepass Bulk Submission's pasted lines ("2 Lightning Bolt", printings merged, chosen on the store's page); Card Kingdom's sell-list CSV (headerless "Title", set name, foil 1/0, quantity; English only, and no etched foils, which it can't tell from foils; a warning past 500 lines or 5,000 cards). The total is market value with its date, labelled as not an offer.
 - Written in the browser from the rows already loaded, so it needs no server route and works offline. MCP has no sell-list tool yet; `collection_cards` reads the same rows.
 
+### Local buylist offers (2026-11-02)
+
+Collection's Sell list adds an explicit Mothership check for the chosen English, ordinary real
+copies. The server reads Storepass's public settings and search endpoints, restricted to
+Mothership's fixed host and store id, with no login or sale submission. Searching by front-face
+name **and set code** avoids paging through thousands of basic-land printings. A match requires
+name, exact collector number (including suffixes), verified English language, finish and condition. Numeric-only SKUs without language metadata remain uncertain. Unnumbered and duplicate
+listings remain uncertain; they never enter a confirmed total. Customer acceptance uses the
+store's current floor and corresponding variant retail guard, not a retail/market estimate.
+
+`server/src/sell.rs` provides authenticated GET history / POST check at
+`/api/sell/mothership/{printing}` (finish and condition are explicit). `sell_offers`, migration
+0063, stores private append-only normalized observations with source, date, product/variant ids,
+status, cash, credit and quantity cap. Account deletion cascades them. A check reuses the same
+account's observation for six hours, preserving its original date; errors leave prior checks
+untouched. Responses, pages, elapsed time and concurrent provider work are bounded. Offline
+servers can read saved history but cannot fetch new offers. This history is separate from
+Scryfall market history and shopping retail quotes.
+
+The client checks sequentially, shows progress, stops on the first provider error, and supports
+Stop. Leaving the sheet stops further requests. Completed observations survive in the account.
+Totals apply one product/variant limit across all selected containers and recalculate when the
+selection changes; expired checks stay out of totals and history never promotes a past price into a current offer. Use offered copies narrows the existing export to those capped quantities
+and chooses the Storepass list format. Deck boxes remain excluded by default, as in the existing sell export.
+A check or export never moves cards, records a sale or submits a store cart. This first connector
+is Mothership only; other stores require their own verified buylist adapters, not retail feeds.
+Future sale receipts can link observations to actual proceeds without changing quoted history.
+
+
 ### Lab time-outs (2026-10-23)
 
 **Gameplay acceptance (2026-10-27):** worker containment and gameplay correctness are separate checks. Default `cargo test` skips full-game tests. Before describing gameplay as validated, explicitly run the full-data determinism and `lab_regressions` integration targets in release (see `docs/gameplay-validation.md`). A repeated AI stop is a test failure, even if the stop is deterministic; an explicitly requested run with missing card data fails. The frozen live regressions assert normal completion and preserve a successful result as a control. Their known failures are unresolved engine/AI defects, not passing worker-isolation checks.

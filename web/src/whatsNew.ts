@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-02-local-sell-offers",
+    date: "2026-11-02",
+    title: "Mothership buylist offers",
+    items: [
+      "Open Collection, Sell list, Local buylist offers to check Mothership's cash and credit offers for your selected printings.",
+      "Checks stay in your private history. Exact matches and shared quantity limits determine the total; unknown printings stay out. A check never submits a sale.",
+    ],
+    link: { to: "/collection", label: "Open your collection" },
+  },
+  {
     id: "2026-11-02-sell-list",
     date: "2026-11-02",
     title: "Sell lists for store buylists",
