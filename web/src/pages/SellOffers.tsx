@@ -10,6 +10,17 @@ const LABELS: Record<BuylistOffer["status"], string> = {
 };
 function url(c: SellCard) { return `/api/sell/mothership/${encodeURIComponent(c.scryfall_id)}`; }
 
+export function OfferSummary({ total }: { total: ReturnType<typeof offerTotals> }) {
+  return <p>
+    <b>{total.copies > 0 ? `${total.copies} copies: ${usd(total.cash)} cash${total.creditUnknown === 0 ? ` or ${usd(total.credit)} store credit` : ""}` : "No qualifying cash offers among the checked selections"}</b>
+    {total.creditUnknown > 0 && <>
+      {total.creditUnknown < total.copies && `; known store credit subtotal: ${usd(total.credit)}`}
+      {`; credit unknown for ${total.creditUnknown} ${total.creditUnknown === 1 ? "copy" : "copies"}`}
+    </>}. Shared store quantity limits applied.
+    {total.unchecked > 0 && ` ${total.unchecked} selected copies haven't been checked.`}
+  </p>;
+}
+
 /** An explicit check, saved on the account; no cart submission or collection mutation. */
 export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (c: SellCard) => number; onChoose: (counts: Map<string, number>) => void }) {
   const [offers, setOffers] = useState(new Map<string, BuylistOffer>());
@@ -67,11 +78,7 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
       {skipped > 0 && <p className="small dim">{skipped} copies excluded: non-English, proxies, signed, altered or misprinted.</p>}
       {(running || done > 0) && <p role="status">{done} checks completed{running ? "; checking selected cards…" : "."}</p>}
       <ErrorText error={error} />
-      {offers.size > 0 && <p>
-        <b>{total.copies > 0 ? `${total.copies} copies: ${usd(total.cash)} cash${total.creditUnknown < total.copies ? ` or ${usd(total.credit)} store credit` : ""}` : "No qualifying cash offers among the checked selections"}</b>
-        {total.creditUnknown > 0 && `; credit unknown for ${total.creditUnknown} copies`}. Shared store quantity limits applied.
-        {total.unchecked > 0 && ` ${total.unchecked} selected copies haven't been checked.`}
-      </p>}
+      {offers.size > 0 && <OfferSummary total={total} />}
       {total.copies > 0 && <button className="outline" disabled={running} onClick={() => onChoose(offerTotals(selected, offers, qty).quantities)}>Use offered copies for the Storepass list</button>}
       <p className="small dim">Online offers are indicative. Mothership confirms grading, quantity and acceptance. No sale is submitted here.</p>
       <ul className="sell-list">

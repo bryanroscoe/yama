@@ -1081,7 +1081,7 @@ store's current floor and corresponding variant retail guard, not a retail/marke
 
 `server/src/sell.rs` provides authenticated GET history / POST check at
 `/api/sell/mothership/{printing}` (finish and condition are explicit). `sell_offers`, migration
-0063, stores private append-only normalized observations with source, date, product/variant ids,
+0064, stores private append-only normalized observations with source, date, product/variant ids,
 status, cash, credit and quantity cap. Account deletion cascades them. A check reuses the same
 account's observation for six hours, preserving its original date; errors leave prior checks
 untouched. Responses, pages, elapsed time and concurrent provider work are bounded. Offline
