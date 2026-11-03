@@ -106,7 +106,7 @@ export function GameDetailPage() {
   const mayContinue = !!g?.can_continue && !uploading && !isViewing();
   const live = useQuery({
     queryKey: ["table-live", id],
-    queryFn: ({ signal }) => api<{ hosting: boolean; key?: string }>(`/api/table/${id}/live`, { signal }),
+    queryFn: ({ signal }) => api<{ hosting: boolean; key?: string; relay?: "edge" | "server" }>(`/api/table/${id}/live`, { signal }),
     enabled: mayContinue,
     refetchInterval: 15_000,
   });
@@ -210,7 +210,7 @@ export function GameDetailPage() {
             <>
               <div className="row">
                 {live.data?.hosting && (
-                  <Link className="button primary" to={`/table/join/${g.id}${live.data.key ? joinFragment(live.data.key, "edge") : ""}`}>Follow it live</Link>
+                  <Link className="button primary" to={`/table/join/${g.id}${live.data.key ? joinFragment(live.data.key, live.data.relay ?? "edge") : ""}`}>Follow it live</Link>
                 )}
                 <button className={live.data?.hosting ? "" : "primary"} disabled={busyElsewhere || carryOn.isPending} onClick={() => carryOn.mutate()}>
                   {carryOn.isPending ? "Opening…" : "Continue on this device"}

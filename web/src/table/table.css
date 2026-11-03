@@ -1844,3 +1844,52 @@
 .player-sheet .ps-win {
   margin-left: auto;
 }
+
+.following-status {
+  position: fixed;
+  top: calc(60px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  max-width: min(90vw, 480px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: .875rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+.table-view-switch {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(52px + env(safe-area-inset-top));
+  padding: calc(4px + env(safe-area-inset-top)) 8px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  background: var(--ground);
+  z-index: 10;
+}
+.table-view-switch .segmented button { padding: 8px; font-size: var(--t-sm); }
+.table.with-view-switch { top: calc(52px + env(safe-area-inset-top)); }
+.table.table-personal { display: flex; flex-direction: column; }
+.table-personal .hub { display: none; }
+.personal-others {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.personal-others li { flex: 1; min-width: 0; }
+.personal-others .guest-tile { height: 92px; padding: 8px; }
+.personal-others .guest-tile-name { font-size: var(--t-sm); }
+.personal-others .num { font-size: 1.75rem; }
+.personal-credit { margin: 0; font-size: var(--t-xs); color: var(--dim); }
+.table-my-panel { display: grid; position: relative; min-height: 0; flex: 1; }

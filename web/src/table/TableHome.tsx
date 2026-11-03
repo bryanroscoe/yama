@@ -22,6 +22,9 @@ import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEd
 import { gameSummary } from "./history";
 import { formFromGame, settleRebuilt } from "./logEdit";
 import { useInstall } from "../install";
+import { useHosting } from "./share";
+import { SharedTables } from "./SharedTables";
+import { forgetTable, followedTable } from "./following";
 import { tablePlay } from "./playLoader";
 import "./seats.css";
 import "./home.css";
@@ -63,6 +66,7 @@ function sameSeatsLine(at: string | undefined): string {
 
 export function TableHome() {
   const { game, state } = useTable();
+  const hosting = useHosting();
   const outbox = useOutbox();
   const rejected = useRejected();
   const syncStatus = useSyncStatus();
@@ -78,10 +82,12 @@ export function TableHome() {
   return (
     <main className="page table-home">
       {guest ? <GuestBanner /> : <SaveGuestGames />}
+      <SharedTables localGameId={game?.setup.id} />
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
-            <h1>Game in progress</h1>
+            <h1>Saved game on this phone</h1>
+            <p className="small dim">Started {new Date(game.setup.startedAt).toLocaleString()}. Resume it only if this is the game you’re playing.</p>
             <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
           </div>
           <ol className="ip-rows" aria-label="Tap anyone to go back to the table">
@@ -110,7 +116,7 @@ export function TableHome() {
           )}
           <div className="row">
             <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
-            <button className="quiet" onClick={() => confirm("Throw this game away? It won't count, and it's deleted from Yama.") && discardGame()}>
+            <button className="quiet" disabled={hosting.following === game.setup.id} onClick={() => confirm("Throw this game away? It won't count, and it's deleted from Yama.") && discardGame()}>
               Discard
             </button>
           </div>
@@ -363,8 +369,10 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       players,
     };
     localStorage.setItem(lastSetupKey(), JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
+    const followed = followedTable(me.data?.id ?? null);
+    if (followed) forgetTable(me.data?.id ?? null, followed.gameId);
     startGame(setup);
-    onStart(phones === "everyone" && !guest);
+    onStart(!guest && (phones === "everyone" || !!groupId));
   };
 
   // Tap someone in Who's playing: they take the next open seat, or leave theirs.
@@ -412,9 +420,11 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
         <Choice label="Players" options={Array.from({ length: MAX_SEATS }, (_, i) => i + 1)} value={seats.length} onChange={setCount} />
         <Choice label="Starting life" options={[40, 30, 25, 20]} value={life} onChange={setLife} />
         {/* Sharing the table with everyone's phones needs an account. */}
-        {!guest && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
+        {!guest && !groupId && <Choice label="Phones" options={["one", "everyone"] as ("one" | "everyone")[]} value={phones} onChange={setPhones} name={(v) => (v === "one" ? "Just this one" : "Everyone's own")} />}
       </div>
-      {phones === "everyone" && (
+      {!guest && groupId ? (
+        <p className="small dim ng-note">Members of {group?.name ?? "your playgroup"} can join from Table when this game starts. You can stop sharing from the table menu.</p>
+      ) : phones === "everyone" && (
         <p className="small dim ng-note">Join code available when the game starts.</p>
       )}
       {!guest && <WhoPlaying groups={groups.data ?? []} groupId={groupId} groupReady={!groupId || !!group} onGroup={chooseGroup} people={people} seats={seats} onToggle={toggle} />}

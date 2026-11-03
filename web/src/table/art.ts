@@ -32,3 +32,9 @@ export function panelArt(p: Pick<PlayerSetup, "art" | "artist">): string | null 
   if (!p.art || !p.artist) return null;
   return /^https:\/\/cards\.scryfall\.io\//.test(p.art) ? p.art : null;
 }
+
+export const getShowArt = () => showArt;
+export function subscribeShowArt(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
