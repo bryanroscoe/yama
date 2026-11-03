@@ -27,10 +27,10 @@ pub fn range(from: Option<&str>, to: Option<&str>) -> AppResult<(i64, i64)> {
     Ok((day(from, i64::MIN)?, day(to, i64::MAX)?))
 }
 
-/// The observed days in `[from, to]`, and the printing's rows on or before `to`, oldest first.
-async fn read(pool: &SqlitePool, scryfall_id: &str, from: i64, to: i64) -> AppResult<(Vec<i64>, Vec<(i64, i64, Option<i64>)>)> {
+/// `feed`'s observed days in `[from, to]`, and the printing's rows on or before `to`, oldest first.
+async fn read(pool: &SqlitePool, feed: &str, scryfall_id: &str, from: i64, to: i64) -> AppResult<(Vec<i64>, Vec<(i64, i64, Option<i64>)>)> {
     let days: Vec<i64> = sqlx::query_scalar("SELECT day FROM price_observation WHERE feed = ? AND day BETWEEN ? AND ? ORDER BY day")
-        .bind(SCRYFALL)
+        .bind(feed)
         .bind(from)
         .bind(to)
         .fetch_all(pool)
@@ -50,7 +50,7 @@ async fn read(pool: &SqlitePool, scryfall_id: &str, from: i64, to: i64) -> AppRe
 /// Days nobody read, and days it had no price at all, are left out, as the old daily table had no
 /// row for them. One read of the days and one of the printing's rows, walked here.
 pub async fn history(pool: &SqlitePool, scryfall_id: &str, from: i64, to: i64) -> AppResult<Vec<DayPoint>> {
-    let (days, rows) = read(pool, scryfall_id, from, to).await?;
+    let (days, rows) = read(pool, SCRYFALL, scryfall_id, from, to).await?;
     let mut values = [None::<i64>; 7];
     let mut next = rows.iter().peekable();
     let mut out = Vec::new();
@@ -81,8 +81,11 @@ pub struct Changes {
     pub changes: Vec<(String, Option<f64>)>,
 }
 
+/// One series' changes over its own feed's observed days in `[from, to]`.
 pub async fn changes(pool: &SqlitePool, scryfall_id: &str, series: i64, from: i64, to: i64) -> AppResult<Changes> {
-    let (days, rows) = read(pool, scryfall_id, from, to).await?;
+    let feed: Option<String> = sqlx::query_scalar("SELECT feed FROM price_series WHERE id = ?").bind(series).fetch_optional(pool).await?;
+    let feed = feed.ok_or_else(|| AppError::bad(format!("no price series {series}")))?;
+    let (days, rows) = read(pool, &feed, scryfall_id, from, to).await?;
     let mut value = None::<i64>;
     let mut next = rows.iter().filter(|(_, s, _)| *s == series).peekable();
     let mut out = Changes { observed_days: days.len(), first: None, last: None, low: None, high: None, changes: Vec::new() };

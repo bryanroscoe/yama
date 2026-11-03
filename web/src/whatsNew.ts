@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-03-buylist-cash",
+    date: "2026-11-03",
+    title: "What Card Kingdom was buying your deck for",
+    items: [
+      "A deck's page now leads with buylist cash: what Card Kingdom was paying for your near-mint real copies of its cards, each by its own printing and finish, with the date. It's Card Kingdom's daily buylist via MTGJSON, not an offer from your stores.",
+      "Copies with no buylist price are counted as unknown, never $0; played or foreign copies and basic lands are kept apart. The market value below is labelled an estimate and is never added in.",
+      "Yama now also keeps Card Kingdom's retail prices and Mana Pool's lowest listings each day, each as its own series.",
+    ],
+  },
+  {
     id: "2026-11-02-local-sell-offers",
     date: "2026-11-02",
     title: "Mothership buylist offers",

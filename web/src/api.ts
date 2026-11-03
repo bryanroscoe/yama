@@ -375,6 +375,22 @@ export interface DeckEntry extends DeckCard {
   produced_mana: string | null;
 }
 
+/** What Card Kingdom was buying your real copies of a deck's cards for, each by its own printing and finish, on one
+ *  date (via MTGJSON). Cash, apart from the market estimate; a copy with no buylist price is unknown, never $0. */
+export interface BuylistValue {
+  provider: string;
+  date: string | null;
+  cash_usd: number | null;
+  copies: number;
+  offered_copies: number;
+  no_offer_copies: number;
+  /** Not near-mint English (or altered, signed, misprinted): the price doesn't apply. */
+  unmatched_copies: number;
+  basics: number;
+  basics_cash_usd: number | null;
+  cards: { name: string; set_code: string | null; collector_number: string | null; finish: string; qty: number; offer_usd: number; basic: boolean }[];
+}
+
 export interface DeckView {
   singles_value?: SinglesValue;
   id: string;
@@ -415,6 +431,8 @@ export interface DeckView {
   game_changers: string[] | null;
   /** Date of the Scryfall data behind the flags (YYYY-MM-DD). */
   game_changers_as_of: string | null;
+  /** What Card Kingdom was buying your copies for (servers from 2026-11-03 on; null before its prices are in). */
+  buylist?: BuylistValue | null;
 }
 
 /** GET /api/decks/:id/check: Commander Spellbook's check of the current version. */

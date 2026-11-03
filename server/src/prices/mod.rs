@@ -17,11 +17,13 @@
 
 pub mod backfill;
 pub mod history;
+pub mod mtgjson;
 pub mod write;
 #[cfg(test)]
 mod tests;
 
 use sqlx::{SqliteConnection, SqliteExecutor, SqlitePool};
+use std::collections::HashMap;
 use std::time::Duration;
 
 /// Scryfall's daily file, the one feed so far.
@@ -162,6 +164,28 @@ pub fn parse_cents(s: &str) -> Option<i64> {
 /// The newest day a feed was observed.
 pub async fn newest_observation<'c>(conn: impl SqliteExecutor<'c>, feed: &str) -> sqlx::Result<Option<i64>> {
     sqlx::query_scalar("SELECT MAX(day) FROM price_observation WHERE feed = ?").bind(feed).fetch_one(conn).await
+}
+
+/// The current price of these series for these printings: each (Scryfall id, series)'s newest
+/// row on or before `feed`'s newest observed day, where it is a price. With that day as a date.
+pub async fn current_values(pool: &SqlitePool, feed: &str, lo: i64, hi: i64, scryfall_ids: &[&str]) -> sqlx::Result<(Option<String>, HashMap<(String, i64), i64>)> {
+    let Some(day) = newest_observation(pool, feed).await? else { return Ok((None, HashMap::new())) };
+    if scryfall_ids.is_empty() {
+        return Ok((Some(date_of(day)), HashMap::new()));
+    }
+    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT k.scryfall_id, pp.series, pp.cents FROM price_printing k JOIN price_point pp ON pp.printing = k.id
+          WHERE k.scryfall_id IN (SELECT value FROM json_each(?1)) AND pp.series BETWEEN ?2 AND ?3 AND pp.day <= ?4
+            AND pp.day = (SELECT MAX(p2.day) FROM price_point p2 WHERE p2.printing = pp.printing AND p2.series = pp.series AND p2.day <= ?4)
+            AND pp.cents IS NOT NULL",
+    )
+    .bind(serde_json::to_string(scryfall_ids).unwrap_or_default())
+    .bind(lo)
+    .bind(hi)
+    .bind(day)
+    .fetch_all(pool)
+    .await?;
+    Ok((Some(date_of(day)), rows.into_iter().map(|(id, series, cents)| ((id, series), cents)).collect()))
 }
 
 /// The newest day with Scryfall prices (YYYY-MM-DD).

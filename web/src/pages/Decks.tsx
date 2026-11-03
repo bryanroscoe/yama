@@ -361,7 +361,7 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body" inert={deck.isPlaceholderData} aria-busy={deck.isPlaceholderData}>
-        <DeckPrices singles={d.singles_value} ownership={o} />
+        <DeckPrices singles={d.singles_value} ownership={o} buylist={d.buylist} />
         {/* Phones: three figure tiles, the plan, then the other actions. */}
         <div className="deck-stats-tiles">
           <span className="deck-stat">

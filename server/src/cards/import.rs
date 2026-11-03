@@ -17,7 +17,6 @@
 use crate::config::Config;
 use crate::util::{new_id, now};
 use anyhow::{Context, bail};
-use futures_util::StreamExt;
 use serde::Deserialize;
 use serde::de::{DeserializeOwned, SeqAccess, Visitor};
 use sqlx::SqlitePool;
@@ -256,6 +255,27 @@ pub fn spawn_scheduler(pool: SqlitePool, data_dir: PathBuf) {
                             tracing::warn!(kind, error = %format!("{e:#}"), "Scryfall import failed");
                             crate::db::after_import(&pool).await;
                         }
+                    }
+                }
+            }
+            // MTGJSON's Card Kingdom and Mana Pool prices: a 113-byte Meta.json says whether there's
+            // a new day, so this asks every hour (prices/mtgjson.rs).
+            const MTGJSON: &str = "mtgjson_prices";
+            if retry_due(&pool, MTGJSON, early.get(MTGJSON)).await {
+                match crate::prices::mtgjson::refresh(&pool, &data_dir).await {
+                    Ok(true) => {
+                        early.remove(MTGJSON);
+                        tracing::info!("imported MTGJSON prices");
+                        crate::db::after_import(&pool).await;
+                        crate::derived::nudge();
+                    }
+                    Ok(false) => {
+                        early.remove(MTGJSON);
+                    }
+                    Err(e) => {
+                        let tries = early.get(MTGJSON).map_or(0, |(n, _)| *n) + 1;
+                        early.insert(MTGJSON, (tries, chrono::Utc::now()));
+                        tracing::warn!(error = %format!("{e:#}"), "MTGJSON price import failed");
                     }
                 }
             }
@@ -994,6 +1014,7 @@ async fn import_rulings_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
 
     const SAMPLE: &str = r#"[
       {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","mana_cost":"{1}","cmc":1.0,
