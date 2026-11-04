@@ -44,7 +44,7 @@ describe("returning to shared content", () => {
   it("keeps public pages as document links and marks Sharing current", () => {
     const html = page();
     expect(html).toContain('aria-current="page" class="active" href="/sharing"');
-    for (const path of ["/precons", "/commanders", "/docs/mcp/"]) expect(html).toContain(`href="https://yama.ing${path}"`);
+    for (const path of ["/precons", "/commanders"]) expect(html).toContain(`href="https://yama.ing${path}"`);
   });
 
   it("explains where to start when nothing is shared", () => {

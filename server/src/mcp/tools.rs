@@ -334,16 +334,18 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "price_history",
         title: "Price history",
-        description: "One printing's market price over time, from the days Yama read Scryfall's daily file: the first and \
-                      last price, the low and high, and each change, each with its date. Give a card name (its default \
-                      printing, or with cheapest the cheapest playable printing), or a printing by Scryfall id, or set and \
-                      collector number. TCGplayer market prices via Scryfall in USD, not store quotes; a missing price is \
-                      null, and days Yama didn't read are gaps.",
+        description: "One printing's price over time from one source, on the days Yama read it: the first and last price, \
+                      the low and high, and each change, each with its date. Give a card name (its default printing, or with \
+                      cheapest the cheapest playable printing), or a printing by Scryfall id, or set and collector number. \
+                      Sources: TCGplayer market via Scryfall (default), Card Kingdom retail or buylist, Mana Pool's lowest \
+                      listing (via MTGJSON), in USD; none is a store quote, and a buylist price is what Card Kingdom was paying \
+                      for near-mint copies, not what you'll get. A missing price is null, and days Yama didn't read are gaps.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "card": {"type": "string", "description": "A card name (any face)."},
+                    "source": {"type": "string", "enum": ["tcgplayer", "cardkingdom_retail", "cardkingdom_buylist", "manapool"], "description": "Whose price: TCGplayer market via Scryfall (default), Card Kingdom retail or buylist, or Mana Pool's lowest listing (via MTGJSON). One source at a time; they're never combined."},
                     "cheapest": {"type": "boolean", "description": "With card: the cheapest playable printing instead of the default one."},
                     "printing": {"type": "string", "description": "A Scryfall printing id."},
                     "set": {"type": "string", "description": "A set code, with number."},
@@ -1034,20 +1036,31 @@ async fn history_printing(pool: &SqlitePool, args: &Value) -> AppResult<(String,
 /// A printing's market price over time (the `price_history` tool): change points, not every day.
 async fn price_history(pool: &SqlitePool, args: &Value) -> AppResult<String> {
     let finish = args.get("finish").and_then(Value::as_str).unwrap_or("nonfoil");
-    let series = match finish {
-        "nonfoil" => 1,
-        "foil" => 2,
-        "etched" => 3,
+    let offset = match finish {
+        "nonfoil" => 0,
+        "foil" => 1,
+        "etched" => 2,
         other => return Err(AppError::bad(format!("finish: {other:?} isn't nonfoil, foil or etched"))),
     };
+    // Each source is its own series (migrations 0060, 0065); never a number from two of them.
+    let source = args.get("source").and_then(Value::as_str).unwrap_or("tcgplayer");
+    let (series, feed, note) = match source {
+        "tcgplayer" => (1, crate::prices::SCRYFALL, "Daily market reference prices on the days Yama read them. Not a store quote. A null price means none was listed; gaps are days Yama didn't read. This product uses TCGplayer data but is not endorsed or certified by TCGplayer."),
+        "cardkingdom_retail" => (20, crate::prices::mtgjson::CARDKINGDOM, "Card Kingdom's retail price on each day Yama read it, via MTGJSON. Not proof it's in stock today, and not a quote from your stores. A null price means none was listed; gaps are days Yama didn't read."),
+        "cardkingdom_buylist" => (23, crate::prices::mtgjson::CARDKINGDOM, "What Card Kingdom was buying near-mint copies for on each day Yama read its buylist, via MTGJSON: what it was paying, not what you'll get. Worse condition pays less. A null price means it wasn't buying; gaps are days Yama didn't read."),
+        "manapool" => (26, crate::prices::mtgjson::MANAPOOL, "Mana Pool's lowest listing on each day Yama read it, via MTGJSON. Not a store quote. A null price means nothing was listed; gaps are days Yama didn't read."),
+        other => return Err(AppError::bad(format!("source: {other:?} isn't tcgplayer, cardkingdom_retail, cardkingdom_buylist or manapool"))),
+    };
+    let series = series + offset;
     let days = args.get("days").and_then(Value::as_i64).unwrap_or(90);
     if !(1..=1000).contains(&days) {
         return Err(AppError::bad("days: 1 to 1000"));
     }
     let (id, name, set, number) = history_printing(pool, args).await?;
-    let Some(to) = crate::prices::newest_observation(pool, crate::prices::SCRYFALL).await? else {
-        return Ok("No prices have been read yet.".into());
+    let Some(to) = crate::prices::newest_observation(pool, feed).await? else {
+        return Ok("No prices from that source have been read yet.".into());
     };
+    let label: String = sqlx::query_scalar("SELECT label FROM price_series WHERE id = ?").bind(series).fetch_one(pool).await?;
     let from = to - days + 1;
     let h = crate::prices::history::changes(pool, &id, series, from, to).await?;
     let point = |p: &Option<(String, Option<f64>)>| p.as_ref().map(|(d, v)| json!({"date": d, "price": v}));
@@ -1055,7 +1068,8 @@ async fn price_history(pool: &SqlitePool, args: &Value) -> AppResult<String> {
     let out = json!({
         "printing": format!("{name} ({}) #{number}", set.to_uppercase()),
         "scryfall_id": id,
-        "series": "TCGplayer market via Scryfall",
+        "series": label,
+        "source": source,
         "currency": "USD",
         "finish": finish,
         "from": crate::prices::date_of(from),
@@ -1066,7 +1080,7 @@ async fn price_history(pool: &SqlitePool, args: &Value) -> AppResult<String> {
         "low": extreme(&h.low),
         "high": extreme(&h.high),
         "changes": h.changes.iter().map(|(d, v)| json!({"date": d, "price": v})).collect::<Vec<_>>(),
-        "note": "Daily market reference prices on the days Yama read them. Not a store quote. A null price means none was listed; gaps are days Yama didn't read. This product uses TCGplayer data but is not endorsed or certified by TCGplayer.",
+        "note": note,
     });
     Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
 }

@@ -24,6 +24,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/meta/data", get(data_status))
         .route("/api/cards/offline", get(offline_cards))
         .route("/api/printings/{id}/prices", get(price_history))
+        .route("/api/printings/{id}/price-series", get(price_series))
         .route("/api/sets", get(set_codes))
 }
 
@@ -585,6 +586,39 @@ async fn price_history(
 ) -> AppResult<Json<Vec<crate::prices::history::DayPoint>>> {
     let (from, to) = crate::prices::history::range(range.from.as_deref(), range.to.as_deref())?;
     Ok(Json(crate::prices::history::history(&st.pool, &id, from, to).await?))
+}
+
+/// Every series a printing has prices in, Scryfall's and MTGJSON's (Card Kingdom retail and
+/// buylist, Mana Pool's lowest listing): each with its provider, kind, finish and label, and its
+/// changes over its own feed's observed days (`?from=`, `?to=`). One series per entry, never a
+/// number made from two providers.
+async fn price_series(
+    State(st): State<AppState>,
+    _u: CurrentUser,
+    Path(id): Path<String>,
+    Query(range): Query<HistoryRange>,
+) -> AppResult<Json<Vec<serde_json::Value>>> {
+    let (from, to) = crate::prices::history::range(range.from.as_deref(), range.to.as_deref())?;
+    let series: Vec<(i64, String, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT s.id, s.feed, s.provider, s.kind, s.finish, s.currency, s.label FROM price_series s
+          WHERE EXISTS (SELECT 1 FROM price_printing k JOIN price_point pp ON pp.printing = k.id WHERE k.scryfall_id = ? AND pp.series = s.id)
+          ORDER BY s.id",
+    )
+    .bind(&id)
+    .fetch_all(&st.pool)
+    .await?;
+    let mut out = Vec::with_capacity(series.len());
+    for (sid, feed, provider, kind, finish, currency, label) in series {
+        let h = crate::prices::history::changes(&st.pool, &id, sid, from, to).await?;
+        let point = |p: &Option<(String, Option<f64>)>| p.as_ref().map(|(d, v)| serde_json::json!({"date": d, "price": v}));
+        let extreme = |p: &Option<(String, f64)>| p.as_ref().map(|(d, v)| serde_json::json!({"date": d, "price": v}));
+        out.push(serde_json::json!({
+            "id": sid, "feed": feed, "provider": provider, "kind": kind, "finish": finish, "currency": currency, "label": label,
+            "observed_days": h.observed_days, "first": point(&h.first), "last": point(&h.last), "low": extreme(&h.low), "high": extreme(&h.high),
+            "changes": h.changes.iter().map(|(d, v)| serde_json::json!({"date": d, "price": v})).collect::<Vec<_>>(),
+        }));
+    }
+    Ok(Json(out))
 }
 
 /// Every set code we have printings for, so the scanner only looks up real sets.

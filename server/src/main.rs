@@ -168,6 +168,15 @@ USAGE:
   yama-server prices backfill                Replay the old daily price table's newer days
                                              into the price history now (the server does it
                                              at start), then check it as verify does
+  yama-server prices import-mtgjson [--prices FILE --ids FILE --date DATE]
+                                             MTGJSON's newest day of Card Kingdom and Mana Pool
+                                             prices now, after its 90 days if none are in yet
+                                             (the server does it hourly); or a day's file
+                                             already downloaded
+  yama-server prices backfill-mtgjson [--prices FILE] [--ids FILE]
+                                             Replay MTGJSON's 90 days of Card Kingdom and Mana
+                                             Pool prices (AllPrices.json.gz, cardIdentifiers.csv.gz;
+                                             downloaded unless given) into feeds with none yet
   yama-server prices verify [DATE]           Check the price history against the old daily
                                              table, every day or one observed day
                                              (YYYY-MM-DD); read only. Fails on a difference
@@ -355,7 +364,19 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::ensure!(v.clean(), "the price history doesn't match the old table, or misses some of its days");
                 Ok(())
             }
-            _ => anyhow::bail!("usage: yama-server prices backfill | prices verify [DATE]"),
+            Some("import-mtgjson") => match (flag_value(&args, "--prices"), flag_value(&args, "--ids"), flag_value(&args, "--date")) {
+                (Some(prices), Some(ids), Some(date)) => prices::mtgjson::import_day_cli(&pool, PathBuf::from(prices), PathBuf::from(ids), &date).await,
+                (None, None, None) => {
+                    let imported = prices::mtgjson::refresh(&pool, &cfg.data_dir).await?;
+                    println!("{}", if imported { "imported MTGJSON prices" } else { "MTGJSON has no newer day" });
+                    Ok(())
+                }
+                _ => anyhow::bail!("import-mtgjson takes --prices, --ids and --date together, or none"),
+            },
+            Some("backfill-mtgjson") => {
+                prices::mtgjson::backfill_cli(&pool, &cfg.data_dir, flag_value(&args, "--prices").map(PathBuf::from), flag_value(&args, "--ids").map(PathBuf::from)).await
+            }
+            _ => anyhow::bail!("usage: yama-server prices backfill | prices verify [DATE] | prices import-mtgjson | prices backfill-mtgjson [--prices FILE] [--ids FILE]"),
         },
         Some("backup") => {
             // A consistent copy of the live database (safe while the server runs).

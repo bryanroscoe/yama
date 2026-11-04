@@ -68,7 +68,14 @@ installNative();
 
 // The Android app carries its own copy of the build, so it needs no service worker.
 if (import.meta.env.PROD && "serviceWorker" in navigator && !isNative()) {
-  window.addEventListener("load", () => void navigator.serviceWorker.register(`/sw.js?v=${import.meta.env.VITE_SW_VERSION}`));
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register(`/sw.js?v=${import.meta.env.VITE_SW_VERSION}`, { updateViaCache: "none" }).then((registration) => {
+      window.addEventListener("online", () => void registration.update().catch(() => undefined));
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") void registration.update().catch(() => undefined);
+      });
+    }).catch(() => undefined);
+  });
 }
 
 // An installed app keeps its offline data: ask the browser not to clear it under storage pressure.

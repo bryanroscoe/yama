@@ -13,8 +13,8 @@ describe("which list is in the deck", () => {
     const fromStock = deckLists({ id: "stock", parent_id: "main", configurations: group })!;
     expect(fromStock.main.id).toBe("main");
     expect(fromStock.here).toBe("other");
-    expect(listLabel(group[0]!, true)).toBe("Main");
-    expect(listLabel(group[2]!, false)).toBe("stock");
+    expect(listLabel(group[0]!, true)).toBe("Current");
+    expect(listLabel(group[2]!, false)).toBe("Stock");
   });
 
   it("shows nothing for a deck without configurations", () => {

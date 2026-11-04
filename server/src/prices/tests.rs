@@ -305,13 +305,293 @@ async fn the_old_table_replays_once_and_matches_it_exactly() {
 #[tokio::test]
 async fn the_series_match_the_code() {
     let pool = crate::db::test_pool().await;
-    let rows: Vec<(i64, String, String)> = sqlx::query_as("SELECT id, feed, finish || ' ' || currency FROM price_series ORDER BY id").fetch_all(&pool).await.unwrap();
+    let rows: Vec<(i64, String, String)> =
+        sqlx::query_as("SELECT id, feed, finish || ' ' || currency FROM price_series WHERE feed = 'scryfall' ORDER BY id").fetch_all(&pool).await.unwrap();
     let ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
     assert_eq!(ids, SCRYFALL_SERIES.iter().map(|s| s.0).collect::<Vec<_>>());
-    assert!(rows.iter().all(|r| r.1 == SCRYFALL));
     let kinds: Vec<&str> = rows.iter().map(|r| r.2.as_str()).collect();
     assert_eq!(kinds, ["nonfoil USD", "foil USD", "etched USD", "nonfoil EUR", "foil EUR", "etched EUR", "nonfoil TIX"]);
+    // MTGJSON's: each provider, kind and finish its own series, in the feed the code writes it to.
+    let rows: Vec<(i64, String, String, String, String)> =
+        sqlx::query_as("SELECT id, feed, provider, kind, finish FROM price_series WHERE feed != 'scryfall' ORDER BY id").fetch_all(&pool).await.unwrap();
+    assert_eq!(rows.len(), 9);
+    for (id, feed, provider, kind, finish) in rows {
+        let mtgjson_kind = if kind == "listing" { "retail" } else { kind.as_str() };
+        let i = ["nonfoil", "foil", "etched"].iter().position(|f| *f == finish).unwrap();
+        assert_eq!(mtgjson::series_for_test(&provider, mtgjson_kind, i), Some(id));
+        let (f, lo, hi) = mtgjson::FEEDS.into_iter().find(|f| (f.1..=f.2).contains(&id)).unwrap();
+        assert_eq!((f, lo <= id, id <= hi), (feed.as_str(), true, true));
+    }
 }
+
+// ── MTGJSON ────────────────────────────────────────────────────────────────────────────────
+
+const D1: &str = "2026-10-30";
+const D2: &str = "2026-10-31";
+const D3: &str = "2026-11-01";
+
+/// Three cards Yama has: s1, s2 (two faces, u2a and u2b) and s3; and u9, which it doesn't.
+async fn mtgjson_printings(pool: &SqlitePool) {
+    sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES ('o', 'Sol Ring', 'Artifact', 'now')").execute(pool).await.unwrap();
+    for id in ["s1", "s2", "s3"] {
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES (?, 'o', 'Sol Ring', 'cmm', 'Set', ?, 'en', '[\"nonfoil\"]', 'now')")
+            .bind(id)
+            .bind(id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+}
+
+/// MTGJSON's files in `dir`: the identifiers, and prices with these (uuid, provider, kind, finish,
+/// [(date, dollars)]) values, as AllPrices (every day) or one day's AllPricesToday.
+fn mtgjson_files(dir: &std::path::Path, name: &str, values: &[(&str, &str, &str, &str, &[(&str, f64)])], day: Option<&str>) -> (std::path::PathBuf, std::path::PathBuf) {
+    let ids = dir.join("ids.csv");
+    std::fs::write(&ids, "uuid,scryfallId,other\nu1,s1,x\nu2a,s2,x\nu2b,s2,x\nu3,s3,x\nu9,s9,x\n").unwrap();
+    let mut data = serde_json::Map::new();
+    for (uuid, provider, kind, finish, dated) in values {
+        let dated: serde_json::Map<String, serde_json::Value> =
+            dated.iter().filter(|(d, _)| day.is_none_or(|x| x == *d)).map(|(d, v)| (d.to_string(), serde_json::json!(v))).collect();
+        if dated.is_empty() {
+            continue;
+        }
+        let card = data.entry(uuid.to_string()).or_insert_with(|| serde_json::json!({"paper": {}}));
+        let p = card["paper"].as_object_mut().unwrap().entry(provider.to_string()).or_insert_with(|| serde_json::json!({"buylist": {}, "retail": {}, "currency": "USD"}));
+        p[*kind][*finish] = serde_json::Value::Object(dated);
+    }
+    let prices = dir.join(format!("{name}.json"));
+    std::fs::write(&prices, serde_json::json!({"meta": {"date": day.unwrap_or(D3)}, "data": data}).to_string()).unwrap();
+    (prices, ids)
+}
+
+/// Card Kingdom on all three days; Mana Pool on the first and last only. s2's faces disagree on
+/// the second day; s1 leaves Card Kingdom's buylist on the third; s3 leaves Mana Pool.
+fn mtgjson_values() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'static [(&'static str, f64)])> {
+    vec![
+        ("u1", "cardkingdom", "retail", "normal", &[(D1, 1.0), (D2, 1.0), (D3, 1.5)]),
+        ("u1", "cardkingdom", "buylist", "normal", &[(D1, 0.5), (D2, 0.5)]),
+        ("u1", "manapool", "retail", "normal", &[(D1, 0.9), (D3, 0.95)]),
+        ("u2a", "cardkingdom", "retail", "normal", &[(D1, 2.0), (D2, 2.0), (D3, 2.0)]),
+        ("u2b", "cardkingdom", "retail", "normal", &[(D1, 2.0), (D2, 3.0)]),
+        ("u3", "manapool", "retail", "normal", &[(D1, 0.1)]),
+        // MTGJSON's TCGplayer copy isn't read: Scryfall gives it.
+        ("u3", "tcgplayer", "retail", "normal", &[(D1, 0.2), (D2, 0.2), (D3, 0.2)]),
+        ("u9", "cardkingdom", "retail", "normal", &[(D1, 9.99), (D2, 9.99), (D3, 9.99)]),
+    ]
+}
+
+async fn mtgjson_rows(pool: &SqlitePool) -> Vec<(String, i64, String, Option<i64>)> {
+    sqlx::query_as(
+        "SELECT k.scryfall_id, pp.series, date(pp.day * 86400, 'unixepoch'), pp.cents FROM price_point pp JOIN price_printing k ON k.id = pp.printing
+          WHERE pp.series >= 20 ORDER BY 1, 2, 3",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+async fn mtgjson_days(pool: &SqlitePool) -> Vec<(String, String)> {
+    sqlx::query_as("SELECT feed, date(day * 86400, 'unixepoch') FROM price_observation WHERE feed != 'scryfall' ORDER BY 1, 2").fetch_all(pool).await.unwrap()
+}
+
+#[tokio::test]
+async fn mtgjsons_days_replay_as_changes_with_faces_merged_and_gaps_kept() {
+    let pool = crate::db::test_pool().await;
+    mtgjson_printings(&pool).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (prices, ids) = mtgjson_files(dir.path(), "all", &mtgjson_values(), None);
+    let writer = Writer::acquire(&pool).await.unwrap();
+    let (rows, read) = mtgjson::backfill(&pool, &writer, &prices, &ids, "run").await.unwrap();
+    assert_eq!((read.mapped, read.unmapped, read.disagreements), (4, 1, 1));
+    let s = |id: &str, series: i64, date: &str, cents: Option<i64>| (id.to_string(), series, date.to_string(), cents);
+    let want = vec![
+        // Only changes: s1's retail held a day, then rose.
+        s("s1", 20, D1, Some(100)),
+        s("s1", 20, D3, Some(150)),
+        // Card Kingdom stopped buying it: no price from that day, never the old one.
+        s("s1", 23, D1, Some(50)),
+        s("s1", 23, D3, None),
+        // Mana Pool's missing day is a gap for Mana Pool alone, not a missing price.
+        s("s1", 26, D1, Some(90)),
+        s("s1", 26, D3, Some(95)),
+        // The faces disagreed on the second day: no price that day, neither of theirs.
+        s("s2", 20, D1, Some(200)),
+        s("s2", 20, D2, None),
+        s("s2", 20, D3, Some(200)),
+        s("s3", 26, D1, Some(10)),
+        s("s3", 26, D3, None),
+    ];
+    assert_eq!(mtgjson_rows(&pool).await, want);
+    assert_eq!(rows, want.len());
+    assert_eq!(
+        mtgjson_days(&pool).await,
+        [("mtgjson:cardkingdom", D1), ("mtgjson:cardkingdom", D2), ("mtgjson:cardkingdom", D3), ("mtgjson:manapool", D1), ("mtgjson:manapool", D3)]
+            .map(|(f, d)| (f.to_string(), d.to_string()))
+    );
+    // Once the feeds have days, the replay leaves them alone.
+    assert_eq!(mtgjson::backfill(&pool, &writer, &prices, &ids, "run").await.unwrap().0, 0);
+    writer.release().await;
+}
+
+#[tokio::test]
+async fn mtgjson_retry_discards_unpublished_changes_from_a_different_snapshot() {
+    let pool = crate::db::test_pool().await;
+    mtgjson_printings(&pool).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (prices, ids) = mtgjson_files(dir.path(), "all", &mtgjson_values(), None);
+    let writer = Writer::acquire(&pool).await.unwrap();
+    // A crashed replay committed these changes but never published any observed days. The
+    // rolling file no longer has either change: s1 holds $1 on D2, and s3 has no CK price at all.
+    sqlx::query("INSERT INTO price_printing (scryfall_id) VALUES ('s1'), ('s3')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO price_point (printing, series, day, cents) SELECT id, 20, ?, 9999 FROM price_printing")
+        .bind(day_of(D2).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(mtgjson_days(&pool).await.is_empty());
+    mtgjson::backfill(&pool, &writer, &prices, &ids, "retry").await.unwrap();
+    let changes = history::changes(&pool, "s1", 20, day_of(D1).unwrap(), day_of(D3).unwrap()).await.unwrap();
+    assert_eq!(changes.changes, vec![(D3.to_string(), Some(1.5))]);
+    assert!(!mtgjson_rows(&pool).await.iter().any(|r| r.3 == Some(9999)));
+    writer.release().await;
+}
+
+#[tokio::test]
+async fn mtgjson_first_daily_import_discards_an_abandoned_backfill() {
+    let pool = crate::db::test_pool().await;
+    mtgjson_printings(&pool).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (prices, ids) = mtgjson_files(dir.path(), "daily", &mtgjson_values(), Some(D3));
+    let writer = Writer::acquire(&pool).await.unwrap();
+    sqlx::query("INSERT INTO price_printing (scryfall_id) VALUES ('s3')").execute(&pool).await.unwrap();
+    // The abandoned backfill contains a future value, which a daily import's missing-price sweep
+    // wouldn't remove. It must not appear even if that future day is subsequently observed.
+    sqlx::query("INSERT INTO price_point (printing, series, day, cents) SELECT id, 20, ?, 9999 FROM price_printing")
+        .bind(day_of(D3).unwrap() + 1)
+        .execute(&pool)
+        .await
+        .unwrap();
+    mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "daily").await.unwrap();
+    assert!(!mtgjson_rows(&pool).await.iter().any(|r| r.3 == Some(9999)));
+    // A published feed is never cleared by a later import.
+    mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "again").await.unwrap();
+    assert!(mtgjson_rows(&pool).await.iter().any(|r| r.0 == "s1" && r.1 == 20 && r.3 == Some(150)));
+    writer.release().await;
+}
+
+#[tokio::test]
+async fn a_successful_file_with_a_missing_provider_is_not_downloaded_again_that_day() {
+    let pool = crate::db::test_pool().await;
+    assert!(mtgjson::needs_refresh(&pool, D3).await.unwrap());
+    sqlx::query("INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at, error) VALUES ('failed', 'mtgjson_prices', ?, 'now', 'now', 'connection lost')")
+        .bind(D3)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(mtgjson::needs_refresh(&pool, D3).await.unwrap(), "failed imports remain retryable");
+    sqlx::query("INSERT INTO import_runs (id, kind, source_updated_at, started_at, finished_at) VALUES ('success', 'mtgjson_prices', ?, 'now', 'now')")
+        .bind(D3)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!mtgjson::needs_refresh(&pool, D3).await.unwrap());
+    assert!(mtgjson::needs_refresh(&pool, "2026-11-02").await.unwrap(), "a new source day is checked normally");
+}
+
+#[tokio::test]
+async fn mtgjson_stale_or_empty_daily_files_do_not_publish_a_new_day() {
+    let pool = crate::db::test_pool().await;
+    mtgjson_printings(&pool).await;
+    let dir = tempfile::tempdir().unwrap();
+    let (prices, ids) = mtgjson_files(dir.path(), "stale", &mtgjson_values(), Some(D2));
+    let writer = Writer::acquire(&pool).await.unwrap();
+    assert!(mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "stale").await.is_err());
+    assert!(mtgjson_days(&pool).await.is_empty());
+    std::fs::write(&prices, serde_json::json!({"meta": {"date": D3}, "data": {}}).to_string()).unwrap();
+    assert!(mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "empty").await.is_err());
+    assert!(mtgjson_days(&pool).await.is_empty());
+    let (prices, ids) = mtgjson_files(dir.path(), "current", &mtgjson_values(), Some(D3));
+    mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "current").await.unwrap();
+    assert!(!mtgjson_days(&pool).await.is_empty());
+    writer.release().await;
+}
+
+#[tokio::test]
+async fn each_days_file_writes_what_the_replay_would() {
+    let replayed = crate::db::test_pool().await;
+    let daily = crate::db::test_pool().await;
+    for pool in [&replayed, &daily] {
+        mtgjson_printings(pool).await;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (prices, ids) = mtgjson_files(dir.path(), "all", &mtgjson_values(), None);
+    let writer = Writer::acquire(&replayed).await.unwrap();
+    mtgjson::backfill(&replayed, &writer, &prices, &ids, "run").await.unwrap();
+    writer.release().await;
+    let writer = Writer::acquire(&daily).await.unwrap();
+    for day in [D1, D2, D3] {
+        let (prices, ids) = mtgjson_files(dir.path(), day, &mtgjson_values(), Some(day));
+        mtgjson::import_day(&daily, &writer, &prices, &ids, day, "run").await.unwrap();
+    }
+    // A day already in isn't written again.
+    let (prices, ids) = mtgjson_files(dir.path(), "again", &mtgjson_values(), Some(D3));
+    assert_eq!(mtgjson::import_day(&daily, &writer, &prices, &ids, D3, "run").await.unwrap().0, 0);
+    writer.release().await;
+    assert_eq!(mtgjson_rows(&daily).await, mtgjson_rows(&replayed).await);
+    assert_eq!(mtgjson_days(&daily).await, mtgjson_days(&replayed).await);
+}
+
+#[tokio::test]
+async fn a_decks_buylist_references_count_each_copy_once_without_a_saleable_total() {
+    use crate::testutil::{app, send, user};
+    let (app, pool) = app().await;
+    let (owner, token) = user(&pool, "me@example.com").await;
+    let names = [("ring", "Sol Ring"), ("isl", "Island"), ("bolt", "Lightning Bolt"), ("tomb", "Ancient Tomb"), ("bulk", "Arcane Signet"), ("unknown", "Command Tower")];
+    for (oracle, name) in names {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?, ?, 'Artifact', 'now')").bind(oracle).bind(name).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES (?, ?)").bind(name.to_lowercase()).bind(oracle).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES (?, ?, ?, 'cmm', 'Set', '1', 'en', '[\"nonfoil\"]', 'now')")
+            .bind(format!("p-{oracle}")).bind(oracle).bind(name).execute(&pool).await.unwrap();
+    }
+    // A premium basic is the same oracle card, but keeps its own printing and reference price.
+    sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES ('p-premium', 'isl', 'Island', 'lea', 'Limited Edition Alpha', '287', 'en', '[\"nonfoil\"]', 'now')")
+        .execute(&pool).await.unwrap();
+    let mut cards: Vec<_> = names.iter().map(|(o, n)| crate::decks::DeckCard {
+        oracle_id: o.to_string(), name: n.to_string(), qty: if *o == "isl" { 31 } else { 1 }, board: crate::decks::Board::Main,
+    }).collect();
+    // The same oracle in two deck sections must not consume the same physical copy twice.
+    cards.push(crate::decks::DeckCard { oracle_id: "ring".into(), name: "Sol Ring".into(), qty: 1, board: crate::decks::Board::Commander });
+    let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Test", None, cards).await.unwrap();
+    for (printing, condition, proxy, qty) in [("p-ring", "NM", 0, 1), ("p-isl", "NM", 0, 30), ("p-premium", "NM", 0, 1), ("p-bolt", "LP", 0, 1), ("p-tomb", "NM", 1, 1), ("p-bulk", "NM", 0, 1), ("p-unknown", "NM", 0, 1)] {
+        sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, proxy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'now', 'now')")
+            .bind(printing).bind(&owner).bind(printing).bind(qty).bind(condition).bind(proxy).execute(&pool).await.unwrap();
+    }
+    let (_, before) = send(&app, axum::http::Method::GET, &format!("/api/decks/{deck}"), Some(&token), None).await;
+    assert!(before["buylist"].is_null());
+    let dir = tempfile::tempdir().unwrap();
+    let ids = dir.path().join("ids.csv");
+    std::fs::write(&ids, "uuid,scryfallId\nur,p-ring\nui,p-isl\nup,p-premium\nub,p-bolt\nuq,p-bulk\n").unwrap();
+    let prices = dir.path().join("today.json");
+    let ck = |buy: f64| serde_json::json!({"paper": {"cardkingdom": {"buylist": {"normal": {D3: buy}}, "currency": "USD"}}});
+    std::fs::write(&prices, serde_json::json!({"meta": {"date": D3}, "data": {"ur": ck(1.25), "ui": ck(0.01), "up": ck(50.0), "ub": ck(0.5), "uq": ck(0.01)}}).to_string()).unwrap();
+    let writer = Writer::acquire(&pool).await.unwrap();
+    mtgjson::import_day(&pool, &writer, &prices, &ids, D3, "run").await.unwrap();
+    writer.release().await;
+    let (_, view) = send(&app, axum::http::Method::GET, &format!("/api/decks/{deck}"), Some(&token), None).await;
+    let b = &view["buylist"];
+    assert_eq!(b["provider"], "Card Kingdom buylist via MTGJSON");
+    assert_eq!(b["date"], D3);
+    assert_eq!((b["copies"].as_i64(), b["offered_copies"].as_i64(), b["unmatched_copies"].as_i64(), b["no_offer_copies"].as_i64()), (Some(35), Some(33), Some(1), Some(1)));
+    assert!(b.get("cash_usd").is_none() && b.get("basics_cash_usd").is_none(), "no invented resale total");
+    let references = b["cards"].as_array().unwrap();
+    let premium = references.iter().find(|c| c["set_code"] == "lea").unwrap();
+    assert_eq!((premium["name"].as_str(), premium["offer_usd"].as_f64()), (Some("Island"), Some(50.0)));
+    assert_eq!(references.iter().find(|c| c["name"] == "Sol Ring").unwrap()["qty"], 1);
+    assert_eq!(references.iter().find(|c| c["name"] == "Arcane Signet").unwrap()["offer_usd"], 0.01);
+    assert_eq!(b["basics"], 31);
+    assert!(view["singles_value"].is_object());
+}
+
 
 #[tokio::test]
 async fn a_printing_that_lost_its_price_shows_none_where_prices_are_read() {

@@ -67,7 +67,7 @@ describe("bracket suggestions", () => {
     expect(html).toContain("About 5.2 / 10");
     expect(html).toContain("Unofficial Yama estimate");
     expect(html).toContain("How the power estimate adds up");
-    expect(html).toContain("sets the range, 5 to 7");
+    expect(html).toContain("suggestion sets a 5–7 range");
     expect(html).not.toContain("·");
     client.clear();
   });

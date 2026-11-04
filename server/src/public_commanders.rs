@@ -1,23 +1,8 @@
-//! Public commander ranking from real games (Bryan, 1 Nov 2026): how often each commander wins,
-//! combined across the real-game sources an operator enables (`commander_evidence_sources`).
-//! Nothing here is about precons or simulations; a commander that leads a catalog precon just
-//! links to it.
-//!
-//! Every figure is derived on read from the active revisions of the enabled owners' datasets, so a
-//! new upload changes the page with nothing copied by hand. Two record shapes are understood, both
-//! `commander` records in `yama-dataset/1`:
-//!
-//! - counts: `game_win_count` and `game_played_count` (Playgroup.gg's commander catalog), with
-//!   `pilot_count`, identified by `oracle_id`(s), `scryfall_id` or `name`;
-//! - scores: a source's own shrunk score on this page's scale (`score_0_100` with its interval,
-//!   `baseline` and `prior_strength`), as the Mythic Tools clean-room hand-off provides. Only such
-//!   derived numbers ever reach Yama from Mythic, never its responses.
-//!
-//! Each source is measured against its own average commander (pod sizes and players differ between
-//! apps), as relative log-odds with a Beta(100) prior. The sources' estimates for the same commander
-//! are then multiplied together (their precisions add); each source's own prior is taken back out
-//! and one common prior put in, so no prior counts twice and the sources' order doesn't matter. The score shows the result on a 0–100 scale: 50 is the average commander
-//! and 80 about double its odds of winning. ARCHITECTURE.md, "Public commander ranking".
+//! Public observed commander win rates, derived from enabled owners' active dataset revisions.
+//! Counts provide wins / all games; clean-room score records may carry a separately derived
+//! observed rate. Scores never imply a win percentage. Combined rates weight each observation
+//! by reported games; cross-service overlap is unknown. Raw Mythic responses stay outside Yama.
+//! Existing cohort-adjusted score calculations remain available for legacy/operator evidence.
 mod html;
 #[cfg(test)]
 mod tests;
@@ -46,7 +31,7 @@ const DESIGN_EFFECT: f64 = 2.0;
 const PER_PILOT: f64 = 4.0;
 const MAX_EFFECTIVE: f64 = 2000.0;
 const Z95: f64 = 1.959_963_985;
-pub const METHOD: &str = "real-games-commander-v1";
+pub const METHOD: &str = "observed-commander-win-rate-v1";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -166,6 +151,26 @@ pub struct Figure {
     prior_var: f64,
 }
 
+/// A descriptive game-weighted mean, using observed rates only. A legacy score never
+/// becomes a win rate. Reported games may overlap between services; these are not unique games.
+fn combined_win_rate(figures: &[Figure]) -> Option<(f64, u64, usize)> {
+    let mut weighted = 0.0;
+    let mut games = 0u64;
+    let mut sources = 0;
+    for f in figures {
+        if let Some(rate) = f
+            .win_rate
+            .filter(|p| p.is_finite() && (0.0..=1.0).contains(p))
+            .filter(|_| f.games > 0)
+        {
+            games = games.checked_add(f.games)?;
+            weighted += rate * f.games as f64;
+            sources += 1;
+        }
+    }
+    (games > 0).then(|| ((weighted / games as f64).clamp(0.0, 1.0), games, sources))
+}
+
 /// A catalog precon the commander leads. Its rank is looked up when the page is shown, from
 /// rating v2's own cache, so it never lags behind the precon pages.
 #[derive(Debug, Clone, Serialize)]
@@ -181,6 +186,10 @@ pub struct Commander {
     pub name: String,
     pub color_identity: String,
     pub art: Option<Art>,
+    pub win_rate: Option<f64>,
+    /// Reported games contributing to the observed rate; score-only imports are excluded.
+    pub win_rate_games: u64,
+    pub win_rate_sources: usize,
     pub score: f64,
     pub lo: f64,
     pub hi: f64,
@@ -254,7 +263,7 @@ async fn enabled(pool: &SqlitePool) -> AppResult<Vec<Enabled>> {
 /// One parsed commander record, before identities are resolved.
 enum Shape {
     Counts { wins: u64, games: u64, pilots: Option<u64> },
-    Score { score: f64, lo: f64, hi: f64, games: u64, decks: Option<u64>, baseline: Option<f64>, prior: Option<f64> },
+    Score { score: f64, lo: f64, hi: f64, games: u64, decks: Option<u64>, baseline: Option<f64>, prior: Option<f64>, win_rate: Option<f64> },
 }
 struct Parsed {
     oracle_ids: Vec<String>,
@@ -288,6 +297,7 @@ fn parse(data: &Value) -> Option<Parsed> {
     } else if let Some(score) = f64_of(&data["score_0_100"]) {
         Shape::Score {
             score,
+            win_rate: f64_of(&data["win_rate"]).filter(|p| (0.0..=1.0).contains(p)),
             lo: f64_of(&data["interval_low"])?,
             hi: f64_of(&data["interval_high"])?,
             games: u64_of(&data["games"]).unwrap_or(0),
@@ -514,10 +524,10 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
                         prior_var: prior_var(p0, PRIOR),
                     }
                 }
-                Shape::Score { score: s, lo, hi, games, decks, baseline, prior } => Figure {
+                Shape::Score { score: s, lo, hi, games, decks, baseline, prior, win_rate } => Figure {
                     source: source.name.clone(),
                     games,
-                    win_rate: None,
+                    win_rate: win_rate.filter(|_| games > 0),
                     decks,
                     score: s,
                     estimate: from_score(s, lo, hi),
@@ -525,7 +535,7 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
                     prior_var: baseline.zip(prior).map(|(p0, s)| prior_var(p0, s)).unwrap_or(f64::INFINITY),
                 },
             };
-            if figure.estimate.is_some() {
+            if figure.estimate.is_some() || (figure.win_rate.is_some() && figure.games > 0) {
                 figures.entry(key.clone()).or_default().push((name.clone(), figure));
             }
         }
@@ -538,7 +548,11 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
         .into_iter()
         .filter_map(|(key, figures)| {
             let parts: Vec<(Estimate, f64)> = figures.iter().filter_map(|(_, f)| f.estimate.map(|e| (e, f.prior_var))).collect();
-            let combined = combine(&parts)?;
+            let source_figures: Vec<Figure> = figures.iter().map(|(_, f)| f.clone()).collect();
+            let observed = combined_win_rate(&source_figures);
+            // A source with all wins or no wins has a valid observed rate even when its
+            // cohort baseline cannot support log-odds. Its internal score remains prior-only.
+            let combined = combine(&parts).or_else(|| observed.map(|_| Estimate { mu: 0.0, var: prior_var(0.25, PRIOR) }))?;
             let sd = combined.var.sqrt();
             let ids: Vec<&str> = key.split('+').collect();
             let known: Vec<&Card> = ids.iter().filter_map(|id| cards.get(*id)).collect();
@@ -558,18 +572,21 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
                 art: known.first().and_then(|c| c.art.clone()),
                 name,
                 color_identity,
+                win_rate: observed.map(|(r, _, _)| r),
+                win_rate_games: observed.map(|(_, g, _)| g).unwrap_or(0),
+                win_rate_sources: observed.map(|(_, _, n)| n).unwrap_or(0),
                 score: score(combined.mu),
                 lo,
                 hi,
-                games: figures.iter().map(|(_, f)| f.games).sum(),
+                games: source_figures.iter().map(|f| f.games).sum(),
                 evidence: evidence(lo, hi),
-                sources: figures.into_iter().map(|(_, f)| f).collect(),
+                sources: source_figures,
                 precons: precons.iter().filter(|(c, _)| set.is_subset(c)).map(|(_, p)| p.clone()).collect(),
                 key,
             })
         })
         .collect();
-    commanders.sort_by(|a, b| b.score.total_cmp(&a.score).then(b.games.cmp(&a.games)).then(a.name.cmp(&b.name)));
+    commanders.sort_by(|a, b| b.win_rate.partial_cmp(&a.win_rate).unwrap_or(std::cmp::Ordering::Equal).then(b.win_rate_games.cmp(&a.win_rate_games)).then(a.name.cmp(&b.name)));
 
     let agreement = match per_source.as_slice() {
         [(a, _), (b, _), ..] => {
@@ -657,7 +674,7 @@ pub async fn report(pool: &SqlitePool) -> AppResult<Value> {
         .iter()
         .filter(|c| c.games >= 100)
         .take(15)
-        .map(|c| json!({"name": c.name, "score": (c.score * 10.0).round() / 10.0, "interval": [(c.lo * 10.0).round() / 10.0, (c.hi * 10.0).round() / 10.0], "games": c.games, "sources": c.sources.len()}))
+        .map(|c| json!({"name": c.name, "win_rate": c.win_rate, "win_rate_games": c.win_rate_games, "score": (c.score * 10.0).round() / 10.0, "interval": [(c.lo * 10.0).round() / 10.0, (c.hi * 10.0).round() / 10.0], "games": c.games, "sources": c.sources.len()}))
         .collect();
     Ok(json!({"enabled": enabled, "method": r.method, "sources": r.sources, "agreement": r.agreement, "commanders": r.commanders.len(), "top_with_100_games": top}))
 }
