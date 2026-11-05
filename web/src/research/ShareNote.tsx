@@ -5,6 +5,7 @@ import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { VISIBILITY_CHOICES, useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, resetNoteLink, setNoteSharing, type NoteSharing, type ResearchBundle } from "./api";
+import { planSummariesKey } from "./view";
 
 /** Who can see this plan, and its link: the same three choices as a deck. */
 export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
@@ -19,6 +20,8 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
     qc.setQueryData<ResearchBundle>(["research", userId, id], (b) => b && { ...b, visibility: r.visibility, share_token: r.share_token });
     void qc.invalidateQueries({ queryKey: ["research", userId, id] });
     void qc.invalidateQueries({ queryKey: ["research", userId, "list"] });
+    // The Plans page's tiles say how each plan is shared.
+    void qc.invalidateQueries({ queryKey: planSummariesKey(userId) });
   };
   const set = useMutation({ mutationFn: (v: Visibility) => setNoteSharing(id, v), onSuccess: refresh });
   const reset = useMutation({ mutationFn: () => resetNoteLink(id), onSuccess: refresh });
