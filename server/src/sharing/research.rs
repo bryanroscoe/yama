@@ -1578,25 +1578,19 @@ pub(crate) async fn owner_deck(
 /// fields leave the database; the notes themselves can be long.
 pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): CurrentUser) -> AppResult<Json<Value>> {
     type Row = (String, String, i64, String, String, Option<String>, i64, Option<String>, Option<String>);
-    let rows: Vec<Row> = sqlx::query_as(
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT r.id, r.title, r.revision, r.updated_at, r.visibility, r.share_token,
                 COALESCE(json_array_length(r.document, '$.decks'), 0),
                 json_extract(r.document, '$.copied_from.by'),
-                (SELECT json_group_array(c) FROM (SELECT json_extract(d.value, '$.commander') AS c FROM json_each(r.document, '$.decks') d LIMIT 4))
-         FROM research_reports r WHERE r.owner_id = ? ORDER BY r.updated_at DESC, r.id",
-    )
+                {FIRST_COMMANDERS}
+         FROM research_reports r WHERE r.owner_id = ? ORDER BY r.updated_at DESC, r.id"
+    )))
     .bind(&u.id)
     .fetch_all(&st.pool)
     .await?;
     let mut out = Vec::new();
     for (id, title, revision, updated_at, visibility, share_token, decks, copied_by, commanders) in rows {
-        let names: Vec<String> = commanders.and_then(|c| serde_json::from_str::<Vec<Option<String>>>(&c).ok()).unwrap_or_default().into_iter().flatten().collect();
-        let mut art = Vec::new();
-        for name in &names {
-            if let (Some((image, artist, _)), _) = commander_card(&st.pool, name).await? {
-                art.push(json!({"commander": name, "image": image, "artist": artist}));
-            }
-        }
+        let art: Vec<Value> = plan_art(&st.pool, commanders).await?.into_iter().map(|(image, artist, commander)| json!({"commander": commander, "image": image, "artist": artist})).collect();
         out.push(json!({
             "id": id, "title": title, "revision": revision, "updated_at": updated_at,
             "visibility": visibility, "share_token": share_token,
@@ -1604,4 +1598,56 @@ pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): Curr
         }));
     }
     Ok(Json(Value::Array(out)))
+}
+
+/// Up to four of each note's commanders, by note: the art its plan tile shows, on the profile and
+/// in the app's Plans page alike.
+async fn plan_art(pool: &SqlitePool, commanders: Option<String>) -> AppResult<Vec<(String, Option<String>, String)>> {
+    let names: Vec<String> = commanders.and_then(|c| serde_json::from_str::<Vec<Option<String>>>(&c).ok()).unwrap_or_default().into_iter().flatten().collect();
+    let mut art = Vec::new();
+    for name in &names {
+        if let (Some(a), _) = commander_card(pool, name).await? {
+            art.push(a);
+        }
+    }
+    Ok(art)
+}
+
+/// The SQL for the first four commanders of a note's decks, as a JSON array.
+const FIRST_COMMANDERS: &str = "(SELECT json_group_array(c) FROM (SELECT json_extract(d.value, '$.commander') AS c FROM json_each(r.document, '$.decks') d LIMIT 4))";
+
+/// A profile's public plans as tiles, as the app's Plans page shows a person's plans: up to four
+/// of its commanders' art, its title, how many decks, when it was saved. Empty with none.
+pub(super) async fn profile_plans(pool: &SqlitePool, owner: &str) -> AppResult<String> {
+    let rows: Vec<(String, String, i64, String, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT r.share_token, r.title, COALESCE(json_array_length(r.document, '$.decks'), 0), r.updated_at, {FIRST_COMMANDERS}
+         FROM research_reports r WHERE r.owner_id = ? AND r.visibility = 'public' AND r.share_token IS NOT NULL ORDER BY r.updated_at DESC, r.id"
+    )))
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    if rows.is_empty() {
+        return Ok(String::new());
+    }
+    let mut s = String::from("<section class=\"share-notes\" aria-labelledby=\"notes-head\"><h2 id=\"notes-head\">Plans</h2><ul class=\"share-decks share-plans\">");
+    let mut credits = Vec::new();
+    for (token, title, decks, saved, commanders) in rows {
+        let art = plan_art(pool, commanders).await?;
+        write!(s, "<li class=\"share-deck\"><a class=\"share-deck-main\" href=\"/r/{}\">", e(&token)).unwrap();
+        if !art.is_empty() {
+            write!(s, "<span class=\"share-mosaic\" data-n=\"{}\">", art.len()).unwrap();
+            for (url, _, _) in &art {
+                write!(s, "<img src=\"{}\" alt=\"\" loading=\"lazy\">", e(url)).unwrap();
+            }
+            s.push_str("</span><div class=\"art-wash\"></div>");
+        }
+        write!(s, "<span class=\"share-deck-copy\"><b>{}</b><span>{decks} {}</span><small>Saved {}</small></span></a></li>", e(&title), if decks == 1 { "deck" } else { "decks" }, when(&saved)).unwrap();
+        credits.extend(art.into_iter().map(|a| credit(&Some(a))));
+    }
+    s.push_str("</ul>");
+    if !credits.is_empty() {
+        write!(s, "<details class=\"art-credits dim\"><summary>Art credits</summary><p>{}</p></details>", credits.join(" ")).unwrap();
+    }
+    s.push_str("</section>");
+    Ok(s)
 }

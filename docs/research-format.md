@@ -12,8 +12,8 @@ store evidence. The same file can be imported on the Research page or with
 `yama-server import-research FILE --owner EMAIL [--dry-run]`.
 
 **Sharing (2026-10-31).** A note starts private. Its owner can share it like a deck: `link`
-(anyone with `/r/<token>`) or `public` (that, and listed under "Deck notes" on their profile),
-from "Share this note" on the note's page, `PUT /api/research/{id}/sharing {visibility}`, or
+(anyone with `/r/<token>`) or `public` (that, and listed under "Plans" on their profile),
+from "Share this plan" on the plan's page, `PUT /api/research/{id}/sharing {visibility}`, or
 `yama-server research share --owner EMAIL --id ID --visibility link [--reset-link]` on the
 server. `POST /api/research/{id}/share-link` makes a new link and ends the old one. Refreshing
 a note keeps its visibility and link. The public pages show only the guide part of the
@@ -26,6 +26,14 @@ acquisition rules and price ceilings), combos and any other field stay private. 
 fields shown is published as written, so an owner should read summaries before sharing. Each deck page shows one build (`/r/<token>/<deck>?build=<id>`) with its changes as a
 table and the list as stacks or a list; `/r/<token>/<deck>/<build>-{names,moxfield}.txt`
 downloads it.
+
+**The owner's pages (2026-11-04).** In the app a note is a plan (Decks, Plans) and its pages
+show the shared pages' sections in their order, from the same Rust: `GET /api/research/{id}/view`
+(`?build=`, `?builds=all`, `?get=buy|print`) gives each deck's commander art and the shopping list,
+and `GET /api/research/{id}/view/{deck}` (`?build=`, `?vs=`, `?get=`) the changes with card images,
+what the added cards cost at market and the list as cards; `GET /api/research-plans` gives every
+note's tile (deck count, who it was copied from, up to four commanders' art). All are the owner's,
+private or not. The owner's page adds sharing, answers and the agent's evidence when the note has it.
 
 An id-only MCP read is a compact overview. Use `deck`/`build` for one complete audit,
 `scenario` for one global acquisition list, or explicit `full:true` for the complete document.
