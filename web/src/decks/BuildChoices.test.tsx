@@ -7,7 +7,7 @@ import { duplexPages, type BuildChoice } from "./buildCatalog";
 import { buildNotesKey } from "../research/api";
 
 // Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
-vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
+vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1>, BackButton: ({ label }: { label: string }) => <a>{label}</a> }));
 
 const from: BuildChoice = { id: "a", label: "Bracket 2", kind: "bracket", list: "", source: "Plan v27", href: "/", warnings: [] };
 const to: BuildChoice = { ...from, id: "b", label: "Bracket 3" };
@@ -57,5 +57,31 @@ describe("build data privacy", () => {
     expect(html).not.toContain("Owner A private");
     expect(html).toContain("No saved decks or plan builds yet");
     qc.clear();
+  });
+});
+
+describe("a deck's swap cards read like its plan page", () => {
+  it("shows the deck, its builds as chips, and the changes with their plans' reasons", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    qc.setQueryData(["me"], { id: "owner" });
+    qc.setQueryData(["decks"], []);
+    qc.setQueryData(["plan", "owner"], { decks: [] });
+    const list = (extra: string) => `Commander\n1 Leader\nDeck\n98 Plains\n${extra}`;
+    qc.setQueryData(buildNotesKey("owner"), [{ document: { id: "audit", title: "Upgrades", decks: [{ key: "party", name: "Party Time", builds: [
+      { id: "b2", label: "Bracket 2 · Core", bracket: 2, list: list("1 Island"), swaps: [] },
+      { id: "b3", label: "Bracket 3 · Upgraded", bracket: 3, list: list("1 Sol Ring"), swaps: [{ id: "s", card_in: "Sol Ring", card_out: "Island", why: "Fast mana." }] },
+    ] }] }, revision: 1, updated_at: "2026-10-31T19:00:00Z" }]);
+    const key = `research:${JSON.stringify(["audit", "party"])}`;
+    const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter initialEntries={[`/decks/builds?deck=${encodeURIComponent(key)}`]}><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
+    qc.clear();
+    expect(html).toContain('class="plan-hero-title">Party Time</h1>');
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Bracket 3: Upgraded<\/button>/);
+    expect(html).toContain("From Upgrades");
+    expect(html).toContain("Needs cards bought or printed");
+    expect(html).toContain("Changes from");
+    expect(html).toContain("Fast mana.");
+    expect(html).toContain("1 in, 1 out from Bracket 2: Core");
+    expect(html).toContain("Print swap cards");
+    expect(html).not.toContain("[3]");
   });
 });

@@ -31,7 +31,11 @@ export function researchWhere(a: Item | undefined): string | null {
 function slotPairs(cards: Slot[], ctx: SourceContext, deck: PlanDeck): SwapPair[] {
   return cards.flatMap((c) => (c.replaces ? [{ out: c.replaces, in: c.name, where: slotSource(c, ctx, deck) || null }] : []));
 }
-export interface BuildFamily { key: string; name: string; choices: BuildChoice[]; planKeys?: string[]; detail?: string }
+export interface BuildFamily {
+  key: string; name: string; choices: BuildChoice[]; planKeys?: string[]; detail?: string;
+  /** The saved deck it is, for its commander, art and artist. */
+  deck?: Pick<DeckSummary, "id" | "commanders" | "color_identity" | "commander_image" | "commander_artist">;
+}
 export type BuildTrack = "owned_now" | "aspirational" | "saved";
 export function buildTargets(choices: BuildChoice[], track: BuildTrack) {
   return choices.filter((c) => track === "saved" ? c.kind !== "bracket" || c.track === "unverified" : c.kind === "bracket" && c.track === track);
@@ -86,7 +90,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
   const byId = new Map(decks.map((d) => [d.id, d]));
   const rootOf = (id: string) => { const d = byId.get(id); return d?.parent_id ? byId.get(d.parent_id) : d; };
   const roots = decks.filter((d) => !d.parent_id);
-  for (const root of roots) family(`saved:${root.id}`, root.name, `Saved deck ${root.id}`);
+  for (const root of roots) family(`saved:${root.id}`, root.name, `Saved deck ${root.id}`).deck = root;
   const plans = (plan?.decks ?? []).filter((d) => d.status !== "archived");
   const planFamilies = new Map<string, BuildFamily>();
   for (const deck of plans) {

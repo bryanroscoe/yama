@@ -1648,8 +1648,11 @@ part of the MCP".
   and page `/decks/builds` are called Swap cards, after what they make. Builds are named once and
   plainly: "Bracket 2: Buildable now", "Stock", "Current (saved deck)", never "[2] …"; a researched
   build's source is its plan ("From the plan “…”, saved 31 Oct 2026") and the deck check groups
-  them as "Plan: <title>". The three groups read "With cards you have", "Upgrades" and "Saved
-  lists". The changes show before printing, as the plan pages' Add/Cut/Why table: each cut is
+  them as "Plan: <title>". Then (Bryan: "I would expect the build page to be more like that public
+  page") it is laid out as a plan's deck page: every deck as an art tile; a deck's art hero, its
+  builds as chips (its own lists, then each plan's; older snapshots folded), a pill for where the
+  build's cards come from (checked against your cards, needs buying or printing, or not checked),
+  "Changes from <list>", Print swap cards and the decklist. The changes are the plan pages' Add/Cut/Why table: each cut is
   paired with the card its plan puts in and why (`pairChanges`: the target build's own swap, an
   undone swap, or both builds replacing the same starting card; the rest pair in order), and the
   printed cards use the same pairs.
