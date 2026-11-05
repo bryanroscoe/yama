@@ -16,7 +16,7 @@ From the repository root, choose an output path outside the plugin directory:
 
 ```sh
 python3 scripts/test_package_yama_plugin.py
-python3 scripts/package_yama_plugin.py /absolute/task-directory/yama-0.1.4.zip
+python3 scripts/package_yama_plugin.py /absolute/task-directory/yama-0.1.5.zip
 ```
 
 The packager uses an explicit component allowlist, rejects symlinked sources,

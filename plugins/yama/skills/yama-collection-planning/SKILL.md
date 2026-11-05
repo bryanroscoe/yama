@@ -7,7 +7,10 @@ description: Plan Commander upgrades, card allocation, shopping trips, or collec
 
 Use the available Yama tools and current schemas. If the connection is missing,
 follow `../yama-setup/SKILL.md`. Start with `overview`, then read the relevant
-`deck_analysis`, `plan_deck`, `collection_cards`, `spares` and `research`.
+`deck_analysis`, `plan_deck`, `collection_cards` and `research`.
+For copies outside deck containers, query `collection_cards` with
+`outside_decks=true` and follow pagination. Check saved plan allocations before
+calling those copies spare; being outside a deck box does not mean unreserved.
 Read `shopping_settings` before applying a buy rule or store preference.
 
 Keep owned real copies, proxies, needed copies, installed cards, proposed
