@@ -22,7 +22,6 @@ describe("the Decks sections control", () => {
     expect(current("/decks/builds")).toEqual(["/decks/builds"]);
     expect(current("/decks/plan/review")).toEqual(["/decks/plan"]);
     expect(current("/decks/research/abc")).toEqual(["/decks/research"]);
-    expect(current("/decks/datasets/7")).toEqual(["/decks/datasets"]);
   });
 
   it("keeps Decks chosen while adding a deck or reading suggested changes", () => {

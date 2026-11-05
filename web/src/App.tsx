@@ -257,8 +257,6 @@ export function App() {
           <Route path="decks/research" element={<Paged page={ResearchPage} />} />
           <Route path="decks/research/:reportId" element={<Paged page={ResearchPage} kind="detail" />} />
           <Route path="decks/research/:reportId/:deckKey" element={<Paged page={ResearchPage} kind="detail" />} />
-          <Route path="decks/datasets" element={<Paged page={DatasetsPage} />} />
-          <Route path="decks/datasets/:id" element={<Paged page={DatasetsPage} kind="detail" />} />
           {/* Static "plan" outranks ":id", so plan pages never reach DeckPage. Every plan page
               comes with the layout, so only the layout needs a stand-in. */}
           <Route path="decks/plan" element={<Paged page={PlanLayout} />}>
@@ -275,6 +273,8 @@ export function App() {
           </Route>
           {/* Old links: the Lab was a section of Decks until 2026-10-28. Static "lab" outranks ":id". */}
           <Route path="decks/lab/*" element={<OldLabRedirect />} />
+          {/* Datasets were a section of Decks until 2026-11-04; they're Lab evidence. */}
+          <Route path="decks/datasets/*" element={<OldLabRedirect />} />
           <Route path="lab" element={<Paged page={LabLayout} kind="table" />}>
             <Route index element={<PreconsPage />} />
             <Route path="p/:id" element={<PreconDetailPage />} />
@@ -285,6 +285,8 @@ export function App() {
             <Route path="runs/:id" element={<RunPage />} />
             <Route path="runs/:id/decks/:deck" element={<RunDeckPage />} />
             <Route path="runs/:id/tables/:table" element={<RunTablePage />} />
+            <Route path="datasets" element={<DatasetsPage />} />
+            <Route path="datasets/:id" element={<DatasetsPage />} />
           </Route>
           <Route path="decks/changes" element={<Paged page={ChangesPage} />} />
           <Route path="decks/import" element={<Paged page={ImportPage} />} />

@@ -7,7 +7,7 @@ import { count, datasetPath, percent, sourceUrl, type Dataset, type DatasetRead,
 
 const auth = vi.hoisted(() => ({ id: "bryan", is_admin: false, viewing: undefined as object | undefined }));
 vi.mock("../auth", () => ({ useMe: () => ({ data: auth }) }));
-vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
+vi.mock("../lab/LabLayout", () => ({ LabHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 const head: Dataset = {
   id: "playgroup-history", title: "Historical Playgroup evidence", revision: 3, content_hash: "abc",
   imported_at: "2026-10-28T20:00:00Z", source_documents: 316,
@@ -24,14 +24,14 @@ function page(url: string, value: Dataset[] | DatasetRead, owner = "bryan") {
   const id = uri.pathname.split("/")[3];
   client.setQueryData(id ? ["datasets", owner, id, uri.searchParams.toString()] : ["datasets", owner], value);
   return renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={[url]}><Routes>
-    <Route path="/decks/datasets" element={<DatasetsPage />} /><Route path="/decks/datasets/:id" element={<DatasetsPage />} />
+    <Route path="/lab/datasets" element={<DatasetsPage />} /><Route path="/lab/datasets/:id" element={<DatasetsPage />} />
   </Routes></MemoryRouter></QueryClientProvider>);
 }
 beforeEach(() => { auth.is_admin = false; auth.viewing = undefined; });
 
 describe("private evidence browser", () => {
   it("offers every imported record type and pins browse links to the displayed revision", () => {
-    const html = page("/decks/datasets", [head]);
+    const html = page("/lab/datasets", [head]);
     expect(html).toContain("47,062 records");
     expect(html).toContain("316 source documents");
     expect(html).toContain("revision=3&amp;kind=weekly_activity");
@@ -40,11 +40,11 @@ describe("private evidence browser", () => {
     expect(html).not.toContain("Import dataset");
   });
   it("does not show another account's cached dataset; upload is hidden during View as", () => {
-    expect(page("/decks/datasets", [head], "someone-else")).not.toContain(head.title);
+    expect(page("/lab/datasets", [head], "someone-else")).not.toContain(head.title);
     auth.is_admin = true;
-    expect(page("/decks/datasets", [head])).toContain("Import dataset");
+    expect(page("/lab/datasets", [head])).toContain("Import dataset");
     auth.viewing = {};
-    expect(page("/decks/datasets", [head])).not.toContain("Import dataset");
+    expect(page("/lab/datasets", [head])).not.toContain("Import dataset");
   });
   it("keeps source periods, sample counts and zero versus missing rates readable", () => {
     const render = (r: EvidenceRecord) => renderToStaticMarkup(<RecordCard record={r} explore={() => {}} />);
@@ -64,7 +64,7 @@ describe("private evidence browser", () => {
     expect(html).toContain("0.00%"); expect(html).not.toContain("No eligible months");
   });
   it("renders entity controls, revision export and a bounded next page", () => {
-    const html = page("/decks/datasets/playgroup-history?revision=3&entity=playgroup%3Acommander%3A2978&label=Test+Commander", { dataset: head, records: [observation({ kind: "unknown" })], next_offset: 25, monthly_summaries: [] });
+    const html = page("/lab/datasets/playgroup-history?revision=3&entity=playgroup%3Acommander%3A2978&label=Test+Commander", { dataset: head, records: [observation({ kind: "unknown" })], next_offset: 25, monthly_summaries: [] });
     expect(html).toContain("Recency half-life (days)"); expect(html).toContain('value="180"');
     expect(html).toContain("Download original dataset</button>");
     expect(html).not.toContain("/export?");
@@ -72,7 +72,7 @@ describe("private evidence browser", () => {
     expect(html).toContain('<button disabled="">Previous</button>'); expect(html).toContain("<button>Next</button>");
   });
   it("pages through actual provenance and treats submitted strings as text", () => {
-    const html = page("/decks/datasets/playgroup-history?revision=3&section=sources", { dataset: head, sources: [{ sha256: "retained-hash", url: "javascript:alert(1)", retrieved_at: "2026-10-28T00:00:00Z", flags: ["partial_archive_capture"], transformation: "<script>unsafe()</script>" }], next_offset: null });
+    const html = page("/lab/datasets/playgroup-history?revision=3&section=sources", { dataset: head, sources: [{ sha256: "retained-hash", url: "javascript:alert(1)", retrieved_at: "2026-10-28T00:00:00Z", flags: ["partial_archive_capture"], transformation: "<script>unsafe()</script>" }], next_offset: null });
     expect(html).toContain("partial_archive_capture"); expect(html).toContain("retained-hash");
     expect(html).toContain("&lt;script&gt;"); expect(html).not.toContain('href="javascript:'); expect(html).not.toContain("Commander or precon name");
   });

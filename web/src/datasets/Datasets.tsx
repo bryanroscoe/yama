@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
 import { saveExport } from "../download";
 import { useMe } from "../auth";
-import { AreaHead } from "../components/DeckTabs";
+import { LabHead } from "../lab/LabLayout";
 import { Details, ErrorText } from "../components/ui";
 import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
@@ -20,10 +20,10 @@ function JsonDetails({ value, label }: { value: unknown; label: string }) {
 export function DatasetCard({ d }: { d: Dataset }) {
   const revision = `revision=${d.revision}`;
   return <article className="dataset-card">
-    <h2><Link to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}`}>{d.title}</Link></h2>
+    <h2><Link to={`/lab/datasets/${encodeURIComponent(d.id)}?${revision}`}>{d.title}</Link></h2>
     <p className="dim">{d.source.name}, revision {d.revision}. Imported {fmtDate(d.imported_at)}.</p>
     <p>{count(Object.values(d.records).reduce((a, b) => a + (b ?? 0), 0))} records from {count(d.source_documents)} source documents</p>
-    <div className="dataset-counts">{Object.entries(KINDS).map(([kind, label]) => <Link key={kind} to={`/decks/datasets/${encodeURIComponent(d.id)}?${revision}&kind=${kind}`}>{label} <b>{count(d.records[kind as keyof typeof KINDS] ?? 0)}</b></Link>)}</div>
+    <div className="dataset-counts">{Object.entries(KINDS).map(([kind, label]) => <Link key={kind} to={`/lab/datasets/${encodeURIComponent(d.id)}?${revision}&kind=${kind}`}>{label} <b>{count(d.records[kind as keyof typeof KINDS] ?? 0)}</b></Link>)}</div>
   </article>;
 }
 function UploadDataset() {
@@ -37,7 +37,7 @@ function UploadDataset() {
     },
     onSuccess: async (r) => {
       await client.invalidateQueries({ queryKey: ["datasets"] });
-      navigate(`/decks/datasets/${encodeURIComponent(r.id)}?revision=${r.revision}`);
+      navigate(`/lab/datasets/${encodeURIComponent(r.id)}?revision=${r.revision}`);
     },
   });
   return <Details label="Import a dataset">
@@ -83,8 +83,8 @@ export function DatasetsPage() {
 function DatasetIndex() {
   const me = useMe();
   const list = useQuery({ queryKey: ["datasets", me.data?.id], queryFn: datasets });
-  return <main className="page datasets-page">
-    <AreaHead title="Datasets" index />
+  return <div className="datasets-page">
+    <LabHead title="Datasets" />
     <p>Explore historical precon and commander evidence saved to your account. Source dates, periods and counts stay attached to each observation.</p>
     <ErrorText error={list.error} />
     {list.isPending && <p role="status">Loading datasets…</p>}
@@ -92,7 +92,7 @@ function DatasetIndex() {
     {list.data?.map((d) => <DatasetCard key={d.id} d={d} />)}
     {me.data?.is_admin && !me.data.viewing && <UploadDataset />}
     {me.data?.is_admin && !me.data.viewing && list.data && <SharedPreconEvidence owner={me.data.email} names={[...new Set(list.data.map((d) => d.source.name))]} />}
-  </main>;
+  </div>;
 }
 function SourceCard({ source }: { source: Source }) {
   return <article className="dataset-record">
@@ -169,8 +169,8 @@ function DatasetDetail({ id }: { id: string }) {
     const form = new FormData(e.currentTarget);
     update({ search: String(form.get("search") || "").trim(), entity: "", label: "", kind: String(form.get("kind") || ""), section: "" });
   }
-  return <main className="page datasets-page">
-    <AreaHead title="Dataset evidence" back={{ to: "/decks/datasets", label: "Back to datasets" }} />
+  return <div className="datasets-page">
+    <LabHead title="Dataset evidence" back={{ to: "/lab/datasets", label: "Back to datasets" }} />
     <ErrorText error={read.error} />
     {read.isPending && <p role="status">Loading evidence…</p>}
     {head && <>
@@ -216,5 +216,5 @@ function DatasetDetail({ id }: { id: string }) {
         <button disabled={data?.next_offset == null || read.isFetching} onClick={() => update({ offset: String(data?.next_offset) }, true)}>Next</button>
       </nav>
     </>}
-  </main>;
+  </div>;
 }

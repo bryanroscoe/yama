@@ -16,7 +16,6 @@ export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: s
   { to: "/decks/builds", label: "Builds" },
   { to: "/decks/plan", label: "Plans" },
   { to: "/decks/research", label: "Agent notes" },
-  { to: "/decks/datasets", label: "Datasets" },
 ];
 
 /** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */
