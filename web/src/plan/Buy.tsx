@@ -18,6 +18,7 @@ import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { Details } from "../components/ui";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
+import { BuyHowTo } from "./howto";
 import { BoughtLine, MarkBoughtSheet, marketSentence, unmarkBought } from "./marks";
 import type { PlanView } from "./view";
 
@@ -54,6 +55,7 @@ export function Buy() {
   return (
     <>
       <PlansHead title="Buy list" />
+      <BuyHowTo open={list.count === 0 && list.marked.length === 0} />
       <div className="area-note warn" role="note">
         <p>
           {list.checkedOn.length ? `Stock and prices checked ${list.checkedOn.map(fmtDate).join(", ")}. Recheck before going in.` : "No store stock checks in the plan."}

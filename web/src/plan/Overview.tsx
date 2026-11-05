@@ -9,6 +9,7 @@ import { planSummaries, planSummariesKey } from "../research/view";
 import { api, type DeckSummary } from "../api";
 import { AskClaude } from "../advisor/AskClaude";
 import { ConnectButton, HowTo } from "../components/HowTo";
+import { AssistantOnly } from "./howto";
 import { useQuery } from "@tanstack/react-query";
 import { ImportSheet } from "./ImportSheet";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -56,7 +57,7 @@ export function Overview() {
         open={!!notes.data && notes.data.length === 0 && b.decks.length === 0}
         steps={[
           <>
-            <b>Get a plan.</b> Connect Claude or another assistant to Yama once, then ask it something like <q>Plan Bracket 2, 3 and 4 upgrades for my {example} deck and save them in Yama.</q> It reads your deck and collection and saves the plan here. If someone sends you a shared plan, open the link and choose Save a copy in Yama.
+            <b>Get a plan.</b> <AssistantOnly what="Plans are written for your decks." /> Connect Claude or another assistant to Yama once, then ask it something like <q>Plan Bracket 2, 3 and 4 upgrades for my {example} deck and save them in Yama.</q> It reads your deck and collection and saves the plan here. If someone sends you a shared plan instead, open the link and choose Save a copy in Yama; no assistant needed.
           </>,
           <>
             <b>Read it.</b> Each deck in a plan has its builds, how to pilot it, every change with its reason, a shopping list priced at market (the cheap cards to buy, the rest to print) and the full list to copy.

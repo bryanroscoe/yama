@@ -438,6 +438,9 @@ label > span.hint {
 .how-to-steps q {
   font-style: italic;
 }
+.assistant-only .pill {
+  margin-right: 4px;
+}
 .how-to-actions {
   margin-top: 16px;
   flex-wrap: wrap;
