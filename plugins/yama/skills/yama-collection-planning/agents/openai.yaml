@@ -5,3 +5,10 @@ interface:
   icon_large: "./assets/yama-logo-512.png"
   brand_color: "#0B0C0E"
   default_prompt: "Use $yama-collection-planning to plan upgrades using cards I own."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "yama"
+      description: "Read Yama decks, collection and plans; stage requested changes"
+      transport: "streamable_http"
+      url: "https://yama.ing/mcp"

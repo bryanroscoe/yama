@@ -16,7 +16,7 @@ From the repository root, choose an output path outside the plugin directory:
 
 ```sh
 python3 scripts/test_package_yama_plugin.py
-python3 scripts/package_yama_plugin.py /absolute/task-directory/yama-0.1.6.zip
+python3 scripts/package_yama_plugin.py /absolute/task-directory/yama-0.1.7.zip
 ```
 
 The packager uses an explicit component allowlist, rejects symlinked sources,
@@ -109,7 +109,9 @@ and dark host backgrounds. The manifest declares both theme variants explicitly
 and uses the existing Night table colors. Each skill's `agents/openai.yaml`
 references byte-identical copies in its own skill's `assets/` folder using
 `./assets/...` paths and supplies a readable display name. Asset paths contain no
-parent traversal segments, as required by OpenAI's package validation. No
+parent traversal segments, as required by OpenAI's package validation. Each skill
+also declares the `yama` Streamable HTTP MCP dependency, matching the bundled
+server name and endpoint, so the host can provision its required tools. No
 card art, Wizards marks, new logo or generated branding is included.
 
 Check the actual saved listing and skill icons after upload. Valid relative
