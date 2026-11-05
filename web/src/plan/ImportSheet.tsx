@@ -1,6 +1,8 @@
 import { fmtDate, type ImportReport, type RowCounts } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useNavigate } from "react-router";
+import { importReport } from "../research/api";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
@@ -12,11 +14,33 @@ import type { PlanView } from "./view";
  */
 export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => void }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
+  // A plan note (yama-research/1, what agents save) or a planner's export: the file says which.
+  const [note, setNote] = useState<{ title: string; decks: number; doc: unknown } | null>(null);
   const check = useMutation({ mutationFn: (f: File) => uploadPlan(f, true) });
   const apply = useMutation({
     mutationFn: (f: File) => uploadPlan(f, false),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["plan"] }),
+  });
+  const saveNote = useMutation({
+    mutationFn: (doc: unknown) => importReport(doc),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["research"] });
+      onClose();
+      navigate(`/decks/research/${encodeURIComponent(r.id)}`);
+    },
+  });
+  const read = useMutation({
+    mutationFn: async (f: File) => {
+      if (f.size > 4 << 20) throw new Error("Plan files must be under 4 MiB.");
+      const doc = JSON.parse(await f.text()) as { schema?: unknown; title?: unknown; decks?: unknown };
+      return doc?.schema === "yama-research/1" ? { title: String(doc.title ?? "Untitled plan"), decks: Array.isArray(doc.decks) ? doc.decks.length : 0, doc } : null;
+    },
+    onSuccess: (n, f) => {
+      setNote(n);
+      if (!n) check.mutate(f);
+    },
   });
   const report = apply.data ?? check.data;
 
@@ -30,7 +54,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
         {!apply.data && (
           <>
             <p className="dim small">
-              Choose your planner's JSON export to preview the changes.
+              A plan file an agent saved (yama-research/1), or your planner's JSON export. A planner export shows what importing it would change first.
             </p>
             <label>
               Plan file
@@ -40,15 +64,30 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
                 onChange={(e) => {
                   const f = e.target.files?.[0] ?? null;
                   setFile(f);
+                  setNote(null);
                   check.reset();
-                  if (f) check.mutate(f);
+                  saveNote.reset();
+                  if (f) read.mutate(f);
                 }}
               />
             </label>
           </>
         )}
-        {check.isPending && <p className="dim">Checking the file…</p>}
-        <ErrorText error={check.error ?? apply.error} />
+        {(check.isPending || read.isPending) && <p className="dim">Checking the file…</p>}
+        <ErrorText error={read.error ?? check.error ?? apply.error ?? saveNote.error} />
+        {note && (
+          <>
+            <p>
+              <b>{note.title}</b>: a plan for {note.decks} {note.decks === 1 ? "deck" : "decks"}. Importing saves it to your plans, replacing a plan with the same ID.
+            </p>
+            <div className="row">
+              <button className="primary" disabled={saveNote.isPending} onClick={() => saveNote.mutate(note.doc)}>
+                {saveNote.isPending ? "Importing…" : "Import"}
+              </button>
+              <button className="quiet" onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
         {report && <Report report={report} view={view} applied={!!apply.data} />}
         {check.data && !check.data.unchanged && !apply.data && file && (
           <div className="row">

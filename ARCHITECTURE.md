@@ -907,7 +907,8 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 
 #### Persistent deck research and review (2026-10-27)
 
-Shown as **Agent notes** since 2026-10-28 (Bryan asked whether Research is "essentially just state
+Shown under **Plans** since 2026-11-04 (see "One plan page" below); before that as **Agent notes**
+from 2026-10-28 (Bryan asked whether Research is "essentially just state
 for you to base, like an MCP context"; it is). The index and each note say so: notes are what agents
 save with `save_research` for the next agent, they change nothing and need nothing from him, a
 note's deck is flagged when that Yama deck (main deck, same name) changed after the note was saved,
@@ -1612,3 +1613,36 @@ Editor interaction regressions run with `node web/scripts/check-deck-editor.mjs`
 local Vite server. The script intercepts every API request with synthetic fixtures and blocks
 WebSockets; it never accesses a real account. It checks initial prefill, identical configurations,
 late source/preview responses, reviewed saves, and draft retention across layouts/configurations.
+
+### One plan page (2026-11-04)
+
+Bryan (2026-11-04): copied public notes looked "all broken" and "nothing like the other ones"; the
+plans, Buy, Trip and Spares pages are "very confusing right now and not consistent"; the public
+shared plan (`/r/<token>`) is the more useful one, and plans "should be consistent and reusable for
+all users". Then: "be more consistent, they are hard to use today", and "I would expect plans to be
+part of the MCP".
+
+- **A plan is a note.** What people see as a plan is a `yama-research/1` note (saved by an agent,
+  imported, or a copy of a shared one). The Decks tab's sections are Decks, Sharing, Builds, Plans
+  and Datasets; Agent notes moved under Plans, and Plans is current on `/decks/research/...`. The
+  Plans page lists every plan as a tile (four commanders' art, `GET /api/research-plans`) above the
+  tracked decks (the planner: Review, Buy, Trip, Prints, Spares). `/decks/research` redirects there,
+  keeping `?copy=` for Save a copy. Import on Plans takes either file: a note, or a planner export.
+- **The same page, public or private.** The app's plan pages show the shared pages' sections in
+  their order: the plan's decks as art tiles with their builds, the shopping list and the deck lists;
+  a deck's art hero, its builds, the build's case, the deck, Game Changers, Good to know, Mechanics,
+  Limits, How to pilot, How it plays, Sources, the changes (from the starting list or another build),
+  the shopping list and the decklist. Their numbers come from the same Rust as `/r/`
+  (`server/src/sharing/research.rs`): `GET /api/research/{id}/view` (each deck's art and the
+  shopping list for the build choice) and `/api/research/{id}/view/{deck}` (changes with images,
+  shopping, the list as cards), read for the owner from the whole note, private or not. The owner
+  adds what only they see: sharing, answers for the agent (a preferred build; Want, Unsure or Don't
+  want beside each change), and the agent's evidence (allocations, store quotes, local searches,
+  store checks, combos, its research), each shown only when the note has it, so a copy shows no
+  empty sections.
+- **Tracking comes next, with the plan as its face.** A note's build becomes a tracked plan deck
+  (planner source `yama`) for Buy, Trip, prints and installed ticks, and the MCP plan tools work
+  on it. The server side (plan creation from a note, MCP) is the "Create Public Deck Plans" thread's
+  work; the plan page will offer "Track this build". People never see "promote" or "planner".
+- Dates: `fmtDate` shows a moment (a time with its zone) on the reader's calendar; a bare date stays
+  as written.

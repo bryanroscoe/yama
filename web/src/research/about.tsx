@@ -3,21 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type DeckSummary } from "../api";
 
-/**
- * What the Agent notes section is (Bryan, 2026-10-28, asked whether Research is "essentially just
- * state for you to base, like an MCP context"; it is). Notes are yama-research/1 documents agents
- * keep with `save_research`; they change no deck, plan, collection or order.
- */
-export function AgentNotesAbout() {
-  return (
-    <div className="research-about" role="note">
-      <p>
-        Research saved by your agents. Decisions go to <Link to="/decks/plan/review">Review</Link>.
-      </p>
-    </div>
-  );
-}
-
 /** Live main decks by lower-case name: the decks a note's deck names refer to. */
 function byName(decks: DeckSummary[]): Map<string, DeckSummary> {
   const out = new Map<string, DeckSummary>();

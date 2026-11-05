@@ -12,6 +12,12 @@ export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "";
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return iso;
+  // A moment (a time with its zone: "2026-11-05T04:30:00Z") is shown on the reader's own
+  // calendar: saved at 22:30 in Texas reads 4 Nov, not UTC's 5 Nov. A date alone stays as written.
+  if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(iso)) {
+    const at = new Date(iso);
+    if (!Number.isNaN(at.getTime())) return `${at.getDate()} ${MONTHS[at.getMonth()]} ${at.getFullYear()}`;
+  }
   const month = MONTHS[Number(m[2]) - 1];
   return month ? `${Number(m[3])} ${month} ${m[1]}` : iso;
 }

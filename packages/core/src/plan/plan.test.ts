@@ -167,6 +167,15 @@ describe("where it came from", () => {
     expect(usd(null)).toBe("no price");
     expect(usd(0)).toBe("$0.00");
     expect(fmtDate("2026-10-08")).toBe("8 Oct 2026");
+    // A moment reads on the reader's calendar, whatever zone the tests run in.
+    const local = (iso: string) => {
+      const at = new Date(iso);
+      return `${at.getDate()} ${at.toLocaleString("en-GB", { month: "short" }).slice(0, 3)} ${at.getFullYear()}`;
+    };
+    expect(fmtDate("2026-11-05T04:30:00Z")).toBe(local("2026-11-05T04:30:00Z"));
+    expect(fmtDate("2026-11-05T04:30:00-06:00")).toBe(local("2026-11-05T10:30:00Z"));
+    // Without a zone it isn't a moment: the date as written.
+    expect(fmtDate("2026-11-05 04:30:00")).toBe("5 Nov 2026");
     expect(fmtDate(null)).toBe("");
   });
 

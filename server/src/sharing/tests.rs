@@ -832,3 +832,74 @@ async fn shared_notes_price_the_cards_to_get() {
     let unpriced = page(&app, &format!("/r/{token}/party")).await.2;
     assert!(unpriced.contains("Worth unknown") && unpriced.contains("Cost unknown") && !unpriced.contains("Worth $0.00"), "{unpriced}");
 }
+
+/// The app's plan pages read the shared pages' own computations for the owner, from the whole
+/// note, private or not; nobody else gets them.
+#[tokio::test]
+async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    card(&pool, "o-stp", "Swords to Plowshares", "Instant", "p-stp", "sta", "10").await;
+    card(&pool, "o-signet", "Arcane Signet", "Artifact", "p-signet", "cmm", "20").await;
+    card(&pool, "o-nalia", "Nalia de'Arnise", "Legendary Creature — Human Fighter", "p-nalia", "clb", "30").await;
+    sqlx::query("UPDATE cards SET image_art_crop = 'https://cards.scryfall.io/art_crop/nalia.jpg', artist = 'John Stanko', color_identity = 'WB' WHERE oracle_id = 'o-nalia'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES ('p-stp', '2026-10-30', 4.25), ('p-signet', '2026-10-30', 0.5)").execute(&pool).await.unwrap();
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"] = json!([
+        {"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile."},
+        {"id": "signet", "card_in": "Arcane Signet", "card_out": "Plains", "why": "Ramp."},
+        {"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains", "why": "Unknown to Yama."}
+    ]);
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+
+    // Private, and still the owner's to read; nobody else's, and not signed out.
+    let (s, view) = send(&app, Method::GET, "/api/research/upgrades/view", Some(&bt), None).await;
+    assert_eq!(s, StatusCode::OK, "{view}");
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view", Some(&other), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party", Some(&other), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view", None, None).await.0, StatusCode::UNAUTHORIZED);
+
+    // The note page: the same totals the shared page shows, cards to buy first.
+    let total = &view["shopping"]["total"];
+    assert_eq!((total["cards"].as_i64(), total["buy"].as_i64(), total["print"].as_i64(), total["unpriced"].as_i64()), (Some(3), Some(1), Some(1), Some(1)));
+    assert_eq!((total["worth"].as_f64(), total["cost"].as_f64()), (Some(4.75), Some(0.8)));
+    let items: Vec<(&str, &str)> = view["shopping"]["items"].as_array().unwrap().iter().map(|i| (i["name"].as_str().unwrap(), i["get"].as_str().unwrap())).collect();
+    assert_eq!(items, [("Arcane Signet", "buy"), ("Swords to Plowshares", "print"), ("Mystery Card", "unknown")]);
+    assert_eq!(view["shopping"]["prices_from"], "2026-10-30");
+    assert_eq!(view["shopping"]["get"], "split");
+    assert_eq!(view["decks"][0]["key"], "party");
+    assert_eq!(view["decks"][0]["label"], "Bracket 3 · Upgraded");
+    assert_eq!(view["decks"][0]["identity"], "WB");
+    assert_eq!(view["decks"][0]["art"]["artist"], "John Stanko");
+    // The choices: print everything; a build no deck has; a way of getting cards that isn't one.
+    let print = send(&app, Method::GET, "/api/research/upgrades/view?get=print", Some(&bt), None).await.1;
+    assert_eq!((print["shopping"]["total"]["print"].as_i64(), print["shopping"]["get"].as_str()), (Some(3), Some("print")));
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?build=b9", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?get=steal", Some(&bt), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?builds=all", Some(&bt), None).await.1["which"], "all");
+
+    // A deck's page: the changes with their reasons, what the added cards come to, the list as cards.
+    let (s, deck) = send(&app, Method::GET, "/api/research/upgrades/view/party", Some(&bt), None).await;
+    assert_eq!(s, StatusCode::OK, "{deck}");
+    let changes: Vec<(&str, &str, &str)> = deck["changes"].as_array().unwrap().iter().map(|c| (c["add"].as_str().unwrap(), c["cut"].as_str().unwrap(), c["why"].as_str().unwrap())).collect();
+    assert_eq!(changes[0], ("Swords to Plowshares", "Stick Together", "One-mana exile."));
+    assert_eq!(changes.len(), 3);
+    assert_eq!(deck["vs_label"], "the starting list");
+    assert_eq!(deck["shopping"]["total"]["cost"].as_f64(), Some(0.8));
+    assert_eq!(deck["cards"][0]["name"], "Nalia de'Arnise");
+    assert_eq!(deck["cards"][0]["board"], "commander");
+    assert_eq!(deck["art"]["image"], "https://cards.scryfall.io/art_crop/nalia.jpg");
+    // Comparing a build with itself, an unknown build or deck: not found.
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?vs=b3", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?build=b9", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/nobody", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+
+    // The Plans page's tiles: each note's deck count and commanders' art, only the owner's.
+    let (_, plans) = send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await;
+    assert_eq!(plans[0]["id"], "upgrades");
+    assert_eq!(plans[0]["decks"], 1);
+    assert_eq!(plans[0]["art"][0]["commander"], "Nalia de'Arnise");
+    assert!(plans[0]["copied_by"].is_null());
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&other), None).await.1, json!([]));
+}

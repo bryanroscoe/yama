@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-04-one-plan-page",
+    date: "2026-11-04",
+    title: "Plans look the same everywhere",
+    items: [
+      "A plan your agent saved, or a copy of one someone shared, now opens on the same page as its shared link: commander art for each deck, its builds, how to pilot it, the changes with their reasons, a shopping list priced at market and the full lists to copy.",
+      "Your own extras stay on your page only: sharing, your answers for the agent and the agent's store checks.",
+      "Agent notes are now under Plans, beside the decks you're tracking. Dates now show on your own calendar.",
+    ],
+    link: { to: "/decks/plan", label: "Open Plans" },
+  },
+  {
     id: "2026-11-03-buylist-references",
     date: "2026-11-03",
     title: "Buylist prices by printing",

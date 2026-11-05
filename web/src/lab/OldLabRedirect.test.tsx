@@ -18,8 +18,9 @@ describe("the Lab is its own section", () => {
     expect(labPath("/somewhere/else")).toBe("/lab");
   });
 
-  it("leaves the Decks sections and names Research as agent notes", () => {
-    expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Sharing", "Builds", "Plans", "Agent notes", "Datasets"]);
+  it("leaves the Decks sections, with agent notes under Plans", () => {
+    expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Sharing", "Builds", "Plans", "Datasets"]);
+    expect(DECK_SECTIONS.find((s) => s.label === "Plans")?.also).toBe("/decks/research");
     expect(DECK_SECTIONS.some((s) => s.to.includes("lab"))).toBe(false);
   });
 

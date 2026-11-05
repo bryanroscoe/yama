@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Details, Pips } from "../components/ui";
+import { PlanTiles } from "../research/PlanTiles";
 import { ImportSheet } from "./ImportSheet";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import { headDetails, PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -42,12 +43,21 @@ export function Overview() {
       />
       {importing && <ImportSheet view={view} onClose={() => setImporting(false)} />}
 
-      {b.decks.length === 0 ? (
-        <div className="empty stack">
-          <p>No plans yet.</p>
-        </div>
-      ) : (
+      <section className="plan-section" aria-labelledby="your-plans">
+        <h2 id="your-plans" className="plan-section-head">Your plans</h2>
+        <PlanTiles
+          empty={
+            <p className="dim">
+              No plans yet. Ask Claude for upgrades to one of your decks (Yama's tools save its plan here), or open a plan someone shared and choose Save a copy.
+            </p>
+          }
+        />
+      </section>
+
+      {b.decks.length > 0 && (
         <>
+          <h2 id="tracked-decks" className="plan-section-head plan-tracked-head">Tracked decks</h2>
+          <p className="small dim plan-tracked-about">Decks you're changing: the swaps to review, the cards to buy and print, and what's in the deck box yet.</p>
           {b.head && (
             <div className="area-note plan-head-note" role="note">
               <p>
@@ -134,8 +144,7 @@ export function Overview() {
             </section>
           )}
 
-          <section className="plan-section" aria-labelledby="your-plans">
-            <h2 id="your-plans" className="plan-section-head">Your plans</h2>
+          <section className="plan-section" aria-label="Tracked decks">
             <div className="plan-deck-grid">
               {live.map((d, i) => (
                 <DeckTile key={d.key} deck={d} view={view} counts={counts[i]!} buy={buy} />
@@ -176,7 +185,7 @@ export function Overview() {
 
           {archived.length > 0 && (
             <section className="plan-section">
-              <h2 className="plan-section-head">No longer in the plan</h2>
+              <h2 className="plan-section-head">No longer tracked</h2>
               <p className="dim small">Not in the latest import. Previous answers kept.</p>
               <div className="plan-deck-grid">
                 {archived.map((d) => (

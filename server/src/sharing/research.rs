@@ -6,7 +6,7 @@ use super::html::{card_views, credit, not_found, page, response, scryfall};
 use super::*;
 use crate::public_page::{bracket_name, e, identity as pips, usd, when};
 use axum::extract::Query;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fmt::Write;
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -46,12 +46,20 @@ fn scryfall_image(u: Option<String>) -> Option<String> {
     u.filter(|u| u.starts_with("https://cards.scryfall.io/"))
 }
 
-/// A commander's art (crop, artist, name) and its color identity as pips, for the page and tile
-/// headers. A commander Yama doesn't know gets no pips: an empty identity would read colorless.
-async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(String, Option<String>, String)>, String)> {
-    let Some((_, _, _, _, ci, crop, artist)) = card_by_name(pool, name).await? else { return Ok((None, String::new())) };
+/// A commander's art (crop, artist, name) with its color identity as letters in WUBRG order,
+/// none for a commander Yama doesn't know: an empty identity would read colorless.
+type Commander = (Option<(String, Option<String>, String)>, Option<String>);
+async fn commander_card(pool: &SqlitePool, name: &str) -> AppResult<Commander> {
+    let Some((_, _, _, _, ci, crop, artist)) = card_by_name(pool, name).await? else { return Ok((None, None)) };
     let art = scryfall_image(crop).filter(|_| artist.is_some()).map(|u| (u, artist, name.to_string()));
-    Ok((art, pips(&"WUBRG".chars().filter(|c| ci.contains(*c)).collect::<String>())))
+    Ok((art, Some("WUBRG".chars().filter(|c| ci.contains(*c)).collect())))
+}
+
+/// A commander's art and its color identity as pips, for the page and tile headers. A
+/// commander Yama doesn't know gets no pips.
+async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(String, Option<String>, String)>, String)> {
+    let (art, identity) = commander_card(pool, name).await?;
+    Ok((art, identity.map(|i| pips(&i)).unwrap_or_default()))
 }
 
 /// The most lines of a build's list a shared page reads. A Commander list is about 100 lines;
@@ -375,6 +383,16 @@ enum Get {
     Unknown,
 }
 
+impl Get {
+    fn id(self) -> &'static str {
+        match self {
+            Get::Buy => "buy",
+            Get::Print => "print",
+            Get::Unknown => "unknown",
+        }
+    }
+}
+
 impl How {
     pub(super) const ALL: [How; 3] = [How::Split, How::Buy, How::Print];
     /// The query value; an unknown one is `None` (not found), like an unknown build.
@@ -392,6 +410,10 @@ impl How {
             How::Buy => Some("buy"),
             How::Print => Some("print"),
         }
+    }
+    /// Its name in the app's data: the query value, "split" for the default.
+    fn id(self) -> &'static str {
+        self.param().unwrap_or("split")
     }
     fn label(self) -> String {
         match self {
@@ -862,10 +884,11 @@ fn all_builds_need(d: &Value) -> Vec<(String, i64)> {
         .collect()
 }
 
-/// The note's shopping list: each deck's cards to get, totals per deck and overall, every card
-/// in one list, and the list as text to copy.
-async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], which: Which<'_>, how: How) -> AppResult<String> {
-    let per_deck: Vec<(&Value, Option<String>, Vec<(String, i64)>)> = decks
+/// Each deck with the build label the choice covers (none when the deck has no such build) and
+/// the cards that choice adds to its starting list.
+type DeckNeeds<'d> = Vec<(&'d Value, Option<String>, Vec<(String, i64)>)>;
+fn note_needs<'d>(decks: &'d [Value], which: Which<'_>) -> DeckNeeds<'d> {
+    decks
         .iter()
         .map(|d| {
             if which == Which::All {
@@ -878,9 +901,19 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
                 .unwrap_or_default();
             (d, b.map(|b| text(b, "label").to_string()), adds)
         })
-        .collect();
-    let wanted: Vec<_> = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect();
-    let items = to_get(pool, wanted).await?;
+        .collect()
+}
+
+/// Every deck's cards to get as (name, copies, deck name), for `to_get`.
+fn wanted_of(per_deck: &DeckNeeds<'_>) -> Vec<(String, i64, Option<String>)> {
+    per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect()
+}
+
+/// The note's shopping list: each deck's cards to get, totals per deck and overall, every card
+/// in one list, and the list as text to copy.
+async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], which: Which<'_>, how: How) -> AppResult<String> {
+    let per_deck = note_needs(decks, which);
+    let items = to_get(pool, wanted_of(&per_deck)).await?;
     let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
     let mut total = Totals::default();
     for t in &items {
@@ -1063,6 +1096,31 @@ fn profile_panel(p: &Value) -> String {
     s
 }
 
+/// What the changes table compares a build with when no other build is picked.
+const START_LIST: &str = "the starting list";
+
+/// A build's changes from another build of its deck, else from the starting list, with what
+/// they're from.
+fn changes_of<'a>(b: &'a Value, vs: Option<&'a Value>) -> (Vec<Change>, &'a str) {
+    let swaps = b["swaps"].as_array().map(Vec::as_slice).unwrap_or_default();
+    match vs {
+        Some(v) => {
+            let label = Some(text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START_LIST);
+            (compare(text(b, "list"), swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), label), label)
+        }
+        None => (from_start(swaps), START_LIST),
+    }
+}
+
+/// `?vs=`: another build of the deck to compare with. One that isn't there, or is this build,
+/// is not found, like `?build=`.
+fn vs_of<'a>(d: &'a Value, b: &Value, wanted: Option<&str>) -> Result<Option<&'a Value>, ()> {
+    match wanted.filter(|v| !v.is_empty()) {
+        Some(v) => build_of(d, Some(v)).filter(|x| text(x, "id") != text(b, "id")).map(Some).ok_or(()),
+        None => Ok(None),
+    }
+}
+
 pub(super) async fn deck(
     State(st): State<AppState>,
     address: ClientAddress,
@@ -1076,14 +1134,7 @@ pub(super) async fn deck(
     };
     let (Some(d), title) = (deck_of(&doc, &key), text(&doc, "title")) else { return Ok(not_found(&st, "Deck")) };
     let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Build")) };
-    // Like `?build=`: a comparison build that isn't there (or is this one) is not found.
-    let vs = match q.vs.as_deref().filter(|v| !v.is_empty()) {
-        Some(v) => match build_of(d, Some(v)).filter(|x| text(x, "id") != text(b, "id")) {
-            Some(x) => Some(x),
-            None => return Ok(not_found(&st, "Build")),
-        },
-        None => None,
-    };
+    let Ok(vs) = vs_of(d, b, q.vs.as_deref()) else { return Ok(not_found(&st, "Build")) };
     let Some(how) = How::parse(q.get.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
     let name = text(d, "name");
     let commander = text(d, "commander");
@@ -1181,12 +1232,7 @@ pub(super) async fn deck(
 
     // The changes, as a table a player can work through with the deck box open. From the
     // starting list by default; the heading picks another build to compare with instead.
-    const START: &str = "the starting list";
-    let vs_label = vs.map(|v| text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START);
-    let changes = match vs {
-        Some(v) => compare(text(b, "list"), &swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), vs_label),
-        None => from_start(&swaps),
-    };
+    let (changes, vs_label) = changes_of(b, vs);
     let copies = |add: bool| -> i64 { changes.iter().filter(|c| !(if add { &c.add } else { &c.cut }).is_empty()).map(|c| c.n).sum() };
     write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p>", copies(true), copies(false)).unwrap();
     let others: Vec<&Value> = builds.iter().filter(|x| text(x, "id") != build_id).collect();
@@ -1203,7 +1249,7 @@ pub(super) async fn deck(
             let current = if id == vs.map(|v| text(v, "id")) { " aria-current=\"true\"" } else { "" };
             format!("<li><a{current} href=\"{}#changes-head\">{}</a></li>", compare_href(&token, &key, build_id, id, how), e(label))
         };
-        body.push_str(&option(None, START));
+        body.push_str(&option(None, START_LIST));
         for x in &others {
             body.push_str(&option(Some(text(x, "id")), text(x, "label")));
         }
@@ -1307,4 +1353,255 @@ pub(super) async fn download(
         .collect();
     let res = fresh(&headers, export(&cards, format), "text/plain; charset=utf-8");
     Ok(attachment(res, &file_name(&format!("{} {}", text(d, "name"), text(b, "label")), format)))
+}
+
+// ── The owner's pages, as data ───────────────────────────────────────────────
+//
+// The app's note pages (web/src/research) show what the shared pages show, from these same
+// computations over the owner's whole note: the changes, what the added cards cost at market,
+// the lists as cards and each commander's art. What only the owner sees (their answers, the
+// agent's acquisition evidence, sharing) the app adds from the note itself.
+
+/// Copies to get and what they come to, as the app reads them. A missing worth or cost is
+/// unknown, never zero.
+#[derive(Serialize)]
+struct TotalsData {
+    cards: i64,
+    buy: i64,
+    buy_cost: f64,
+    print: i64,
+    print_cost: f64,
+    worth: Option<f64>,
+    cost: Option<f64>,
+    unpriced: i64,
+    uncosted: i64,
+    buy_uncosted: i64,
+}
+
+impl From<&Totals> for TotalsData {
+    fn from(t: &Totals) -> Self {
+        TotalsData {
+            cards: t.cards,
+            buy: t.buy,
+            buy_cost: t.buy_cost,
+            print: t.print,
+            print_cost: t.print_cost,
+            worth: t.worth(),
+            cost: t.cost(),
+            unpriced: t.unpriced,
+            uncosted: t.uncosted,
+            buy_uncosted: t.buy_uncosted,
+        }
+    }
+}
+
+/// One card to get: how it's got under the chosen `How`, its market price with that price's
+/// date, and its estimated cost.
+#[derive(Serialize)]
+struct ItemData {
+    name: String,
+    n: i64,
+    usd: Option<f64>,
+    date: Option<String>,
+    image: Option<String>,
+    decks: Vec<String>,
+    get: &'static str,
+    cost: Option<f64>,
+}
+
+#[derive(Serialize)]
+struct Choice {
+    id: &'static str,
+    label: String,
+}
+
+/// A shopping list: the ways to get the cards, the one chosen and what it means, the totals and
+/// every card, cards to buy first, then prints, then cards without a price.
+#[derive(Serialize)]
+struct ShoppingData {
+    get: &'static str,
+    gets: Vec<Choice>,
+    explain: String,
+    /// The oldest and newest price dates among the cards.
+    prices_from: Option<String>,
+    prices_to: Option<String>,
+    total: TotalsData,
+    items: Vec<ItemData>,
+}
+
+fn shopping_data(items: &[ToGet], how: How) -> ShoppingData {
+    let mut total = Totals::default();
+    for t in items {
+        total.add(t.n, t.usd(), how);
+    }
+    let group = |t: &ToGet| match how.get(t.usd()) {
+        Get::Buy => 0,
+        Get::Print => 1,
+        Get::Unknown => 2,
+    };
+    let mut sorted: Vec<&ToGet> = items.iter().collect();
+    sorted.sort_by(|a, b| group(a).cmp(&group(b)).then_with(|| a.name.cmp(&b.name)));
+    let dates: Vec<&str> = items.iter().filter_map(|t| t.price.as_ref().map(|p| p.1.as_str())).collect();
+    ShoppingData {
+        get: how.id(),
+        gets: How::ALL.iter().map(|h| Choice { id: h.id(), label: h.label() }).collect(),
+        explain: how.explain(),
+        prices_from: dates.iter().min().map(|d| d.to_string()),
+        prices_to: dates.iter().max().map(|d| d.to_string()),
+        total: TotalsData::from(&total),
+        items: sorted
+            .into_iter()
+            .map(|t| {
+                let (get, cost) = how.cost(t.n, t.usd());
+                ItemData {
+                    name: t.name.clone(),
+                    n: t.n,
+                    usd: t.usd(),
+                    date: t.price.as_ref().map(|p| p.1.clone()),
+                    image: Some(t.image.clone()).filter(|i| !i.is_empty()),
+                    decks: t.decks.clone(),
+                    get: get.id(),
+                    cost,
+                }
+            })
+            .collect(),
+    }
+}
+
+/// A commander's art and color identity, as the app reads them.
+#[derive(Serialize)]
+struct ArtData {
+    image: String,
+    artist: Option<String>,
+}
+
+fn art_data(c: Commander) -> (Option<ArtData>, Option<String>) {
+    (c.0.map(|(image, artist, _)| ArtData { image, artist }), c.1)
+}
+
+fn owner_how(q: &BuildQuery) -> AppResult<How> {
+    How::parse(q.get.as_deref()).ok_or_else(|| AppError::bad("get is buy or print, or empty for the split"))
+}
+
+/// `GET /api/research/{id}/view`: a note's page as data for its owner: each deck's commander art
+/// and what the build choice (`?build=`, `?builds=all`, else each deck's recommended build) adds
+/// to it, and the shopping list for all of them (`?get=`).
+pub(crate) async fn owner_note(State(st): State<AppState>, CurrentUser(u): CurrentUser, Path(id): Path<String>, Query(q): Query<BuildQuery>) -> AppResult<Json<Value>> {
+    let bundle = crate::deck_research::load(&st.pool, &u.id, &id).await?;
+    let decks = bundle["document"]["decks"].as_array().cloned().unwrap_or_default();
+    let all = match q.builds.as_deref() {
+        None | Some("") => false,
+        Some(ALL) => true,
+        Some(_) => return Err(AppError::bad("builds is all, or empty")),
+    };
+    let pick = q.build.as_deref().filter(|b| !b.is_empty() && !all);
+    if pick.is_some_and(|p| !decks.iter().any(|d| build_of(d, Some(p)).is_some())) {
+        return Err(AppError::NotFound("build"));
+    }
+    let how = owner_how(&q)?;
+    let which = if all { Which::All } else { pick.map_or(Which::Recommended, Which::Build) };
+    let per_deck = note_needs(&decks, which);
+    let items = to_get(&st.pool, wanted_of(&per_deck)).await?;
+    let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
+    let mut rows = Vec::new();
+    for (d, label, adds) in &per_deck {
+        let mut t = Totals::default();
+        for (name, n) in adds {
+            t.add(*n, price.get(name.as_str()).copied().flatten(), how);
+        }
+        let (art, identity) = art_data(commander_card(&st.pool, text(d, "commander")).await?);
+        let builds: Vec<Value> = which.builds(d).iter().map(|b| json!({"id": text(b, "id"), "label": text(b, "label")})).collect();
+        rows.push(json!({
+            "key": text(d, "key"),
+            "art": art,
+            "identity": identity,
+            "label": label,
+            "builds": builds,
+            "totals": TotalsData::from(&t),
+        }));
+    }
+    Ok(Json(json!({
+        "which": match which { Which::Recommended => "recommended", Which::Build(_) => "build", Which::All => "all" },
+        "build": pick,
+        "decks": rows,
+        "shopping": shopping_data(&items, how),
+    })))
+}
+
+/// `GET /api/research/{id}/view/{deck}`: one deck's page as data for its owner, at a build
+/// (`?build=`, else the recommended one): the changes from the starting list or another build
+/// (`?vs=`) with the cards' images, what the added cards come to (`?get=`), the list as cards
+/// and the commander's art.
+pub(crate) async fn owner_deck(
+    State(st): State<AppState>,
+    CurrentUser(u): CurrentUser,
+    Path((id, key)): Path<(String, String)>,
+    Query(q): Query<BuildQuery>,
+) -> AppResult<Json<Value>> {
+    let bundle = crate::deck_research::load(&st.pool, &u.id, &id).await?;
+    let d = deck_of(&bundle["document"], &key).ok_or(AppError::NotFound("deck"))?;
+    let b = build_of(d, q.build.as_deref().filter(|b| !b.is_empty())).ok_or(AppError::NotFound("build"))?;
+    let vs = vs_of(d, b, q.vs.as_deref()).map_err(|_| AppError::NotFound("build"))?;
+    let how = owner_how(&q)?;
+    let (art, identity) = art_data(commander_card(&st.pool, text(d, "commander")).await?);
+    let (cards, cut) = cards_of(&st.pool, text(b, "list")).await?;
+    let (changes, vs_label) = changes_of(b, vs);
+    let images = lookup(&st.pool, changes.iter().flat_map(|c| [c.add.as_str(), c.cut.as_str()]).filter(|n| !n.is_empty())).await?;
+    let image = |name: &str| found(&images, name).and_then(|f| scryfall_image(f.4.clone()));
+    let rows: Vec<Value> = changes
+        .iter()
+        .map(|c| json!({"add": c.add, "cut": c.cut, "n": c.n, "why": c.why, "notes": c.notes, "add_image": image(&c.add), "cut_image": image(&c.cut)}))
+        .collect();
+    let shopping = if changes.iter().any(|c| !c.add.is_empty()) {
+        let items = to_get(&st.pool, changes.iter().filter(|c| !c.add.is_empty()).map(|c| (c.add.clone(), c.n, None)).collect()).await?;
+        Some(shopping_data(&items, how))
+    } else {
+        None
+    };
+    let unknown: Vec<&str> = cards.iter().filter(|c| c.type_line.is_none()).map(|c| c.name.as_str()).collect();
+    Ok(Json(json!({
+        "build": text(b, "id"),
+        "vs": vs.map(|v| text(v, "id")),
+        "vs_label": vs_label,
+        "art": art,
+        "identity": identity,
+        "changes": rows,
+        "shopping": shopping,
+        "cards": cards,
+        "cut": cut,
+        "unknown": unknown,
+    })))
+}
+
+/// `GET /api/research-plans`: the owner's notes as the Plans page lists them: newest first, each
+/// with its deck count, who it was copied from and up to four of its commanders' art. Only those
+/// fields leave the database; the notes themselves can be long.
+pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): CurrentUser) -> AppResult<Json<Value>> {
+    type Row = (String, String, i64, String, String, Option<String>, i64, Option<String>, Option<String>);
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT r.id, r.title, r.revision, r.updated_at, r.visibility, r.share_token,
+                COALESCE(json_array_length(r.document, '$.decks'), 0),
+                json_extract(r.document, '$.copied_from.by'),
+                (SELECT json_group_array(c) FROM (SELECT json_extract(d.value, '$.commander') AS c FROM json_each(r.document, '$.decks') d LIMIT 4))
+         FROM research_reports r WHERE r.owner_id = ? ORDER BY r.updated_at DESC, r.id",
+    )
+    .bind(&u.id)
+    .fetch_all(&st.pool)
+    .await?;
+    let mut out = Vec::new();
+    for (id, title, revision, updated_at, visibility, share_token, decks, copied_by, commanders) in rows {
+        let names: Vec<String> = commanders.and_then(|c| serde_json::from_str::<Vec<Option<String>>>(&c).ok()).unwrap_or_default().into_iter().flatten().collect();
+        let mut art = Vec::new();
+        for name in &names {
+            if let (Some((image, artist, _)), _) = commander_card(&st.pool, name).await? {
+                art.push(json!({"commander": name, "image": image, "artist": artist}));
+            }
+        }
+        out.push(json!({
+            "id": id, "title": title, "revision": revision, "updated_at": updated_at,
+            "visibility": visibility, "share_token": share_token,
+            "decks": decks, "copied_by": copied_by, "art": art,
+        }));
+    }
+    Ok(Json(Value::Array(out)))
 }
