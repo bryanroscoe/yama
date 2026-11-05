@@ -17,6 +17,7 @@ use tower::ServiceExt;
 const BASE: &str = "https://yama.test";
 const LOOPBACK: &str = "http://localhost:3118/callback";
 const CLAUDE_AI: &str = "https://claude.ai/api/mcp/auth_callback";
+const OPENAI_CALLBACK: &str = "https://chatgpt.com/connector_platform_oauth_redirect";
 const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk0123456789";
 
 fn challenge_for(verifier: &str) -> String {
@@ -191,6 +192,49 @@ async fn metadata_documents_describe_the_server_from_config() {
 }
 
 #[tokio::test]
+async fn openai_plugin_callback_supports_sign_in_refresh_and_revocation() {
+    let (app, pool) = oauth_app().await;
+    let (_, session) = user(&pool, "plugin@example.com").await;
+    let (status, made) = register(&app, json!({
+        "client_name": "Yama for ChatGPT and Codex",
+        "redirect_uris": [OPENAI_CALLBACK],
+        "token_endpoint_auth_method": "none"
+    })).await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    let client = made["client_id"].as_str().unwrap();
+    // Allowlisting a host does not permit an unregistered path for this client.
+    let (status, _) = check(&app, &session, &authorize_params(client, "https://chatgpt.com/other", VERIFIER)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let code = approve(&app, &session, client, OPENAI_CALLBACK, VERIFIER).await;
+    let (status, _, token) = exchange(&app, client, &code, OPENAI_CALLBACK, VERIFIER).await;
+    assert_eq!(status, StatusCode::OK, "{token}");
+    let access = token["access_token"].as_str().unwrap();
+    let (status, result) = send(&app, Method::POST, "/mcp", Some(access), Some(rpc("tools/call", json!({"name": "overview", "arguments": {}})))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["result"]["isError"], false, "{result}");
+    let (status, _, refreshed) = form(&app, "/oauth/token", &[
+        ("grant_type", "refresh_token"),
+        ("refresh_token", token["refresh_token"].as_str().unwrap()),
+        ("client_id", client),
+        ("resource", &format!("{BASE}/mcp")),
+    ], None).await;
+    assert_eq!(status, StatusCode::OK, "{refreshed}");
+    let new_access = refreshed["access_token"].as_str().unwrap();
+    assert_eq!(tools_status(&app, new_access).await, StatusCode::OK);
+    let (status, _, _) = form(&app, "/oauth/revoke", &[("token", new_access), ("client_id", client)], None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(tools_status(&app, access).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(tools_status(&app, new_access).await, StatusCode::UNAUTHORIZED);
+
+    let mut cfg = config();
+    cfg.public_url = Some(BASE.into());
+    cfg.oauth_redirect_hosts.clear();
+    let restricted = crate::routes::app(state_with(cfg, crate::db::test_pool().await).await);
+    let (status, error) = register(&restricted, json!({"redirect_uris": [OPENAI_CALLBACK]})).await;
+    assert_eq!((status, error["error"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid_redirect_uri")));
+}
+
+#[tokio::test]
 async fn the_401_says_where_to_sign_in() {
     let (app, _) = oauth_app().await;
     let ping = rpc("ping", json!({}));
@@ -224,14 +268,14 @@ async fn the_401_says_where_to_sign_in() {
 #[tokio::test]
 async fn registration_accepts_only_loopback_and_allowlisted_https() {
     let (app, pool) = oauth_app().await;
-    for ok in ["http://localhost:3118/callback", "http://localhost:59999/callback", "http://127.0.0.1:40123/callback", "http://[::1]:5000/cb", CLAUDE_AI, "https://claude.com/api/mcp/auth_callback"] {
+    for ok in ["http://localhost:3118/callback", "http://localhost:59999/callback", "http://127.0.0.1:40123/callback", "http://[::1]:5000/cb", CLAUDE_AI, "https://claude.com/api/mcp/auth_callback", OPENAI_CALLBACK, "https://chatgpt.com/connector/oauth/test-callback"] {
         let (status, made) = register(&app, json!({"redirect_uris": [ok], "token_endpoint_auth_method": "none"})).await;
         assert_eq!(status, StatusCode::CREATED, "{ok}: {made}");
         assert_eq!(made["redirect_uris"], json!([ok]));
         assert_eq!(made["token_endpoint_auth_method"], "none");
         assert!(made.get("client_secret").is_none(), "a public client gets no secret");
     }
-    for bad in ["https://evil.com/callback", "http://evil.com/callback", "http://192.0.2.10:8080/callback", "https://claude.ai.evil.com/cb", "myapp://callback"] {
+    for bad in ["https://evil.com/callback", "http://evil.com/callback", "http://192.0.2.10:8080/callback", "https://claude.ai.evil.com/cb", "https://chatgpt.com.evil.com/cb", "https://evilchatgpt.com/cb", "http://chatgpt.com/cb", "myapp://callback"] {
         let (status, err) = register(&app, json!({"redirect_uris": [bad], "token_endpoint_auth_method": "none"})).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
         assert_eq!(err["error"], "invalid_redirect_uri", "{bad}");

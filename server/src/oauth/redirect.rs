@@ -9,8 +9,8 @@
 //!   says to ignore the port when matching, and Claude Code's docs ask for the same with
 //!   `localhost`, which one version swapped for `127.0.0.1`, so the three loopback hosts also
 //!   match each other. The consent page says plainly that such an app runs on this computer.
-//! - **https on an allowlisted host** (YAMA_OAUTH_REDIRECT_HOSTS; claude.ai and claude.com by
-//!   default), matched exactly: claude.ai's connector callback, `https://claude.ai/api/mcp/auth_callback`.
+//! - **https on an allowlisted host** (YAMA_OAUTH_REDIRECT_HOSTS; claude.ai, claude.com and
+//!   chatgpt.com by default), with the registered URI matched exactly during authorization.
 //!
 //! Everything else is refused: other https hosts, plain http anywhere but loopback, custom schemes,
 //! fragments (RFC 6749 3.1.2) and URIs with a user name or password.

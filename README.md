@@ -68,6 +68,8 @@ combos, public deck imports and current rules; deck/budget analysis and bounded 
 No other Magic MCP installation is needed for those workflows. See
 the public [MCP feature and setup guide](https://yama.ing/docs/mcp/),
 [capabilities and use](docs/mcp-parity.md) and [connection design](docs/mcp-design.md).
+The private [Codex and ChatGPT plugin](docs/codex-plugin.md) packages this connection
+with deck-building, collection-planning and research skills; it is not a public listing.
 
 Needs Rust (stable) and Node 22+.
 
