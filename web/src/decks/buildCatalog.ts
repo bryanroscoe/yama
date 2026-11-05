@@ -71,6 +71,14 @@ export function bracketLabel(bracket: number | string, rest?: string | null): st
   return `Bracket ${bracket}${name ? `: ${name}` : ""}`;
 }
 
+/** A build's name as every page says it: "[2] Buildable now" and "B3 - Combo" become "Bracket 2:
+ *  Buildable now" and "Bracket 3: Combo"; other names stay as written. The shared pages do the
+ *  same (`build_title` in server/src/sharing/research.rs). */
+export function buildTitle(label: string): string {
+  const m = label.trim().match(/^(?:\[([1-5])\]|[Bb]([1-5])(?![A-Za-z0-9]))[\s—:·-]*(.*)$/);
+  return m ? bracketLabel(Number(m[1] ?? m[2]), m[3]) : label.trim();
+}
+
 /** A researched build's own name without the bracket it starts with ("Bracket 3 · Upgraded",
  *  "[2] Buildable now", "B4 - Combo"), so the label can say the bracket once. */
 export function buildName(label: string): string {
@@ -114,7 +122,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
       f.choices.push({
         id: `research:${bundle.document.id}:${deck.key}:${b.id}`, kind: isBracket ? "bracket" : "legacy",
         track: b.acquisition?.track === "owned_now" ? ownershipProblems.length ? "unverified" : "owned_now" : "aspirational",
-        bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? bracketLabel(b.bracket ?? "?", "ownership not verified") : isBracket ? bracketLabel(b.bracket!, buildName(b.label)) : `Starting list (${fmtDate(bundle.updated_at)})`,
+        bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? bracketLabel(b.bracket ?? "?", "ownership not verified") : isBracket ? bracketLabel(b.bracket!, buildName(b.label)) : buildTitle(b.label),
         list: b.list, pairs: (b.swaps ?? []).flatMap((s) => (s.card_out ? [{ out: s.card_out, in: s.card_in, where: researchWhere(s.acquisition), why: s.why ?? null, qty: s.qty }] : [])),
         source: `From the plan “${bundle.document.title}”, saved ${fmtDate(bundle.updated_at)}`, note: bundle.document.title,
         href: `/decks/research/${encodeURIComponent(bundle.document.id)}/${encodeURIComponent(deck.key)}?build=${encodeURIComponent(b.id)}`,

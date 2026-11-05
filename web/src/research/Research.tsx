@@ -10,6 +10,7 @@ import { ErrorText, Pips } from "../components/ui";
 import { saveFile } from "../download";
 import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
 import { DeckChanged, useDeckNamed } from "./about";
+import { buildTitle } from "../decks/buildCatalog";
 import { isOwnedBuild, ownedBuildProblems } from "./availability";
 import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
@@ -24,6 +25,11 @@ import "./research.css";
  * what the shared page shows, in the same order (server/src/sharing/research.rs), plus what only
  * its owner sees: sharing, their answers for the agent and the agent's own evidence.
  */
+
+/** The note with every build named one way ("Bracket 2: Buildable now"), as its shared page. */
+function titled(b: ResearchBundle): ResearchBundle {
+  return { ...b, document: { ...b.document, decks: b.document.decks.map((d) => ({ ...d, builds: d.builds.map((x) => ({ ...x, label: buildTitle(x.label) })) })) } };
+}
 
 const noteHref = (id: string) => `/decks/research/${encodeURIComponent(id)}`;
 const deckHref = (id: string, deck: string, build?: string) => `${noteHref(id)}/${encodeURIComponent(deck)}${build ? `?build=${encodeURIComponent(build)}` : ""}`;
@@ -541,7 +547,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
                 <CardRef name={build.option_swap.card_out ?? build.option_swap.out ?? "Unnamed"} />.
               </p>
             )}
-            {deck.summary && (
+            {deck.summary && deck.summary !== build.why && (
               <>
                 <h3>The deck</h3>
                 <p>
@@ -604,7 +610,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
               </>
             )}
           </Panel>
-          {deck.pilot && (
+          {deck.pilot && deck.pilot !== build.why && deck.pilot !== deck.summary && (
             <Panel id="pilot-head" title="How to pilot this deck">
               <p>
                 <CardText text={deck.pilot} names={names} />
@@ -856,7 +862,7 @@ export function ResearchPage() {
   const { reportId, deckKey } = useParams();
   const [params] = useSearchParams();
   const userId = useMe().data?.id;
-  const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: ({ signal }) => report(reportId!, signal), enabled: !!reportId });
+  const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: ({ signal }) => report(reportId!, signal), enabled: !!reportId, select: titled });
   if (!reportId) {
     const token = params.get("copy");
     return token ? <CopyShared token={token} /> : <Navigate to="/decks/plan" replace />;

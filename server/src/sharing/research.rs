@@ -123,10 +123,38 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
 async fn load(st: &AppState, address: &ClientAddress, token: &str) -> AppResult<Result<(Option<String>, Value, String), Response>> {
     limit(st, address)?;
     match crate::deck_research::shared(&st.pool, token).await {
-        Ok(x) => Ok(Ok(x)),
+        Ok((handle, doc, saved)) => Ok(Ok((handle, titled(doc), saved))),
         Err(AppError::NotFound(_)) => Ok(Err(not_found(st, "Note"))),
         Err(err) => Err(err),
     }
+}
+
+/// A build's name as every page says it: "[2] Buildable now" and "B3 - Combo" become "Bracket 2:
+/// Buildable now" and "Bracket 3: Combo", so a bracket is named one way (the app's
+/// `bracketLabel`/`buildName` in web/src/decks/buildCatalog.ts). Other names stay as written.
+pub(super) fn build_title(label: &str) -> String {
+    let l = label.trim();
+    let digit = |c: Option<char>| c.filter(|c| ('1'..='5').contains(c));
+    let mut chars = l.chars();
+    let (n, rest) = match (chars.next(), chars.next(), chars.next()) {
+        (Some('['), d, Some(']')) if digit(d).is_some() => (d.unwrap(), &l[3..]),
+        (Some('B' | 'b'), d, next) if digit(d).is_some() && !next.is_some_and(char::is_alphanumeric) => (d.unwrap(), &l[2..]),
+        _ => return l.to_string(),
+    };
+    let rest = rest.trim_start_matches([' ', '—', ':', '·', '-']).trim();
+    if rest.is_empty() { format!("Bracket {n}") } else { format!("Bracket {n}: {rest}") }
+}
+
+/// The note as its pages read it: every build named by `build_title`.
+fn titled(mut doc: Value) -> Value {
+    for d in doc["decks"].as_array_mut().into_iter().flatten() {
+        for b in d["builds"].as_array_mut().into_iter().flatten() {
+            if let Some(l) = b.get("label").and_then(Value::as_str) {
+                b["label"] = json!(build_title(l));
+            }
+        }
+    }
+    doc
 }
 
 fn deck_of<'a>(doc: &'a Value, key: &str) -> Option<&'a Value> {
@@ -1196,8 +1224,10 @@ pub(super) async fn deck(
     // What the deck does and how to play it come first: the reason someone opens the link.
     body.push_str("<div class=\"share-more\">");
     write!(body, "<section class=\"public-panel\" aria-labelledby=\"about-head\"><h2 id=\"about-head\">{}</h2><p>{}</p>", e(text(b, "label")), e(text(b, "why"))).unwrap();
-    if !text(d, "summary").is_empty() {
-        write!(body, "<h3>The deck</h3><p>{}</p>", e(text(d, "summary"))).unwrap();
+    // An agent may write the same words for the build, the deck and how to pilot it: say them once.
+    let (why, summary, pilot) = (text(b, "why"), text(d, "summary"), text(d, "pilot"));
+    if !summary.is_empty() && summary != why {
+        write!(body, "<h3>The deck</h3><p>{}</p>", e(summary)).unwrap();
     }
     if !gcs.is_empty() {
         write!(body, "<h3>Game Changers</h3><p>{}</p>", e(&gcs.join(", "))).unwrap();
@@ -1218,8 +1248,8 @@ pub(super) async fn deck(
         write!(body, "<h3>Limits of this build</h3>{}", list_items(&risks)).unwrap();
     }
     body.push_str("</section>");
-    if !text(d, "pilot").is_empty() {
-        write!(body, "<section class=\"public-panel\" aria-labelledby=\"pilot-head\"><h2 id=\"pilot-head\">How to pilot this deck</h2><p>{}</p></section>", e(text(d, "pilot"))).unwrap();
+    if !pilot.is_empty() && pilot != why && pilot != summary {
+        write!(body, "<section class=\"public-panel\" aria-labelledby=\"pilot-head\"><h2 id=\"pilot-head\">How to pilot this deck</h2><p>{}</p></section>", e(pilot)).unwrap();
     }
     if let Some(p) = b.get("gameplay_profile").filter(|p| p.is_object()) {
         body.push_str(&profile_panel(p));
@@ -1487,8 +1517,8 @@ fn owner_how(q: &BuildQuery) -> AppResult<How> {
 /// and what the build choice (`?build=`, `?builds=all`, else each deck's recommended build) adds
 /// to it, and the shopping list for all of them (`?get=`).
 pub(crate) async fn owner_note(State(st): State<AppState>, CurrentUser(u): CurrentUser, Path(id): Path<String>, Query(q): Query<BuildQuery>) -> AppResult<Json<Value>> {
-    let bundle = crate::deck_research::load(&st.pool, &u.id, &id).await?;
-    let decks = bundle["document"]["decks"].as_array().cloned().unwrap_or_default();
+    let doc = titled(crate::deck_research::load(&st.pool, &u.id, &id).await?["document"].take());
+    let decks = doc["decks"].as_array().cloned().unwrap_or_default();
     let all = match q.builds.as_deref() {
         None | Some("") => false,
         Some(ALL) => true,
@@ -1542,8 +1572,8 @@ pub(crate) async fn owner_deck(
     Path((id, key)): Path<(String, String)>,
     Query(q): Query<BuildQuery>,
 ) -> AppResult<Json<Value>> {
-    let bundle = crate::deck_research::load(&st.pool, &u.id, &id).await?;
-    let d = deck_of(&bundle["document"], &key).ok_or(AppError::NotFound("deck"))?;
+    let doc = titled(crate::deck_research::load(&st.pool, &u.id, &id).await?["document"].take());
+    let d = deck_of(&doc, &key).ok_or(AppError::NotFound("deck"))?;
     let b = build_of(d, q.build.as_deref().filter(|b| !b.is_empty())).ok_or(AppError::NotFound("build"))?;
     let vs = vs_of(d, b, q.vs.as_deref()).map_err(|_| AppError::NotFound("build"))?;
     let how = owner_how(&q)?;

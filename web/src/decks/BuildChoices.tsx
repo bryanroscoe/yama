@@ -5,6 +5,7 @@ import { api, type DeckSummary, type DeckView } from "../api";
 import { CardRef } from "../components/CardRef";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
+import { useCardArt } from "../components/useCardArt";
 import { AreaHead, BackButton } from "../components/DeckTabs";
 import { ErrorText, Pips } from "../components/ui";
 import { useMe } from "../auth";
@@ -40,7 +41,8 @@ export function BuildChoicesPage() {
     <ErrorText error={notes.error || plan.error || decks.error} />
     {plan.offline && <p role="status" className="small dim">No connection. Showing the plan copy saved on this device.</p>}
   </>;
-  if (!loading && family) return <FamilyPage key={family.key} family={family} status={errors} />;
+  const artOf = useFamilyArt(families);
+  if (!loading && family) return <FamilyPage key={family.key} family={family} status={errors} art={artOf(family)} />;
   const shown = families;
   return <main className="page plan note-page build-choices">
     <AreaHead title="Swap cards" index back={{ to: "/decks", label: "Decks" }} />
@@ -63,15 +65,15 @@ export function BuildChoicesPage() {
         const brackets = f.choices.filter((c) => c.kind === "bracket").length;
         return <article key={f.key} className="note-tile">
           <Link className="plan-tile" to={`/decks/builds?deck=${encodeURIComponent(f.key)}`}>
-            <ArtPanel art={f.deck?.commander_image} artist={f.deck?.commander_artist} wash="left" credit={false} className="plan-tile-art">
+            <ArtPanel art={artOf(f).art} artist={artOf(f).artist} wash="left" credit={false} className="plan-tile-art">
               <span className="plan-tile-name">{f.name}</span>
-              {!!f.deck?.commanders.length && <span className="plan-tile-cmdr"><Pips identity={f.deck.color_identity} /> {f.deck.commanders.join(" and ")}</span>}
+              {commanderOf(f) && <span className="plan-tile-cmdr">{f.deck && <Pips identity={f.deck.color_identity} />} {commanderOf(f)}</span>}
               <span className="plan-tile-counts">{f.choices.length < 2 ? "Nothing to swap between yet" : `${f.choices.length} lists${brackets ? `, ${brackets} bracket ${brackets === 1 ? "build" : "builds"}` : ""}`}</span>
             </ArtPanel>
           </Link>
         </article>;
       })}</div>
-      {shown.some((f) => f.deck?.commander_image) && <p className="small dim art-credits">{artCredits(shown.filter((f) => f.deck?.commander_image).map((f) => f.deck!.commander_artist))}</p>}
+      {shown.some((f) => artOf(f).art) && <p className="small dim art-credits">{artCredits(shown.filter((f) => artOf(f).art).map((f) => artOf(f).artist))}</p>}
     </>}
   </main>;
 }
@@ -84,6 +86,20 @@ function Choices({ choices }: { choices: BuildChoice[] }) {
     const cs = choices.filter((c) => c.kind === kind).sort((a, b) => (a.bracket ?? 0) - (b.bracket ?? 0));
     return cs.length > 0 && <optgroup key={kind} label={kind === "bracket" ? "Bracket builds" : kind === "legacy" ? "Older snapshots" : kind === "original" ? "Stock" : "The deck as it is"}>{cs.map((c) => <option key={c.id} value={c.id}>{c.label}{choices.filter((o) => o.label === c.label).length > 1 ? ` (${c.note ?? c.source})` : ""}</option>)}</optgroup>;
   })}</>;
+}
+/** A deck's commander: the saved deck's, else the first one its lists name. */
+function commanderOf(f: BuildFamily): string | null {
+  if (f.deck?.commanders.length) return f.deck.commanders.join(" and ");
+  for (const c of f.choices) {
+    const m = c.list?.match(/^commander:?\s*\n\s*\d+\s+(.+?)\s*(?:\([A-Z0-9]+\)\s+\S+.*)?$/im);
+    if (m) return m[1]!;
+  }
+  return null;
+}
+/** Each deck's commander art: the saved deck's, else looked up by its commander's name. */
+function useFamilyArt(families: BuildFamily[]): (f: BuildFamily) => { art: string | null; artist: string | null } {
+  const looked = useCardArt(families.filter((f) => !f.deck?.commander_image).map(commanderOf));
+  return (f) => f.deck?.commander_image ? { art: f.deck.commander_image, artist: f.deck.commander_artist } : { art: looked.get(commanderOf(f) ?? "")?.art ?? null, artist: looked.get(commanderOf(f) ?? "")?.artist ?? null };
 }
 /** Where a list lives: its plan, or the saved deck. */
 const openLabel = (c: BuildChoice) => (c.savedDeck ? "Open the deck" : c.id.startsWith("research:") ? "Open it in its plan" : "Open the tracked plan");
@@ -126,7 +142,7 @@ function defaults(choices: BuildChoice[]) {
   const from = choices.find((c) => c.kind === "current" && c.id !== to?.id) ?? choices.find((c) => c.kind === "original" && c.id !== to?.id) ?? choices.find((c) => c.id !== to?.id);
   return { to, from };
 }
-function FamilyPage({ family, status }: { family: BuildFamily; status: ReactNode }) {
+function FamilyPage({ family, status, art }: { family: BuildFamily; status: ReactNode; art: { art: string | null; artist: string | null } }) {
   const [params, setParams] = useSearchParams();
   const all = family.choices;
   const fallback = defaults(all);
@@ -168,12 +184,12 @@ function FamilyPage({ family, status }: { family: BuildFamily; status: ReactNode
   const parts = Math.max(1, Math.ceil((swaps?.length ?? 0) / rows));
   const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: null, cut_image: null }));
   return <main className="plan plan-deck-page note-page build-choices">
-    <ArtPanel as="header" className="plan-hero" art={deck?.commander_image} artist={deck?.commander_artist} wash="bottom" toGround credit={false}>
+    <ArtPanel as="header" className="plan-hero" art={art.art} artist={art.artist} wash="bottom" toGround credit={false}>
       <BackButton to="/decks/builds" label="Back to swap cards" className="on-art" />
-      {deck?.commander_image && <span className="plan-hero-credit">{deck.commanders[0]}. {artCredit(deck.commander_artist)}</span>}
+      {art.art && <span className="plan-hero-credit">{commanderOf(family)}. {artCredit(art.artist)}</span>}
       <div className="plan-hero-inner">
         <nav className="plan-crumbs" aria-label="Breadcrumb"><Link to="/decks">Decks</Link><span aria-hidden="true">/</span><Link to="/decks/builds">Swap cards</Link></nav>
-        {!!deck?.commanders.length && <span className="plan-hero-cmdr"><Pips identity={deck.color_identity} /> {deck.commanders.join(" and ")}</span>}
+        {commanderOf(family) && <span className="plan-hero-cmdr">{deck && <Pips identity={deck.color_identity} />} {commanderOf(family)}</span>}
         <h1 className="plan-hero-title">{family.name}</h1>
         {to && <span className="plan-hero-chips"><span className="art-chip plain">{to.label}</span></span>}
       </div>
@@ -194,7 +210,7 @@ function FamilyPage({ family, status }: { family: BuildFamily; status: ReactNode
 
         <section className="note-section" aria-labelledby="bc-changes">
           <SectionHead id="bc-changes" eyebrow={swaps ? `${swaps.length} in, ${swaps.length} out` : undefined} after={<label className="note-vs"><span className="visually-hidden">Compare with</span><select value={from.id} onChange={(e) => pick("from", e.target.value)}><Choices choices={all.filter((c) => c.id !== to.id)} /></select></label>}>Changes from<span className="visually-hidden"> {from.label}</span></SectionHead>
-          <p className="small dim">{from.source}. <Link to={from.href}>{openLabel(from)}</Link></p>
+          {from.source !== to.source && <p className="small dim">{from.source}. <Link to={from.href}>{openLabel(from)}</Link></p>}
           <ErrorText error={left.error || right.error} />
           {comparison.error && <p role="alert" className="error">{comparison.error}</p>}
           {!left.text || !right.text ? <p className="dim">Loading both lists…</p> : swaps && (swaps.length ? <ChangesTable rows={rowsOf} /> : <p className="dim">These lists play the same cards.</p>)}

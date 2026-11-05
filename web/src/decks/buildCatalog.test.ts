@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, legacyConfiguration, pairChanges, printList, slotsText } from "./buildCatalog";
+import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, legacyConfiguration, pairChanges, printList, slotsText, buildTitle } from "./buildCatalog";
 import type { ResearchBundle } from "../research/api";
 import type { DeckSummary } from "../api";
 
@@ -200,4 +200,13 @@ it("pairs every copy a swap of several copies changes", () => {
   const swaps = exactChanges(printList(list("Leader", 99)), printList(list("Leader", 97, "2 Island")));
   const rows = pairChanges(swaps, [], [{ out: "Plains", in: "Island", why: "Blue.", qty: 2 }]);
   expect(rows.map((r) => [r.out.name, r.in.name, r.why])).toEqual([["Plains", "Island", "Blue."], ["Plains", "Island", "Blue."]]);
+});
+
+it("names a build by its bracket one way, as the shared pages do", () => {
+  expect(buildTitle("[2] Buildable now")).toBe("Bracket 2: Buildable now");
+  expect(buildTitle("[3]")).toBe("Bracket 3");
+  expect(buildTitle("B4 - Combo")).toBe("Bracket 4: Combo");
+  expect(buildTitle("Bracket 3 · Upgraded")).toBe("Bracket 3 · Upgraded");
+  expect(buildTitle("B52 bomber")).toBe("B52 bomber");
+  expect(buildTitle("Current saved Yama list (reference)")).toBe("Current saved Yama list (reference)");
 });

@@ -604,7 +604,7 @@ fn build_summary(b: &Value) -> Value {
         out["swaps"] = swaps
             .iter()
             .map(|s| {
-                let mut s2 = pick(s, &["card_out", "card_in", "why"]);
+                let mut s2 = pick(s, &["id", "card_out", "card_in", "qty", "why"]);
                 if s.get("acquisition").is_some() {
                     s2["acquisition"] = pick(&s["acquisition"], &["transfer", "source_deck", "detail", "kind", "store"]);
                 }

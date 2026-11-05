@@ -908,3 +908,15 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     assert!(plans[0]["copied_by"].is_null());
     assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&other), None).await.1, json!([]));
 }
+
+#[test]
+fn builds_are_named_by_bracket_one_way() {
+    use super::research::build_title;
+    assert_eq!(build_title("[2] Buildable now"), "Bracket 2: Buildable now");
+    assert_eq!(build_title("[3]"), "Bracket 3");
+    assert_eq!(build_title("B4 - Combo"), "Bracket 4: Combo");
+    assert_eq!(build_title("Bracket 3 · Upgraded"), "Bracket 3 · Upgraded");
+    assert_eq!(build_title("Budget build"), "Budget build");
+    assert_eq!(build_title("B52 bomber"), "B52 bomber");
+    assert_eq!(build_title("Current"), "Current");
+}
