@@ -261,3 +261,47 @@ async fn a_staged_build_is_not_applied_after_the_note_changes() {
     let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(plans, 0, "what they reviewed isn't what would be applied");
 }
+
+#[tokio::test]
+async fn a_commander_swap_stays_in_the_command_zone() {
+    let (app, pool) = app().await;
+    let (_, session) = user(&pool, "a@example.com").await;
+    let doc = json!({
+        "schema": "yama-research/1", "id": "audit", "title": "New face", "generated_at": "2026-11-04T00:00:00Z",
+        "decks": [{"key": "energy", "name": "Energy", "commander": "Saheeli", "builds": [{
+            "id": "b3", "label": "New commander", "list": "Commander\n1 Dr. Madison Li\nDeck\n99 Island",
+            "swaps": [{"id": "face", "card_in": "Dr. Madison Li", "card_out": "Saheeli", "acquisition": {"kind": "owned"}}]
+        }]}]
+    });
+    save_note(&app, &session, &doc).await;
+    let (status, t) = track(&app, &session, "b3", "op-1").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["warnings"], json!([]), "{t}");
+    let d = &bundle(&app, &session).await["decks"][0];
+    let commander = |state: &str| -> Vec<String> {
+        d["states"][state]["cards"].as_array().unwrap().iter().filter(|c| c["board"] == "commander").map(|c| c["name"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(commander("stock"), vec!["Saheeli"]);
+    assert_eq!(commander("now"), vec!["Dr. Madison Li"]);
+    assert_eq!(commander("after"), vec!["Dr. Madison Li"]);
+    assert!(!names(&d["states"]["stock"]).contains(&"Dr. Madison Li".to_string()));
+}
+
+#[tokio::test]
+async fn restoring_a_yama_backup_keeps_the_tracked_plan_in_place() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    save_note(&app, &session, &note()).await;
+    track(&app, &session, "b3", "op-1").await;
+    let list = json!([{"name": "Saheeli", "qty": 1, "board": "commander"}, {"name": "Island", "qty": 99, "board": "main"}]);
+    let backup = json!({
+        "format": "yama-plan/1", "meta": {"app": "yama"},
+        "plan": {"decks": [{"key": "energy", "name": "Energy", "commander": ["Saheeli"],
+                            "states": {"stock": {"cards": list}, "now": {"cards": list}, "after": {"cards": list}}}]}
+    });
+    let (status, r) = send(&app, Method::POST, "/api/plan/import", Some(&session), Some(backup)).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    let rows: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT key, source, note_id FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
+    assert_eq!(rows, vec![("energy".to_string(), "yama".to_string(), Some("audit".to_string()))], "restored onto the tracked plan, not beside it");
+}

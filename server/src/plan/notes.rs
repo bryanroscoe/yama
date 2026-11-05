@@ -378,23 +378,25 @@ fn source_of(build: &Value, swap: &Value, card: &str) -> Source {
 /// One list as (board, name, qty), in order.
 type List = Vec<(&'static str, String, i64)>;
 
-fn take(list: &mut List, name: &str) -> bool {
+/// Take one copy of `name` out of the list, from the main deck first, else the command zone.
+/// Returns the board it came from, so its replacement goes to the same place (a commander swap
+/// stays a commander swap).
+fn take(list: &mut List, name: &str) -> Option<&'static str> {
     let want = name.trim().to_lowercase();
-    let Some(i) = list.iter().position(|(b, n, _)| *b == "main" && n.trim().to_lowercase() == want) else {
-        return false;
-    };
+    let i = ["main", "commander"].iter().find_map(|board| list.iter().position(|(b, n, _)| b == board && n.trim().to_lowercase() == want))?;
+    let board = list[i].0;
     list[i].2 -= 1;
     if list[i].2 <= 0 {
         list.remove(i);
     }
-    true
+    Some(board)
 }
 
-fn put(list: &mut List, name: &str) {
+fn put(list: &mut List, name: &str, board: &'static str) {
     let want = name.trim().to_lowercase();
-    match list.iter_mut().find(|(b, n, _)| *b == "main" && n.trim().to_lowercase() == want) {
+    match list.iter_mut().find(|(b, n, _)| *b == board && n.trim().to_lowercase() == want) {
         Some(row) => row.2 += 1,
-        None => list.push(("main", name.trim().to_string(), 1)),
+        None => list.push((board, name.trim().to_string(), 1)),
     }
 }
 
@@ -530,9 +532,9 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
     // Lists: stock undoes every swap, now applies the owned ones, after is the build's list.
     let mut stock = after.clone();
     for r in &rows {
-        if take(&mut stock, &r.card_in) {
+        if let Some(board) = take(&mut stock, &r.card_in) {
             if let Some(out) = &r.card_out {
-                put(&mut stock, out);
+                put(&mut stock, out, board);
             }
         } else {
             warnings.push(format!("{} isn't in the build's list, so its swap leaves stock unchanged.", r.card_in));
@@ -540,16 +542,14 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
     }
     let mut now_list = stock.clone();
     for r in rows.iter().filter(|r| r.source.src == "owned") {
-        if let Some(out) = &r.card_out {
-            take(&mut now_list, out);
-        }
-        put(&mut now_list, &r.card_in);
+        let board = r.card_out.as_deref().and_then(|out| take(&mut now_list, out)).unwrap_or("main");
+        put(&mut now_list, &r.card_in, board);
     }
     let by_in: HashMap<String, &SwapRow> = rows.iter().map(|r| (r.card_in.trim().to_lowercase(), r)).collect();
     let slots = |list: &List, swapped: &dyn Fn(&SwapRow) -> bool| -> Vec<Value> {
         let mut out: Vec<Value> = list
             .iter()
-            .map(|(board, name, qty)| match by_in.get(&name.trim().to_lowercase()).filter(|r| *board == "main" && swapped(&***r)) {
+            .map(|(board, name, qty)| match by_in.get(&name.trim().to_lowercase()).filter(|r| swapped(&***r)) {
                 Some(r) => json!({
                     "name": name, "qty": qty, "board": board,
                     "kind": match r.source.src { "owned" => "owner", "print" => "print", _ => "bought" },

@@ -726,8 +726,10 @@ impl Writer<'_> {
     }
 
     async fn decks(&self, conn: &mut SqliteConnection, plan: &Plan, counts: &mut RowCounts) -> AppResult<HashMap<String, String>> {
-        // A plan tracking a note's build never blocks a file's key: it moves to a free one first.
-        let file_keys: Vec<&str> = plan.decks.iter().map(|d| d.key.as_str()).collect();
+        // A plan tracking a note's build never blocks an outside export's key: it moves to a free
+        // one first. A Yama backup restores onto its own Yama-made decks, so it moves nothing.
+        let file_keys: Vec<&str> =
+            plan.decks.iter().filter(|d| d.source.as_deref().unwrap_or(self.origin) == "import").map(|d| d.key.as_str()).collect();
         super::notes::make_room(conn, self.owner, &file_keys).await?;
         let existing: Vec<Existing> = sqlx::query_as(
             "SELECT id, key, content_hash, status = 'archived' AS retired, source AS origin FROM plan_decks WHERE owner_id = ?",
