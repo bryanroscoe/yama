@@ -109,9 +109,16 @@ export interface NoteChoice {
   upto?: string | null;
 }
 
-/** A `?upto=` worth sending: whole dollars with at most two decimals, else none (the server's
- *  suggested limit). The server refuses anything else, and checks the range itself. */
-export const uptoOf = (v: string | null): string | null => (v && /^(\d{1,9}(\.\d{0,2})?|\.\d{1,2})$/.test(v.trim()) ? v.trim() : null);
+/** The highest `?upto=` the server takes, in dollars (MAX_UP_TO in server/src/sharing/research.rs). */
+const MAX_UP_TO = 1000;
+
+/** A `?upto=` worth sending, read as the server reads it: an optional "$", then dollars with at
+ *  most two decimals, $0 to $1,000. Anything else is none (the suggested limit), so a bad address
+ *  prices at the default instead of failing to load. */
+export function uptoOf(v: string | null): string | null {
+  const t = v?.trim().replace(/^\$/, "") ?? "";
+  return /^(\d{1,9}(\.\d{0,2})?|\.\d{1,2})$/.test(t) && Number(t) <= MAX_UP_TO ? t : null;
+}
 
 function query(parts: Record<string, string | null | undefined>): string {
   const q = new URLSearchParams();

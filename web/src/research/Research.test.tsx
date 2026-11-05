@@ -106,8 +106,8 @@ describe("deck research evidence", () => {
   });
 
   it("sends only a well-formed buy limit",()=>{
-    expect(["5","3.50",".5","1000"," 2 "].map(uptoOf)).toEqual(["5","3.50",".5","1000","2"]);
-    expect([null,"","abc","-1","1e3","2.005","1.2.3","."].map(uptoOf)).toEqual([null,null,null,null,null,null,null,null]);
+    expect(["5","3.50",".5","1000","1000.00"," 2 ","$5","$4.25"].map(uptoOf)).toEqual(["5","3.50",".5","1000","1000.00","2","5","4.25"]);
+    expect([null,"","abc","-1","1e3","2.005","1.2.3",".","$","1000.01","2000","999999999"].map(uptoOf)).toEqual(Array(12).fill(null));
   });
 
   it("flags a note's deck when the deck changed after the note was saved",()=>{
