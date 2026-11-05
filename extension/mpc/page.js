@@ -109,10 +109,14 @@
       dt.items.add(file);
       input.files = dt.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      await sleep(800);
+      // Wait for MPC to start (or finish) the upload before judging it, so a slow start isn't
+      // taken for a refusal and the same file sent again.
+      const end = Date.now() + 15000;
+      while (Date.now() < end && !busy() && !uploaded().includes(pid) && uploaded().length <= before) await sleep(200);
       await idle();
       if (uploaded().includes(pid) || uploaded().length > before) return true;
-      await sleep(1000);
+      await sleep(1500);
+      if (uploaded().includes(pid) || uploaded().length > before) return true;
     }
     return false;
   }
@@ -150,6 +154,11 @@
       setTimeout(() => frame.setMode("ImageText", same ? 1 : 0), 50);
       return { reloading: true };
     }
+    // Every card the order needs should have a slot: one per card, or one for a common back.
+    const expected = same ? 1 : quantity;
+    await defined(() => hasSlot(expected - 1), 15000);
+    let slots = 0;
+    for (let n = 0; n < expected; n++) if (hasSlot(n)) slots++;
     quietAlerts(true);
     alerts = [];
     const pids = {};
@@ -187,7 +196,7 @@
         if (placed < slots.length) failed.push(`${img.name} (${slots.length - placed} of ${slots.length} slots didn't take it)`);
       }
       progress(`${face === "front" ? "Fronts" : "Backs"}: ${done} of ${total} placed.`, { done, total });
-      return { done, total, failed, pids, alerts };
+      return { done, total, slots, expected, failed, pids, alerts };
     } finally {
       quietAlerts(false);
     }
@@ -202,8 +211,9 @@
    * saves in the background, so wait for quiet, then ask again until the page actually changes.
    */
   async function moveOn() {
+    // Five tries, each at most 20 s quiet + 3 s + 12 s: under four minutes (mpc.js MOVE_MS).
     for (let t = 0; t < 5; t++) {
-      await idle();
+      await idle(20000);
       await sleep(t ? 3000 : 1500);
       if (leaving) return { navigating: true };
       oDesign.setNextStep();

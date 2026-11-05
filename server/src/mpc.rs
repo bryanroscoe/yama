@@ -34,7 +34,8 @@ const NAME_MAX: usize = 150;
 const MAX_NAMES: usize = 2 * 612;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/mpc/images", post(images_route))
+    // Card names only: 2 × 1,224 names of up to 150 characters fit well inside 512 KB.
+    Router::new().route("/api/mpc/images", post(images_route).layer(axum::extract::DefaultBodyLimit::max(512 * 1024)))
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -94,16 +95,32 @@ fn upstream(what: &str, e: impl std::fmt::Display) -> AppError {
     AppError::Unavailable(format!("MPC Autofill (mpcfill.com) didn't answer the {what}. Try again in a minute."))
 }
 
+/// mpcfill.com's largest answers (1,000 cards' details) are a few hundred KB.
+const ANSWER_MAX: usize = 8 << 20;
+
+async fn read_json(res: reqwest::Response, what: &str) -> AppResult<Value> {
+    let mut res = res.error_for_status().map_err(|e| upstream(what, e))?;
+    if res.content_length().is_some_and(|n| n > ANSWER_MAX as u64) {
+        return Err(upstream(what, "answer too large"));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = res.chunk().await.map_err(|e| upstream(what, e))? {
+        body.extend_from_slice(&chunk);
+        if body.len() > ANSWER_MAX {
+            return Err(upstream(what, "answer too large"));
+        }
+    }
+    serde_json::from_slice(&body).map_err(|e| upstream(what, e))
+}
+
 async fn get_json(http: &reqwest::Client, url: String, what: &str) -> AppResult<Value> {
     let res = http.get(&url).header("accept", "application/json").timeout(Duration::from_secs(30)).send().await.map_err(|e| upstream(what, e))?;
-    let res = res.error_for_status().map_err(|e| upstream(what, e))?;
-    res.json().await.map_err(|e| upstream(what, e))
+    read_json(res, what).await
 }
 
 async fn post_json(http: &reqwest::Client, url: String, body: &Value, what: &str) -> AppResult<Value> {
     let res = http.post(&url).header("accept", "application/json").json(body).timeout(Duration::from_secs(60)).send().await.map_err(|e| upstream(what, e))?;
-    let res = res.error_for_status().map_err(|e| upstream(what, e))?;
-    res.json().await.map_err(|e| upstream(what, e))
+    read_json(res, what).await
 }
 
 /// Every source in MPC Autofill's own default order (by its key), all switched on, as its editor starts.
@@ -133,7 +150,8 @@ fn settings(sources: &[i64]) -> Value {
 
 fn image(id: &str, v: &Value) -> Option<Image> {
     let s = |k: &str| v[k].as_str().map(str::to_string);
-    let valid = !id.is_empty() && id.len() <= 80 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    // A Google Drive file id, as `isDriveId` in packages/core and the helper accept.
+    let valid = (20..=80).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     (valid && v["sourceType"].as_str().is_none_or(|t| t == "Google Drive")).then(|| Image {
         id: id.to_string(),
         name: s("name").unwrap_or_default(),
@@ -195,7 +213,10 @@ pub async fn search(http: &reqwest::Client, base: &str, cards: &[String]) -> App
         let mut cache = lock();
         for (q, hits) in ids {
             let imgs: Vec<Image> = hits.iter().filter_map(|id| known.get(id).cloned()).collect();
-            keep(&mut cache.cards, format!("{base}\n{q}"), imgs.clone());
+            // "Nothing" isn't kept: a name MPC Autofill adds later, or a short answer, shows next time.
+            if !imgs.is_empty() {
+                keep(&mut cache.cards, format!("{base}\n{q}"), imgs.clone());
+            }
             found.insert(q.to_string(), imgs);
         }
     }
@@ -212,7 +233,9 @@ pub async fn cardbacks(http: &reqwest::Client, base: &str) -> AppResult<Vec<Imag
     let ids: Vec<String> = v["cardbacks"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).take(PER_CARD).collect()).unwrap_or_default();
     let known = details(http, base, &ids).await?;
     let backs: Vec<Image> = ids.iter().filter_map(|id| known.get(id).cloned()).collect();
-    keep(&mut lock().cardbacks, base.to_string(), backs.clone());
+    if !backs.is_empty() {
+        keep(&mut lock().cardbacks, base.to_string(), backs.clone());
+    }
     Ok(backs)
 }
 
@@ -222,18 +245,23 @@ fn first_half(name: &str) -> Option<String> {
 
 /// The answer for `cards` (each name as sent) and, when asked, the card backs.
 pub async fn answer(http: &reqwest::Client, base: &str, body_cards: &[String], want_backs: bool) -> AppResult<Value> {
+    let too_many = || AppError::BadRequest(format!("At most {MAX_NAMES} different cards at once."));
+    if body_cards.len() > 2 * MAX_NAMES {
+        return Err(too_many());
+    }
     let mut names: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for c in body_cards {
         let c = c.trim();
         if c.is_empty() || c.chars().count() > NAME_MAX {
             return Err(AppError::BadRequest(format!("Card names are 1 to {NAME_MAX} characters.")));
         }
-        if !names.iter().any(|n| n == c) {
+        if seen.insert(c.to_string()) {
             names.push(c.to_string());
+            if names.len() > MAX_NAMES {
+                return Err(too_many());
+            }
         }
-    }
-    if names.len() > MAX_NAMES {
-        return Err(AppError::BadRequest(format!("At most {MAX_NAMES} different cards at once.")));
     }
     // A split or adventure card ("Fire // Ice") may be indexed by its first half alone.
     let mut asked = names.clone();
@@ -346,8 +374,10 @@ mod tests {
         assert_eq!(v["cardbacks"][0]["id"], BACK);
         assert_eq!(v["source"], "MPC Autofill (mpcfill.com)");
         assert_eq!(searches.load(Ordering::SeqCst), 1);
-        answer(&http, &base, &cards, false).await.unwrap();
+        answer(&http, &base, &cards[..2], false).await.unwrap();
         assert_eq!(searches.load(Ordering::SeqCst), 1, "a repeat comes from the cache");
+        answer(&http, &base, &cards[2..3], false).await.unwrap();
+        assert_eq!(searches.load(Ordering::SeqCst), 2, "no image isn't kept: it's asked again");
     }
 
     #[tokio::test]
@@ -356,5 +386,9 @@ mod tests {
         let long = "x".repeat(NAME_MAX + 1);
         assert!(matches!(answer(&http, "http://127.0.0.1:9", &[long], false).await, Err(AppError::BadRequest(_))));
         assert!(matches!(answer(&http, "http://127.0.0.1:9", &[" ".into()], false).await, Err(AppError::BadRequest(_))));
+        let many: Vec<String> = (0..=MAX_NAMES).map(|i| format!("Card {i}")).collect();
+        assert!(matches!(answer(&http, "http://127.0.0.1:9", &many, false).await, Err(AppError::BadRequest(_))), "refused before any request");
+        let repeats = vec!["Card".to_string(); 2 * MAX_NAMES + 1];
+        assert!(matches!(answer(&http, "http://127.0.0.1:9", &repeats, false).await, Err(AppError::BadRequest(_))));
     }
 }

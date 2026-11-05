@@ -28,12 +28,17 @@ After pulling new code, press the reload arrow on the helper's card in `chrome:/
    never ticks the confirmation or touches the cart.
 
 If something stops it (MPC changed a page, an image failed), the panel says what and offers
-**Continue**, which skips the cards already in place. **Start over** begins a fresh project.
+**Continue**, which skips the cards already in place. **Start over** begins a fresh project. A run
+carries on by itself only across MPC's own page changes; one left behind (a closed tab) waits for
+Continue. **Stop after this step** finishes the page it's on and stops. Sending a new order from
+Yama replaces the old one, and an MPC tab still showing the old one stops.
 
 ## How it works
 
-- `yama.js` runs on yama.ing (and `localhost` for development). It tells the Yama page the helper
-  is installed and passes an order from that page, and only that page, to the background worker.
+- `yama.js` runs on yama.ing only. It tells the Yama page the helper is installed and passes an
+  order from that page, and only that page, to the background worker. To try a local Yama, add its
+  address (for example `http://localhost:5173/*`) to `yama.js`'s `matches` in `manifest.json` on
+  your own copy and reload the helper; don't commit it, since any local site could then send orders.
 - `background.js` checks the order (`order.js`: known fields only, MPC Autofill image ids only,
   every card has a front, every slot inside the project) and opens MPC.
 - `mpc.js` runs on MPC: the panel and the step-by-step walk through MPC's editor pages. The order

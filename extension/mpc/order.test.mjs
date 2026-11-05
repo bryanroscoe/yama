@@ -6,7 +6,7 @@ import { mpcOrder } from "../../packages/core/src/plan/mpc";
 
 const ctx = {};
 vm.runInNewContext(readFileSync(new URL("./order.js", import.meta.url), "utf8"), ctx);
-const { checkOrder, backImages } = ctx;
+const { checkOrder, backImages, reconcile, stillRunning } = ctx;
 
 const ID = (n) => `1${n.padEnd(32, "x")}`;
 const img = (id) => ({ id, name: `${id}.png`, source: "Test", dpi: 800, size: null, ext: "png" });
@@ -52,5 +52,24 @@ describe("the print helper's order check", () => {
       { ...made, foil: "yes" },
     ];
     for (const o of bad) expect(() => checkOrder(o), JSON.stringify(o).slice(0, 80)).toThrow(/can't be used/);
+  });
+
+  it("carries on with the step a page is, catches up one step, begins again on the start page, else stops", () => {
+    expect(reconcile("fronts", "fronts")).toEqual({ act: "step", phase: "fronts" });
+    expect(reconcile("fronts", "frontText")).toEqual({ act: "step", phase: "frontText" });
+    expect(reconcile("frontText", "setup")).toEqual({ act: "step", phase: "setup" });
+    expect(reconcile("fronts", "backs")).toEqual({ act: "mismatch", phase: "fronts" });
+    expect(reconcile("backs", "fronts")).toEqual({ act: "mismatch", phase: "backs" });
+    expect(reconcile("fronts", null)).toEqual({ act: "wait", phase: "fronts" });
+    expect(reconcile("setup", null)).toEqual({ act: "start", phase: "setup" });
+    expect(reconcile("done", "fronts").act).toBe("done");
+  });
+
+  it("carries on by itself only straight after a step, so a tab closed mid-run doesn't restart later", () => {
+    const now = Date.parse("2026-11-05T20:00:00Z");
+    expect(stillRunning({ running: true, active: now - 30_000 }, now)).toBe(true);
+    expect(stillRunning({ running: true, active: now - 4 * 60_000 }, now)).toBe(false);
+    expect(stillRunning({ running: true, active: null }, now)).toBe(false);
+    expect(stillRunning({ running: false, active: now }, now)).toBe(false);
   });
 });

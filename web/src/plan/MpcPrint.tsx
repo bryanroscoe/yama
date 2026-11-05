@@ -161,15 +161,17 @@ export function MpcPrint() {
   });
   const found = images.data?.cards;
   const optionsFor = (card: string) => found?.[card] ?? (found ? [] : undefined);
-  const pick = (card: string): MpcImage | null => {
+  /** Choices are kept by search name, a back face's apart (a reversible card's faces share a name). */
+  const pickKey = (card: string, face: "front" | "back") => (face === "back" ? `back:${mpcQuery(card)}` : mpcQuery(card));
+  const pick = (card: string, face: "front" | "back"): MpcImage | null => {
     const list = optionsFor(card) ?? [];
-    return list.find((i) => i.id === saved.picks[mpcQuery(card)]) ?? list[0] ?? null;
+    return list.find((i) => i.id === saved.picks[pickKey(card, face)]) ?? list[0] ?? null;
   };
   const backs = images.data?.cardbacks ?? [];
   const cardback = backs.find((b) => b.id === saved.cardback) ?? backs[0] ?? null;
   const build = mpcOrder(cards, pick, { stock: saved.stock, foil: saved.foil, cardback, name: `Yama prints ${view.today}` });
   const helper = useHelper();
-  const choose = (card: string, id: string) => update({ picks: { ...saved.picks, [mpcQuery(card)]: id } });
+  const choose = (card: string, face: "front" | "back", id: string) => update({ picks: { ...saved.picks, [pickKey(card, face)]: id } });
 
   return (
     <>
@@ -259,8 +261,8 @@ export function MpcPrint() {
                       const copies = cards.filter((d) => d.card === c.card && d.back === c.back).length;
                       return (
                         <div key={`${c.card}|${c.back ?? ""}`} className="mpc-card">
-                          <Choice label={copies > 1 ? `Front, ${copies} copies` : "Front"} card={c.card} images={optionsFor(c.card)} chosen={pick(c.card)} onPick={(id) => choose(c.card, id)} />
-                          {c.back && <Choice label="Back face" card={c.back} images={optionsFor(c.back)} chosen={pick(c.back)} onPick={(id) => choose(c.back!, id)} />}
+                          <Choice label={copies > 1 ? `Front, ${copies} copies` : "Front"} card={c.card} images={optionsFor(c.card)} chosen={pick(c.card, "front")} onPick={(id) => choose(c.card, "front", id)} />
+                          {c.back && <Choice label="Back face" card={c.back} images={optionsFor(c.back)} chosen={pick(c.back, "back")} onPick={(id) => choose(c.back!, "back", id)} />}
                         </div>
                       );
                     })}

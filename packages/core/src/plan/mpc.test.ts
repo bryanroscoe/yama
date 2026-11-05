@@ -78,4 +78,12 @@ describe("MakePlayingCards order", () => {
     const plain = mpcXml(mpcOrder([{ card: "Sol Ring", back: null }], (c) => picks[c] ?? null, opts).order!);
     expect(plain).not.toContain("<backs>");
   });
+
+  it("asks for a back face's image apart from its front, for a reversible card whose faces share a name", () => {
+    const asked: string[] = [];
+    const { order } = mpcOrder([{ card: "Sol Ring", back: "Sol Ring" }], (c, face) => (asked.push(`${face}:${c}`), face === "back" ? picks["Delver of Secrets"]! : picks[c]!), opts);
+    expect(asked).toEqual(["front:Sol Ring", "back:Sol Ring"]);
+    expect(order!.fronts[0]!.id).toBe(ID("sol"));
+    expect(order!.backs[0]!.id).toBe(ID("delver"));
+  });
 });

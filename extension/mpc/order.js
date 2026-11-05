@@ -48,4 +48,35 @@ function backImages(order) {
   return { same: order.backs.length === 0, images: [...common, ...order.backs] };
 }
 
-if (typeof module !== "undefined") module.exports = { checkOrder, backImages, MPC_BRACKETS };
+/** MPC's editor steps, in order, by the page each one is on. */
+const STEPS = ["setup", "fronts", "frontText", "backs", "backText", "preview"];
+const STEP_PAGES = {
+  "/design/custom-blank-card.html": "setup",
+  "/products/playingcard/design/dn_playingcards_front_dynamic.aspx": "fronts",
+  "/design/dn_texteditor_front.aspx": "frontText",
+  "/products/playingcard/design/dn_playingcards_back_dynamic.aspx": "backs",
+  "/design/dn_texteditor_back.aspx": "backText",
+  "/design/dn_preview_layout.aspx": "preview",
+};
+
+/**
+ * What to do on page `here` (a step, or null for any other MPC page) when the order is at
+ * `phase`: carry on with the step, catch up when MPC moved on after the helper stopped waiting,
+ * begin again on a fresh project page, wait (MPC passes through pages of its own), or stop.
+ */
+function reconcile(phase, here) {
+  if (phase === "done") return { act: "done", phase };
+  if (!here) return phase === "setup" ? { act: "start", phase } : { act: "wait", phase };
+  if (here === phase) return { act: "step", phase };
+  if (STEPS.indexOf(here) === STEPS.indexOf(phase) + 1) return { act: "step", phase: here };
+  if (here === "setup") return { act: "step", phase: "setup" };
+  return { act: "mismatch", phase };
+}
+
+/** A run carries on by itself across MPC's page loads only while it's recent: a tab closed mid-run doesn't restart days later. */
+const RUN_FRESH_MS = 3 * 60 * 1000;
+function stillRunning(job, now) {
+  return !!job && job.running === true && typeof job.active === "number" && now - job.active < RUN_FRESH_MS;
+}
+
+if (typeof module !== "undefined") module.exports = { checkOrder, backImages, reconcile, stillRunning, STEPS, STEP_PAGES, MPC_BRACKETS };

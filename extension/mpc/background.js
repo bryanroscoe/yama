@@ -10,7 +10,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     (async () => {
       try {
         const order = checkOrder(msg.order);
-        const job = { order, phase: "setup", running: false, pids: {}, failed: [], log: [], from: sender.origin || null, at: new Date().toISOString() };
+        const job = { id: crypto.randomUUID(), order, phase: "setup", running: false, active: null, pids: {}, failed: [], modeAnswers: 0, from: sender.origin || null, at: new Date().toISOString() };
         await chrome.storage.local.set({ job });
         await chrome.tabs.create({ url: START });
         reply({ ok: true });

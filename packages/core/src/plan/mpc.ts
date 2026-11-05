@@ -88,19 +88,19 @@ export interface MpcBuild {
 
 /**
  * The order for `cards`, one slot each in the order given. `pick` names the image for a card name
- * (front or back face). A card without one is reported as missing, and there's no order until
+ * on a face (a back face can share its front's name, as on a reversible card). A card without one is reported as missing, and there's no order until
  * every card has an image: a project with a blank slot would print blank.
  */
 export function mpcOrder(
   cards: MpcCard[],
-  pick: (card: string) => MpcImage | null,
+  pick: (card: string, face: "front" | "back") => MpcImage | null,
   opts: { stock: MpcStock; foil: boolean; cardback: MpcImage | null; name: string },
 ): MpcBuild {
   const missing = new Set<string>();
   const fronts = new Map<string, MpcSlotImage>();
   const backs = new Map<string, MpcSlotImage>();
-  const add = (into: Map<string, MpcSlotImage>, card: string, slot: number) => {
-    const img = pick(card);
+  const add = (into: Map<string, MpcSlotImage>, card: string, slot: number, face: "front" | "back") => {
+    const img = pick(card, face);
     if (!img || !isDriveId(img.id)) {
       missing.add(card);
       return;
@@ -110,8 +110,8 @@ export function mpcOrder(
     else into.set(img.id, { id: img.id, name: fileName(card, img), query: mpcQuery(card), slots: [slot] });
   };
   cards.forEach((c, slot) => {
-    add(fronts, c.card, slot);
-    if (c.back) add(backs, c.back, slot);
+    add(fronts, c.card, slot, "front");
+    if (c.back) add(backs, c.back, slot, "back");
   });
   const bracket = mpcBracket(cards.length);
   const problem = !cards.length

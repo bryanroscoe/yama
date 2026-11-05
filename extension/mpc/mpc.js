@@ -5,22 +5,13 @@
 (() => {
   const BASE = "https://www.makeplayingcards.com";
   const START = `${BASE}/design/custom-blank-card.html`;
-  const PAGES = {
-    "/design/custom-blank-card.html": "setup",
-    "/products/playingcard/design/dn_playingcards_front_dynamic.aspx": "fronts",
-    "/design/dn_texteditor_front.aspx": "frontText",
-    "/products/playingcard/design/dn_playingcards_back_dynamic.aspx": "backs",
-    "/design/dn_texteditor_back.aspx": "backText",
-    "/design/dn_preview_layout.aspx": "preview",
-  };
   const STEP_NAMES = { setup: "set up the project", fronts: "the fronts", frontText: "the fronts' text step", backs: "the backs", backText: "the backs' text step", preview: "the preview", done: "done" };
-  const here = PAGES[location.pathname] || null;
+  const here = STEP_PAGES[location.pathname] || null;
 
   let job = null;
   let signedIn = false;
 
   const get = async () => (await chrome.storage.local.get("job")).job || null;
-  const put = async () => chrome.storage.local.set({ job });
 
   // --- talking to page.js -------------------------------------------------------------------
   let seq = 0;
@@ -116,8 +107,32 @@
   };
 
   // --- the steps ----------------------------------------------------------------------------
+  /** Another order replaced this one (sent from Yama while this tab was open): this tab stops. */
+  let replaced = false;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.job || !job) return;
+    const next = changes.job.newValue;
+    if (!next || next.id !== job.id) {
+      replaced = true;
+      status(next ? "A newer print order replaced this one. Reload this page to see it." : "This order was forgotten.", !!next);
+      buttons([]);
+    }
+  });
+
+  /** Save the order's progress, unless another order has replaced it. */
+  async function put() {
+    const cur = await get();
+    if (replaced || !cur || cur.id !== job.id) {
+      replaced = true;
+      throw new Error("A newer print order replaced this one. Reload this page to see it.");
+    }
+    if (job.running) job.active = Date.now();
+    await chrome.storage.local.set({ job });
+  }
+
   /** Record the next step, then take it; if MPC doesn't move, stay on this one. */
   async function go(phase, then) {
+    if (!job.running || replaced) return offer();
     const was = job.phase;
     job.phase = phase;
     await put();
@@ -125,17 +140,20 @@
       await then();
     } catch (e) {
       job.phase = was;
-      await put();
+      await put().catch(() => {});
       throw e;
     }
   }
 
   async function stop(text, err = true) {
     job.running = false;
-    await put();
+    await put().catch(() => {});
     status(text, err);
     offer();
   }
+
+  /** How many times MPC's card-count box may be answered on one face before giving up. */
+  const MODE_TRIES = 3;
 
   async function fillFace(face) {
     const o = job.order;
@@ -143,58 +161,80 @@
     const images = plan.images.map((i) => ({ ...i, pid: job.pids[i.id] || null }));
     const r = await call("fill", { face, quantity: o.quantity, same: plan.same, images });
     if (r.reloading) {
-      status(face === "front" ? "Setting the card count." : "Setting up the backs.");
+      job.modeAnswers = (job.modeAnswers || 0) + 1;
+      if (job.modeAnswers > MODE_TRIES) {
+        await stop("MakePlayingCards keeps asking for the card count. Set it by hand on this page, then press Continue.");
+        return false;
+      }
+      await put();
+      status(face === "front" ? "Setting the card count." : "Setting up the backs.", false);
       return false;
     }
+    job.modeAnswers = 0;
     Object.assign(job.pids, r.pids);
-    job.failed = r.failed;
+    const said = (r.alerts || []).map((a) => `MakePlayingCards said: ${a}`);
+    job.failed = [...r.failed, ...said];
     await put();
-    failures(r.failed);
+    failures(job.failed);
+    const word = face === "front" ? "fronts" : "backs";
+    if (r.slots < r.expected) {
+      await stop(`MakePlayingCards shows ${r.slots} of the ${r.expected} card slots this order needs. Check the card count on this page, then press Continue.`);
+      return false;
+    }
     if (r.failed.length || r.done < r.total) {
-      await stop(`${r.done} of ${r.total} ${face === "front" ? "fronts" : "backs"} placed. Fix or retry the ones below.`);
+      await stop(`${r.done} of ${r.total} ${word} placed. Fix or retry the ones below.`);
       return false;
     }
     if (signedIn) {
-      status("Saving the project to your MakePlayingCards account.");
+      status("Saving the project to your MakePlayingCards account.", false);
       const saved = await call("save", { name: o.name }, 45000).catch(() => ({ saved: false }));
-      if (!saved.saved) status("Couldn't save the project to your account; carrying on.");
+      if (!saved.saved) status("Couldn't save the project to your account; carrying on.", false);
     }
     return true;
   }
 
+  /** page.js gives up on MPC's next step well inside this (moveOn). */
+  const MOVE_MS = 240000;
+
   async function step() {
-    if (!job || !job.running) return offer();
+    if (!job || !job.running || replaced) return offer();
+    buttons([stopButton]);
     try {
       const look = await pageReady();
       signedIn = look.signedIn;
-      if (job.phase === "done") return offer();
-      // MPC passes through pages of its own between steps (pro_item_process_flow.aspx).
-      if (!here && job.phase !== "setup") {
+      const r = reconcile(job.phase, here);
+      if (r.act === "done") return offer();
+      if (r.act === "wait") {
         status("Waiting for MakePlayingCards to open the next step.", false);
+        buttons([stopButton, startOver()]);
         return;
       }
-      if (here !== job.phase) {
-        if (job.phase === "setup") {
-          status("Going to the start of a new project.");
-          location.href = START;
-          return;
-        }
-        return stop(`This order is on ${STEP_NAMES[job.phase]}, but this page is another step. Start over to begin a fresh project.`);
+      if (r.act === "start") {
+        status("Going to the start of a new project.", false);
+        await put();
+        location.href = START;
+        return;
+      }
+      if (r.act === "mismatch") return stop(`This order is on ${STEP_NAMES[job.phase]}, but this page is another step. Start over to begin a fresh project.`);
+      if (r.phase !== job.phase) {
+        job.phase = r.phase;
+        if (r.phase === "setup") job.failed = [];
+        await put();
       }
       switch (here) {
         case "setup":
-          status("Choosing card stock and project size.");
+          status("Choosing card stock and project size.", false);
           return go("fronts", () => call("setup", { stock: job.order.stock, bracket: job.order.bracket, foil: job.order.foil }, 30000));
         case "fronts":
-          if (await fillFace("front")) return go("frontText", () => call("next", {}, 90000));
+          if (await fillFace("front")) return go("frontText", () => call("next", {}, MOVE_MS));
           return;
         case "frontText":
-          return go("backs", () => call("skipText", {}, 90000));
+          return go("backs", () => call("skipText", {}, MOVE_MS));
         case "backs":
-          if (await fillFace("back")) return go("backText", () => call("next", {}, 90000));
+          if (await fillFace("back")) return go("backText", () => call("next", {}, MOVE_MS));
           return;
         case "backText":
-          return go("preview", () => call("skipText", {}, 90000));
+          return go("preview", () => call("skipText", {}, MOVE_MS));
         case "preview":
           job.phase = "done";
           job.running = false;
@@ -206,46 +246,48 @@
     }
   }
 
+  const stopButton = ["Stop after this step", async () => {
+    job.running = false;
+    await put().catch(() => {});
+    status("Stopping after this step.", false);
+    buttons([]);
+  }];
+
+  const forget = () => ["Forget this order", async () => {
+    replaced = true;
+    await chrome.storage.local.remove("job");
+    host.remove();
+  }];
+
+  const startOver = () => ["Start over", async () => {
+    job.phase = "setup";
+    job.running = true;
+    job.failed = [];
+    job.modeAnswers = 0;
+    await put().catch(() => {});
+    location.href = START;
+  }];
+
   function offer() {
-    if (!job) return;
+    if (!job || replaced) return;
     describe();
     failures(job.failed || []);
-    const forget = ["Forget this order", async () => {
-      await chrome.storage.local.remove("job");
-      host.remove();
-    }];
     if (job.phase === "done") {
       status("Filled in. Check every card in MakePlayingCards' preview, tick its confirmation and add to cart yourself.", false);
-      buttons([forget]);
+      buttons([forget()]);
       return;
     }
-    if (job.running) {
-      buttons([["Stop after this step", async () => {
-        job.running = false;
-        await put();
-        status("Stopping after this step.", false);
-      }]]);
-      return;
-    }
-    const startOver = ["Start over", async () => {
-      job.phase = "setup";
-      job.running = true;
-      job.failed = [];
-      await put();
-      location.href = START;
-    }];
     const resume = [job.phase === "setup" ? "Fill in" : "Continue", async () => {
       job.running = true;
-      await put();
-      buttons([]);
+      await put().catch(() => {});
       step();
     }, true];
     if (job.phase === "setup" && !signedIn) {
       $(".status").textContent ||= "Sign in to MakePlayingCards first so the project is saved to your account, or fill it in as a guest.";
-      buttons([["Sign in", `${BASE}/login.aspx`, true], ["Fill in as a guest", resume[1]], forget]);
+      buttons([["Sign in", `${BASE}/login.aspx`, true], ["Fill in as a guest", resume[1]], forget()]);
       return;
     }
-    buttons(job.phase === "setup" ? [resume, forget] : [resume, startOver, forget]);
+    buttons(job.phase === "setup" ? [resume, forget()] : [resume, startOver(), forget()]);
   }
 
   (async () => {
@@ -258,7 +300,13 @@
     } catch (e) {
       status(e.message, true);
     }
-    if (job.running) step();
-    else offer();
+    // Carry on by itself only straight after the last step; a run left behind waits for Continue.
+    if (stillRunning(job, Date.now())) return step();
+    if (job.running) {
+      job.running = false;
+      await chrome.storage.local.set({ job });
+      status("This order stopped part way. Press Continue to carry on.", false);
+    }
+    offer();
   })();
 })();
