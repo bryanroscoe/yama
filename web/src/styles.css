@@ -612,7 +612,22 @@ a.choice-chip {
      (positioned against the shell) starts at the very top of the window. */
   display: flow-root;
   min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
   padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+/* The Android app draws under a transparent status bar (Capacitor passes its height through as
+   the top safe-area inset; a browser tab has none). The shell starts below it, and this strip of
+   ground stays behind the clock and icons so scrolled pages never show through them. The admin
+   banner, when it shows, sits above the shell and takes the inset instead. */
+.view-banner + .shell { padding-top: 0; }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top);
+  z-index: 75;
+  background: var(--ground);
+  pointer-events: none;
 }
 .page {
   padding: 24px var(--page-pad) 48px;
@@ -1203,6 +1218,7 @@ table.plain tr.few td {
   display: grid;
   place-items: center;
   padding: 24px;
+  padding-top: max(24px, env(safe-area-inset-top));
 }
 .login-inner {
   width: min(360px, 100%);
@@ -2191,7 +2207,8 @@ fieldset.seat > legend:not(.visually-hidden) + * {
    the near-black ground so it can't be missed; it sits in the flow, so nothing hides under it. */
 .view-banner {
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top);
+  margin-top: env(safe-area-inset-top);
   z-index: 70;
   display: flex;
   align-items: center;

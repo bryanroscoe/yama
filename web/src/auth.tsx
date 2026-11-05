@@ -282,8 +282,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
   // Inside the Android app Google's web button doesn't work; its own sign-in sends the same ID token.
   const nativeGoogle = useMutation({
     mutationFn: async () => {
-      const credential = await nativeGoogleCredential(clientId!);
-      if (credential) google.mutate(credential);
+      google.mutate(await nativeGoogleCredential(clientId!));
     },
     onError: setError,
   });
