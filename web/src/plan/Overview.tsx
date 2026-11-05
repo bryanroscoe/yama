@@ -5,6 +5,11 @@ import { Link } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { Details, Pips } from "../components/ui";
 import { PlanTiles } from "../research/PlanTiles";
+import { planSummaries, planSummariesKey } from "../research/view";
+import { api, type DeckSummary } from "../api";
+import { AskClaude } from "../advisor/AskClaude";
+import { ConnectButton, HowTo } from "../components/HowTo";
+import { useQuery } from "@tanstack/react-query";
 import { ImportSheet } from "./ImportSheet";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import { headDetails, PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -28,6 +33,9 @@ export function Overview() {
   const otherNotes = b.notes.filter((n) => n.kind !== "open_question");
   const artists = live.map((d) => (view.art(d) ? view.card(d.commander[0])?.artist : null));
   const elsewhere = buy.elsewhere.length;
+  const notes = useQuery({ queryKey: planSummariesKey(userId), queryFn: planSummaries });
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
+  const example = decks.data?.find((d) => !d.parent_id)?.name ?? "Commander";
 
   return (
     <>
@@ -43,15 +51,35 @@ export function Overview() {
       />
       {importing && <ImportSheet view={view} onClose={() => setImporting(false)} />}
 
+      <HowTo
+        title="How plans work"
+        open={!!notes.data && notes.data.length === 0 && b.decks.length === 0}
+        steps={[
+          <>
+            <b>Get a plan.</b> Connect Claude or another assistant to Yama once, then ask it something like <q>Plan Bracket 2, 3 and 4 upgrades for my {example} deck and save them in Yama.</q> It reads your deck and collection and saves the plan here. If someone sends you a shared plan, open the link and choose Save a copy in Yama.
+          </>,
+          <>
+            <b>Read it.</b> Each deck in a plan has its builds, how to pilot it, every change with its reason, a shopping list priced at market (the cheap cards to buy, the rest to print) and the full list to copy.
+          </>,
+          <>
+            <b>Answer it.</b> Pick the build you prefer and mark changes Want, Unsure or Don't want, with a note if you like. Your assistant reads your answers next time. Nothing changes your decks until you do it.
+          </>,
+          <>
+            <b>Use it.</b> Load a build into your deck with Update from a list on the deck's page, print <Link to="/decks/builds">swap cards</Link> for the deck box, or share the plan by link or on your profile.
+          </>,
+        ]}
+        actions={
+          <>
+            <ConnectButton className="primary" />
+            <AskClaude context={{ kind: "general" }} about="planning your decks" />
+            <button className="outline" onClick={() => setImporting(true)}>Import a plan file</button>
+          </>
+        }
+      />
+
       <section className="plan-section" aria-labelledby="your-plans">
         <h2 id="your-plans" className="plan-section-head">Your plans</h2>
-        <PlanTiles
-          empty={
-            <p className="dim">
-              No plans yet. Ask Claude for upgrades to one of your decks (Yama's tools save its plan here), or open a plan someone shared and choose Save a copy.
-            </p>
-          }
-        />
+        <PlanTiles empty={<p className="dim">No plans yet. The steps above show how to get one.</p>} />
       </section>
 
       {b.decks.length > 0 && (

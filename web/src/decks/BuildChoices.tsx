@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { api, type DeckSummary, type DeckView } from "../api";
 import { CardRef } from "../components/CardRef";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
+import { HowTo } from "../components/HowTo";
 import { AreaHead, BackButton } from "../components/DeckTabs";
 import { ErrorText, Pips } from "../components/ui";
 import { useMe } from "../auth";
@@ -43,7 +44,16 @@ export function BuildChoicesPage() {
   const shown = families;
   return <main className="page plan note-page build-choices">
     <AreaHead title="Swap cards" index back={{ to: "/decks", label: "Decks" }} />
-    <p className="bc-intro">Pick a deck, then two of its lists: the deck as it is and a plan's Bracket 3 build, say. Yama shows each card that changes, with its plan's reason, and prints the changes as double-sided cards for the deck box. One side takes the deck there; the other brings it back.</p>
+    <HowTo
+      title="How swap cards work"
+      open={!loading && !families.some((f) => f.choices.length > 1)}
+      steps={[
+        <><b>Pick a deck</b> with at least two lists: the deck as it is and a plan's Bracket 3 build, say, or its stock list or another saved configuration.</>,
+        <><b>Pick the build to switch to</b> and the list to change from. Each card that changes shows with the reason its plan gives.</>,
+        <><b>Print</b> double-sided on US Letter and cut out the cards. Keep them in the deck box: one side takes the deck to the build, the other brings it back.</>,
+      ]}
+      actions={<><Link className="button primary" to="/decks/plan">Get a plan with bracket builds</Link><Link className="button outline" to="/decks">Open your decks</Link></>}
+    />
     {errors}
     {loading && <p className="dim">Loading your decks and plans…</p>}
     {!loading && asked && <p>That deck has no lists to swap between. Pick another below.</p>}
@@ -170,7 +180,10 @@ function FamilyPage({ family, status }: { family: BuildFamily; status: ReactNode
     </ArtPanel>
     <div className="page plan-deck-body">
       {status}
-      {!to || !from ? <p>This deck has one list so far: nothing to swap between yet. A plan's builds, a stock list or a saved configuration give it another.</p> : <>
+      {!to || !from ? <div className="stack">
+        <p>This deck has one list so far, so there's nothing to swap between yet. Give it another: save its stock list or a new configuration from the deck's page, or get a plan with bracket builds for it.</p>
+        <div className="row">{deck && <Link className="button primary" to={`/decks/${deck.id}`}>Open the deck</Link>}<Link className="button outline" to="/decks/plan">Get a plan</Link></div>
+      </div> : <>
         <BuildChips choices={all} value={to.id} onChange={(id) => pick("to", id)} />
         <div className="note-pills">
           {trackPill(to)}

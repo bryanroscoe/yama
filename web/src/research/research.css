@@ -148,3 +148,4 @@ a.note-pill-link:hover { box-shadow: inset 0 0 0 1px var(--dim); }
 .note-plan-art.art-mosaic { display: grid; height: 132px; border-radius: 0; }
 .note-plan-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px 14px; }
 .note-plan-title { font-family: var(--display); font-weight: 800; font-size: 1.5rem; line-height: 1; overflow-wrap: anywhere; }
+.note-hint { max-width: 80ch; line-height: 1.5; margin: 8px 0; }

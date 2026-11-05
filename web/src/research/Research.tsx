@@ -9,7 +9,7 @@ import { AreaHead, BackButton } from "../components/DeckTabs";
 import { ErrorText, Pips } from "../components/ui";
 import { saveFile } from "../download";
 import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
-import { DeckChanged } from "./about";
+import { DeckChanged, useDeckNamed } from "./about";
 import { isOwnedBuild, ownedBuildProblems } from "./availability";
 import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
@@ -109,6 +109,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         </p>
       </section>
       <ShareNote bundle={bundle} />
+      <p className="small dim note-hint">Open a deck for its builds, how to pilot it and every change with its reason. The shopping list and deck lists below cover the recommended builds; pick another build, or All builds, to compare.</p>
 
       <div className="plan-deck-grid note-decks">
         {doc.decks.map((d) => {
@@ -440,6 +441,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
     // Keep the page while another build or comparison loads, but never another deck's.
     placeholderData: (prev, q) => (q && q.queryKey[5] === deck.key ? prev : undefined),
   });
+  const yours = useDeckNamed(deck.name);
   if (!build) return <NoteMissing id={doc.id} what="That deck has no builds." />;
   const v = view.data;
   const names = [...new Set([...deck.builds.flatMap((b) => listEntries(b.list).map((r) => r.name)), ...resolvedCombos(deck, build).flatMap((c) => c.cards ?? [])])];
@@ -493,6 +495,10 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
             onChange={(id) => set({ build: id, vs: vs?.id === id ? null : vs?.id ?? null })}
           />
         )}
+        <p className="small dim note-hint">
+          Pick a build: its case, the changes, the shopping list and the decklist below follow it.{" "}
+          {yours ? <>Load it into <Link to={`/decks/import?deck=${encodeURIComponent(yours.id)}`}>your {yours.name} deck</Link> (Update from a list, then pick this build)</> : "Load it into one of your decks with Update from a list on the deck's page"}, or print <Link to={`/decks/builds${yours ? `?savedDeck=${encodeURIComponent(yours.id)}` : ""}`}>swap cards</Link> for the deck box.
+        </p>
         <div className="note-pills">
           {bracketLabel(build) && <span className="pill">{bracketLabel(build)}</span>}
           {Array.isArray(build.game_changers) && (

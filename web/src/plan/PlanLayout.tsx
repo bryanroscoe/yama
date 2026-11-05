@@ -32,6 +32,9 @@ const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] 
   { to: "/decks/plan/settings", label: "Settings" },
 ];
 
+/** The Plans pages that are of use before any deck is tracked. */
+const UNTRACKED = new Set(["/decks/plan", "/decks/plan/trip", "/decks/plan/settings"]);
+
 /** After a sync, wait this long for more taps before fetching the bundle again. */
 const REFRESH_AFTER_SYNC_MS = 8000;
 
@@ -97,7 +100,10 @@ export function PlanLayout() {
 export function PlansHead({ title, index = false, action, status }: { title: ReactNode; index?: boolean; action?: ReactNode; status?: ReactNode }) {
   const { view } = useOutletContext<PlanOutlet | undefined>() ?? {};
   const { pathname } = useLocation();
-  const hasPlans = !!view && view.b.decks.length > 0;
+  // Without a tracked deck, the pages that need one (Review, Buy, Prints, Spares) have nothing to
+  // show; the shopping list (Trip) and Settings (connecting an assistant, shopping rules) still do.
+  const tracked = !!view && view.b.decks.length > 0;
+  const pages = tracked ? PLAN_PAGES : PLAN_PAGES.filter((p) => UNTRACKED.has(p.to));
   return (
     <AreaHead
       title={title}
@@ -105,7 +111,7 @@ export function PlansHead({ title, index = false, action, status }: { title: Rea
       back={{ to: "/decks/plan", label: "Back to plans" }}
       action={action}
       status={status}
-      nav={hasPlans ? <SubNav label="Plans pages" pages={PLAN_PAGES} also={pathname} /> : undefined}
+      nav={view ? <SubNav label="Plans pages" pages={pages} also={pathname} /> : undefined}
     />
   );
 }

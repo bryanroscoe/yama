@@ -27,3 +27,9 @@ export function DeckChanged({ name, savedAt }: { name: string; savedAt: string }
     </p>
   );
 }
+
+/** The live main deck a note's deck names, if there is one (same name, any case). */
+export function useDeckNamed(name: string): DeckSummary | null {
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
+  return decks.data ? byName(decks.data).get(name.trim().toLowerCase()) ?? null : null;
+}

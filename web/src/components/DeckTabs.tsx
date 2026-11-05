@@ -11,12 +11,13 @@ import "./deck-area.css";
  *  "consistent and reusable for all users"): an agent's notes and copies of shared plans
  *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. Swap
  *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box. */
-export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string }[] = [
+export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string; admin?: boolean }[] = [
   { to: "/decks", label: "Decks", end: true },
   { to: "/sharing", label: "Sharing" },
   { to: "/decks/builds", label: "Swap cards" },
   { to: "/decks/plan", label: "Plans", also: "/decks/research" },
-  { to: "/decks/datasets", label: "Datasets" },
+  // Only admins import datasets, so for anyone else the page could only ever be empty.
+  { to: "/decks/datasets", label: "Datasets", admin: true },
 ];
 
 /** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */
@@ -69,12 +70,13 @@ function useScrollHint<T extends HTMLElement>(content: unknown) {
 
 export function DeckTabs() {
   const toReview = useToReview();
+  const admin = useMe().data?.is_admin === true;
   const { pathname } = useLocation();
   // The Plans count arrives after load and widens the track: measure again when it does.
   const track = useScrollHint<HTMLElement>(toReview);
   return (
     <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
-      {DECK_SECTIONS.map((s) => {
+      {DECK_SECTIONS.filter((s) => !s.admin || admin).map((s) => {
         const label = (
           <>
             {s.label}

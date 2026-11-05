@@ -1656,5 +1656,14 @@ part of the MCP".
   paired with the card its plan puts in and why (`pairChanges`: the target build's own swap, an
   undone swap, or both builds replacing the same starting card; the rest pair in order), and the
   printed cards use the same pairs.
+- **How to use them** (Bryan: "most of them are blank pages with no way to interact with them").
+  Plans and Swap cards open with a "How … work" panel (`components/HowTo.tsx`): the steps, then
+  buttons that do them (Connect your assistant opens the MCP sign-in steps in a sheet; Ask Claude
+  where the advisor is on; Import a plan file; Get a plan). It is open on an empty page and folded
+  to one line otherwise. A plan's pages say what to do next in a line, linking the deck of the same
+  name's Update from a list and its swap cards. Without a tracked deck, Plans still offers Trip
+  (the shopping list) and Settings (connecting an assistant, shopping rules); Review, Buy, Prints
+  and Spares appear once a deck is tracked. Datasets, which only admins can fill, shows in the
+  Decks sections for admins only (its address still works).
 - Dates: `fmtDate` shows a moment (a time with its zone) on the reader's calendar; a bare date stays
   as written.
