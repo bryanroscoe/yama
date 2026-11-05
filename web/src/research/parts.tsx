@@ -1,6 +1,6 @@
 import { GROUP_ORDER, groupOf } from "@yama/core";
 import { fmtDate, usd } from "@yama/core/plan";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
 import { CardImage } from "../components/ui";
 import { CopyButton } from "../plan/parts";
@@ -147,9 +147,42 @@ export function ShoppingText({ s }: { s: ShoppingData }) {
   );
 }
 
-/** How to get the cards: buy the cheap ones and print the rest, buy all or print all. */
-export function GetChoices({ s, onChange }: { s: ShoppingData; onChange: (g: GetId) => void }) {
-  return <Choices label="How to get the cards" title="Get" options={s.gets} value={s.get} onChange={onChange} />;
+/** How to get the cards: buy the cheap ones and print the rest, buy all or print all. Under the
+ *  split, `onUpTo` sets its limit in dollars ("3.50"), or null for the suggested one. */
+export function GetChoices({ s, onChange, onUpTo }: { s: ShoppingData; onChange: (g: GetId) => void; onUpTo?: (dollars: string | null) => void }) {
+  return (
+    <>
+      <Choices label="How to get the cards" title="Get" options={s.gets} value={s.get} onChange={onChange} />
+      {s.get === "split" && onUpTo && <UpTo value={s.up_to} max={s.up_to_max} onSet={(d) => onUpTo(Number(d) === s.up_to_suggested ? null : d)} />}
+    </>
+  );
+}
+
+/** The split's limit: a dollar field, applied on Update (or Enter), not on every keystroke. */
+function UpTo({ value, max, onSet }: { value: number; max: number; onSet: (dollars: string) => void }) {
+  const [draft, setDraft] = useState(value.toFixed(2));
+  useEffect(() => setDraft(value.toFixed(2)), [value]);
+  return (
+    <form
+      className="note-upto"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const n = Number(draft);
+        if (draft.trim() !== "" && Number.isFinite(n) && n >= 0 && n <= max) onSet(n.toFixed(2));
+      }}
+    >
+      <label htmlFor="note-upto">
+        Buy cards up to<span className="visually-hidden"> (US dollars)</span>
+      </label>
+      <span className="note-upto-field">
+        <span aria-hidden="true">$</span>
+        <input id="note-upto" type="number" inputMode="decimal" min={0} max={max} step={0.01} required value={draft} onChange={(e) => setDraft(e.target.value)} />
+      </span>
+      <button type="submit" className="button outline">
+        Update
+      </button>
+    </form>
+  );
 }
 
 /** The changes, as a table to work through with the deck box open. `extra` adds a cell per row

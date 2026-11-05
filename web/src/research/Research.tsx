@@ -16,7 +16,7 @@ import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from 
 import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
 import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
-import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, type GetId, type NoteView, type Totals } from "./view";
+import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
 
@@ -88,9 +88,10 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
   const all = params.get("builds") === "all";
   const build = all ? null : params.get("build");
   const get = getOf(params.get("get"));
+  const upto = uptoOf(params.get("upto"));
   const view = useQuery({
-    queryKey: ["research", userId, doc.id, "view", bundle.revision, { build, all, get }],
-    queryFn: ({ signal }) => noteView(doc.id, { build, all, get }, signal),
+    queryKey: ["research", userId, doc.id, "view", bundle.revision, { build, all, get, upto }],
+    queryFn: ({ signal }) => noteView(doc.id, { build, all, get, upto }, signal),
     placeholderData: keepPreviousData,
   });
   const choices: { id: string; label: string }[] = [];
@@ -173,7 +174,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         {v && v.shopping.items.length > 0 && (
           <div className={view.isPlaceholderData ? "note-stale" : undefined}>
             {all && <p className="small dim note-how">Every build as its own deck, starting from one copy of each precon: the cards the builds share are counted once per build.</p>}
-            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} />
+            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} onUpTo={(d) => set({ upto: d })} />
             <ShoppingTotals s={v.shopping} />
             <div className="note-table-wrap">
               <table className="note-table">
@@ -443,9 +444,10 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   const vsId = params.get("vs");
   const vs = deck.builds.find((b) => b.id === vsId && b.id !== build?.id) ?? null;
   const get = getOf(params.get("get"));
+  const upto = uptoOf(params.get("upto"));
   const view = useQuery({
-    queryKey: ["research", userId, doc.id, "view", bundle.revision, deck.key, { build: build?.id, vs: vs?.id, get }],
-    queryFn: ({ signal }) => deckView(doc.id, deck.key, { build: build!.id, vs: vs?.id, get }, signal),
+    queryKey: ["research", userId, doc.id, "view", bundle.revision, deck.key, { build: build?.id, vs: vs?.id, get, upto }],
+    queryFn: ({ signal }) => deckView(doc.id, deck.key, { build: build!.id, vs: vs?.id, get, upto }, signal),
     enabled: !!build,
     // Keep the page while another build or comparison loads, but never another deck's.
     placeholderData: (prev, q) => (q && q.queryKey[5] === deck.key ? prev : undefined),
@@ -696,7 +698,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
             <SectionHead id="shop-head" eyebrow={`${cardsWord(v.shopping.total.cards)} to add to ${v.vs_label}`}>
               Shopping list
             </SectionHead>
-            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} />
+            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} onUpTo={(d) => set({ upto: d })} />
             <ShoppingTotals s={v.shopping} />
             <ShoppingTable s={v.shopping} />
             <ShoppingText s={v.shopping} />

@@ -38,6 +38,10 @@ export interface ShopItem {
 export interface ShoppingData {
   get: GetId;
   gets: { id: GetId; label: string }[];
+  /** The split's limit in dollars (`?upto=`), the suggested one and the highest allowed. */
+  up_to: number;
+  up_to_suggested: number;
+  up_to_max: number;
   explain: string;
   prices_from: string | null;
   prices_to: string | null;
@@ -101,6 +105,19 @@ export interface NoteChoice {
   build?: string | null;
   all?: boolean;
   get?: GetId;
+  /** The split's limit in dollars, as the page's `?upto=` gives it; none is the suggested one. */
+  upto?: string | null;
+}
+
+/** The highest `?upto=` the server takes, in dollars (MAX_UP_TO in server/src/sharing/research.rs). */
+const MAX_UP_TO = 1000;
+
+/** A `?upto=` worth sending, read as the server reads it: an optional "$", then dollars with at
+ *  most two decimals, $0 to $1,000. Anything else is none (the suggested limit), so a bad address
+ *  prices at the default instead of failing to load. */
+export function uptoOf(v: string | null): string | null {
+  const t = v?.trim().replace(/^\$/, "") ?? "";
+  return /^(\d{1,9}(\.\d{0,2})?|\.\d{1,2})$/.test(t) && Number(t) <= MAX_UP_TO ? t : null;
 }
 
 function query(parts: Record<string, string | null | undefined>): string {
@@ -113,10 +130,10 @@ function query(parts: Record<string, string | null | undefined>): string {
 const getParam = (g?: GetId) => (g && g !== "split" ? g : null);
 
 export const noteView = (id: string, c: NoteChoice, signal?: AbortSignal) =>
-  api<NoteView>(`/api/research/${encodeURIComponent(id)}/view${query({ build: c.all ? null : c.build, builds: c.all ? "all" : null, get: getParam(c.get) })}`, { signal });
+  api<NoteView>(`/api/research/${encodeURIComponent(id)}/view${query({ build: c.all ? null : c.build, builds: c.all ? "all" : null, get: getParam(c.get), upto: c.upto })}`, { signal });
 
-export const deckView = (id: string, deck: string, c: { build: string; vs?: string | null; get?: GetId }, signal?: AbortSignal) =>
-  api<DeckView>(`/api/research/${encodeURIComponent(id)}/view/${encodeURIComponent(deck)}${query({ build: c.build, vs: c.vs, get: getParam(c.get) })}`, { signal });
+export const deckView = (id: string, deck: string, c: { build: string; vs?: string | null; get?: GetId; upto?: string | null }, signal?: AbortSignal) =>
+  api<DeckView>(`/api/research/${encodeURIComponent(id)}/view/${encodeURIComponent(deck)}${query({ build: c.build, vs: c.vs, get: getParam(c.get), upto: c.upto })}`, { signal });
 
 /** A deck's recommended build, else its first: what the shared page prices by default. */
 export function recommendedOf(deck: ResearchDeck): Build | undefined {

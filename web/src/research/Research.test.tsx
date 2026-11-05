@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ResearchPage } from "./Research";
 import { AcquisitionItem, AgentShopping as Shopping, PrintedWishlist } from "./owner";
 import { AccountingSummary, Gameplay, buildAccounting, listEntries, resolvedCombos } from "./details";
-import { plainList, type DeckView, type NoteView } from "./view";
+import { plainList, uptoOf, type DeckView, type NoteView } from "./view";
 import { changedAnswer, money, safeUrl, targetForSwap, type ResearchBundle } from "./api";
 import { changedSince } from "./about";
 import type { DeckSummary } from "../api";
@@ -19,7 +19,7 @@ function fullPage(query="") {
   const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});client.setQueryData(["research","owner","audit"],b);
   const buildId=new URLSearchParams(query).get("build")??"b3";
   const view:DeckView={build:buildId,vs:null,vs_label:"the starting list",art:null,identity:"U",changes:[{add:"Thought Monitor",cut:"Glimmer of Genius",n:1,why:"Repeatable artifact draw",notes:[],add_image:null,cut_image:null,swap:"monitor"}],shopping:null,text:"Commander\n1 Saheeli\n\nDeck\n97 Forest\n1 Sol Ring\n1 Thought Monitor\n",cards:[{name:"Saheeli",qty:1,board:"commander",type_line:"Legendary Creature",cmc:2,image:null},{name:"Forest",qty:97,board:"main",type_line:"Basic Land — Forest",cmc:0,image:null}],cut:false,unknown:[]};
-  client.setQueryData(["research","owner","audit","view",1,"energy",{build:buildId,vs:undefined,get:"split"}],view);
+  client.setQueryData(["research","owner","audit","view",1,"energy",{build:buildId,vs:undefined,get:"split",upto:null}],view);
   const html=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/decks/research/audit/energy${query}`]}><Routes><Route path="/decks/research/:reportId/:deckKey" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);client.clear();return html;
 }
 
@@ -93,14 +93,21 @@ describe("deck research evidence", () => {
     expect(index).not.toContain("Agent notes");expect(index).not.toContain("Import a note file");
     const b:ResearchBundle={document:{schema:"yama-research/1",id:"audit",title:"Deck review",generated_at:"2026-10-27",summary:"Builds for one deck.",copied_from:{link:"/r/0123456789abcdef01234567",by:"saget"},decks:[{key:"energy",name:"Living Energy",commander:"Saheeli",recommended_build:"b3",builds:[{id:"b3",label:"Bracket 3",list:"Commander\n1 Saheeli\nDeck\n1 Sol Ring\n98 Forest",swaps:[{id:"s",card_in:"Sol Ring",card_out:"Island"}]}]}]},revision:1,updated_at:"2026-10-27",target_hashes:{},reviews:[]};
     const totals={cards:1,buy:1,buy_cost:1.5,print:0,print_cost:0,worth:1.5,cost:1.5,unpriced:0,uncosted:0,buy_uncosted:0};
-    const view:NoteView={lists:[{deck:"energy",build:"b3",text:"Commander\n1 Saheeli\n\nDeck\n98 Forest\n1 Sol Ring\n"}],which:"recommended",build:null,decks:[{key:"energy",art:null,identity:"G",label:"Bracket 3",builds:[{id:"b3",label:"Bracket 3"}],totals}],shopping:{get:"split",gets:[{id:"split",label:"Buy up to $2.00, print the rest"},{id:"buy",label:"Buy every card locally"},{id:"print",label:"Print every card"}],explain:"A card at $2.00 or less is worth buying.",prices_from:"2026-10-27",prices_to:"2026-10-27",total:totals,items:[{name:"Sol Ring",n:1,usd:1.5,date:"2026-10-27",image:null,decks:["Living Energy"],get:"buy",cost:1.5}]}};
+    const view:NoteView={lists:[{deck:"energy",build:"b3",text:"Commander\n1 Saheeli\n\nDeck\n98 Forest\n1 Sol Ring\n"}],which:"recommended",build:null,decks:[{key:"energy",art:null,identity:"G",label:"Bracket 3",builds:[{id:"b3",label:"Bracket 3"}],totals}],shopping:{get:"split",gets:[{id:"split",label:"Buy up to $2.00, print the rest"},{id:"buy",label:"Buy every card locally"},{id:"print",label:"Print every card"}],up_to:2,up_to_suggested:2,up_to_max:1000,explain:"A card at $2.00 or less is worth buying.",prices_from:"2026-10-27",prices_to:"2026-10-27",total:totals,items:[{name:"Sol Ring",n:1,usd:1.5,date:"2026-10-27",image:null,decks:["Living Energy"],get:"buy",cost:1.5}]}};
     client.setQueryData(["research","owner","audit"],b);
-    client.setQueryData(["research","owner","audit","view",1,{build:null,all:false,get:"split"}],view);
+    client.setQueryData(["research","owner","audit","view",1,{build:null,all:false,get:"split",upto:null}],view);
     const note=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research/audit"]}><Routes><Route path="/decks/research/:reportId" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
     client.clear();
     expect(note).toContain("Copied from");expect(note).toContain("@saget&#x27;s shared plan");expect(note).toContain("Saved 27 Oct 2026");
     expect(note).toContain("1 to buy locally: about $1.50");expect(note).toContain("as of 27 Oct 2026");expect(note).toContain("Shopping list");expect(note).toContain("Deck lists");
     expect(note).toContain("1 Sol Ring");expect(note).toContain('href="/decks/research/audit/energy"');
+    // The split's limit, set from the page: a dollar field under the Get choices.
+    expect(note).toContain('<label for="note-upto">Buy cards up to');expect(note).toMatch(/id="note-upto" type="number"[^>]*max="1000"[^>]*value="2.00"/);
+  });
+
+  it("sends only a well-formed buy limit",()=>{
+    expect(["5","3.50",".5","1000","1000.00"," 2 ","$5","$4.25"].map(uptoOf)).toEqual(["5","3.50",".5","1000","1000.00","2","5","4.25"]);
+    expect([null,"","abc","-1","1e3","2.005","1.2.3",".","$","1000.01","2000","999999999"].map(uptoOf)).toEqual(Array(12).fill(null));
   });
 
   it("flags a note's deck when the deck changed after the note was saved",()=>{

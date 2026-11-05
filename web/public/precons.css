@@ -1343,6 +1343,12 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .share-configs { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:20px 0 0; font-size:14px; }
 .share-configs ul { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:8px; }
 .share-configs a[aria-current="page"] { background:var(--text); color:var(--ground); border-color:var(--text); }
+/* The split's limit: a dollar field under the Get choices, a plain GET form. */
+.share-upto { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:12px 0 0; font-size:14px; }
+.share-upto label { color:var(--dim); }
+.share-upto-field { display:inline-flex; align-items:center; gap:6px; }
+.share-upto input { width:7.5em; min-height:36px; padding:6px 12px; font-variant-numeric:tabular-nums; }
+.share-upto button { min-height:36px; padding:6px 16px; }
 .art-credits { font-size:11px; }
 .share-collection { width:100%; border-collapse:collapse; margin:16px 0; font-size:14px; }
 .share-collection th { text-align:left; font-weight:600; color:var(--dim); border-bottom:1px solid var(--line); padding:8px 10px; }
@@ -1446,9 +1452,13 @@ table:not([class]) tbody th { white-space:nowrap; }
 /* "Changes from [the starting list ▾]": the heading picks the build to compare with. */
 .share-vs { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 .3em; }
 .share-vs details { position:relative; border:0; padding:0; }
-.share-vs summary { list-style:none; min-height:0; font:700 36px/1.05 var(--display); letter-spacing:-.015em; text-decoration:underline dashed; text-decoration-thickness:2px; text-underline-offset:6px; }
+/* display:block and both marker rules: no browser draws its own disclosure chevron before the label
+   (Safari's ignores list-style). The caret is inline-block so the label's dashed underline doesn't
+   run under it as a separate stub. */
+.share-vs summary { display:block; list-style:none; min-height:0; font:700 36px/1.05 var(--display); letter-spacing:-.015em; text-decoration:underline dashed; text-decoration-thickness:2px; text-underline-offset:6px; }
 .share-vs summary::-webkit-details-marker { display:none; }
-.share-vs summary::after { content:" ▾"; font-size:.55em; vertical-align:middle; }
+.share-vs summary::marker { content:""; }
+.share-vs summary::after { content:"▾"; display:inline-block; margin-left:.3em; font-size:.55em; vertical-align:middle; text-decoration:none; }
 .share-vs ul { position:absolute; z-index:5; top:100%; left:0; min-width:max-content; margin:8px 0 0; padding:6px; list-style:none; background:var(--raised); border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 32px rgba(0,0,0,.45); }
 .share-vs li { margin:0; font-size:16px; color:inherit; }
 .share-vs a { display:block; padding:8px 12px; border-radius:6px; color:inherit; text-decoration:none; }
