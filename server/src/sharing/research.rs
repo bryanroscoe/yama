@@ -409,16 +409,21 @@ impl How {
         };
         let up_to = match upto.map(str::trim).map(|u| u.strip_prefix('$').unwrap_or(u)).unwrap_or("") {
             "" => BUY_UP_TO,
+            // Exact whole cents: digits, then at most two after a point. No signs, exponents,
+            // infinities, NaN or rounding, so nothing past `MAX_UP_TO` gets in.
             u => {
-                // Digits with at most one point: no signs, exponents, infinities or NaN.
-                if !u.bytes().all(|b| b.is_ascii_digit() || b == b'.') || u.bytes().filter(|&b| b == b'.').count() > 1 {
+                let (whole, frac) = u.split_once('.').unwrap_or((u, ""));
+                let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+                if (whole.is_empty() && frac.is_empty()) || whole.len() > 9 || frac.len() > 2 || !digits(whole) || !digits(frac) {
                     return None;
                 }
-                let cents = (u.parse::<f64>().ok()? * 100.0).round();
-                if !(0.0..=MAX_UP_TO as f64).contains(&cents) {
+                let whole: i64 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
+                let frac: i64 = if frac.is_empty() { 0 } else { format!("{frac:0<2}").parse().ok()? };
+                let cents = whole * 100 + frac;
+                if cents > MAX_UP_TO {
                     return None;
                 }
-                cents as i64
+                cents
             }
         };
         Some(How { way, up_to })
