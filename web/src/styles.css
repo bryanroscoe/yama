@@ -729,7 +729,7 @@ body::before {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 20px 16px 16px;
+    padding: calc(20px + env(safe-area-inset-top)) 16px 16px;
     overflow-y: auto;
   }
   .nav a {
@@ -1037,6 +1037,7 @@ button.list-row:hover {
     border-top: none;
     border-left: 1px solid var(--line);
     padding: 28px;
+    padding-top: calc(28px + env(safe-area-inset-top));
   }
 }
 /* A short question, centered on every screen. Two classes, so it beats the laptop side panel.
@@ -2150,7 +2151,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
     flex: 1 1 240px;
     max-width: 300px;
     position: sticky;
-    top: 24px;
+    top: calc(24px + env(safe-area-inset-top));
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -2215,7 +2216,6 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   justify-content: space-between;
   gap: var(--s-2);
   padding: 8px var(--page-pad);
-  padding-top: max(8px, env(safe-area-inset-top));
   background: var(--text);
   color: var(--ground);
   font-weight: 600;

@@ -32,12 +32,20 @@ describe("the Android app", () => {
     const message = nativeSignInMessage(unregistered);
     expect(message).toMatch(/^Google won't sign in to this version of the app/);
     expect(message).not.toMatch(/Logcat|plugin|OAuth/);
-    expect(nativeSignInMessage(new Error("[10] Developer console is not set up correctly."))).toMatch(/this version of the app/);
+    // The plugin's wrapping of DEVELOPER_ERROR (GoogleProvider.java, @capgo/capacitor-social-login 8.7).
+    expect(
+      nativeSignInMessage(
+        new Error(
+          "Google Sign-In failed: Google Cloud OAuth is not configured for this installed build (10: Developer console is not set up correctly.). Check Logcat tag GoogleProvider for package, signingSha1, and webClientId, then see the Android troubleshooting section in the plugin README.",
+        ),
+      ),
+    ).toMatch(/^Google won't sign in to this version of the app/);
+    expect(nativeSignInMessage(new Error("Google Sign-In failed: [28444] Developer console is not set up correctly."))).toMatch(/this version of the app/);
     // Android 12 reports the same missing registration as a cancellation (Pixel 3, 2026-11-05).
     for (const cancelled of [{ message: "Google Sign-In cancelled by user", code: "USER_CANCELLED" }, new Error("[16] Cancelled by user.")]) {
       expect(nativeSignInMessage(cancelled)).toBe("Sign-in didn't finish. Try again, or sign in to Yama in your browser.");
     }
-    expect(nativeSignInMessage(new Error("NoCredentialException: No credentials available"))).toMatch(/no Google account/);
+    expect(nativeSignInMessage(new Error("Google Sign-In failed: No credentials available"))).toMatch(/^Couldn't find a Google account/);
     expect(nativeSignInMessage(new Error("A network error occurred"))).toMatch(/connection/);
     expect(nativeSignInMessage(new Error("Google didn't send an ID token. Try again."))).toBe("Google didn't send an ID token. Try again.");
     expect(nativeSignInMessage("something else")).toBe("Google sign-in didn't work. Try again.");
