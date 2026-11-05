@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
 import { CardImage } from "../components/ui";
 import { CopyButton } from "../plan/parts";
-import { cardsWord, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
+import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
 /**
  * The pieces a note's pages share with the shared page (`/r/<token>`, server/src/sharing/research.rs):
@@ -90,12 +90,24 @@ export function ShoppingTotals({ s }: { s: ShoppingData }) {
 
 const GET_LABEL: Record<ShopItem["get"], string> = { buy: "Buy locally", print: "Print", unknown: "No price" };
 
-/** A card with its copies on one line: "2× Name", the name previewing the card. */
-function CardLine({ name, n, image }: { name: string; n: number; image?: string | null }) {
+/** A card with its copies on one line: "2× Name", the name previewing the card. With `thumb`, the
+ *  card's picture leads, as a tracked deck's swaps show theirs. */
+function CardLine({ name, n, image, thumb = false }: { name: string; n: number; image?: string | null; thumb?: boolean }) {
   return (
-    <span className="note-card-line">
-      {n > 1 && <span className="note-qty num">{n}×</span>}
-      <CardRef name={name} image={image ?? undefined} />
+    <span className={`note-card-line${thumb ? " has-thumb" : ""}`}>
+      {thumb &&
+        (image ? (
+          <CardHover name={name} image={image}>
+            <img className="thumb note-thumb" src={smallOf(image)!} alt="" loading="lazy" decoding="async" crossOrigin="anonymous" />
+          </CardHover>
+        ) : (
+          // A card Yama has no picture of keeps the picture's place, so the names line up.
+          <span className="thumb note-thumb" aria-hidden="true" />
+        ))}
+      <span className="note-card-name">
+        {n > 1 && <span className="note-qty num">{n}×</span>}
+        <CardRef name={name} image={image ?? undefined} />
+      </span>
     </span>
   );
 }
@@ -204,8 +216,8 @@ export function ChangesTable({ rows, extra }: { rows: ChangeRow[]; extra?: (row:
         <tbody>
           {rows.map((c, i) => (
             <tr key={`${c.add}|${c.cut}|${i}`}>
-              <td>{c.add ? <CardLine name={c.add} n={c.n} image={c.add_image} /> : <span className="dim">Nothing</span>}</td>
-              <td>{c.cut ? <CardLine name={c.cut} n={c.n} image={c.cut_image} /> : <span className="dim">Nothing</span>}</td>
+              <td>{c.add ? <CardLine name={c.add} n={c.n} image={c.add_image} thumb /> : <span className="dim">Nothing</span>}</td>
+              <td>{c.cut ? <CardLine name={c.cut} n={c.n} image={c.cut_image} thumb /> : <span className="dim">Nothing</span>}</td>
               <td>
                 {c.why}
                 {c.notes.map((n) => (

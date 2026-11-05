@@ -664,6 +664,17 @@ fn card_line(name: &str, image: &str, n: i64) -> String {
     format!("<span class=\"share-card-line\">{count}{}</span>", card_ref(name, image))
 }
 
+/// A swap's card led by its picture, as the owner's page and a tracked deck's swaps show theirs:
+/// "[card] 2× Name". A card Yama has no image for keeps the picture's space, so names line up.
+fn swap_card(name: &str, image: &str, n: i64) -> String {
+    let thumb = if image.is_empty() {
+        "<span class=\"share-thumb\" aria-hidden=\"true\"></span>".to_string()
+    } else {
+        format!("<img class=\"share-thumb\" src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\">", e(&image.replacen("/normal/", "/small/", 1)))
+    };
+    format!("<span class=\"share-card-line has-thumb\">{thumb}{}</span>", card_line(name, image, n))
+}
+
 fn count_cards(n: i64) -> String {
     format!("{n} card{}", if n == 1 { "" } else { "s" })
 }
@@ -1387,7 +1398,7 @@ pub(super) async fn deck(
                 "<span class=\"dim\">Nothing</span>".to_string()
             } else {
                 let image = found(&images, name).and_then(|f| scryfall_image(f.4.clone())).unwrap_or_default();
-                card_line(name, &image, n)
+                swap_card(name, &image, n)
             }
         };
         for c in &changes {
@@ -1727,13 +1738,56 @@ pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): Curr
     .bind(&u.id)
     .fetch_all(&st.pool)
     .await?;
+    // Each note's decks, in the note's order: the Plans page shows a tile per deck plan, not one
+    // per note, with its builds, the recommended one and the owner's pick.
+    type DeckRow = (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>);
+    let deck_rows: Vec<DeckRow> = sqlx::query_as(
+        "SELECT r.id, json_extract(d.value, '$.key'), json_extract(d.value, '$.name'), json_extract(d.value, '$.commander'),
+                (SELECT json_group_array(json_object('id', json_extract(b.value, '$.id'), 'label', json_extract(b.value, '$.label'),
+                        'open', (SELECT COUNT(*) FROM json_each(b.value, '$.swaps') s WHERE NOT EXISTS (
+                            SELECT 1 FROM research_reviews v WHERE v.owner_id = r.owner_id AND v.report_id = r.id AND v.decision IS NOT NULL
+                              AND v.target = 'swap:' || json_extract(d.value, '$.key') || ':' || json_extract(b.value, '$.id') || ':' || json_extract(s.value, '$.id')))))
+                   FROM json_each(d.value, '$.builds') b),
+                json_extract(d.value, '$.recommended_build'),
+                (SELECT v.decision FROM research_reviews v
+                  WHERE v.owner_id = r.owner_id AND v.report_id = r.id AND v.target = 'deck:' || json_extract(d.value, '$.key'))
+         FROM research_reports r, json_each(r.document, '$.decks') d WHERE r.owner_id = ? ORDER BY r.id, d.id",
+    )
+    .bind(&u.id)
+    .fetch_all(&st.pool)
+    .await?;
+    let mut by_note: HashMap<String, Vec<Value>> = HashMap::new();
+    let mut seen: HashMap<String, (Option<ArtData>, Option<String>)> = HashMap::new();
+    for (note, key, name, commander, builds, recommended, preferred) in deck_rows {
+        let (Some(key), Some(name)) = (key, name) else { continue };
+        let commander = commander.unwrap_or_default();
+        if !seen.contains_key(&commander) {
+            let found = if commander.is_empty() { (None, None) } else { art_data(commander_card(&st.pool, &commander).await?) };
+            seen.insert(commander.clone(), found);
+        }
+        let (art, identity) = &seen[&commander];
+        let parsed: Vec<Value> = builds.and_then(|b| serde_json::from_str::<Vec<Value>>(&b).ok()).unwrap_or_default();
+        let builds: Vec<Value> = parsed.iter().filter_map(|b| Some(json!({"id": b["id"].as_str()?, "label": build_title(b["label"].as_str().unwrap_or_default())}))).collect();
+        // A pick or recommendation only when it names one of the builds.
+        let known = |id: Option<String>| id.filter(|id| builds.iter().any(|b| b["id"] == id.as_str()));
+        let (recommended, preferred) = (known(recommended), known(preferred));
+        // The changes still waiting for a Want, Unsure or Don't want in the build to make (the
+        // owner's pick, else the recommended one, else the first), for Review's list.
+        let to_make = preferred.as_deref().or(recommended.as_deref()).or_else(|| parsed.first().and_then(|b| b["id"].as_str()));
+        let to_answer = parsed.iter().find(|b| to_make.is_some() && b["id"].as_str() == to_make).and_then(|b| b["open"].as_i64()).unwrap_or(0);
+        by_note.entry(note).or_default().push(json!({
+            "key": key, "name": name, "commander": commander, "builds": builds,
+            "recommended": recommended, "preferred": preferred, "to_answer": to_answer, "art": art, "identity": identity,
+        }));
+    }
     let mut out = Vec::new();
     for (id, title, revision, updated_at, visibility, share_token, decks, copied_by, commanders) in rows {
         let art: Vec<Value> = plan_art(&st.pool, commanders).await?.into_iter().map(|(image, artist, commander)| json!({"commander": commander, "image": image, "artist": artist})).collect();
+        let deck_plans = by_note.remove(&id).unwrap_or_default();
         out.push(json!({
             "id": id, "title": title, "revision": revision, "updated_at": updated_at,
             "visibility": visibility, "share_token": share_token,
-            "decks": decks, "copied_by": copied_by, "art": art,
+            "decks": decks, "copied_by": copied_by, "art": art, "deck_plans": deck_plans,
         }));
     }
     Ok(Json(Value::Array(out)))

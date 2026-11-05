@@ -740,8 +740,13 @@ async fn shared_notes_price_the_cards_to_get() {
     let token = shared["share_token"].as_str().unwrap().to_string();
 
     // A deck page: each added card, how to get it and what it comes to.
+    sqlx::query("UPDATE cards SET image_normal = 'https://cards.scryfall.io/normal/front/s/t/stp.jpg' WHERE oracle_id = 'o-stp'").execute(&pool).await.unwrap();
     let deck = page(&app, &format!("/r/{token}/party")).await.2;
     for shown in [
+        // Each swap's cards lead with their pictures, at Scryfall's small size; one Yama
+        // doesn't know keeps the picture's space.
+        "<img class=\"share-thumb\" src=\"https://cards.scryfall.io/small/front/s/t/stp.jpg\" alt=\"\"",
+        "<span class=\"share-thumb\" aria-hidden=\"true\"></span>",
         "3 cards to add to the starting list",
         "1 to buy locally: about $0.50",
         "1 to print: about $0.30",
@@ -947,6 +952,29 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     assert_eq!(plans[0]["decks"], 1);
     assert_eq!(plans[0]["art"][0]["commander"], "Nalia de'Arnise");
     assert!(plans[0]["copied_by"].is_null());
+    // And a tile per deck plan: its name, commander art, the build to make.
+    let party = &plans[0]["deck_plans"][0];
+    assert_eq!((party["key"].as_str(), party["name"].as_str()), (Some("party"), Some("Party Time")));
+    assert_eq!(party["builds"], json!([{"id": "b3", "label": "Bracket 3 · Upgraded"}]));
+    assert_eq!(party["recommended"], "b3");
+    assert!(party["preferred"].is_null());
+    // Review's count: the build's three changes, none answered yet.
+    assert_eq!(party["to_answer"], 3);
+    assert_eq!(party["art"]["artist"], "John Stanko");
+    assert_eq!(party["identity"], "WB");
+    // The owner's pick of a build shows once they've made one.
+    let hash = bundle["target_hashes"]["deck:party"].as_str().unwrap().to_string();
+    let (s, _) = send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(json!({"op_id": "pick", "target": "deck:party", "decision": "b3", "note": null, "expected_version": 0, "target_hash": hash}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, plans) = send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await;
+    assert_eq!(plans[0]["deck_plans"][0]["preferred"], "b3");
+    // An answer (not a bare note) takes a change off the count.
+    let swap_hash = bundle["target_hashes"]["swap:party:b3:stp"].as_str().unwrap().to_string();
+    let answer = |op: &str, decision: Option<&str>| json!({"op_id": op, "target": "swap:party:b3:stp", "decision": decision, "note": "later", "expected_version": if op == "a1" { 0 } else { 1 }, "target_hash": swap_hash});
+    assert_eq!(send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(answer("a1", None))).await.0, StatusCode::OK);
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 3);
+    assert_eq!(send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(answer("a2", Some("want")))).await.0, StatusCode::OK);
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 2);
     assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&other), None).await.1, json!([]));
 }
 

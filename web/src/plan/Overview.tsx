@@ -3,9 +3,9 @@ import { buyList, daysBetween, deckCounts, deckWarnings, fmtDate, opTime, overvi
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Details, Pips } from "../components/ui";
-import { PlanTiles } from "../research/PlanTiles";
-import { planSummaries, planSummariesKey } from "../research/view";
+import { Details, ErrorText, Pips } from "../components/ui";
+import { deckGroups, fromLine, NoteDeckTile, PlanNotes, trackedBuild, trackedNote } from "../research/PlanTiles";
+import { deckHref, planSummaries, planSummariesKey } from "../research/view";
 import { api, type DeckSummary } from "../api";
 import { AskClaude } from "../advisor/AskClaude";
 import { ConnectButton, HowTo } from "../components/HowTo";
@@ -32,9 +32,15 @@ export function Overview() {
   const installedGone = view.markOrphans.filter(([, m]) => m.installed?.value);
   const questions = b.notes.filter((n) => n.kind === "open_question");
   const otherNotes = b.notes.filter((n) => n.kind !== "open_question");
-  const artists = live.map((d) => (view.art(d) ? view.card(d.commander[0])?.artist : null));
   const elsewhere = buy.elsewhere.length;
   const notes = useQuery({ queryKey: planSummariesKey(userId), queryFn: planSummaries });
+  // One tile per deck, whichever notes plan it: a tracked one shows its counts and opens the
+  // plan it tracks (a note's deck page at the tracked build, or a plan file's deck page).
+  const groups = deckGroups(notes.data ?? [], b.decks);
+  const tileArtists = groups.map((g) => {
+    const d = trackedNote(g) ?? g.tracked[0];
+    return d ? (view.art(d) ? view.card(d.commander[0])?.artist : null) : g.notes[0]?.plan.art?.artist;
+  });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const example = decks.data?.find((d) => !d.parent_id)?.name ?? "Commander";
 
@@ -79,14 +85,45 @@ export function Overview() {
       />
 
       <section className="plan-section" aria-labelledby="your-plans">
-        <h2 id="your-plans" className="plan-section-head">Your plans</h2>
-        <PlanTiles empty={<p className="dim">{b.decks.length ? "No plans from your assistant or from someone's shared link yet; your tracked decks are below." : "No plans yet. The steps above show how to get one."}</p>} />
+        <h2 id="your-plans" className="plan-section-head">Your deck plans</h2>
+        {groups.length > 0 && <p className="small dim plan-tracked-about">One for each deck: open it for its builds, every change with its reason, and what to buy or print. A tracked one shows what's left to do.</p>}
+        {notes.error ? <ErrorText error={notes.error} /> : null}
+        {groups.length === 0 && (notes.data || notes.error) && <p className="dim">No plans yet. The steps above show how to get one.</p>}
+        {groups.length === 0 && !notes.data && !notes.error && <p className="dim">Loading your plans…</p>}
+        {groups.length > 0 && (
+          <div className="plan-deck-grid">
+            {groups.map((g) => {
+              const d = trackedNote(g) ?? g.tracked[0];
+              if (!d) return <NoteDeckTile key={g.id} group={g} />;
+              const i = live.indexOf(d);
+              return (
+                <DeckTile
+                  key={g.id}
+                  deck={d}
+                  view={view}
+                  counts={counts[i]!}
+                  buy={buy}
+                  to={d.note ? deckHref(d.note.id, d.note.deck, d.note.build) : undefined}
+                  from={fromLine(g, d) ?? undefined}
+                  tracking={d.note ? (trackedBuild(g, d) ?? "a build") : undefined}
+                />
+              );
+            })}
+          </div>
+        )}
+        {swapCards(b).length > 0 && (
+          <div className="row plan-swap-cards">
+            <Link className="button outline" to="/decks/plan/swap-cards">Print all swap cards</Link>
+            <span className="small dim">A card for each deck box: the swaps to change bracket.</span>
+          </div>
+        )}
+        {tileArtists.some(Boolean) && <p className="small dim art-credits">{artCredits(tileArtists)}</p>}
       </section>
 
       {b.decks.length > 0 && (
         <>
-          <h2 id="tracked-decks" className="plan-section-head plan-tracked-head">Tracked decks</h2>
-          <p className="small dim plan-tracked-about">Decks you're changing: the swaps to review, the cards to buy and print, and what's in the deck box yet.</p>
+          <h2 id="tracked-decks" className="plan-section-head plan-tracked-head">What you're tracking</h2>
+          <p className="small dim plan-tracked-about">Across the plans you track: the swaps to review, the cards to buy and print, and what's in the deck box yet.</p>
           {b.head && (
             <div className="area-note plan-head-note" role="note">
               <p>
@@ -173,21 +210,6 @@ export function Overview() {
             </section>
           )}
 
-          <section className="plan-section" aria-label="Tracked decks">
-            <div className="plan-deck-grid">
-              {live.map((d, i) => (
-                <DeckTile key={d.key} deck={d} view={view} counts={counts[i]!} buy={buy} />
-              ))}
-            </div>
-            {swapCards(b).length > 0 && (
-              <div className="row plan-swap-cards">
-                <Link className="button outline" to="/decks/plan/swap-cards">Print all swap cards</Link>
-                <span className="small dim">A card for each deck box: the swaps to change bracket.</span>
-              </div>
-            )}
-            {artists.some(Boolean) && <p className="small dim art-credits">{artCredits(artists)}</p>}
-          </section>
-
           {questions.length > 0 && (
             <details className="plan-notes plan-notes-fold">
               <summary>
@@ -225,6 +247,14 @@ export function Overview() {
           )}
         </>
       )}
+
+      {notes.data && notes.data.length > 0 && (
+        <section className="plan-section" aria-labelledby="plan-notes">
+          <h2 id="plan-notes" className="plan-section-head">Where they came from</h2>
+          <p className="small dim plan-tracked-about">What your assistant saved, and plans you copied from someone's link. Open one for a shopping list across its decks, or to share it.</p>
+          <PlanNotes plans={notes.data} />
+        </section>
+      )}
     </>
   );
 }
@@ -235,7 +265,9 @@ function shortQuestion(text: string): string {
   return first.length > 64 ? `${first.slice(0, 61).trimEnd()}…` : first;
 }
 
-function DeckTile({ deck, view, counts, buy }: { deck: PlanDeck; view: PlanView; counts: ReturnType<typeof deckCounts>; buy: BuyList }) {
+/** A tracked deck's tile. One tracking a plan's build opens that plan at the build (`to`), says
+ *  which (`tracking`) and where it came from (`from`); one from a plan file opens its plan page. */
+function DeckTile({ deck, view, counts, buy, to, from, tracking }: { deck: PlanDeck; view: PlanView; counts: ReturnType<typeof deckCounts>; buy: BuyList; to?: string; from?: string; tracking?: string }) {
   const warnings = deckWarnings(deck, view.b.head?.warnings ?? [], view.b.head?.export_warnings ?? []);
   const questions = deck.notes.filter((n) => n.kind === "open_question");
   const toBuy = [...buy.stores.flatMap((g) => g.rows), ...buy.noPrice, ...buy.elsewhere].filter((r) => r.swap.deck === deck.key).length;
@@ -249,7 +281,7 @@ function DeckTile({ deck, view, counts, buy }: { deck: PlanDeck; view: PlanView;
   if (target != null && parts.length < 3) parts.push(`bracket ${target}`);
   const commander = view.card(deck.commander[0]);
   return (
-    <Link to={`/decks/plan/d/${deck.key}`} className="plan-tile">
+    <Link to={to ?? `/decks/plan/d/${deck.key}`} className="plan-tile">
       <ArtPanel art={view.art(deck)} artist={commander?.artist} wash="left" credit={false} className="plan-tile-art">
         <span className="plan-tile-name">{deck.name}</span>
         <span className="plan-tile-cmdr">
@@ -262,7 +294,9 @@ function DeckTile({ deck, view, counts, buy }: { deck: PlanDeck; view: PlanView;
             {counts.ready} of {counts.planned} swaps in hand now
           </span>
         )}
+        {from && <span className="plan-tile-counts dim-on-art">{from}</span>}
         <span className="plan-tile-chips">
+          {tracking && deck.status !== "archived" && <span className="art-chip plain">Tracking {tracking}</span>}
           {deck.status === "proposals_only" && <span className="art-chip">Proposals only</span>}
           {questions.length > 0 && <span className="art-chip warn">{questions.length === 1 ? shortQuestion(questions[0]!.text) : `${questions.length} open questions`}</span>}
           {warnings.length > 0 && <span className="art-chip warn">{warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}</span>}

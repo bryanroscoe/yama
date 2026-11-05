@@ -138,6 +138,11 @@ export function AcquisitionItem({ item, showCard = true }: { item: Item; showCar
 }
 
 /** The owner's answer on a build or a swap, for the next agent. Answers never apply a change. */
+/** Where an answer's note goes, said beside its Save button (Bryan, 2026-11-05: "where does the
+ *  note for the agent get saved?"). */
+export const NOTE_WHERE =
+  "Saved with this plan in Yama, with your answer. Only you see it (a shared copy of the plan leaves it out); your assistant reads it through Yama's tools the next time it works on this plan.";
+
 export function ReviewEditor({ bundle, target, buildId, compact = false }: { bundle: ResearchBundle; target: string; buildId?: string; compact?: boolean }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
@@ -192,14 +197,17 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
         </span>
       </div>
       <details className="research-note-fold" open={!compact || !!answer?.note}>
-        <summary className="small">Your note for the agent</summary>
+        <summary className="small">{answer?.note ? "Your note for your assistant" : "Add a note for your assistant"}</summary>
         <label className="research-note">
           <span className="visually-hidden">Your note</span>
           <textarea rows={2} maxLength={6000} value={note} disabled={save.isPending} onChange={(e) => setNote(e.target.value)} />
         </label>
-        <button type="button" className="outline small" disabled={save.isPending || note === (answer?.note ?? "")} onClick={() => decide(answer?.decision ?? null)}>
-          Save note
-        </button>
+        <div className="row research-note-save">
+          <button type="button" className="outline small" disabled={save.isPending || note === (answer?.note ?? "")} onClick={() => decide(answer?.decision ?? null)}>
+            Save note
+          </button>
+          <span className="small dim">{NOTE_WHERE}</span>
+        </div>
       </details>
       <ErrorText error={save.error} />
       {save.isError && save.variables && (

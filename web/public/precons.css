@@ -1475,6 +1475,9 @@ table:not([class]) tbody th { white-space:nowrap; }
 @media(max-width:700px) { .share-shop-decks { display:block; overflow-x:auto; } }
 /* A card with its copies on one line: "2× [thumbnail] Name". */
 .share-card-line { display:inline-flex; align-items:center; gap:10px; }
+/* A swap's card picture before its name, as the app's plan pages show it. */
+.share-card-line.has-thumb { gap:12px; }
+.share-thumb { flex:none; width:56px; aspect-ratio:488/680; border-radius:4.75% / 3.4%; object-fit:cover; background:var(--raised); }
 .share-qty { min-width:2.4ch; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
 .share-shop th, .share-shop td.get, .share-shop td.num, .share-shop-decks th { white-space:nowrap; }
 .share-shop td:first-child { min-width:16rem; }

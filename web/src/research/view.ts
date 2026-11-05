@@ -136,6 +136,11 @@ export const deckView = (id: string, deck: string, c: { build: string; vs?: stri
   api<DeckView>(`/api/research/${encodeURIComponent(id)}/view/${encodeURIComponent(deck)}${query({ build: c.build, vs: c.vs, get: getParam(c.get), upto: c.upto })}`, { signal });
 
 /** A deck's recommended build, else its first: what the shared page prices by default. */
+/** Scryfall's small image for a normal one: a thumbnail needn't load the full card. */
+export function smallOf(url: string | null | undefined): string | null {
+  return url ? url.replace("/normal/", "/small/") : null;
+}
+
 export function recommendedOf(deck: ResearchDeck): Build | undefined {
   return deck.builds.find((b) => b.id === deck.recommended_build) ?? deck.builds[0];
 }
@@ -188,7 +193,26 @@ export interface PlanSummary {
   decks: number;
   copied_by: string | null;
   art: { commander: string; image: string; artist: string | null }[];
+  /** Each deck plan in it, in the note's order: the Plans page's tiles. */
+  deck_plans: DeckPlanSummary[];
 }
+
+/** One deck's plan in a note: its builds, the recommended one and the owner's pick (build ids). */
+export interface DeckPlanSummary {
+  key: string;
+  name: string;
+  commander: string;
+  builds: { id: string; label: string }[];
+  recommended: string | null;
+  preferred: string | null;
+  /** Changes in the build to make (the pick, else the recommended one) with no answer yet. */
+  to_answer: number;
+  art: { image: string; artist: string | null } | null;
+  identity: string | null;
+}
+
+export const noteHref = (id: string) => `/decks/research/${encodeURIComponent(id)}`;
+export const deckHref = (id: string, deck: string, build?: string) => `${noteHref(id)}/${encodeURIComponent(deck)}${build ? `?build=${encodeURIComponent(build)}` : ""}`;
 
 export const planSummaries = ({ signal }: { signal?: AbortSignal } = {}) => api<PlanSummary[]>("/api/research-plans", { signal });
 /** Under "research", so saving, importing or copying a note refreshes it. */

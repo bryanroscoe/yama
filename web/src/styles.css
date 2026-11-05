@@ -310,9 +310,16 @@ input[type="file"]::file-selector-button {
   color: var(--text);
   cursor: pointer;
 }
-input[type="checkbox"],
-input[type="radio"] {
+/* Checkboxes and radios are a fixed box. The field rule above (full width, 44 px tall) made one
+   grow with the room left in its row, so a store whose name wrapped got a huge box beside a
+   normal one. The label around it is the touch target. Page rules with a class still win. */
+input:where([type="checkbox"], [type="radio"]) {
   accent-color: var(--text);
+  flex: none;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
 }
 /* The card search box is the one place the mono face appears: what you type is mono, the
    placeholder stays in the body face so its example fits on a phone. */
@@ -337,8 +344,17 @@ label {
   font-weight: 700;
   font-size: var(--t-label);
 }
-label:has(> input[type="checkbox"], > input[type="radio"]) {
+/* A checkbox's or radio's words sit beside its box, any hint under the words (labels are
+   otherwise a column, which put the box above its words), as the Share sheet's choices do. */
+label:where(:has(> input[type="checkbox"], > input[type="radio"])) {
   font-size: var(--t-base);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+label:where(:has(> input[type="checkbox"], > input[type="radio"])) > :not(input) {
+  grid-column: 2;
 }
 label > span.hint {
   font-weight: 400;
@@ -482,6 +498,21 @@ label > span.hint {
   background: var(--text);
   border-color: var(--text);
   color: var(--ground);
+}
+/* A chip that goes somewhere (a plan for this deck): the current one filled, as a pressed one. */
+a.choice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.choice-chip[aria-current="page"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--ground);
+}
+.choice-chip-sub {
+  font-weight: 400;
 }
 .choice-chip:disabled {
   color: var(--dim);
