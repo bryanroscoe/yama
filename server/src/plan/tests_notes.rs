@@ -219,6 +219,14 @@ async fn a_plan_file_with_the_same_key_moves_the_tracked_note_aside() {
     let keys: Vec<(String, String)> =
         sqlx::query_as("SELECT key, source FROM plan_decks WHERE owner_id = ? ORDER BY key").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(keys, vec![("energy".to_string(), "import".to_string()), ("energy-note".to_string(), "yama".to_string())]);
+    let after: String = sqlx::query_scalar(
+        "SELECT s.cards FROM plan_states s JOIN plan_decks d ON d.id = s.plan_deck_id WHERE d.owner_id = ? AND d.key = 'energy-note' AND s.state = 'after' AND s.current = 1",
+    )
+    .bind(&a)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(after.contains("Arcane Signet"), "the moved note plan is derived again after the import");
     assert_eq!(live_swaps(&pool, &a).await.len(), 3, "the tracked plan keeps its swaps");
 }
 
@@ -405,4 +413,37 @@ async fn a_donor_name_two_plans_share_links_neither() {
     assert!(t["warnings"][0].as_str().unwrap().contains("Two of your plans are called Ahoy Mateys"), "{t}");
     let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(serde_json::from_str::<Value>(&got).unwrap()["how"], "owned", "not linked to a guess");
+}
+
+#[tokio::test]
+async fn an_import_that_moves_a_donor_aside_never_leaves_a_stale_donor_key() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    let mut doc = note();
+    doc["decks"].as_array_mut().unwrap().push(json!({
+        "key": "ahoy", "name": "Ahoy Mateys", "commander": "Admiral Brass",
+        "builds": [{"id": "b2", "label": "Bracket 2", "list": "Commander\nAdmiral Brass\nDeck\n99 Island", "swaps": []}]
+    }));
+    save_note(&app, &session, &doc).await;
+    let (status, _) = send(&app, Method::POST, "/api/plan/from-note", Some(&session), Some(json!({"note_id": "audit", "deck_key": "ahoy", "build_id": "b2"}))).await;
+    assert_eq!(status, StatusCode::OK);
+    track(&app, &session, "b4", "op-1").await;
+    let from = |b: &Value| -> Value {
+        let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+        energy["states"]["after"]["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Rhystic Study").unwrap()["from_deck"].clone()
+    };
+    assert_eq!(from(&bundle(&app, &session).await), json!("ahoy"), "the donor is the tracked Ahoy plan");
+
+    let list = json!([{"name": "Admiral Brass", "qty": 1, "board": "commander"}, {"name": "Island", "qty": 99, "board": "main"}]);
+    let file = json!({
+        "format": "yama-plan/1", "meta": {"app": "commander-decks", "guide_version": 6},
+        "plan": {"decks": [{"key": "ahoy", "name": "Ahoy Mateys", "commander": ["Admiral Brass"],
+                            "states": {"stock": {"cards": list}, "now": {"cards": list}, "after": {"cards": list}}}]}
+    });
+    let (status, r) = send(&app, Method::POST, "/api/plan/import", Some(&session), Some(file)).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    // "ahoy" is now the imported deck; two plans are called Ahoy Mateys, so the move links neither.
+    assert_ne!(from(&bundle(&app, &session).await), json!("ahoy"), "never the imported deck's box");
+    let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_ne!(serde_json::from_str::<Value>(&got).unwrap()["deck"], json!("ahoy"));
 }

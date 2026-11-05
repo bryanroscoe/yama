@@ -220,6 +220,10 @@ pub async fn import_doc(pool: &SqlitePool, owner: &str, body: &[u8], opts: Optio
     let w = Writer { owner, import_id: &import_id, stamp: &stamp, origin };
     w.settings(conn, &plan, &mut report).await?;
     let store_ids = w.stores(conn, &plan, &mut report.counts.stores).await?;
+    // A plan tracking a note's build never blocks an outside export's key: it moves to a free one
+    // first. A Yama backup restores onto its own Yama-made decks, so it moves nothing.
+    let file_keys: Vec<&str> = plan.decks.iter().filter(|d| d.source.as_deref().unwrap_or(origin) == "import").map(|d| d.key.as_str()).collect();
+    let moved_aside = super::notes::make_room(conn, owner, &file_keys).await?;
     let deck_ids = w.decks(conn, &plan, &mut report.counts.decks).await?;
     let (order_ids, item_ids) = w.orders(conn, &plan, &store_ids, &mut report.counts.orders).await?;
     let swap_ids = w.swaps(conn, &plan, &deck_ids, &order_ids, &item_ids, &mut report.counts.swaps).await?;
@@ -229,9 +233,10 @@ pub async fn import_doc(pool: &SqlitePool, owner: &str, body: &[u8], opts: Optio
     report.counts.aliases = w.aliases(conn, &plan, &checked).await?;
     report.reviews = w.reviews(conn, &checked).await?;
     w.inbox_outcomes(conn, &checked).await?;
-    // A Yama backup may hold an older copy of a plan made from a note: the note decides, so every
-    // tracked note plan is derived again from its current note (swaps, quotes and lists).
-    if origin == "yama" {
+    // A Yama backup may hold an older copy of a plan made from a note, and a note plan moved aside
+    // may be another note plan's donor (its key now names the imported deck): the notes decide, so
+    // every tracked note plan is derived again from its current note (swaps, quotes, lists, donors).
+    if origin == "yama" || moved_aside > 0 {
         super::notes::rederive_all(conn, owner).await?;
     }
 
@@ -731,11 +736,6 @@ impl Writer<'_> {
     }
 
     async fn decks(&self, conn: &mut SqliteConnection, plan: &Plan, counts: &mut RowCounts) -> AppResult<HashMap<String, String>> {
-        // A plan tracking a note's build never blocks an outside export's key: it moves to a free
-        // one first. A Yama backup restores onto its own Yama-made decks, so it moves nothing.
-        let file_keys: Vec<&str> =
-            plan.decks.iter().filter(|d| d.source.as_deref().unwrap_or(self.origin) == "import").map(|d| d.key.as_str()).collect();
-        super::notes::make_room(conn, self.owner, &file_keys).await?;
         let existing: Vec<Existing> = sqlx::query_as(
             "SELECT id, key, content_hash, status = 'archived' AS retired, source AS origin FROM plan_decks WHERE owner_id = ?",
         )

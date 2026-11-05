@@ -670,6 +670,17 @@ async fn derive(
         }
         put(&mut now_list, &r.card_in, in_board(&r.card_in));
     }
+    // "Swap in the prints" and the swap sheet read one source per card name, so copies of one card
+    // that come from different places (one printed, one moved) are said out loud.
+    let mut kinds_by_name: HashMap<String, HashSet<(&str, Option<&str>)>> = HashMap::new();
+    for r in &rows {
+        kinds_by_name.entry(r.card_in.trim().to_lowercase()).or_default().insert((r.source.src, r.from_deck.as_deref()));
+    }
+    let mut mixed: Vec<&str> = rows.iter().filter(|r| kinds_by_name[&r.card_in.trim().to_lowercase()].len() > 1).map(|r| r.card_in.as_str()).collect();
+    mixed.dedup();
+    for name in mixed {
+        warnings.push(format!("Copies of {name} come from different places; Swap in the prints treats them all like the first."));
+    }
     // Every copy a swap puts in is its own slot carrying its own swap key (swap_in ticks installs
     // from the slots), so three copies of a basic are three slots, plus any copies already there.
     let mut by_in: HashMap<String, Vec<&SwapRow>> = HashMap::new();
