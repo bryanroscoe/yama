@@ -88,6 +88,8 @@ export function gotText(got: Got, ctx: SourceContext, opts: SourceOptions = {}):
   if (got.how === "owned") return got.detail && opts.private !== false ? `${cap(got.detail.replace(/\.$/, ""))}.` : "A card you own.";
   const name = deckName(got.deck, got.deck_name, ctx);
   if (got.origin === "precon") return `From ${name} (came in that precon).`;
+  // A plan made from a note: moved from another of your decks, with no purchase recorded.
+  if (got.origin === "note") return `From ${name}.`;
   return `From ${name} (${boughtPhrase(got.origin, ctx, opts)} for that deck).`;
 }
 

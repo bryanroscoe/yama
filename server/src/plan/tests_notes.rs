@@ -160,11 +160,17 @@ async fn switching_saving_and_stopping_keep_one_plan_that_follows_the_note() {
     assert_eq!(t["plan_deck_key"], "energy");
     assert_eq!(live_swaps(&pool, &a).await, vec![("n|audit|energy|b4|rhystic".to_string(), "owned".to_string())]);
     let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&got).unwrap(), json!({"how": "owned", "detail": "Moved from Ahoy Mateys"}), "the deck it leaves, not the one it joins");
+    assert_eq!(
+        serde_json::from_str::<Value>(&got).unwrap(),
+        json!({"how": "deck", "deck": "ahoy", "deck_name": "Ahoy Mateys", "origin": "note"}),
+        "the deck it leaves, structured so its Spares counts the copy as taken"
+    );
     let b = bundle(&app, &session).await;
     let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
     let rhystic = energy["states"]["after"]["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Rhystic Study").unwrap();
     assert_eq!((rhystic["kind"].clone(), rhystic["from_deck"].clone()), (json!("moved"), json!("ahoy")), "{rhystic}");
+    assert!(!names(&energy["states"]["now"]).contains(&"Rhystic Study".to_string()), "it moves when the prints are swapped in, not before");
+    assert_eq!(energy["states"]["after"]["log"], json!([{"swap": "n|audit|energy|b4|rhystic", "status": "moved"}]));
     let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_swaps WHERE owner_id = ? AND retired_at IS NOT NULL").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(kept, 3);
 
@@ -357,5 +363,9 @@ async fn a_swap_of_several_copies_is_one_planner_row_per_copy() {
     let d = &bundle(&app, &session).await["decks"][0];
     let island = d["states"]["stock"]["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Island").unwrap();
     assert_eq!(island["qty"], 99, "stock undoes all three copies");
+    let snow: Vec<&Value> = d["states"]["after"]["cards"].as_array().unwrap().iter().filter(|c| c["name"] == "Snow-Covered Island").collect();
+    let swaps: Vec<&str> = snow.iter().map(|c| c["swap"].as_str().unwrap()).collect();
+    assert_eq!(swaps.len(), 3, "one slot per copy, each with its own swap (swap_in ticks installs from them): {snow:?}");
+    assert!(swaps.contains(&"n|audit|energy|b3|snow#3") && snow.iter().all(|c| c["qty"] == 1));
     assert!(!names(&d["states"]["stock"]).contains(&"Snow-Covered Island".to_string()));
 }

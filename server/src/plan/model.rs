@@ -968,7 +968,8 @@ fn check_got(
             {
                 warnings.push(format!("{key}: got names deck \"{d}\", which isn't in this plan"));
             }
-            if origin != "precon" && !orders.contains_key(origin) {
+            // "note": a plan made from a note, which records no purchase for the move.
+            if origin != "precon" && origin != "note" && !orders.contains_key(origin) {
                 warnings.push(format!("{key}: got.origin \"{origin}\" is neither \"precon\" nor an order in this plan"));
             }
             Ok(())

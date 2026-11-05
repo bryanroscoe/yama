@@ -486,9 +486,9 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         .bind(plan_id)
         .fetch_all(&mut *conn)
         .await?;
-    let donor = |name: &str| -> Option<String> {
+    let donor = |name: &str| -> Option<(String, String)> {
         let want = name.trim().to_lowercase();
-        others.iter().find(|(k, n)| n.trim().to_lowercase() == want || k.as_str() == want).map(|(k, _)| k.clone())
+        others.iter().find(|(k, n)| n.trim().to_lowercase() == want || k.as_str() == want).cloned()
     };
 
     // Swaps, upserted by their stable key; ones the build no longer has are retired.
@@ -503,13 +503,20 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
             continue;
         }
         let card_out = text(s, "card_out");
-        let from_deck = source_of(build, s, &card_in).source_deck.as_deref().and_then(donor);
+        let donor_deck = source_of(build, s, &card_in).source_deck.as_deref().and_then(donor);
+        let from_deck = donor_deck.as_ref().map(|(k, _)| k.clone());
         // One planner row per copy, as the planner counts swaps (Buy, prints, installs): the first
         // keeps the swap's own key, so a single-copy swap's marks never move.
         let qty = s["qty"].as_u64().unwrap_or(1).clamp(1, 99);
         for copy in 1..=qty {
             let key = if copy == 1 { base.clone() } else { format!("{base}#{copy}") };
-            let source = source_of(build, s, &card_in);
+            let mut source = source_of(build, s, &card_in);
+            // A transfer from another of their plan decks names it in structured form, as plan
+            // files do, so that deck's Spares counts the copy as taken (spares.ts `fromDeck`).
+            // `origin: "note"`: the note records no purchase for it.
+            if let Some((k, n)) = &donor_deck {
+                source.got = Some(json!({"how": "deck", "deck": k, "deck_name": n, "origin": "note"}));
+            }
             let sort = (i as i64) * 100 + copy as i64 - 1;
             let row = json!({
                 "role": if card_out.is_some() { "swap" } else { "optional" }, "src": source.src, "store_label": source.store_label,
@@ -616,27 +623,39 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         }
     }
     let mut now_list = stock.clone();
-    for r in rows.iter().filter(|r| r.source.src == "owned") {
+    // Owned cards are in hand now. A card moving from another plan deck arrives when the prints are
+    // swapped in (swap_in moves the now-to-after difference out of the donor's box), so not yet.
+    let in_hand = |r: &SwapRow| r.source.src == "owned" && r.from_deck.is_none();
+    for r in rows.iter().filter(|r| in_hand(r)) {
         let board = r.card_out.as_deref().and_then(|out| take(&mut now_list, out)).unwrap_or("main");
         put(&mut now_list, &r.card_in, board);
     }
-    let by_in: HashMap<String, &SwapRow> = rows.iter().map(|r| (r.card_in.trim().to_lowercase(), r)).collect();
+    // Every copy a swap puts in is its own slot carrying its own swap key (swap_in ticks installs
+    // from the slots), so three copies of a basic are three slots, plus any copies already there.
+    let mut by_in: HashMap<String, Vec<&SwapRow>> = HashMap::new();
+    for r in &rows {
+        by_in.entry(r.card_in.trim().to_lowercase()).or_default().push(r);
+    }
     let slots = |list: &List, swapped: &dyn Fn(&SwapRow) -> bool| -> Vec<Value> {
-        let mut out: Vec<Value> = list
-            .iter()
-            .map(|(board, name, qty)| match by_in.get(&name.trim().to_lowercase()).filter(|r| swapped(&***r)) {
-                Some(r) => json!({
-                    "name": name, "qty": qty, "board": board,
+        let mut out: Vec<Value> = Vec::new();
+        for (board, name, qty) in list {
+            let mine: Vec<&&SwapRow> = by_in.get(&name.trim().to_lowercase()).into_iter().flatten().filter(|r| swapped(&***r)).take(*qty as usize).collect();
+            for r in &mine {
+                out.push(json!({
+                    "name": name, "qty": 1, "board": board,
                     "kind": match (r.source.src, &r.from_deck) { (_, Some(_)) => "moved", ("owned", _) => "owner", ("print", _) => "print", _ => "bought" },
                     "replaces": r.card_out, "swap": r.key, "got": r.source.got, "from_deck": r.from_deck,
                     "source": (r.source.src == "buy").then(|| match &r.source.store_label {
                         Some(store) => format!("To buy; the note found it at {store}."),
                         None => "To buy.".to_string(),
                     }),
-                }),
-                None => json!({"name": name, "qty": qty, "board": board, "kind": "stock"}),
-            })
-            .collect();
+                }));
+            }
+            let rest = *qty - mine.len() as i64;
+            if rest > 0 {
+                out.push(json!({"name": name, "qty": rest, "board": board, "kind": "stock"}));
+            }
+        }
         out.sort_by(|a, b| {
             (a["board"] != "commander", a["name"].as_str().unwrap_or_default().to_lowercase())
                 .cmp(&(b["board"] != "commander", b["name"].as_str().unwrap_or_default().to_lowercase()))
@@ -650,10 +669,10 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         _ => "waiting",
     };
     let after_log: Vec<Value> = rows.iter().map(|r| json!({"swap": r.key, "status": status(r)})).collect();
-    let now_log: Vec<Value> = rows.iter().filter(|r| r.source.src == "owned").map(|r| json!({"swap": r.key, "status": status(r)})).collect();
+    let now_log: Vec<Value> = rows.iter().filter(|r| in_hand(r)).map(|r| json!({"swap": r.key, "status": "done"})).collect();
     let states = [
         ("stock", slots(&stock, &|_| false), Vec::new()),
-        ("now", slots(&now_list, &|r| r.source.src == "owned"), now_log),
+        ("now", slots(&now_list, &in_hand), now_log),
         ("after", slots(&after, &|_| true), after_log),
     ];
     sqlx::query("UPDATE plan_states SET current = 0, updated_at = ? WHERE owner_id = ? AND plan_deck_id = ? AND current = 1")
