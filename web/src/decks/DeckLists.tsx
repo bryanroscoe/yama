@@ -69,7 +69,7 @@ export function DeckLists({ deck }: { deck: DeckView }) {
   return (
     <section className="deck-lists" aria-label="Lists for this deck">
       {here === "main" ? (
-        <Link to={`/decks/builds?savedDeck=${main.id}`}>Compare builds and playgroup variants</Link>
+        <Link to={`/decks/builds?savedDeck=${main.id}`}>Print swap cards between this deck and a build</Link>
       ) : (
         <>
           <p>

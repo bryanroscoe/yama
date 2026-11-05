@@ -7,14 +7,17 @@ import { planView } from "../plan/view";
 import "./deck-area.css";
 
 /** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
- *  tab since 2026-10-28; Research is labelled as what it is, notes agents keep for themselves. */
-export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
+ *  tab since 2026-10-28. Plans holds every plan since 2026-11-04 (Bryan: plans should be
+ *  "consistent and reusable for all users"): an agent's notes and copies of shared plans
+ *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. Swap
+ *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box. */
+export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string; admin?: boolean }[] = [
   { to: "/decks", label: "Decks", end: true },
   { to: "/sharing", label: "Sharing" },
-  { to: "/decks/builds", label: "Builds" },
-  { to: "/decks/plan", label: "Plans" },
-  { to: "/decks/research", label: "Agent notes" },
-  { to: "/decks/datasets", label: "Datasets" },
+  { to: "/decks/builds", label: "Swap cards" },
+  { to: "/decks/plan", label: "Plans", also: "/decks/research" },
+  // Only admins import datasets, so for anyone else the page could only ever be empty.
+  { to: "/decks/datasets", label: "Datasets", admin: true },
 ];
 
 /** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */
@@ -67,22 +70,37 @@ function useScrollHint<T extends HTMLElement>(content: unknown) {
 
 export function DeckTabs() {
   const toReview = useToReview();
+  const admin = useMe().data?.is_admin === true;
+  const { pathname } = useLocation();
   // The Plans count arrives after load and widens the track: measure again when it does.
   const track = useScrollHint<HTMLElement>(toReview);
   return (
     <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
-      {DECK_SECTIONS.map((s) => (
-        <NavLink key={s.to} to={s.to} end={s.end}>
-          {s.label}
-          {s.to === "/decks/plan" && toReview > 0 && (
-            <span className="deck-tab-badge num">
-              <span className="visually-hidden">, </span>
-              {toReview}
-              <span className="visually-hidden"> to review</span>
-            </span>
-          )}
-        </NavLink>
-      ))}
+      {DECK_SECTIONS.filter((s) => !s.admin || admin).map((s) => {
+        const label = (
+          <>
+            {s.label}
+            {s.to === "/decks/plan" && toReview > 0 && (
+              <span className="deck-tab-badge num">
+                <span className="visually-hidden">, </span>
+                {toReview}
+                <span className="visually-hidden"> to review</span>
+              </span>
+            )}
+          </>
+        );
+        // A section's other pages (a plan's note pages under Plans) mark it current too, for
+        // screen readers as well, which NavLink only does for its own path.
+        return s.also && pathname.startsWith(s.also) ? (
+          <Link key={s.to} to={s.to} className="active" aria-current="page">
+            {label}
+          </Link>
+        ) : (
+          <NavLink key={s.to} to={s.to} end={s.end}>
+            {label}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }
@@ -130,7 +148,7 @@ export function SubNav({ label, pages, also }: { label: string; pages: { to: str
 /**
  * The head of a Decks-tab page (design: DeckList, Lab, PlanOverview, Buy...).
  *
- * - Laptop: the page title on the left; Decks | Plans | Agent notes and the page's action on the right;
+ * - Laptop: the page title on the left; the Decks sections and the page's action on the right;
  *   the section's sub-nav underneath.
  * - Phone, a section's front page (`index`): "Decks" and the action, the control full width, the
  *   sub-nav. Phone, any other page: a back button and the page title (and `status`), nothing else.
@@ -157,7 +175,7 @@ export function AreaHead({
   status?: ReactNode;
   /** The tab this page belongs to, the phone title of its front page. */
   area?: string;
-  /** The tab's own sections control (Decks | Plans | Agent notes); null for a tab without one. */
+  /** The tab's own sections control (Decks | Sharing | Swap cards | Plans | Datasets); null for a tab without one. */
   sections?: ReactNode;
 }) {
   return (
