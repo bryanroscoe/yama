@@ -4,6 +4,8 @@ import { ComparePage } from "./Compare";
 import { LabHead } from "./LabLayout";
 import { TryPage } from "./Try";
 
+// Datasets are Lab evidence since 2026-11-04: they load with the Lab, inside its boundary.
+export { DatasetsPage } from "../datasets/Datasets";
 export { LabLayout } from "./LabLayout";
 export { PreconDetailPage } from "./PreconDetail";
 export { PreconsPage } from "./Precons";

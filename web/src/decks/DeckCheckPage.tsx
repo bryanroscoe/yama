@@ -6,7 +6,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
