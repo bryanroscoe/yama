@@ -22,7 +22,7 @@ export const NEWS: NewsEntry[] = [
       "Your own extras stay on your page only: sharing, your answers for the agent and the agent's store checks.",
       "Agent notes are now under Plans, beside the decks you're tracking. Dates now show on your own calendar.",
       "Builds is now Swap cards: builds are named plainly (Bracket 3: Upgraded), and the changes between two lists show with each plan's reason before you print them for the deck box.",
-      "Plans and Swap cards now say how they work, with buttons to get started: connect your assistant, import a plan file or save a copy of a shared plan.",
+      "Every Plans page, Swap cards and Suggested changes now says what it's for, where its contents come from and what to do there. What only an AI assistant connected to Yama can make (plans, swap proposals, suggested changes) says so, with a button to connect one.",
     ],
     link: { to: "/decks/plan", label: "Open Plans" },
   },

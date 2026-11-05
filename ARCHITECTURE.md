@@ -1664,6 +1664,11 @@ part of the MCP".
   name's Update from a list and its swap cards. Without a tracked deck, Plans still offers Trip
   (the shopping list) and Settings (connecting an assistant, shopping rules); Review, Buy, Prints
   and Spares appear once a deck is tracked. Datasets, which only admins can fill, shows in the
-  Decks sections for admins only (its address still works).
+  Decks sections for admins only (its address still works). Then (Bryan: "If they are mcp only
+  they should say so etc etc, nothin is user freindly") every Plans page (Review, Buy, Trip,
+  Prints, Spares, Settings) and Suggested changes say what the page is for, where what's on it
+  comes from and what to do there (`plan/howto.tsx`, one place for the copy). What only an
+  assistant connected through MCP makes (plans, swap proposals, suggested changes) is labelled
+  "Needs your assistant", says Yama doesn't make it by itself, and offers Connect your assistant.
 - Dates: `fmtDate` shows a moment (a time with its zone) on the reader's calendar; a bare date stays
   as written.
