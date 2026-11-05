@@ -123,6 +123,23 @@ Forge is wrong and phase is right in these; nothing to fix in phase.
 | 69 | [`target-for-each-player.md`](target-for-each-player.md) | "For each player, target X that player controls" reuses one target for every player | Turf War (1) | 1 | 1 | M | engine | 0.5 | Turf War |
 | 70 | [`blood-moon-urborg.md`](blood-moon-urborg.md) | Layer-4 dependency (613.8): Urborg's effect should wait for Blood Moon's. Already fixed | Blood Moon, Urborg, Tomb of Yawgmoth (hand-written scenario) (0) | 0 | 0 | - | engine | fixed | - |
 
+## Found by the LLM seat (llm-4, 2026-11-05)
+
+Specs from the rules reports a Claude Haiku seat filed while playing 40 Phase lab games (engine `phase-rs v0.119.0+yama-19be58d4`), not from the card sweep. Deck weight is counted as above (lines `1 <card name>` in the 198 corpus decks); score, size and kind as above. Confidence is the spec writer's: high when the Oracle text, the prompts and the Phase code agree, medium when the behaviour is clear but the cause or part of the case isn't.
+
+| # | Spec | Root cause | Cards | Deck weight | Size | Kind | Score | Confidence |
+|---|---|---|---|---|---|---|---|---|
+| L1 | [`x-minimum-ignored-when-offering-activation.md`](x-minimum-ignored-when-offering-activation.md) | "X can't be 0" ignored when listing activations: offered with mana only for X = 0, refused after choosing | Lair of the Hydra (1) | 4 | S | engine | 4 | high |
+| L2 | [`required-sacrifice-cost-with-nothing-to-sacrifice.md`](required-sacrifice-cost-with-nothing-to-sacrifice.md) | A required "sacrifice an artifact or creature" cost isn't checked before offering the cast | Deadly Dispute (1) | 4 | S | engine | 4 | high |
+| L3 | [`lethal-scheme-not-castable.md`](lethal-scheme-not-castable.md) | Lethal Scheme is never offered as a cast, with mana and targets; cause not located | Lethal Scheme (1) | 6 | M | engine | 3 | medium |
+| L4 | [`squad-payments-beyond-available-mana.md`](squad-payments-beyond-available-mana.md) | Squad keeps offering unaffordable payments, then refuses "stop paying" ("Cannot pay mana cost"); two games ended in an engine error | Powder Ganger, Securitron Squadron (2) | 2 | M | engine | 2 | high |
+| L5 | [`target-restrictions-not-enforced.md`](target-restrictions-not-enforced.md) (Part C added) | Target text dropped by the TargetOnly fallback: "another target player" hits creatures; "creature that's blocking equipped creature" accepts any creature | The Lord of Pain, Plasma Caster (2) | 2 | M | parser | 2 | high (The Lord of Pain), medium (Plasma Caster) |
+| L6 | [`activate-only-if-energy-paid-or-lost.md`](activate-only-if-energy-paid-or-lost.md) | "Activate only if you've paid or lost four or more {E} this turn" unparsed, and the ability stays activatable | Izzet Generatorium (1) | 1 | M | both | 0.5 | high |
+| L7 | [`cast-from-exile-for-energy-only-on-resolution.md`](cast-from-exile-for-energy-only-on-resolution.md) | Amped Raptor's cast-for-{E} becomes a standing permission on later turns, offered without enough energy | Amped Raptor (1) | 1 | M | engine | 0.5 | high |
+| L8 | [`llm-prompt-render-problems.md`](llm-prompt-render-problems.md) | Not a rules bug: phase-llm and Yama's object key misstate the position (player numbering first, then eliminations, stack kinds, ability text, optional costs, targets, delve, tokens) | - | - | L | prompt | - | high |
+
+Where the evidence lives: the run is commander-decks `data/sim/runs/llm-4/`. `phase-issues-triage.md` clusters all 342 reports into engine, prompt, model and unclear, and `phase-issues.json.gz` holds every report with the full prompt the model saw; the report numbers in these specs are 0-based positions in that list, and game ids (`llm-3-<deck>-p<pod>-g<game>`) are the run's own. The squad errors are in `phase-haiku-guide-results.jsonl`, `phase-haiku-guide.log` and `phase-haiku-guide-llm.jsonl.gz` (every LLM decision). The write-up for the whole run is commander-decks `docs/lab/llm-guides-issues-2026-11-05.md`. Seats in the specs are the engine's 0-based `PlayerId`; the game logs quoted from the prompts number players from 1 (see the first section of `llm-prompt-render-problems.md`). Every engine cluster in the triage held up. Its E4 (The Lord of Pain) and E5 (Plasma Caster) went into the existing `target-restrictions-not-enforced.md` as Part C, since Cruel Entertainment there shows the same "another target player" fault; the squad error (L4) had no report and was found from the two errored games. The 16 model clusters and the one unclear case (Apex Devastator, report 64) were not re-examined here.
+
 ## Merged specs
 
 Five triagers wrote specs in parallel, so some root causes were split across files. The verdict files still name the old files; they map as follows.
