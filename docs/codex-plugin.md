@@ -16,7 +16,7 @@ From the repository root, choose an output path outside the plugin directory:
 
 ```sh
 python3 scripts/test_package_yama_plugin.py
-python3 scripts/package_yama_plugin.py /absolute/task-directory/yama-0.1.5.zip
+python3 scripts/package_yama_plugin.py /absolute/task-directory/yama-0.1.6.zip
 ```
 
 The packager uses an explicit component allowlist, rejects symlinked sources,
@@ -107,7 +107,9 @@ The listing logo and composer icon are unmodified copies of
 near-black ground, white near peak and grey far peak and remain legible on light
 and dark host backgrounds. The manifest declares both theme variants explicitly
 and uses the existing Night table colors. Each skill's `agents/openai.yaml`
-references the same packaged assets and supplies a readable display name. No
+references byte-identical copies in its own skill's `assets/` folder using
+`./assets/...` paths and supplies a readable display name. Asset paths contain no
+parent traversal segments, as required by OpenAI's package validation. No
 card art, Wizards marks, new logo or generated branding is included.
 
 Check the actual saved listing and skill icons after upload. Valid relative
