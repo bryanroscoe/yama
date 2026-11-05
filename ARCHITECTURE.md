@@ -1714,3 +1714,42 @@ part of the MCP".
   with its picture, as the shared page's script always did (Scryfall's small image). Checkboxes and radios are
   a fixed 20 px box beside their words everywhere (the global field rule made a box grow with the
   room left in its row).
+
+### Printing with MakePlayingCards (2026-11-05)
+
+Bryan (2026-11-05): MPC Autofill's desktop app "saves a lot of files locally" and is "kind of
+terrible to use"; could Yama do it? Then "the current way sucks", and yes to a helper that fills
+in the order in his own browser.
+
+- **What MPC Autofill does.** Its desktop tool (github.com/chilli-axe/mpc-autofill, GPL-3.0) reads
+  an `order.xml` from mpcfill.com's editor (a Google Drive file id per image, its slots, stock,
+  project size, foil, card back), downloads every full image into a local folder, and drives a
+  Chrome window through MakePlayingCards' project editor with MPC's own page functions. MPC has no
+  API. Yama doesn't copy its code; it reimplements the steps.
+- **Yama picks the images.** `/decks/plan/prints/mpc` (`web/src/plan/MpcPrint.tsx`, from "Print with
+  MakePlayingCards" on the Prints page's next order) asks `POST /api/mpc/images` (`server/src/mpc.rs`)
+  for each card name and each double-faced card's back face. The server asks mpcfill.com's public
+  search with its default settings (every source in its order, no NSFW) and returns up to 12 images
+  per name, best first, with their source and dpi, plus card backs; answers are kept in memory for a
+  day, and only card names are sent. It goes through the server because mpcfill.com's API sends no
+  CORS headers. Signed in, 30 searches per 10 minutes per account, off with `YAMA_OFFLINE`. The page
+  shows MPC Autofill's own thumbnails (`img.mpcautofill.com`) at runtime with each source named, as
+  Scryfall images load; Yama stores no image. Choices, card stock and foil are kept in this
+  browser's storage (per viewer). `packages/core/src/plan/mpc.ts` builds the order (one slot per
+  print line, the smallest MPC project size, MPC's sizes as listed on 5 Nov 2026) and refuses one
+  with a card or back face without an image, so nothing prints blank.
+- **The Yama print helper** (`extension/mpc`, Chrome, loaded unpacked; its README has install and
+  use). The page sends the order with `postMessage`; the helper's script on yama.ing passes only
+  that page's message to its background worker, which checks it (known fields, Drive-id images only,
+  every slot filled once) and opens MPC. On MPC a panel waits for **Fill in**, then the helper walks
+  the editor (stock and size; card count and different images; upload each image once and place it
+  in its slots, retrying a slot until MPC shows it; the common card back plus double-faced backs; the
+  text steps skipped) and stops on Preview & Add to Cart. Images go from MPC Autofill's image service
+  (`cdn.mpcautofill.com`, 800 dpi, CORS open) straight into the MPC tab. MPC names an upload by the
+  SHA-1 of its bytes, so Continue skips what's in place. Signed in to MPC, it saves the project after
+  each face. It never ticks MPC's copyright confirmation or adds to the cart: that's the person's.
+- **Fallback.** Download order.xml writes MPC Autofill's own format for its desktop tool.
+- **Evidence.** On 5 Nov 2026 the helper, loaded in Chromium, filled a 3-card guest project (two
+  copies of one card, one double-faced back, a common card back) through to MPC's preview with every
+  slot right, and refused an order whose card back wasn't a Drive id; nothing was added to a cart.
+  MPC can change its pages without notice; the helper then stops and says where.

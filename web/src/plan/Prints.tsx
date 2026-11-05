@@ -165,6 +165,9 @@ function NextOrder({ view, plan, printer }: { view: PlanView; plan: ReturnType<t
           </p>
           <div className="row">
             <CopyButton text={orderText(n.lines.map((l) => ({ card: l.card, qty: 1 })))} label="Copy the next order" />
+            <Link className="button outline" to="/decks/plan/prints/mpc">
+              Print with MakePlayingCards
+            </Link>
           </div>
           <PrintLines lines={n.lines} view={view} byDeck={false} />
         </>
