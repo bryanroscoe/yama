@@ -20,7 +20,7 @@ export const NEWS: NewsEntry[] = [
     items: [
       "Plans shows one tile per deck, however many plans cover it. Each deck's page switches between its plans.",
       "Answer proposed changes right beside them on a deck's page, tracked decks included. Review now lists the decks with answers waiting.",
-      "Each change shows its cards' pictures, here and on shared plans. A note for your assistant says where it's saved.",
+      "Each change on a plan's page shows its cards' pictures, as shared plans do. A note for your assistant says where it's saved.",
       "Checkboxes are back to a normal size on every page.",
     ],
     link: { to: "/decks/plan", label: "Open Plans" },

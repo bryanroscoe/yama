@@ -76,9 +76,9 @@ describe("Review lists where answers wait", () => {
     // The deck in each list, a line per plan with answers waiting, each to where you answer them.
     expect(html.match(/review-list-deck/g)).toHaveLength(2);
     expect(html).toContain('href="/decks/research/owned-now/riders-of-rohan#changes-head"');
-    expect(html).toContain("Buildable now</span><span class=\"pill warn num\">4 to answer");
+    expect(html).toContain("Buildable now</span><span class=\"pill num quiet\">4 to answer");
     expect(html).toContain('href="/decks/plan/d/riders#proposed"');
-    expect(html).toContain("Your plan file</span><span class=\"pill warn num\">1 to answer");
+    expect(html).toContain("Your plan file</span><span class=\"pill num warn\">1 to answer");
     // A deck with nothing waiting isn't listed, and no swap is answered here.
     expect(html).not.toContain("Ahoy Mateys");
     expect(html).not.toContain("Archangel of Tithes");

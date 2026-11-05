@@ -514,6 +514,11 @@ a.choice-chip {
 .choice-chip-sub {
   font-weight: 400;
 }
+@media (max-width: 700px) {
+  .choice-chip {
+    min-height: var(--target);
+  }
+}
 .choice-chip:disabled {
   color: var(--dim);
   border-style: dashed;

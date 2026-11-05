@@ -664,17 +664,6 @@ fn card_line(name: &str, image: &str, n: i64) -> String {
     format!("<span class=\"share-card-line\">{count}{}</span>", card_ref(name, image))
 }
 
-/// A swap's card led by its picture, as the owner's page and a tracked deck's swaps show theirs:
-/// "[card] 2× Name". A card Yama has no image for keeps the picture's space, so names line up.
-fn swap_card(name: &str, image: &str, n: i64) -> String {
-    let thumb = if image.is_empty() {
-        "<span class=\"share-thumb\" aria-hidden=\"true\"></span>".to_string()
-    } else {
-        format!("<img class=\"share-thumb\" src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\">", e(&image.replacen("/normal/", "/small/", 1)))
-    };
-    format!("<span class=\"share-card-line has-thumb\">{thumb}{}</span>", card_line(name, image, n))
-}
-
 fn count_cards(n: i64) -> String {
     format!("{n} card{}", if n == 1 { "" } else { "s" })
 }
@@ -1398,7 +1387,7 @@ pub(super) async fn deck(
                 "<span class=\"dim\">Nothing</span>".to_string()
             } else {
                 let image = found(&images, name).and_then(|f| scryfall_image(f.4.clone())).unwrap_or_default();
-                swap_card(name, &image, n)
+                card_line(name, &image, n)
             }
         };
         for c in &changes {

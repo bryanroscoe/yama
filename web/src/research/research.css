@@ -109,7 +109,7 @@ a.note-pill-link:hover { box-shadow: inset 0 0 0 1px var(--dim); }
 .note-card-line { display: inline-flex; align-items: baseline; gap: 6px; }
 .note-card-name { display: inline-flex; align-items: baseline; gap: 6px; }
 .note-card-line.has-thumb { align-items: center; gap: 12px; }
-.note-thumb { flex: none; width: 56px; }
+.note-thumb { flex: none; width: 48px; }
 .note-qty { color: var(--dim); min-width: 1.5em; }
 .note-swap-owner { margin-top: 8px; }
 .note-swap-owner .research-item { border: 0; padding: 0; }

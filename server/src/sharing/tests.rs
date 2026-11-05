@@ -740,13 +740,8 @@ async fn shared_notes_price_the_cards_to_get() {
     let token = shared["share_token"].as_str().unwrap().to_string();
 
     // A deck page: each added card, how to get it and what it comes to.
-    sqlx::query("UPDATE cards SET image_normal = 'https://cards.scryfall.io/normal/front/s/t/stp.jpg' WHERE oracle_id = 'o-stp'").execute(&pool).await.unwrap();
     let deck = page(&app, &format!("/r/{token}/party")).await.2;
     for shown in [
-        // Each swap's cards lead with their pictures, at Scryfall's small size; one Yama
-        // doesn't know keeps the picture's space.
-        "<img class=\"share-thumb\" src=\"https://cards.scryfall.io/small/front/s/t/stp.jpg\" alt=\"\"",
-        "<span class=\"share-thumb\" aria-hidden=\"true\"></span>",
         "3 cards to add to the starting list",
         "1 to buy locally: about $0.50",
         "1 to print: about $0.30",

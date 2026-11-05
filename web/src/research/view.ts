@@ -136,9 +136,10 @@ export const deckView = (id: string, deck: string, c: { build: string; vs?: stri
   api<DeckView>(`/api/research/${encodeURIComponent(id)}/view/${encodeURIComponent(deck)}${query({ build: c.build, vs: c.vs, get: getParam(c.get), upto: c.upto })}`, { signal });
 
 /** A deck's recommended build, else its first: what the shared page prices by default. */
-/** Scryfall's small image for a normal one: a thumbnail needn't load the full card. */
+/** Scryfall's small image for a card's main one (`grid` for `thumb`, as Yama stores them now, or
+ *  the older `normal` for `small`): a thumbnail needn't load the full card. */
 export function smallOf(url: string | null | undefined): string | null {
-  return url ? url.replace("/normal/", "/small/") : null;
+  return url ? url.replace(/\/(grid|normal)\//, (_, size: string) => (size === "grid" ? "/thumb/" : "/small/")) : null;
 }
 
 export function recommendedOf(deck: ResearchDeck): Build | undefined {

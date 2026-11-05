@@ -1699,7 +1699,7 @@ part of the MCP".
   deck's page: a plan's changes take Want, Unsure or Don't want and a note (which says where it's
   saved: with the plan, private, read by your assistant through Yama's tools), and a tracked deck's
   proposals take the same (`PlanAnswer`, plus a different cut), so Review is the list of decks with
-  answers waiting, a line per plan, to where you give them. The changes tables, here and on the
-  shared page, lead each card with its picture (Scryfall's small image). Checkboxes and radios are
+  answers waiting, a line per plan, to where you give them. A plan's changes table leads each card
+  with its picture, as the shared page's script always did (Scryfall's small image). Checkboxes and radios are
   a fixed 20 px box beside their words everywhere (the global field rule made a box grow with the
   room left in its row).

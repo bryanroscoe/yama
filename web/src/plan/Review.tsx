@@ -97,7 +97,7 @@ export function Review() {
       {tracked.length > 0 && (
         <section className="plan-section" aria-labelledby="review-tracked">
           <h2 id="review-tracked" className="plan-section-head">Proposed for decks you track</h2>
-          <DeckRows rows={tracked} />
+          <DeckRows rows={tracked} urgent />
         </section>
       )}
       <section className="plan-section" aria-labelledby="review-plans">
@@ -123,8 +123,9 @@ interface Row {
   open: number;
 }
 
-/** Each deck with answers waiting, and a line per plan that has them, to its page. */
-function DeckRows({ rows }: { rows: Row[] }) {
+/** Each deck with answers waiting, and a line per plan that has them, to its page. `urgent`
+ *  counts are the tracked decks' proposals; a plan's changes can wait, so theirs are quiet. */
+function DeckRows({ rows, urgent = false }: { rows: Row[]; urgent?: boolean }) {
   return (
     <ul className="review-list">
       {rows.map((r) => (
@@ -135,7 +136,7 @@ function DeckRows({ rows }: { rows: Row[] }) {
             {r.plans.map((p) => (
               <Link key={p.key} to={p.to} className="review-list-plan">
                 <span>{p.label}</span>
-                <span className="pill warn num">{p.open} to answer</span>
+                <span className={`pill num${urgent ? " warn" : " quiet"}`}>{p.open} to answer</span>
               </Link>
             ))}
           </span>

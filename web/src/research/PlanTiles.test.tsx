@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { PlanBundle, PlanDeck } from "@yama/core/plan";
 import { buildToMake, deckGroups, fromLine, PlansForDeck, trackedNote } from "./PlanTiles";
 import { ChangesTable } from "./parts";
-import { planSummariesKey, type DeckPlanSummary, type PlanSummary } from "./view";
+import { planSummariesKey, smallOf, type DeckPlanSummary, type PlanSummary } from "./view";
 
 const plan = (over: Partial<DeckPlanSummary> & Pick<DeckPlanSummary, "key" | "name">): DeckPlanSummary => ({
   commander: "Éowyn", builds: [{ id: "b2", label: "Bracket 2" }, { id: "b3", label: "Bracket 3" }], recommended: "b2", preferred: null, to_answer: 0, art: null, identity: "RW", ...over,
@@ -78,6 +78,7 @@ describe("plans by deck", () => {
       </MemoryRouter>,
     );
     expect(html).toContain('src="https://cards.scryfall.io/small/front/s/r/sol.jpg"');
+    expect(smallOf("https://cards.scryfall.io/grid/front/s/r/sol.webp?1")).toBe("https://cards.scryfall.io/thumb/front/s/r/sol.webp?1");
     // A card with no picture keeps the picture's place, its name shown once.
     expect(html).toContain('<span class="thumb note-thumb" aria-hidden="true"></span>');
     expect(html.match(/>Mind Stone</g)).toHaveLength(1);
