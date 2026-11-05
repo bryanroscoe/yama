@@ -35,8 +35,7 @@
   gap: 4px;
   min-width: 0;
 }
+/* Only short choices show as pills (SeatChoice); longer ones are a dropdown. */
 .seat-choice-row {
   align-self: start;
-  flex-wrap: wrap;
-  border-radius: 22px;
 }

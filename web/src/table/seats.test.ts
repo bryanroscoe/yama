@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Playgroup } from "../api";
-import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, personPatch, renameSeat, seatDeckLabel, seatHolds, togglePerson, type SeatDraft } from "./seats";
+import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, commandersPatch, emptySeat, rebuildForGroup, stillHolds, withHandles, withoutGroup, fitSeatsToGroup, patchSeat, personPatch, renameSeat, seatDeckLabel, seatHolds, togglePerson, fitsSegmented, type SeatDraft } from "./seats";
 
 const me = { id: "u-me", display_name: "Bryan" };
 const mine: SeatDraft = { ...emptySeat(), name: "Bryan", userId: "u-me", deckId: "d1", deckVersionId: "v1", commanderName: "Atraxa" };
@@ -283,5 +283,18 @@ describe("setup draft identities", () => {
     expect(withDraftIds(seats)).toEqual(seats);
     const copies = withDraftIds([seats[0]!, seats[0]!]);
     expect(copies[0]!.draftId).not.toBe(copies[1]!.draftId);
+  });
+});
+
+describe("fitsSegmented", () => {
+  it("keeps two or three short choices as pills", () => {
+    expect(fitsSegmented([{ label: "Main list" }, { label: "Stock" }])).toBe(true);
+    expect(fitsSegmented([{ label: "Main list" }, { label: "Stock" }, { label: "Bracket 2" }])).toBe(true);
+  });
+  it("turns many or long choices into a dropdown", () => {
+    const lists = ["Main list", "Stock — Invisible Woman", "Bracket 2", "Bracket 3", "Bracket 4", "After prints", "Stock"].map((label) => ({ label }));
+    expect(fitsSegmented(lists)).toBe(false);
+    expect(fitsSegmented([{ label: "Main list" }, { label: "Stock — Invisible Woman" }])).toBe(false);
+    expect(fitsSegmented(["A", "B", "C", "D"].map((label) => ({ label })))).toBe(false);
   });
 });

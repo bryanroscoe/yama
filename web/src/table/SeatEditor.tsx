@@ -8,7 +8,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
-import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
+import { commandersPatch, fitsSegmented, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { dispatch } from "./store";
 import { isGuest } from "../guest";
@@ -17,9 +17,25 @@ import "./seats.css";
 
 const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
-/** A short row of choices under a seat's deck field (its lists, its commanders). */
+/**
+ * A choice under a seat's deck field (its lists, its commanders): a short row of pills when the
+ * options fit on a phone's line, otherwise a dropdown, so long names or many lists never wrap
+ * into a ragged block (Bryan, 4 Nov 2026).
+ */
 function SeatChoice({ label, options, value, onChange }: { label: string; options: { key: string; label: string }[]; value: string; onChange: (key: string) => void }) {
   const id = useId();
+  if (!fitsSegmented(options)) {
+    return (
+      <label className="seat-choice">
+        {label}
+        <select value={value} onChange={(e) => onChange(e.target.value)}>
+          {options.map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
+      </label>
+    );
+  }
   return (
     <div className="seat-choice">
       <span id={id} className="field-label">{label}</span>
