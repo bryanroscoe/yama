@@ -22,7 +22,7 @@
   }
   .import-get {
     position: sticky;
-    top: 16px;
+    top: calc(16px + env(safe-area-inset-top));
   }
 }
 .import-get,

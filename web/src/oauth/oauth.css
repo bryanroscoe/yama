@@ -6,6 +6,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
+  padding-top: max(24px, env(safe-area-inset-top));
 }
 .oauth-inner {
   width: min(520px, 100%);
