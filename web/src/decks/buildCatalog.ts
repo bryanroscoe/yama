@@ -1,5 +1,5 @@
 import type { PlanBundle, Slot } from "@yama/core/plan";
-import { bracketBuilds, slotSource, sourceContext, type PlanDeck, type SourceContext } from "@yama/core/plan";
+import { bracketBuilds, fmtDate, slotSource, sourceContext, type PlanDeck, type SourceContext } from "@yama/core/plan";
 import { ownedBuildProblems } from "../research/availability";
 import type { BuildNote, Item } from "../research/api";
 import type { DeckSummary } from "../api";
@@ -9,6 +9,8 @@ export interface BuildChoice {
   id: string; label: string; kind: BuildKind; bracket?: number;
   track?: "owned_now" | "aspirational" | "unverified";
   list?: string; savedDeck?: string; source: string; href: string; warnings: string[];
+  /** The plan (a note's title) a researched build comes from. */
+  note?: string;
   /** The build's known swaps (card out, card in), and where the card going in comes from. */
   pairs?: SwapPair[];
 }
@@ -54,9 +56,21 @@ export function configurationLabel(label: string | null, name: string, main = fa
   const text = label?.trim();
   if (main) return text && !/^(main|current)$/i.test(text) ? text : "Current";
   if (/^(stock|original)$/i.test(text ?? "")) return "Stock";
-  const bracket = text?.match(/^bracket\s+([1-5])(?:\s*[—:-]\s*(.+))?$/i);
-  if (bracket) return `[${bracket[1]}]${bracket[2] ? ` ${bracket[2]}` : ""}`;
+  const bracket = text?.match(/^(?:bracket\s+([1-5])|\[([1-5])\])(?:\s*[—:·-]?\s*(.+))?$/i);
+  if (bracket) return bracketLabel(Number(bracket[1] ?? bracket[2]), bracket[3]);
   return text || name;
+}
+
+/** "Bracket 2", or "Bracket 2: Lower friction": a build named by its bracket, then its own name. */
+export function bracketLabel(bracket: number | string, rest?: string | null): string {
+  const name = rest?.trim();
+  return `Bracket ${bracket}${name ? `: ${name}` : ""}`;
+}
+
+/** A researched build's own name without the bracket it starts with ("Bracket 3 · Upgraded",
+ *  "[2] Buildable now", "B4 - Combo"), so the label can say the bracket once. */
+export function buildName(label: string): string {
+  return label.replace(/^(?:\[\d\]|(?:Bracket\s*|B)\d)\s*[—:·-]?\s*/i, "").trim();
 }
 
 /** Keep sources distinct: an approved plan, independent research, and the sleeved list are not
@@ -96,9 +110,9 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
       f.choices.push({
         id: `research:${bundle.document.id}:${deck.key}:${b.id}`, kind: isBracket ? "bracket" : "legacy",
         track: b.acquisition?.track === "owned_now" ? ownershipProblems.length ? "unverified" : "owned_now" : "aspirational",
-        bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? `[${b.bracket ?? "?"}] Ownership not verified` : isBracket ? `[${b.bracket}] ${b.label.replace(/^(?:\[\d\]|(?:Bracket\s*|B)\d)\s*[—:-]?\s*/i, "") || "Research"}` : `Research starting snapshot (${bundle.updated_at.slice(0, 10)})`,
+        bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? bracketLabel(b.bracket ?? "?", "ownership not verified") : isBracket ? bracketLabel(b.bracket!, buildName(b.label)) : `Starting list (${fmtDate(bundle.updated_at)})`,
         list: b.list, pairs: (b.swaps ?? []).flatMap((s) => (s.card_out ? [{ out: s.card_out, in: s.card_in, where: researchWhere(s.acquisition), why: s.why ?? null }] : [])),
-        source: `${bundle.document.title}, revision ${bundle.revision}, ${bundle.updated_at.slice(0, 10)}`,
+        source: `From the plan “${bundle.document.title}”, saved ${fmtDate(bundle.updated_at)}`, note: bundle.document.title,
         href: `/decks/research/${encodeURIComponent(bundle.document.id)}/${encodeURIComponent(deck.key)}?build=${encodeURIComponent(b.id)}`,
         warnings: [...ownershipProblems, ...(b.prospective ? ["Future build: requires purchase or arrival; not an owned or installed deck."] : []), ...(b.risks ?? [])],
       });
@@ -111,13 +125,13 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
     const href = `/decks/plan/d/${encodeURIComponent(deck.key)}`;
     for (const state of ["stock", "now", "after"] as const) {
       const s = deck.states[state]; if (!s) continue;
-      f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Stock (plan list)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), pairs: ctx ? slotPairs(s.cards, ctx, deck) : [], source: `Plan v${plan?.head?.guide_version ?? "?"}, ${s.updated_at.slice(0, 10)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });
+      f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Stock (plan list)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), pairs: ctx ? slotPairs(s.cards, ctx, deck) : [], source: `From the ${deck.name} plan, ${fmtDate(s.updated_at)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });
     }
     if (deck.bracket && deck.states.after) {
       for (const b of bracketBuilds(deck.states.after.cards, deck.bracket)) {
         // A bag with the same number as the full target is not another build.
         if (f.choices.some((c) => c.id === `plan:${deck.key}:b${b.bracket}`)) continue;
-        f.choices.push({ id: `plan:${deck.key}:b${b.bracket}`, label: `[${b.bracket}] Plan (availability unchecked)`, kind: "bracket", track: "unverified", bracket: b.bracket, list: slotsText(b.cards), pairs: ctx ? slotPairs(b.cards, ctx, deck) : [], source: `Plan v${plan?.head?.guide_version ?? "?"}`, href: `${href}?tab=brackets`, warnings: [...b.warnings, ...(deck.bracket.callouts ?? [])] });
+        f.choices.push({ id: `plan:${deck.key}:b${b.bracket}`, label: bracketLabel(b.bracket, "tracked plan"), kind: "bracket", track: "unverified", bracket: b.bracket, list: slotsText(b.cards), pairs: ctx ? slotPairs(b.cards, ctx, deck) : [], source: `From the ${deck.name} plan; whether you have its cards isn't checked`, href: `${href}?tab=brackets`, warnings: [...b.warnings, ...(deck.bracket.callouts ?? [])] });
       }
     }
   }
@@ -127,7 +141,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
     const f = families.get(`saved:${root.id}`)!;
     const original = /^(stock|original)$/i.test(deck.configuration ?? "");
     const legacy = !!deck.parent_id && legacyConfiguration(deck.configuration);
-    f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Stock" : legacy ? `Legacy: ${deck.configuration}` : deck.configuration ?? deck.name, kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, track: "unverified", savedDeck: deck.id, source: `Saved ${deck.updated_at.slice(0, 10)}`, href: `/decks/${deck.id}`, warnings: [] });
+    f.choices.push({ id: `saved:${deck.id}`, label: !deck.parent_id ? "Current (saved deck)" : original ? "Stock" : legacy ? `Legacy: ${deck.configuration}` : configurationLabel(deck.configuration, deck.name), kind: !deck.parent_id ? "current" : original ? "original" : legacy ? "legacy" : "bracket", bracket: deck.bracket ?? undefined, track: "unverified", savedDeck: deck.id, source: `Your saved deck, ${fmtDate(deck.updated_at)}`, href: `/decks/${deck.id}`, warnings: [] });
   }
   return [...families.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }
@@ -177,4 +191,35 @@ export function duplexPages(swaps: ReturnType<typeof exactChanges>, rows = 6): (
     pages.push(front, back);
   }
   return pages;
+}
+
+export interface PairedChange { out: CardCopy; in: CardCopy; why: string | null; where: string | null }
+/**
+ * The exact changes between two lists, each cut paired with the card its plan puts in, where
+ * the builds' swaps say so, with the reason: the "to" build's own swap; a "from" build's swap
+ * undone; or both builds replacing the same starting card. What no swap explains pairs up in
+ * order. Every change in `swaps` is kept, once; ordered by the card going out.
+ */
+export function pairChanges(swaps: { out: CardCopy; in: CardCopy }[], from: SwapPair[] = [], to: SwapPair[] = []): PairedChange[] {
+  const key = (name: string) => name.split(" // ")[0]!.trim().toLowerCase();
+  const outs: (CardCopy | null)[] = swaps.map((s) => s.out);
+  const ins: (CardCopy | null)[] = swaps.map((s) => s.in);
+  const take = (list: (CardCopy | null)[], name: string) => {
+    const i = list.findIndex((c) => c && key(c.name) === key(name));
+    return i < 0 ? -1 : i;
+  };
+  const rows: PairedChange[] = [];
+  const pair = (outName: string, inName: string, why: string | null, where: string | null) => {
+    const o = take(outs, outName), n = take(ins, inName);
+    if (o < 0 || n < 0) return;
+    rows.push({ out: outs[o]!, in: ins[n]!, why, where });
+    outs[o] = null;
+    ins[n] = null;
+  };
+  for (const p of to) pair(p.out, p.in, p.why ?? null, p.where ?? null);
+  for (const p of from) pair(p.in, p.out, "Back to the starting list's card.", null);
+  for (const f of from) for (const t of to) if (key(f.out) === key(t.out)) pair(f.in, t.in, t.why ?? null, t.where ?? null);
+  const restOut = outs.filter((c): c is CardCopy => !!c), restIn = ins.filter((c): c is CardCopy => !!c);
+  restOut.forEach((c, i) => rows.push({ out: c, in: restIn[i]!, why: null, where: null }));
+  return rows.sort((a, b) => key(a.out.name).localeCompare(key(b.out.name)));
 }

@@ -9,16 +9,16 @@ import { buildNotesKey } from "../research/api";
 // Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
 vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
-const from: BuildChoice = { id: "a", label: "[2] Plan", kind: "bracket", list: "", source: "Plan v27", href: "/", warnings: [] };
-const to: BuildChoice = { ...from, id: "b", label: "[3] Plan" };
+const from: BuildChoice = { id: "a", label: "Bracket 2", kind: "bracket", list: "", source: "Plan v27", href: "/", warnings: [] };
+const to: BuildChoice = { ...from, id: "b", label: "Bracket 3" };
 const change = { out: { name: "Clever Concealment", board: "main" as const }, in: { name: "Teferi's Protection", board: "main" as const } };
 describe("duplex card content", () => {
   it("renders full card names with previews, exact directions, part number and source", () => {
     const pages = duplexPages([change]);
     const front = renderToStaticMarkup(<SwapFace face={pages[0]![0]!} name="Lorehold Spirit" from={from} to={to} parts={1} versions={[]} />);
     const back = renderToStaticMarkup(<SwapFace face={pages[1]![2]!} name="Lorehold Spirit" from={from} to={to} parts={1} versions={[]} />);
-    expect(front).toContain("[2] Plan → [3] Plan");
-    expect(back).toContain("[3] Plan → [2] Plan");
+    expect(front).toContain("Bracket 2 → Bracket 3");
+    expect(back).toContain("Bracket 3 → Bracket 2");
     expect(front).toContain("Front, part 1 of 1");
     expect(back).toContain("Back, part 1 of 1");
     expect(front.indexOf("Clever Concealment")).toBeLessThan(front.indexOf("Teferi"));
@@ -55,7 +55,7 @@ describe("build data privacy", () => {
     qc.setQueryData(buildNotesKey("owner-b"), []);
     const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter><BuildChoicesPage /></MemoryRouter></QueryClientProvider>);
     expect(html).not.toContain("Owner A private");
-    expect(html).toContain("No saved decks or researched bracket builds yet");
+    expect(html).toContain("No saved decks or plan builds yet");
     qc.clear();
   });
 });

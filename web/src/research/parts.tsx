@@ -12,12 +12,12 @@ import { cardsWord, type ChangeRow, type GetId, type ListCard, type ShopItem, ty
  */
 
 /** A row of choices, the chosen one filled: builds, how to get the cards. */
-export function Choices<T extends string>({ label, title, options, value, onChange }: { label: string; title?: string; options: { id: T; label: string }[]; value: T; onChange: (id: T) => void }) {
+export function Choices<T extends string>({ label, title, options, value, onChange }: { label: string; title?: string; options: { id: T; label: string; disabled?: boolean }[]; value: T; onChange: (id: T) => void }) {
   return (
-    <div className="note-choices" role="group" aria-label={label}>
+    <div className="choice-chips" role="group" aria-label={label}>
       {title && <span className="dim small">{title}</span>}
       {options.map((o) => (
-        <button key={o.id} type="button" className="note-chip" aria-pressed={o.id === value} onClick={() => onChange(o.id)}>
+        <button key={o.id} type="button" className="choice-chip" aria-pressed={o.id === value} disabled={o.disabled} onClick={() => onChange(o.id)}>
           {o.label}
         </button>
       ))}

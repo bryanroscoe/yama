@@ -40,11 +40,11 @@ export function targetOptions(deck: Pick<DeckView, "id" | "name" | "version_id">
     if (c.savedDeck || !c.list) continue;
     if (c.id.startsWith("plan:")) {
       const state = c.id.split(":").pop();
-      const label = state === "after" ? "Plan: after prints" : state === "now" ? "Plan: now" : state === "stock" ? "Plan: stock list" : `Plan: ${c.label.replace(/ \(availability unchecked\)$/, "")}`;
+      const label = state === "after" ? "Plan: after prints" : state === "now" ? "Plan: now" : state === "stock" ? "Plan: stock list" : `Plan: Bracket ${c.bracket ?? "?"}`;
       out.push({ id: c.id, label, group: "Plan", source: c.source, load: { list: c.list }, pairs: c.pairs ?? [] });
     } else if (c.id.startsWith("research:") && c.kind !== "legacy") {
       // A research note's starting snapshot is a dated baseline, not a build to check against.
-      out.push({ id: c.id, label: c.label, group: `Research: ${c.source.replace(/, revision \d+, .*$/, "")}`, source: c.source, load: { list: c.list }, pairs: c.pairs ?? [] });
+      out.push({ id: c.id, label: c.label, group: `Plan: ${c.note ?? c.source}`, source: c.source, load: { list: c.list }, pairs: c.pairs ?? [] });
     }
   }
   return out;

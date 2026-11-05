@@ -1644,5 +1644,14 @@ part of the MCP".
   (planner source `yama`) for Buy, Trip, prints and installed ticks, and the MCP plan tools work
   on it. The server side (plan creation from a note, MCP) is the "Create Public Deck Plans" thread's
   work; the plan page will offer "Track this build". People never see "promote" or "planner".
+- **Swap cards** (Bryan, same day: "this swaps page called builds is also odd"). The Decks section
+  and page `/decks/builds` are called Swap cards, after what they make. Builds are named once and
+  plainly: "Bracket 2: Buildable now", "Stock", "Current (saved deck)", never "[2] …"; a researched
+  build's source is its plan ("From the plan “…”, saved 31 Oct 2026") and the deck check groups
+  them as "Plan: <title>". The three groups read "With cards you have", "Upgrades" and "Saved
+  lists". The changes show before printing, as the plan pages' Add/Cut/Why table: each cut is
+  paired with the card its plan puts in and why (`pairChanges`: the target build's own swap, an
+  undone swap, or both builds replacing the same starting card; the rest pair in order), and the
+  printed cards use the same pairs.
 - Dates: `fmtDate` shows a moment (a time with its zone) on the reader's calendar; a bare date stays
   as written.

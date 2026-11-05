@@ -1,6 +1,6 @@
 # Yama
 
-Bracket builds and reversible deck-box inserts: `/decks/builds` brings saved Current/Stock lists, plan bracket builds and researched alternatives together. Older now/after-prints snapshots remain under Legacy. Choose two complete lists for 2.5 × 3.5 inch duplex swap cards.
+Swap cards and reversible deck-box inserts: Decks, Swap cards (`/decks/builds`) brings the deck as it is, its saved lists, tracked plans and plan builds together under plain names ("Bracket 3: Upgraded"). Pick two complete lists to see each change with its plan's reason, and print them as 2.5 × 3.5 inch duplex cards for the deck box. Older now/after-prints snapshots stay under Older snapshots.
 
 Yet Another Magic App: a free Magic: The Gathering app with a public precon reference and private accounts for playing and tracking Commander. It has a life counter for game night, card search, a collection (with Mythic Tools import), decks that know what you own, and playgroup stats. Online play against friends and AI is the next big piece; see [ARCHITECTURE.md](ARCHITECTURE.md).
 

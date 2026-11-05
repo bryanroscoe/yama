@@ -9,11 +9,12 @@ import "./deck-area.css";
 /** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
  *  tab since 2026-10-28. Plans holds every plan since 2026-11-04 (Bryan: plans should be
  *  "consistent and reusable for all users"): an agent's notes and copies of shared plans
- *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. */
+ *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. Swap
+ *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box. */
 export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string }[] = [
   { to: "/decks", label: "Decks", end: true },
   { to: "/sharing", label: "Sharing" },
-  { to: "/decks/builds", label: "Builds" },
+  { to: "/decks/builds", label: "Swap cards" },
   { to: "/decks/plan", label: "Plans", also: "/decks/research" },
   { to: "/decks/datasets", label: "Datasets" },
 ];
@@ -172,7 +173,7 @@ export function AreaHead({
   status?: ReactNode;
   /** The tab this page belongs to, the phone title of its front page. */
   area?: string;
-  /** The tab's own sections control (Decks | Sharing | Builds | Plans | Datasets); null for a tab without one. */
+  /** The tab's own sections control (Decks | Sharing | Swap cards | Plans | Datasets); null for a tab without one. */
   sections?: ReactNode;
 }) {
   return (

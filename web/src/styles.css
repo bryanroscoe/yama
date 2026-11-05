@@ -412,6 +412,42 @@ label > span.hint {
   outline-color: var(--ground);
   outline-offset: -4px;
 }
+/* A row of choices drawn as outlined pills, the chosen one filled: a plan's builds, how to get the
+   cards, the swap cards' brackets. Lighter than .segmented, for options that wrap. */
+.choice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+.choice-chips > .dim {
+  margin-right: 4px;
+}
+.choice-chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-weight: 700;
+  font-size: var(--t-label);
+}
+.choice-chip:hover {
+  border-color: var(--dim);
+  background: transparent;
+}
+.choice-chip[aria-pressed="true"],
+.choice-chip[aria-pressed="true"]:hover {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--ground);
+}
+.choice-chip:disabled {
+  color: var(--dim);
+  border-style: dashed;
+}
 /* The Decks | Plans | Lab control at the top of the Decks tab (components/DeckTabs.tsx). */
 .deck-sections {
   margin-bottom: 1rem;

@@ -8,7 +8,10 @@ import { ErrorText } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
-import { buildFamilies, buildTargets, resolveBuildFamily, duplexPages, exactChanges, printList, slotsText, type BuildChoice, type BuildFamily, type DuplexFace } from "./buildCatalog";
+import { buildFamilies, buildTargets, resolveBuildFamily, duplexPages, exactChanges, pairChanges, printList, slotsText, type BuildChoice, type BuildFamily, type DuplexFace } from "./buildCatalog";
+import { ChangesTable, Choices as Choices2, SectionHead } from "../research/parts";
+import type { ChangeRow } from "../research/view";
+import "../research/research.css";
 import "./build-choices.css";
 
 export function BuildChoicesPage() {
@@ -25,14 +28,14 @@ export function BuildChoicesPage() {
   const loading = notes.isPending || plan.pending || decks.isPending;
   return <main className="page build-choices">
     <div className="bc-controls">
-      <AreaHead title="Compare builds" back={{ to: "/decks", label: "Decks" }} />
-      <p>Compare two lists or print their swaps.</p>
+      <AreaHead title="Swap cards" index back={{ to: "/decks", label: "Decks" }} />
+      <p className="bc-intro">Pick a deck and two of its lists, such as the deck as it is and a plan's Bracket 3 build. Yama shows each card that changes and prints the changes as double-sided cards for the deck box: one side takes the deck there, the other brings it back.</p>
       <ErrorText error={notes.error || plan.error || decks.error} />
       {plan.offline && <p role="status">No connection. Showing the plan copy saved on this device.</p>}
       {loading ? <p>Loading your saved builds…</p> : <label>Deck <select value={family?.key ?? ""} onChange={(e) => setParams({ deck: e.target.value })}>
         {!family && <option value="">Choose a deck</option>}{families.map((f) => <option key={f.key} value={f.key}>{f.name}{families.filter((other) => other.name === f.name).length > 1 ? ` — ${f.detail}` : ""}</option>)}
       </select></label>}
-      {!loading && !families.length && <p>No saved decks or researched bracket builds yet.</p>}
+      {!loading && !families.length && <p>No saved decks or plan builds yet.</p>}
       {!loading && (key || savedDeck || planKey) && !family && <p>That deck has no build choices. Select another deck above.</p>}
     </div>
     {!loading && family && <FamilyChoices key={family.key} family={family} />}
@@ -40,18 +43,21 @@ export function BuildChoicesPage() {
 }
 
 const groups = ["current", "original", "bracket", "legacy"] as const;
+/** The lists to pick from, by kind. An option says the build first (a phone's select cuts off
+ *  the rest); where two have the same name, which plan each is from follows. */
 function Choices({ choices }: { choices: BuildChoice[] }) {
   return <>{groups.map((kind) => {
     const cs = choices.filter((c) => c.kind === kind).sort((a, b) => (a.bracket ?? 0) - (b.bracket ?? 0));
-    return cs.length > 0 && <optgroup key={kind} label={kind === "bracket" ? "Bracket builds" : kind === "legacy" ? "Legacy snapshots" : kind === "original" ? "Stock references" : "Current saved deck"}>{cs.map((c) => <option key={c.id} value={c.id}>{c.label} — {sourceAfterLabel(c)}</option>)}</optgroup>;
+    return cs.length > 0 && <optgroup key={kind} label={kind === "bracket" ? "Bracket builds" : kind === "legacy" ? "Older snapshots" : kind === "original" ? "Stock" : "The deck as it is"}>{cs.map((c) => <option key={c.id} value={c.id}>{c.label}{choices.filter((o) => o.label === c.label).length > 1 ? ` (${c.note ?? c.source})` : ""}</option>)}</optgroup>;
   })}</>;
 }
-/** The source without the label it repeats: "[2] Buildable now — decks from cards already at home",
- *  not "…Buildable now — Buildable now: decks…", which a phone's select cut off before the date. */
-function sourceAfterLabel(c: BuildChoice) {
-  const name = c.label.replace(/^\[\d\]\s*/, "");
-  return c.source.startsWith(`${name}: `) ? c.source.slice(name.length + 2) : c.source;
-}
+const TRACKS: { id: "owned_now" | "aspirational" | "saved"; label: string; about: string }[] = [
+  { id: "owned_now", label: "With cards you have", about: "Builds your agent checked against the cards you have: real copies and prints that have arrived. A card moving from another deck waits until that deck has its replacement." },
+  { id: "aspirational", label: "Upgrades", about: "Builds that need cards bought or printed, or a precon that hasn't arrived. Each plan says which." },
+  { id: "saved", label: "Saved lists", about: "Your deck's saved lists and tracked plans. Yama hasn't checked that you have their cards." },
+];
+/** Where a list lives: its plan, or the saved deck. */
+const openLabel = (c: BuildChoice) => (c.savedDeck ? "Open the deck" : c.id.startsWith("research:") ? "Open it in its plan" : "Open the tracked plan");
 function useChoiceList(choice?: BuildChoice) {
   const saved = useQuery({ queryKey: ["deck", choice?.savedDeck], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${encodeURIComponent(choice!.savedDeck!)}`, { signal }), enabled: !!choice?.savedDeck });
   // Never use a historical research baseline as today's sleeved deck.
@@ -72,9 +78,9 @@ function FamilyChoices({ family }: { family: BuildFamily }) {
   const left = useChoiceList(from), right = useChoiceList(to);
   const comparison = useMemo(() => {
     if (!left.text || !right.text) return {};
-    try { return { swaps: exactChanges(printList(left.text), printList(right.text)) }; }
+    try { return { swaps: pairChanges(exactChanges(printList(left.text), printList(right.text)), from?.pairs, to?.pairs) }; }
     catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
-  }, [left.text, right.text]);
+  }, [left.text, right.text, from?.pairs, to?.pairs]);
   const [rows, setRows] = useState(6);
   const pages = useMemo(() => comparison.swaps ? duplexPages(comparison.swaps, rows) : [], [comparison.swaps, rows]);
   const sheet = useRef<HTMLDivElement>(null);
@@ -94,35 +100,33 @@ function FamilyChoices({ family }: { family: BuildFamily }) {
     document.fonts.addEventListener("loadingdone", check);
     return () => { live = false; observer?.disconnect(); document.fonts.removeEventListener("loadingdone", check); };
   }, [pages, from, to]);
-  const trackControls = <div className="row bc-toggles" aria-label="Cards used by these builds">
-    <button className={track === "owned_now" ? "primary" : "outline"} onClick={() => setParams({ deck: family.key, track: "owned_now", from: from?.id ?? "" })}>Buildable now</button>
-    <button className={track === "aspirational" ? "primary" : "outline"} onClick={() => setParams({ deck: family.key, track: "aspirational", from: from?.id ?? "" })}>Aspirational</button>
-    <button className={track === "saved" ? "primary" : "outline"} onClick={() => setParams({ deck: family.key, track: "saved", from: from?.id ?? "" })}>Other saved versions</button>
-  </div>;
-  if (!from || !to) return <div className="bc-controls stack">{trackControls}<p>{track === "owned_now" ? "No verified owned-card build is saved for this deck yet. Future purchases and prints do not count as available copies." : track === "aspirational" ? "No aspirational bracket build is saved for this deck yet." : "No other saved versions are available for this deck yet."}</p></div>;
+  const about = TRACKS.find((t) => t.id === track)!.about;
+  const trackControls = <>
+    <Choices2 label="Which builds" options={TRACKS} value={track} onChange={(t) => setParams({ deck: family.key, track: t, from: from?.id ?? "" })} />
+    <p className="small dim bc-about">{about}</p>
+  </>;
+  if (!from || !to) return <div className="bc-controls stack">{trackControls}<p>{track === "owned_now" ? "No build for this deck has been checked against the cards you have yet. Cards still to buy, print or receive don't count." : track === "aspirational" ? "No upgrade build is saved for this deck yet." : "This deck has no other saved lists yet."}</p></div>;
   const parts = Math.max(1, Math.ceil((comparison.swaps?.length ?? 0) / rows));
+  const rowsOf = (comparison.swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: null, cut_image: null }));
   return <>
     <div className="bc-controls stack">
       {trackControls}
-      <p>{track === "owned_now" ? "Buildable-now targets use real cards and arrived prints already at home. Cross-deck moves follow the saved allocation scenario; install donor replacements before taking their cards." : track === "aspirational" ? "Upgrade targets may require buying cards, receiving precons or ordering more prints. Review the source for exact missing copies and dated offers." : "These saved lists, plans and historical references have no current portfolio availability audit. Comparing or printing them does not establish that their cards are available."}</p>
-      <div className="row bc-toggles">{[2, 3, 4].map((b) => {
-        const c = preferred(targets, b); return c ? <button key={b} className={to.bracket === b ? "primary" : "outline"} onClick={() => choose("to", c.id)}>[{b}] Bracket {b}</button> : <span key={b}>[{b}] No build saved yet</span>;
-      })}</div>
+      <Choices2 label="Bracket to print for" title="To" options={[2, 3, 4].map((b) => ({ id: String(b), label: preferred(targets, b) ? `Bracket ${b}` : `Bracket ${b}: none saved`, disabled: !preferred(targets, b) }))} value={String(to.bracket ?? "")} onChange={(b) => { const c = preferred(targets, Number(b)); if (c) choose("to", c.id); }} />
       <div className="bc-selects">
         <label>From<select value={from.id} onChange={(e) => choose("from", e.target.value)}><Choices choices={available} /></select></label>
         <label>To<select value={to.id} onChange={(e) => choose("to", e.target.value)}><Choices choices={targets} /></select></label>
       </div>
-      <div className="bc-selects">{[from, to].map((c, i) => <section key={i}><h2>{c.label}</h2><p className="small">{c.source}</p><Link to={c.href}>Review full list, guide and source</Link>{c.warnings.length > 0 && <details><summary>Build notes and limits ({c.warnings.length})</summary><ul>{c.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}</section>)}</div>
-      {family.choices.some((c) => c.kind === "bracket" && c.track === "unverified") && <details><summary>Other saved plans (availability not audited)</summary><ul>{family.choices.filter((c) => c.kind === "bracket" && c.track === "unverified").map((c) => <li key={c.id}><Link to={c.href}>{c.label}</Link></li>)}</ul></details>}
-      <p className="small">Saved bracket assessments; legality hasn't been rechecked. Printing doesn't mark swaps installed.</p>
+      <div className="bc-selects bc-sources">{[from, to].map((c, i) => <section key={i} className="bc-source"><h3>{c.label}</h3><p className="small dim">{c.source}</p><Link className="small" to={c.href}>{openLabel(c)}</Link>{c.warnings.length > 0 && <details><summary className="small">Notes and limits ({c.warnings.length})</summary><ul className="small">{c.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}</section>)}</div>
       <ErrorText error={left.error || right.error} />
       {comparison.error && <p role="alert" className="error">{comparison.error}</p>}
       {!left.text || !right.text ? <p>Loading complete lists…</p> : comparison.swaps && <>
-        <p><b>100 → 100 cards. {comparison.swaps.length} out, {comparison.swaps.length} in.</b> {parts} two-sided insert{parts === 1 ? "" : "s"}.</p>
-        <p>Print on US Letter, double-sided, <b>flip on long edge</b>, actual size (100%), headers and footers off. Cut on the lines. Each insert is 2.5 × 3.5 inches; the back reverses the same swaps. Test one sheet for your printer’s alignment first.</p>
-        <div className="row bc-print"><label>Swaps per insert <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><button className="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</button></div>
-        {overflow && <p className="error" role="alert">Some text does not fit. Choose fewer swaps per insert before printing.</p>}
-        <details><summary>Read the complete swap checklist</summary><ol>{comparison.swaps.map((s, i) => <li key={i}>Out: <CardRef name={s.out.name} />{s.out.board === "commander" && " (commander)"}. In: <CardRef name={s.in.name} />{s.in.board === "commander" && " (commander)"}.</li>)}</ol>{!comparison.swaps.length && <p>No card changes between these lists.</p>}</details>
+        <SectionHead id="bc-changes" eyebrow={`${comparison.swaps.length} out, ${comparison.swaps.length} in`}>The changes</SectionHead>
+        {comparison.swaps.length ? <ChangesTable rows={rowsOf} /> : <p className="dim">No card changes between these lists.</p>}
+        <p className="small dim">Bracket labels are the plans' own assessments; legality isn't rechecked here. Printing doesn't mark any swap as done.</p>
+        <SectionHead id="bc-print" eyebrow={`${parts} two-sided card${parts === 1 ? "" : "s"}`}>Print</SectionHead>
+        <p className="small">Print on US Letter, double-sided, <b>flip on long edge</b>, actual size (100%), headers and footers off. Cut on the lines. Each card is 2.5 × 3.5 inches; the back undoes the same swaps. Test one sheet for your printer's alignment first.</p>
+        <div className="row bc-print"><label>Swaps per card <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><button className="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</button></div>
+        {overflow && <p className="error" role="alert">Some text does not fit. Choose fewer swaps per card before printing.</p>}
       </>}
     </div>
     {pages.length > 0 && <div ref={sheet} className={`bc-sheet${overflow ? " bc-overflow" : ""}`}>

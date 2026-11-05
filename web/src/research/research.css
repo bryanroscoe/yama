@@ -71,11 +71,6 @@
 .note-section-head h2 { margin: 2px 0 0; font-family: var(--display); font-weight: 800; font-size: 2rem; line-height: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .note-vs select { min-height: 40px; }
 
-.note-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
-.note-choices > .dim { margin-right: 4px; }
-.note-chip { min-height: 40px; padding: 0 14px; border-radius: var(--r-pill); border: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700; font-size: var(--t-label); }
-.note-chip:hover { border-color: var(--dim); background: transparent; }
-.note-chip[aria-pressed="true"], .note-chip[aria-pressed="true"]:hover { background: var(--text); border-color: var(--text); color: var(--ground); }
 
 .note-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .note-pills .pill { font-size: var(--t-sm); padding: 4px 12px; }
