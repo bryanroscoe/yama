@@ -8,8 +8,10 @@ import "./deck-area.css";
 
 /** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
  *  tab since 2026-10-28; Research is labelled as what it is, notes agents keep for themselves. */
-export const DECK_SECTIONS: { to: string; label: string; end?: boolean }[] = [
-  { to: "/decks", label: "Decks", end: true },
+/** `also`: pages that belong to a section without sitting under its path (adding a deck and
+ *  suggested changes are part of the Decks list), so the section stays lit there. */
+export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string[] }[] = [
+  { to: "/decks", label: "Decks", end: true, also: ["/decks/import", "/decks/changes"] },
   { to: "/sharing", label: "Sharing" },
   { to: "/decks/builds", label: "Builds" },
   { to: "/decks/plan", label: "Plans" },
@@ -67,22 +69,36 @@ function useScrollHint<T extends HTMLElement>(content: unknown) {
 
 export function DeckTabs() {
   const toReview = useToReview();
+  const { pathname } = useLocation();
   // The Plans count arrives after load and widens the track: measure again when it does.
   const track = useScrollHint<HTMLElement>(toReview);
   return (
     <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
-      {DECK_SECTIONS.map((s) => (
-        <NavLink key={s.to} to={s.to} end={s.end}>
-          {s.label}
-          {s.to === "/decks/plan" && toReview > 0 && (
-            <span className="deck-tab-badge num">
-              <span className="visually-hidden">, </span>
-              {toReview}
-              <span className="visually-hidden"> to review</span>
-            </span>
-          )}
-        </NavLink>
-      ))}
+      {DECK_SECTIONS.map((s) => {
+        const label = (
+          <>
+            {s.label}
+            {s.to === "/decks/plan" && toReview > 0 && (
+              <span className="deck-tab-badge num">
+                <span className="visually-hidden">, </span>
+                {toReview}
+                <span className="visually-hidden"> to review</span>
+              </span>
+            )}
+          </>
+        );
+        // NavLink marks only its own path current, so a page that belongs here from elsewhere
+        // is marked by hand (as SubNav does).
+        return s.also?.includes(pathname) ? (
+          <Link key={s.to} to={s.to} className="active" aria-current="page">
+            {label}
+          </Link>
+        ) : (
+          <NavLink key={s.to} to={s.to} end={s.end}>
+            {label}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }

@@ -25,7 +25,7 @@ export function BuildChoicesPage() {
   const loading = notes.isPending || plan.pending || decks.isPending;
   return <main className="page build-choices">
     <div className="bc-controls">
-      <AreaHead title="Compare builds" back={{ to: "/decks", label: "Decks" }} />
+      <AreaHead title="Builds" index />
       <p>Compare two lists or print their swaps.</p>
       <ErrorText error={notes.error || plan.error || decks.error} />
       {plan.offline && <p role="status">No connection. Showing the plan copy saved on this device.</p>}

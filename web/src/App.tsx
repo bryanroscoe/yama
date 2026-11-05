@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { useQueryClient } from "@tanstack/react-query";
 import { afterSignIn, Login, useMe } from "./auth";
@@ -103,15 +103,19 @@ const TablePlay = tablePlay.page("TablePlay");
  */
 function Shell({ pending = false }: { pending?: boolean }) {
   const me = useMe();
-  const tabs = [
-    { to: "/", label: "Table", icon: <TableIcon />, end: true },
+  const { pathname } = useLocation();
+  // `also`: pages outside a tab's own path that still belong to it, so the tab stays lit there
+  // (saved games under Table, Sharing, a section of Decks, Mythic's return page under Group).
+  const tabs: { to: string; label: string; icon: ReactNode; end?: boolean; alpha?: boolean; also?: string[] }[] = [
+    { to: "/", label: "Table", icon: <TableIcon />, end: true, also: ["/table/"] },
     { to: "/play", label: "Play", icon: <PlayIcon />, alpha: true },
     { to: "/cards", label: "Cards", icon: <CardsIcon /> },
     { to: "/collection", label: "Collection", icon: <CollectionIcon /> },
-    { to: "/decks", label: "Decks", icon: <DecksIcon /> },
+    { to: "/decks", label: "Decks", icon: <DecksIcon />, also: ["/sharing"] },
     { to: "/lab", label: "Lab", icon: <LabIcon /> },
-    { to: "/group", label: "Group", icon: <GroupIcon /> },
+    { to: "/group", label: "Group", icon: <GroupIcon />, also: ["/mythic/"] },
   ];
+  const belongs = (also?: string[]) => !!also?.some((p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`));
   return (
     <div className="shell">
       <nav className="nav" aria-label="Main">
@@ -119,13 +123,26 @@ function Shell({ pending = false }: { pending?: boolean }) {
             block sticks to the window, so the account chip always sits at the window's foot. */}
         <div className="nav-inner">
           <Wordmark className="wordmark" />
-          {tabs.map((t) => (
-            <NavLink key={t.to} to={t.to} end={t.end}>
-              {t.icon}
-              <span>{t.label}</span>
-              {t.alpha && <AlphaTag />}
-            </NavLink>
-          ))}
+          {tabs.map((t) => {
+            const inner = (
+              <>
+                {t.icon}
+                <span>{t.label}</span>
+                {t.alpha && <AlphaTag />}
+              </>
+            );
+            // NavLink marks only its own path current, for screen readers too, so a page that
+            // belongs to the tab from elsewhere gets a plain link marked by hand.
+            return belongs(t.also) ? (
+              <Link key={t.to} to={t.to} className="active" aria-current="page">
+                {inner}
+              </Link>
+            ) : (
+              <NavLink key={t.to} to={t.to} end={t.end}>
+                {inner}
+              </NavLink>
+            );
+          })}
           {/* Admins only, and only in the laptop rail; phones reach it from Group, You. */}
           {!pending && me.data?.is_admin && (
             <NavLink to="/admin" className="nav-admin">
