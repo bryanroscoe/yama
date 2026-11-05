@@ -142,8 +142,11 @@ export function bagSource(bag: Pick<Bag, "in" | "from" | "got">, ctx: SourceCont
 export function slotSource(slot: Slot, ctx: SourceContext, deck?: PlanDeck, opts: SourceOptions = {}): string {
   switch (slot.kind) {
     case "stock":
-      return slot.board === "commander" ? "Your commander." : "Came in the precon.";
+      if (slot.board === "commander") return "Your commander.";
+      // A plan made from a note's build starts from the deck as it is, not from a precon.
+      return deck?.note ? "Already in the deck." : "Came in the precon.";
     case "owner": {
+      if (slot.got?.how === "owned") return gotText(slot.got, ctx, opts);
       const change = deck?.owner_changes.find((c) => c.in === slot.name);
       return opts.private !== false && change?.note ? `${change.note.replace(/\.$/, "")}.` : "Your own change before the plans.";
     }

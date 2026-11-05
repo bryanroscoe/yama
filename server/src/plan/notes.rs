@@ -136,10 +136,21 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
                 .await?;
             Some(mine.ok_or(AppError::NotFound("deck"))?)
         }
-        None => match existing.as_ref().and_then(|e| e.2.clone()) {
-            Some(linked) => Some(linked),
-            None => deck_by_name(&mut *conn, owner, text(deck, "name").unwrap_or_default().as_str()).await?,
-        },
+        None => {
+            // The deck already linked, while it's live; else the one deck with the note deck's name.
+            let linked = match existing.as_ref().and_then(|e| e.2.clone()) {
+                Some(id) => sqlx::query_scalar("SELECT id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
+                    .bind(id)
+                    .bind(owner)
+                    .fetch_optional(&mut *conn)
+                    .await?,
+                None => None,
+            };
+            match linked {
+                Some(id) => Some(id),
+                None => deck_by_name(&mut *conn, owner, text(deck, "name").unwrap_or_default().as_str()).await?,
+            }
+        }
     };
     let name = text(deck, "name").unwrap_or_else(|| req.deck_key.clone());
     let commander = json_text(&commanders(deck, build));
@@ -245,8 +256,9 @@ pub async fn stop(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<Value>
 
 /// After a note is saved: derive every plan tracking one of its builds again. A tracked deck or
 /// build the note no longer has stops being tracked (archived, its swaps retired) rather than
-/// keeping a plan the note doesn't describe. Returns how many plan decks changed.
-pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<usize> {
+/// keeping a plan the note doesn't describe. Returns how many plans now follow the note and how
+/// many stopped.
+pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, doc: &Value) -> AppResult<(usize, usize)> {
     let rows: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT id, note_deck_key, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND status != 'archived'",
     )
@@ -255,10 +267,11 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
     .fetch_all(&mut *conn)
     .await?;
     if rows.is_empty() {
-        return Ok(0);
+        return Ok((0, 0));
     }
     let stamp = now();
     let title = text(doc, "title").unwrap_or_else(|| note_id.to_string());
+    let mut stopped = 0;
     for (id, deck_key, build_id) in &rows {
         match find_deck(doc, deck_key).and_then(|d| Some((d, find_build(d, build_id)?))) {
             Some((deck, build)) => {
@@ -273,6 +286,7 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
                 derive(&mut *conn, owner, id, note_id, &title, deck_key, build, &stamp).await?;
             }
             None => {
+                stopped += 1;
                 sqlx::query("UPDATE plan_decks SET status = 'archived', updated_at = ? WHERE id = ? AND owner_id = ?")
                     .bind(&stamp)
                     .bind(id)
@@ -290,7 +304,7 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
         }
     }
     bump(&mut *conn, owner, &stamp).await?;
-    Ok(rows.len())
+    Ok((rows.len() - stopped, stopped))
 }
 
 /// Before an import writes `keys`: a plan made from a note that holds one of them moves to a free
@@ -333,6 +347,8 @@ struct Source {
     note: Option<String>,
     /// The note's store offer for a buy: becomes a dated quote.
     offer: Option<Value>,
+    /// A transfer's donor deck, by name, as the note writes it.
+    source_deck: Option<String>,
 }
 
 /// The note's own record for a card: the swap's acquisition, else the build's acquisition lists.
@@ -356,22 +372,44 @@ fn source_of(build: &Value, swap: &Value, card: &str) -> Source {
     let (section, item) = evidence(build, swap, card);
     let kind = item["kind"].as_str().map(str::trim).filter(|k| !k.is_empty()).or(section).unwrap_or("");
     let detail = text(item, "detail");
-    let owned = |detail: Option<String>| Source { src: "owned", store_label: None, got: Some(json!({"how": "owned", "detail": detail})), note: None, offer: None };
+    // A store offer may sit on the item itself or under its `quote`, as the note pages read it.
+    let offer = item.get("quote").filter(|q| q.is_object()).unwrap_or(item);
+    let owned = |detail: Option<String>| Source {
+        src: "owned",
+        store_label: None,
+        got: Some(json!({"how": "owned", "detail": detail})),
+        note: None,
+        offer: None,
+        source_deck: None,
+    };
     match kind {
         "owned" | "keep" => owned(detail),
         "arrived_print" => owned(Some(detail.unwrap_or_else(|| "Your print, arrived".into()))),
         "basic" => owned(Some(detail.unwrap_or_else(|| "A basic land".into()))),
-        "transfer" => owned(text(item, "deck").map(|d| format!("Moved from {d}")).or(detail)),
-        "buy" | "buys" | "local_buy" | "online_buy" => Source { src: "buy", store_label: text(item, "store"), got: None, note: detail, offer: Some(item.clone()) },
-        "print" | "prints" | "proxy" => Source { src: "print", store_label: None, got: None, note: detail, offer: None },
+        "transfer" => Source {
+            source_deck: text(item, "source_deck"),
+            ..owned(text(item, "source_deck").map(|d| format!("Moved from {d}")).or(detail))
+        },
+        "buy" | "buys" | "local_buy" | "online_buy" => {
+            Source { src: "buy", store_label: text(offer, "store"), got: None, note: detail, offer: Some(offer.clone()), source_deck: None }
+        }
+        "print" | "prints" | "proxy" => Source { src: "print", store_label: None, got: None, note: detail, offer: None, source_deck: None },
         "future_stock" | "projected_stock" | "sealed" => Source {
             src: "buy",
             store_label: None,
             got: None,
             note: Some(format!("Comes with {} if you buy it.", detail.unwrap_or_else(|| "a sealed product".into()))),
             offer: None,
+            source_deck: None,
         },
-        _ => Source { src: "buy", store_label: None, got: None, note: Some("The note doesn't say where this card comes from.".into()), offer: None },
+        _ => Source {
+            src: "buy",
+            store_label: None,
+            got: None,
+            note: Some("The note doesn't say where this card comes from.".into()),
+            offer: None,
+            source_deck: None,
+        },
     }
 }
 
@@ -405,6 +443,9 @@ struct SwapRow {
     card_in: String,
     card_out: Option<String>,
     source: Source,
+    /// A transfer from another of the owner's plan decks: its key, so "Swap in the prints" takes
+    /// the copy from that deck's box (`swap_in.rs` reads `moved` slots' `from_deck`).
+    from_deck: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -423,6 +464,17 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
     if total != 100 {
         warnings.push(format!("The build's list has {total} cards, not 100."));
     }
+
+    // The owner's other live plan decks by lower-case name and key, for transfers' donor decks.
+    let others: Vec<(String, String)> = sqlx::query_as("SELECT key, name FROM plan_decks WHERE owner_id = ? AND id != ? AND status != 'archived'")
+        .bind(owner)
+        .bind(plan_id)
+        .fetch_all(&mut *conn)
+        .await?;
+    let donor = |name: &str| -> Option<String> {
+        let want = name.trim().to_lowercase();
+        others.iter().find(|(k, n)| n.trim().to_lowercase() == want || k.as_str() == want).map(|(k, _)| k.clone())
+    };
 
     // Swaps, upserted by their stable key; ones the build no longer has are retired.
     let mut rows: Vec<SwapRow> = Vec::new();
@@ -472,7 +524,8 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         .bind(stamp)
         .execute(&mut *conn)
         .await?;
-        rows.push(SwapRow { key, card_in, card_out, source });
+        let from_deck = source.source_deck.as_deref().and_then(donor);
+        rows.push(SwapRow { key, card_in, card_out, source, from_deck });
     }
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
     sqlx::query(
@@ -552,8 +605,12 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
             .map(|(board, name, qty)| match by_in.get(&name.trim().to_lowercase()).filter(|r| swapped(&***r)) {
                 Some(r) => json!({
                     "name": name, "qty": qty, "board": board,
-                    "kind": match r.source.src { "owned" => "owner", "print" => "print", _ => "bought" },
-                    "replaces": r.card_out, "swap": r.key, "got": r.source.got,
+                    "kind": match (r.source.src, &r.from_deck) { (_, Some(_)) => "moved", ("owned", _) => "owner", ("print", _) => "print", _ => "bought" },
+                    "replaces": r.card_out, "swap": r.key, "got": r.source.got, "from_deck": r.from_deck,
+                    "source": (r.source.src == "buy").then(|| match &r.source.store_label {
+                        Some(store) => format!("To buy; the note found it at {store}."),
+                        None => "To buy.".to_string(),
+                    }),
                 }),
                 None => json!({"name": name, "qty": qty, "board": board, "kind": "stock"}),
             })
@@ -565,12 +622,13 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         out
     };
     let status = |r: &SwapRow| match r.source.src {
+        _ if r.from_deck.is_some() => "moved",
         "owned" => "done",
         "print" => "print",
         _ => "waiting",
     };
     let after_log: Vec<Value> = rows.iter().map(|r| json!({"swap": r.key, "status": status(r)})).collect();
-    let now_log: Vec<Value> = rows.iter().filter(|r| r.source.src == "owned").map(|r| json!({"swap": r.key, "status": "done"})).collect();
+    let now_log: Vec<Value> = rows.iter().filter(|r| r.source.src == "owned").map(|r| json!({"swap": r.key, "status": status(r)})).collect();
     let states = [
         ("stock", slots(&stock, &|_| false), Vec::new()),
         ("now", slots(&now_list, &|r| r.source.src == "owned"), now_log),

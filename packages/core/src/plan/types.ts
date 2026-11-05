@@ -135,6 +135,8 @@ export interface PlanDeck {
    * live main deck with this name. Null when there's none (bundles before 2026-10-28 lack it).
    */
   yama_deck?: YamaDeckRef | null;
+  /** A plan made from a note's build: which note, deck and build (bundle shape 8). Null otherwise. */
+  note?: { id: string; deck: string; build: string } | null;
   sort: number;
   updated_at: string;
   states: Partial<Record<StateName, PlanState>>;

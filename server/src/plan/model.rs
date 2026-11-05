@@ -928,13 +928,18 @@ fn check_got(
     let s = |f: &str| g.get(f).and_then(Value::as_str);
     let nullable_str = |f: &str| g.get(f).is_none_or(|v| v.is_null() || v.is_string());
     let Some(how) = s("how") else {
-        return Err(bad(path(), "got needs how: bought, pulled or deck"));
+        return Err(bad(path(), "got needs how: bought, pulled, deck or owned"));
     };
     match how {
         "bought" => match s("order") {
             None => Err(bad(format!("{}.order", path()), "a bought card needs the key of its order")),
             Some(o) if !orders.contains_key(o) => Err(bad(format!("{}.order", path()), format!("no order \"{o}\" in plan.orders"))),
             Some(_) => Ok(()),
+        },
+        // A card a note's build says you own (plans made from a note, plan/notes.rs).
+        "owned" => match g.get("detail") {
+            None | Some(Value::Null) | Some(Value::String(_)) => Ok(()),
+            Some(_) => Err(bad(format!("{}.detail", path()), "detail is text or null")),
         },
         "pulled" => {
             if s("product").is_none_or(|p| p.trim().is_empty()) {
@@ -968,7 +973,7 @@ fn check_got(
             }
             Ok(())
         }
-        other => Err(bad(format!("{}.how", path()), format!("unknown how \"{other}\"; expected bought, pulled or deck"))),
+        other => Err(bad(format!("{}.how", path()), format!("unknown how \"{other}\"; expected bought, pulled, deck or owned"))),
     }
 }
 

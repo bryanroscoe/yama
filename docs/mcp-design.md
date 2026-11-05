@@ -93,7 +93,7 @@ Write (staged):
 | Tool | Becomes, when applied |
 |---|---|
 | `edit_deck` | A new version of a Yama deck: add, remove, replace cards (one version per change, with a note) |
-| `track_build` | One build of a deck in a saved note becomes that deck's tracked plan, or switches or stops it (`build: null`), through the same code as the note page's "Track this build" (`server/src/plan/notes.rs`) |
+| `track_build` | One build of a deck in a saved note becomes that deck's tracked plan, or switches or stops it (`build: null`), through `POST /api/plan/from-note`'s code (`server/src/plan/notes.rs`), which the plan page's "Track this build" will call |
 | `propose_swap` | A planner idea for a plan deck (the existing `idea` op), so it goes through Review and the repo's pull |
 | `answer_review` | A review answer (`review` op) |
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |

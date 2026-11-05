@@ -21,14 +21,15 @@ fn note() -> Value {
                     {"id": "monitor", "card_in": "Thought Monitor", "card_out": "Glimmer of Genius", "why": "Cheap draw",
                      "acquisition": {"kind": "owned", "card": "Thought Monitor", "detail": "In the blue binder"}},
                     {"id": "signet", "card_in": "Arcane Signet", "card_out": "Mind Stone", "why": "Fixing",
-                     "acquisition": {"kind": "buy", "card": "Arcane Signet", "store": "Example Games", "price": 0.5,
-                                     "checked": "2026-11-01", "url": "https://example.com/signet"}},
+                     "acquisition": {"kind": "buy", "card": "Arcane Signet",
+                                     "quote": {"store": "Example Games", "price": 0.5, "checked": "2026-11-01", "url": "https://example.com/signet"}}},
                     {"id": "ring", "card_in": "Sol Ring", "card_out": "Commander's Sphere", "why": "Speed"}
                  ],
                  "acquisition": {"prints": [{"card": "Sol Ring"}]}},
                 {"id": "b4", "label": "Bracket 4", "bracket": 4,
                  "list": "Commander\n1 Saheeli\nDeck\n1 Rhystic Study\n98 Island",
-                 "swaps": [{"id": "rhystic", "card_in": "Rhystic Study", "card_out": "Island", "acquisition": {"kind": "owned"}}]}
+                 "swaps": [{"id": "rhystic", "card_in": "Rhystic Study", "card_out": "Island",
+                            "acquisition": {"kind": "transfer", "card": "Rhystic Study", "deck": "Energy", "source_deck": "Ahoy Mateys"}}]}
             ]
         }]
     })
@@ -103,7 +104,9 @@ async fn tracking_a_build_makes_a_plan_the_planner_pages_read() {
     assert_eq!(monitor["why"], "Cheap draw");
     let quote: (String, String, Option<f64>, String) =
         sqlx::query_as("SELECT store_label, checked_on, price, origin FROM plan_quotes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
-    assert_eq!(quote, ("Example Games".into(), "2026-11-01".into(), Some(0.5), "yama".into()), "the note's dated offer, never a 0 price");
+    assert_eq!(quote, ("Example Games".into(), "2026-11-01".into(), Some(0.5), "yama".into()), "the note's dated offer (under quote), never a 0 price");
+    let signet = b["swaps"].as_array().unwrap().iter().find(|s| s["key"] == "n|audit|energy|b3|signet").unwrap();
+    assert_eq!(signet["store_label"], "Example Games");
 }
 
 #[tokio::test]
@@ -145,11 +148,23 @@ async fn switching_saving_and_stopping_keep_one_plan_that_follows_the_note() {
     save_note(&app, &session, &note()).await;
     track(&app, &session, "b3", "op-1").await;
 
-    // Switch: same plan key, the earlier build's swaps retired (and kept).
+    // Switch: same plan key, the earlier build's swaps retired (and kept). Its transfer comes from
+    // another plan deck of theirs, so the list says which (swap_in reads it).
+    sqlx::query("INSERT INTO plan_decks (id, owner_id, key, name, source, commander, created_at, updated_at) VALUES ('donor', ?, 'ahoy', 'Ahoy Mateys', 'yama', '[]', 'now', 'now')")
+        .bind(&a)
+        .execute(&pool)
+        .await
+        .unwrap();
     let (status, t) = track(&app, &session, "b4", "op-2").await;
     assert_eq!(status, StatusCode::OK, "{t}");
     assert_eq!(t["plan_deck_key"], "energy");
     assert_eq!(live_swaps(&pool, &a).await, vec![("n|audit|energy|b4|rhystic".to_string(), "owned".to_string())]);
+    let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&got).unwrap(), json!({"how": "owned", "detail": "Moved from Ahoy Mateys"}), "the deck it leaves, not the one it joins");
+    let b = bundle(&app, &session).await;
+    let energy = b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap();
+    let rhystic = energy["states"]["after"]["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Rhystic Study").unwrap();
+    assert_eq!((rhystic["kind"].clone(), rhystic["from_deck"].clone()), (json!("moved"), json!("ahoy")), "{rhystic}");
     let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_swaps WHERE owner_id = ? AND retired_at IS NOT NULL").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(kept, 3);
 
@@ -160,10 +175,13 @@ async fn switching_saving_and_stopping_keep_one_plan_that_follows_the_note() {
     let why: String = sqlx::query_scalar("SELECT why FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(why, "The best draw engine");
 
-    // A build the note drops stops being tracked.
+    // A build the note drops stops being tracked, and saving says so.
     doc["decks"][0]["builds"].as_array_mut().unwrap().pop();
-    save_note(&app, &session, &doc).await;
-    let status: String = sqlx::query_scalar("SELECT status FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    let (status, saved) = send(&app, Method::POST, "/api/research", Some(&session), Some(doc.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!((saved["plans_updated"].clone(), saved["plans_stopped"].clone()), (json!(0), json!(1)), "{saved}");
+    assert!(saved["effect"].as_str().unwrap().contains("1 plan stopped"), "{saved}");
+    let status: String = sqlx::query_scalar("SELECT status FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(status, "archived");
     assert!(live_swaps(&pool, &a).await.is_empty());
 
@@ -173,7 +191,8 @@ async fn switching_saving_and_stopping_keep_one_plan_that_follows_the_note() {
     assert_eq!(live_swaps(&pool, &a).await.len(), 3, "the b3 swaps are restored");
     let (status, r) = send(&app, Method::DELETE, "/api/plan/from-note/energy", Some(&session), None).await;
     assert_eq!(status, StatusCode::OK, "{r}");
-    assert_eq!(bundle(&app, &session).await["decks"][0]["status"], "archived");
+    let b = bundle(&app, &session).await;
+    assert_eq!(b["decks"].as_array().unwrap().iter().find(|d| d["key"] == "energy").unwrap()["status"], "archived");
 }
 
 #[tokio::test]
@@ -307,4 +326,6 @@ async fn restoring_a_yama_backup_keeps_the_tracked_plan_in_place() {
     let rows: Vec<(String, String, Option<String>)> =
         sqlx::query_as("SELECT key, source, note_id FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(rows, vec![("energy".to_string(), "yama".to_string(), Some("audit".to_string()))], "restored onto the tracked plan, not beside it");
+    let quotes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_quotes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(quotes, 1, "the note's store offers stay with its plan");
 }

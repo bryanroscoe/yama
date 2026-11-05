@@ -718,7 +718,7 @@ pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value)
 }
 
 /// Track one build of a note's deck as that deck's plan, or stop tracking (`build` null). Applied
-/// through `plan::notes`, the same code as the page's "Track this build".
+/// through `plan::notes`, the same code as `POST /api/plan/from-note`.
 pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     use crate::plan::notes::{find_build, find_deck, note_document};
     let pool = &st.pool;

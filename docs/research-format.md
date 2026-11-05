@@ -41,7 +41,7 @@ note's tile (deck count, who it was copied from, up to four commanders' art). Al
 private or not. The owner's page adds sharing, answers and the agent's evidence when the note has it.
 
 **Tracking a build as the deck's plan (2026-11-04).** A note's deck becomes a plan when one of
-its builds is tracked: "Track this build" on the note page, `POST /api/plan/from-note`, or MCP
+its builds is tracked: `POST /api/plan/from-note` (the plan page's "Track this build" is coming next), or MCP
 `track_build` (staged). Its swaps, store offers and lists are derived from that build into the
 planner (ARCHITECTURE.md, "Plans from notes"), so Buy, Trip, prints and marks work on it; saving the
 note again updates them. Give swaps stable `id`s: a swap's marks and answers follow its id across
