@@ -229,6 +229,11 @@ pub async fn import_doc(pool: &SqlitePool, owner: &str, body: &[u8], opts: Optio
     report.counts.aliases = w.aliases(conn, &plan, &checked).await?;
     report.reviews = w.reviews(conn, &checked).await?;
     w.inbox_outcomes(conn, &checked).await?;
+    // A Yama backup may hold an older copy of a plan made from a note: the note decides, so every
+    // tracked note plan is derived again from its current note (swaps, quotes and lists).
+    if origin == "yama" {
+        super::notes::rederive_all(conn, owner).await?;
+    }
 
     report.orphan_answers = orphans(conn, owner).await?;
     report.existing_decks = sqlx::query_as(
@@ -1069,17 +1074,9 @@ impl Writer<'_> {
         swap_ids: &HashMap<String, String>,
         store_ids: &HashMap<String, String>,
     ) -> AppResult<i64> {
-        // Quotes on a plan made from a note belong to the note (plan/notes.rs), not to a backup.
-        sqlx::query(
-            "DELETE FROM plan_quotes WHERE owner_id = ? AND origin = ?
-               AND (swap_id IS NULL OR swap_id NOT IN (SELECT s.id FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id
-                                                       WHERE s.owner_id = ? AND d.note_id IS NOT NULL))",
-        )
-        .bind(self.owner)
-        .bind(self.origin)
-        .bind(self.owner)
-        .execute(&mut *conn)
-        .await?;
+        // Quotes on a plan made from a note are rewritten from the note after a backup restore
+        // (`notes::rederive_all`), so they go with the rest here.
+        sqlx::query("DELETE FROM plan_quotes WHERE owner_id = ? AND origin = ?").bind(self.owner).bind(self.origin).execute(&mut *conn).await?;
         for q in &plan.quotes {
             sqlx::query(
                 "INSERT INTO plan_quotes (id, owner_id, swap_id, card_name, kind, store_id, store_label, checked_on, result, in_stock,

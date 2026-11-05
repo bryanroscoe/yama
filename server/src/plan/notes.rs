@@ -307,6 +307,21 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
     Ok((rows.len() - stopped, stopped))
 }
 
+/// After a Yama backup restore: derive every tracked note plan again from its current note, so a
+/// backup's older copy of the swaps, quotes or lists never wins over the note.
+pub async fn rederive_all(conn: &mut SqliteConnection, owner: &str) -> AppResult<()> {
+    let notes: Vec<String> =
+        sqlx::query_scalar("SELECT DISTINCT note_id FROM plan_decks WHERE owner_id = ? AND note_id IS NOT NULL AND status != 'archived' ORDER BY note_id")
+            .bind(owner)
+            .fetch_all(&mut *conn)
+            .await?;
+    for id in notes {
+        let (doc, _) = note_document(&mut *conn, owner, &id).await?;
+        rederive(&mut *conn, owner, &id, &doc).await?;
+    }
+    Ok(())
+}
+
 /// Before an import writes `keys`: a plan made from a note that holds one of them moves to a free
 /// key (`<key>-note`), so publishing a plan file never collides with a tracked note. Its swaps are
 /// keyed by the note, not the deck key, so marks and answers stay with it.
@@ -482,50 +497,57 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
     for (i, s) in build["swaps"].as_array().into_iter().flatten().enumerate() {
         let Some(card_in) = text(s, "card_in") else { continue };
         let id = text(s, "id").unwrap_or_else(|| format!("swap-{}", i + 1));
-        let key = format!("n|{note_id}|{deck_key}|{build_id}|{id}");
-        if !seen.insert(key.clone()) {
+        let base = format!("n|{note_id}|{deck_key}|{build_id}|{id}");
+        if !seen.insert(base.clone()) {
             warnings.push(format!("Swap id \"{id}\" appears twice in the build; the second was left out."));
             continue;
         }
-        let source = source_of(build, s, &card_in);
         let card_out = text(s, "card_out");
-        let row = json!({
-            "role": if card_out.is_some() { "swap" } else { "optional" }, "src": source.src, "store_label": source.store_label,
-            "out": card_out, "in": card_in, "sort": i, "got": source.got, "why": text(s, "why"), "why_out": text(s, "why_out"),
-            "note": source.note,
-        });
-        sqlx::query(
-            "INSERT INTO plan_swaps (id, owner_id, plan_deck_id, ext_key, stage, role, src, store_label, out_name, in_name, sort, got,
-               why, why_out, note, content_hash, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(owner_id, ext_key) DO UPDATE SET plan_deck_id = excluded.plan_deck_id, stage = excluded.stage,
-               role = excluded.role, src = excluded.src, store_label = excluded.store_label, out_name = excluded.out_name,
-               in_name = excluded.in_name, sort = excluded.sort, got = excluded.got, why = excluded.why, why_out = excluded.why_out,
-               note = excluded.note, content_hash = excluded.content_hash, retired_at = NULL, updated_at = excluded.updated_at
-             WHERE plan_swaps.content_hash IS NOT excluded.content_hash OR plan_swaps.retired_at IS NOT NULL
-               OR plan_swaps.plan_deck_id != excluded.plan_deck_id",
-        )
-        .bind(new_id())
-        .bind(owner)
-        .bind(plan_id)
-        .bind(&key)
-        .bind(row["role"].as_str())
-        .bind(source.src)
-        .bind(&source.store_label)
-        .bind(&card_out)
-        .bind(&card_in)
-        .bind(i as i64)
-        .bind(source.got.as_ref().map(Value::to_string))
-        .bind(text(s, "why"))
-        .bind(text(s, "why_out"))
-        .bind(&source.note)
-        .bind(model::row_hash(&row))
-        .bind(stamp)
-        .bind(stamp)
-        .execute(&mut *conn)
-        .await?;
-        let from_deck = source.source_deck.as_deref().and_then(donor);
-        rows.push(SwapRow { key, card_in, card_out, source, from_deck });
+        let from_deck = source_of(build, s, &card_in).source_deck.as_deref().and_then(donor);
+        // One planner row per copy, as the planner counts swaps (Buy, prints, installs): the first
+        // keeps the swap's own key, so a single-copy swap's marks never move.
+        let qty = s["qty"].as_u64().unwrap_or(1).clamp(1, 99);
+        for copy in 1..=qty {
+            let key = if copy == 1 { base.clone() } else { format!("{base}#{copy}") };
+            let source = source_of(build, s, &card_in);
+            let sort = (i as i64) * 100 + copy as i64 - 1;
+            let row = json!({
+                "role": if card_out.is_some() { "swap" } else { "optional" }, "src": source.src, "store_label": source.store_label,
+                "out": card_out, "in": card_in, "sort": sort, "got": source.got, "why": text(s, "why"), "why_out": text(s, "why_out"),
+                "note": source.note,
+            });
+            sqlx::query(
+                "INSERT INTO plan_swaps (id, owner_id, plan_deck_id, ext_key, stage, role, src, store_label, out_name, in_name, sort, got,
+                   why, why_out, note, content_hash, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(owner_id, ext_key) DO UPDATE SET plan_deck_id = excluded.plan_deck_id, stage = excluded.stage,
+                   role = excluded.role, src = excluded.src, store_label = excluded.store_label, out_name = excluded.out_name,
+                   in_name = excluded.in_name, sort = excluded.sort, got = excluded.got, why = excluded.why, why_out = excluded.why_out,
+                   note = excluded.note, content_hash = excluded.content_hash, retired_at = NULL, updated_at = excluded.updated_at
+                 WHERE plan_swaps.content_hash IS NOT excluded.content_hash OR plan_swaps.retired_at IS NOT NULL
+                   OR plan_swaps.plan_deck_id != excluded.plan_deck_id",
+            )
+            .bind(new_id())
+            .bind(owner)
+            .bind(plan_id)
+            .bind(&key)
+            .bind(row["role"].as_str())
+            .bind(source.src)
+            .bind(&source.store_label)
+            .bind(&card_out)
+            .bind(&card_in)
+            .bind(sort)
+            .bind(source.got.as_ref().map(Value::to_string))
+            .bind(text(s, "why"))
+            .bind(text(s, "why_out"))
+            .bind(&source.note)
+            .bind(model::row_hash(&row))
+            .bind(stamp)
+            .bind(stamp)
+            .execute(&mut *conn)
+            .await?;
+            rows.push(SwapRow { key, card_in: card_in.clone(), card_out: card_out.clone(), source, from_deck: from_deck.clone() });
+        }
     }
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
     sqlx::query(
@@ -590,7 +612,7 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
                 put(&mut stock, out, board);
             }
         } else {
-            warnings.push(format!("{} isn't in the build's list, so its swap leaves stock unchanged.", r.card_in));
+            warnings.push(format!("The build's list has fewer {} than its swaps put in, so stock keeps the rest.", r.card_in));
         }
     }
     let mut now_list = stock.clone();

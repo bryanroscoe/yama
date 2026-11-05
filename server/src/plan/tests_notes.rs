@@ -319,7 +319,9 @@ async fn restoring_a_yama_backup_keeps_the_tracked_plan_in_place() {
     let backup = json!({
         "format": "yama-plan/1", "meta": {"app": "yama"},
         "plan": {"decks": [{"key": "energy", "name": "Energy", "commander": ["Saheeli"],
-                            "states": {"stock": {"cards": list}, "now": {"cards": list}, "after": {"cards": list}}}]}
+                            "states": {"stock": {"cards": list}, "now": {"cards": list}, "after": {"cards": list}}}],
+                 "swaps": [{"key": "n|audit|energy|b3|signet", "deck": "energy", "stage": "planned", "role": "swap", "src": "buy",
+                            "out": "Mind Stone", "in": "Arcane Signet", "why": "An older reason"}]}
     });
     let (status, r) = send(&app, Method::POST, "/api/plan/import", Some(&session), Some(backup)).await;
     assert_eq!(status, StatusCode::OK, "{r}");
@@ -327,5 +329,33 @@ async fn restoring_a_yama_backup_keeps_the_tracked_plan_in_place() {
         sqlx::query_as("SELECT key, source, note_id FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
     assert_eq!(rows, vec![("energy".to_string(), "yama".to_string(), Some("audit".to_string()))], "restored onto the tracked plan, not beside it");
     let quotes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_quotes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
-    assert_eq!(quotes, 1, "the note's store offers stay with its plan");
+    assert_eq!(quotes, 1, "the note's store offers, once each");
+    let why: String = sqlx::query_scalar("SELECT why FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b3|signet'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(why, "Fixing", "the note wins over the backup's older copy");
+    assert_eq!(live_swaps(&pool, &a).await.len(), 3);
+    let after = &bundle(&app, &session).await["decks"][0]["states"]["after"];
+    assert!(names(after).contains(&"Arcane Signet".to_string()), "lists derived again from the note");
+}
+
+#[tokio::test]
+async fn a_swap_of_several_copies_is_one_planner_row_per_copy() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    let doc = json!({
+        "schema": "yama-research/1", "id": "audit", "title": "Snow", "generated_at": "2026-11-04T00:00:00Z",
+        "decks": [{"key": "energy", "name": "Energy", "commander": "Saheeli", "builds": [{
+            "id": "b3", "label": "Snow", "list": "Commander\n1 Saheeli\nDeck\n3 Snow-Covered Island\n96 Island",
+            "swaps": [{"id": "snow", "card_in": "Snow-Covered Island", "card_out": "Island", "qty": 3, "acquisition": {"kind": "buy"}}]
+        }]}]
+    });
+    save_note(&app, &session, &doc).await;
+    let (status, t) = track(&app, &session, "b3", "op-1").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!((t["swaps"].clone(), t["warnings"].clone()), (json!(3), json!([])), "{t}");
+    let keys: Vec<String> = live_swaps(&pool, &a).await.into_iter().map(|(k, _)| k).collect();
+    assert_eq!(keys, vec!["n|audit|energy|b3|snow", "n|audit|energy|b3|snow#2", "n|audit|energy|b3|snow#3"]);
+    let d = &bundle(&app, &session).await["decks"][0];
+    let island = d["states"]["stock"]["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Island").unwrap();
+    assert_eq!(island["qty"], 99, "stock undoes all three copies");
+    assert!(!names(&d["states"]["stock"]).contains(&"Snow-Covered Island".to_string()));
 }
