@@ -154,7 +154,7 @@ export function GetChoices({ s, onChange }: { s: ShoppingData; onChange: (g: Get
 
 /** The changes, as a table to work through with the deck box open. `extra` adds a cell per row
  *  (the owner's answers). */
-export function ChangesTable({ rows, extra }: { rows: ChangeRow[]; extra?: (row: ChangeRow, i: number) => ReactNode }) {
+export function ChangesTable({ rows, extra }: { rows: ChangeRow[]; extra?: (row: ChangeRow) => ReactNode }) {
   return (
     <div className="note-table-wrap">
       <table className="note-table note-changes">
@@ -175,7 +175,7 @@ export function ChangesTable({ rows, extra }: { rows: ChangeRow[]; extra?: (row:
                 {c.notes.map((n) => (
                   <span key={n} className="dim note-row-note">{n}</span>
                 ))}
-                {extra?.(c, i)}
+                {extra?.(c)}
               </td>
             </tr>
           ))}

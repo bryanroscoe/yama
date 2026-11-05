@@ -193,7 +193,7 @@ function FamilyPage({ family, status }: { family: BuildFamily; status: ReactNode
         {to.warnings.length > 0 && <details className="note-fold"><summary>Notes and limits for this build ({to.warnings.length})</summary><ul className="small">{to.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}
 
         <section className="note-section" aria-labelledby="bc-changes">
-          <SectionHead id="bc-changes" eyebrow={swaps ? `${swaps.length} in, ${swaps.length} out` : undefined} after={<label className="note-vs"><span className="visually-hidden">Compare with</span><select value={from.id} onChange={(e) => pick("from", e.target.value)}><Choices choices={all.filter((c) => c.id !== to.id)} /></select></label>}>Changes from</SectionHead>
+          <SectionHead id="bc-changes" eyebrow={swaps ? `${swaps.length} in, ${swaps.length} out` : undefined} after={<label className="note-vs"><span className="visually-hidden">Compare with</span><select value={from.id} onChange={(e) => pick("from", e.target.value)}><Choices choices={all.filter((c) => c.id !== to.id)} /></select></label>}>Changes from<span className="visually-hidden"> {from.label}</span></SectionHead>
           <p className="small dim">{from.source}. <Link to={from.href}>{openLabel(from)}</Link></p>
           <ErrorText error={left.error || right.error} />
           {comparison.error && <p role="alert" className="error">{comparison.error}</p>}

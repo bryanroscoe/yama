@@ -782,7 +782,7 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(printed.contains(&format!("<a class=\"share-deck-main\" href=\"/r/{token}/party?get=print\">")), "deck tiles keep the choice");
     assert!(page(&app, &format!("/r/{token}?build=b3&get=print")).await.2.contains(&format!("<a href=\"/r/{token}/party?build=b3&amp;get=print\">Party Time</a>")));
     assert_eq!(page(&app, &format!("/r/{token}?get=steal")).await.0, StatusCode::NOT_FOUND);
-    assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
+    assert!(body.contains("<td class=\"num\">1, $0.30</td>"), "the print column");
     // One build across the decks; one no deck has is not found.
     let (status, _, b3) = page(&app, &format!("/r/{token}?build=b3")).await;
     assert_eq!(status, StatusCode::OK);
@@ -802,7 +802,7 @@ async fn shared_notes_price_the_cards_to_get() {
     assert_eq!(page(&app, &format!("/r/{token}?builds=some")).await.0, StatusCode::NOT_FOUND);
     // Nalia once more, two Signets, one Swords; the Stick Together b2 keeps is the precon's.
     assert!(all.contains("4 cards to get across 1 deck<") && all.contains("<td>All 2 builds<br><small>") && all.contains("2 to buy locally: about $1.00"), "{all}");
-    assert!(all.contains(&format!("<a href=\"/r/{token}/party?build=b2\">Bracket 2</a> · <a href=\"/r/{token}/party?build=b3\">Bracket 3</a>")), "each build counted links to its page");
+    assert!(all.contains(&format!("<a href=\"/r/{token}/party?build=b2\">Bracket 2</a>, <a href=\"/r/{token}/party?build=b3\">Bracket 3</a>")), "each build counted links to its page");
     assert!(all.contains("id=\"shop-buy\" readonly rows=\"8\" aria-label=\"Buy locally (2 cards)\">2 Arcane Signet\n</textarea>"), "{all}");
     assert!(all.contains("// Party Time: Bracket 2\n") && all.contains("// Party Time: Bracket 3\n") && all.contains("aria-label=\"Every list (2)\""), "{all}");
     assert!(all.contains(">All builds</a>") && all.contains("aria-current=\"page\" href=\"/r/"), "{all}");
@@ -890,6 +890,11 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     assert_eq!(deck["cards"][0]["name"], "Nalia de'Arnise");
     assert_eq!(deck["cards"][0]["board"], "commander");
     assert_eq!(deck["art"]["image"], "https://cards.scryfall.io/art_crop/nalia.jpg");
+    // Each row from the starting list names its swap, for the owner's answer beside it.
+    assert_eq!(deck["changes"][1]["swap"], "signet");
+    assert!(deck["text"].as_str().unwrap().starts_with("Commander\n1 Nalia de'Arnise\n\nDeck\n"));
+    assert_eq!(view["lists"][0]["deck"], "party");
+    assert!(view["lists"][0]["text"].as_str().unwrap().contains("98 Plains"));
     // Comparing a build with itself, an unknown build or deck: not found.
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?vs=b3", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?build=b9", Some(&bt), None).await.0, StatusCode::NOT_FOUND);

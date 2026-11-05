@@ -51,6 +51,8 @@ export interface Art {
 }
 
 export interface NoteView {
+  /** Every list the choice covers, in the standard text format, from the server. */
+  lists: { deck: string; build: string; text: string }[];
   which: "recommended" | "build" | "all";
   build: string | null;
   decks: { key: string; art: Art | null; identity: string | null; label: string | null; builds: { id: string; label: string }[]; totals: Totals }[];
@@ -65,6 +67,8 @@ export interface ChangeRow {
   notes: string[];
   add_image: string | null;
   cut_image: string | null;
+  /** The build's swap this row is, when the changes are from the starting list. */
+  swap?: string | null;
 }
 
 export interface ListCard {
@@ -87,6 +91,8 @@ export interface DeckView {
   cards: ListCard[];
   cut: boolean;
   unknown: string[];
+  /** The list in the standard text format (Commander, then Deck), as the shared page gives it. */
+  text: string;
 }
 
 /** The note page's choices: which builds to price (`build` id, `all`, else each deck's

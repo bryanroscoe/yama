@@ -195,3 +195,9 @@ describe("swap cards pair each cut with what its plan puts in", () => {
     expect(rows.map((r) => r.out.name)).toEqual(["Forest", "Odd A", "Ponder", "Sol Ring"]);
   });
 });
+
+it("pairs every copy a swap of several copies changes", () => {
+  const swaps = exactChanges(printList(list("Leader", 99)), printList(list("Leader", 97, "2 Island")));
+  const rows = pairChanges(swaps, [], [{ out: "Plains", in: "Island", why: "Blue.", qty: 2 }]);
+  expect(rows.map((r) => [r.out.name, r.in.name, r.why])).toEqual([["Plains", "Island", "Blue."], ["Plains", "Island", "Blue."]]);
+});

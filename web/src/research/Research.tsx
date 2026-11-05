@@ -15,7 +15,7 @@ import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from 
 import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
 import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
-import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, plainList, recommendedOf, type GetId, type Totals } from "./view";
+import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
 
@@ -93,7 +93,6 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
   const v = view.data;
   const tiles = new Map(v?.decks.map((d) => [d.key, d]));
   const artists = doc.decks.map((d) => tiles.get(d.key)?.art?.artist);
-  const shownBuilds = (d: ResearchDeck): Build[] => (all ? d.builds : build ? d.builds.filter((b) => b.id === build) : [recommendedOf(d)].filter((b): b is Build => !!b));
   const retired = bundle.reviews.filter((r) => !bundle.target_hashes[r.target]);
   const guideNames = [...new Set(doc.decks.flatMap((d) => d.builds.flatMap((b) => listEntries(b.list).map((r) => r.name))))];
   return (
@@ -229,7 +228,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         )}
       </section>
 
-      <NoteLists doc={doc} builds={shownBuilds} onAll={() => set({ build: null, builds: "all" })} />
+      {v && <NoteLists doc={doc} lists={v.lists} onAll={() => set({ build: null, builds: "all" })} />}
 
       <PrintedWishlist scenarios={doc.scenarios} />
       <AgentShopping scenarios={doc.scenarios} defaultId={doc.default_scenario_id} />
@@ -267,10 +266,10 @@ function TotalCells({ t }: { t: Totals }) {
     <>
       <td className="num">{t.cards}</td>
       <td className="num">
-        {t.buy} · {buy}
+        {t.buy}, {buy}
       </td>
       <td className="num">
-        {t.print} · {usd(t.print_cost)}
+        {t.print}, {usd(t.print_cost)}
       </td>
       <td className="num">{money(t.worth)}</td>
       <td className="num">{money(t.cost)}</td>
@@ -279,8 +278,12 @@ function TotalCells({ t }: { t: Totals }) {
 }
 
 /** Every list the shopping list's build choice covers, each to copy, and all of them as one text. */
-function NoteLists({ doc, builds, onAll }: { doc: ResearchBundle["document"]; builds: (d: ResearchDeck) => Build[]; onAll: () => void }) {
-  const lists = doc.decks.flatMap((d) => builds(d).map((b) => ({ d, b, title: `${d.name}: ${b.label}`, text: plainList(b.list) })));
+function NoteLists({ doc, lists: given, onAll }: { doc: ResearchBundle["document"]; lists: NoteView["lists"]; onAll: () => void }) {
+  const lists = given.flatMap((l) => {
+    const d = doc.decks.find((x) => x.key === l.deck);
+    const b = d?.builds.find((x) => x.id === l.build);
+    return d && b ? [{ d, b, title: `${d.name}: ${b.label}`, text: l.text }] : [];
+  });
   if (!lists.length) return null;
   const every = lists.map((l) => `// ${l.title}\n${l.text}`).join("\n");
   return (
@@ -453,7 +456,10 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   const problems = ownedBuildProblems(build);
   const others = deck.builds.filter((b) => b.id !== build.id);
   const copies = (side: "add" | "cut") => v?.changes.filter((c) => c[side]).reduce((n, c) => n + c.n, 0) ?? 0;
-  const download = () => void saveFile(new Blob([plainList(build.list)], { type: "text/plain" }), `${deck.key}-${build.id}.txt`);
+  // The server's standard text when it's here (it reads every list format the shared page does);
+  // the list as saved until then.
+  const listText = v && v.build === build.id ? v.text : build.list;
+  const download = () => void saveFile(new Blob([listText], { type: "text/plain" }), `${deck.key}-${build.id}.txt`);
   const size = buildAccounting(build).total;
 
   return (
@@ -649,7 +655,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
               )
             }
           >
-            Changes from{others.length > 0 ? "" : " the starting list"}
+            Changes from{others.length > 0 ? <span className="visually-hidden"> {vs?.label ?? "the starting list"}</span> : " the starting list"}
           </SectionHead>
           <ErrorText error={view.error} />
           {!v && view.isPending && <p className="dim">Loading the changes…</p>}
@@ -658,10 +664,12 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
             <ChangesTable
               rows={v.changes}
               extra={
-                vs
+                // Only on this build's own rows (never the previous build's, shown while this one
+                // loads), and only from the starting list, where each row is one of its swaps.
+                vs || view.isPlaceholderData || v.build !== build.id || v.vs
                   ? undefined
-                  : (_, i) => {
-                      const swap = build.swaps?.[i];
+                  : (row) => {
+                      const swap = build.swaps?.find((x) => x.id === row.swap);
                       if (!swap) return null;
                       const target = targetForSwap(deck.key, build.id, swap.id);
                       const answer = bundle.reviews.find((r) => r.target === target);
@@ -700,7 +708,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
               Download the list
             </button>
           </div>
-          <CopyBox title="Standard list (Commander, then Deck)" text={plainList(build.list)} rows={12} />
+          <CopyBox title="Standard list (Commander, then Deck)" text={listText} rows={12} />
           {v && <CardViews cards={v.cards} />}
           {v?.cut && <p className="small dim">Only the first 300 lines of this list are shown.</p>}
           {!!v?.unknown.length && <p className="small dim">Not in Yama's card data: {v.unknown.join(", ")}.</p>}

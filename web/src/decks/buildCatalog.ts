@@ -14,7 +14,7 @@ export interface BuildChoice {
   /** The build's known swaps (card out, card in), and where the card going in comes from. */
   pairs?: SwapPair[];
 }
-export interface SwapPair { out: string; in: string; where?: string | null; why?: string | null }
+export interface SwapPair { out: string; in: string; where?: string | null; why?: string | null; /** Copies swapped; one when absent. */ qty?: number }
 
 /** Where a research swap's card comes from, from its acquisition record, without copy ids. */
 export function researchWhere(a: Item | undefined): string | null {
@@ -115,7 +115,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
         id: `research:${bundle.document.id}:${deck.key}:${b.id}`, kind: isBracket ? "bracket" : "legacy",
         track: b.acquisition?.track === "owned_now" ? ownershipProblems.length ? "unverified" : "owned_now" : "aspirational",
         bracket: isBracket ? b.bracket! : undefined, label: ownershipProblems.length ? bracketLabel(b.bracket ?? "?", "ownership not verified") : isBracket ? bracketLabel(b.bracket!, buildName(b.label)) : `Starting list (${fmtDate(bundle.updated_at)})`,
-        list: b.list, pairs: (b.swaps ?? []).flatMap((s) => (s.card_out ? [{ out: s.card_out, in: s.card_in, where: researchWhere(s.acquisition), why: s.why ?? null }] : [])),
+        list: b.list, pairs: (b.swaps ?? []).flatMap((s) => (s.card_out ? [{ out: s.card_out, in: s.card_in, where: researchWhere(s.acquisition), why: s.why ?? null, qty: s.qty }] : [])),
         source: `From the plan “${bundle.document.title}”, saved ${fmtDate(bundle.updated_at)}`, note: bundle.document.title,
         href: `/decks/research/${encodeURIComponent(bundle.document.id)}/${encodeURIComponent(deck.key)}?build=${encodeURIComponent(b.id)}`,
         warnings: [...ownershipProblems, ...(b.prospective ? ["Future build: requires purchase or arrival; not an owned or installed deck."] : []), ...(b.risks ?? [])],
@@ -220,9 +220,11 @@ export function pairChanges(swaps: { out: CardCopy; in: CardCopy }[], from: Swap
     outs[o] = null;
     ins[n] = null;
   };
-  for (const p of to) pair(p.out, p.in, p.why ?? null, p.where ?? null);
-  for (const p of from) pair(p.in, p.out, "Back to the starting list's card.", null);
-  for (const f of from) for (const t of to) if (key(f.out) === key(t.out)) pair(f.in, t.in, t.why ?? null, t.where ?? null);
+  // A swap of several copies pairs that many.
+  const times = (p: SwapPair, other?: SwapPair) => Math.max(1, Math.min(p.qty ?? 1, other?.qty ?? Infinity));
+  for (const p of to) for (let n = times(p); n > 0; n--) pair(p.out, p.in, p.why ?? null, p.where ?? null);
+  for (const p of from) for (let n = times(p); n > 0; n--) pair(p.in, p.out, "Back to the starting list's card.", null);
+  for (const f of from) for (const t of to) if (key(f.out) === key(t.out)) for (let n = times(f, t); n > 0; n--) pair(f.in, t.in, t.why ?? null, t.where ?? null);
   const restOut = outs.filter((c): c is CardCopy => !!c), restIn = ins.filter((c): c is CardCopy => !!c);
   restOut.forEach((c, i) => rows.push({ out: c, in: restIn[i]!, why: null, where: null }));
   return rows.sort((a, b) => key(a.out.name).localeCompare(key(b.out.name)));

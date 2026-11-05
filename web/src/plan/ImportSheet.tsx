@@ -33,9 +33,18 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
   });
   const read = useMutation({
     mutationFn: async (f: File) => {
-      if (f.size > 4 << 20) throw new Error("Plan files must be under 4 MiB.");
-      const doc = JSON.parse(await f.text()) as { schema?: unknown; title?: unknown; decks?: unknown };
-      return doc?.schema === "yama-research/1" ? { title: String(doc.title ?? "Untitled plan"), decks: Array.isArray(doc.decks) ? doc.decks.length : 0, doc } : null;
+      // A note is named in its schema; anything else (a planner export, or not JSON at all) goes
+      // to the plan import, which checks it and says what's wrong.
+      type Doc = { schema?: unknown; title?: unknown; decks?: unknown } | null;
+      let doc: Doc;
+      try {
+        doc = JSON.parse(await f.text()) as Doc;
+      } catch {
+        return null;
+      }
+      if (doc?.schema !== "yama-research/1") return null;
+      if (f.size > 4 << 20) throw new Error("Plan notes must be under 4 MiB.");
+      return { title: String(doc.title ?? "Untitled plan"), decks: Array.isArray(doc.decks) ? doc.decks.length : 0, doc };
     },
     onSuccess: (n, f) => {
       setNote(n);

@@ -79,7 +79,7 @@ export function Overview() {
 
       <section className="plan-section" aria-labelledby="your-plans">
         <h2 id="your-plans" className="plan-section-head">Your plans</h2>
-        <PlanTiles empty={<p className="dim">No plans yet. The steps above show how to get one.</p>} />
+        <PlanTiles empty={<p className="dim">{b.decks.length ? "No plans from your assistant or from someone's shared link yet; your tracked decks are below." : "No plans yet. The steps above show how to get one."}</p>} />
       </section>
 
       {b.decks.length > 0 && (

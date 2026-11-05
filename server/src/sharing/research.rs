@@ -951,7 +951,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
     s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     let row = |t: &Totals| {
         format!(
-            "<td class=\"num\">{}</td><td class=\"num\">{} · {}</td><td class=\"num\">{} · {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
+            "<td class=\"num\">{}</td><td class=\"num\">{}, {}</td><td class=\"num\">{}, {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
             t.cards,
             t.buy,
             t.buy_money().trim_start_matches("about ").to_string(),
@@ -979,7 +979,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
         };
         let build = if which == Which::All {
             let each: Vec<String> = which.builds(*d).iter().map(|b| format!("<a href=\"{}\">{}</a>", deck_link(token, key, Some(text(b, "id")), how), e(text(b, "label")))).collect();
-            format!("{build}<br><small>{}</small>", each.join(" · "))
+            format!("{build}<br><small>{}</small>", each.join(", "))
         } else {
             build
         };
@@ -1520,7 +1520,11 @@ pub(crate) async fn owner_note(State(st): State<AppState>, CurrentUser(u): Curre
             "totals": TotalsData::from(&t),
         }));
     }
+    // Every list the choice covers, in the standard text format, as the shared page's Deck lists.
+    let lists: Vec<Value> =
+        decks.iter().flat_map(|d| which.builds(d).into_iter().map(move |b| json!({"deck": text(d, "key"), "build": text(b, "id"), "text": plain_list(b)}))).collect();
     Ok(Json(json!({
+        "lists": lists,
         "which": match which { Which::Recommended => "recommended", Which::Build(_) => "build", Which::All => "all" },
         "build": pick,
         "decks": rows,
@@ -1548,9 +1552,13 @@ pub(crate) async fn owner_deck(
     let (changes, vs_label) = changes_of(b, vs);
     let images = lookup(&st.pool, changes.iter().flat_map(|c| [c.add.as_str(), c.cut.as_str()]).filter(|n| !n.is_empty())).await?;
     let image = |name: &str| found(&images, name).and_then(|f| scryfall_image(f.4.clone()));
+    // From the starting list, each row is one of the build's swaps, in order: name it, so the
+    // owner's answer beside a row is for that swap. Compared with another build, rows are mixed.
+    let swap_ids: Vec<&str> = if vs.is_none() { b["swaps"].as_array().map(|a| a.iter().map(|s| text(s, "id")).collect()).unwrap_or_default() } else { Vec::new() };
     let rows: Vec<Value> = changes
         .iter()
-        .map(|c| json!({"add": c.add, "cut": c.cut, "n": c.n, "why": c.why, "notes": c.notes, "add_image": image(&c.add), "cut_image": image(&c.cut)}))
+        .enumerate()
+        .map(|(i, c)| json!({"add": c.add, "cut": c.cut, "n": c.n, "why": c.why, "notes": c.notes, "add_image": image(&c.add), "cut_image": image(&c.cut), "swap": swap_ids.get(i).filter(|id| !id.is_empty())}))
         .collect();
     let shopping = if changes.iter().any(|c| !c.add.is_empty()) {
         let items = to_get(&st.pool, changes.iter().filter(|c| !c.add.is_empty()).map(|c| (c.add.clone(), c.n, None)).collect()).await?;
@@ -1570,6 +1578,8 @@ pub(crate) async fn owner_deck(
         "cards": cards,
         "cut": cut,
         "unknown": unknown,
+        // The list in the standard text format, as the shared page's copy box and download give it.
+        "text": plain_list(b),
     })))
 }
 
