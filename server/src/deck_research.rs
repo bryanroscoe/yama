@@ -675,8 +675,19 @@ pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+    // Plans tracking one of this note's builds follow the note (plan/notes.rs).
+    let followed = if changed { crate::plan::notes::rederive(&mut tx, owner, id, document).await? } else { 0 };
     tx.commit().await?;
-    Ok(saved(id, revision, &hash, changed))
+    let mut out = saved(id, revision, &hash, changed);
+    if followed > 0 {
+        out["effect"] = json!(format!(
+            "Research saved. {followed} plan{} tracking this note's builds now follow{} it; no decks, collection, orders or games changed.",
+            if followed == 1 { "" } else { "s" },
+            if followed == 1 { "s" } else { "" }
+        ));
+        out["plans_updated"] = json!(followed);
+    }
+    Ok(out)
 }
 
 fn saved(id: &str, revision: i64, hash: &str, changed: bool) -> Value {

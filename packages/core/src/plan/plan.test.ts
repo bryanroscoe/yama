@@ -157,6 +157,10 @@ describe("where it came from", () => {
     expect(gotText({ how: "deck", deck: "beta", origin: "shop-1" }, ctx)).toBe("From Beta Deck (bought at Example, ordered 8 Oct 2026 for that deck).");
     // A deck outside the plan keeps its own name.
     expect(gotText({ how: "deck", deck: null, deck_name: "Old Deck", origin: "precon" }, ctx)).toBe("From Old Deck (came in that precon).");
+    // A plan tracking a note's build: the note's own words, on owner pages only.
+    expect(gotText({ how: "owned", detail: "in the blue binder." }, ctx)).toBe("In the blue binder.");
+    expect(gotText({ how: "owned", detail: "in the blue binder" }, ctx, { private: false })).toBe("A card you own.");
+    expect(gotText({ how: "owned" }, ctx)).toBe("A card you own.");
   });
 
   it("names the order, its date and the price paid, and never turns a missing price into $0", () => {

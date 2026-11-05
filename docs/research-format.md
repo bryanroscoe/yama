@@ -40,6 +40,14 @@ what the added cards cost at market and the list as cards; `GET /api/research-pl
 note's tile (deck count, who it was copied from, up to four commanders' art). All are the owner's,
 private or not. The owner's page adds sharing, answers and the agent's evidence when the note has it.
 
+**Tracking a build as the deck's plan (2026-11-04).** A note's deck becomes a plan when one of
+its builds is tracked: "Track this build" on the note page, `POST /api/plan/from-note`, or MCP
+`track_build` (staged). Its swaps, store offers and lists are derived from that build into the
+planner (ARCHITECTURE.md, "Plans from notes"), so Buy, Trip, prints and marks work on it; saving the
+note again updates them. Give swaps stable `id`s: a swap's marks and answers follow its id across
+revisions. A swap's source comes from its `acquisition` (else the build's acquisition lists), so
+record each card as owned, bought (with store, price and checked date) or printed.
+
 An id-only MCP read is a compact overview. Use `deck`/`build` for one complete audit,
 `scenario` for one global acquisition list, or explicit `full:true` for the complete document.
 `review_research` records a person's stated choice or note using the same review operation as

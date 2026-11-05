@@ -717,6 +717,126 @@ pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value)
     .await
 }
 
+/// Track one build of a note's deck as that deck's plan, or stop tracking (`build` null). Applied
+/// through `plan::notes`, the same code as the page's "Track this build".
+pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    use crate::plan::notes::{find_build, find_deck, note_document};
+    let pool = &st.pool;
+    let note_id = text_arg(args, "note")?.to_string();
+    let deck_key = text_arg(args, "deck")?.to_string();
+    let build_id = match args.get("build") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(b)) if !b.trim().is_empty() => Some(b.trim().to_string()),
+        _ => return Err(AppError::bad("build is a build id from the note, or null to stop tracking")),
+    };
+    let doc = {
+        let mut conn = pool.acquire().await?;
+        note_document(&mut conn, &user.id, &note_id).await?
+    };
+    let title = doc["title"].as_str().unwrap_or(&note_id).to_string();
+    let keys = |v: &Value, list: &str, field: &str| -> String {
+        v[list].as_array().into_iter().flatten().filter_map(|x| x[field].as_str()).collect::<Vec<_>>().join(", ")
+    };
+    let deck = find_deck(&doc, &deck_key)
+        .ok_or_else(|| AppError::bad(format!("The note \"{title}\" has no deck \"{deck_key}\"; its decks are {}.", keys(&doc, "decks", "key"))))?;
+    let deck_name = deck["name"].as_str().unwrap_or(&deck_key).to_string();
+    let tracked: Option<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT key, status, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?")
+            .bind(&user.id)
+            .bind(&note_id)
+            .bind(&deck_key)
+            .fetch_optional(pool)
+            .await?;
+    let active = tracked.as_ref().filter(|t| t.1 != "archived");
+    let Some(build_id) = build_id else {
+        let Some((key, _, _)) = active else {
+            return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
+        };
+        return stage(
+            st,
+            user,
+            via,
+            Staged {
+                kind: "track_build",
+                summary: format!("Stop tracking {deck_name}'s plan"),
+                detail: "Its swaps, marks and answers are kept; tracking a build again brings them back.".into(),
+                payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": null, "plan_deck_key": key, "deck": deck_name}),
+            },
+        )
+        .await;
+    };
+    let build = find_build(deck, &build_id)
+        .ok_or_else(|| AppError::bad(format!("{deck_name} in \"{title}\" has no build \"{build_id}\"; its builds are {}.", keys(deck, "builds", "id"))))?;
+    let label = build["label"].as_str().unwrap_or(&build_id).to_string();
+    if let Some((key, _, Some(current))) = active
+        && *current == build_id
+    {
+        return Ok(format!("{label} is already {deck_name}'s plan (plan key {key}); nothing to stage."));
+    }
+    let yama_deck = match args.get("yama_deck").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty()) {
+        Some(w) => Some(deck_id(pool, &user.id, w).await?),
+        None => None,
+    };
+    let swaps = build["swaps"].as_array().cloned().unwrap_or_default();
+    let mut detail = format!("From the note \"{title}\": {} swap{}.\n", swaps.len(), if swaps.len() == 1 { "" } else { "s" });
+    for s in swaps.iter().take(40) {
+        let card_in = s["card_in"].as_str().unwrap_or_default();
+        let _ = match s["card_out"].as_str().filter(|o| !o.trim().is_empty()) {
+            Some(out) => writeln!(detail, "- {card_in} in, {out} out"),
+            None => writeln!(detail, "- add {card_in}"),
+        };
+    }
+    if swaps.len() > 40 {
+        writeln!(detail, "...and {} more.", swaps.len() - 40).ok();
+    }
+    let summary = match active {
+        Some(_) => format!("Switch {deck_name}'s plan to {label}"),
+        None => format!("Track {label} as {deck_name}'s plan"),
+    };
+    stage(
+        st,
+        user,
+        via,
+        Staged {
+            kind: "track_build",
+            summary,
+            detail,
+            payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": build_id, "deck_id": yama_deck, "deck": deck_name, "label": label}),
+        },
+    )
+    .await
+}
+
+async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
+    st.limits.deck_writes.check_user(user)?;
+    let note_id = p["note_id"].as_str().unwrap_or_default().to_string();
+    let deck_key = p["deck_key"].as_str().unwrap_or_default().to_string();
+    match p["build_id"].as_str() {
+        Some(build_id) => {
+            let req = crate::plan::notes::TrackRequest {
+                note_id,
+                deck_key,
+                build_id: build_id.to_string(),
+                deck_id: p["deck_id"].as_str().map(String::from),
+                op_id: Some(format!("{DEVICE}-{id}")),
+            };
+            let t = crate::plan::notes::track(&st.pool, &user.id, &req).await?;
+            Ok(json!({"label": format!("{} is now {}'s plan ({} swaps)", t.build_label, t.name, t.swaps), "link": t.link}))
+        }
+        None => {
+            // Found by the note link: an import may have moved the plan to another key since.
+            let key: Option<String> = sqlx::query_scalar("SELECT key FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?")
+                .bind(&user.id)
+                .bind(&note_id)
+                .bind(&deck_key)
+                .fetch_optional(&st.pool)
+                .await?;
+            crate::plan::notes::stop(&st.pool, &user.id, &key.ok_or(AppError::NotFound("plan deck"))?).await?;
+            Ok(json!({"label": format!("Stopped tracking {}'s plan", p["deck"].as_str().unwrap_or("the deck")), "link": "/decks/plan"}))
+        }
+    }
+}
+
 /// The planner op a plan change becomes. Its op id is the change's, so it applies once.
 fn plan_op(kind: &str, id: &str, p: &Value) -> Value {
     let at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -1741,6 +1861,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         "cancel_lab_run" => apply_cancel(st, user, &p).await,
         "add_to_collection" | "move_cards" | "set_condition" => apply_collection(st, user, &row.kind, &row.id, &p).await,
         "swap_in_prints" => apply_swap_in(st, user, &p).await,
+        "track_build" => apply_track_build(st, user, &row.id, &p).await,
         "set_shopping_rules" => apply_shopping_rules(st, user, &p).await,
         "set_store_preference" => apply_store_preference(st, user, &p).await,
         "check_stores" => apply_check_stores(st, user, &row.id, &p).await,

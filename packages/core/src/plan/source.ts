@@ -84,6 +84,8 @@ export function gotText(got: Got, ctx: SourceContext, opts: SourceOptions = {}):
     const date = got.date && opts.private !== false ? ` (${fmtDate(got.date)})` : "";
     return `Pulled from ${got.product}${date}.`;
   }
+  // The note's detail can say where a copy is kept: owner pages only.
+  if (got.how === "owned") return got.detail && opts.private !== false ? `${cap(got.detail.replace(/\.$/, ""))}.` : "A card you own.";
   const name = deckName(got.deck, got.deck_name, ctx);
   if (got.origin === "precon") return `From ${name} (came in that precon).`;
   return `From ${name} (${boughtPhrase(got.origin, ctx, opts)} for that deck).`;

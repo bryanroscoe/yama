@@ -16,7 +16,9 @@ export interface ItemRef {
 export type Got =
   | { how: "bought"; order: string }
   | { how: "pulled"; product: string; date?: string | null }
-  | { how: "deck"; deck: string | null; deck_name?: string | null; origin: string };
+  | { how: "deck"; deck: string | null; deck_name?: string | null; origin: string }
+  /** A card you own, as a note's build records it (a plan tracking a note's build; `detail` says where). */
+  | { how: "owned"; detail?: string | null };
 
 /** One card in a list. Fields a writer left empty are missing. */
 export interface Slot {
