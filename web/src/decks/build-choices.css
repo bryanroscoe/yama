@@ -2,6 +2,8 @@
 .build-choices { display: grid; gap: var(--gap); align-content: start; }
 .bc-selects { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }
 .bc-controls label { display: grid; gap: .4rem; }
+/* The line under the deck picker (no builds yet, or none for that deck) needs room from it. */
+.bc-controls > label { margin-bottom: 12px; }
 .bc-controls select { width: 100%; max-width: 100%; }
 .bc-controls .row label { min-width: 10rem; }
 /* The chosen track or bracket is filled in, at the same size as the others so the row doesn't jump. */
