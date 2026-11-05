@@ -300,22 +300,7 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
             write!(body, "<details class=\"art-credits dim\"><summary>Art credits</summary><p>{}</p></details>", credits.join(" ")).unwrap();
         }
     }
-    let notes = crate::deck_research::profile_reports(&st.pool, &sharer.id).await?;
-    if !notes.is_empty() {
-        body.push_str("<section class=\"share-notes\" aria-labelledby=\"notes-head\"><h2 id=\"notes-head\">Deck notes</h2><ul class=\"share-note-list\">");
-        for (token, title, decks, saved) in &notes {
-            write!(
-                body,
-                "<li><a href=\"/r/{}\">{}</a> <span class=\"dim\">{decks} {}, saved {}</span></li>",
-                e(token),
-                e(title),
-                if *decks == 1 { "deck" } else { "decks" },
-                when(saved)
-            )
-            .unwrap();
-        }
-        body.push_str("</ul></section>");
-    }
+    body.push_str(&super::research::profile_plans(&st.pool, &sharer.id).await?);
     let description = format!("@{h}'s Commander decks on Yama.");
     let image = decks.iter().find_map(|d| d.art.as_ref().map(|a| a.0.clone()));
     Ok(response(&headers, page(&st, &format!("/u/{h}"), &format!("@{h}"), &description, image.as_deref(), &body)))

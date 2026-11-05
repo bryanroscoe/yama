@@ -604,7 +604,7 @@ fn build_summary(b: &Value) -> Value {
         out["swaps"] = swaps
             .iter()
             .map(|s| {
-                let mut s2 = pick(s, &["card_out", "card_in", "why"]);
+                let mut s2 = pick(s, &["id", "card_out", "card_in", "qty", "why"]);
                 if s.get("acquisition").is_some() {
                     s2["acquisition"] = pick(&s["acquisition"], &["transfer", "source_deck", "detail", "kind", "store"]);
                 }
@@ -983,17 +983,6 @@ struct CopyRequest {
 
 async fn copy_route(State(st): State<AppState>, CurrentUser(u): CurrentUser, Json(r): Json<CopyRequest>) -> AppResult<Json<Value>> {
     Ok(Json(copy_shared(&st.pool, &u.id, &r.token, r.op.as_deref()).await?))
-}
-
-/// A profile's public notes: (token, title, deck count, saved at), newest first.
-pub async fn profile_reports(pool: &SqlitePool, owner: &str) -> AppResult<Vec<(String, String, i64, String)>> {
-    Ok(sqlx::query_as(
-        "SELECT share_token, title, json_array_length(document, '$.decks'), updated_at FROM research_reports
-         WHERE owner_id = ? AND visibility = 'public' AND share_token IS NOT NULL ORDER BY updated_at DESC, id",
-    )
-    .bind(owner)
-    .fetch_all(pool)
-    .await?)
 }
 
 async fn list_route(

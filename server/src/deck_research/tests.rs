@@ -338,7 +338,8 @@ async fn every_notes_builds_come_in_one_response_and_a_note_called_builds_still_
     assert_eq!(r.as_array().unwrap().len(), 2);
     let build = &r[0]["document"]["decks"][0]["builds"][0];
     assert_eq!(build["id"], "b3");
-    assert_eq!(build["swaps"][0], json!({"card_in": "Thought Monitor", "card_out": "Glimmer of Genius"}));
+    // Each swap's id and copies (when given) come too: swap cards pair every copy.
+    assert_eq!(build["swaps"][0], json!({"id": "monitor", "card_in": "Thought Monitor", "card_out": "Glimmer of Genius"}));
     assert!(r[0]["document"].get("extra_evidence").is_none() && r[0]["document"]["decks"][0].get("commander").is_none());
     // Nobody else's.
     let (_, theirs) = send(&app, Method::GET, "/api/research-builds", Some(&other), None).await;

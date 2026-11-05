@@ -43,12 +43,12 @@ export function SharingPage() {
   return <main className="page sharing-page">
     <div className="page-head"><h1>Sharing</h1></div>
     <p className="dim">Open your public pages, copy their links or manage what you share.</p>
-    <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-notes">Builds and notes</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
+    <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-notes">Plans</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
     <section className="grp-section" aria-labelledby="sharing-profile">
       <h2 id="sharing-profile">Your public profile</h2>
       {sharing.isPending && <p>Loading profile…</p>}
       <ErrorText error={sharing.error} />
-      {profile ? <><p>Public decks, public build notes{sharing.data?.collection_public ? " and your collection" : ""} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
+      {profile ? <><p>Public decks, public plans{sharing.data?.collection_public ? " and your collection" : ""} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
     </section>
     <section className="grp-section" aria-labelledby="sharing-decks">
       <h2 id="sharing-decks">Shared decks</h2>
@@ -59,13 +59,13 @@ export function SharingPage() {
       <Link className="sharing-browse" to="/decks">All my decks</Link>
     </section>
     <section className="grp-section" aria-labelledby="sharing-notes">
-      <h2 id="sharing-notes">Shared builds and notes</h2>
-      <p className="dim">Groups of decks and alternate builds from Agent notes.</p>
+      <h2 id="sharing-notes">Shared plans</h2>
+      <p className="dim">Plans for one or more decks, with their builds and changes, shared by link or on your profile.</p>
       <ErrorText error={notes.error} />
-      {notes.isPending && <p>Loading build notes…</p>}
-      {sharedNotes?.length === 0 && <p>No build notes shared yet. Open an agent note and choose Share this note.</p>}
+      {notes.isPending && <p>Loading plans…</p>}
+      {sharedNotes?.length === 0 && <p>No plans shared yet. Open a plan and choose Share this plan.</p>}
       <ul className="sharing-list">{sharedNotes?.map((n) => <SharedLink key={n.id} name={n.title} manage={`/decks/research/${encodeURIComponent(n.id)}`} url={n.share_token ? noteShareUrl(n.share_token) : null} visibility={n.visibility!} />)}</ul>
-      <Link className="sharing-browse" to="/decks/research">All my agent notes</Link>
+      <Link className="sharing-browse" to="/decks/plan">All my plans</Link>
     </section>
     <section className="grp-section" aria-labelledby="sharing-settings-title">
       <h2 id="sharing-settings-title">Sharing settings</h2>

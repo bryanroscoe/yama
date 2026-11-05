@@ -387,7 +387,13 @@ label > span.hint {
 .segmented > button:hover,
 .segmented > a:hover {
   background: transparent;
-  color: var(--text);
+}
+/* Only a real pointer lightens a segment: a tap leaves :hover stuck on touch screens. */
+@media (hover: hover) {
+  .segmented > button:hover,
+  .segmented > a:hover {
+    color: var(--text);
+  }
 }
 .segmented > [aria-selected="true"],
 .segmented > [aria-pressed="true"],
@@ -411,6 +417,75 @@ label > span.hint {
 .segmented > .active:focus-visible {
   outline-color: var(--ground);
   outline-offset: -4px;
+}
+/* How a page works and what to do next (components/HowTo.tsx): open on an empty page, folded
+   to one line otherwise. */
+.how-to {
+  margin: 0 0 24px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  max-width: 72rem;
+}
+.how-to > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.how-to-steps {
+  margin: 12px 0 0;
+  padding-left: 1.4rem;
+  display: grid;
+  gap: 10px;
+  line-height: 1.5;
+}
+.how-to-steps b {
+  color: var(--text);
+}
+.how-to-steps q {
+  font-style: italic;
+}
+.assistant-only .pill {
+  margin-right: 4px;
+}
+.how-to-actions {
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+/* A row of choices drawn as outlined pills, the chosen one filled: a plan's builds, how to get the
+   cards, the swap cards' brackets. Lighter than .segmented, for options that wrap. */
+.choice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+.choice-chips > .dim {
+  margin-right: 4px;
+}
+.choice-chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-weight: 700;
+  font-size: var(--t-label);
+}
+.choice-chip:hover {
+  border-color: var(--dim);
+  background: transparent;
+}
+.choice-chip[aria-pressed="true"],
+.choice-chip[aria-pressed="true"]:hover {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--ground);
+}
+.choice-chip:disabled {
+  color: var(--dim);
+  border-style: dashed;
 }
 /* The Decks | Plans | Lab control at the top of the Decks tab (components/DeckTabs.tsx). */
 .deck-sections {

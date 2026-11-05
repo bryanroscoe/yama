@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
+import { PrintsHowTo } from "./howto";
 import { CopyButton } from "./parts";
 import type { PlanView } from "./view";
 
@@ -29,7 +30,8 @@ export function Prints() {
           ) : undefined
         }
       />
-      {nothing && <p className="empty">No prints in the plan.</p>}
+      <PrintsHowTo open={nothing} />
+      {nothing && <p className="empty">No prints yet. Prints appear once a tracked plan prints a card.</p>}
       {plan.doubleFaced.length > 0 && (
         <p className="area-note">Double-faced: {plan.doubleFaced.map((l) => `${l.card} (print the back, ${l.back})`).join("; ")}.</p>
       )}
