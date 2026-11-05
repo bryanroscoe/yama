@@ -66,6 +66,7 @@ const Buy = plan.page("Buy");
 const Trip = plan.page("Trip");
 const Prints = plan.page("Prints");
 const SwapSheetPage = plan.page("SwapSheetPage");
+const MpcPrint = plan.page("MpcPrint");
 const SwapCardsPage = plan.page("SwapCardsPage");
 const Spares = plan.page("Spares");
 const PlanSettings = plan.page("PlanSettings");
@@ -265,6 +266,7 @@ export function App() {
             <Route path="trip" element={<Trip />} />
             <Route path="prints" element={<Prints />} />
             <Route path="prints/swap" element={<SwapSheetPage />} />
+            <Route path="prints/mpc" element={<MpcPrint />} />
             <Route path="swap-cards" element={<SwapCardsPage />} />
             <Route path="spares" element={<Spares />} />
             <Route path="settings" element={<PlanSettings />} />
