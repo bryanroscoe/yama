@@ -387,7 +387,13 @@ label > span.hint {
 .segmented > button:hover,
 .segmented > a:hover {
   background: transparent;
-  color: var(--text);
+}
+/* Only a real pointer lightens a segment: a tap leaves :hover stuck on touch screens. */
+@media (hover: hover) {
+  .segmented > button:hover,
+  .segmented > a:hover {
+    color: var(--text);
+  }
 }
 .segmented > [aria-selected="true"],
 .segmented > [aria-pressed="true"],
