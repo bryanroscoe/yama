@@ -60,12 +60,12 @@ export function installNative() {
  * server's Web client ID, which `/api/auth/google` checks exactly as it checks the web button's.
  * The app also needs an Android OAuth client (package name and signing-key SHA-1) in the same
  * Google Cloud project; it identifies the app and never goes in YAMA_GOOGLE_CLIENT_IDS
- * (docs/mobile.md). Resolves null when the person backs out.
+ * (docs/mobile.md).
  */
-export async function nativeGoogleCredential(webClientId: string): Promise<string | null> {
+export async function nativeGoogleCredential(webClientId: string): Promise<string> {
   const { SocialLogin } = await import("@capgo/capacitor-social-login");
-  await SocialLogin.initialize({ google: { webClientId, mode: "online" } });
   try {
+    await SocialLogin.initialize({ google: { webClientId, mode: "online" } });
     // No `scopes`: the defaults (openid, email, profile) are all Yama asks for, and custom
     // scopes would need a modified MainActivity.
     const res = await SocialLogin.login({ provider: "google", options: {} });
@@ -73,7 +73,41 @@ export async function nativeGoogleCredential(webClientId: string): Promise<strin
     if (!result.idToken) throw new Error("Google didn't send an ID token. Try again.");
     return result.idToken;
   } catch (e) {
-    if (/cancel/i.test(e instanceof Error ? e.message : String(e))) return null;
-    throw e;
+    const message = nativeSignInMessage(e);
+    // The plugin's own text is a paragraph meant for developers: it stays in the log (logcat
+    // shows it as Capacitor/Console), and the sign-in page gets one plain sentence.
+    console.error("Google sign-in failed:", errorText(e));
+    throw new Error(message);
   }
+}
+
+function errorText(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+  return String(e);
+}
+
+/**
+ * What the sign-in page says when the app's Google sign-in fails. Credential Manager reports an
+ * app Google doesn't recognise (no Android OAuth client for this package and signing key, or
+ * sign-in turned off for it in the Google account) as "[16] Account reauth failed" or as
+ * DEVELOPER_ERROR ("10: Developer console is not set up correctly"), which the plugin wraps as
+ * "Google Cloud OAuth is not configured for this installed build". Android 12 reports
+ * the same failure as USER_CANCELLED, just after the person picked an account, so a cancellation
+ * gets a quiet line rather than nothing: it can't be told apart from backing out.
+ */
+export function nativeSignInMessage(e: unknown): string {
+  const text = errorText(e);
+  if (/reauth|not configured|developer console|developer.?error|unregistered|28444|\[10\]|\b10: /i.test(text)) {
+    return "Google won't sign in to this version of the app. Sign in to Yama in your browser for now.";
+  }
+  if (/cancel/i.test(text)) return "Sign-in didn't finish. Try again, or sign in to Yama in your browser.";
+  if (/no ?credential|no google account|no account/i.test(text)) {
+    return "Couldn't find a Google account to use. Check the accounts in your phone's Settings, then try again.";
+  }
+  if (/network|timed? ?out|unreachable|offline/i.test(text)) {
+    return "Couldn't reach Google. Check your connection and try again.";
+  }
+  if (/didn't send an ID token/.test(text)) return text;
+  return "Google sign-in didn't work. Try again.";
 }

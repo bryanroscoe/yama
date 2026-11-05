@@ -736,7 +736,7 @@
 @media (min-width: 900px) {
   .lab-try-side {
     position: sticky;
-    top: 16px;
+    top: calc(16px + env(safe-area-inset-top));
   }
 }
 .lab .lab-step {
