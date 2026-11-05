@@ -120,6 +120,13 @@ async fn a_retry_answers_once_and_nobody_else_can_track_or_stop_it() {
     assert_eq!(status, StatusCode::CONFLICT, "one op id, one request");
     let decks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(decks, 1);
+    let (yama_deck, _) = deck(&pool, &a, "Another deck").await;
+    let (status, _) = send(&app, Method::POST, "/api/plan/from-note", Some(&session),
+        Some(json!({"note_id": "audit", "deck_key": "energy", "build_id": "b3", "deck_id": yama_deck, "op_id": "op-1"}))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "another deck is another request, even with the same note, deck and build");
+    let (status, _) = send(&app, Method::POST, "/api/plan/from-note", Some(&session),
+        Some(json!({"note_id": "audit", "deck_key": "energy", "build_id": "b4", "expected_note_hash": "not-the-hash"}))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "a note that changed since it was reviewed isn't tracked");
 
     let (status, _) = track(&app, &other, "b3", "op-2").await;
     assert_eq!(status, StatusCode::NOT_FOUND, "someone else's note is a 404");
@@ -231,4 +238,26 @@ async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
     assert!(!err && text.contains("already"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": null})).await;
     assert!(!err && text.contains("Stop tracking Energy's plan"), "{text}");
+}
+
+#[tokio::test]
+async fn a_staged_build_is_not_applied_after_the_note_changes() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    save_note(&app, &session, &note()).await;
+    let (_, made) = send(&app, Method::POST, "/api/me/tokens", Some(&session), Some(json!({"name": "Claude", "scope": "mcp"}))).await;
+    let key = made["token"].as_str().unwrap();
+    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
+    assert!(!err, "{text}");
+    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id = ? AND kind = 'track_build'").bind(&a).fetch_one(&pool).await.unwrap();
+
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"][0]["card_in"] = json!("Mystic Remora");
+    save_note(&app, &session, &doc).await;
+    let (status, view) = send(&app, Method::POST, &format!("/api/assistant/changes/{change}/apply"), Some(&session), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["status"], "pending", "{view}");
+    assert!(view["error"].as_str().unwrap().contains("has changed since"), "{view}");
+    let plans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plan_decks WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(plans, 0, "what they reviewed isn't what would be applied");
 }

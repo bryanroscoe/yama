@@ -729,7 +729,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         Some(Value::String(b)) if !b.trim().is_empty() => Some(b.trim().to_string()),
         _ => return Err(AppError::bad("build is a build id from the note, or null to stop tracking")),
     };
-    let doc = {
+    let (doc, note_hash) = {
         let mut conn = pool.acquire().await?;
         note_document(&mut conn, &user.id, &note_id).await?
     };
@@ -801,7 +801,8 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
             kind: "track_build",
             summary,
             detail,
-            payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": build_id, "deck_id": yama_deck, "deck": deck_name, "label": label}),
+            // The note as reviewed: applying refuses if it has changed since (plan::notes::track).
+            payload: json!({"note_id": note_id, "deck_key": deck_key, "build_id": build_id, "deck_id": yama_deck, "deck": deck_name, "label": label, "note_hash": note_hash}),
         },
     )
     .await
@@ -819,6 +820,7 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                 build_id: build_id.to_string(),
                 deck_id: p["deck_id"].as_str().map(String::from),
                 op_id: Some(format!("{DEVICE}-{id}")),
+                expected_note_hash: p["note_hash"].as_str().map(String::from),
             };
             let t = crate::plan::notes::track(&st.pool, &user.id, &req).await?;
             Ok(json!({"label": format!("{} is now {}'s plan ({} swaps)", t.build_label, t.name, t.swaps), "link": t.link}))

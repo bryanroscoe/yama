@@ -53,6 +53,22 @@ pub struct TrackRequest {
     /// A client-made id: a retry with it returns the first answer instead of tracking twice.
     #[serde(default)]
     pub op_id: Option<String>,
+    /// The note's content hash when the person saw it (`content_hash` from the research APIs). When
+    /// set and the note has changed since, nothing is tracked (409): what they approved isn't what
+    /// would be applied. Claude's staged `track_build` always sets it.
+    #[serde(default)]
+    pub expected_note_hash: Option<String>,
+}
+
+impl TrackRequest {
+    fn deck_id(&self) -> Option<&str> {
+        self.deck_id.as_deref().map(str::trim).filter(|d| !d.is_empty())
+    }
+
+    /// What a retry must repeat exactly to get the first answer back.
+    fn identity(&self) -> Value {
+        json!({"note_id": self.note_id, "deck_key": self.deck_key, "build_id": self.build_id, "deck_id": self.deck_id()})
+    }
 }
 
 /// What tracking made: the plan deck and what it holds.
@@ -79,10 +95,6 @@ async fn stop_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
     Ok(Json(stop(&st.pool, &user.id, &key).await?))
 }
 
-fn same_request(stored: &Value, req: &TrackRequest) -> bool {
-    stored["note_id"] == req.note_id.as_str() && stored["deck_key"] == req.deck_key.as_str() && stored["build_id"] == req.build_id.as_str()
-}
-
 /// Make `req`'s build the plan for its note deck: a new plan deck, or the existing one switched to
 /// this build (and made active again if it was stopped). Idempotent by `op_id`.
 pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppResult<Tracked> {
@@ -93,13 +105,18 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             sqlx::query_scalar("SELECT payload FROM applied_ops WHERE owner_id = ? AND op_id = ?").bind(owner).bind(op).fetch_optional(&mut *conn).await?;
         if let Some(payload) = done {
             let p: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
-            if !same_request(&p["request"], req) {
+            if p["request"] != req.identity() {
                 return Err(AppError::Conflict("That op_id was already used for a different request.".into()));
             }
             return serde_json::from_value(p["result"].clone()).map_err(|e| AppError::Other(e.into()));
         }
     }
-    let doc = note_document(&mut *conn, owner, &req.note_id).await?;
+    let (doc, hash) = note_document(&mut *conn, owner, &req.note_id).await?;
+    if let Some(expected) = req.expected_note_hash.as_deref().filter(|h| !h.is_empty())
+        && expected != hash
+    {
+        return Err(AppError::Conflict("The note has changed since this was reviewed, so its build may differ. Look at it again (ask Claude to stage it again) before tracking it.".into()));
+    }
     let deck = find_deck(&doc, &req.deck_key).ok_or(AppError::NotFound("note deck"))?;
     let build = find_build(deck, &req.build_id).ok_or(AppError::NotFound("note build"))?;
     let stamp = now();
@@ -110,7 +127,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             .bind(&req.deck_key)
             .fetch_optional(&mut *conn)
             .await?;
-    let deck_id = match req.deck_id.as_deref().filter(|d| !d.trim().is_empty()) {
+    let deck_id = match req.deck_id() {
         Some(id) => {
             let mine: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
                 .bind(id)
@@ -185,7 +202,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
         warnings: derived.warnings,
     };
     if let Some(op) = req.op_id.as_deref().filter(|o| !o.trim().is_empty()) {
-        let payload = json!({"request": {"note_id": req.note_id, "deck_key": req.deck_key, "build_id": req.build_id}, "result": result});
+        let payload = json!({"request": req.identity(), "result": result});
         sqlx::query("INSERT INTO applied_ops (owner_id, op_id, device_id, kind, payload, applied_at) VALUES (?, ?, NULL, ?, ?, ?)")
             .bind(owner)
             .bind(op)
@@ -617,10 +634,15 @@ fn commanders(deck: &Value, build: &Value) -> Vec<String> {
     text(deck, "commander").into_iter().collect()
 }
 
-pub(crate) async fn note_document(conn: &mut SqliteConnection, owner: &str, id: &str) -> AppResult<Value> {
-    let doc: Option<String> =
-        sqlx::query_scalar("SELECT document FROM research_reports WHERE owner_id = ? AND id = ?").bind(owner).bind(id).fetch_optional(&mut *conn).await?;
-    serde_json::from_str(&doc.ok_or(AppError::NotFound("note"))?).map_err(|e| AppError::Other(e.into()))
+/// One of the owner's notes: its document and content hash.
+pub(crate) async fn note_document(conn: &mut SqliteConnection, owner: &str, id: &str) -> AppResult<(Value, String)> {
+    let row: Option<(String, String)> = sqlx::query_as("SELECT document, content_hash FROM research_reports WHERE owner_id = ? AND id = ?")
+        .bind(owner)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let (doc, hash) = row.ok_or(AppError::NotFound("note"))?;
+    Ok((serde_json::from_str(&doc).map_err(|e| AppError::Other(e.into()))?, hash))
 }
 
 /// The caller's only live main deck with this name (any case), if there is exactly one.
