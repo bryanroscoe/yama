@@ -1,9 +1,10 @@
 .datasets-page { max-width: 1200px; }
 .datasets-page p, .datasets-page code, .datasets-page h2, .datasets-page h3 { overflow-wrap: anywhere; }
-.datasets-page h2 { font-size: 1.7rem; }
+/* Inside the Lab (lab.css sets .lab h2 and .lab section): these keep their own sizes and spacing. */
+.lab .datasets-page h2 { font-size: 1.7rem; }
 .datasets-page h3 { font-size: 1.15rem; margin: 0; }
 .datasets-page pre { max-height: 26rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
-.dataset-card, .dataset-record { padding: 1.2rem; border: 1px solid var(--line); border-radius: var(--r, 12px); background: var(--surface); margin: 1rem 0; }
+.dataset-card, .dataset-record, .lab section.dataset-card { padding: 1.2rem; border: 1px solid var(--line); border-radius: var(--r, 12px); background: var(--surface); margin: 1rem 0; }
 .dataset-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; }
 .dataset-counts a { padding: .7rem; border: 1px solid var(--line); border-radius: 8px; color: var(--text); text-decoration: none; }
 .dataset-counts b { display: block; font-size: 1.4rem; margin-top: .3rem; }
@@ -17,7 +18,7 @@
 .dataset-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem 1rem; font-size: .88rem; }
 .dataset-facts dt { color: var(--dim); }
 .dataset-facts dd { margin: 0; }
-.dataset-monthly { margin-block: 1.8rem; }
+.dataset-monthly, .lab section.dataset-monthly { margin-block: 1.8rem; }
 @media (max-width: 700px) { .dataset-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dataset-facts { grid-template-columns: 1fr; gap: .3rem; } }
 .dataset-toggle { display: flex; gap: .5rem; align-items: center; min-height: 44px; margin-block: .6rem; }
 /* The global input rule is width 100%: a checkbox took the row and pushed its words to the edge. */

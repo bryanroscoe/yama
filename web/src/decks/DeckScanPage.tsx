@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
@@ -52,7 +53,7 @@ export function DeckScanPage() {
 
   return (
     <main className="page deck-scan stack">
-      <p className="small"><Link to={`/decks/${d.id}`}>Back to {d.name}</Link></p>
+      <BackButton to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />
       <h1>Scan {d.name}</h1>
       {step === "scan" && (
         <>

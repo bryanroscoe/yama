@@ -6,6 +6,10 @@ import { SiteLinks } from "../components/SiteLinks";
 import { RequireAccount } from "../components/RequireAccount";
 import { SharingPage } from "./Sharing";
 
+// The Plans count reads the plan store and the offline outbox; neither matters to these pages.
+vi.mock("../plan/store", () => ({ usePlan: () => ({ bundle: null }) }));
+vi.mock("../plan/outbox", () => ({ outbox: { localOps: () => [] }, useOutbox: () => ({}) }));
+
 afterEach(() => vi.unstubAllGlobals());
 
 function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty = false, handle: string | null = "saget") {
@@ -45,6 +49,14 @@ describe("returning to shared content", () => {
     const html = page();
     expect(html).toContain('aria-current="page" class="active" href="/sharing"');
     for (const path of ["/precons", "/commanders"]) expect(html).toContain(`href="https://yama.ing${path}"`);
+  });
+
+  it("keeps the Decks sections control, with Sharing chosen", () => {
+    const html = page();
+    expect(html).toContain('aria-label="Decks sections"');
+    const sections = html.slice(html.indexOf('aria-label="Decks sections"'));
+    expect(sections.slice(0, sections.indexOf("</nav>"))).toMatch(/aria-current="page"[^>]*href="\/sharing"/);
+    expect(html).toContain('href="/decks/builds"');
   });
 
   it("explains where to start when nothing is shared", () => {

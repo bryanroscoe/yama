@@ -10,14 +10,15 @@ import "./deck-area.css";
  *  tab since 2026-10-28. Plans holds every plan since 2026-11-04 (Bryan: plans should be
  *  "consistent and reusable for all users"): an agent's notes and copies of shared plans
  *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. Swap
- *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box. */
-export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string; admin?: boolean }[] = [
-  { to: "/decks", label: "Decks", end: true },
+ *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box.
+ *  `also`: path prefixes of pages that belong to a section without sitting under its path, so the
+ *  section stays lit there: adding a deck and suggested changes under Decks, a plan's note pages
+ *  under Plans. Datasets moved to the Lab on 2026-11-04 (LabLayout). */
+export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string[] }[] = [
+  { to: "/decks", label: "Decks", end: true, also: ["/decks/import", "/decks/changes"] },
   { to: "/sharing", label: "Sharing" },
   { to: "/decks/builds", label: "Swap cards" },
-  { to: "/decks/plan", label: "Plans", also: "/decks/research" },
-  // Only admins import datasets, so for anyone else the page could only ever be empty.
-  { to: "/decks/datasets", label: "Datasets", admin: true },
+  { to: "/decks/plan", label: "Plans", also: ["/decks/research"] },
 ];
 
 /** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */
@@ -70,13 +71,12 @@ function useScrollHint<T extends HTMLElement>(content: unknown) {
 
 export function DeckTabs() {
   const toReview = useToReview();
-  const admin = useMe().data?.is_admin === true;
   const { pathname } = useLocation();
   // The Plans count arrives after load and widens the track: measure again when it does.
   const track = useScrollHint<HTMLElement>(toReview);
   return (
     <nav ref={track} className="segmented deck-sections" aria-label="Decks sections">
-      {DECK_SECTIONS.filter((s) => !s.admin || admin).map((s) => {
+      {DECK_SECTIONS.map((s) => {
         const label = (
           <>
             {s.label}
@@ -89,9 +89,9 @@ export function DeckTabs() {
             )}
           </>
         );
-        // A section's other pages (a plan's note pages under Plans) mark it current too, for
-        // screen readers as well, which NavLink only does for its own path.
-        return s.also && pathname.startsWith(s.also) ? (
+        // A section's other pages (adding a deck under Decks, a plan's note pages under Plans)
+        // mark it current too, for screen readers as well, which NavLink only does for its own path.
+        return s.also?.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ? (
           <Link key={s.to} to={s.to} className="active" aria-current="page">
             {label}
           </Link>

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { api, publicOrigin, shareUrl, type DeckSummary, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
+import { AreaHead } from "../components/DeckTabs";
 import { ErrorText } from "../components/ui";
 import { SharingSettings } from "../decks/SharingSettings";
 import { useCopy } from "../decks/ShareDeck";
@@ -36,12 +37,12 @@ export function SharingPage() {
   const notes = useQuery({ queryKey: ["research", me?.id, "list"], queryFn: reports, enabled });
   const [copied, copy] = useCopy();
   // A disabled query may still have cached data. Never render it outside the current account.
-  if (!enabled) return <main className="page"><h1>Sharing</h1><p>Open Sharing from your own account to manage public pages and links.</p></main>;
+  if (!enabled) return <main className="page"><AreaHead title="Sharing" index /><p>Open Sharing from your own account to manage public pages and links.</p></main>;
   const sharedDecks = decks.data?.filter((d) => d.visibility === "public" || d.visibility === "link");
   const sharedNotes = notes.data?.filter((n) => n.visibility === "public" || n.visibility === "link");
   const profile = sharing.data?.handle ? `${publicOrigin()}/u/${sharing.data.handle}` : null;
   return <main className="page sharing-page">
-    <div className="page-head"><h1>Sharing</h1></div>
+    <AreaHead title="Sharing" index />
     <p className="dim">Open your public pages, copy their links or manage what you share.</p>
     <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-notes">Plans</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
     <section className="grp-section" aria-labelledby="sharing-profile">

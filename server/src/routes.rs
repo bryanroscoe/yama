@@ -14,13 +14,17 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
-/// `/decks/lab/...` to `/lab/...`, query kept. The target always starts with `/lab`, so it can't
-/// point off the site.
+/// `/decks/lab/...` to `/lab/...` and `/decks/datasets/...` to `/lab/datasets/...`, query kept.
+/// The target always starts with `/lab`, so it can't point off the site.
 async fn old_lab(uri: axum::http::Uri) -> axum::response::Redirect {
-    let path = uri.path().strip_prefix("/decks").unwrap_or("/lab");
+    let path = match uri.path().strip_prefix("/decks") {
+        Some(rest) if rest.starts_with("/datasets") => format!("/lab{rest}"),
+        Some(rest) if rest.starts_with("/lab") => rest.to_string(),
+        _ => "/lab".to_string(),
+    };
     let to = match uri.query() {
         Some(q) => format!("{path}?{q}"),
-        None => path.to_string(),
+        None => path,
     };
     axum::response::Redirect::permanent(&to)
 }
@@ -81,6 +85,9 @@ pub fn app(state: AppState) -> Router {
         // The Lab moved out of Decks to its own section (2026-10-28); old links keep working.
         .route("/decks/lab", get(old_lab))
         .route("/decks/lab/{*rest}", get(old_lab))
+        // So did Datasets (2026-11-04), which are Lab evidence.
+        .route("/decks/datasets", get(old_lab))
+        .route("/decks/datasets/{*rest}", get(old_lab))
         // Unknown API paths are errors, not the web app.
         .route("/api/{*rest}", axum::routing::any(|| async { crate::error::AppError::NotFound("API route") }));
 

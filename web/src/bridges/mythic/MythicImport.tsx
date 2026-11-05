@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { BackButton } from "../../components/DeckTabs";
 import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
 import { Details, ErrorText } from "../../components/ui";
@@ -80,7 +81,7 @@ export function MythicImportPage() {
 
   return (
     <main className="page stack mythic-import">
-      <p><Link to="/group">Playgroup</Link></p>
+      <BackButton to="/group" label="Back to playgroup" text="Playgroup" />
       <h1>Import from Mythic Tools</h1>
       {!enabled ? (
         <p className="dim">The Mythic Tools import isn't switched on for this server.</p>

@@ -1404,7 +1404,13 @@ async fn review_lists_unanswered_proposals_first_and_leaves_planned_swaps_out() 
 #[tokio::test]
 async fn old_lab_links_redirect_to_the_lab_section() {
     let (app, _pool, _owner, _token) = setup().await;
-    for (from, to) in [("/decks/lab", "/lab"), ("/decks/lab/runs/abc", "/lab/runs/abc"), ("/decks/lab/try?deck=x%20y", "/lab/try?deck=x%20y")] {
+    for (from, to) in [
+        ("/decks/lab", "/lab"),
+        ("/decks/lab/runs/abc", "/lab/runs/abc"),
+        ("/decks/lab/try?deck=x%20y", "/lab/try?deck=x%20y"),
+        ("/decks/datasets", "/lab/datasets"),
+        ("/decks/datasets/playgroup-history?revision=3", "/lab/datasets/playgroup-history?revision=3"),
+    ] {
         let res = app.clone().oneshot(Request::builder().uri(from).body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(res.status(), StatusCode::PERMANENT_REDIRECT, "{from}");
         assert_eq!(res.headers()[header::LOCATION], to, "{from}");

@@ -14,6 +14,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-04-steadier-navigation",
+    date: "2026-11-04",
+    title: "Steadier navigation",
+    items: [
+      "Sharing keeps the Decks sections at the top, like the rest of Decks. Suggested changes and Add a deck keep Decks chosen there, and the tab bar stays lit on every page inside a tab.",
+      "Datasets moved to the Lab, beside the precons their evidence feeds. Old links still work.",
+    ],
+  },
+  {
     id: "2026-11-04-one-plan-page",
     date: "2026-11-04",
     title: "Plans look the same everywhere",
@@ -351,8 +360,8 @@ export const NEWS: NewsEntry[] = [
   {
     id: "2026-10-28-historical-datasets", date: "2026-10-28",
     title: "Explore historical commander and precon evidence",
-    items: ["Datasets under Decks lets you search imported performance observations, commander catalogs, weekly activity and source documents. Explore an entity's history and adjust the 180-day recency half-life for compatible complete-month summaries.", "Each observation keeps its source period and provenance. Original datasets remain downloadable; admins can upload prepared JSON or gzip datasets into their own accounts."],
-    link: { to: "/decks/datasets", label: "Browse datasets" },
+    items: ["Datasets in the Lab lets you search imported performance observations, commander catalogs, weekly activity and source documents. Explore an entity's history and adjust the 180-day recency half-life for compatible complete-month summaries.", "Each observation keeps its source period and provenance. Original datasets remain downloadable; admins can upload prepared JSON or gzip datasets into their own accounts."],
+    link: { to: "/lab/datasets", label: "Browse datasets" },
   },
   {
     id: "2026-10-28-site-polish",

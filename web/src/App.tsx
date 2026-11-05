@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { useQueryClient } from "@tanstack/react-query";
 import { afterSignIn, Login, useMe } from "./auth";
@@ -38,7 +38,6 @@ const group = area(() => import("./pages/Group"));
 const sharing = area(() => import("./pages/Sharing"));
 const changes = area(() => import("./advisor/Changes"));
 const research = area(() => import("./research/Research"));
-const datasets = area(() => import("./datasets/Datasets"));
 const deckScan = area(() => import("./decks/DeckScanPage"));
 const deckCheck = area(() => import("./decks/DeckCheckPage"));
 const consent = area(() => import("./oauth/Consent"));
@@ -87,7 +86,7 @@ const GroupPage = group.page("GroupPage");
 const SharingPage = sharing.page("SharingPage");
 const ChangesPage = changes.page("ChangesPage");
 const ResearchPage = research.page("ResearchPage");
-const DatasetsPage = datasets.page("DatasetsPage");
+const DatasetsPage = lab.page("DatasetsPage");
 const DeckScanPage = deckScan.page("DeckScanPage");
 const DeckCheckPage = deckCheck.page("DeckCheckPage");
 const OAuthConsent = consent.page("OAuthConsent");
@@ -103,15 +102,19 @@ const TablePlay = tablePlay.page("TablePlay");
  */
 function Shell({ pending = false }: { pending?: boolean }) {
   const me = useMe();
-  const tabs = [
-    { to: "/", label: "Table", icon: <TableIcon />, end: true },
+  const { pathname } = useLocation();
+  // `also`: pages outside a tab's own path that still belong to it, so the tab stays lit there
+  // (saved games under Table, Sharing, a section of Decks, Mythic's return page under Group).
+  const tabs: { to: string; label: string; icon: ReactNode; end?: boolean; alpha?: boolean; also?: string[] }[] = [
+    { to: "/", label: "Table", icon: <TableIcon />, end: true, also: ["/table/"] },
     { to: "/play", label: "Play", icon: <PlayIcon />, alpha: true },
     { to: "/cards", label: "Cards", icon: <CardsIcon /> },
     { to: "/collection", label: "Collection", icon: <CollectionIcon /> },
-    { to: "/decks", label: "Decks", icon: <DecksIcon /> },
+    { to: "/decks", label: "Decks", icon: <DecksIcon />, also: ["/sharing"] },
     { to: "/lab", label: "Lab", icon: <LabIcon /> },
-    { to: "/group", label: "Group", icon: <GroupIcon /> },
+    { to: "/group", label: "Group", icon: <GroupIcon />, also: ["/mythic/"] },
   ];
+  const belongs = (also?: string[]) => !!also?.some((p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`));
   return (
     <div className="shell">
       <nav className="nav" aria-label="Main">
@@ -119,13 +122,26 @@ function Shell({ pending = false }: { pending?: boolean }) {
             block sticks to the window, so the account chip always sits at the window's foot. */}
         <div className="nav-inner">
           <Wordmark className="wordmark" />
-          {tabs.map((t) => (
-            <NavLink key={t.to} to={t.to} end={t.end}>
-              {t.icon}
-              <span>{t.label}</span>
-              {t.alpha && <AlphaTag />}
-            </NavLink>
-          ))}
+          {tabs.map((t) => {
+            const inner = (
+              <>
+                {t.icon}
+                <span>{t.label}</span>
+                {t.alpha && <AlphaTag />}
+              </>
+            );
+            // NavLink marks only its own path current, for screen readers too, so a page that
+            // belongs to the tab from elsewhere gets a plain link marked by hand.
+            return belongs(t.also) ? (
+              <Link key={t.to} to={t.to} className="active" aria-current="page">
+                {inner}
+              </Link>
+            ) : (
+              <NavLink key={t.to} to={t.to} end={t.end}>
+                {inner}
+              </NavLink>
+            );
+          })}
           {/* Admins only, and only in the laptop rail; phones reach it from Group, You. */}
           {!pending && me.data?.is_admin && (
             <NavLink to="/admin" className="nav-admin">
@@ -240,8 +256,6 @@ export function App() {
           <Route path="decks/research" element={<Paged page={ResearchPage} />} />
           <Route path="decks/research/:reportId" element={<Paged page={ResearchPage} kind="detail" />} />
           <Route path="decks/research/:reportId/:deckKey" element={<Paged page={ResearchPage} kind="detail" />} />
-          <Route path="decks/datasets" element={<Paged page={DatasetsPage} />} />
-          <Route path="decks/datasets/:id" element={<Paged page={DatasetsPage} kind="detail" />} />
           {/* Static "plan" outranks ":id", so plan pages never reach DeckPage. Every plan page
               comes with the layout, so only the layout needs a stand-in. */}
           <Route path="decks/plan" element={<Paged page={PlanLayout} />}>
@@ -258,6 +272,8 @@ export function App() {
           </Route>
           {/* Old links: the Lab was a section of Decks until 2026-10-28. Static "lab" outranks ":id". */}
           <Route path="decks/lab/*" element={<OldLabRedirect />} />
+          {/* Datasets were a section of Decks until 2026-11-04; they're Lab evidence. */}
+          <Route path="decks/datasets/*" element={<OldLabRedirect />} />
           <Route path="lab" element={<Paged page={LabLayout} kind="table" />}>
             <Route index element={<PreconsPage />} />
             <Route path="p/:id" element={<PreconDetailPage />} />
@@ -268,6 +284,8 @@ export function App() {
             <Route path="runs/:id" element={<RunPage />} />
             <Route path="runs/:id/decks/:deck" element={<RunDeckPage />} />
             <Route path="runs/:id/tables/:table" element={<RunTablePage />} />
+            <Route path="datasets" element={<DatasetsPage />} />
+            <Route path="datasets/:id" element={<DatasetsPage />} />
           </Route>
           <Route path="decks/changes" element={<Paged page={ChangesPage} />} />
           <Route path="decks/import" element={<Paged page={ImportPage} />} />

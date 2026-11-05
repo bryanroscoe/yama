@@ -1,7 +1,8 @@
 # Datasets and historical evidence
 
-28 October 2026. Private ingestion and browsing are available under **Decks, Datasets**
-(`/decks/datasets`). Each account sees its own imported evidence. Application release
+28 October 2026. Private ingestion and browsing are available under **Lab, Datasets**
+(`/lab/datasets`; it was under Decks at `/decks/datasets` until 4 November 2026, and old
+links redirect). Each account sees its own imported evidence. Application release
 and production imports are separate operator actions.
 
 The browser searches names, filters the six evidence types, pages through records
