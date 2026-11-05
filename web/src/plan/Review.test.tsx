@@ -3,7 +3,9 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { PlanBundle, PlanDeck, Review as Answer, Swap } from "@yama/core/plan";
 import { planView } from "./view";
-import { ANSWER_MEANING, Review, toAnswerLine } from "./Review";
+import { ANSWER_MEANING, PlanAnswer, Review, toAnswerLine } from "./Review";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { planSummariesKey, type PlanSummary } from "../research/view";
 import { InstalledTick } from "./marks";
 
 const outlet = vi.hoisted(() => ({ value: null as unknown }));
@@ -36,14 +38,27 @@ function bundle(swaps: Swap[], reviews: Record<string, Answer>, decks = [deck()]
   };
 }
 
-function page(b: PlanBundle, query = "") {
+const note = (over: Partial<PlanSummary> = {}): PlanSummary => ({
+  id: "owned-now", title: "Buildable now", revision: 1, updated_at: "2026-10-30T00:00:00Z", visibility: "private", share_token: null, decks: 2, copied_by: null, art: [],
+  deck_plans: [
+    { key: "riders-of-rohan", name: "Riders of Rohan", commander: "Éowyn", builds: [{ id: "b2", label: "Bracket 2" }], recommended: "b2", preferred: null, to_answer: 4, art: null, identity: "RW" },
+    { key: "ahoy", name: "Ahoy Mateys", commander: "Admiral Brass", builds: [{ id: "b2", label: "Bracket 2" }], recommended: "b2", preferred: null, to_answer: 0, art: null, identity: "UB" },
+  ],
+  ...over,
+});
+
+function render(node: React.ReactNode, b: PlanBundle, notes: PlanSummary[] = []) {
   outlet.value = { view: planView(b), userId: "owner" };
-  return renderToStaticMarkup(<MemoryRouter initialEntries={[`/decks/plan/review${query}`]}><Review /></MemoryRouter>);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  qc.setQueryData(planSummariesKey("owner"), notes);
+  const html = renderToStaticMarkup(<QueryClientProvider client={qc}><MemoryRouter initialEntries={["/decks/plan/review"]}>{node}</MemoryRouter></QueryClientProvider>);
+  qc.clear();
+  return html;
 }
 
-describe("Review is one to-do list", () => {
-  // Riders-like state: a planned swap with an imported want, a planned swap with no answer, an
-  // answered proposal and one still waiting.
+describe("Review lists where answers wait", () => {
+  // A plan file's Riders of Rohan: a planned swap with an imported want, a planned swap with no
+  // answer, an answered proposal and one still waiting. A note plans it too, with 4 to answer.
   const swaps = [
     swap({ key: "planned-want", in: "Volcanic Island", out: "Mount Doom", sort: 1 }),
     swap({ key: "planned-none", in: "Arid Mesa", out: "Throne of the High City", sort: 2 }),
@@ -52,32 +67,47 @@ describe("Review is one to-do list", () => {
   ];
   const b = bundle(swaps, { "planned-want": answer("want"), "p-unsure": answer("unsure") });
 
-  it("says what an answer does, and counts only proposals with no answer", () => {
-    const html = page(b);
+  it("says what an answer does and lists, deck by deck, where answers wait", () => {
+    const html = render(<Review />, b, [note()]);
     expect(html).toContain(ANSWER_MEANING.replace(/'/g, "&#x27;"));
+    // The count is the proposals for tracked decks, as the Plans tab's; the plan's changes are listed apart.
     expect(html).toContain("1 proposal is waiting for your answer.");
-    expect(html).toContain("1 to answer");
-    expect(html).toContain("Waiting for your answer");
-  });
-
-  it("puts the unanswered proposal first and keeps answered and planned swaps closed", () => {
-    const html = page(b);
-    const open = html.indexOf("Archangel of Tithes");
-    expect(open).toBeGreaterThan(-1);
-    expect(open).toBeLessThan(html.indexOf("You&#x27;ve answered"));
-    expect(html.indexOf("You&#x27;ve answered")).toBeLessThan(html.indexOf("Already in the plan"));
-    // Closed sections draw no cards until opened: the planned swaps and the answered one aren't shown.
-    expect(html).not.toContain("Volcanic Island");
-    expect(html).not.toContain("Arid Mesa");
-    expect(html).not.toContain("Levitation");
-    expect(html).toMatch(/<details class="review-group review-section-closed"><summary/);
+    expect(html.indexOf("Proposed for decks you track")).toBeLessThan(html.indexOf("In your plans"));
+    // The deck in each list, a line per plan with answers waiting, each to where you answer them.
+    expect(html.match(/review-list-deck/g)).toHaveLength(2);
+    expect(html).toContain('href="/decks/research/owned-now/riders-of-rohan#changes-head"');
+    expect(html).toContain("Buildable now</span><span class=\"pill num quiet\">4 to answer");
+    expect(html).toContain('href="/decks/plan/d/riders#proposed"');
+    expect(html).toContain("Your plan file</span><span class=\"pill num warn\">1 to answer");
+    // A deck with nothing waiting isn't listed, and no swap is answered here.
+    expect(html).not.toContain("Ahoy Mateys");
+    expect(html).not.toContain("Archangel of Tithes");
   });
 
   it("says when nothing is left", () => {
     const done = bundle(swaps, { "p-open": answer("no"), "p-unsure": answer("unsure") });
-    expect(page(done)).toContain("Nothing in Riders of Rohan is waiting for your answer.");
-    expect(toAnswerLine([{ sections: { open: 0 } }])).toBe("Nothing is waiting for your answer.");
-    expect(toAnswerLine([{ sections: { open: 2 } }, { sections: { open: 3 } }, { sections: { open: 0 } }])).toBe("5 proposals are waiting for your answer, in 2 decks.");
+    const html = render(<Review />, done, [note({ deck_plans: [] })]);
+    expect(html).toContain("No proposals for your tracked decks are waiting for your answer.");
+    expect(html).toContain("You&#x27;ve answered every change in the builds you&#x27;d make.");
+    expect(toAnswerLine([{ open: 2 }, { open: 3 }, { open: 0 }])).toBe("5 proposals are waiting for your answer, in 2 decks.");
+  });
+
+  it("answers a proposal beside it, as a plan's changes do, and says where the note goes", () => {
+    const view = planView(b);
+    const html = render(<PlanAnswer swap={swaps[2]!} deck={view.deck("riders")!} view={view} userId="owner" />, b);
+    expect(html).toContain('aria-pressed="true">Unsure</button>');
+    expect(html).toContain('aria-pressed="false">Want</button>');
+    expect(html).toContain("Don&#x27;t want</button>");
+    expect(html).toContain("Cut something else");
+    expect(html).toContain("picks it up with your answers");
+  });
+
+  it("lets a planned swap's answer change too, with no other cut to pick", () => {
+    const view = planView(b);
+    const html = render(<PlanAnswer swap={swaps[0]!} deck={view.deck("riders")!} view={view} userId="owner" />, b);
+    expect(html).toContain('aria-pressed="true">Want</button>');
+    expect(html).not.toContain("Cut something else");
+    expect(html).toContain("Add a note for your assistant");
   });
 });
 

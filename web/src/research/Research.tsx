@@ -17,7 +17,9 @@ import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist
 import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
 import { TrackPanel, trackedSwaps, useBuyRule, usePlansSettled, useTracked } from "./Tracking";
-import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
+import { PlansForDeck } from "./PlanTiles";
+import { useScrollToHash } from "../components/useScrollToHash";
+import { bracketLabel, cardsWord, deckHref, deckView, moved, noteHref, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
 
@@ -32,8 +34,6 @@ function titled(b: ResearchBundle): ResearchBundle {
   return { ...b, document: { ...b.document, decks: b.document.decks.map((d) => ({ ...d, builds: d.builds.map((x) => ({ ...x, label: buildTitle(x.label) })) })) } };
 }
 
-const noteHref = (id: string) => `/decks/research/${encodeURIComponent(id)}`;
-const deckHref = (id: string, deck: string, build?: string) => `${noteHref(id)}/${encodeURIComponent(deck)}${build ? `?build=${encodeURIComponent(build)}` : ""}`;
 const getOf = (v: string | null): GetId => (v === "buy" || v === "print" ? v : "split");
 /** Agent-written fragments as sentences: each ends with one full stop, whether or not it came with one. */
 function sentences(...parts: (string | undefined)[]): string {
@@ -462,6 +462,8 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   });
   const yours = useDeckNamed(deck.name);
   const tracking = useTracked(doc.id, deck.key);
+  // Review links straight to the changes, drawn once the deck's view loads.
+  useScrollToHash(!!view.data);
   if (!build) return <NoteMissing id={doc.id} what="That deck has no builds." />;
   const v = view.data;
   const names = [...new Set([...deck.builds.flatMap((b) => listEntries(b.list).map((r) => r.name)), ...resolvedCombos(deck, build).flatMap((c) => c.cards ?? [])])];
@@ -482,7 +484,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   return (
     <main className="plan plan-deck-page note-page">
       <ArtPanel as="header" className="plan-hero" art={v?.art?.image} artist={v?.art?.artist} wash="bottom" toGround credit={false}>
-        <BackButton to={noteHref(doc.id)} label="Back to this plan" className="on-art" />
+        <BackButton to="/decks/plan" label="Back to plans" className="on-art" />
         {v?.art && (
           <span className="plan-hero-credit">
             {deck.commander}. {artCredit(v.art.artist)}
@@ -509,6 +511,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
 
       <div className="page plan-deck-body">
         <DeckChanged name={deck.name} savedAt={bundle.updated_at} />
+        <PlansForDeck name={deck.name} current={{ note: doc.id, deck: deck.key }} />
         {deck.builds.length > 1 && (
           <Choices
             label="Builds of this deck"

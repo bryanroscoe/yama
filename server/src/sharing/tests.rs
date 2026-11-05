@@ -947,6 +947,35 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     assert_eq!(plans[0]["decks"], 1);
     assert_eq!(plans[0]["art"][0]["commander"], "Nalia de'Arnise");
     assert!(plans[0]["copied_by"].is_null());
+    // And a tile per deck plan: its name, commander art, the build to make.
+    let party = &plans[0]["deck_plans"][0];
+    assert_eq!((party["key"].as_str(), party["name"].as_str()), (Some("party"), Some("Party Time")));
+    assert_eq!(party["builds"], json!([{"id": "b3", "label": "Bracket 3 · Upgraded"}]));
+    assert_eq!(party["recommended"], "b3");
+    assert!(party["preferred"].is_null());
+    // Review's count: the build's three changes, none answered yet.
+    assert_eq!(party["to_answer"], 3);
+    assert_eq!(party["art"]["artist"], "John Stanko");
+    assert_eq!(party["identity"], "WB");
+    // The owner's pick of a build shows once they've made one.
+    let hash = bundle["target_hashes"]["deck:party"].as_str().unwrap().to_string();
+    let (s, _) = send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(json!({"op_id": "pick", "target": "deck:party", "decision": "b3", "note": null, "expected_version": 0, "target_hash": hash}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, plans) = send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await;
+    assert_eq!(plans[0]["deck_plans"][0]["preferred"], "b3");
+    // An answer (not a bare note) takes a change off the count.
+    let swap_hash = bundle["target_hashes"]["swap:party:b3:stp"].as_str().unwrap().to_string();
+    let answer = |op: &str, decision: Option<&str>| json!({"op_id": op, "target": "swap:party:b3:stp", "decision": decision, "note": "later", "expected_version": if op == "a1" { 0 } else { 1 }, "target_hash": swap_hash});
+    assert_eq!(send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(answer("a1", None))).await.0, StatusCode::OK);
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 3);
+    assert_eq!(send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(answer("a2", Some("want")))).await.0, StatusCode::OK);
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 2);
+    // The assistant changes that swap: the answer is to a swap that's gone, so it's open again,
+    // as the plan's page asks for a new answer.
+    let mut changed = doc.clone();
+    changed["decks"][0]["builds"][0]["swaps"][0]["why"] = json!("One-mana exile, and it hits anything.");
+    crate::deck_research::save(&pool, &bryan, &changed).await.unwrap();
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 3);
     assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&other), None).await.1, json!([]));
 }
 

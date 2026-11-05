@@ -1685,3 +1685,21 @@ part of the MCP".
   "Needs your assistant", says Yama doesn't make it by itself, and offers Connect your assistant.
 - Dates: `fmtDate` shows a moment (a time with its zone) on the reader's calendar; a bare date stays
   as written.
+- **Plans by deck** (Bryan, 2026-11-05: plans "supersetted into a bigger plan" were confusing; "I
+  don't like the review one as much. I like the review thing you built into the deck plan"; no
+  pictures on the swaps; Trip's checkboxes "massive"). A deck is what you open. The Plans page has
+  a tile per deck (`deckGroups` in `research/PlanTiles.tsx`, grouped by deck name, since a tracked
+  copy's key can differ): a tracked one shows its counts and opens what it tracks (a note's deck
+  page at the tracked build, or a plan file's deck page), any other the newest note's plan for it,
+  and the line under it says which plan and how many more. `GET /api/research-plans` lists each
+  note's decks for this (builds, recommended, the owner's pick, the changes left to answer in the
+  build to make, commander art). The notes themselves are lines under "Where they came from" (their
+  page has the shopping list across decks and sharing). Each deck's plan pages, note or tracked,
+  show "Plans for this deck" chips to switch between them. You answer beside each change on the
+  deck's page: a plan's changes take Want, Unsure or Don't want and a note (which says where it's
+  saved: with the plan, private, read by your assistant through Yama's tools), and a tracked deck's
+  proposals take the same (`PlanAnswer`, plus a different cut), so Review is the list of decks with
+  answers waiting, a line per plan, to where you give them. A plan's changes table leads each card
+  with its picture, as the shared page's script always did (Scryfall's small image). Checkboxes and radios are
+  a fixed 20 px box beside their words everywhere (the global field rule made a box grow with the
+  room left in its row).

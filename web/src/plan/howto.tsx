@@ -22,10 +22,10 @@ export function ReviewHowTo({ open }: { open: boolean }) {
       title="How Review works"
       open={open}
       steps={[
-        <AssistantOnly key="a" what="Proposals are swaps suggested for your tracked decks." />,
+        <AssistantOnly key="a" what="Proposed changes come from your assistant: in the plans it saves, and as proposals for decks you track." />,
         <>
-          <b>Answer each one</b>: Want, Unsure or Don't want, with a note if you like. Want tells your assistant to add the swap to the plan; the other two keep it out, and your note says
-          why.
+          <b>Answer on each deck's page</b>: Want, Unsure or Don't want beside each change, with a note for your assistant if you like. Want tells your assistant to add it to the plan;
+          the other two keep it out, and your note says why. This page lists the decks with changes waiting.
         </>,
         <>
           <b>Nothing changes your deck</b> until you put a card in. Planned swaps go on to <Link to="/decks/plan/buy">Buy</Link> and <Link to="/decks/plan/prints">Prints</Link>, then

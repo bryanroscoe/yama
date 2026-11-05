@@ -135,6 +135,12 @@ export const noteView = (id: string, c: NoteChoice, signal?: AbortSignal) =>
 export const deckView = (id: string, deck: string, c: { build: string; vs?: string | null; get?: GetId; upto?: string | null }, signal?: AbortSignal) =>
   api<DeckView>(`/api/research/${encodeURIComponent(id)}/view/${encodeURIComponent(deck)}${query({ build: c.build, vs: c.vs, get: getParam(c.get), upto: c.upto })}`, { signal });
 
+/** Scryfall's small image for a card's main one (`grid` for `thumb`, as Yama stores them now, or
+ *  the older `normal` for `small`): a thumbnail needn't load the full card. */
+export function smallOf(url: string | null | undefined): string | null {
+  return url ? url.replace(/\/(grid|normal)\//, (_, size: string) => (size === "grid" ? "/thumb/" : "/small/")) : null;
+}
+
 /** A deck's recommended build, else its first: what the shared page prices by default. */
 export function recommendedOf(deck: ResearchDeck): Build | undefined {
   return deck.builds.find((b) => b.id === deck.recommended_build) ?? deck.builds[0];
@@ -188,7 +194,26 @@ export interface PlanSummary {
   decks: number;
   copied_by: string | null;
   art: { commander: string; image: string; artist: string | null }[];
+  /** Each deck plan in it, in the note's order: the Plans page's tiles. */
+  deck_plans: DeckPlanSummary[];
 }
+
+/** One deck's plan in a note: its builds, the recommended one and the owner's pick (build ids). */
+export interface DeckPlanSummary {
+  key: string;
+  name: string;
+  commander: string;
+  builds: { id: string; label: string }[];
+  recommended: string | null;
+  preferred: string | null;
+  /** Changes in the build to make (the pick, else the recommended one) with no answer yet. */
+  to_answer: number;
+  art: { image: string; artist: string | null } | null;
+  identity: string | null;
+}
+
+export const noteHref = (id: string) => `/decks/research/${encodeURIComponent(id)}`;
+export const deckHref = (id: string, deck: string, build?: string) => `${noteHref(id)}/${encodeURIComponent(deck)}${build ? `?build=${encodeURIComponent(build)}` : ""}`;
 
 export const planSummaries = ({ signal }: { signal?: AbortSignal } = {}) => api<PlanSummary[]>("/api/research-plans", { signal });
 /** Under "research", so saving, importing or copying a note refreshes it. */

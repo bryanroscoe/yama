@@ -43,6 +43,12 @@
 .research-review.is-compact .research-review-actions button { min-height: 32px; }
 .research-note-fold { margin-top: 6px; }
 .research-note-fold > summary { cursor: pointer; color: var(--dim); }
+.research-note-save { align-items: flex-start; flex-wrap: nowrap; }
+.research-note-save > span { max-width: 60ch; }
+/* Where a deck plan came from, under the Plans page's tiles: a line per note. */
+.note-sources { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.note-sources li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.note-source-title { font-weight: 700; }
 
 /* ── A plan's pages: the shared page's sections (server/src/sharing/research.rs) in the app ── */
 
@@ -101,6 +107,9 @@ a.note-pill-link:hover { box-shadow: inset 0 0 0 1px var(--dim); }
 .note-changes td:last-child { min-width: 18rem; }
 .note-row-note { display: block; margin-top: 4px; color: var(--dim); font-size: var(--t-sm); }
 .note-card-line { display: inline-flex; align-items: baseline; gap: 6px; }
+.note-card-name { display: inline-flex; align-items: baseline; gap: 6px; }
+.note-card-line.has-thumb { align-items: center; gap: 12px; }
+.note-thumb { flex: none; width: 48px; }
 .note-qty { color: var(--dim); min-width: 1.5em; }
 .note-swap-owner { margin-top: 8px; }
 .note-swap-owner .research-item { border: 0; padding: 0; }
@@ -141,13 +150,6 @@ a.note-pill-link:hover { box-shadow: inset 0 0 0 1px var(--dim); }
   .note-changes td:nth-child(2)::before { content: "Cut "; color: var(--dim); font-size: var(--t-sm); }
 }
 
-/* ── The Plans page's plan tiles: four commanders' art over the plan's name ── */
-.note-plans { gap: 16px; }
-.note-plan-tile { display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; background: var(--surface); color: inherit; text-decoration: none; }
-.note-plan-tile:hover, .note-plan-tile:focus-visible { box-shadow: 0 0 0 2px var(--text); }
-.note-plan-art.art-mosaic { display: grid; height: 132px; border-radius: 0; }
-.note-plan-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px 14px; }
-.note-plan-title { font-family: var(--display); font-weight: 800; font-size: 1.5rem; line-height: 1; overflow-wrap: anywhere; }
 .note-hint { max-width: 80ch; line-height: 1.5; margin: 8px 0; }
 /* The split's limit: a dollar field under the Get choices, as the shared page has. */
 .note-upto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; font-size: var(--t-label); }

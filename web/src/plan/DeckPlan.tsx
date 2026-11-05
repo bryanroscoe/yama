@@ -54,6 +54,9 @@ import { deviceId, outbox, useOutbox } from "./outbox";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { BoughtLine, InstalledTick, marketSentence } from "./marks";
 import { CopyButton, Thumb } from "./parts";
+import { PlansForDeck } from "../research/PlanTiles";
+import { PlanAnswer } from "./Review";
+import { useScrollToHash } from "../components/useScrollToHash";
 import type { PlanView } from "./view";
 
 const TABS = [
@@ -102,6 +105,8 @@ export function DeckPlan() {
   const tab = (TABS.find((t) => t.id === params.get("tab"))?.id ?? "changes") as TabId;
   const deck = view.deck(key);
   const runs = useRuns();
+  // Review links to the proposals (#proposed) on the Changes tab.
+  useScrollToHash(!!deck && tab === "changes");
 
   if (!deck) {
     return (
@@ -182,6 +187,7 @@ export function DeckPlan() {
           {deck.status === "proposals_only" ? " Proposals only; no approved swaps." : ""}
           {deck.status === "archived" && !deck.note ? " The latest import didn't include this deck." : ""}
         </p>
+        <PlansForDeck name={deck.name} current={deck.note ? { note: deck.note.id, deck: deck.note.deck } : { plan: deck.key }} />
         <div className="row">
           <AskClaude context={{ kind: "plan_deck", ref: deck.key }} about={`the ${deck.name} plan`} ideasFor={deck.key} />
         </div>
@@ -507,13 +513,13 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
       {group("Stand-ins", visible.loose)}
       {group("Optional extras", visible.optional, "Cards you have for this deck that the plan doesn't need a slot for.")}
       {visible.proposed.length > 0 && (
-        <section className="plan-group" aria-label="Proposed, not in the plan">
+        <section className="plan-group" id="proposed" aria-label="Proposed, not in the plan">
           <h2 className="plan-group-title">
             Proposed, not in the plan <span className="num">{visible.proposed.reduce((n, g) => n + g.swaps.length, 0)}</span>
           </h2>
-          <p className="small">
-            <Link to={`/decks/plan/review?deck=${encodeURIComponent(deck.key)}`}>Answer these in Review</Link>
-            {deck.source === "import" && <span className="dim">. Your answers go to your {view.app} inbox; a want joins the plan when the plan is updated there.</span>}
+          <p className="small dim">
+            Answer each one: Want, Unsure or Don't want, with a note if you like.
+            {deck.source === "import" ? ` Your answers go to your ${view.app} inbox; a want joins the plan when the plan is updated there.` : " Want tells your assistant to add it to the plan."}
           </p>
           {c.proposed.length > 1 && deck.groups.length > 1 && <p className="dim small">Each group builds on the ones before it.</p>}
           {visible.proposed.map((g) => (
@@ -539,6 +545,7 @@ function ChangesTab({ deck, view }: { deck: PlanDeck; view: PlanView }) {
 function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView; userId: string; logs: ReturnType<typeof deckLogs>; standins: Swap[] }) {
   const status = swapStatus(s, logs, view.deckName, view.ctx.orders);
   const answer = view.answers.get(s.key);
+  const deck = view.deck(s.deck);
   const priced = s.stage === "proposed" && s.src !== "owned";
   const tick = s.stage === "planned" && (s.role !== "optional" || !!s.out);
   const inCard = view.card(s.in);
@@ -581,7 +588,21 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
             {s.note && <p className="dim">Note: {s.note}</p>}
           </details>
         )}
-        {answer && <AnswerLine s={s} answer={answer} view={view} />}
+        {s.stage === "proposed" && deck ? (
+          <PlanAnswer swap={s} deck={deck} view={view} userId={userId} />
+        ) : (
+          <>
+            {answer && <AnswerLine s={s} answer={answer} view={view} />}
+            {/* A planned swap can still be answered (a change of mind, a note), folded away. A
+                tracked build's swaps are answered on its plan's page instead. */}
+            {deck && !deck.note && (
+              <details className="swap-more small">
+                <summary>{answer?.decision ? "Change your answer" : "Answer this swap"}</summary>
+                <PlanAnswer swap={s} deck={deck} view={view} userId={userId} />
+              </details>
+            )}
+          </>
+        )}
         {s.stage === "planned" && <BoughtLine swap={s} view={view} />}
         {standins.map((st) => (
           <div key={st.key} className="swap-standin small">
