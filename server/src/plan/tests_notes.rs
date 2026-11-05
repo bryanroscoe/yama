@@ -236,6 +236,9 @@ async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
     assert!(!err && text.contains("Made from build b3 of deck energy in note audit"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
     assert!(!err && text.contains("already"), "{text}");
+    let (yama_deck, _) = deck(&pool, &a, "Energy box").await;
+    let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3", "yama_deck": yama_deck})).await;
+    assert!(!err && text.contains("Link Energy's plan (Bracket 3) to another Yama deck"), "the same build with another deck relinks: {text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": null})).await;
     assert!(!err && text.contains("Stop tracking Energy's plan"), "{text}");
 }

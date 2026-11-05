@@ -740,8 +740,8 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
     let deck = find_deck(&doc, &deck_key)
         .ok_or_else(|| AppError::bad(format!("The note \"{title}\" has no deck \"{deck_key}\"; its decks are {}.", keys(&doc, "decks", "key"))))?;
     let deck_name = deck["name"].as_str().unwrap_or(&deck_key).to_string();
-    let tracked: Option<(String, String, Option<String>)> =
-        sqlx::query_as("SELECT key, status, note_build_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?")
+    let tracked: Option<(String, String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT key, status, note_build_id, deck_id FROM plan_decks WHERE owner_id = ? AND note_id = ? AND note_deck_key = ?")
             .bind(&user.id)
             .bind(&note_id)
             .bind(&deck_key)
@@ -749,7 +749,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
             .await?;
     let active = tracked.as_ref().filter(|t| t.1 != "archived");
     let Some(build_id) = build_id else {
-        let Some((key, _, _)) = active else {
+        let Some((key, _, _, _)) = active else {
             return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
         };
         return stage(
@@ -768,14 +768,19 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
     let build = find_build(deck, &build_id)
         .ok_or_else(|| AppError::bad(format!("{deck_name} in \"{title}\" has no build \"{build_id}\"; its builds are {}.", keys(deck, "builds", "id"))))?;
     let label = build["label"].as_str().unwrap_or(&build_id).to_string();
-    if let Some((key, _, Some(current))) = active
-        && *current == build_id
-    {
-        return Ok(format!("{label} is already {deck_name}'s plan (plan key {key}); nothing to stage."));
-    }
     let yama_deck = match args.get("yama_deck").and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty()) {
         Some(w) => Some(deck_id(pool, &user.id, w).await?),
         None => None,
+    };
+    // The same build again is nothing to do, unless it asks for another Yama deck: then it relinks.
+    let relink = match active {
+        Some((key, _, Some(current), linked)) if *current == build_id => {
+            if yama_deck.is_none() || yama_deck == *linked {
+                return Ok(format!("{label} is already {deck_name}'s plan (plan key {key}); nothing to stage."));
+            }
+            true
+        }
+        _ => false,
     };
     let swaps = build["swaps"].as_array().cloned().unwrap_or_default();
     let mut detail = format!("From the note \"{title}\": {} swap{}.\n", swaps.len(), if swaps.len() == 1 { "" } else { "s" });
@@ -790,6 +795,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         writeln!(detail, "...and {} more.", swaps.len() - 40).ok();
     }
     let summary = match active {
+        Some(_) if relink => format!("Link {deck_name}'s plan ({label}) to another Yama deck"),
         Some(_) => format!("Switch {deck_name}'s plan to {label}"),
         None => format!("Track {label} as {deck_name}'s plan"),
     };
