@@ -250,11 +250,16 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
   const id = useId();
   const list = useRef<HTMLUListElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
     // Focus goes into the picker (its heading, so no keyboard comes up) and back to whatever opened it.
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Everything else on the page is inert while it's open, so Tab, a switch or a screen reader
+    // can't reach the seat editor hidden under it (aria-modal alone doesn't keep focus in).
+    const others = [...document.body.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el !== root.current && !el.inert);
+    for (const el of others) el.inert = true;
     heading.current?.focus();
     // Escape closes this picker only, not the seat sheet under it.
     const key = (e: KeyboardEvent) => {
@@ -269,6 +274,7 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
     return () => {
       window.removeEventListener("keydown", key, true);
       document.body.style.overflow = overflow;
+      for (const el of others) el.inert = false;
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, []);
@@ -278,7 +284,7 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
     if (list.current) list.current.scrollTop = 0;
   }, [query]);
   return createPortal(
-    <div className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}>
+    <div ref={root} className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}>
       <div className="picker-head">
         <h2 id={`${id}-title`} ref={heading} tabIndex={-1}>{label}</h2>
         <button type="button" className="quiet" onClick={onClose}>Close</button>
