@@ -8,7 +8,8 @@
 //!   lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl>
 //!       --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops]
 //!       [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL]
-//!        [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]
+//!        [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache] [--llm-guides DIR]
+//!        [--llm-report-issues]]
 //!
 //! Pilots. A schedule line may name a pilot per seat ("pilots": ["easy", "hard",
 //! "llm:claude-haiku-5-5", "medium"]); see `yama_play::pilot`. LLM seats need --llm, which asks
@@ -20,7 +21,11 @@
 //! prompt naming the objects the options refer to by number (phase-llm prints targets and
 //! attackers as bare numbers). Prompt caching is off (DISABLE_PROMPT_CACHING=1 for the CLI): each
 //! decision's prompt is new, so 1-hour cache writes cost more than they save; --llm-prompt-cache
-//! turns it back on. Games with an LLM seat don't replay
+//! turns it back on. --llm-guides DIR adds DIR/<deck id>.md to each LLM seat's system prompt as
+//! its deck guide (every deck an LLM seat plays needs one). --llm-report-issues asks each reply
+//! for an optional "rules_issue" (a rules problem the model noticed), written to the --llm-log
+//! line with the prompt it answered and counted per seat as rules_issues. Both show in the seat's prompt label
+//! (+guide-<sha 8>, +issues), as in the Forge LLM seat. Games with an LLM seat don't replay
 //! identically from their schedule line, and their wall-clock safety net leaves out the time spent
 //! waiting for the model.
 //!
@@ -130,9 +135,11 @@ struct LlmArgs {
     log: Option<PathBuf>,
     object_key: bool,
     prompt_cache: bool,
+    guides: Option<PathBuf>,
+    report_issues: bool,
 }
 
-const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache]]";
+const USAGE: &str = "usage: lab --card-data <card-data-HASH.json> --decks-root <dir> --schedule <file.jsonl> --out <results.jsonl> [--threads N] [--skip-done] [--retry-errors] [--no-restart] [--loops] [--llm [--llm-concurrency N] [--llm-timeout SECS] [--llm-max-calls N] [--llm-effort LEVEL] [--llm-log FILE] [--llm-object-key] [--llm-prompt-cache] [--llm-guides DIR] [--llm-report-issues]]";
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut card_data = None;
@@ -145,7 +152,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut no_restart = false;
     let mut loops = false;
     let mut llm = false;
-    let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false, prompt_cache: false };
+    let mut llm_args = LlmArgs { concurrency: 4, timeout_secs: 90, max_calls: 400, effort: None, log: None, object_key: false, prompt_cache: false, guides: None, report_issues: false };
     let mut llm_flags = false;
     let mut it = args.iter().skip(1);
     while let Some(a) = it.next() {
@@ -190,6 +197,14 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 llm_flags = true;
                 llm_args.object_key = true;
             }
+            "--llm-guides" => {
+                llm_flags = true;
+                llm_args.guides = Some(PathBuf::from(value(a)?));
+            }
+            "--llm-report-issues" => {
+                llm_flags = true;
+                llm_args.report_issues = true;
+            }
             "--llm-log" => {
                 llm_flags = true;
                 llm_args.log = Some(PathBuf::from(value(a)?));
@@ -223,6 +238,33 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
 // Schedule
 
 type Job = GameSpec;
+
+/// The decks an LLM seat plays somewhere in these games.
+fn llm_decks(jobs: &[(Job, AiDifficulty)]) -> std::collections::BTreeSet<String> {
+    jobs.iter()
+        .filter_map(|(j, _)| j.pilots.as_ref().map(|p| (j, p)))
+        .flat_map(|(j, p)| j.decks.iter().zip(p).filter(|(_, pl)| yama_play::pilot::Pilot::parse(pl).is_ok_and(|p| p.is_llm())).map(|(d, _)| d.clone()))
+        .collect()
+}
+
+/// `<dir>/<deck id>.md` for each deck an LLM seat plays (--llm-guides); every one must exist
+/// and say something.
+fn read_guides(dir: &Path, decks: &std::collections::BTreeSet<String>) -> anyhow::Result<HashMap<String, String>> {
+    let mut guides = HashMap::new();
+    let mut missing = Vec::new();
+    for d in decks {
+        match std::fs::read_to_string(dir.join(format!("{d}.md"))) {
+            Ok(text) if !text.trim().is_empty() => {
+                guides.insert(d.clone(), text);
+            }
+            _ => missing.push(d.as_str()),
+        }
+    }
+    if !missing.is_empty() {
+        anyhow::bail!("--llm-guides {}: no guide (or an empty one) for {}", dir.display(), missing.join(", "));
+    }
+    Ok(guides)
+}
 
 fn parse_job(line: &str) -> Result<(Job, AiDifficulty), String> {
     GameSpec::parse(line)
@@ -667,16 +709,30 @@ fn run_batch(args: &Args) -> anyhow::Result<Exit> {
                 None => None,
             };
             eprintln!(
-                "lab: LLM seats ask {} (at most {} at a time, {}s limit, {} requests per seat per game, effort {}, object key {}, prompt cache {}); {llm_games} games have one",
+                "lab: LLM seats ask {} (at most {} at a time, {}s limit, {} requests per seat per game, effort {}, object key {}, prompt cache {}, deck guides {}, rules issues {}); {llm_games} games have one",
                 exe.display(),
                 a.concurrency,
                 a.timeout_secs,
                 a.max_calls,
                 a.effort.as_deref().unwrap_or("default"),
                 if a.object_key { "on" } else { "off" },
-                if a.prompt_cache { "on" } else { "off" }
+                if a.prompt_cache { "on" } else { "off" },
+                a.guides.as_ref().map_or_else(|| "off".to_string(), |d| d.display().to_string()),
+                if a.report_issues { "on" } else { "off" }
             );
-            Some(Arc::new(lab::LlmSetup { transport: Arc::new(cli), max_calls_per_seat: a.max_calls, max_failure_streak: 5, log, object_key: a.object_key }))
+            let guides = match &a.guides {
+                Some(dir) => Some(read_guides(dir, &llm_decks(&jobs))?),
+                None => None,
+            };
+            Some(Arc::new(lab::LlmSetup {
+                transport: Arc::new(cli),
+                max_calls_per_seat: a.max_calls,
+                max_failure_streak: 5,
+                log,
+                object_key: a.object_key,
+                report_issues: a.report_issues,
+                guides,
+            }))
         }
         None => None,
     };
@@ -784,6 +840,24 @@ mod tests {
         let path = std::env::temp_dir().join(format!("lab-{name}-{}.jsonl", std::process::id()));
         std::fs::write(&path, text).unwrap();
         path
+    }
+
+    #[test]
+    fn guides_cover_trimmed_llm_labels_and_refuse_blank_files() {
+        let line = |pilots: &str| format!(r#"{{"game":"g","seed":1,"decks":["p/a","p/b"],"difficulty":"Hard","max_turns":9,"max_actions":99,"max_seconds":9,"pilots":{pilots}}}"#);
+        let jobs = vec![parse_job(&line(r#"[" llm:m ", "hard"]"#)).unwrap(), parse_job(&line(r#"["easy", "hard"]"#)).unwrap()];
+        let decks = llm_decks(&jobs);
+        assert_eq!(decks, std::collections::BTreeSet::from(["p/a".to_string()]), "a padded llm label is still an LLM seat");
+        let dir = std::env::temp_dir().join(format!("lab-guides-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("p")).unwrap();
+        std::fs::write(dir.join("p/a.md"), "Plan.").unwrap();
+        std::fs::write(dir.join("p/b.md"), " \n").unwrap();
+        let one = std::collections::BTreeSet::from(["p/a".to_string()]);
+        assert_eq!(read_guides(&dir, &one).unwrap().get("p/a").map(String::as_str), Some("Plan."));
+        let both = std::collections::BTreeSet::from(["p/a".to_string(), "p/b".to_string()]);
+        let err = read_guides(&dir, &both).unwrap_err().to_string();
+        assert!(err.contains("p/b") && !err.contains("p/a"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -676,6 +676,11 @@ pub struct LlmSetup {
     /// controller), from the seat's own view. phase-llm names an action's main object but prints
     /// targets and attackers as bare numbers ("Choose Target (Target: Object 77)").
     pub object_key: bool,
+    /// Ask every reply for an optional "rules_issue" (pilot::ISSUE_CONTRACT), logged and counted.
+    pub report_issues: bool,
+    /// Deck guides by deck id, each added to its LLM seat's system prompt. `None`: no guides; a
+    /// game whose LLM seat's deck has none here ends as an error.
+    pub guides: Option<HashMap<String, String>>,
 }
 
 impl std::fmt::Debug for LlmSetup {
@@ -685,6 +690,8 @@ impl std::fmt::Debug for LlmSetup {
             .field("max_failure_streak", &self.max_failure_streak)
             .field("log", &self.log.is_some())
             .field("object_key", &self.object_key)
+            .field("report_issues", &self.report_issues)
+            .field("guides", &self.guides.as_ref().map(HashMap::len))
             .finish_non_exhaustive()
     }
 }
@@ -697,6 +704,8 @@ struct LlmSeat {
     model: String,
     persona: AiDifficulty,
     streak: usize,
+    /// The deck guide section for the system prompt (pilot::guide_section), or "".
+    guide: String,
 }
 
 /// What asking the model produced for one decision.
@@ -779,6 +788,7 @@ fn ask_llm(
         return Asked::Fallback;
     }
     stats.calls += 1;
+    let system = format!("{}{}", request.prompt.system, seat.guide);
     let mut user = request.prompt.user.clone();
     if setup.object_key {
         if let Some(key) = object_key(state, contract) {
@@ -790,12 +800,22 @@ fn ask_llm(
             };
         }
     }
+    if setup.report_issues {
+        user = format!("{user}\n\n{}", crate::pilot::ISSUE_CONTRACT);
+    }
     let t = Instant::now();
-    let reply = setup.transport.complete(&LlmRequest { model: &seat.model, system: &request.prompt.system, user: &user });
+    let reply = setup.transport.complete(&LlmRequest { model: &seat.model, system: &system, user: &user });
     let ms = t.elapsed();
     *wait += ms;
     stats.wait_ms += ms.as_millis() as u64;
     let mut chosen = None;
+    let issue = match &reply {
+        Ok(t) if setup.report_issues => crate::pilot::rules_issue(&t.text),
+        _ => None,
+    };
+    if issue.is_some() {
+        *stats.rules_issues.get_or_insert(0) += 1;
+    }
     let (outcome, choice, reason, text) = match &reply {
         Err(f) => {
             seat.streak += 1;
@@ -828,7 +848,7 @@ fn ask_llm(
         }
     };
     if let Some(log) = &setup.log {
-        let line = serde_json::json!({
+        let mut line = serde_json::json!({
             "game": game,
             "seat": contract.authorized_actor.0,
             "turn": state.turn_number,
@@ -841,6 +861,13 @@ fn ask_llm(
             "reply": text,
             "ms": ms.as_millis() as u64,
         });
+        if setup.report_issues {
+            line["rules_issue"] = serde_json::json!(issue);
+            if issue.is_some() {
+                // the position the model saw, for checking its report
+                line["prompt"] = serde_json::json!(user);
+            }
+        }
         let mut f = lock(log);
         let _ = std::io::Write::write_all(&mut *f, format!("{line}\n").as_bytes());
     }
@@ -925,11 +952,25 @@ fn play(
     let mut llm_seats: HashMap<PlayerId, (LlmSeat, usize)> = HashMap::new();
     for (i, pilot) in pilots.iter().enumerate() {
         if let Pilot::Llm(l) = pilot {
-            llm_seats.insert(PlayerId(i as u8), (LlmSeat { model: l.model.clone(), persona: l.persona, streak: 0 }, p.llm.len()));
+            let mut prompt = String::from(if llm.is_some_and(|l| l.object_key) { "phase-llm+object-key" } else { "phase-llm" });
+            let mut guide = String::new();
+            if let Some(guides) = llm.and_then(|l| l.guides.as_ref()) {
+                let Some(text) = guides.get(&job.decks[i]).filter(|t| !t.trim().is_empty()) else {
+                    return Ending::Error(format!("LLM seat {i}: no deck guide for {}", job.decks[i]));
+                };
+                prompt += &format!("+guide-{}", crate::pilot::sha8(text));
+                guide = crate::pilot::guide_section(text);
+            }
+            let report_issues = llm.is_some_and(|l| l.report_issues);
+            if report_issues {
+                prompt += "+issues";
+            }
+            llm_seats.insert(PlayerId(i as u8), (LlmSeat { model: l.model.clone(), persona: l.persona, streak: 0, guide }, p.llm.len()));
             p.llm.push(LlmSeatStats {
                 seat: i as u8,
                 pilot: job.pilots.as_ref().map_or_else(String::new, |v| v[i].clone()),
-                prompt: if llm.is_some_and(|l| l.object_key) { "phase-llm+object-key" } else { "phase-llm" }.into(),
+                prompt,
+                rules_issues: report_issues.then_some(0),
                 ..Default::default()
             });
         }
