@@ -25,7 +25,12 @@ acquisition evidence, scenarios, accounting, local checks, `method` (which often
 acquisition rules and price ceilings), combos and any other field stay private. Free text in the
 fields shown is published as written, so an owner should read summaries before sharing. Each deck page shows one build (`/r/<token>/<deck>?build=<id>`) with its changes as a
 table and the list as stacks or a list; `/r/<token>/<deck>/<build>-{names,moxfield}.txt`
-downloads it.
+downloads it. The shopping lists on the note and deck pages price the added cards three ways
+(`?get=` empty, `buy` or `print`); the default buys cards up to a limit and prints the rest. The
+reader sets that limit with the dollar field under the choices (`?upto=<dollars>`, $0 to $1,000,
+$2.00 when absent, at most two decimals), and every link on the page keeps it. The owner's plan
+pages in the app have the same field (`/api/research/<id>/view?upto=`). It is the reader's own
+choice, never the owner's acquisition rules.
 
 **The owner's pages (2026-11-04).** In the app a note is a plan (Decks, Plans) and its pages
 show the shared pages' sections in their order, from the same Rust: `GET /api/research/{id}/view`

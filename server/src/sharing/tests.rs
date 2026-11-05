@@ -772,6 +772,36 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(buy.contains("&amp;get=buy"), "{buy}");
     assert!(buy.contains("aria-current=\"page\" href=\"/r/") && buy.contains(">Buy every card locally</a>"));
     assert_eq!(page(&app, &format!("/r/{token}/party?get=steal")).await.0, StatusCode::NOT_FOUND);
+    // The reader sets the split's limit: a form under the choices, $2.00 to start.
+    assert!(
+        deck.contains(&format!("<form class=\"share-upto\" method=\"get\" action=\"/r/{token}/party#shop-head\"><input type=\"hidden\" name=\"build\" value=\"b3\">"))
+            && deck.contains("name=\"upto\" type=\"number\"")
+            && deck.contains("value=\"2.00\"></span><button type=\"submit\">Update</button></form>"),
+        "{deck}"
+    );
+    assert!(!print.contains("class=\"share-upto\""), "only the split has a limit");
+    let five = page(&app, &format!("/r/{token}/party?upto=5")).await.2;
+    assert!(five.contains(">Buy up to $5.00, print the rest</a>") && five.contains("2 to buy locally: about $4.75") && five.contains("0 to print: about $0.00"), "{five}");
+    assert!(five.contains("A card at $5.00 or less is bought at a local store") && five.contains("Yama suggests $2.00.") && five.contains("value=\"5.00\">"), "{five}");
+    // The limit stays in the page's links, under every way of getting the cards.
+    assert!(five.contains(&format!("class=\"back-link\" href=\"/r/{token}?upto=5.00\"")), "{five}");
+    assert!(five.contains("&amp;get=buy&amp;upto=5.00#shop-head\">Buy every card locally</a>"), "{five}");
+    let printing = page(&app, &format!("/r/{token}/party?get=print&upto=5")).await.2;
+    assert!(printing.contains("&amp;upto=5.00#shop-head\">Buy up to $5.00, print the rest</a>"), "switching back keeps the limit");
+    let cheap = page(&app, &format!("/r/{token}/party?upto=0.25")).await.2;
+    assert!(cheap.contains("0 to buy locally: about $0.00") && cheap.contains("2 to print: about $0.60"), "{cheap}");
+    // At the limit is bought; an empty limit is the suggested one; anything else isn't a limit.
+    assert!(page(&app, &format!("/r/{token}/party?upto=%244.25")).await.2.contains("2 to buy locally"));
+    assert!(page(&app, &format!("/r/{token}/party?upto=")).await.2.contains("About $0.80 to get"));
+    assert!(page(&app, &format!("/r/{token}/party?upto=1000")).await.2.contains(">Buy up to $1000.00, print the rest</a>"), "the top of the range");
+    assert!(page(&app, &format!("/r/{token}/party?upto=.5")).await.2.contains("value=\"0.50\">"));
+    for bad in ["-1", "abc", "1e3", "2000", "1000.004", "1000.01", "2.005", "1.2.3", ".", "%2B2", "inf", "NaN"] {
+        assert_eq!(page(&app, &format!("/r/{token}/party?upto={bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
+        assert_eq!(page(&app, &format!("/r/{token}?upto={bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
+    }
+    let note_five = page(&app, &format!("/r/{token}?build=b3&upto=5")).await.2;
+    assert!(note_five.contains("About $4.75 to get") && note_five.contains(&format!("<a href=\"/r/{token}/party?build=b3&amp;upto=5.00\">Party Time</a>")), "{note_five}");
+    assert!(note_five.contains(&format!("action=\"/r/{token}#shop-head\"><input type=\"hidden\" name=\"build\" value=\"b3\">")), "{note_five}");
     // The note page: per deck, overall, and every card with the decks it goes in.
     let (status, _, body) = page(&app, &format!("/r/{token}")).await;
     assert_eq!(status, StatusCode::OK);
@@ -877,6 +907,13 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     assert_eq!((print["shopping"]["total"]["print"].as_i64(), print["shopping"]["get"].as_str()), (Some(3), Some("print")));
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?build=b9", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?get=steal", Some(&bt), None).await.0, StatusCode::BAD_REQUEST);
+    // The owner's Plans page sets the split's limit the same way (`?upto=`).
+    assert_eq!((view["shopping"]["up_to"].as_f64(), view["shopping"]["up_to_suggested"].as_f64(), view["shopping"]["up_to_max"].as_f64()), (Some(2.0), Some(2.0), Some(1000.0)));
+    let five = send(&app, Method::GET, "/api/research/upgrades/view?upto=5", Some(&bt), None).await.1;
+    assert_eq!((five["shopping"]["up_to"].as_f64(), five["shopping"]["total"]["print"].as_i64()), (Some(5.0), Some(0)), "{five}");
+    assert_eq!(five["shopping"]["gets"][0]["label"], "Buy up to $5.00, print the rest");
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?upto=5", Some(&bt), None).await.1["shopping"]["up_to"].as_f64(), Some(5.0));
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?upto=1000.01", Some(&bt), None).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?builds=all", Some(&bt), None).await.1["which"], "all");
 
     // A deck's page: the changes with their reasons, what the added cards come to, the list as cards.

@@ -190,17 +190,17 @@ fn compare_href(token: &str, deck: &str, build: &str, vs: Option<&str>, how: How
     if let Some(v) = vs {
         write!(path, "&amp;vs={}", query_value(v)).unwrap();
     }
-    if let Some(g) = how.param() {
-        write!(path, "&amp;get={g}").unwrap();
+    if let Some(q) = how.query() {
+        write!(path, "&amp;{q}").unwrap();
     }
     path
 }
 
 /// A deck's page at a build (else its default), keeping how the cards are got.
 fn deck_link(token: &str, deck: &str, build: Option<&str>, how: How) -> String {
-    match (build, how.param()) {
+    match (build, how.query()) {
         (Some(b), _) => compare_href(token, deck, b, None, how),
-        (None, Some(g)) => format!("{}?get={g}", deck_href(token, deck, None)),
+        (None, Some(q)) => format!("{}?{q}", deck_href(token, deck, None)),
         (None, None) => deck_href(token, deck, None),
     }
 }
@@ -388,19 +388,41 @@ pub(super) fn compare<'a>(list: &str, swaps: &'a [Value], vs_list: &str, vs_swap
     rows
 }
 
-/// A card at this market price or less is worth buying at a local store; above it, a printed
-/// proxy costs less. A card with no price is neither and stays out of the money totals.
-const BUY_UP_TO: f64 = 2.0;
+/// The suggested limit, in cents: a card at this market price or less is worth buying at a local
+/// store; above it, a printed proxy costs less. A card with no price is neither and stays out of
+/// the money totals. The reader can set their own (`?upto=`).
+const BUY_UP_TO: i64 = 200;
+/// The highest limit `?upto=` takes, in cents.
+const MAX_UP_TO: i64 = 100_000;
 /// About what one printed proxy costs.
 const PRINT_EACH: f64 = 0.30;
 
-/// How to get the cards (`?get=`): buy those at `BUY_UP_TO` or less and print the rest (the
+/// Cents as dollars, for a query or a form field: "2.00".
+fn dollars(cents: i64) -> String {
+    format!("{}.{:02}", cents / 100, cents % 100)
+}
+
+/// One way to get the cards (`?get=`): buy those at the limit or less and print the rest (the
 /// default), buy every card locally, or print every card.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum How {
+pub(super) enum Way {
     Split,
     Buy,
     Print,
+}
+
+impl Way {
+    const ALL: [Way; 3] = [Way::Split, Way::Buy, Way::Print];
+}
+
+/// How to get the cards: the way, and the most a card may cost to be bought rather than printed
+/// (`?upto=`, in dollars). The limit stays in the page's links under every way, so switching back
+/// to the split keeps it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) struct How {
+    way: Way,
+    /// In cents.
+    up_to: i64,
 }
 
 /// How one card is got under a `How`. `Unknown`: split, with no price to decide by.
@@ -422,48 +444,92 @@ impl Get {
 }
 
 impl How {
-    pub(super) const ALL: [How; 3] = [How::Split, How::Buy, How::Print];
-    /// The query value; an unknown one is `None` (not found), like an unknown build.
-    pub(super) fn parse(q: Option<&str>) -> Option<How> {
-        match q.unwrap_or("") {
-            "" => Some(How::Split),
-            "buy" => Some(How::Buy),
-            "print" => Some(How::Print),
-            _ => None,
-        }
+    /// The query values; an unknown way or a limit that isn't a dollar amount from $0 to
+    /// `MAX_UP_TO` is `None` (not found), like an unknown build. An empty limit is the suggested one.
+    pub(super) fn parse(get: Option<&str>, upto: Option<&str>) -> Option<How> {
+        let way = match get.unwrap_or("") {
+            "" => Way::Split,
+            "buy" => Way::Buy,
+            "print" => Way::Print,
+            _ => return None,
+        };
+        let up_to = match upto.map(str::trim).map(|u| u.strip_prefix('$').unwrap_or(u)).unwrap_or("") {
+            "" => BUY_UP_TO,
+            // Exact whole cents: digits, then at most two after a point. No signs, exponents,
+            // infinities, NaN or rounding, so nothing past `MAX_UP_TO` gets in.
+            u => {
+                let (whole, frac) = u.split_once('.').unwrap_or((u, ""));
+                let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+                if (whole.is_empty() && frac.is_empty()) || whole.len() > 9 || frac.len() > 2 || !digits(whole) || !digits(frac) {
+                    return None;
+                }
+                let whole: i64 = if whole.is_empty() { 0 } else { whole.parse().ok()? };
+                let frac: i64 = if frac.is_empty() { 0 } else { format!("{frac:0<2}").parse().ok()? };
+                let cents = whole * 100 + frac;
+                if cents > MAX_UP_TO {
+                    return None;
+                }
+                cents
+            }
+        };
+        Some(How { way, up_to })
     }
-    fn param(self) -> Option<&'static str> {
-        match self {
-            How::Split => None,
-            How::Buy => Some("buy"),
-            How::Print => Some("print"),
+    /// This with another way, keeping the limit.
+    fn with(self, way: Way) -> How {
+        How { way, ..self }
+    }
+    /// Its query, already escaped for an attribute: none for the defaults.
+    fn query(self) -> Option<String> {
+        let mut q = Vec::new();
+        match self.way {
+            Way::Split => {}
+            Way::Buy => q.push("get=buy".to_string()),
+            Way::Print => q.push("get=print".to_string()),
         }
+        if self.up_to != BUY_UP_TO {
+            q.push(format!("upto={}", dollars(self.up_to)));
+        }
+        (!q.is_empty()).then(|| q.join("&amp;"))
+    }
+    fn limit(self) -> f64 {
+        self.up_to as f64 / 100.0
     }
     /// Its name in the app's data: the query value, "split" for the default.
     fn id(self) -> &'static str {
-        self.param().unwrap_or("split")
+        match self.way {
+            Way::Split => "split",
+            Way::Buy => "buy",
+            Way::Print => "print",
+        }
     }
     fn label(self) -> String {
-        match self {
-            How::Split => format!("Buy up to {}, print the rest", usd(Some(BUY_UP_TO))),
-            How::Buy => "Buy every card locally".into(),
-            How::Print => "Print every card".into(),
+        match self.way {
+            Way::Split => format!("Buy up to {}, print the rest", usd(Some(self.limit()))),
+            Way::Buy => "Buy every card locally".into(),
+            Way::Print => "Print every card".into(),
         }
     }
     fn explain(self) -> String {
-        match self {
-            How::Split => format!("A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less.", usd(Some(BUY_UP_TO)), usd(Some(PRINT_EACH))),
-            How::Buy => "Every card bought as a real card at a local store.".into(),
-            How::Print => format!("Every card printed as a proxy at about {} each.", usd(Some(PRINT_EACH))),
+        match self.way {
+            Way::Split if self.up_to == BUY_UP_TO => format!("A card at {} or less is worth buying at a local store; above that, a printed proxy at about {} costs less.", usd(Some(self.limit())), usd(Some(PRINT_EACH))),
+            Way::Split => format!(
+                "A card at {} or less is bought at a local store; above that, it's printed as a proxy at about {} each. Yama suggests {}.",
+                usd(Some(self.limit())),
+                usd(Some(PRINT_EACH)),
+                usd(Some(BUY_UP_TO as f64 / 100.0))
+            ),
+            Way::Buy => "Every card bought as a real card at a local store.".into(),
+            Way::Print => format!("Every card printed as a proxy at about {} each.", usd(Some(PRINT_EACH))),
         }
     }
     fn get(self, price: Option<f64>) -> Get {
-        match (self, price) {
-            (How::Print, _) => Get::Print,
-            (How::Buy, _) => Get::Buy,
-            (How::Split, Some(p)) if p > BUY_UP_TO => Get::Print,
-            (How::Split, Some(_)) => Get::Buy,
-            (How::Split, None) => Get::Unknown,
+        match (self.way, price) {
+            (Way::Print, _) => Get::Print,
+            (Way::Buy, _) => Get::Buy,
+            // In whole cents, as the limit is, so $2.00 is at the limit rather than a hair over.
+            (Way::Split, Some(p)) if (p * 100.0).round() > self.up_to as f64 => Get::Print,
+            (Way::Split, Some(_)) => Get::Buy,
+            (Way::Split, None) => Get::Unknown,
         }
     }
     /// One card's copies: how they're got and their estimated cost (unknown without a price,
@@ -605,10 +671,10 @@ fn count_cards(n: i64) -> String {
 /// The totals as pills, and how they're worked out.
 fn shopping_totals(t: &Totals, as_of: Option<String>, how: How) -> String {
     let mut s = format!("<div class=\"share-status\"><span class=\"pill\">{}</span>", count_cards(t.cards));
-    if t.buy > 0 || how == How::Split {
+    if t.buy > 0 || how.way == Way::Split {
         write!(s, "<span class=\"pill\">{} to buy locally: {}</span>", t.buy, t.buy_money()).unwrap();
     }
-    if t.print > 0 || how == How::Split {
+    if t.print > 0 || how.way == Way::Split {
         write!(s, "<span class=\"pill\">{} to print: about {}</span>", t.print, usd(Some(t.print_cost))).unwrap();
     }
     write!(
@@ -635,14 +701,30 @@ fn shopping_totals(t: &Totals, as_of: Option<String>, how: How) -> String {
     s
 }
 
-/// Links to each way of getting the cards; `href` gives each one's address.
-fn how_picker(how: How, href: impl Fn(How) -> String) -> String {
+/// Links to each way of getting the cards; `href` gives each one's address. Under the split, a
+/// form sets its limit: a plain GET to `action` (the page's path), carrying the page's other
+/// choices in `keep`, so it works without the page's script.
+fn how_picker(how: How, href: impl Fn(How) -> String, action: &str, keep: &[(&str, &str)]) -> String {
     let mut s = String::from("<nav class=\"share-configs\" aria-label=\"How to get the cards\"><span class=\"dim\">Get</span><ul>");
-    for h in How::ALL {
-        let current = if h == how { " aria-current=\"page\"" } else { "" };
+    for w in Way::ALL {
+        let current = if w == how.way { " aria-current=\"page\"" } else { "" };
+        let h = how.with(w);
         write!(s, "<li><a{current} href=\"{}\">{}</a></li>", href(h), e(&h.label())).unwrap();
     }
     s.push_str("</ul></nav>");
+    if how.way == Way::Split {
+        write!(s, "<form class=\"share-upto\" method=\"get\" action=\"{}#shop-head\">", e(action)).unwrap();
+        for (name, value) in keep {
+            write!(s, "<input type=\"hidden\" name=\"{}\" value=\"{}\">", e(name), e(value)).unwrap();
+        }
+        write!(
+            s,
+            "<label for=\"upto\">Buy cards up to<span class=\"sr-only\"> (US dollars)</span></label><span class=\"share-upto-field\"><span aria-hidden=\"true\">$</span><input id=\"upto\" name=\"upto\" type=\"number\" inputmode=\"decimal\" min=\"0\" max=\"{}\" step=\"0.01\" required value=\"{}\"></span><button type=\"submit\">Update</button></form>",
+            dollars(MAX_UP_TO),
+            dollars(how.up_to)
+        )
+        .unwrap();
+    }
     s
 }
 
@@ -764,7 +846,7 @@ pub(super) async fn note(
     if pick.is_some_and(|p| !choices.iter().any(|c| c.0 == p)) {
         return Ok(not_found(&st, "Build"));
     }
-    let Some(how) = How::parse(q.get.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
+    let Some(how) = How::parse(q.get.as_deref(), q.upto.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
     let mut body = String::new();
     if let Some(h) = &handle {
         write!(body, "<a class=\"back-link\" href=\"/u/{0}\">← @{0}</a>", e(h)).unwrap();
@@ -865,8 +947,8 @@ fn note_href(token: &str, which: Which, how: How, anchor: &str) -> String {
     if let Some(w) = which.query() {
         q.push(w);
     }
-    if let Some(g) = how.param() {
-        q.push(format!("get={g}"));
+    if let Some(h) = how.query() {
+        q.push(h);
     }
     let q = if q.is_empty() { String::new() } else { format!("?{}", q.join("&amp;")) };
     format!("/r/{}{q}#{anchor}", e(token))
@@ -974,7 +1056,12 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
     if which == Which::All {
         s.push_str("<p class=\"dim share-shop-how\">Every build as its own deck, starting from one copy of each precon: the cards the builds share are counted once per build.</p>");
     }
-    s.push_str(&how_picker(how, |h| note_href(token, which, h, "shop-head")));
+    let keep: Vec<(&str, &str)> = match which {
+        Which::Recommended => Vec::new(),
+        Which::Build(id) => vec![("build", id)],
+        Which::All => vec![("builds", ALL)],
+    };
+    s.push_str(&how_picker(how, |h| note_href(token, which, h, "shop-head"), &format!("/r/{token}"), &keep));
     s.push_str(&shopping_totals(&total, as_of(&items), how));
     s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     let row = |t: &Totals| {
@@ -1090,6 +1177,9 @@ pub(super) struct BuildQuery {
     /// How to get the cards: `buy`, `print`, else the split (see `How`).
     #[serde(default)]
     get: Option<String>,
+    /// The most a card may cost to be bought rather than printed, in dollars (see `How`).
+    #[serde(default)]
+    upto: Option<String>,
     /// `all`: a note page's every build of every deck.
     #[serde(default)]
     builds: Option<String>,
@@ -1163,7 +1253,7 @@ pub(super) async fn deck(
     let (Some(d), title) = (deck_of(&doc, &key), text(&doc, "title")) else { return Ok(not_found(&st, "Deck")) };
     let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Build")) };
     let Ok(vs) = vs_of(d, b, q.vs.as_deref()) else { return Ok(not_found(&st, "Build")) };
-    let Some(how) = How::parse(q.get.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
+    let Some(how) = How::parse(q.get.as_deref(), q.upto.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
     let name = text(d, "name");
     let commander = text(d, "commander");
     let build_id = text(b, "id");
@@ -1171,8 +1261,8 @@ pub(super) async fn deck(
     let (cards, cut) = cards_of(&st.pool, text(b, "list")).await?;
     let size: i64 = cards.iter().filter(|c| c.board != Board::Side).map(|c| c.qty).sum();
 
-    let back = match how.param() {
-        Some(g) => format!("/r/{}?get={g}", e(&token)),
+    let back = match how.query() {
+        Some(q) => format!("/r/{}?{q}", e(&token)),
         None => format!("/r/{}", e(&token)),
     };
     let mut body = format!("<a class=\"back-link\" href=\"{back}\">← {}</a>", e(title));
@@ -1316,7 +1406,9 @@ pub(super) async fn deck(
             t.add(i.n, i.usd(), how);
         }
         let vs_id = vs.map(|v| text(v, "id"));
-        let picker = how_picker(how, |h| compare_href(&token, &key, build_id, vs_id, h) + "#shop-head");
+        let mut keep = vec![("build", build_id)];
+        keep.extend(vs_id.map(|v| ("vs", v)));
+        let picker = how_picker(how, |h| compare_href(&token, &key, build_id, vs_id, h) + "#shop-head", &format!("/r/{token}/{key}"), &keep);
         write!(
             body,
             "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} to add to {}</p><h2 id=\"shop-head\">Shopping list</h2></div></div>{picker}{}{}<h3 class=\"share-copy-title\">Copy the shopping list</h3>{}</section>",
@@ -1451,6 +1543,10 @@ struct Choice {
 struct ShoppingData {
     get: &'static str,
     gets: Vec<Choice>,
+    /// The split's limit in dollars (`?upto=`), the suggested one and the highest allowed.
+    up_to: f64,
+    up_to_suggested: f64,
+    up_to_max: f64,
     explain: String,
     /// The oldest and newest price dates among the cards.
     prices_from: Option<String>,
@@ -1474,7 +1570,10 @@ fn shopping_data(items: &[ToGet], how: How) -> ShoppingData {
     let dates: Vec<&str> = items.iter().filter_map(|t| t.price.as_ref().map(|p| p.1.as_str())).collect();
     ShoppingData {
         get: how.id(),
-        gets: How::ALL.iter().map(|h| Choice { id: h.id(), label: h.label() }).collect(),
+        gets: Way::ALL.iter().map(|&w| how.with(w)).map(|h| Choice { id: h.id(), label: h.label() }).collect(),
+        up_to: how.limit(),
+        up_to_suggested: BUY_UP_TO as f64 / 100.0,
+        up_to_max: MAX_UP_TO as f64 / 100.0,
         explain: how.explain(),
         prices_from: dates.iter().min().map(|d| d.to_string()),
         prices_to: dates.iter().max().map(|d| d.to_string()),
@@ -1510,7 +1609,7 @@ fn art_data(c: Commander) -> (Option<ArtData>, Option<String>) {
 }
 
 fn owner_how(q: &BuildQuery) -> AppResult<How> {
-    How::parse(q.get.as_deref()).ok_or_else(|| AppError::bad("get is buy or print, or empty for the split"))
+    How::parse(q.get.as_deref(), q.upto.as_deref()).ok_or_else(|| AppError::bad("get is buy or print, or empty for the split; upto is dollars from 0 to 1000, at most two decimals"))
 }
 
 /// `GET /api/research/{id}/view`: a note's page as data for its owner: each deck's commander art
