@@ -334,6 +334,52 @@ fn clip(s: &str, max: usize) -> String {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Deck guides and rules-issue reports (the same words as the Forge LLM seat, forge-referee llm
+// Prompt.java, so the two engines' seats are briefed alike)
+
+/// Asked after the reply contract with --llm-report-issues: an optional "rules_issue" field in
+/// any reply.
+pub const ISSUE_CONTRACT: &str = "Rules check: you are also helping test this rules engine. If something in the \
+position or the recent log contradicts the rules of Magic or a card's Oracle text (a card that didn't do what its \
+text says, a trigger that should have happened and didn't or one that shouldn't have, a wrong life total, counter, \
+power or toughness, an option offered that shouldn't be legal, or a play you clearly should have that isn't \
+offered), add a \"rules_issue\" field to your JSON object: one sentence naming the card, what happened and what \
+the rules say should have happened. Report only what you can see and are confident about: hidden cards, choices \
+made for you by your assistant and how your mana was paid are not issues. Leave the field out when nothing is \
+wrong, which is almost always.";
+
+/// The seat's deck guide (its plan and full list, written by us, not untrusted data), appended
+/// to the system prompt.
+pub fn guide_section(text: &str) -> String {
+    if text.trim().is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nYOUR DECK. You know your own decklist, as any player does. This guide to it (its plan and the full list) \
+was written for you by your team before the game:\n{}",
+        text.trim()
+    )
+}
+
+/// The reply's "rules_issue", when it is a non-blank string other than "none". Reads the reply's
+/// JSON object (the outermost {...}, as a model may wrap it in a fence).
+pub fn rules_issue(reply: &str) -> Option<String> {
+    let (a, b) = (reply.find('{')?, reply.rfind('}')?);
+    if b < a {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&reply[a..=b]).ok()?;
+    let t = v.get("rules_issue")?.as_str()?.trim();
+    (!t.is_empty() && !t.eq_ignore_ascii_case("none")).then(|| t.to_string())
+}
+
+/// First 8 hex digits of the text's SHA-256: names a guide in the seat's prompt label.
+pub fn sha8(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect()
+}
+
+// ---------------------------------------------------------------------------------------------
 // Per-seat bookkeeping, written into the result line
 
 /// What an LLM seat did in one game.
@@ -341,8 +387,9 @@ fn clip(s: &str, max: usize) -> String {
 pub struct LlmSeatStats {
     pub seat: u8,
     pub pilot: String,
-    /// The prompt: "phase-llm" (phase's own), or "phase-llm+object-key" (plus a key naming the
-    /// objects the options refer to by number).
+    /// The prompt: "phase-llm" (phase's own), then "+object-key" (a key naming the objects the
+    /// options refer to by number), "+guide-<sha 8>" (the seat's deck guide) and "+issues" (asked
+    /// to report rules problems) when they were on.
     #[serde(default)]
     pub prompt: String,
     /// Decisions the seat faced with more than one engine-issued option.
@@ -362,6 +409,9 @@ pub struct LlmSeatStats {
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
     pub output_tokens: u64,
+    /// Replies that reported a rules problem ("rules_issue"); absent when the seat wasn't asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_issues: Option<usize>,
 }
 
 impl LlmSeatStats {
@@ -415,6 +465,23 @@ mod tests {
         pos("--no-session-persistence");
         assert!(!a.iter().any(|x| x == "--bare"));
         assert!(!a.iter().any(|x| x == "U"), "the user message goes on stdin");
+    }
+
+    #[test]
+    fn rules_issue_field() {
+        assert_eq!(rules_issue(r#"{"choice": 0, "rules_issue": "Hydra got no counters"}"#).as_deref(), Some("Hydra got no counters"));
+        assert_eq!(rules_issue("```json\n{\"choice\": 1, \"rules_issue\": \" x \"}\n```").as_deref(), Some("x"));
+        for none in [r#"{"choice": 0}"#, r#"{"choice": 0, "rules_issue": " "}"#, r#"{"choice": 0, "rules_issue": "None"}"#, r#"{"choice": 0, "rules_issue": null}"#, r#"{"rules_issue": {"a": 1}}"#, "2", "} {"] {
+            assert_eq!(rules_issue(none), None, "{none}");
+        }
+    }
+
+    #[test]
+    fn deck_guide_section() {
+        assert_eq!(guide_section("  \n"), "");
+        let g = guide_section("Plan: go wide.\n");
+        assert!(g.starts_with("\n\nYOUR DECK.") && g.ends_with("before the game:\nPlan: go wide."), "{g}");
+        assert_eq!(sha8("abc"), "ba7816bf");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! LLM seats in lab games, with a fake transport (no model is called).
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,6 +36,8 @@ struct Fixed {
     calls: AtomicUsize,
     saw_options: Mutex<bool>,
     saw_key: Mutex<bool>,
+    saw_guide: Mutex<bool>,
+    saw_issue_ask: Mutex<bool>,
 }
 
 impl LlmTransport for Fixed {
@@ -48,15 +51,46 @@ impl LlmTransport for Fixed {
             assert!(req.user.contains("Object ") && req.user.contains(" = "));
             *self.saw_key.lock().unwrap() = true;
         }
+        if req.system.contains("YOUR DECK.") && req.system.ends_with("Plan: attack.") {
+            *self.saw_guide.lock().unwrap() = true;
+        }
+        if req.user.ends_with(yama_play::pilot::ISSUE_CONTRACT) {
+            *self.saw_issue_ask.lock().unwrap() = true;
+        }
         self.reply.clone().map(|text| LlmText { text, input_tokens: 10, output_tokens: 2, ..Default::default() })
     }
 }
 
 fn play(spec: &GameSpec, reply: Result<String, LlmFailure>, max_calls: usize) -> (lab::GameReport, Arc<Fixed>) {
+    play_with(spec, reply, max_calls, false, None)
+}
+
+fn play_with(
+    spec: &GameSpec,
+    reply: Result<String, LlmFailure>,
+    max_calls: usize,
+    report_issues: bool,
+    guides: Option<HashMap<String, String>>,
+) -> (lab::GameReport, Arc<Fixed>) {
     let e = engine();
-    let t = Arc::new(Fixed { reply, calls: AtomicUsize::new(0), saw_options: Mutex::new(false), saw_key: Mutex::new(false) });
+    let t = Arc::new(Fixed {
+        reply,
+        calls: AtomicUsize::new(0),
+        saw_options: Mutex::new(false),
+        saw_key: Mutex::new(false),
+        saw_guide: Mutex::new(false),
+        saw_issue_ask: Mutex::new(false),
+    });
     let opts = GameOptions {
-        llm: Some(Arc::new(LlmSetup { transport: t.clone(), max_calls_per_seat: max_calls, max_failure_streak: 5, log: None, object_key: true })),
+        llm: Some(Arc::new(LlmSetup {
+            transport: t.clone(),
+            max_calls_per_seat: max_calls,
+            max_failure_streak: 5,
+            log: None,
+            object_key: true,
+            report_issues,
+            guides,
+        })),
         ..GameOptions::default()
     };
     let decks = vec![deck(); spec.decks.len()];
@@ -84,6 +118,42 @@ fn an_llm_seat_chooses_from_the_engine_issued_options() {
     assert!(*t.saw_options.lock().unwrap(), "the prompt numbers the options");
     assert!(*t.saw_key.lock().unwrap(), "an option naming an object gets the object key");
     assert_eq!(st.prompt, "phase-llm+object-key");
+}
+
+#[test]
+fn a_deck_guide_and_rules_issue_reports() {
+    let s = spec(&["llm:fake-model", "easy"]);
+    let guides = HashMap::from([("d0".to_string(), "Plan: attack.\n".to_string())]);
+    let reply = r#"{"choice": 0, "reason": "r", "rules_issue": "Combat Celebrant didn't untap anything"}"#;
+    let (report, t) = play_with(&s, Ok(reply.into()), 1_000, true, Some(guides));
+    let r = &report.result;
+    assert!(!r.end.failed(), "{:?}", r.error);
+    let st = &r.llm.as_ref().unwrap()[0];
+    assert!(*t.saw_guide.lock().unwrap(), "the guide closes the system prompt");
+    assert!(*t.saw_issue_ask.lock().unwrap(), "the issue request closes the user prompt");
+    assert_eq!(st.chosen, st.calls, "the extra field doesn't spoil the choice: {st:?}");
+    assert_eq!(st.rules_issues, Some(st.calls));
+    assert_eq!(st.prompt, format!("phase-llm+object-key+guide-{}+issues", yama_play::pilot::sha8("Plan: attack.\n")));
+}
+
+#[test]
+fn an_llm_seat_without_its_deck_guide_is_an_error() {
+    let s = spec(&["easy", "llm:fake-model"]);
+    let guides = HashMap::from([("d0".to_string(), "Plan.".to_string())]);
+    let (report, t) = play_with(&s, Ok(r#"{"choice": 0}"#.into()), 1_000, false, Some(guides));
+    assert_eq!(report.result.end, End::Error);
+    assert!(report.result.error.as_deref().unwrap().contains("no deck guide for d1"), "{:?}", report.result.error);
+    assert_eq!(t.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn issue_counts_are_left_out_unless_asked() {
+    let s = spec(&["llm:fake-model", "easy"]);
+    let (report, t) = play(&s, Ok(r#"{"choice": 0, "rules_issue": "x"}"#.into()), 1_000);
+    let st = &report.result.llm.as_ref().unwrap()[0];
+    assert_eq!(st.rules_issues, None);
+    assert!(!*t.saw_issue_ask.lock().unwrap());
+    assert!(!*t.saw_guide.lock().unwrap());
 }
 
 #[test]
