@@ -4,7 +4,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { CommanderPick } from "@yama/core";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { api, type Card, type DeckSummary, type FoundPerson, type ProfileDeck, type SearchResult } from "../api";
 import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
@@ -181,6 +182,150 @@ export function Combobox<T>({
         )}
       </span>
     </label>
+  );
+}
+
+const TOUCH = "(pointer: coarse)";
+const subscribeTouch = (change: () => void) => {
+  const m = window.matchMedia?.(TOUCH);
+  m?.addEventListener("change", change);
+  return () => m?.removeEventListener("change", change);
+};
+/** A touch screen, where a list to browse opens as its own page and the keyboard waits for the search box. */
+export function useTouch(): boolean {
+  return useSyncExternalStore(subscribeTouch, () => !!window.matchMedia?.(TOUCH).matches, () => false);
+}
+
+/**
+ * On a touch screen, a field that opens a list to browse (Bryan, 4 Nov 2026: scroll the list
+ * first, and bring up the search only when the search box is tapped). It looks like the field;
+ * tapping it opens a full-screen picker.
+ */
+export function PickerField({ label, text, placeholder, trailing, onOpen }: {
+  label: string;
+  text: string;
+  placeholder?: string;
+  trailing?: ReactNode;
+  onOpen: () => void;
+}) {
+  const id = useId();
+  return (
+    <div className="picker-field">
+      <span id={id} className="field-label">{label}</span>
+      <span className="combo-wrap has-toggle">
+        <button type="button" className={text ? "combo-field" : "combo-field is-empty"} aria-haspopup="dialog" aria-labelledby={id} aria-describedby={`${id}-v`} onClick={onOpen}>
+          <span id={`${id}-v`} className="combo-field-text">{text || placeholder}</span>
+        </button>
+        {trailing}
+        <span className="combo-toggle" aria-hidden="true">
+          <svg viewBox="0 0 12 12" width="12" height="12">
+            <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The full-screen list a PickerField opens: the whole list to scroll, a search box above it that
+ * filters as you type (the keyboard comes up only when it's tapped), and Close. Nothing changes
+ * until an option is picked.
+ */
+export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose, placeholder, loading = false, empty, footer, extra }: {
+  label: string;
+  query: string;
+  onQuery: (t: string) => void;
+  options: Option<T>[];
+  onPick: (v: T) => void;
+  onClose: () => void;
+  placeholder?: string;
+  loading?: boolean;
+  /** Shown when nothing is listed. */
+  empty?: ReactNode;
+  footer?: ReactNode;
+  /** A line under the search box (another way out, such as no deck at all). */
+  extra?: ReactNode;
+}) {
+  const id = useId();
+  const list = useRef<HTMLUListElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    // Focus goes into the picker (its heading, so no keyboard comes up) and back to whatever opened it.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Everything else on the page is inert while it's open, so Tab, a switch or a screen reader
+    // can't reach the seat editor hidden under it (aria-modal alone doesn't keep focus in).
+    const others = [...document.body.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el !== root.current && !el.inert);
+    for (const el of others) el.inert = true;
+    heading.current?.focus();
+    // Escape closes this picker only, not the seat sheet under it.
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      closeRef.current();
+    };
+    window.addEventListener("keydown", key, true);
+    // The page under it stays put while the list scrolls.
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      document.body.style.overflow = overflow;
+      for (const el of others) el.inert = false;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, []);
+  // A new search starts at the top of its matches.
+  // (A block body: newer browsers' scrollTo returns a promise, which mustn't become a cleanup.)
+  useEffect(() => {
+    if (list.current) list.current.scrollTop = 0;
+  }, [query]);
+  return createPortal(
+    <div ref={root} className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}>
+      <div className="picker-head">
+        <h2 id={`${id}-title`} ref={heading} tabIndex={-1}>{label}</h2>
+        <button type="button" className="quiet" onClick={onClose}>Close</button>
+      </div>
+      <input
+        type="search"
+        className="picker-search"
+        aria-label={`Search ${label.toLowerCase()}`}
+        aria-controls={`${id}-list`}
+        value={query}
+        placeholder={placeholder}
+        autoComplete="off"
+        enterKeyHint="search"
+        onChange={(e) => onQuery(e.target.value)}
+        // Enter takes the first match, and puts the keyboard away otherwise.
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (query.trim() && options[0]) onPick(options[0].value);
+          else e.currentTarget.blur();
+        }}
+      />
+      {extra}
+      <ul ref={list} className="picker-list" id={`${id}-list`} aria-label={label}>
+        {options.map((o) => (
+          <li key={o.key}>
+            <button type="button" className="combo-option picker-option" onClick={() => onPick(o.value)}>
+              {o.art !== undefined && (o.art ? <img className="combo-art" src={o.art} alt="" loading="lazy" /> : <span className="combo-art combo-art-none" />)}
+              <span className="combo-text">
+                <span className="combo-label">{o.label}</span>
+                {o.sub && <span className="combo-sub">{o.sub}</span>}
+              </span>
+              {o.identity !== undefined && <Pips identity={o.identity} label={false} />}
+            </button>
+          </li>
+        ))}
+        {options.length === 0 && <li className="combo-empty">{loading ? "Searching…" : empty}</li>}
+        {options.length > 0 && footer && <li className="combo-foot" aria-hidden="true">{footer}</li>}
+      </ul>
+    </div>,
+    document.body,
   );
 }
 
@@ -653,7 +798,11 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
 }) {
   // Opened without typing (focus, the arrow): the whole list, even with a deck's name in the field.
   const [browsing, setBrowsing] = useState(false);
-  const query = browsing ? "" : text;
+  // On a touch screen the list opens as its own page, searched by its own box (`find`).
+  const touch = useTouch();
+  const [picking, setPicking] = useState(false);
+  const [find, setFind] = useState("");
+  const query = picking ? find : browsing ? "" : text;
   const typing = query.trim().length >= 2;
   const theirs = useProfileDecks(yours ? undefined : handle);
   const precons = usePreconCatalog(typing);
@@ -680,6 +829,65 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
   const artist = (p: DeckPick) => (p.kind === "mine" ? p.deck.commander_artist : p.kind === "theirs" ? p.deck.artist : (p.precon.art?.artist ?? null));
   const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, precons: precons.data?.precons, yours });
   const options = picks.map(toOption);
+  const placeholder = handle && !yours ? `Search @${handle}'s decks, yours or precons` : "Search your decks or precons";
+  const loading = (typing && precons.isFetching && !precons.data) || (theirs.isFetching && !theirs.data);
+  // Scryfall asks for the artist wherever an art crop shows.
+  const credits = options.some((o) => o.art) && <span>{artCredits(picks.filter((_, i) => options[i]!.art).map(artist))}</span>;
+  if (touch) {
+    const close = () => setPicking(false);
+    return (
+      <>
+        <PickerField
+          label="Deck"
+          text={text}
+          placeholder={yours || !handle ? "Pick a deck" : `Pick @${handle}'s deck, yours or a precon`}
+          trailing={trailing}
+          onOpen={() => {
+            setFind("");
+            setPicking(true);
+          }}
+        />
+        {picking && (
+          <PickerSheet
+            label="Deck"
+            query={find}
+            onQuery={setFind}
+            options={options}
+            onPick={(p) => {
+              close();
+              onPick(p);
+            }}
+            onClose={close}
+            placeholder={placeholder}
+            loading={loading}
+            empty={typing ? (text ? "No deck by that name. Tap No deck above to name the commander instead." : "No deck by that name. Close this and pick a commander instead.") : "Type two letters to search the precons."}
+            extra={
+              text && (
+                <button
+                  type="button"
+                  className="quiet small picker-extra"
+                  onClick={() => {
+                    close();
+                    // Clearing the deck puts the seat back on its commander alone.
+                    onText("");
+                    onLeave?.();
+                  }}
+                >
+                  No deck, just name the commander
+                </button>
+              )
+            }
+            footer={
+              <>
+                {!typing && <span className="combo-hint">Type two letters to search the precons too.</span>}
+                {credits}
+              </>
+            }
+          />
+        )}
+      </>
+    );
+  }
   return (
     <Combobox
       label="Deck"
@@ -700,14 +908,13 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
       onOpen={() => setBrowsing(true)}
       toggle="Show all decks"
       trailing={trailing}
-      placeholder={handle && !yours ? `Search @${handle}'s decks, yours or precons` : "Search your decks or precons"}
-      loading={(typing && precons.isFetching && !precons.data) || (theirs.isFetching && !theirs.data)}
-      // Scryfall asks for the artist wherever an art crop shows.
+      placeholder={placeholder}
+      loading={loading}
       footer={
         options.length > 0 && (
           <>
             {!typing && <span className="combo-hint">Type two letters to search the precons too.</span>}
-            {options.some((o) => o.art) && <span>{artCredits(picks.filter((_, i) => options[i]!.art).map(artist))}</span>}
+            {credits}
           </>
         )
       }
