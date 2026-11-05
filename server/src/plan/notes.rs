@@ -198,7 +198,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
         }
     };
     let title = text(&doc, "title").unwrap_or_else(|| req.note_id.clone());
-    let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, build, &stamp).await?;
+    let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?;
     bump(&mut *conn, owner, &stamp).await?;
     let result = Tracked {
         link: format!("/decks/plan/d/{key}"),
@@ -283,7 +283,7 @@ pub async fn rederive(conn: &mut SqliteConnection, owner: &str, note_id: &str, d
                     .bind(owner)
                     .execute(&mut *conn)
                     .await?;
-                derive(&mut *conn, owner, id, note_id, &title, deck_key, build, &stamp).await?;
+                derive(&mut *conn, owner, id, note_id, &title, deck_key, deck, build, &stamp).await?;
             }
             None => {
                 stopped += 1;
@@ -464,7 +464,17 @@ struct SwapRow {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id: &str, title: &str, deck_key: &str, build: &Value, stamp: &str) -> AppResult<Derived> {
+async fn derive(
+    conn: &mut SqliteConnection,
+    owner: &str,
+    plan_id: &str,
+    note_id: &str,
+    title: &str,
+    deck_key: &str,
+    deck: &Value,
+    build: &Value,
+    stamp: &str,
+) -> AppResult<Derived> {
     let build_id = text(build, "id").unwrap_or_default();
     let mut warnings = Vec::new();
     let after: List = parse_list(build["list"].as_str().unwrap_or_default(), true)
@@ -486,9 +496,18 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         .bind(plan_id)
         .fetch_all(&mut *conn)
         .await?;
-    let donor = |name: &str| -> Option<(String, String)> {
+    // A donor is a plan key, else the one plan deck with that name: never a guess between two.
+    let donor = |name: &str| -> Result<Option<(String, String)>, String> {
         let want = name.trim().to_lowercase();
-        others.iter().find(|(k, n)| n.trim().to_lowercase() == want || k.as_str() == want).cloned()
+        if let Some(d) = others.iter().find(|(k, _)| *k == want) {
+            return Ok(Some(d.clone()));
+        }
+        let named: Vec<&(String, String)> = others.iter().filter(|(_, n)| n.trim().to_lowercase() == want).collect();
+        match named.as_slice() {
+            [one] => Ok(Some((*one).clone())),
+            [] => Ok(None),
+            _ => Err(format!("Two of your plans are called {}, so the move isn't linked to either; use its plan key as source_deck.", name.trim())),
+        }
     };
 
     // Swaps, upserted by their stable key; ones the build no longer has are retired.
@@ -503,7 +522,14 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
             continue;
         }
         let card_out = text(s, "card_out");
-        let donor_deck = source_of(build, s, &card_in).source_deck.as_deref().and_then(donor);
+        let donor_deck = match source_of(build, s, &card_in).source_deck.as_deref().map(donor) {
+            Some(Ok(d)) => d,
+            Some(Err(why)) => {
+                warnings.push(why);
+                None
+            }
+            None => None,
+        };
         let from_deck = donor_deck.as_ref().map(|(k, _)| k.clone());
         // One planner row per copy, as the planner counts swaps (Buy, prints, installs): the first
         // keeps the swap's own key, so a single-copy swap's marks never move.
@@ -611,12 +637,24 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
         .await?;
     }
 
-    // Lists: stock undoes every swap, now applies the owned ones, after is the build's list.
+    // Lists: stock undoes every swap, now applies the owned ones, after is the build's list. Each
+    // card keeps its own zone: an incoming card where the build's list has it, an outgoing card in
+    // the command zone only when the note names it as the deck's commander (a commander swap),
+    // else in the 99 (a partner added by cutting a main-deck card).
+    let note_commander = text(deck, "commander").unwrap_or_default().to_lowercase();
+    let out_board = |name: &str| -> &'static str {
+        let n = name.trim().to_lowercase();
+        if !n.is_empty() && note_commander.contains(&n) { "commander" } else { "main" }
+    };
+    let in_board = |name: &str| -> &'static str {
+        let n = name.trim().to_lowercase();
+        if after.iter().any(|(b, c, _)| *b == "commander" && c.trim().to_lowercase() == n) { "commander" } else { "main" }
+    };
     let mut stock = after.clone();
     for r in &rows {
-        if let Some(board) = take(&mut stock, &r.card_in) {
+        if take(&mut stock, &r.card_in).is_some() {
             if let Some(out) = &r.card_out {
-                put(&mut stock, out, board);
+                put(&mut stock, out, out_board(out));
             }
         } else {
             warnings.push(format!("The build's list has fewer {} than its swaps put in, so stock keeps the rest.", r.card_in));
@@ -627,8 +665,10 @@ async fn derive(conn: &mut SqliteConnection, owner: &str, plan_id: &str, note_id
     // swapped in (swap_in moves the now-to-after difference out of the donor's box), so not yet.
     let in_hand = |r: &SwapRow| r.source.src == "owned" && r.from_deck.is_none();
     for r in rows.iter().filter(|r| in_hand(r)) {
-        let board = r.card_out.as_deref().and_then(|out| take(&mut now_list, out)).unwrap_or("main");
-        put(&mut now_list, &r.card_in, board);
+        if let Some(out) = r.card_out.as_deref() {
+            take(&mut now_list, out);
+        }
+        put(&mut now_list, &r.card_in, in_board(&r.card_in));
     }
     // Every copy a swap puts in is its own slot carrying its own swap key (swap_in ticks installs
     // from the slots), so three copies of a basic are three slots, plus any copies already there.

@@ -158,6 +158,7 @@ async fn switching_saving_and_stopping_keep_one_plan_that_follows_the_note() {
     let (status, t) = track(&app, &session, "b4", "op-2").await;
     assert_eq!(status, StatusCode::OK, "{t}");
     assert_eq!(t["plan_deck_key"], "energy");
+    assert_eq!(t["warnings"], json!([]), "{t}");
     assert_eq!(live_swaps(&pool, &a).await, vec![("n|audit|energy|b4|rhystic".to_string(), "owned".to_string())]);
     let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(
@@ -299,6 +300,9 @@ async fn a_commander_swap_stays_in_the_command_zone() {
         "decks": [{"key": "energy", "name": "Energy", "commander": "Saheeli", "builds": [{
             "id": "b3", "label": "New commander", "list": "Commander\n1 Dr. Madison Li\nDeck\n99 Island",
             "swaps": [{"id": "face", "card_in": "Dr. Madison Li", "card_out": "Saheeli", "acquisition": {"kind": "owned"}}]
+        }, {
+            "id": "partner", "label": "A partner", "list": "Commander\n1 Saheeli\n1 Ich-Tekik\nDeck\n98 Island",
+            "swaps": [{"id": "ich", "card_in": "Ich-Tekik", "card_out": "Island", "acquisition": {"kind": "owned"}}]
         }]}]
     });
     save_note(&app, &session, &doc).await;
@@ -313,6 +317,18 @@ async fn a_commander_swap_stays_in_the_command_zone() {
     assert_eq!(commander("now"), vec!["Dr. Madison Li"]);
     assert_eq!(commander("after"), vec!["Dr. Madison Li"]);
     assert!(!names(&d["states"]["stock"]).contains(&"Dr. Madison Li".to_string()));
+
+    // A partner added by cutting a 99 card: the cut card goes back to the 99, not the command zone.
+    let (status, t) = track(&app, &session, "partner", "op-2").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    let d = &bundle(&app, &session).await["decks"][0];
+    let commander = |state: &str| -> Vec<String> {
+        d["states"][state]["cards"].as_array().unwrap().iter().filter(|c| c["board"] == "commander").map(|c| c["name"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(commander("stock"), vec!["Saheeli"]);
+    assert_eq!(commander("now"), vec!["Ich-Tekik", "Saheeli"]);
+    let island = d["states"]["stock"]["cards"].as_array().unwrap().iter().find(|c| c["name"] == "Island").unwrap();
+    assert_eq!(island["qty"], 99);
 }
 
 #[tokio::test]
@@ -368,4 +384,25 @@ async fn a_swap_of_several_copies_is_one_planner_row_per_copy() {
     assert_eq!(swaps.len(), 3, "one slot per copy, each with its own swap (swap_in ticks installs from them): {snow:?}");
     assert!(swaps.contains(&"n|audit|energy|b3|snow#3") && snow.iter().all(|c| c["qty"] == 1));
     assert!(!names(&d["states"]["stock"]).contains(&"Snow-Covered Island".to_string()));
+}
+
+#[tokio::test]
+async fn a_donor_name_two_plans_share_links_neither() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    for (id, key) in [("d1", "ahoy"), ("d2", "ahoy-2")] {
+        sqlx::query("INSERT INTO plan_decks (id, owner_id, key, name, source, commander, created_at, updated_at) VALUES (?, ?, ?, 'Ahoy Mateys', 'yama', '[]', 'now', 'now')")
+            .bind(id)
+            .bind(&a)
+            .bind(key)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    save_note(&app, &session, &note()).await;
+    let (status, t) = track(&app, &session, "b4", "op-1").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert!(t["warnings"][0].as_str().unwrap().contains("Two of your plans are called Ahoy Mateys"), "{t}");
+    let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&got).unwrap()["how"], "owned", "not linked to a guess");
 }
