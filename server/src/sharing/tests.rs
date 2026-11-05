@@ -772,6 +772,34 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(buy.contains("&amp;get=buy"), "{buy}");
     assert!(buy.contains("aria-current=\"page\" href=\"/r/") && buy.contains(">Buy every card locally</a>"));
     assert_eq!(page(&app, &format!("/r/{token}/party?get=steal")).await.0, StatusCode::NOT_FOUND);
+    // The reader sets the split's limit: a form under the choices, $2.00 to start.
+    assert!(
+        deck.contains(&format!("<form class=\"share-upto\" method=\"get\" action=\"/r/{token}/party#shop-head\"><input type=\"hidden\" name=\"build\" value=\"b3\">"))
+            && deck.contains("name=\"upto\" type=\"number\"")
+            && deck.contains("value=\"2.00\"></span><button type=\"submit\">Update</button></form>"),
+        "{deck}"
+    );
+    assert!(!print.contains("class=\"share-upto\""), "only the split has a limit");
+    let five = page(&app, &format!("/r/{token}/party?upto=5")).await.2;
+    assert!(five.contains(">Buy up to $5.00, print the rest</a>") && five.contains("2 to buy locally: about $4.75") && five.contains("0 to print: about $0.00"), "{five}");
+    assert!(five.contains("A card at $5.00 or less is bought at a local store") && five.contains("Yama suggests $2.00.") && five.contains("value=\"5.00\">"), "{five}");
+    // The limit stays in the page's links, under every way of getting the cards.
+    assert!(five.contains(&format!("class=\"back-link\" href=\"/r/{token}?upto=5.00\"")), "{five}");
+    assert!(five.contains("&amp;get=buy&amp;upto=5.00#shop-head\">Buy every card locally</a>"), "{five}");
+    let printing = page(&app, &format!("/r/{token}/party?get=print&upto=5")).await.2;
+    assert!(printing.contains("&amp;upto=5.00#shop-head\">Buy up to $5.00, print the rest</a>"), "switching back keeps the limit");
+    let cheap = page(&app, &format!("/r/{token}/party?upto=0.25")).await.2;
+    assert!(cheap.contains("0 to buy locally: about $0.00") && cheap.contains("2 to print: about $0.60"), "{cheap}");
+    // At the limit is bought; an empty limit is the suggested one; anything else isn't a limit.
+    assert!(page(&app, &format!("/r/{token}/party?upto=%244.25")).await.2.contains("2 to buy locally"));
+    assert!(page(&app, &format!("/r/{token}/party?upto=")).await.2.contains("About $0.80 to get"));
+    for bad in ["-1", "abc", "1e3", "2000", "1.2.3", "inf", "NaN"] {
+        assert_eq!(page(&app, &format!("/r/{token}/party?upto={bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
+        assert_eq!(page(&app, &format!("/r/{token}?upto={bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
+    }
+    let note_five = page(&app, &format!("/r/{token}?build=b3&upto=5")).await.2;
+    assert!(note_five.contains("About $4.75 to get") && note_five.contains(&format!("<a href=\"/r/{token}/party?build=b3&amp;upto=5.00\">Party Time</a>")), "{note_five}");
+    assert!(note_five.contains(&format!("action=\"/r/{token}#shop-head\"><input type=\"hidden\" name=\"build\" value=\"b3\">")), "{note_five}");
     // The note page: per deck, overall, and every card with the decks it goes in.
     let (status, _, body) = page(&app, &format!("/r/{token}")).await;
     assert_eq!(status, StatusCode::OK);
