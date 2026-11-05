@@ -72,6 +72,7 @@ pub fn app(state: AppState) -> Router {
         .merge(crate::play::router())
         .merge(crate::watch::router())
         .merge(crate::plan::router())
+        .merge(crate::mpc::router())
         .merge(crate::lab::router())
         .merge(crate::public_precons::router())
         .merge(crate::public_commanders::router())
@@ -337,6 +338,7 @@ mod tests {
             (Method::GET, "/api/cards/preview?name=Sol%20Ring", None),
             (Method::GET, "/api/calendar/precons/Test_TST", None),
             (Method::POST, "/api/plan/stock/check", Some(json!({}))),
+            (Method::POST, "/api/mpc/images", Some(json!({"cards": ["Sol Ring"]}))),
             (Method::POST, "/api/advisor/ask", Some(json!({"question": "Is Sol Ring good?"}))),
             (Method::POST, "/api/auth/google", Some(json!({"credential": "a.b.c"}))),
         ] {

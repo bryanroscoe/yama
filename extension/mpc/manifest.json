@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Yama print helper",
+  "version": "0.1.0",
+  "description": "Fills in a MakePlayingCards project from your Yama print order. Unofficial; not affiliated with MakePlayingCards or MPC Autofill.",
+  "minimum_chrome_version": "111",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.makeplayingcards.com/*", "https://cdn.mpcautofill.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://yama.ing/*", "http://localhost:*/*", "http://127.0.0.1:*/*"],
+      "js": ["yama.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.makeplayingcards.com/*"],
+      "js": ["page.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.makeplayingcards.com/*"],
+      "js": ["order.js", "mpc.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

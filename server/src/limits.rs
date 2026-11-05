@@ -166,6 +166,8 @@ pub struct Limits {
     pub oauth_token: RateLimiter,
     /// Approving or denying an app on the consent page, per account (each yes stores a code).
     pub oauth_approve: RateLimiter,
+    /// MPC Autofill image searches for a MakePlayingCards order (mpc.rs), per account.
+    pub mpc_images: RateLimiter,
 }
 
 impl Default for Limits {
@@ -192,6 +194,7 @@ impl Default for Limits {
             oauth_register: RateLimiter::new("app registrations from this address", 30, 60 * MINUTE),
             oauth_token: RateLimiter::new("token requests from this address", 300, 10 * MINUTE),
             oauth_approve: RateLimiter::new("app sign-ins", 30, 10 * MINUTE),
+            mpc_images: RateLimiter::new("print image searches", 30, 10 * MINUTE),
         }
     }
 }
