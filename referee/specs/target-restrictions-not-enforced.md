@@ -108,3 +108,63 @@ Same root cause: a target that doesn't fit its description is accepted. Scenario
 - Soul's Majesty only accepts a creature seat 0 controls.
 - On the sweep board with the counters on seat 1's Bears, Pizzasaur's reflexive trigger destroys nothing; with the counters on seat 0's Bears it may destroy seat 1's Bears but never Serra Angel.
 - Profane Transfusion never accepts the same player for both targets.
+
+---
+
+## Part C (LLM seat, run llm-4, 2026-11-05): a trigger's "another target player" hits creatures, and "creature that's blocking equipped creature" accepts any creature
+
+Same root cause: the target description loses part of its text, so objects that don't fit it are offered and accepted. The Lord of Pain is the same phrase as Cruel Entertainment above ("another target player"), this time in a triggered ability. Plasma Caster loses a relative clause.
+
+Scenario: Found by the LLM seat (commander-decks run llm-4, game llm-3-goblin-storm-p0-g0), not the card sweep. Plasma Caster: game llm-3-science-p1-g2.
+
+### C.1 Cards (Oracle text and rulings, Scryfall)
+
+- **The Lord of Pain** ({3}{B}{R} legendary creature — Human Assassin 5/5, menace): "Your opponents can't gain life. / Whenever a player casts their first spell each turn, choose another target player. The Lord of Pain deals damage equal to that spell's mana value to the chosen player."
+  - Ruling 2024-09-20: "The Lord of Pain's last ability must target a player other than the one who cast the spell that caused the ability to trigger. That means that if it's just you and one other player in the game, you'll have to target yourself when that player casts their first spell each turn."
+  - Ruling 2024-09-20: "If a spell has {X} in its mana cost, use the value chosen for X when determining that spell's mana value."
+- **Plasma Caster** ({1}{R} artifact — Equipment): "Equipped creature gets +1/+1. / Whenever equipped creature attacks, you get {E}{E} (two energy counters). / Pay {E}{E}: Choose target creature that's blocking equipped creature. Flip a coin. If you win the flip, exile the chosen creature. Otherwise, this Equipment deals 1 damage to it. / Equip {2}"
+  - Ruling 2024-03-08: "If Plasma Caster is no longer on the battlefield or no longer attached to the same creature when its third ability resolves, the ability will still resolve as normal."
+  - Ruling 2024-03-08: "If the target creature is no longer on the battlefield or no longer blocking the equipped creature when Plasma Caster's third ability tries to resolve, it won't resolve and none of its effects happen. You won't flip a coin."
+
+### C.2 Board and actions
+
+- **The Lord of Pain.** Three players at 20 life (commander format is fine at 40). Seat 0 controls The Lord of Pain. Seat 1 is active in its precombat main phase, controls Mountain ×4 and Grizzly Bears, and casts Hill Giant ({3}{R}, mana value 4) as its first spell of the turn. Seat 2 controls Serra Angel. Seat 0 chooses the trigger's target.
+- **Plasma Caster.** Two players. Seat 0 controls Plasma Caster, unattached, and Grizzly Bears, and has 2 energy; seat 1 controls Hill Giant. Seat 0 asks for its legal actions in its precombat main phase. (A blocked-creature case needs combat, which the referee runner doesn't script yet; write it as a phase test.)
+
+### C.3 Correct result
+
+- **The Lord of Pain.** The legal targets are seat 0 and seat 2: players other than seat 1, the caster. No creature is a legal target. If seat 0 targets seat 2, seat 2 goes to 16 life; if it targets itself, seat 0 goes to 16. Grizzly Bears and Serra Angel are undamaged. In a two-player game where seat 1 casts the spell, seat 0 must target itself (ruling). When seat 0 casts its own first spell, the target must be seat 1 or seat 2.
+- **Plasma Caster.** Plasma Caster is attached to nothing, so no creature is "blocking equipped creature". The ability has no legal target and can't be activated: it isn't in `legal_actions`, and seat 0 keeps its 2 energy. The same holds when Plasma Caster is attached to a creature that isn't blocked, and outside combat. When equipped Grizzly Bears attacks and is blocked by Hill Giant, Hill Giant is the only legal target.
+
+### C.4 Why
+
+1. 115.1a and 601.2c: each target must fit the whole description after "target". "Another target player" is a player; 115.2 allows only permanents to be targeted unless the text says otherwise, and here it says player.
+2. "Another" here means other than the player who cast the spell (ruling), not "another object than the source".
+3. 602.2b and 601.2c: an activated ability needs a legal choice for each required target; with none it can't be activated. 509.1 and 506.4: a creature becomes a blocking creature when blockers are declared in the declare blockers step, and stops being one if it is removed from combat.
+4. 301.5a: the equipped creature is the creature the Equipment is attached to. An unattached Plasma Caster has no equipped creature, so no creature can be blocking it. (`equipped-creature-condition-when-unattached.md` covers a related gap for static conditions.)
+
+### C.5 What phase did
+
+- llm-3-goblin-storm-p0-g0, seat 0, turn 30 (reports 265 and 266). The Lord of Pain was controlled by seat 2 (log "Player 3", which cast it on turn 27). The log shows:
+  - "T28 PreCombatMain: Player 4 casts Atarka, World Render", "Redcap Gutter-Dweller is targeted by The Lord of Pain", "The Lord of Pain deals 7 damage to Redcap Gutter-Dweller" (Redcap is the viewer's creature);
+  - "T29 PreCombatMain: Player 1 casts Zada, Hedron Grinder", "Atarka, World Render is targeted by The Lord of Pain", "The Lord of Pain deals 4 damage to Atarka, World Render", "Atarka, World Render is destroyed";
+  - "T30 PreCombatMain: Player 2 casts Tidus, Yuna's Guardian", "Redcap Gutter-Dweller is targeted by The Lord of Pain", "The Lord of Pain deals 3 damage to Redcap Gutter-Dweller".
+  The damage equals each spell's mana value, so the trigger and amount are right; the target is a creature and no player took damage.
+  Triage reading of the card data: `TargetOnly { target: Typed { type_filters: [], properties: [Another] } }`, then `DealDamage { target: SourceChosenPlayer }`. The noun "player" is lost.
+- llm-3-science-p1-g2, seat 2, turns 27 and 29 (reports 332 and 337). Plasma Caster was unattached (seat 2's Rex, Cyber-Hound and Dr. Madison Li showed no "attached"), and nothing was blocking: on turn 27 the viewer was attacking in the declare attackers step, before blockers; on turn 29 it was another player's beginning of combat. `[1] Plasma Caster — Activate Ability (Ability Index: 0)` was offered both times. The seat didn't choose it, so the target list wasn't exercised. Triage reading of the card data: `PayEnergy 2 → TargetOnly { Typed [Creature], controller: null }`; the relative clause is lost.
+- Code read at rev 19be58d4: both parses look like the "legacy, best-effort TargetOnly fallback" in `crates/engine/src/parser/oracle_effect/imperative.rs:5016-5028`. After `try_parse_two_targets` and `parse_effect` decline the "choose target ..." clause, it calls `parse_target_with_ctx(rest, ctx)` and discards the unparsed remainder (`let (target, _) = ...`), so whatever the target parser doesn't recognise ("player" after "another target", "that's blocking equipped creature") is silently dropped. The fallback should refuse (leave the clause unimplemented) when the remainder isn't empty, rather than keep a broader target.
+
+### C.6 Variations to test
+
+- The Lord of Pain's controller casts its own first spell: the target is any other player; in two-player, the opponent.
+- A second spell by the same player in a turn: no trigger.
+- An X spell: damage equals the spell's mana value with the chosen X (ruling).
+- Plasma Caster equipped to a creature blocked by two creatures: either blocker is a legal target; no other creature is.
+- Plasma Caster's target stops blocking (removed from combat) before resolution: the ability doesn't resolve and no coin is flipped (ruling).
+- Other "choose another target player" and "choose target creature that's blocking/blocked by ..." texts that reach the same fallback.
+
+### C.7 Acceptance checks
+
+- The Lord of Pain's trigger never lists a creature or planeswalker as a target, and never lists the caster of the triggering spell.
+- On the C.2 board, after seat 1 casts Hill Giant, the only life change is 4 damage to seat 0 or seat 2, and no creature has damage marked.
+- With Plasma Caster unattached, or attached to an unblocked creature, its ability is not in `legal_actions`.
