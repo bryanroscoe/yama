@@ -361,16 +361,51 @@ was written for you by your team before the game:\n{}",
     )
 }
 
-/// The reply's "rules_issue", when it is a non-blank string other than "none". Reads the reply's
-/// JSON object (the outermost {...}, as a model may wrap it in a fence).
+/// The reply's "rules_issue", when it is a non-blank string other than "none". Reads the same
+/// JSON object phase-llm decodes the choice from, so prose around it (mana costs like {2}{G})
+/// can't hide the report.
 pub fn rules_issue(reply: &str) -> Option<String> {
-    let (a, b) = (reply.find('{')?, reply.rfind('}')?);
-    if b < a {
-        return None;
-    }
-    let v: serde_json::Value = serde_json::from_str(&reply[a..=b]).ok()?;
+    let v = reply_object(reply)?;
     let t = v.get("rules_issue")?.as_str()?.trim();
     (!t.is_empty() && !t.eq_ignore_ascii_case("none")).then(|| t.to_string())
+}
+
+/// The first balanced `{...}` span that parses as JSON: phase-llm's `extract_json_object`
+/// (crates/phase-llm/src/prompt.rs, private there), the scan its choice decoding uses.
+fn reply_object(text: &str) -> Option<serde_json::Value> {
+    let bytes = text.as_bytes();
+    for (start, _) in text.char_indices().filter(|(_, c)| *c == '{') {
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        for (offset, byte) in bytes[start..].iter().enumerate() {
+            if in_string {
+                match byte {
+                    _ if escaped => escaped = false,
+                    b'\\' => escaped = true,
+                    b'"' => in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match byte {
+                b'"' => in_string = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let end = start + offset + 1;
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[start..end]) {
+                            return Some(v);
+                        }
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }
 
 /// First 8 hex digits of the text's SHA-256: names a guide in the seat's prompt label.
@@ -471,6 +506,8 @@ mod tests {
     fn rules_issue_field() {
         assert_eq!(rules_issue(r#"{"choice": 0, "rules_issue": "Hydra got no counters"}"#).as_deref(), Some("Hydra got no counters"));
         assert_eq!(rules_issue("```json\n{\"choice\": 1, \"rules_issue\": \" x \"}\n```").as_deref(), Some("x"));
+        let prose = r#"Casting it costs {2}{G}. {"choice": 1, "reason": "pay {X}", "rules_issue": "Hydra got no counters"} then {U}"#;
+        assert_eq!(rules_issue(prose).as_deref(), Some("Hydra got no counters"), "mana symbols around the object");
         for none in [r#"{"choice": 0}"#, r#"{"choice": 0, "rules_issue": " "}"#, r#"{"choice": 0, "rules_issue": "None"}"#, r#"{"choice": 0, "rules_issue": null}"#, r#"{"rules_issue": {"a": 1}}"#, "2", "} {"] {
             assert_eq!(rules_issue(none), None, "{none}");
         }

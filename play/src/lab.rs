@@ -848,7 +848,7 @@ fn ask_llm(
         }
     };
     if let Some(log) = &setup.log {
-        let line = serde_json::json!({
+        let mut line = serde_json::json!({
             "game": game,
             "seat": contract.authorized_actor.0,
             "turn": state.turn_number,
@@ -859,11 +859,15 @@ fn ask_llm(
             "choice": choice,
             "reason": reason,
             "reply": text,
-            "rules_issue": issue,
-            // the position the model saw, for checking its report
-            "prompt": issue.as_ref().map(|_| &user),
             "ms": ms.as_millis() as u64,
         });
+        if setup.report_issues {
+            line["rules_issue"] = serde_json::json!(issue);
+            if issue.is_some() {
+                // the position the model saw, for checking its report
+                line["prompt"] = serde_json::json!(user);
+            }
+        }
         let mut f = lock(log);
         let _ = std::io::Write::write_all(&mut *f, format!("{line}\n").as_bytes());
     }
