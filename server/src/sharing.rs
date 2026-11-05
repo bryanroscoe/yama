@@ -42,6 +42,10 @@ pub fn router() -> Router<AppState> {
         .route("/r/{token}", get(research::note))
         .route("/r/{token}/{deck}", get(research::deck))
         .route("/r/{token}/{deck}/{file}", get(research::download))
+        // The owner's note pages in the app, from the same computations as `/r/`.
+        .route("/api/research/{id}/view", get(research::owner_note))
+        .route("/api/research/{id}/view/{deck}", get(research::owner_deck))
+        .route("/api/research-plans", get(research::owner_plans))
 }
 
 /// Only this GET API bypasses view-as resolution: its output has no account context.

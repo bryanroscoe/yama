@@ -22,6 +22,6 @@ describe("owned-build evidence", () => {
     const report = { document: { id: "audit", title: "Audit", decks: [{ key: "deck", name: "Deck", builds: [b] }] }, revision: 1, updated_at: "2026-10-30" } as ResearchBundle;
     const choices = buildFamilies([report], undefined, [])[0]!.choices;
     expect(buildTargets(choices, "owned_now")).toEqual([]);
-    expect(choices[0]!.label).toContain("Ownership not verified");
+    expect(choices[0]!.label).toContain("ownership not verified");
   });
 });

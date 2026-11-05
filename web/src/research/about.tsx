@@ -3,21 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type DeckSummary } from "../api";
 
-/**
- * What the Agent notes section is (Bryan, 2026-10-28, asked whether Research is "essentially just
- * state for you to base, like an MCP context"; it is). Notes are yama-research/1 documents agents
- * keep with `save_research`; they change no deck, plan, collection or order.
- */
-export function AgentNotesAbout() {
-  return (
-    <div className="research-about" role="note">
-      <p>
-        Research saved by your agents. Decisions go to <Link to="/decks/plan/review">Review</Link>.
-      </p>
-    </div>
-  );
-}
-
 /** Live main decks by lower-case name: the decks a note's deck names refer to. */
 function byName(decks: DeckSummary[]): Map<string, DeckSummary> {
   const out = new Map<string, DeckSummary>();
@@ -41,4 +26,10 @@ export function DeckChanged({ name, savedAt }: { name: string; savedAt: string }
       Your <Link to={`/decks/${d.id}`}>{d.name}</Link> deck changed on {fmtDate(d.updated_at)}, after this note was saved. It may be out of date.
     </p>
   );
+}
+
+/** The live main deck a note's deck names, if there is one (same name, any case). */
+export function useDeckNamed(name: string): DeckSummary | null {
+  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
+  return decks.data ? byName(decks.data).get(name.trim().toLowerCase()) ?? null : null;
 }

@@ -1,206 +1,801 @@
-import { saveFile } from "../download";
-import { fmtDate } from "@yama/core/plan";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { fmtDate, usd } from "@yama/core/plan";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMe } from "../auth";
-import { AreaHead } from "../components/DeckTabs";
-import { ErrorText } from "../components/ui";
+import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { CardRef, CardText } from "../components/CardRef";
-import { AccountingSummary, CompleteList, Gameplay, buildAccounting, listEntries, resolvedCombos } from "./details";
-import { changedAnswer, copySharedNote, importReport, money, report, reports, safeUrl, saveReview, targetForSwap, type Build, type Combo, type Item, type Power, type ResearchBundle, type ResearchDeck, type ReviewOp, type Scenario, type Source } from "./api";
+import { AreaHead, BackButton } from "../components/DeckTabs";
+import { ErrorText, Pips } from "../components/ui";
+import { saveFile } from "../download";
+import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
+import { DeckChanged, useDeckNamed } from "./about";
+import { buildTitle } from "../decks/buildCatalog";
 import { isOwnedBuild, ownedBuildProblems } from "./availability";
-import { AgentNotesAbout, DeckChanged } from "./about";
+import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from "./details";
+import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
+import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
+import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, type GetId, type NoteView, type Totals } from "./view";
+import "../plan/plan.css";
 import "./research.css";
 
-const LocalChecks = createContext<NonNullable<ResearchBundle["document"]["local_checks"]>>({});
-function CardName({ name }: { name: string }) { return <CardRef name={name} />; }
+/**
+ * A plan: a note an agent saved, or a copy of one someone shared (`/r/<token>`). Its pages show
+ * what the shared page shows, in the same order (server/src/sharing/research.rs), plus what only
+ * its owner sees: sharing, their answers for the agent and the agent's own evidence.
+ */
+
+/** The note with every build named one way ("Bracket 2: Buildable now"), as its shared page. */
+function titled(b: ResearchBundle): ResearchBundle {
+  return { ...b, document: { ...b.document, decks: b.document.decks.map((d) => ({ ...d, builds: d.builds.map((x) => ({ ...x, label: buildTitle(x.label) })) })) } };
+}
+
+const noteHref = (id: string) => `/decks/research/${encodeURIComponent(id)}`;
+const deckHref = (id: string, deck: string, build?: string) => `${noteHref(id)}/${encodeURIComponent(deck)}${build ? `?build=${encodeURIComponent(build)}` : ""}`;
+const getOf = (v: string | null): GetId => (v === "buy" || v === "print" ? v : "split");
 /** Agent-written fragments as sentences: each ends with one full stop, whether or not it came with one. */
-function sentences(...parts: (string | undefined)[]): string { return parts.filter((p) => p?.trim()).map((p) => `${p!.trim().replace(/\.+$/, "")}.`).join(" "); }
-
-function Sources({ sources = [] }: { sources?: Source[] }) {
-  return <ul className="research-sources">{sources.map((s, i) => <li key={`${s.url}-${i}`}>{safeUrl(s.url) ? <a href={safeUrl(s.url)} target="_blank" rel="noreferrer">{s.title}</a> : s.title}{s.accessed && <span className="dim small"> — checked {s.accessed}</span>}</li>)}</ul>;
+function sentences(...parts: (string | undefined)[]): string {
+  return parts
+    .filter((p) => p?.trim())
+    .map((p) => `${p!.trim().replace(/\.+$/, "")}.`)
+    .join(" ");
 }
 
-export function PowerSummary({ power }: { power?: Power }) {
-  return <Gameplay legacy={power} />;
+/** Sets or clears search parameters, keeping the others and the scroll position. */
+function useParamSetter() {
+  const [params, setParams] = useSearchParams();
+  return (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(changes)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
+    setParams(next, { replace: true, preventScrollReset: true });
+  };
 }
 
-const KINDS: Record<string, string> = { keep: "Keep in this deck", sealed_purchase: "Precon purchase required", owned: "Available owned card", transfer: "Move from another deck", arrived_print: "Print already here", future_stock: "Stock after purchase/arrival", buy: "Local buy", print: "New print", basic: "Basic land", unknown: "Check source" };
-export function AcquisitionItem({ item, showCard = true }: { item: Item; showCard?: boolean }) {
-  const quote = item.quote ?? item;
-  const check = useContext(LocalChecks)[item.local_check ?? item.card ?? ""];
-  return <div className="research-item">
-    {showCard && <p><b>{item.qty && item.qty > 1 ? `${item.qty} × ` : ""}{item.card && (item.kind==="sealed_purchase"?item.card:<CardName name={item.card} />)}</b>{item.deck && <span className="dim"> — {item.deck}</span>}</p>}
-    {item.kind && <span className={`research-tag kind-${item.kind}`}>{KINDS[item.kind] ?? item.kind}</span>}
-    {item.kind === "transfer" && item.source_deck && <p className="small">Move from {item.source_deck} once its replacement is ready.</p>}{item.detail && <details className="small research-provenance"><summary>Source details</summary><p>{item.detail}</p></details>}{item.reason && <p className="small dim">{item.reason}</p>}
-    {(quote.store || item.kind === "buy") && <p className="small"><b>{quote.store || "Store unverified"}: {money(quote.price)}</b> before tax{quote.printing && `, ${quote.printing}`}{quote.condition && `, ${quote.condition}`}<br />{item.kind==="sealed_purchase"?"Sealed market reference":"Matched market"}: {money(quote.market)}{quote.checked && `; checked ${quote.checked}`}{safeUrl(quote.url) && <>. <a href={safeUrl(quote.url)} target="_blank" rel="noreferrer">Store listing</a></>}</p>}
-    {check && <details className="small"><summary>Local search evidence</summary><p>{check.reason}</p><p className="dim">{check.coverage}</p><ul>{check.local_checks?.map((s, i) => <li key={i}>{s.store}, checked {s.checked ?? check.checked ?? "date unknown"}{s.search_may_be_truncated ? "; search may be incomplete" : ""}{!!s.errors?.length && `; unresolved: ${s.errors.join("; ")}`}</li>)}</ul>{check.market_reference && <p>Cheapest priced market reference: {money(check.market_reference.market)}{check.market_reference.set && `, ${check.market_reference.set.toUpperCase()} #${check.market_reference.num}`}{safeUrl(check.market_reference.url) && <>. <a href={safeUrl(check.market_reference.url)} target="_blank" rel="noreferrer">Market source</a></>}. This is a market reference, not a store offer.</p>}{check.rejected_offers?.map((r, i) => <p key={i}>{r.store}: {money(r.price)}, {r.printing}. {r.reason}{safeUrl(r.url) && <> <a href={safeUrl(r.url)} target="_blank" rel="noreferrer">Listing</a></>}</p>)}</details>}
-  </div>;
+/** Who made this plan: "Copied from @saget's shared plan", or the agent that saved it. */
+function Origin({ doc }: { doc: ResearchBundle["document"] }) {
+  const from = doc.copied_from;
+  if (!from) return <p className="note-eyebrow">Saved by your agent</p>;
+  return (
+    <p className="note-eyebrow">
+      Copied from{" "}
+      {from.link ? (
+        <a href={from.link} target="_blank" rel="noreferrer">
+          {from.by ? `@${from.by}'s shared plan` : "a shared plan"}
+        </a>
+      ) : from.by ? (
+        `@${from.by}'s shared plan`
+      ) : (
+        "a shared plan"
+      )}
+    </p>
+  );
 }
 
-function ReviewEditor({ bundle, target, buildId }: { bundle: ResearchBundle; target: string; buildId?: string }) {
-  const qc = useQueryClient();
+// ── A plan's page ────────────────────────────────────────────────────────────
+
+const RECOMMENDED = "*recommended";
+const ALL = "*all";
+
+function NotePage({ bundle }: { bundle: ResearchBundle }) {
+  const doc = bundle.document;
   const userId = useMe().data?.id;
-  const answer = bundle.reviews.find((r) => r.target === target);
-  const [note, setNote] = useState(answer?.note ?? "");
-  const save = useMutation({ mutationFn: (op: ReviewOp) => saveReview(bundle.document.id, op), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["research", userId, bundle.document.id] }); } });
-  const decide = (decision: string | null) => { const hash = bundle.target_hashes[target]; if (hash) save.mutate({ op_id: crypto.randomUUID(), target, decision, note: note.trim() || null, expected_version: answer?.version ?? 0, target_hash: hash }); };
-  const stale = answer && changedAnswer(bundle, answer);
-  return <div className="research-review">
-    {stale && <p className="small warn">The evidence changed since your answer. Your previous answer is kept; review it again.</p>}
-    <div className="research-review-actions">{buildId ? <button type="button" className={answer?.decision === buildId && !stale ? "primary" : "outline"} disabled={save.isPending} onClick={() => decide(answer?.decision === buildId && !stale ? null : buildId)}>{answer?.decision === buildId && !stale ? "Preferred build ✓" : "Prefer this build"}</button> : ([ ["want", "Want"], ["unsure", "Unsure"], ["no", "Don’t want"] ] as const).map(([value, label]) => <button type="button" key={value} className={answer?.decision === value && !stale ? "primary" : "outline"} aria-pressed={answer?.decision === value && !stale} disabled={save.isPending} onClick={() => decide(answer?.decision === value && !stale ? null : value)}>{label}</button>)}</div>
-    <label className="research-note"><span className="small">Your note</span><textarea rows={2} maxLength={6000} value={note} disabled={save.isPending} onChange={(e) => setNote(e.target.value)} /></label>
-    <button type="button" className="outline small" disabled={save.isPending || note === (answer?.note ?? "")} onClick={() => decide(answer?.decision ?? null)}>Save note</button>
-    <span className="small dim" role="status">{save.isPending ? " Saving…" : save.isError ? " Latest edit not saved" : save.isSuccess || answer ? " Saved in Yama" : " No answer yet"}</span>
-    <ErrorText error={save.error} />{save.isError && save.variables && <button type="button" className="outline small" onClick={() => save.mutate(save.variables!)}>Retry same save</button>}
-  </div>;
+  const [params] = useSearchParams();
+  const set = useParamSetter();
+  const all = params.get("builds") === "all";
+  const build = all ? null : params.get("build");
+  const get = getOf(params.get("get"));
+  const view = useQuery({
+    queryKey: ["research", userId, doc.id, "view", bundle.revision, { build, all, get }],
+    queryFn: ({ signal }) => noteView(doc.id, { build, all, get }, signal),
+    placeholderData: keepPreviousData,
+  });
+  const choices: { id: string; label: string }[] = [];
+  for (const b of doc.decks.flatMap((d) => d.builds)) if (!choices.some((c) => c.id === `b:${b.id}`)) choices.push({ id: `b:${b.id}`, label: b.label });
+  const chosen = all ? ALL : build ? `b:${build}` : RECOMMENDED;
+  const v = view.data;
+  const tiles = new Map(v?.decks.map((d) => [d.key, d]));
+  const artists = doc.decks.map((d) => tiles.get(d.key)?.art?.artist);
+  const retired = bundle.reviews.filter((r) => !bundle.target_hashes[r.target]);
+  const guideNames = [...new Set(doc.decks.flatMap((d) => d.builds.flatMap((b) => listEntries(b.list).map((r) => r.name))))];
+  return (
+    <main className="page plan note-page">
+      <AreaHead slim back={{ to: "/decks/plan", label: "Back to plans" }} />
+      <section className="note-head">
+        <Origin doc={doc} />
+        <h1>{doc.title}</h1>
+        {doc.summary && <p className="note-summary">{doc.summary}</p>}
+        <p className="dim">
+          {doc.decks.length} {doc.decks.length === 1 ? "deck" : "decks"}. Saved {fmtDate(bundle.updated_at)}
+          {bundle.revision > 1 ? `, revision ${bundle.revision}` : ""}.
+        </p>
+      </section>
+      <ShareNote bundle={bundle} />
+      <p className="small dim note-hint">Open a deck for its builds, how to pilot it and every change with its reason. The shopping list and deck lists below cover the recommended builds; pick another build, or All builds, to compare.</p>
+
+      <div className="plan-deck-grid note-decks">
+        {doc.decks.map((d) => {
+          const tile = tiles.get(d.key);
+          const recommended = d.builds.find((b) => b.id === d.recommended_build);
+          const preferred = bundle.reviews.find((r) => r.target === `deck:${d.key}`)?.decision;
+          const pick = preferred ? d.builds.find((b) => b.id === preferred) : null;
+          return (
+            <article key={d.key} className="note-tile">
+              <Link to={deckHref(doc.id, d.key)} className="plan-tile">
+                <ArtPanel art={tile?.art?.image} artist={tile?.art?.artist} wash="left" credit={false} className="plan-tile-art">
+                  <span className="plan-tile-name">{d.name}</span>
+                  <span className="plan-tile-cmdr">
+                    {tile?.identity != null && <Pips identity={tile.identity} />} {d.commander}
+                  </span>
+                  <span className="plan-tile-counts">{recommended ? `Recommended: ${recommended.label}` : `${d.builds.length} builds`}</span>
+                  {pick && (
+                    <span className="plan-tile-chips">
+                      <span className="art-chip plain">Your pick: {pick.label}</span>
+                    </span>
+                  )}
+                </ArtPanel>
+              </Link>
+              {d.builds.length > 1 && (
+                <nav className="note-tile-builds" aria-label={`Builds of ${d.name}`}>
+                  {d.builds.map((b) => (
+                    <Link key={b.id} to={deckHref(doc.id, d.key, b.id)}>
+                      {b.label}
+                    </Link>
+                  ))}
+                </nav>
+              )}
+              <DeckChanged name={d.name} savedAt={bundle.updated_at} />
+            </article>
+          );
+        })}
+      </div>
+      {artists.some(Boolean) && <p className="small dim art-credits">{artCredits(artists)}</p>}
+
+      <section className="note-section" aria-labelledby="shop-head">
+        <SectionHead id="shop-head" eyebrow={v ? `${cardsWord(v.shopping.total.cards)} to get across ${doc.decks.length} ${doc.decks.length === 1 ? "deck" : "decks"}` : undefined}>
+          Shopping list
+        </SectionHead>
+        {choices.length > 1 && (
+          <Choices
+            label="Builds to price"
+            title="Builds"
+            options={[{ id: RECOMMENDED, label: "Recommended" }, ...choices, { id: ALL, label: "All builds" }]}
+            value={chosen}
+            onChange={(id) => set({ build: id.startsWith("b:") ? id.slice(2) : null, builds: id === ALL ? "all" : null })}
+          />
+        )}
+        <ErrorText error={view.error} />
+        {!v && view.isPending && <p className="dim">Pricing the cards…</p>}
+        {v && v.shopping.items.length === 0 && <p className="dim">These builds add no cards to the starting lists.</p>}
+        {v && v.shopping.items.length > 0 && (
+          <div className={view.isPlaceholderData ? "note-stale" : undefined}>
+            {all && <p className="small dim note-how">Every build as its own deck, starting from one copy of each precon: the cards the builds share are counted once per build.</p>}
+            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} />
+            <ShoppingTotals s={v.shopping} />
+            <div className="note-table-wrap">
+              <table className="note-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Deck</th>
+                    <th scope="col">Build</th>
+                    <th scope="col" className="num">Cards</th>
+                    <th scope="col" className="num">Buy locally</th>
+                    <th scope="col" className="num">Print</th>
+                    <th scope="col" className="num">Worth</th>
+                    <th scope="col" className="num">Est. cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {doc.decks.map((d) => {
+                    const row = tiles.get(d.key);
+                    if (!row) return null;
+                    return (
+                      <tr key={d.key}>
+                        <td>
+                          <Link to={deckHref(doc.id, d.key, build && row.label ? build : undefined)}>{d.name}</Link>
+                        </td>
+                        <td>
+                          {row.label ?? <span className="dim">No such build</span>}
+                          {all && (
+                            <small className="note-row-note">
+                              {row.builds.map((b, i) => (
+                                <span key={b.id}>
+                                  {i > 0 && ", "}
+                                  <Link to={deckHref(doc.id, d.key, b.id)}>{b.label}</Link>
+                                </span>
+                              ))}
+                            </small>
+                          )}
+                        </td>
+                        <TotalCells t={row.totals} />
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row" colSpan={2}>
+                      Total
+                    </th>
+                    <TotalCells t={v.shopping.total} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <details className="note-fold">
+              <summary>Every card to get ({cardsWord(v.shopping.total.cards)})</summary>
+              <ShoppingTable s={v.shopping} decks />
+            </details>
+            <ShoppingText s={v.shopping} />
+          </div>
+        )}
+      </section>
+
+      {v && <NoteLists doc={doc} lists={v.lists} onAll={() => set({ build: null, builds: "all" })} />}
+
+      <PrintedWishlist scenarios={doc.scenarios} />
+      <AgentShopping scenarios={doc.scenarios} defaultId={doc.default_scenario_id} />
+      {!!doc.method?.length && (
+        <details className="note-fold">
+          <summary>How your agent worked these out</summary>
+          <ul>
+            {doc.method.map((m, i) => (
+              <li key={i}>
+                <CardText text={m} names={guideNames} />
+              </li>
+            ))}
+          </ul>
+          <p className="small dim">Estimates are advice, not game results. Bracket and power are separate. Official brackets run 1–5; cEDH is Bracket 5.</p>
+        </details>
+      )}
+      {retired.length > 0 && (
+        <details className="note-fold">
+          <summary>Your answers on parts no longer in this plan ({retired.length})</summary>
+          {retired.map((r) => (
+            <p key={r.target}>
+              <b>{r.target}</b>: {r.decision ?? "No choice"}. {r.note}
+            </p>
+          ))}
+        </details>
+      )}
+    </main>
+  );
 }
 
-function ComboCard({ combo }: { combo: Combo }) {
-  return <details className={`research-combo ${combo.present === false ? "is-missing" : ""}`}><summary><b>{combo.name}</b> <span className="dim small">{combo.kind}{combo.is_caution ? " — rules caution" : combo.present === false ? " — missing pieces" : " — pieces in this list"}</span></summary>
-    <p className="small">{combo.cards?.map((name,i)=><span key={name}>{i>0 && " + "}<CardName name={name}/></span>)}</p>{!!combo.missing_cards?.length && <p className="warn small">Missing: {combo.missing_cards.map((name,i)=><span key={name}>{i>0 && ", "}<CardName name={name}/></span>)}</p>}
-    {!!combo.setup?.length && <><h4>Setup</h4><ul>{combo.setup.map((x, i) => <li key={i}><CardText text={x} names={combo.cards ?? []}/></li>)}</ul></>}
-    {!!combo.steps?.length && <><h4>Sequence</h4><ol>{combo.steps.map((x, i) => <li key={i}><CardText text={x} names={combo.cards ?? []}/></li>)}</ol></>}
-    {combo.outcome && <p><b>Outcome:</b> <CardText text={combo.outcome} names={combo.cards ?? []}/></p>}{!!combo.stop_points?.length && <><h4>Where it stops</h4><ul>{combo.stop_points.map((x, i) => <li key={i}><CardText text={x} names={combo.cards ?? []}/></li>)}</ul></>}{combo.bracket_fit && <p className="small">{combo.bracket_fit}</p>}<Sources sources={combo.sources} />
-  </details>;
+function TotalCells({ t }: { t: Totals }) {
+  const money = (v: number | null) => (v == null ? "Unknown" : usd(v));
+  const buy = t.buy_uncosted === 0 ? usd(t.buy_cost) : t.buy_uncosted === t.buy ? "cost unknown" : `${usd(t.buy_cost)} + ${t.buy_uncosted} without a price`;
+  return (
+    <>
+      <td className="num">{t.cards}</td>
+      <td className="num">
+        {t.buy}, {buy}
+      </td>
+      <td className="num">
+        {t.print}, {usd(t.print_cost)}
+      </td>
+      <td className="num">{money(t.worth)}</td>
+      <td className="num">{money(t.cost)}</td>
+    </>
+  );
 }
 
-function AcquisitionGroups({ deck, build }: { deck: ResearchDeck; build: Build }) {
+/** Every list the shopping list's build choice covers, each to copy, and all of them as one text. */
+function NoteLists({ doc, lists: given, onAll }: { doc: ResearchBundle["document"]; lists: NoteView["lists"]; onAll: () => void }) {
+  const lists = given.flatMap((l) => {
+    const d = doc.decks.find((x) => x.key === l.deck);
+    const b = d?.builds.find((x) => x.id === l.build);
+    return d && b ? [{ d, b, title: `${d.name}: ${b.label}`, text: l.text }] : [];
+  });
+  if (!lists.length) return null;
+  const every = lists.map((l) => `// ${l.title}\n${l.text}`).join("\n");
+  return (
+    <section className="note-section" aria-labelledby="lists-head">
+      <SectionHead id="lists-head" eyebrow={`${lists.length} ${lists.length === 1 ? "list" : "lists"}`}>
+        Deck lists
+      </SectionHead>
+      <p className="small dim note-how">
+        Standard text lists (Commander, then Deck), for Moxfield, Archidekt or Yama's own import. The builds follow the shopping list's choice;{" "}
+        <button type="button" className="link-button" onClick={onAll}>
+          every build
+        </button>{" "}
+        lists them all.
+      </p>
+      {lists.length > 1 && <CopyBox title={`Every list (${lists.length})`} text={every} />}
+      <div className="note-copy-grid">
+        {lists.map((l) => (
+          <CopyBox key={`${l.d.key}:${l.b.id}`} title={l.title} text={l.text} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── A deck's page ────────────────────────────────────────────────────────────
+
+/** How a build plays, as the shared page's "How it plays" panel. Old notes keep their prose. */
+function HowItPlays({ profile, legacy, names }: { profile?: GameplayProfile; legacy?: Power; names: string[] }) {
+  const p: GameplayProfile = profile ?? { plan: legacy?.rationale, pace: legacy?.speed, confidence: legacy?.confidence, weaknesses: legacy?.vulnerabilities };
+  const lines = (
+    [
+      ["plan", "Plan"],
+      ["pressure", "Pressure"],
+      ["interaction", "Interaction"],
+      ["consistency", "Consistency"],
+      ["recovery", "Recovery"],
+      ["pace", "Pace"],
+      ["ceiling", "Ceiling"],
+    ] as const
+  ).filter(([k]) => p[k]);
+  const lists = (
+    [
+      ["setup", "Setup"],
+      ["finishers", "How it wins"],
+      ["weaknesses", "Weaknesses"],
+    ] as const
+  ).filter(([k]) => p[k]?.length);
+  if (!lines.length && !lists.length) return null;
+  return (
+    <section className="note-panel" aria-labelledby="play-head">
+      <h2 id="play-head">How it plays</h2>
+      <dl className="note-profile">
+        {lines.map(([k, label]) => (
+          <div key={k}>
+            <dt>{label}</dt>
+            <dd>
+              <CardText text={p[k] as string} names={names} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {lists.map(([k, label]) => (
+        <div key={k}>
+          <h3>{label}</h3>
+          <ul>
+            {(p[k] as string[]).map((x, i) => (
+              <li key={i}>
+                <CardText text={x} names={names} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {p.confidence && <p className="small dim">{p.confidence.replace(/\.+$/, "")}. An estimate, not simulated games.</p>}
+    </section>
+  );
+}
+
+function Panel({ id, title, children }: { id: string; title: ReactNode; children: ReactNode }) {
+  return (
+    <section className="note-panel" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** What the agent allocated for a build: kept, moved, bought and printed copies, when the note
+ *  has that evidence (a copy of a shared plan has none). */
+function AgentAcquisition({ deck, build }: { deck: ResearchDeck; build: Build }) {
   const acq = build.acquisition;
+  if (!acq || !(acq.owned?.length || acq.buys?.length || acq.prints?.length || acq.basics?.length)) return null;
   const baseline = deck.builds.find((b) => ["current", "stock"].includes(b.id));
   const starting = new Set(baseline ? listEntries(baseline.list).map((r) => r.name) : []);
-  const current = ["current", "stock"].includes(build.id);
-  const kept = acq?.owned?.filter((r) => r.kind === "keep" || (starting.has(r.card ?? "") && !["future_stock", "transfer"].includes(r.kind ?? ""))) ?? [];
-  const available = acq?.owned?.filter((r) => !kept.includes(r)) ?? [];
-  const count = (rows: Item[] = []) => rows.reduce((n,r)=>n+(r.qty??1),0);
-  if (current) return <p className="dim small">{acq?.note || "Starting reference."}</p>;
-  return <section>
-    <h3>What to keep, move, buy or print</h3>
-    <p className="small dim">{acq?.note || "Keep the cards listed below."} Transfers wait for the donor deck to release its copy.</p>
-    <div className="research-acquisition-grid">
-      <details><summary>Keep in this deck ({count(kept)})</summary>{kept.map((r,i)=><p className="small" key={i}>{r.qty && r.qty>1 && `${r.qty} × `}{r.card && <CardName name={r.card}/>}</p>)}</details>
-      <details open={available.length>0}><summary>Other owned cards and projected stock ({count(available)})</summary>{available.map((r,i)=><AcquisitionItem key={i} item={r}/>)}</details>
-      <details open={!!acq?.buys?.length}><summary>Local singles to buy ({count(acq?.buys)})</summary>{acq?.buys?.length ? acq.buys.map((r,i)=><AcquisitionItem key={i} item={r}/>) : <p className="small dim">No additional qualifying local single allocated.</p>}</details>
-      <details open><summary>Additional prints ({count(acq?.prints)})</summary>{acq?.prints?.length ? acq.prints.map((r,i)=><AcquisitionItem key={i} item={r}/>) : <p className="small dim">No additional print allocated.</p>}</details>
-      {!!acq?.basics?.length && <details><summary>Ordinary basic lands ({count(acq.basics)})</summary><p className="small dim">Included in the 100-card total; excluded from print orders.</p>{acq.basics.map((r,i)=><p key={i}>{r.qty??1} × {r.card && <CardName name={r.card}/>}</p>)}</details>}
-    </div>
-  </section>;
+  const kept = acq.owned?.filter((r) => r.kind === "keep" || (starting.has(r.card ?? "") && !["future_stock", "transfer"].includes(r.kind ?? ""))) ?? [];
+  const available = acq.owned?.filter((r) => !kept.includes(r)) ?? [];
+  const count = (rows: { qty?: number }[] = []) => rows.reduce((n, r) => n + (r.qty ?? 1), 0);
+  return (
+    <section className="note-section" aria-labelledby="acq-head">
+      <SectionHead id="acq-head" eyebrow="From your agent's checks">
+        What to keep, move, buy or print
+      </SectionHead>
+      <p className="small dim">{acq.note || "Keep the cards listed below."} Transfers wait for the donor deck to release its copy.</p>
+      <AccountingSummary build={build} />
+      <div className="research-acquisition-grid">
+        <details>
+          <summary>Keep in this deck ({count(kept)})</summary>
+          {kept.map((r, i) => (
+            <p className="small" key={i}>
+              {r.qty && r.qty > 1 && `${r.qty} × `}
+              {r.card && <CardRef name={r.card} />}
+            </p>
+          ))}
+        </details>
+        <details open={available.length > 0}>
+          <summary>Other owned cards and projected stock ({count(available)})</summary>
+          {available.map((r, i) => (
+            <AcquisitionItem key={i} item={r} />
+          ))}
+        </details>
+        <details open={!!acq.buys?.length}>
+          <summary>Local singles to buy ({count(acq.buys)})</summary>
+          {acq.buys?.length ? acq.buys.map((r, i) => <AcquisitionItem key={i} item={r} />) : <p className="small dim">No local single allocated.</p>}
+        </details>
+        <details open>
+          <summary>Prints ({count(acq.prints)})</summary>
+          {acq.prints?.length ? acq.prints.map((r, i) => <AcquisitionItem key={i} item={r} />) : <p className="small dim">No print allocated.</p>}
+        </details>
+        {!!acq.basics?.length && (
+          <details>
+            <summary>Ordinary basic lands ({count(acq.basics)})</summary>
+            <p className="small dim">Included in the 100-card total; left out of print orders.</p>
+            {acq.basics.map((r, i) => (
+              <p key={i}>
+                {r.qty ?? 1} × {r.card && <CardRef name={r.card} />}
+              </p>
+            ))}
+          </details>
+        )}
+      </div>
+    </section>
+  );
 }
 
-function BuildView({ bundle, deck, build }: { bundle: ResearchBundle; deck: ResearchDeck; build: Build }) {
-  const [copy, setCopy] = useState("");
-  const download = () => {
-    void saveFile(new Blob([build.list], { type: "text/plain" }), `${deck.key}-${build.id}.txt`);
-  };
-  const combos = resolvedCombos(deck,build);
+function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck }) {
+  const doc = bundle.document;
+  const userId = useMe().data?.id;
+  const [params] = useSearchParams();
+  const set = useParamSetter();
+  const build = pickBuild(bundle, deck, params.get("build"));
+  const vsId = params.get("vs");
+  const vs = deck.builds.find((b) => b.id === vsId && b.id !== build?.id) ?? null;
+  const get = getOf(params.get("get"));
+  const view = useQuery({
+    queryKey: ["research", userId, doc.id, "view", bundle.revision, deck.key, { build: build?.id, vs: vs?.id, get }],
+    queryFn: ({ signal }) => deckView(doc.id, deck.key, { build: build!.id, vs: vs?.id, get }, signal),
+    enabled: !!build,
+    // Keep the page while another build or comparison loads, but never another deck's.
+    placeholderData: (prev, q) => (q && q.queryKey[5] === deck.key ? prev : undefined),
+  });
+  const yours = useDeckNamed(deck.name);
+  if (!build) return <NoteMissing id={doc.id} what="That deck has no builds." />;
+  const v = view.data;
+  const names = [...new Set([...deck.builds.flatMap((b) => listEntries(b.list).map((r) => r.name)), ...resolvedCombos(deck, build).flatMap((c) => c.cards ?? [])])];
+  const { added, removed } = moved(build);
+  const preferred = bundle.reviews.find((r) => r.target === `deck:${deck.key}`);
+  const combos = resolvedCombos(deck, build);
   const present = combos.filter((c) => c.present !== false);
   const missing = combos.filter((c) => c.present === false);
-  const pref = bundle.reviews.find((r) => r.target === `deck:${deck.key}`);
-  const names=[...new Set([...deck.builds.flatMap((b)=>listEntries(b.list).map((r)=>r.name)),...combos.flatMap((c)=>c.cards??[])])];
-  const accounting=buildAccounting(build);
-  return <article className="research-build">
-    <section className="research-build-head">
-      <div>
-        <h2>{build.label}</h2>
-        {isOwnedBuild(build) && <p className="pill">Buildable now: allocated real cards and arrived prints</p>}
-        {ownedBuildProblems(build).length > 0 && <p className="warn">Ownership not verified: {ownedBuildProblems(build).join(" ")}</p>}
-        {build.prospective && <p className="warn">Proposed future build. Its stock cards become available only after the product is bought and arrives. Any unreleased-card legality limit remains in the guide.</p>}
-        <p><CardText text={build.why??""} names={names}/></p>
-        {build.option_swap && <p className="research-option"><b>Optional change from base Bracket 4:</b> add <CardName name={build.option_swap.card_in??build.option_swap.inn??"Unnamed"}/>; cut <CardName name={build.option_swap.card_out??build.option_swap.out??"Unnamed"}/>. The exact changes below compare with the current reference.</p>}
-      </div>
-      <div className="research-preference"><p className="small dim">Answers do not apply swaps or orders.</p><ReviewEditor key={`deck:${deck.key}:${pref?.version??0}`} bundle={bundle} target={`deck:${deck.key}`} buildId={build.id}/></div>
-    </section>
-    <AccountingSummary build={build}/>
-    <div className="research-facts">
-      <span>{build.bracket ? `Proposed bracket ${build.bracket}` : "Starting reference; discuss bracket at the table"}</span>
-      <span>{build.game_changers?.length??0}{build.bracket===3?" / 3":""} Game Changers</span>
-      {typeof build.stats?.lands === "number" && <span>{build.stats.lands} lands</span>}
-      {typeof build.stats?.nonland_mean_mana_value === "number" && <span>Nonland average MV {build.stats.nonland_mean_mana_value.toFixed(2)}</span>}
-    </div>
-    {!!build.game_changers?.length && <section><h3>Game Changer package</h3><p className="small">{build.game_changers.map((n,i)=><span key={n}>{i>0&&", "}<CardName name={n}/></span>)}</p>{build.gc_choices?.map((g)=><div className="research-item" key={g.card}><p><b><CardName name={g.card}/></b>{g.cut&&<> replaces <CardName name={g.cut}/></>}</p><p><CardText text={g.reason} names={names}/></p></div>)}</section>}
-    <Gameplay profile={build.gameplay_profile} legacy={build.power} names={names}/>
-    {!!build.risks?.length && <details><summary>Build-specific limits</summary><ul>{build.risks.map((x,i)=><li key={i}><CardText text={x} names={names}/></li>)}</ul></details>}
-    <AcquisitionGroups deck={deck} build={build}/>
-    <section>
-      <h3>Exact changes from the starting reference: {accounting.added} in, {accounting.removed} out</h3>
-      <div className="research-swaps">{build.swaps?.map((swap)=>{
-        const target=targetForSwap(deck.key,build.id,swap.id);const answer=bundle.reviews.find((r)=>r.target===target);
-        return <article className="research-swap" key={swap.id}>
-          <div className="research-swap-cards"><p><span className="dim small">Add {swap.qty && swap.qty>1?`×${swap.qty}`:""}</span><br/><b><CardName name={swap.card_in}/></b></p><p><span className="dim small">Cut {swap.qty && swap.qty>1?`×${swap.qty}`:""}</span><br/><b>{swap.card_out?<CardName name={swap.card_out}/>:"No paired cut"}</b></p></div>
-          <p><CardText text={swap.why??""} names={names}/></p>
-          {swap.why_out&&<p className="small dim">Cut reason: <CardText text={swap.why_out} names={names}/></p>}
-          {swap.pairing_note&&<p className="small dim">{swap.pairing_note}</p>}
-          {swap.acquisition&&<AcquisitionItem item={swap.acquisition} showCard={false}/>}
-          <ReviewEditor key={`${target}:${answer?.version??0}`} bundle={bundle} target={target}/>
-        </article>;
-      })}</div>
-    </section>
-    <section><h3>Combos and engines ({present.length} with pieces in this list)</h3><p className="small dim">Check the setup and interruption points. Some entries describe combos that don't work.</p>{present.map((c)=><ComboCard key={c.id} combo={c}/>)}{!!missing.length&&<details><summary>Other lines and missing-piece cautions ({missing.length})</summary>{missing.map((c)=><ComboCard key={c.id} combo={c}/>)}</details>}</section>
-    <section><h3>Complete {accounting.total}-card list</h3><div className="research-review-actions"><button type="button" className="outline" onClick={()=>{void navigator.clipboard.writeText(build.list).then(()=>setCopy("Copied")).catch(()=>setCopy("Could not copy; use Download or select the text."));}}>Copy list</button><button type="button" className="outline" onClick={download}>Download list</button><span className="small" role="status">{copy}</span></div><CompleteList build={build}/><details><summary>Plain text for another reviewer or simulator</summary><pre className="research-list">{build.list}</pre></details></section>
-  </article>;
-}
+  const problems = ownedBuildProblems(build);
+  const others = deck.builds.filter((b) => b.id !== build.id);
+  const copies = (side: "add" | "cut") => v?.changes.filter((c) => c[side]).reduce((n, c) => n + c.n, 0) ?? 0;
+  // The server's standard text when it's here (it reads every list format the shared page does);
+  // the list as saved until then.
+  const listText = v && v.build === build.id ? v.text : build.list;
+  const download = () => void saveFile(new Blob([listText], { type: "text/plain" }), `${deck.key}-${build.id}.txt`);
+  const size = buildAccounting(build).total;
 
-export function PrintedWishlist({ scenarios = [] }: { scenarios?: Scenario[] }) {
-  return <>{scenarios.filter((s)=>s.purpose==="permanent_real_wishlist").map((wishlist)=><section key={wishlist.id} className="research-shopping" id="printed-real-wishlist">
-    <h2>{wishlist.label}</h2><p>{wishlist.note}</p>
-    <details><summary>{wishlist.buys?.length??0} card names to keep watching for real copies</summary>
-      {wishlist.buys?.map((item,i)=><div className="research-item" key={`${item.card}-${i}`}>
-        <p><b>{item.card&&<CardName name={item.card}/>}</b></p>
-        {item.reason&&<p className="small">{item.reason}</p>}{item.detail&&<p className="small dim">{item.detail}</p>}
-        <p className="small dim">Local price and stock: Unknown. Quantity to buy: undecided.</p>
-        {safeUrl(item.url)&&<a className="small" href={safeUrl(item.url)} target="_blank" rel="noreferrer">Card reference</a>}
-      </div>)}
-    </details>
-  </section>)}</>;
-}
+  return (
+    <main className="plan plan-deck-page note-page">
+      <ArtPanel as="header" className="plan-hero" art={v?.art?.image} artist={v?.art?.artist} wash="bottom" toGround credit={false}>
+        <BackButton to={noteHref(doc.id)} label="Back to this plan" className="on-art" />
+        {v?.art && (
+          <span className="plan-hero-credit">
+            {deck.commander}. {artCredit(v.art.artist)}
+          </span>
+        )}
+        <div className="plan-hero-inner">
+          <nav className="plan-crumbs" aria-label="Breadcrumb">
+            <Link to="/decks">Decks</Link>
+            <span aria-hidden="true">/</span>
+            <Link to="/decks/plan">Plans</Link>
+            <span aria-hidden="true">/</span>
+            <Link to={noteHref(doc.id)}>{doc.title}</Link>
+          </nav>
+          <span className="plan-hero-cmdr">
+            {v?.identity != null && <Pips identity={v.identity} />} {deck.commander}
+          </span>
+          <h1 className="plan-hero-title">{deck.name}</h1>
+          <span className="plan-hero-chips">
+            <span className="art-chip plain">{build.label}</span>
+            <span className="art-chip plain dim-on-art">Saved {fmtDate(bundle.updated_at)}</span>
+          </span>
+        </div>
+      </ArtPanel>
 
-export function Shopping({ scenarios: allScenarios = [], defaultId }: { scenarios?: Scenario[]; defaultId?: string }) {
-  const scenarios=allScenarios.filter((s)=>s.purpose!=="permanent_real_wishlist");
-  const [selected,setSelected]=useState(defaultId??scenarios.find((s)=>s.id==="default")?.id??scenarios[0]?.id);
-  const scenario=scenarios.find((s)=>s.id===selected)??scenarios[0];
-  if(!scenario)return null;
-  const singles=scenario.buys?.reduce((n,r)=>n+(r.qty??1),0)??0;
-  return <section className="research-shopping">
-    <h2>Across the decks: purchases and prints</h2>
-    <label className="research-select">Configuration<select value={scenario.id} onChange={(e)=>setSelected(e.target.value)}>{scenarios.map((s)=><option value={s.id} key={s.id}>{s.label}</option>)}</select></label>
-    <p>{scenario.note}</p>
-    {!!scenario.sealed_purchases?.length&&<div className="research-sealed"><h3>Buy these precons first</h3><p className="small dim">These decks are planned purchases. Their cards are projected stock, not cards you own now. Sealed deck prices are separate from the $2 singles ceiling and singles total.</p>{scenario.sealed_purchases.map((r,i)=><AcquisitionItem key={i} item={r}/>)}</div>}
-    <p className="research-shopping-total"><b>{singles} local singles; {money(scenario.buy_total)} before tax; {scenario.print_count??scenario.prints?.length??0} proposed prints</b></p>
-    <p className="small dim">These configurations are alternatives; do not add their totals. Quotes and availability are dated. A missing offer is not proof of no shelf stock. Sealed purchases are excluded from this singles total.</p>
-    <div className="research-acquisition-grid"><details open><summary>Local singles order list</summary>{scenario.buys?.map((r,i)=><AcquisitionItem key={i} item={r}/>)}</details><details><summary>Proposed print order</summary>{scenario.prints?.map((r,i)=><AcquisitionItem key={i} item={r}/>)}</details></div>
-  </section>;
-}
-
-function DeckOverview({ bundle }: { bundle: ResearchBundle }) {
-  const doc=bundle.document;
-  return <>
-    <div className="research-deck-grid">{doc.decks.map((deck)=>{
-      const current=deck.builds.find((b)=>["current","stock"].includes(b.id));
-      const recommended=deck.builds.find((b)=>b.id===deck.recommended_build);
-      const preference=bundle.reviews.find((r)=>r.target===`deck:${deck.key}`);
-      return <article className="research-deck-card" key={deck.key}>
-        <h2><Link to={`/decks/research/${doc.id}/${deck.key}`}>{deck.name}</Link></h2>
-        <p className="small dim"><CardName name={deck.commander}/></p>
+      <div className="page plan-deck-body">
         <DeckChanged name={deck.name} savedAt={bundle.updated_at} />
-        {(deck.ownership || deck.installed_state) && <p className="small">{sentences(deck.ownership, deck.installed_state)}</p>}
-        <div className="research-overview-profile"><b>{recommended?.label??"Suggested build"}</b><p className="small">{recommended?.gameplay_profile?.plan??recommended?.power?.rationale??deck.summary}</p>{recommended?.gameplay_profile?.pace&&<p className="small dim">{recommended.gameplay_profile.pace}</p>}</div>
-        {current&&<p className="small dim">Starting reference: {buildAccounting(current).total} cards. Each proposed build is an independent full list.</p>}
-        {preference?.decision&&<p className="small">Your preference: {deck.builds.find((b)=>b.id===preference.decision)?.label??preference.decision}{changedAnswer(bundle,preference)&&" (evidence changed)"}</p>}
-        <Link to={`/decks/research/${doc.id}/${deck.key}`}>Open builds →</Link>
-      </article>;
-    })}</div>
-    <PrintedWishlist scenarios={doc.scenarios}/>
-    <Shopping scenarios={doc.scenarios} defaultId={doc.default_scenario_id}/>
-  </>;
+        {deck.builds.length > 1 && (
+          <Choices
+            label="Builds of this deck"
+            title="Builds"
+            options={deck.builds.map((b) => ({ id: b.id, label: `${b.label}${b.id === deck.recommended_build ? " (recommended)" : ""}` }))}
+            value={build.id}
+            onChange={(id) => set({ build: id, vs: vs?.id === id ? null : vs?.id ?? null })}
+          />
+        )}
+        <p className="small dim note-hint">
+          Pick a build: its case, the changes, the shopping list and the decklist below follow it.{" "}
+          {yours ? <>Load it into <Link to={`/decks/import?deck=${encodeURIComponent(yours.id)}`}>your {yours.name} deck</Link> (Update from a list, then pick this build)</> : "Load it into one of your decks with Update from a list on the deck's page"}, or print <Link to={`/decks/builds${yours ? `?savedDeck=${encodeURIComponent(yours.id)}` : ""}`}>swap cards</Link> for the deck box.
+        </p>
+        <div className="note-pills">
+          {bracketLabel(build) && <span className="pill">{bracketLabel(build)}</span>}
+          {Array.isArray(build.game_changers) && (
+            <span className="pill">
+              {build.game_changers.length} Game Changer{build.game_changers.length === 1 ? "" : "s"}
+            </span>
+          )}
+          <a className="pill note-pill-link" href="#changes-head">
+            {added} in, {removed} out from the starting list
+          </a>
+          {isOwnedBuild(build) && <span className="pill good">Buildable now from your cards</span>}
+        </div>
+
+        <section className="note-owner" aria-label="Your answer for the agent">
+          <p className="small dim">
+            Your answers tell the next agent what you think. They change no deck or order.
+            {(deck.ownership || deck.installed_state) && ` ${sentences(deck.ownership, deck.installed_state)}`}
+          </p>
+          <ReviewEditor key={`deck:${deck.key}:${preferred?.version ?? 0}:${build.id}`} bundle={bundle} target={`deck:${deck.key}`} buildId={build.id} compact />
+        </section>
+
+        <div className="note-panels">
+          <Panel id="about-head" title={build.label}>
+            {problems.length > 0 && <p className="warn small">Ownership not verified: {problems.join(" ")}</p>}
+            {build.prospective && <p className="warn small">A future build: its stock cards are yours only once the product is bought and arrives.</p>}
+            {build.why && (
+              <p>
+                <CardText text={build.why} names={names} />
+              </p>
+            )}
+            {build.option_swap && (
+              <p className="small">
+                Optional change from base Bracket 4: add <CardRef name={build.option_swap.card_in ?? build.option_swap.inn ?? "Unnamed"} />; cut{" "}
+                <CardRef name={build.option_swap.card_out ?? build.option_swap.out ?? "Unnamed"} />.
+              </p>
+            )}
+            {deck.summary && deck.summary !== build.why && (
+              <>
+                <h3>The deck</h3>
+                <p>
+                  <CardText text={deck.summary} names={names} />
+                </p>
+              </>
+            )}
+            {!!build.game_changers?.length && (
+              <>
+                <h3>Game Changers</h3>
+                <p>
+                  {build.game_changers.map((n, i) => (
+                    <span key={n}>
+                      {i > 0 && ", "}
+                      <CardRef name={n} />
+                    </span>
+                  ))}
+                </p>
+                {build.gc_choices?.map((g) => (
+                  <p className="small dim" key={g.card}>
+                    <CardRef name={g.card} />: <CardText text={g.reason} names={names} />
+                  </p>
+                ))}
+              </>
+            )}
+            {!!deck.warnings?.length && (
+              <>
+                <h3>Good to know</h3>
+                <ul>
+                  {deck.warnings.map((w, i) => (
+                    <li key={i}>
+                      <CardText text={w} names={names} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {!!deck.mechanics?.length && (
+              <>
+                <h3>Mechanics</h3>
+                <ul>
+                  {deck.mechanics.map((m, i) => (
+                    <li key={i}>
+                      <CardText text={m} names={names} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {!!build.risks?.length && (
+              <>
+                <h3>Limits of this build</h3>
+                <ul>
+                  {build.risks.map((r, i) => (
+                    <li key={i}>
+                      <CardText text={r} names={names} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Panel>
+          {deck.pilot && deck.pilot !== build.why && deck.pilot !== deck.summary && (
+            <Panel id="pilot-head" title="How to pilot this deck">
+              <p>
+                <CardText text={deck.pilot} names={names} />
+              </p>
+            </Panel>
+          )}
+          <HowItPlays profile={build.gameplay_profile} legacy={build.power} names={names} />
+          {combos.length > 0 && (
+            <Panel id="combos-head" title="Combos and engines">
+              <p className="small dim">{present.length} with every piece in this list. Check the setup and where each stops; some entries describe lines that don't work.</p>
+              {present.map((c) => (
+                <ComboCard key={c.id} combo={c} />
+              ))}
+              {missing.length > 0 && (
+                <details>
+                  <summary>Other lines and missing-piece cautions ({missing.length})</summary>
+                  {missing.map((c) => (
+                    <ComboCard key={c.id} combo={c} />
+                  ))}
+                </details>
+              )}
+            </Panel>
+          )}
+          {!!deck.sources?.length && (
+            <Panel id="sources-head" title="Sources">
+              <Sources sources={deck.sources} />
+            </Panel>
+          )}
+        </div>
+
+        <section className="note-section" aria-labelledby="changes-head">
+          <SectionHead
+            eyebrow={v ? `${copies("add")} in, ${copies("cut")} out` : undefined}
+            id="changes-head"
+            after={
+              others.length > 0 && (
+                <label className="note-vs">
+                  <span className="visually-hidden">Compare with</span>
+                  <select value={vs?.id ?? ""} onChange={(e) => set({ vs: e.target.value || null })}>
+                    <option value="">the starting list</option>
+                    {others.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            }
+          >
+            Changes from{others.length > 0 ? <span className="visually-hidden"> {vs?.label ?? "the starting list"}</span> : " the starting list"}
+          </SectionHead>
+          <ErrorText error={view.error} />
+          {!v && view.isPending && <p className="dim">Loading the changes…</p>}
+          {v && v.changes.length === 0 && <p className="dim">{vs ? "These builds play the same cards." : "This build is the starting list."}</p>}
+          {v && v.changes.length > 0 && (
+            <ChangesTable
+              rows={v.changes}
+              extra={
+                // Only on this build's own rows (never the previous build's, shown while this one
+                // loads), and only from the starting list, where each row is one of its swaps.
+                vs || view.isPlaceholderData || v.build !== build.id || v.vs
+                  ? undefined
+                  : (row) => {
+                      const swap = build.swaps?.find((x) => x.id === row.swap);
+                      if (!swap) return null;
+                      const target = targetForSwap(deck.key, build.id, swap.id);
+                      const answer = bundle.reviews.find((r) => r.target === target);
+                      return (
+                        <div className="note-swap-owner">
+                          {swap.acquisition && <AcquisitionItem item={swap.acquisition} showCard={false} />}
+                          <ReviewEditor key={`${target}:${answer?.version ?? 0}`} bundle={bundle} target={target} compact />
+                        </div>
+                      );
+                    }
+              }
+            />
+          )}
+        </section>
+
+        {v?.shopping && (
+          <section className="note-section" aria-labelledby="shop-head">
+            <SectionHead id="shop-head" eyebrow={`${cardsWord(v.shopping.total.cards)} to add to ${v.vs_label}`}>
+              Shopping list
+            </SectionHead>
+            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} />
+            <ShoppingTotals s={v.shopping} />
+            <ShoppingTable s={v.shopping} />
+            <ShoppingText s={v.shopping} />
+          </section>
+        )}
+
+        <AgentAcquisition deck={deck} build={build} />
+
+        <section className="note-section" aria-labelledby="list-head">
+          <SectionHead id="list-head" eyebrow={cardsWord(size)}>
+            Decklist
+          </SectionHead>
+          <div className="row">
+            <button type="button" className="primary" onClick={download}>
+              Download the list
+            </button>
+          </div>
+          <CopyBox title="Standard list (Commander, then Deck)" text={listText} rows={12} />
+          {v && <CardViews cards={v.cards} />}
+          {v?.cut && <p className="small dim">Only the first 300 lines of this list are shown.</p>}
+          {!!v?.unknown.length && <p className="small dim">Not in Yama's card data: {v.unknown.join(", ")}.</p>}
+        </section>
+
+        <ResearchDetails deck={deck} names={names} />
+      </div>
+    </main>
+  );
 }
 
-function ImportResearch() {
-  const navigate = useNavigate();const qc = useQueryClient();
-  const save = useMutation({ mutationFn: async (f: File) => { if (f.size > 4 << 20) throw new Error("Research files must be under 4 MiB."); return importReport(JSON.parse(await f.text())); }, onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["research"] }); navigate(`/decks/research/${r.id}`); } });
-  return <details><summary>Import a note file</summary><p className="small dim">Choosing a yama-research/1 JSON file saves it to your account and replaces any note with the same ID.</p><input type="file" accept="application/json,.json" disabled={save.isPending} onChange={(e) => { const f = e.target.files?.[0]; if (f) save.mutate(f); }} /><ErrorText error={save.error} /></details>;
+/** The agent's working: upgrade guides compared, earlier swaps judged, rules checked, and a
+ *  competitive direction. Kept for the next agent; folded away. */
+function ResearchDetails({ deck, names }: { deck: ResearchDeck; names: string[] }) {
+  const has = deck.guide_comparison || deck.existing_swap_audit?.length || deck.combo_limits?.length || deck.competitive_path;
+  if (!has) return null;
+  return (
+    <details className="note-fold">
+      <summary>Your agent's research: upgrade guides, earlier swaps and rules checks</summary>
+      {deck.guide_comparison && (
+        <p>
+          <CardText text={deck.guide_comparison} names={names} />
+        </p>
+      )}
+      {!!deck.existing_swap_audit?.length && (
+        <>
+          <h3>Earlier upgrade judgments ({deck.existing_swap_audit.length})</h3>
+          {deck.existing_swap_audit.map((r, i) => (
+            <div className="research-item" key={i}>
+              <p>
+                <b>{r.inn && <CardRef name={r.inn} />}</b>
+                {r.out && (
+                  <>
+                    {" "}
+                    for <CardRef name={r.out} />
+                  </>
+                )}{" "}
+                — {r.verdict}
+              </p>
+              <p className="small">
+                <CardText text={r.reason ?? ""} names={names} />
+              </p>
+            </div>
+          ))}
+        </>
+      )}
+      {deck.combo_limits?.map((m, i) => (
+        <p className="small dim" key={i}>
+          {m}
+        </p>
+      ))}
+      {deck.competitive_path && (
+        <>
+          <h3>Competitive path: Bracket 5</h3>
+          <p>
+            <b>{deck.competitive_path.status}</b>
+          </p>
+          <p>
+            <CardText text={deck.competitive_path.summary ?? ""} names={names} />
+          </p>
+          {deck.competitive_path.commander_change && <p className="small">Commander or archetype changes: {deck.competitive_path.commander_change}</p>}
+          <Sources sources={deck.competitive_path.sources} />
+          <p className="small dim">A competitive direction; tournament results not checked.</p>
+        </>
+      )}
+    </details>
+  );
 }
+
+function NoteMissing({ id, what }: { id?: string; what: string }) {
+  return (
+    <main className="page plan note-page">
+      <AreaHead slim back={{ to: id ? noteHref(id) : "/decks/plan", label: id ? "Back to this plan" : "Back to plans" }} />
+      <p>
+        {what} {id ? <Link to={noteHref(id)}>Open the plan.</Link> : <Link to="/decks/plan">Open your plans.</Link>}
+      </p>
+    </main>
+  );
+}
+
+// ── Saving a copy of a shared plan ───────────────────────────────────────────
 
 /** One id per Save-a-copy action in this tab: a reload or a retry after a lost answer gets the
  * copy already made. It is forgotten once the copy opens, so saving again makes another copy. */
@@ -210,35 +805,82 @@ function copyOp(token: string): string | undefined {
     const op = sessionStorage.getItem(copyKey(token)) ?? crypto.randomUUID();
     sessionStorage.setItem(copyKey(token), op);
     return op;
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
 function forgetCopyOp(token: string) {
-  try { sessionStorage.removeItem(copyKey(token)); } catch { /* no storage: nothing kept */ }
+  try {
+    sessionStorage.removeItem(copyKey(token));
+  } catch {
+    /* no storage: nothing kept */
+  }
 }
 
-/** `?copy=<token>` from a shared note's page: save the copy once, then open it. */
+/** `?copy=<token>` from a shared plan's page: save the copy once, then open it. */
 function CopyShared({ token }: { token: string }) {
-  const navigate = useNavigate();const qc = useQueryClient();
-  const copy = useMutation({ mutationFn: () => copySharedNote(token, copyOp(token)), onSuccess: (r) => { forgetCopyOp(token); void qc.invalidateQueries({ queryKey: ["research"] }); navigate(`/decks/research/${encodeURIComponent(r.id)}`, { replace: true }); } });
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const copy = useMutation({
+    mutationFn: () => copySharedNote(token, copyOp(token)),
+    onSuccess: (r) => {
+      forgetCopyOp(token);
+      void qc.invalidateQueries({ queryKey: ["research"] });
+      navigate(noteHref(r.id), { replace: true });
+    },
+  });
   const started = useRef(false);
-  useEffect(() => { if (!started.current) { started.current = true; copy.mutate(); } }, [copy]);
-  return <section className="research-copy">{copy.isError ? <><p>The shared note wasn't copied.</p><ErrorText error={copy.error} /><Link to="/decks/research">Open your agent notes</Link></> : <p>Saving a copy of the shared note…</p>}</section>;
+  useEffect(() => {
+    if (!started.current) {
+      started.current = true;
+      copy.mutate();
+    }
+  }, [copy]);
+  return (
+    <main className="page plan note-page">
+      <AreaHead slim back={{ to: "/decks/plan", label: "Back to plans" }} />
+      <section className="research-copy">
+        {copy.isError ? (
+          <>
+            <p>The shared plan wasn't copied.</p>
+            <ErrorText error={copy.error} />
+            <Link to="/decks/plan">Open your plans</Link>
+          </>
+        ) : (
+          <p>Saving a copy of the shared plan…</p>
+        )}
+      </section>
+    </main>
+  );
 }
 
+// ── The route ────────────────────────────────────────────────────────────────
+
+/** `/decks/research[/:reportId[/:deckKey]]`. The list of plans lives on Plans (`/decks/plan`);
+ *  this address keeps `?copy=` for shared plans' "Save a copy" and every link to a note. */
 export function ResearchPage() {
   const { reportId, deckKey } = useParams();
+  const [params] = useSearchParams();
   const userId = useMe().data?.id;
-  const listing = useQuery({ queryKey: ["research", userId, "list"], queryFn: reports, enabled: !reportId });
-  const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: ({ signal }) => report(reportId!, signal), enabled: !!reportId });
-  const [params, setParams] = useSearchParams();
-  const b = data.data;const deck = b?.document.decks.find((d) => d.key === deckKey);
-  const preferred = b?.reviews.find((r) => r.target === `deck:${deckKey}`)?.decision;
-  const build = deck?.builds.find((x) => x.id === params.get("build")) ?? deck?.builds.find((x) => x.id === preferred) ?? deck?.builds.find((x) => x.id === deck.recommended_build) ?? deck?.builds[0];
-  const retired = b?.reviews.filter((r) => !b.target_hashes[r.target]) ?? [];
-  const guideNames=[...new Set(deck?.builds.flatMap((x)=>listEntries(x.list).map((r)=>r.name))??[])];
-  return <LocalChecks.Provider value={b?.document.local_checks ?? {}}><main className="page research-page"><AreaHead title={deck?.name ?? b?.document.title ?? "Agent notes"} index={!reportId} back={deckKey ? { to: `/decks/research/${reportId}`, label: "Back to this note" } : { to: "/decks/research", label: "Back to agent notes" }} />
-    {!reportId && params.get("copy") && <CopyShared token={params.get("copy")!} />}
-    {!reportId && !params.get("copy") && <><AgentNotesAbout /><ErrorText error={listing.error} />{listing.isPending && <p>Loading…</p>}{listing.data?.map((r) => <p key={r.id}><Link to={`/decks/research/${r.id}`}>{r.title}</Link><span className="small dim"> — updated {fmtDate(r.updated_at)}, revision {r.revision}{r.visibility === "link" ? ", shared by link" : r.visibility === "public" ? ", public on your profile" : ""}</span></p>)}{listing.data?.length === 0 && <p>No agent notes saved yet.</p>}<ImportResearch /></>}
-    {reportId && <><ErrorText error={data.error} />{data.isPending && <p>Loading the note…</p>}{b && <><p className="dim">{b.document.summary}</p><p className="small dim">Note saved {fmtDate(b.updated_at)}, revision {b.revision}. Estimates are advice, not game results. Bracket and power are separate.</p>{!deckKey ? <><ShareNote bundle={b} /><details><summary>How to read the estimates and acquisition evidence</summary><ul>{b.document.method?.map((m, i) => <li key={i}><CardText text={m} names={guideNames}/></li>)}</ul><p>Build strength is explained through setup, pressure, finishing lines, interaction, consistency, recovery and weaknesses. Official brackets run 1–5; cEDH is Bracket 5.</p></details><DeckOverview bundle={b} /></> : deck && build ? <><nav className="research-deck-picker" aria-label="Research decks">{b.document.decks.map((d) => <Link key={d.key} aria-current={d.key === deck.key ? "page" : undefined} to={`/decks/research/${reportId}/${d.key}`}>{d.name}</Link>)}</nav><DeckChanged name={deck.name} savedAt={b.updated_at} /><p><CardText text={deck.summary??""} names={guideNames}/></p>{!!deck.warnings?.length && <ul className="warn small">{deck.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul>}<details><summary>Upgrade guides, prior swaps and mechanics rechecked</summary>{deck.guide_comparison && <p><CardText text={deck.guide_comparison} names={guideNames}/></p>}<ul>{deck.mechanics?.map((m,i)=><li key={i}><CardText text={m} names={guideNames}/></li>)}</ul>{!!deck.existing_swap_audit?.length && <><h3>Existing upgrade judgments ({deck.existing_swap_audit.length})</h3>{deck.existing_swap_audit.map((r,i)=><div className="research-item" key={i}><p><b>{r.inn&&<CardName name={r.inn}/>}</b>{r.out&&<> for <CardName name={r.out}/></>} — {r.verdict}</p><p className="small"><CardText text={r.reason??""} names={guideNames}/></p></div>)}</>}{deck.combo_limits?.map((m,i)=><p className="small dim" key={i}>{m}</p>)}</details><p className="small dim"><CardName name={deck.commander}/>. {sentences(deck.ownership, deck.installed_state)}</p><nav className="research-build-tabs" aria-label="Build alternatives">{deck.builds.map((x) => <button type="button" key={x.id} aria-pressed={x.id === build.id} className={x.id === build.id ? "primary" : "outline"} onClick={() => setParams({ build: x.id })}>{x.label}</button>)}</nav><BuildView key={`${deck.key}:${build.id}`} bundle={b} deck={deck} build={build} />{deck.pilot && <section><h2>How to pilot this deck</h2><p><CardText text={deck.pilot} names={guideNames}/></p></section>}{deck.competitive_path&&<section><h2>Competitive path: Bracket 5</h2><p><b>{deck.competitive_path.status}</b></p><p><CardText text={deck.competitive_path.summary??""} names={guideNames}/></p>{deck.competitive_path.commander_change&&<p className="small">Commander/archetype changes: {deck.competitive_path.commander_change}</p>}<Sources sources={deck.competitive_path.sources}/><p className="small dim">Competitive direction; tournament performance unverified.</p></section>}<section><h2>Research sources</h2><Sources sources={deck.sources}/></section></> : <p>That deck is not in this note. <Link to={`/decks/research/${reportId}`}>Open the note.</Link></p>}{retired.length > 0 && <details><summary>Answers for retired research targets ({retired.length})</summary>{retired.map((r) => <p key={r.target}><b>{r.target}</b>: {r.decision ?? "No choice"}. {r.note}</p>)}</details>}</>}</>}
-  </main></LocalChecks.Provider>;
+  const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: ({ signal }) => report(reportId!, signal), enabled: !!reportId, select: titled });
+  if (!reportId) {
+    const token = params.get("copy");
+    return token ? <CopyShared token={token} /> : <Navigate to="/decks/plan" replace />;
+  }
+  const b = data.data;
+  if (!b) {
+    return (
+      <main className="page plan note-page">
+        <AreaHead slim back={{ to: "/decks/plan", label: "Back to plans" }} />
+        <ErrorText error={data.error} />
+        {data.isPending && <p className="dim">Loading the plan…</p>}
+      </main>
+    );
+  }
+  const deck = deckKey ? b.document.decks.find((d) => d.key === deckKey) : null;
+  return (
+    <LocalChecks.Provider value={b.document.local_checks ?? {}}>
+      {!deckKey ? <NotePage bundle={b} /> : deck ? <DeckPage key={deck.key} bundle={b} deck={deck} /> : <NoteMissing id={reportId} what="That deck isn't in this plan." />}
+    </LocalChecks.Provider>
+  );
 }

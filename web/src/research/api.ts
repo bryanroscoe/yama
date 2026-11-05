@@ -54,6 +54,8 @@ export interface ResearchDocument {
   default_scenario_id?: string; planned_purchases?: Item[];
   power_scale?: { range: string; meaning: string }[];
   power_method?: string[];
+  /** Set on a copy of a shared note: its link and the sharer's handle. */
+  copied_from?: { link?: string; by?: string | null };
   local_checks?: Record<string, { reason?: string; coverage?: string; checked?: string; local_checks?: { store: string; checked?: string; errors?: string[]; search_may_be_truncated?: boolean }[]; rejected_offers?: Item[]; market_reference?: { market?: number | null; set?: string; num?: string; url?: string } }>;
 }
 export interface Review { target: string; decision: string | null; note: string | null; target_hash: string; version: number; updated_at: string }

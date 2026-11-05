@@ -782,7 +782,7 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(printed.contains(&format!("<a class=\"share-deck-main\" href=\"/r/{token}/party?get=print\">")), "deck tiles keep the choice");
     assert!(page(&app, &format!("/r/{token}?build=b3&get=print")).await.2.contains(&format!("<a href=\"/r/{token}/party?build=b3&amp;get=print\">Party Time</a>")));
     assert_eq!(page(&app, &format!("/r/{token}?get=steal")).await.0, StatusCode::NOT_FOUND);
-    assert!(body.contains("<td class=\"num\">1 · $0.30</td>"), "the print column");
+    assert!(body.contains("<td class=\"num\">1, $0.30</td>"), "the print column");
     // One build across the decks; one no deck has is not found.
     let (status, _, b3) = page(&app, &format!("/r/{token}?build=b3")).await;
     assert_eq!(status, StatusCode::OK);
@@ -802,7 +802,7 @@ async fn shared_notes_price_the_cards_to_get() {
     assert_eq!(page(&app, &format!("/r/{token}?builds=some")).await.0, StatusCode::NOT_FOUND);
     // Nalia once more, two Signets, one Swords; the Stick Together b2 keeps is the precon's.
     assert!(all.contains("4 cards to get across 1 deck<") && all.contains("<td>All 2 builds<br><small>") && all.contains("2 to buy locally: about $1.00"), "{all}");
-    assert!(all.contains(&format!("<a href=\"/r/{token}/party?build=b2\">Bracket 2</a> · <a href=\"/r/{token}/party?build=b3\">Bracket 3</a>")), "each build counted links to its page");
+    assert!(all.contains(&format!("<a href=\"/r/{token}/party?build=b2\">Bracket 2</a>, <a href=\"/r/{token}/party?build=b3\">Bracket 3</a>")), "each build counted links to its page");
     assert!(all.contains("id=\"shop-buy\" readonly rows=\"8\" aria-label=\"Buy locally (2 cards)\">2 Arcane Signet\n</textarea>"), "{all}");
     assert!(all.contains("// Party Time: Bracket 2\n") && all.contains("// Party Time: Bracket 3\n") && all.contains("aria-label=\"Every list (2)\""), "{all}");
     assert!(all.contains(">All builds</a>") && all.contains("aria-current=\"page\" href=\"/r/"), "{all}");
@@ -831,4 +831,92 @@ async fn shared_notes_price_the_cards_to_get() {
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
     let unpriced = page(&app, &format!("/r/{token}/party")).await.2;
     assert!(unpriced.contains("Worth unknown") && unpriced.contains("Cost unknown") && !unpriced.contains("Worth $0.00"), "{unpriced}");
+}
+
+/// The app's plan pages read the shared pages' own computations for the owner, from the whole
+/// note, private or not; nobody else gets them.
+#[tokio::test]
+async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (_, other) = user(&pool, "other@example.com").await;
+    card(&pool, "o-stp", "Swords to Plowshares", "Instant", "p-stp", "sta", "10").await;
+    card(&pool, "o-signet", "Arcane Signet", "Artifact", "p-signet", "cmm", "20").await;
+    card(&pool, "o-nalia", "Nalia de'Arnise", "Legendary Creature — Human Fighter", "p-nalia", "clb", "30").await;
+    sqlx::query("UPDATE cards SET image_art_crop = 'https://cards.scryfall.io/art_crop/nalia.jpg', artist = 'John Stanko', color_identity = 'WB' WHERE oracle_id = 'o-nalia'").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES ('p-stp', '2026-10-30', 4.25), ('p-signet', '2026-10-30', 0.5)").execute(&pool).await.unwrap();
+    let mut doc = note();
+    doc["decks"][0]["builds"][0]["swaps"] = json!([
+        {"id": "stp", "card_in": "Swords to Plowshares", "card_out": "Stick Together", "why": "One-mana exile."},
+        {"id": "signet", "card_in": "Arcane Signet", "card_out": "Plains", "why": "Ramp."},
+        {"id": "mystery", "card_in": "Mystery Card", "card_out": "Plains", "why": "Unknown to Yama."}
+    ]);
+    crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
+
+    // Private, and still the owner's to read; nobody else's, and not signed out.
+    let (s, view) = send(&app, Method::GET, "/api/research/upgrades/view", Some(&bt), None).await;
+    assert_eq!(s, StatusCode::OK, "{view}");
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view", Some(&other), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party", Some(&other), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view", None, None).await.0, StatusCode::UNAUTHORIZED);
+
+    // The note page: the same totals the shared page shows, cards to buy first.
+    let total = &view["shopping"]["total"];
+    assert_eq!((total["cards"].as_i64(), total["buy"].as_i64(), total["print"].as_i64(), total["unpriced"].as_i64()), (Some(3), Some(1), Some(1), Some(1)));
+    assert_eq!((total["worth"].as_f64(), total["cost"].as_f64()), (Some(4.75), Some(0.8)));
+    let items: Vec<(&str, &str)> = view["shopping"]["items"].as_array().unwrap().iter().map(|i| (i["name"].as_str().unwrap(), i["get"].as_str().unwrap())).collect();
+    assert_eq!(items, [("Arcane Signet", "buy"), ("Swords to Plowshares", "print"), ("Mystery Card", "unknown")]);
+    assert_eq!(view["shopping"]["prices_from"], "2026-10-30");
+    assert_eq!(view["shopping"]["get"], "split");
+    assert_eq!(view["decks"][0]["key"], "party");
+    assert_eq!(view["decks"][0]["label"], "Bracket 3 · Upgraded");
+    assert_eq!(view["decks"][0]["identity"], "WB");
+    assert_eq!(view["decks"][0]["art"]["artist"], "John Stanko");
+    // The choices: print everything; a build no deck has; a way of getting cards that isn't one.
+    let print = send(&app, Method::GET, "/api/research/upgrades/view?get=print", Some(&bt), None).await.1;
+    assert_eq!((print["shopping"]["total"]["print"].as_i64(), print["shopping"]["get"].as_str()), (Some(3), Some("print")));
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?build=b9", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?get=steal", Some(&bt), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view?builds=all", Some(&bt), None).await.1["which"], "all");
+
+    // A deck's page: the changes with their reasons, what the added cards come to, the list as cards.
+    let (s, deck) = send(&app, Method::GET, "/api/research/upgrades/view/party", Some(&bt), None).await;
+    assert_eq!(s, StatusCode::OK, "{deck}");
+    let changes: Vec<(&str, &str, &str)> = deck["changes"].as_array().unwrap().iter().map(|c| (c["add"].as_str().unwrap(), c["cut"].as_str().unwrap(), c["why"].as_str().unwrap())).collect();
+    assert_eq!(changes[0], ("Swords to Plowshares", "Stick Together", "One-mana exile."));
+    assert_eq!(changes.len(), 3);
+    assert_eq!(deck["vs_label"], "the starting list");
+    assert_eq!(deck["shopping"]["total"]["cost"].as_f64(), Some(0.8));
+    assert_eq!(deck["cards"][0]["name"], "Nalia de'Arnise");
+    assert_eq!(deck["cards"][0]["board"], "commander");
+    assert_eq!(deck["art"]["image"], "https://cards.scryfall.io/art_crop/nalia.jpg");
+    // Each row from the starting list names its swap, for the owner's answer beside it.
+    assert_eq!(deck["changes"][1]["swap"], "signet");
+    assert!(deck["text"].as_str().unwrap().starts_with("Commander\n1 Nalia de'Arnise\n\nDeck\n"));
+    assert_eq!(view["lists"][0]["deck"], "party");
+    assert!(view["lists"][0]["text"].as_str().unwrap().contains("98 Plains"));
+    // Comparing a build with itself, an unknown build or deck: not found.
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?vs=b3", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/party?build=b9", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&app, Method::GET, "/api/research/upgrades/view/nobody", Some(&bt), None).await.0, StatusCode::NOT_FOUND);
+
+    // The Plans page's tiles: each note's deck count and commanders' art, only the owner's.
+    let (_, plans) = send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await;
+    assert_eq!(plans[0]["id"], "upgrades");
+    assert_eq!(plans[0]["decks"], 1);
+    assert_eq!(plans[0]["art"][0]["commander"], "Nalia de'Arnise");
+    assert!(plans[0]["copied_by"].is_null());
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&other), None).await.1, json!([]));
+}
+
+#[test]
+fn builds_are_named_by_bracket_one_way() {
+    use super::research::build_title;
+    assert_eq!(build_title("[2] Buildable now"), "Bracket 2: Buildable now");
+    assert_eq!(build_title("[3]"), "Bracket 3");
+    assert_eq!(build_title("B4 - Combo"), "Bracket 4: Combo");
+    assert_eq!(build_title("Bracket 3 · Upgraded"), "Bracket 3 · Upgraded");
+    assert_eq!(build_title("Budget build"), "Budget build");
+    assert_eq!(build_title("B52 bomber"), "B52 bomber");
+    assert_eq!(build_title("Current"), "Current");
 }

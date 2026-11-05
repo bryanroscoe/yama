@@ -33,6 +33,7 @@ import { Details, ZoomableCard } from "../components/ui";
 import { deviceId, outbox, useOutbox, useOutboxState } from "./outbox";
 import { AskClaude } from "../advisor/AskClaude";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
+import { ReviewHowTo } from "./howto";
 import { marketSentence } from "./marks";
 import type { PlanView } from "./view";
 
@@ -199,6 +200,7 @@ export function Review() {
   return (
     <>
       <PlansHead title="Review" status={<SyncStatus view={view} userId={userId} />} action={<AskClaude context={{ kind: "review" }} about="your proposals" />} />
+      <ReviewHowTo open={!view.b.swaps.some((s) => !s.retired)} />
       <p className="review-lede">{ANSWER_MEANING}</p>
       <p className="small dim review-todo" role="status">{toAnswerLine(decks)}</p>
       <Details label="How review works">

@@ -28,8 +28,9 @@ describe("the Lab is its own section", () => {
     expect(labPath("/decks/datasets/playgroup-history")).toBe("/lab/datasets/playgroup-history");
   });
 
-  it("leaves the Decks sections and names Research as agent notes", () => {
-    expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Sharing", "Builds", "Plans", "Agent notes"]);
+  it("leaves the Decks sections, with agent notes under Plans and no Lab or Datasets", () => {
+    expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Sharing", "Swap cards", "Plans"]);
+    expect(DECK_SECTIONS.find((s) => s.label === "Plans")?.also).toEqual(["/decks/research"]);
     expect(DECK_SECTIONS.some((s) => s.to.includes("lab") || s.to.includes("datasets"))).toBe(false);
   });
 

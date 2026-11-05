@@ -18,9 +18,22 @@ export const NEWS: NewsEntry[] = [
     date: "2026-11-04",
     title: "Steadier navigation",
     items: [
-      "Sharing and Builds keep the Decks sections at the top, like the rest of Decks, and the tab bar stays lit on every page inside a tab.",
+      "Sharing keeps the Decks sections at the top, like the rest of Decks. Suggested changes and Add a deck keep Decks chosen there, and the tab bar stays lit on every page inside a tab.",
       "Datasets moved to the Lab, beside the precons their evidence feeds. Old links still work.",
     ],
+  },
+  {
+    id: "2026-11-04-one-plan-page",
+    date: "2026-11-04",
+    title: "Plans look the same everywhere",
+    items: [
+      "A plan your agent saved, or a copy of one someone shared, now opens on the same page as its shared link: commander art for each deck, its builds, how to pilot it, the changes with their reasons, a shopping list priced at market and the full lists to copy.",
+      "Your own extras stay on your page only: sharing, your answers for the agent and the agent's store checks.",
+      "Agent notes are now under Plans, beside the decks you're tracking. Dates now show on your own calendar.",
+      "Builds is now Swap cards: builds are named plainly (Bracket 3: Upgraded), and the changes between two lists show with each plan's reason before you print them for the deck box.",
+      "Every Plans page, Swap cards and Suggested changes now says what it's for, where its contents come from and what to do there. What only an AI assistant connected to Yama can make (plans, swap proposals, suggested changes) says so, with a button to connect one.",
+    ],
+    link: { to: "/decks/plan", label: "Open Plans" },
   },
   {
     id: "2026-11-03-buylist-references",

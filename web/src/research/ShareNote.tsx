@@ -5,8 +5,9 @@ import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { VISIBILITY_CHOICES, useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, resetNoteLink, setNoteSharing, type NoteSharing, type ResearchBundle } from "./api";
+import { planSummariesKey } from "./view";
 
-/** Who can see this note, and its link: the same three choices as a deck. */
+/** Who can see this plan, and its link: the same three choices as a deck. */
 export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
@@ -19,6 +20,8 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
     qc.setQueryData<ResearchBundle>(["research", userId, id], (b) => b && { ...b, visibility: r.visibility, share_token: r.share_token });
     void qc.invalidateQueries({ queryKey: ["research", userId, id] });
     void qc.invalidateQueries({ queryKey: ["research", userId, "list"] });
+    // The Plans page's tiles say how each plan is shared.
+    void qc.invalidateQueries({ queryKey: planSummariesKey(userId) });
   };
   const set = useMutation({ mutationFn: (v: Visibility) => setNoteSharing(id, v), onSuccess: refresh });
   const reset = useMutation({ mutationFn: () => resetNoteLink(id), onSuccess: refresh });
@@ -27,7 +30,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
   const link = token ? noteShareUrl(token) : null;
   const handle = sharing.data?.handle;
   return <details className="research-share" open={visibility !== "private"}>
-    <summary>Share this note{visibility === "private" ? "" : visibility === "link" ? " (anyone with the link)" : " (public on your profile)"}</summary>
+    <summary>Share this plan{visibility === "private" ? "" : visibility === "link" ? " (anyone with the link)" : " (public on your profile)"}</summary>
     <fieldset className="share-choices">
       <legend className="small dim">Who can see it</legend>
       {VISIBILITY_CHOICES.map((c) => <label key={c.value}>
@@ -36,7 +39,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
         <span className="hint">{c.hint}</span>
       </label>)}
     </fieldset>
-    <p className="small dim">A shared note shows its title and summaries, decks, builds, changes with their reasons, full lists and how to pilot them, as written, so read them before sharing. Your answers and notes on it, its ownership and acquisition fields, method notes, store quotes and shopping lists stay private.</p>
+    <p className="small dim">A shared plan shows its title and summaries, decks, builds, changes with their reasons, sources, full lists and how to pilot them, as written, plus a shopping list worked out from market prices. Read them before sharing. Your answers and notes, ownership and acquisition fields, method notes, combos and your agent's store checks stay private.</p>
     {visibility !== "private" && link && <div className="stack share-link">
       <label>Link<input readOnly value={link} onFocus={(e) => e.currentTarget.select()} /></label>
       <div className="row">

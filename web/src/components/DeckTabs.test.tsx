@@ -21,7 +21,7 @@ describe("the Decks sections control", () => {
     expect(current("/sharing")).toEqual(["/sharing"]);
     expect(current("/decks/builds")).toEqual(["/decks/builds"]);
     expect(current("/decks/plan/review")).toEqual(["/decks/plan"]);
-    expect(current("/decks/research/abc")).toEqual(["/decks/research"]);
+    expect(current("/decks/research/abc")).toEqual(["/decks/plan"]);
   });
 
   it("keeps Decks chosen while adding a deck or reading suggested changes", () => {

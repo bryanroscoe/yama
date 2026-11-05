@@ -63,7 +63,7 @@ describe("Check this deck", () => {
     expect(html).toContain("Stock, Oct 20, 2026");
     expect(html).not.toContain("Installed, Oct 31");
     expect(html).toContain(">Plan: after prints<");
-    expect(html).toContain(">Plan: [3] Plan<");
+    expect(html).toContain(">Plan: Bracket 3<");
     expect(html).toContain(">0</b> checked");
     expect(html).toContain("0 of 5 belong");
     expect(html).toContain("Check with the camera");
@@ -77,7 +77,7 @@ describe("Check this deck", () => {
       cards: [card("k0", "Sol Ring", 1), card("k1", "Ancient Tomb", 2), card("k2", "Sol Ring", 3), card("k3", "Island", 4), card("k4", "Island", 5), card("k5", "Island", 6)],
     });
     // The Bracket 3 build swaps Ancient Tomb for Reliquary Tower.
-    expect(html).toMatch(/<option value="plan:prismari:b3" selected="">Plan: \[3\] Plan<\/option>/);
+    expect(html).toMatch(/<option value="plan:prismari:b3" selected="">Plan: Bracket 3<\/option>/);
     expect(html).toContain("deck-check-verdict is-out");
     expect(html).toContain("One too many: the list has 2.");
     expect(html).toContain("3 of 5 belong");

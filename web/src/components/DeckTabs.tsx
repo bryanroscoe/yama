@@ -7,15 +7,18 @@ import { planView } from "../plan/view";
 import "./deck-area.css";
 
 /** The Decks tab's sections, in order. Adding a section is one line here. The Lab has its own
- *  tab since 2026-10-28; Research is labelled as what it is, notes agents keep for themselves. */
-/** `also`: pages that belong to a section without sitting under its path (adding a deck and
- *  suggested changes are part of the Decks list), so the section stays lit there. */
+ *  tab since 2026-10-28. Plans holds every plan since 2026-11-04 (Bryan: plans should be
+ *  "consistent and reusable for all users"): an agent's notes and copies of shared plans
+ *  (`/decks/research/...`) as well as tracked decks, so it is current on those pages too. Swap
+ *  cards (`/decks/builds`) prints the changes between two lists of a deck for its box.
+ *  `also`: path prefixes of pages that belong to a section without sitting under its path, so the
+ *  section stays lit there: adding a deck and suggested changes under Decks, a plan's note pages
+ *  under Plans. Datasets moved to the Lab on 2026-11-04 (LabLayout). */
 export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: string[] }[] = [
   { to: "/decks", label: "Decks", end: true, also: ["/decks/import", "/decks/changes"] },
   { to: "/sharing", label: "Sharing" },
-  { to: "/decks/builds", label: "Builds" },
-  { to: "/decks/plan", label: "Plans" },
-  { to: "/decks/research", label: "Agent notes" },
+  { to: "/decks/builds", label: "Swap cards" },
+  { to: "/decks/plan", label: "Plans", also: ["/decks/research"] },
 ];
 
 /** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */
@@ -86,9 +89,9 @@ export function DeckTabs() {
             )}
           </>
         );
-        // NavLink marks only its own path current, so a page that belongs here from elsewhere
-        // is marked by hand (as SubNav does).
-        return s.also?.includes(pathname) ? (
+        // A section's other pages (adding a deck under Decks, a plan's note pages under Plans)
+        // mark it current too, for screen readers as well, which NavLink only does for its own path.
+        return s.also?.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ? (
           <Link key={s.to} to={s.to} className="active" aria-current="page">
             {label}
           </Link>
@@ -145,7 +148,7 @@ export function SubNav({ label, pages, also }: { label: string; pages: { to: str
 /**
  * The head of a Decks-tab page (design: DeckList, Lab, PlanOverview, Buy...).
  *
- * - Laptop: the page title on the left; Decks | Plans | Agent notes and the page's action on the right;
+ * - Laptop: the page title on the left; the Decks sections and the page's action on the right;
  *   the section's sub-nav underneath.
  * - Phone, a section's front page (`index`): "Decks" and the action, the control full width, the
  *   sub-nav. Phone, any other page: a back button and the page title (and `status`), nothing else.
@@ -172,7 +175,7 @@ export function AreaHead({
   status?: ReactNode;
   /** The tab this page belongs to, the phone title of its front page. */
   area?: string;
-  /** The tab's own sections control (Decks | Plans | Agent notes); null for a tab without one. */
+  /** The tab's own sections control (Decks | Sharing | Swap cards | Plans | Datasets); null for a tab without one. */
   sections?: ReactNode;
 }) {
   return (
