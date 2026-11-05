@@ -795,7 +795,7 @@ async fn shared_notes_price_the_cards_to_get() {
     assert!(page(&app, &format!("/r/{token}/party?upto=")).await.2.contains("About $0.80 to get"));
     assert!(page(&app, &format!("/r/{token}/party?upto=1000")).await.2.contains(">Buy up to $1000.00, print the rest</a>"), "the top of the range");
     assert!(page(&app, &format!("/r/{token}/party?upto=.5")).await.2.contains("value=\"0.50\">"));
-    for bad in ["-1", "abc", "1e3", "2000", "1000.004", "1000.01", "2.005", "1.2.3", ".", "+2", "inf", "NaN"] {
+    for bad in ["-1", "abc", "1e3", "2000", "1000.004", "1000.01", "2.005", "1.2.3", ".", "%2B2", "inf", "NaN"] {
         assert_eq!(page(&app, &format!("/r/{token}/party?upto={bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
         assert_eq!(page(&app, &format!("/r/{token}?upto={bad}")).await.0, StatusCode::NOT_FOUND, "{bad}");
     }
