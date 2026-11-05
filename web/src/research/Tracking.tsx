@@ -28,14 +28,19 @@ export interface Tracked {
 }
 
 /** The plan deck tracking this note's deck, if any (stopped ones too), from the plan bundle. */
-export function useTracked(noteId: string, deckKey: string): { deck: PlanDeck | null; swaps: Swap[]; status: (s: Swap) => string | null } {
+export function useTracked(
+  noteId: string,
+  deckKey: string,
+): { ready: boolean; error: unknown; deck: PlanDeck | null; swaps: Swap[]; status: (s: Swap) => string | null } {
   const userId = useMe().data?.id;
   const plan = usePlan(userId);
   const box = useOutbox(userId);
   return useMemo(() => {
     const b = plan.bundle;
+    // Until the plans are here, nobody can say what's tracked: nothing may be tracked or switched.
+    const ready = !!b;
     const deck = b?.decks.find((d) => d.note?.id === noteId && d.note.deck === deckKey) ?? null;
-    if (!b || !deck || !userId) return { deck, swaps: [], status: () => null };
+    if (!b || !deck || !userId) return { ready, error: plan.error, deck, swaps: [], status: () => null };
     const view = planView(b, outbox.localOps(userId));
     const swaps = view.swapsOf(deck.key);
     // Where a tracked swap's card is: in the deck, bought, or still to get.
@@ -45,9 +50,9 @@ export function useTracked(noteId: string, deckKey: string): { deck: PlanDeck | 
       if (marks?.bought?.value) return "Bought";
       return s.src === "owned" ? "Yours, to put in" : s.src === "print" ? "To print" : "To buy";
     };
-    return { deck, swaps, status };
+    return { ready, error: plan.error, deck, swaps, status };
     // `box` changes when a tap lands in the outbox, so ticks made here show at once.
-  }, [plan.bundle, box, userId, noteId, deckKey]);
+  }, [plan.bundle, plan.error, box, userId, noteId, deckKey]);
 }
 
 /** The swaps a tracked build made for one of its swaps: one per copy (`id`, `id#2`, …). */
@@ -64,9 +69,10 @@ function conflictText(e: unknown): string | null {
 export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; deck: ResearchDeck; build: Build }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
-  const { deck: tracked } = useTracked(bundle.document.id, deck.key);
+  const { ready, error: planError, deck: tracked } = useTracked(bundle.document.id, deck.key);
   const [result, setResult] = useState<Tracked | null>(null);
-  const refresh = () => void qc.invalidateQueries({ queryKey: ["plan", userId] });
+  // Returned, so the button stays busy until the refreshed plans say what's tracked now.
+  const refresh = () => qc.invalidateQueries({ queryKey: ["plan", userId] });
   const track = useMutation({
     mutationFn: () =>
       api<Tracked>("/api/plan/from-note", {
@@ -75,17 +81,24 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
       }),
     onSuccess: (r) => {
       setResult(r);
-      refresh();
+      return refresh();
     },
   });
   const stop = useMutation({
     mutationFn: (key: string) => api<{ plan_deck_key: string }>(`/api/plan/from-note/${encodeURIComponent(key)}`, { method: "DELETE" }),
     onSuccess: () => {
       setResult(null);
-      refresh();
+      return refresh();
     },
   });
   const busy = track.isPending || stop.isPending;
+  if (!ready) {
+    return (
+      <section className="note-track" aria-label="Track this build">
+        {planError ? <ErrorText error={planError} /> : <p className="dim" role="status">Checking what you track…</p>}
+      </section>
+    );
+  }
   const active = tracked && tracked.status !== "archived";
   const thisBuild = active && tracked.note?.build === build.id;
   const otherBuild = active && !thisBuild ? deck.builds.find((b) => b.id === tracked.note?.build) : null;
@@ -142,6 +155,13 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
       {conflictText(error) ? <p className="small warn" role="alert">{conflictText(error)}</p> : <ErrorText error={error} />}
     </section>
   );
+}
+
+/** Whether the plans have answered (or failed): a plan's shopping list waits for it, so its limit
+ *  doesn't change under the page, and the answers being typed beside it, once it has loaded. */
+export function usePlansSettled(): boolean {
+  const userId = useMe().data?.id;
+  return !usePlan(userId).pending;
 }
 
 /** The account's own buy limit (Plans, Settings, Shopping rules), when its rule in force names

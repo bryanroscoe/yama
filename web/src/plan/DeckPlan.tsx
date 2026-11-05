@@ -234,16 +234,22 @@ export function DeckPlan() {
   );
 }
 
-/** A tracked plan's way back to its plan: the note's deck page at the tracked build. */
+/** A tracked plan's way back to its plan: the note's deck page at the tracked build. A stopped
+ *  one says only that it isn't tracked: you may have stopped it, or the plan may have dropped
+ *  that deck or build when it was saved again (the build may be gone, so the link opens the deck). */
 function FromNote({ note, stopped }: { note: NonNullable<PlanDeck["note"]>; stopped: boolean }) {
   const userId = useMe().data?.id;
   const plans = useQuery({ queryKey: planSummariesKey(userId), queryFn: planSummaries, enabled: !!userId });
   const title = plans.data?.find((p) => p.id === note.id)?.title;
-  return (
+  const deckPage = `/decks/research/${encodeURIComponent(note.id)}/${encodeURIComponent(note.deck)}`;
+  const label = title ? `the plan “${title}”` : "your plan";
+  return stopped ? (
     <>
-      {stopped ? "You stopped tracking this build of " : "Tracking a build of "}
-      <Link to={`/decks/research/${encodeURIComponent(note.id)}/${encodeURIComponent(note.deck)}?build=${encodeURIComponent(note.build)}`}>{title ? `the plan “${title}”` : "your plan"}</Link>
-      {stopped ? ". Track it again from there." : ". Switch builds or stop tracking from there."}
+      No longer tracked. It came from <Link to={deckPage}>{label}</Link>; track a build there to follow it again.
+    </>
+  ) : (
+    <>
+      Tracking a build of <Link to={`${deckPage}?build=${encodeURIComponent(note.build)}`}>{label}</Link>. Switch builds or stop tracking from there.
     </>
   );
 }

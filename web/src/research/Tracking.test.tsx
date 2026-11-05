@@ -47,6 +47,11 @@ function render(node: React.ReactNode, plan: PlanBundle | null) {
 const deckOf = note.document.decks[0]!;
 
 describe("tracking a plan's build", () => {
+  it("offers nothing until the plans say what's tracked", () => {
+    const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, null);
+    expect(html).toContain("Checking what you track");
+    expect(html).not.toContain("</button>");
+  });
   it("offers to track a build no plan follows, and says what tracking does", () => {
     const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, planBundle([]));
     expect(html).toContain(">Track this build</button>");

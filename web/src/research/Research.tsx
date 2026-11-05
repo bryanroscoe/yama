@@ -16,7 +16,7 @@ import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from 
 import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
 import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
-import { TrackPanel, trackedSwaps, useBuyRule, useTracked } from "./Tracking";
+import { TrackPanel, trackedSwaps, useBuyRule, usePlansSettled, useTracked } from "./Tracking";
 import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
@@ -90,10 +90,13 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
   const build = all ? null : params.get("build");
   const get = getOf(params.get("get"));
   const rule = useBuyRule();
+  const settled = usePlansSettled();
   const upto = uptoOf(params.get("upto")) ?? rule?.upto ?? null;
   const view = useQuery({
     queryKey: ["research", userId, doc.id, "view", bundle.revision, { build, all, get, upto }],
     queryFn: ({ signal }) => noteView(doc.id, { build, all, get, upto }, signal),
+    // Once the account's buy limit is known, so the list doesn't load twice.
+    enabled: settled,
     placeholderData: keepPreviousData,
   });
   const choices: { id: string; label: string }[] = [];
@@ -447,11 +450,13 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   const vs = deck.builds.find((b) => b.id === vsId && b.id !== build?.id) ?? null;
   const get = getOf(params.get("get"));
   const rule = useBuyRule();
+  const settled = usePlansSettled();
   const upto = uptoOf(params.get("upto")) ?? rule?.upto ?? null;
   const view = useQuery({
     queryKey: ["research", userId, doc.id, "view", bundle.revision, deck.key, { build: build?.id, vs: vs?.id, get, upto }],
     queryFn: ({ signal }) => deckView(doc.id, deck.key, { build: build!.id, vs: vs?.id, get, upto }, signal),
-    enabled: !!build,
+    // Once the account's buy limit is known: a second load would unmount the answers being typed.
+    enabled: !!build && settled,
     // Keep the page while another build or comparison loads, but never another deck's.
     placeholderData: (prev, q) => (q && q.queryKey[5] === deck.key ? prev : undefined),
   });
@@ -530,7 +535,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
           {isOwnedBuild(build) && <span className="pill good">Buildable now from your cards</span>}
         </div>
 
-        <TrackPanel bundle={bundle} deck={deck} build={build} />
+        <TrackPanel key={build.id} bundle={bundle} deck={deck} build={build} />
 
         <section className="note-owner" aria-label="Your answer for the agent">
           <p className="small dim">
