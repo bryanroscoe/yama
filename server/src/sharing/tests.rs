@@ -883,6 +883,10 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     ]);
     crate::deck_research::save(&pool, &bryan, &doc).await.unwrap();
 
+    // The note's content hash comes with it: Track this build sends it back, so a note changed
+    // since the page loaded isn't tracked.
+    let (_, bundle) = send(&app, Method::GET, "/api/research/upgrades", Some(&bt), None).await;
+    assert_eq!(bundle["content_hash"].as_str().map(str::len), Some(64), "{bundle}");
     // Private, and still the owner's to read; nobody else's, and not signed out.
     let (s, view) = send(&app, Method::GET, "/api/research/upgrades/view", Some(&bt), None).await;
     assert_eq!(s, StatusCode::OK, "{view}");

@@ -11,6 +11,8 @@ import { changedSince } from "./about";
 import type { DeckSummary } from "../api";
 
 vi.mock("../auth",()=>({useMe:()=>({data:{id:"owner"}})}));
+// The deck page's Track this build reads the plan's device outbox, which needs a browser.
+vi.mock("../plan/outbox",()=>({outbox:{localOps:()=>[],enqueue:()=>{},sync:async()=>{}},deviceId:()=>"device",useOutbox:()=>({pending:[],rejected:[]})}));
 vi.mock("../components/DeckTabs",()=>({AreaHead:({title}:{title?:string})=>title?<h1>{title}</h1>:null,BackButton:({label}:{label:string})=><a>{label}</a>}));
 
 function fullPage(query="") {

@@ -359,3 +359,8 @@
   padding: 10px 14px;
   margin-block: 0 16px;
 }
+/* "Plan": what part of Yama a suggested change is about. */
+.ask-change-area {
+  margin-right: 8px;
+  vertical-align: 2px;
+}

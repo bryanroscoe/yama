@@ -38,6 +38,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe, usePower } from "../auth";
+import { planSummaries, planSummariesKey } from "../research/view";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Crop, WinBar, winCeiling } from "../components/Crop";
 import { BackButton } from "../components/DeckTabs";
@@ -177,9 +178,9 @@ export function DeckPlan() {
         })}
         <p className="small dim plan-deck-about">
           {deck.product ? `${deck.product}. ` : ""}
-          {deck.source === "import" ? "Planned outside Yama; read-only here." : "Made in Yama."}
+          {deck.note ? <FromNote note={deck.note} stopped={deck.status === "archived"} /> : deck.source === "import" ? "Planned outside Yama; read-only here." : "Made in Yama."}
           {deck.status === "proposals_only" ? " Proposals only; no approved swaps." : ""}
-          {deck.status === "archived" ? " The latest import didn't include this deck." : ""}
+          {deck.status === "archived" && !deck.note ? " The latest import didn't include this deck." : ""}
         </p>
         <div className="row">
           <AskClaude context={{ kind: "plan_deck", ref: deck.key }} about={`the ${deck.name} plan`} ideasFor={deck.key} />
@@ -229,6 +230,26 @@ export function DeckPlan() {
         <Ideas deck={deck} view={view} />
         <LinkDeck deck={deck} />
       </div>
+    </>
+  );
+}
+
+/** A tracked plan's way back to its plan: the note's deck page at the tracked build. A stopped
+ *  one says only that it isn't tracked: you may have stopped it, or the plan may have dropped
+ *  that deck or build when it was saved again (the build may be gone, so the link opens the deck). */
+function FromNote({ note, stopped }: { note: NonNullable<PlanDeck["note"]>; stopped: boolean }) {
+  const userId = useMe().data?.id;
+  const plans = useQuery({ queryKey: planSummariesKey(userId), queryFn: planSummaries, enabled: !!userId });
+  const title = plans.data?.find((p) => p.id === note.id)?.title;
+  const deckPage = `/decks/research/${encodeURIComponent(note.id)}/${encodeURIComponent(note.deck)}`;
+  const label = title ? `the plan “${title}”` : "your plan";
+  return stopped ? (
+    <>
+      No longer tracked. It came from <Link to={deckPage}>{label}</Link>; track a build there to follow it again.
+    </>
+  ) : (
+    <>
+      Tracking a build of <Link to={`${deckPage}?build=${encodeURIComponent(note.build)}`}>{label}</Link>. Switch builds or stop tracking from there.
     </>
   );
 }

@@ -14,6 +14,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-05-track-this-build",
+    date: "2026-11-05",
+    title: "Track a plan's build",
+    items: [
+      "On a plan's deck page, Track this build makes it your plan for that deck: its cards to buy go on your buy list and store trip, its prints on Prints, and each change shows whether its card is in the deck, bought or still to get. Switch builds or stop at any time.",
+      "A plan's shopping list now starts at your own shopping rule's buy limit when you've set one.",
+      "Your assistant can track a build for you too; it waits in Suggested changes, tagged Plan, until you apply it.",
+    ],
+    link: { to: "/decks/plan", label: "Open Plans" },
+  },
+  {
     id: "2026-11-04-steadier-navigation",
     date: "2026-11-04",
     title: "Steadier navigation",

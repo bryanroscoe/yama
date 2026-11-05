@@ -748,19 +748,20 @@ pub struct Review {
 }
 
 pub async fn load(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Value> {
-    let row: Option<(String, i64, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT document,revision,updated_at,visibility,share_token FROM research_reports WHERE owner_id=? AND id=?",
+    let row: Option<(String, i64, String, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT document,revision,updated_at,visibility,share_token,content_hash FROM research_reports WHERE owner_id=? AND id=?",
     )
     .bind(owner)
     .bind(id)
     .fetch_optional(pool)
     .await?;
-    let (text, revision, updated_at, visibility, share_token) = row.ok_or(AppError::NotFound("research"))?;
+    let (text, revision, updated_at, visibility, share_token, content_hash) = row.ok_or(AppError::NotFound("research"))?;
     let doc: Value = serde_json::from_str(&text).map_err(anyhow::Error::from)?;
     let hashes = targets(&doc)?;
     let reviews: Vec<Review> = sqlx::query_as("SELECT target,decision,note,target_hash,version,updated_at FROM research_reviews WHERE owner_id=? AND report_id=? ORDER BY target").bind(owner).bind(id).fetch_all(pool).await?;
     Ok(
-        json!({"document":doc,"revision":revision,"updated_at":updated_at,"target_hashes":hashes,"reviews":reviews,"visibility":visibility,"share_token":share_token}),
+        // content_hash: what "Track this build" sends back, so a note changed since it was read isn't tracked.
+        json!({"document":doc,"revision":revision,"updated_at":updated_at,"content_hash":content_hash,"target_hashes":hashes,"reviews":reviews,"visibility":visibility,"share_token":share_token}),
     )
 }
 

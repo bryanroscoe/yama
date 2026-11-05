@@ -66,7 +66,7 @@ export function Overview() {
             <b>Answer it.</b> Pick the build you prefer and mark changes Want, Unsure or Don't want, with a note if you like. Your assistant reads your answers next time. Nothing changes your decks until you do it.
           </>,
           <>
-            <b>Use it.</b> Load a build into your deck with Update from a list on the deck's page, print <Link to="/decks/builds">swap cards</Link> for the deck box, or share the plan by link or on your profile.
+            <b>Make it.</b> On a deck's page, Track this build: its cards to buy go on your buy list and store trip, its prints on Prints, and you tick each change as it goes into the deck. Switch builds or stop at any time. Load a build into your deck with Update from a list, print <Link to="/decks/builds">swap cards</Link> for the deck box, or share the plan by link or on your profile.
           </>,
         ]}
         actions={
