@@ -20,6 +20,15 @@ const VIA: Record<StagedChange["via"], string> = {
 /** One staged change, with Apply and Discard while it waits. */
 /** Staged changes that start simulations when applied. */
 const SIMULATIONS: StagedChange["kind"][] = ["start_lab_run", "more_lab_games", "run_lab_again"];
+/** What part of Yama a change is about, as a tag before it: a plan's changes say so. */
+const AREA: Partial<Record<StagedChange["kind"], string>> = {
+  track_build: "Plan",
+  propose_swap: "Plan",
+  answer_review: "Plan",
+  mark_bought: "Plan",
+  mark_installed: "Plan",
+  swap_in_prints: "Plan",
+};
 
 export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedChange; onNavigate?: () => void; onDecided?: (id: string) => void }) {
   const qc = useQueryClient();
@@ -41,6 +50,7 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   return (
     <div className={`ask-change is-${shown.status}`}>
       <p className="ask-change-what">
+        {AREA[shown.kind] && <span className="pill quiet ask-change-area">{AREA[shown.kind]}</span>}
         <b>{shown.preview?.target ?? shown.summary}</b>
       </p>
       {shown.preview ? <Proposal preview={shown.preview} /> : shown.detail && <ProposalText text={shown.detail} />}

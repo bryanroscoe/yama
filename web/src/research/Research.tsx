@@ -16,6 +16,7 @@ import { AccountingSummary, buildAccounting, listEntries, resolvedCombos } from 
 import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist, ReviewEditor, Sources } from "./owner";
 import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
+import { TrackPanel, trackedSwaps, useBuyRule, useTracked } from "./Tracking";
 import { bracketLabel, cardsWord, deckView, moved, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
@@ -88,7 +89,8 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
   const all = params.get("builds") === "all";
   const build = all ? null : params.get("build");
   const get = getOf(params.get("get"));
-  const upto = uptoOf(params.get("upto"));
+  const rule = useBuyRule();
+  const upto = uptoOf(params.get("upto")) ?? rule?.upto ?? null;
   const view = useQuery({
     queryKey: ["research", userId, doc.id, "view", bundle.revision, { build, all, get, upto }],
     queryFn: ({ signal }) => noteView(doc.id, { build, all, get, upto }, signal),
@@ -174,7 +176,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
         {v && v.shopping.items.length > 0 && (
           <div className={view.isPlaceholderData ? "note-stale" : undefined}>
             {all && <p className="small dim note-how">Every build as its own deck, starting from one copy of each precon: the cards the builds share are counted once per build.</p>}
-            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} onUpTo={(d) => set({ upto: d })} />
+            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} onUpTo={(d) => set({ upto: d })} rule={rule} />
             <ShoppingTotals s={v.shopping} />
             <div className="note-table-wrap">
               <table className="note-table">
@@ -444,7 +446,8 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   const vsId = params.get("vs");
   const vs = deck.builds.find((b) => b.id === vsId && b.id !== build?.id) ?? null;
   const get = getOf(params.get("get"));
-  const upto = uptoOf(params.get("upto"));
+  const rule = useBuyRule();
+  const upto = uptoOf(params.get("upto")) ?? rule?.upto ?? null;
   const view = useQuery({
     queryKey: ["research", userId, doc.id, "view", bundle.revision, deck.key, { build: build?.id, vs: vs?.id, get, upto }],
     queryFn: ({ signal }) => deckView(doc.id, deck.key, { build: build!.id, vs: vs?.id, get, upto }, signal),
@@ -453,6 +456,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
     placeholderData: (prev, q) => (q && q.queryKey[5] === deck.key ? prev : undefined),
   });
   const yours = useDeckNamed(deck.name);
+  const tracking = useTracked(doc.id, deck.key);
   if (!build) return <NoteMissing id={doc.id} what="That deck has no builds." />;
   const v = view.data;
   const names = [...new Set([...deck.builds.flatMap((b) => listEntries(b.list).map((r) => r.name)), ...resolvedCombos(deck, build).flatMap((c) => c.cards ?? [])])];
@@ -525,6 +529,8 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
           </a>
           {isOwnedBuild(build) && <span className="pill good">Buildable now from your cards</span>}
         </div>
+
+        <TrackPanel bundle={bundle} deck={deck} build={build} />
 
         <section className="note-owner" aria-label="Your answer for the agent">
           <p className="small dim">
@@ -681,8 +687,17 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
                       if (!swap) return null;
                       const target = targetForSwap(deck.key, build.id, swap.id);
                       const answer = bundle.reviews.find((r) => r.target === target);
+                      // Tracking this build: where each copy's card is now (in the deck, bought, to get).
+                      const copies = tracking.deck?.status !== "archived" && tracking.deck?.note?.build === build.id ? trackedSwaps(tracking.swaps, doc.id, deck.key, build.id, swap.id) : [];
                       return (
                         <div className="note-swap-owner">
+                          {copies.length > 0 && (
+                            <p className="note-swap-state">
+                              {copies.map((c) => (
+                                <span key={c.key} className={`pill ${tracking.status(c) === "In the deck" ? "good" : "quiet"}`}>{tracking.status(c)}</span>
+                              ))}
+                            </p>
+                          )}
                           {swap.acquisition && <AcquisitionItem item={swap.acquisition} showCard={false} />}
                           <ReviewEditor key={`${target}:${answer?.version ?? 0}`} bundle={bundle} target={target} compact />
                         </div>
@@ -698,7 +713,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
             <SectionHead id="shop-head" eyebrow={`${cardsWord(v.shopping.total.cards)} to add to ${v.vs_label}`}>
               Shopping list
             </SectionHead>
-            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} onUpTo={(d) => set({ upto: d })} />
+            <GetChoices s={v.shopping} onChange={(g) => set({ get: g === "split" ? null : g })} onUpTo={(d) => set({ upto: d })} rule={rule} />
             <ShoppingTotals s={v.shopping} />
             <ShoppingTable s={v.shopping} />
             <ShoppingText s={v.shopping} />

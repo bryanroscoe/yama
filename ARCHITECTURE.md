@@ -1645,10 +1645,18 @@ part of the MCP".
   want beside each change), and the agent's evidence (allocations, store quotes, local searches,
   store checks, combos, its research), each shown only when the note has it, so a copy shows no
   empty sections.
-- **Tracking comes next, with the plan as its face.** A note's build becomes a tracked plan deck
-  (planner source `yama`) for Buy, Trip, prints and installed ticks, and the MCP plan tools work
-  on it. The server side (plan creation from a note, MCP) is the "Create Public Deck Plans" thread's
-  work; the plan page will offer "Track this build". People never see "promote" or "planner".
+- **Tracking, with the plan as its face** (PR 2, 2026-11-05, on the server side "Plans from
+  notes" adds). A plan's deck page offers "Track this build" (`research/Tracking.tsx`): `POST
+  /api/plan/from-note` with the note's `content_hash` (now in the research bundle), so a note
+  changed since the page loaded isn't tracked (409, "reload"). Once tracked, the panel says so
+  and links the tracked plan, another build offers Switch to this build, and Stop tracking is
+  `DELETE /api/plan/from-note/{key}`; the server's warnings show beside it. Each change in the
+  table shows where its card is now from the plan bundle's `n|note|deck|build|swap` swaps, every
+  copy its own (In the deck, Bought, To buy, To print). The tracked plan's page links back to its
+  plan at that build. A plan's shopping list starts at the account's own buy limit when its rule
+  in force names one (`localBuyRule`, "your shopping rule from …"), else the shared pages' $2.
+  Suggested changes tag plan changes (`track_build` and the other plan kinds) "Plan". People
+  never see "promote" or "planner".
 - **Swap cards** (Bryan, same day: "this swaps page called builds is also odd"). The Decks section
   and page `/decks/builds` are called Swap cards, after what they make. Builds are named once and
   plainly: "Bracket 2: Buildable now", "Stock", "Current (saved deck)", never "[2] …"; a researched

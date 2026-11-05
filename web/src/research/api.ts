@@ -59,7 +59,9 @@ export interface ResearchDocument {
   local_checks?: Record<string, { reason?: string; coverage?: string; checked?: string; local_checks?: { store: string; checked?: string; errors?: string[]; search_may_be_truncated?: boolean }[]; rejected_offers?: Item[]; market_reference?: { market?: number | null; set?: string; num?: string; url?: string } }>;
 }
 export interface Review { target: string; decision: string | null; note: string | null; target_hash: string; version: number; updated_at: string }
-export interface ResearchBundle { document: ResearchDocument; revision: number; updated_at: string; target_hashes: Record<string, string>; reviews: Review[]; visibility?: Visibility; share_token?: string | null }
+export interface ResearchBundle { document: ResearchDocument; revision: number; updated_at: string; target_hashes: Record<string, string>; reviews: Review[]; visibility?: Visibility; share_token?: string | null;
+  /** The note's content hash: tracking sends it back, so a note changed since it was read isn't tracked. */
+  content_hash?: string }
 /** What the build choices and the deck check read from a note: its decks' builds (`/api/research-builds`). A full bundle is one too.
  *  The server sends only the build fields those pages read (`build_summary` in server/src/deck_research.rs); reading another
  *  field means adding it there. */

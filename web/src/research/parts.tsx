@@ -148,12 +148,15 @@ export function ShoppingText({ s }: { s: ShoppingData }) {
 }
 
 /** How to get the cards: buy the cheap ones and print the rest, buy all or print all. Under the
- *  split, `onUpTo` sets its limit in dollars ("3.50"), or null for the suggested one. */
-export function GetChoices({ s, onChange, onUpTo }: { s: ShoppingData; onChange: (g: GetId) => void; onUpTo?: (dollars: string | null) => void }) {
+ *  split, `onUpTo` sets its limit in dollars ("3.50"), or null for the one the page starts at:
+ *  the account's own `rule` when it has one, else the suggested one. */
+export function GetChoices({ s, onChange, onUpTo, rule }: { s: ShoppingData; onChange: (g: GetId) => void; onUpTo?: (dollars: string | null) => void; rule?: { upto: string; text: string } | null }) {
+  const start = rule ? Number(rule.upto) : s.up_to_suggested;
   return (
     <>
       <Choices label="How to get the cards" title="Get" options={s.gets} value={s.get} onChange={onChange} />
-      {s.get === "split" && onUpTo && <UpTo value={s.up_to} max={s.up_to_max} onSet={(d) => onUpTo(Number(d) === s.up_to_suggested ? null : d)} />}
+      {s.get === "split" && onUpTo && <UpTo value={s.up_to} max={s.up_to_max} onSet={(d) => onUpTo(Number(d) === start ? null : d)} />}
+      {s.get === "split" && rule && s.up_to === Number(rule.upto) && <p className="small dim note-how">{rule.text}</p>}
     </>
   );
 }
