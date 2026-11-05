@@ -56,6 +56,7 @@ import { BoughtLine, InstalledTick, marketSentence } from "./marks";
 import { CopyButton, Thumb } from "./parts";
 import { PlansForDeck } from "../research/PlanTiles";
 import { PlanAnswer } from "./Review";
+import { useScrollToHash } from "../components/useScrollToHash";
 import type { PlanView } from "./view";
 
 const TABS = [
@@ -104,6 +105,8 @@ export function DeckPlan() {
   const tab = (TABS.find((t) => t.id === params.get("tab"))?.id ?? "changes") as TabId;
   const deck = view.deck(key);
   const runs = useRuns();
+  // Review links to the proposals (#proposed) on the Changes tab.
+  useScrollToHash(!!deck && tab === "changes");
 
   if (!deck) {
     return (
@@ -184,7 +187,7 @@ export function DeckPlan() {
           {deck.status === "proposals_only" ? " Proposals only; no approved swaps." : ""}
           {deck.status === "archived" && !deck.note ? " The latest import didn't include this deck." : ""}
         </p>
-        <PlansForDeck name={deck.name} current={deck.note ? { note: deck.note.id } : { plan: deck.key }} />
+        <PlansForDeck name={deck.name} current={deck.note ? { note: deck.note.id, deck: deck.note.deck } : { plan: deck.key }} />
         <div className="row">
           <AskClaude context={{ kind: "plan_deck", ref: deck.key }} about={`the ${deck.name} plan`} ideasFor={deck.key} />
         </div>
@@ -585,7 +588,21 @@ function SwapRow({ s, view, userId, logs, standins }: { s: Swap; view: PlanView;
             {s.note && <p className="dim">Note: {s.note}</p>}
           </details>
         )}
-        {s.stage === "proposed" && deck ? <PlanAnswer key={`${s.key}:${answer?.at ?? ""}`} swap={s} deck={deck} view={view} userId={userId} /> : answer && <AnswerLine s={s} answer={answer} view={view} />}
+        {s.stage === "proposed" && deck ? (
+          <PlanAnswer swap={s} deck={deck} view={view} userId={userId} />
+        ) : (
+          <>
+            {answer && <AnswerLine s={s} answer={answer} view={view} />}
+            {/* A planned swap can still be answered (a change of mind, a note), folded away. A
+                tracked build's swaps are answered on its plan's page instead. */}
+            {deck && !deck.note && (
+              <details className="swap-more small">
+                <summary>{answer?.decision ? "Change your answer" : "Answer this swap"}</summary>
+                <PlanAnswer swap={s} deck={deck} view={view} userId={userId} />
+              </details>
+            )}
+          </>
+        )}
         {s.stage === "planned" && <BoughtLine swap={s} view={view} />}
         {standins.map((st) => (
           <div key={st.key} className="swap-standin small">

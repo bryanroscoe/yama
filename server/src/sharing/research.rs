@@ -1727,15 +1727,12 @@ pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): Curr
     .bind(&u.id)
     .fetch_all(&st.pool)
     .await?;
-    // Each note's decks, in the note's order: the Plans page shows a tile per deck plan, not one
-    // per note, with its builds, the recommended one and the owner's pick.
+    // Each note's decks, in the note's order: the Plans page shows a tile per deck, not one per
+    // note, with its builds, the recommended one and the owner's pick.
     type DeckRow = (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>);
     let deck_rows: Vec<DeckRow> = sqlx::query_as(
         "SELECT r.id, json_extract(d.value, '$.key'), json_extract(d.value, '$.name'), json_extract(d.value, '$.commander'),
-                (SELECT json_group_array(json_object('id', json_extract(b.value, '$.id'), 'label', json_extract(b.value, '$.label'),
-                        'open', (SELECT COUNT(*) FROM json_each(b.value, '$.swaps') s WHERE NOT EXISTS (
-                            SELECT 1 FROM research_reviews v WHERE v.owner_id = r.owner_id AND v.report_id = r.id AND v.decision IS NOT NULL
-                              AND v.target = 'swap:' || json_extract(d.value, '$.key') || ':' || json_extract(b.value, '$.id') || ':' || json_extract(s.value, '$.id')))))
+                (SELECT json_group_array(json_object('id', json_extract(b.value, '$.id'), 'label', json_extract(b.value, '$.label')))
                    FROM json_each(d.value, '$.builds') b),
                 json_extract(d.value, '$.recommended_build'),
                 (SELECT v.decision FROM research_reviews v
@@ -1745,28 +1742,79 @@ pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): Curr
     .bind(&u.id)
     .fetch_all(&st.pool)
     .await?;
-    let mut by_note: HashMap<String, Vec<Value>> = HashMap::new();
-    let mut seen: HashMap<String, (Option<ArtData>, Option<String>)> = HashMap::new();
+    struct DeckPlan {
+        note: String,
+        key: String,
+        name: String,
+        commander: String,
+        builds: Vec<Value>,
+        recommended: Option<String>,
+        preferred: Option<String>,
+        to_make: Option<String>,
+    }
+    let mut plans = Vec::new();
     for (note, key, name, commander, builds, recommended, preferred) in deck_rows {
         let (Some(key), Some(name)) = (key, name) else { continue };
-        let commander = commander.unwrap_or_default();
-        if !seen.contains_key(&commander) {
-            let found = if commander.is_empty() { (None, None) } else { art_data(commander_card(&st.pool, &commander).await?) };
-            seen.insert(commander.clone(), found);
-        }
-        let (art, identity) = &seen[&commander];
-        let parsed: Vec<Value> = builds.and_then(|b| serde_json::from_str::<Vec<Value>>(&b).ok()).unwrap_or_default();
-        let builds: Vec<Value> = parsed.iter().filter_map(|b| Some(json!({"id": b["id"].as_str()?, "label": build_title(b["label"].as_str().unwrap_or_default())}))).collect();
+        let builds: Vec<Value> = builds
+            .and_then(|b| serde_json::from_str::<Vec<Value>>(&b).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|b| Some(json!({"id": b["id"].as_str()?, "label": build_title(b["label"].as_str().unwrap_or_default())})))
+            .collect();
         // A pick or recommendation only when it names one of the builds.
         let known = |id: Option<String>| id.filter(|id| builds.iter().any(|b| b["id"] == id.as_str()));
         let (recommended, preferred) = (known(recommended), known(preferred));
-        // The changes still waiting for a Want, Unsure or Don't want in the build to make (the
-        // owner's pick, else the recommended one, else the first), for Review's list.
-        let to_make = preferred.as_deref().or(recommended.as_deref()).or_else(|| parsed.first().and_then(|b| b["id"].as_str()));
-        let to_answer = parsed.iter().find(|b| to_make.is_some() && b["id"].as_str() == to_make).and_then(|b| b["open"].as_i64()).unwrap_or(0);
-        by_note.entry(note).or_default().push(json!({
-            "key": key, "name": name, "commander": commander, "builds": builds,
-            "recommended": recommended, "preferred": preferred, "to_answer": to_answer, "art": art, "identity": identity,
+        // The build to make: the owner's pick, else the recommended one, else the first.
+        let to_make = preferred.clone().or_else(|| recommended.clone()).or_else(|| builds.first().and_then(|b| b["id"].as_str()).map(str::to_string));
+        plans.push(DeckPlan { note, key, name, commander: commander.unwrap_or_default(), builds, recommended, preferred, to_make });
+    }
+    // Review's count: the changes in each build to make with no current answer. An answer counts
+    // only while its swap is unchanged, as the plan's page reads it (an answer to a swap the
+    // assistant has since changed asks to be answered again): the same hash as the note's
+    // targets. Only those builds' swaps leave the database, never the whole note.
+    let wanted: Vec<[&str; 3]> = plans.iter().filter_map(|p| Some([p.note.as_str(), p.key.as_str(), p.to_make.as_deref()?])).collect();
+    let swap_rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT r.id, json_extract(d.value, '$.key'), json_extract(b.value, '$.id'), json_extract(b.value, '$.swaps')
+         FROM json_each(?) j
+         JOIN research_reports r ON r.owner_id = ? AND r.id = json_extract(j.value, '$[0]')
+         JOIN json_each(r.document, '$.decks') d ON json_extract(d.value, '$.key') = json_extract(j.value, '$[1]')
+         JOIN json_each(d.value, '$.builds') b ON json_extract(b.value, '$.id') = json_extract(j.value, '$[2]')",
+    )
+    .bind(serde_json::to_string(&wanted).map_err(anyhow::Error::from)?)
+    .bind(&u.id)
+    .fetch_all(&st.pool)
+    .await?;
+    let answered: std::collections::HashSet<(String, String, String)> =
+        sqlx::query_as::<_, (String, String, String)>("SELECT report_id, target, target_hash FROM research_reviews WHERE owner_id = ? AND decision IS NOT NULL")
+            .bind(&u.id)
+            .fetch_all(&st.pool)
+            .await?
+            .into_iter()
+            .collect();
+    let mut open: HashMap<(String, String), usize> = HashMap::new();
+    for (note, deck, build, swaps) in swap_rows {
+        let swaps: Vec<Value> = swaps.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let n = swaps
+            .iter()
+            .filter(|s| {
+                let target = format!("swap:{deck}:{build}:{}", s["id"].as_str().unwrap_or_default());
+                !answered.contains(&(note.clone(), target, crate::util::sha256_hex(&s.to_string())))
+            })
+            .count();
+        open.insert((note, deck), n);
+    }
+    let mut by_note: HashMap<String, Vec<Value>> = HashMap::new();
+    let mut seen: HashMap<String, (Option<ArtData>, Option<String>)> = HashMap::new();
+    for p in plans {
+        if !seen.contains_key(&p.commander) {
+            let found = if p.commander.is_empty() { (None, None) } else { art_data(commander_card(&st.pool, &p.commander).await?) };
+            seen.insert(p.commander.clone(), found);
+        }
+        let (art, identity) = &seen[&p.commander];
+        let to_answer = open.get(&(p.note.clone(), p.key.clone())).copied().unwrap_or(0);
+        by_note.entry(p.note).or_default().push(json!({
+            "key": p.key, "name": p.name, "commander": p.commander, "builds": p.builds,
+            "recommended": p.recommended, "preferred": p.preferred, "to_answer": to_answer, "art": art, "identity": identity,
         }));
     }
     let mut out = Vec::new();

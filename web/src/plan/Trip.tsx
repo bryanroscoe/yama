@@ -418,7 +418,7 @@ function StockCheck({ stores, going, view, userId }: { stores: Store[]; going: s
         <button type="button" className="button outline" disabled={start.isPending || running} onClick={() => start.mutate()}>
           {running ? "Checking stores…" : going ? "Check the stores I'm going to" : "Check stores"}
         </button>
-        <label className="small">
+        <label className="check small">
           <input type="checkbox" checked={yestcg} onChange={(e) => setYestcg(e.target.checked)} /> Also ask YesTCG (Austin), which gives condition and quantity
         </label>
       </p>

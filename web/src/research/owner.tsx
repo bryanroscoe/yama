@@ -4,6 +4,7 @@ import { useMe } from "../auth";
 import { CardRef, CardText } from "../components/CardRef";
 import { ErrorText } from "../components/ui";
 import { changedAnswer, money, safeUrl, saveReview, type Combo, type Item, type ResearchBundle, type ReviewOp, type Scenario, type Source } from "./api";
+import { planSummariesKey } from "./view";
 
 /**
  * What only a note's owner sees: their answers for the agent, and the agent's own evidence
@@ -137,12 +138,12 @@ export function AcquisitionItem({ item, showCard = true }: { item: Item; showCar
   );
 }
 
-/** The owner's answer on a build or a swap, for the next agent. Answers never apply a change. */
 /** Where an answer's note goes, said beside its Save button (Bryan, 2026-11-05: "where does the
  *  note for the agent get saved?"). */
 export const NOTE_WHERE =
   "Saved with this plan in Yama, with your answer. Only you see it (a shared copy of the plan leaves it out); your assistant reads it through Yama's tools the next time it works on this plan.";
 
+/** The owner's answer on a build or a swap, for the next agent. Answers never apply a change. */
 export function ReviewEditor({ bundle, target, buildId, compact = false }: { bundle: ResearchBundle; target: string; buildId?: string; compact?: boolean }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
@@ -152,6 +153,8 @@ export function ReviewEditor({ bundle, target, buildId, compact = false }: { bun
     mutationFn: (op: ReviewOp) => saveReview(bundle.document.id, op),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["research", userId, bundle.document.id] });
+      // The Plans tiles' picks and Review's counts come from the plans' summaries.
+      void qc.invalidateQueries({ queryKey: planSummariesKey(userId) });
     },
   });
   const decide = (decision: string | null) => {

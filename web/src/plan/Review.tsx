@@ -13,7 +13,7 @@ import {
   type Swap,
 } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
@@ -79,7 +79,7 @@ export function Review() {
         .map((d) => ({ key: `p:${d.key}`, label: d.note ? "Proposed for your tracked plan" : "Your plan file", open: proposals.get(d.key)!, to: `/decks/plan/d/${encodeURIComponent(d.key)}#proposed` }));
       const fromNotes: ToAnswer[] = g.notes
         .filter(({ plan }) => plan.to_answer > 0)
-        .map(({ note, plan }) => ({ key: `n:${note.id}`, label: note.title, open: plan.to_answer, to: `${deckHref(note.id, plan.key)}#changes-head` }));
+        .map(({ note, plan }) => ({ key: `n:${note.id}:${plan.key}`, label: note.title, open: plan.to_answer, to: `${deckHref(note.id, plan.key)}#changes-head` }));
       if (fromPlanFile.length) tracked.push({ id: g.id, name: g.name, art, plans: fromPlanFile, open: fromPlanFile.reduce((n, p) => n + p.open, 0) });
       if (fromNotes.length) planned.push({ id: g.id, name: g.name, art, plans: fromNotes, open: fromNotes.reduce((n, p) => n + p.open, 0) });
     }
@@ -153,7 +153,17 @@ function DeckRows({ rows, urgent = false }: { rows: Row[]; urgent?: boolean }) {
  */
 export function PlanAnswer({ swap, deck, view, userId }: { swap: Swap; deck: PlanDeck; view: PlanView; userId: string }) {
   const a = view.answers.get(swap.key);
-  const [note, setNote] = useState(a?.note ?? "");
+  const saved = a?.note ?? "";
+  const [note, setNote] = useState(saved);
+  const [seen, setSeen] = useState(saved);
+  const typing = useRef(false);
+  // The note changed somewhere else (another device, an import, this note saved): show it, unless
+  // you're typing one. Answering or picking a cut keeps what you've typed.
+  if (saved !== seen && !typing.current) {
+    setSeen(saved);
+    setNote(saved);
+  }
+  const [open, setOpen] = useState(!!a?.note || !!a?.cut);
   const send = (change: Partial<ReviewRecord>) => sendAnswer(userId, swap.key, swap.deck, a, change);
   const state = answerState(a, { source: deck.source, pulledThrough: view.b.inputs.pulled_through ?? 0, app: view.app });
   const where =
@@ -179,12 +189,19 @@ export function PlanAnswer({ swap, deck, view, userId }: { swap: Swap; deck: Pla
         </span>
       </div>
       {a?.decision === "no" && swap.stage === "planned" && <p className="small">You said no. Nothing changes until you and your planner decide what to do with this swap.</p>}
-      <details className="research-note-fold" open={!!a?.note || !!a?.cut}>
+      <details className="research-note-fold" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
         <summary className="small">{a?.note ? "Your note for your assistant" : swap.stage === "proposed" ? "Add a note, or cut something else" : "Add a note for your assistant"}</summary>
         {swap.stage === "proposed" && <CutPicker deck={deck} suggested={swap.out} value={a?.cut ?? null} onPick={(cut) => send({ cut })} />}
         <label className="research-note">
           <span className="visually-hidden">Your note for {swap.in}</span>
-          <textarea rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
+          <textarea
+            rows={2}
+            maxLength={2000}
+            value={note}
+            onFocus={() => (typing.current = true)}
+            onBlur={() => (typing.current = false)}
+            onChange={(e) => setNote(e.target.value)}
+          />
         </label>
         <div className="row research-note-save">
           <button type="button" className="outline small" disabled={note.trim() === (a?.note ?? "").trim()} onClick={() => send({ note: note.trim() || null })}>

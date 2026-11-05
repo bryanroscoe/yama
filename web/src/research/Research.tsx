@@ -18,6 +18,7 @@ import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, Sho
 import { ShareNote } from "./ShareNote";
 import { TrackPanel, trackedSwaps, useBuyRule, usePlansSettled, useTracked } from "./Tracking";
 import { PlansForDeck } from "./PlanTiles";
+import { useScrollToHash } from "../components/useScrollToHash";
 import { bracketLabel, cardsWord, deckHref, deckView, moved, noteHref, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
 import "./research.css";
@@ -461,6 +462,8 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   });
   const yours = useDeckNamed(deck.name);
   const tracking = useTracked(doc.id, deck.key);
+  // Review links straight to the changes, drawn once the deck's view loads.
+  useScrollToHash(!!view.data);
   if (!build) return <NoteMissing id={doc.id} what="That deck has no builds." />;
   const v = view.data;
   const names = [...new Set([...deck.builds.flatMap((b) => listEntries(b.list).map((r) => r.name)), ...resolvedCombos(deck, build).flatMap((c) => c.cards ?? [])])];
@@ -508,7 +511,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
 
       <div className="page plan-deck-body">
         <DeckChanged name={deck.name} savedAt={bundle.updated_at} />
-        <PlansForDeck name={deck.name} current={{ note: doc.id }} />
+        <PlansForDeck name={deck.name} current={{ note: doc.id, deck: deck.key }} />
         {deck.builds.length > 1 && (
           <Choices
             label="Builds of this deck"

@@ -345,15 +345,19 @@ label {
   font-size: var(--t-label);
 }
 /* A checkbox's or radio's words sit beside its box, any hint under the words (labels are
-   otherwise a column, which put the box above its words), as the Share sheet's choices do. */
-label:where(:has(> input[type="checkbox"], > input[type="radio"])) {
+   otherwise a column, which put the box above its words), as the Share sheet's choices do. For
+   a label with no class of its own, or with `check`; a label with its own class lays itself out
+   (the Sell sheet's rows are box, words, price). */
+label:has(> input[type="checkbox"], > input[type="radio"]) {
   font-size: var(--t-base);
+}
+label:where(:not([class]), .check):where(:has(> input[type="checkbox"], > input[type="radio"])) {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   column-gap: 8px;
   row-gap: 2px;
 }
-label:where(:has(> input[type="checkbox"], > input[type="radio"])) > :not(input) {
+label:where(:not([class]), .check):where(:has(> input[type="checkbox"], > input[type="radio"])) > :not(input) {
   grid-column: 2;
 }
 label > span.hint {

@@ -122,7 +122,7 @@ export function PlanNotes({ plans }: { plans: PlanSummary[] }) {
  * it. Shown on the deck's plan pages when there's more than one. `current` is the note shown, or
  * the tracked plan's key.
  */
-export function PlansForDeck({ name, current }: { name: string; current: { note: string } | { plan: string } }) {
+export function PlansForDeck({ name, current }: { name: string; current: { note: string; deck?: string } | { plan: string } }) {
   const userId = useMe().data?.id;
   const notes = useQuery({ queryKey: planSummariesKey(userId), queryFn: planSummaries, enabled: !!userId });
   const plan = usePlan(userId);
@@ -133,11 +133,11 @@ export function PlansForDeck({ name, current }: { name: string; current: { note:
     ...g.notes.map(({ note, plan: p }) => {
       const tracked = g.tracked.find((d) => d.note?.id === note.id && d.note.deck === p.key);
       return {
-        key: `n:${note.id}`,
+        key: `n:${note.id}:${p.key}`,
         to: deckHref(note.id, p.key, tracked?.note?.build),
         label: note.title,
         sub: tracked ? "tracked" : fmtDate(note.updated_at),
-        current: "note" in current && current.note === note.id,
+        current: "note" in current && current.note === note.id && (!current.deck || current.deck === p.key),
       };
     }),
     ...g.tracked

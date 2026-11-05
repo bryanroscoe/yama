@@ -101,6 +101,14 @@ describe("Review lists where answers wait", () => {
     expect(html).toContain("Cut something else");
     expect(html).toContain("picks it up with your answers");
   });
+
+  it("lets a planned swap's answer change too, with no other cut to pick", () => {
+    const view = planView(b);
+    const html = render(<PlanAnswer swap={swaps[0]!} deck={view.deck("riders")!} view={view} userId="owner" />, b);
+    expect(html).toContain('aria-pressed="true">Want</button>');
+    expect(html).not.toContain("Cut something else");
+    expect(html).toContain("Add a note for your assistant");
+  });
 });
 
 describe("installed state from the deck", () => {

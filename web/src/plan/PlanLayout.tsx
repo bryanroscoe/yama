@@ -32,8 +32,9 @@ const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] 
   { to: "/decks/plan/settings", label: "Settings" },
 ];
 
-/** The Plans pages that are of use before any deck is tracked. */
-const UNTRACKED = new Set(["/decks/plan", "/decks/plan/trip", "/decks/plan/settings"]);
+/** The Plans pages that are of use before any deck is tracked: Review lists a plan's changes
+ *  waiting for an answer too. */
+const UNTRACKED = new Set(["/decks/plan", "/decks/plan/review", "/decks/plan/trip", "/decks/plan/settings"]);
 
 /** After a sync, wait this long for more taps before fetching the bundle again. */
 const REFRESH_AFTER_SYNC_MS = 8000;

@@ -970,6 +970,12 @@ async fn the_owners_plan_pages_get_what_the_shared_pages_work_out() {
     assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 3);
     assert_eq!(send(&app, Method::POST, "/api/research/upgrades/reviews", Some(&bt), Some(answer("a2", Some("want")))).await.0, StatusCode::OK);
     assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 2);
+    // The assistant changes that swap: the answer is to a swap that's gone, so it's open again,
+    // as the plan's page asks for a new answer.
+    let mut changed = doc.clone();
+    changed["decks"][0]["builds"][0]["swaps"][0]["why"] = json!("One-mana exile, and it hits anything.");
+    crate::deck_research::save(&pool, &bryan, &changed).await.unwrap();
+    assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&bt), None).await.1[0]["deck_plans"][0]["to_answer"], 3);
     assert_eq!(send(&app, Method::GET, "/api/research-plans", Some(&other), None).await.1, json!([]));
 }
 
