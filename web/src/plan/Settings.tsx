@@ -8,6 +8,7 @@ import { publicOrigin } from "../api";
 import { createKey, listImports, listKeys, removeShoppingRules, revokeKey, saveShoppingRules, type KeyScope, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
+import { SettingsHowTo } from "./howto";
 import { CopyButton } from "./parts";
 import { clearPlanData } from "./store";
 
@@ -22,6 +23,7 @@ export function PlanSettings() {
   return (
     <div className="plan-settings">
       <PlansHead title="Plan settings" />
+      <SettingsHowTo />
       <ConnectedApps />
       <Keys />
       <ThisDevice userId={userId} />

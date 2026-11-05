@@ -6,7 +6,7 @@ use super::html::{card_views, credit, not_found, page, response, scryfall};
 use super::*;
 use crate::public_page::{bracket_name, e, identity as pips, usd, when};
 use axum::extract::Query;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fmt::Write;
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -46,12 +46,20 @@ fn scryfall_image(u: Option<String>) -> Option<String> {
     u.filter(|u| u.starts_with("https://cards.scryfall.io/"))
 }
 
-/// A commander's art (crop, artist, name) and its color identity as pips, for the page and tile
-/// headers. A commander Yama doesn't know gets no pips: an empty identity would read colorless.
-async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(String, Option<String>, String)>, String)> {
-    let Some((_, _, _, _, ci, crop, artist)) = card_by_name(pool, name).await? else { return Ok((None, String::new())) };
+/// A commander's art (crop, artist, name) with its color identity as letters in WUBRG order,
+/// none for a commander Yama doesn't know: an empty identity would read colorless.
+type Commander = (Option<(String, Option<String>, String)>, Option<String>);
+async fn commander_card(pool: &SqlitePool, name: &str) -> AppResult<Commander> {
+    let Some((_, _, _, _, ci, crop, artist)) = card_by_name(pool, name).await? else { return Ok((None, None)) };
     let art = scryfall_image(crop).filter(|_| artist.is_some()).map(|u| (u, artist, name.to_string()));
-    Ok((art, pips(&"WUBRG".chars().filter(|c| ci.contains(*c)).collect::<String>())))
+    Ok((art, Some("WUBRG".chars().filter(|c| ci.contains(*c)).collect())))
+}
+
+/// A commander's art and its color identity as pips, for the page and tile headers. A
+/// commander Yama doesn't know gets no pips.
+async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(String, Option<String>, String)>, String)> {
+    let (art, identity) = commander_card(pool, name).await?;
+    Ok((art, identity.map(|i| pips(&i)).unwrap_or_default()))
 }
 
 /// The most lines of a build's list a shared page reads. A Commander list is about 100 lines;
@@ -115,10 +123,38 @@ async fn cards_of(pool: &SqlitePool, list: &str) -> AppResult<(Vec<SharedCard>, 
 async fn load(st: &AppState, address: &ClientAddress, token: &str) -> AppResult<Result<(Option<String>, Value, String), Response>> {
     limit(st, address)?;
     match crate::deck_research::shared(&st.pool, token).await {
-        Ok(x) => Ok(Ok(x)),
+        Ok((handle, doc, saved)) => Ok(Ok((handle, titled(doc), saved))),
         Err(AppError::NotFound(_)) => Ok(Err(not_found(st, "Note"))),
         Err(err) => Err(err),
     }
+}
+
+/// A build's name as every page says it: "[2] Buildable now" and "B3 - Combo" become "Bracket 2:
+/// Buildable now" and "Bracket 3: Combo", so a bracket is named one way (the app's
+/// `bracketLabel`/`buildName` in web/src/decks/buildCatalog.ts). Other names stay as written.
+pub(super) fn build_title(label: &str) -> String {
+    let l = label.trim();
+    let digit = |c: Option<char>| c.filter(|c| ('1'..='5').contains(c));
+    let mut chars = l.chars();
+    let (n, rest) = match (chars.next(), chars.next(), chars.next()) {
+        (Some('['), d, Some(']')) if digit(d).is_some() => (d.unwrap(), &l[3..]),
+        (Some('B' | 'b'), d, next) if digit(d).is_some() && !next.is_some_and(char::is_alphanumeric) => (d.unwrap(), &l[2..]),
+        _ => return l.to_string(),
+    };
+    let rest = rest.trim_start_matches([' ', '—', ':', '·', '-']).trim();
+    if rest.is_empty() { format!("Bracket {n}") } else { format!("Bracket {n}: {rest}") }
+}
+
+/// The note as its pages read it: every build named by `build_title`.
+fn titled(mut doc: Value) -> Value {
+    for d in doc["decks"].as_array_mut().into_iter().flatten() {
+        for b in d["builds"].as_array_mut().into_iter().flatten() {
+            if let Some(l) = b.get("label").and_then(Value::as_str) {
+                b["label"] = json!(build_title(l));
+            }
+        }
+    }
+    doc
 }
 
 fn deck_of<'a>(doc: &'a Value, key: &str) -> Option<&'a Value> {
@@ -397,6 +433,16 @@ enum Get {
     Unknown,
 }
 
+impl Get {
+    fn id(self) -> &'static str {
+        match self {
+            Get::Buy => "buy",
+            Get::Print => "print",
+            Get::Unknown => "unknown",
+        }
+    }
+}
+
 impl How {
     /// The query values; an unknown way or a limit that isn't a dollar amount from $0 to
     /// `MAX_UP_TO` is `None` (not found), like an unknown build. An empty limit is the suggested one.
@@ -447,6 +493,14 @@ impl How {
     }
     fn limit(self) -> f64 {
         self.up_to as f64 / 100.0
+    }
+    /// Its name in the app's data: the query value, "split" for the default.
+    fn id(self) -> &'static str {
+        match self.way {
+            Way::Split => "split",
+            Way::Buy => "buy",
+            Way::Print => "print",
+        }
     }
     fn label(self) -> String {
         match self.way {
@@ -940,10 +994,11 @@ fn all_builds_need(d: &Value) -> Vec<(String, i64)> {
         .collect()
 }
 
-/// The note's shopping list: each deck's cards to get, totals per deck and overall, every card
-/// in one list, and the list as text to copy.
-async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], which: Which<'_>, how: How) -> AppResult<String> {
-    let per_deck: Vec<(&Value, Option<String>, Vec<(String, i64)>)> = decks
+/// Each deck with the build label the choice covers (none when the deck has no such build) and
+/// the cards that choice adds to its starting list.
+type DeckNeeds<'d> = Vec<(&'d Value, Option<String>, Vec<(String, i64)>)>;
+fn note_needs<'d>(decks: &'d [Value], which: Which<'_>) -> DeckNeeds<'d> {
+    decks
         .iter()
         .map(|d| {
             if which == Which::All {
@@ -956,9 +1011,19 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
                 .unwrap_or_default();
             (d, b.map(|b| text(b, "label").to_string()), adds)
         })
-        .collect();
-    let wanted: Vec<_> = per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect();
-    let items = to_get(pool, wanted).await?;
+        .collect()
+}
+
+/// Every deck's cards to get as (name, copies, deck name), for `to_get`.
+fn wanted_of(per_deck: &DeckNeeds<'_>) -> Vec<(String, i64, Option<String>)> {
+    per_deck.iter().flat_map(|(d, _, adds)| adds.iter().map(move |(name, n)| (name.clone(), *n, Some(text(d, "name").to_string())))).collect()
+}
+
+/// The note's shopping list: each deck's cards to get, totals per deck and overall, every card
+/// in one list, and the list as text to copy.
+async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices: &[(&str, &str)], which: Which<'_>, how: How) -> AppResult<String> {
+    let per_deck = note_needs(decks, which);
+    let items = to_get(pool, wanted_of(&per_deck)).await?;
     let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
     let mut total = Totals::default();
     for t in &items {
@@ -1001,7 +1066,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
     s.push_str("<table class=\"share-collection share-shop-decks\"><thead><tr><th scope=\"col\">Deck</th><th scope=\"col\">Build</th><th scope=\"col\" class=\"num\">Cards</th><th scope=\"col\" class=\"num\">Buy locally</th><th scope=\"col\" class=\"num\">Print</th><th scope=\"col\" class=\"num\">Worth</th><th scope=\"col\" class=\"num\">Est. cost</th></tr></thead><tbody>");
     let row = |t: &Totals| {
         format!(
-            "<td class=\"num\">{}</td><td class=\"num\">{} · {}</td><td class=\"num\">{} · {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
+            "<td class=\"num\">{}</td><td class=\"num\">{}, {}</td><td class=\"num\">{}, {}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
             t.cards,
             t.buy,
             t.buy_money().trim_start_matches("about ").to_string(),
@@ -1029,7 +1094,7 @@ async fn note_shopping(pool: &SqlitePool, token: &str, decks: &[Value], choices:
         };
         let build = if which == Which::All {
             let each: Vec<String> = which.builds(*d).iter().map(|b| format!("<a href=\"{}\">{}</a>", deck_link(token, key, Some(text(b, "id")), how), e(text(b, "label")))).collect();
-            format!("{build}<br><small>{}</small>", each.join(" · "))
+            format!("{build}<br><small>{}</small>", each.join(", "))
         } else {
             build
         };
@@ -1149,6 +1214,31 @@ fn profile_panel(p: &Value) -> String {
     s
 }
 
+/// What the changes table compares a build with when no other build is picked.
+const START_LIST: &str = "the starting list";
+
+/// A build's changes from another build of its deck, else from the starting list, with what
+/// they're from.
+fn changes_of<'a>(b: &'a Value, vs: Option<&'a Value>) -> (Vec<Change>, &'a str) {
+    let swaps = b["swaps"].as_array().map(Vec::as_slice).unwrap_or_default();
+    match vs {
+        Some(v) => {
+            let label = Some(text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START_LIST);
+            (compare(text(b, "list"), swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), label), label)
+        }
+        None => (from_start(swaps), START_LIST),
+    }
+}
+
+/// `?vs=`: another build of the deck to compare with. One that isn't there, or is this build,
+/// is not found, like `?build=`.
+fn vs_of<'a>(d: &'a Value, b: &Value, wanted: Option<&str>) -> Result<Option<&'a Value>, ()> {
+    match wanted.filter(|v| !v.is_empty()) {
+        Some(v) => build_of(d, Some(v)).filter(|x| text(x, "id") != text(b, "id")).map(Some).ok_or(()),
+        None => Ok(None),
+    }
+}
+
 pub(super) async fn deck(
     State(st): State<AppState>,
     address: ClientAddress,
@@ -1162,14 +1252,7 @@ pub(super) async fn deck(
     };
     let (Some(d), title) = (deck_of(&doc, &key), text(&doc, "title")) else { return Ok(not_found(&st, "Deck")) };
     let Some(b) = build_of(d, q.build.as_deref()) else { return Ok(not_found(&st, "Build")) };
-    // Like `?build=`: a comparison build that isn't there (or is this one) is not found.
-    let vs = match q.vs.as_deref().filter(|v| !v.is_empty()) {
-        Some(v) => match build_of(d, Some(v)).filter(|x| text(x, "id") != text(b, "id")) {
-            Some(x) => Some(x),
-            None => return Ok(not_found(&st, "Build")),
-        },
-        None => None,
-    };
+    let Ok(vs) = vs_of(d, b, q.vs.as_deref()) else { return Ok(not_found(&st, "Build")) };
     let Some(how) = How::parse(q.get.as_deref(), q.upto.as_deref()) else { return Ok(not_found(&st, "Shopping choice")) };
     let name = text(d, "name");
     let commander = text(d, "commander");
@@ -1231,8 +1314,10 @@ pub(super) async fn deck(
     // What the deck does and how to play it come first: the reason someone opens the link.
     body.push_str("<div class=\"share-more\">");
     write!(body, "<section class=\"public-panel\" aria-labelledby=\"about-head\"><h2 id=\"about-head\">{}</h2><p>{}</p>", e(text(b, "label")), e(text(b, "why"))).unwrap();
-    if !text(d, "summary").is_empty() {
-        write!(body, "<h3>The deck</h3><p>{}</p>", e(text(d, "summary"))).unwrap();
+    // An agent may write the same words for the build, the deck and how to pilot it: say them once.
+    let (why, summary, pilot) = (text(b, "why"), text(d, "summary"), text(d, "pilot"));
+    if !summary.is_empty() && summary != why {
+        write!(body, "<h3>The deck</h3><p>{}</p>", e(summary)).unwrap();
     }
     if !gcs.is_empty() {
         write!(body, "<h3>Game Changers</h3><p>{}</p>", e(&gcs.join(", "))).unwrap();
@@ -1253,8 +1338,8 @@ pub(super) async fn deck(
         write!(body, "<h3>Limits of this build</h3>{}", list_items(&risks)).unwrap();
     }
     body.push_str("</section>");
-    if !text(d, "pilot").is_empty() {
-        write!(body, "<section class=\"public-panel\" aria-labelledby=\"pilot-head\"><h2 id=\"pilot-head\">How to pilot this deck</h2><p>{}</p></section>", e(text(d, "pilot"))).unwrap();
+    if !pilot.is_empty() && pilot != why && pilot != summary {
+        write!(body, "<section class=\"public-panel\" aria-labelledby=\"pilot-head\"><h2 id=\"pilot-head\">How to pilot this deck</h2><p>{}</p></section>", e(pilot)).unwrap();
     }
     if let Some(p) = b.get("gameplay_profile").filter(|p| p.is_object()) {
         body.push_str(&profile_panel(p));
@@ -1267,12 +1352,7 @@ pub(super) async fn deck(
 
     // The changes, as a table a player can work through with the deck box open. From the
     // starting list by default; the heading picks another build to compare with instead.
-    const START: &str = "the starting list";
-    let vs_label = vs.map(|v| text(v, "label")).filter(|l| !l.is_empty()).unwrap_or(START);
-    let changes = match vs {
-        Some(v) => compare(text(b, "list"), &swaps, text(v, "list"), v["swaps"].as_array().map(Vec::as_slice).unwrap_or_default(), vs_label),
-        None => from_start(&swaps),
-    };
+    let (changes, vs_label) = changes_of(b, vs);
     let copies = |add: bool| -> i64 { changes.iter().filter(|c| !(if add { &c.add } else { &c.cut }).is_empty()).map(|c| c.n).sum() };
     write!(body, "<section class=\"list-section\"><div class=\"section-heading\"><div><p class=\"eyebrow\">{} in, {} out</p>", copies(true), copies(false)).unwrap();
     let others: Vec<&Value> = builds.iter().filter(|x| text(x, "id") != build_id).collect();
@@ -1289,7 +1369,7 @@ pub(super) async fn deck(
             let current = if id == vs.map(|v| text(v, "id")) { " aria-current=\"true\"" } else { "" };
             format!("<li><a{current} href=\"{}#changes-head\">{}</a></li>", compare_href(&token, &key, build_id, id, how), e(label))
         };
-        body.push_str(&option(None, START));
+        body.push_str(&option(None, START_LIST));
         for x in &others {
             body.push_str(&option(Some(text(x, "id")), text(x, "label")));
         }
@@ -1395,4 +1475,318 @@ pub(super) async fn download(
         .collect();
     let res = fresh(&headers, export(&cards, format), "text/plain; charset=utf-8");
     Ok(attachment(res, &file_name(&format!("{} {}", text(d, "name"), text(b, "label")), format)))
+}
+
+// ── The owner's pages, as data ───────────────────────────────────────────────
+//
+// The app's note pages (web/src/research) show what the shared pages show, from these same
+// computations over the owner's whole note: the changes, what the added cards cost at market,
+// the lists as cards and each commander's art. What only the owner sees (their answers, the
+// agent's acquisition evidence, sharing) the app adds from the note itself.
+
+/// Copies to get and what they come to, as the app reads them. A missing worth or cost is
+/// unknown, never zero.
+#[derive(Serialize)]
+struct TotalsData {
+    cards: i64,
+    buy: i64,
+    buy_cost: f64,
+    print: i64,
+    print_cost: f64,
+    worth: Option<f64>,
+    cost: Option<f64>,
+    unpriced: i64,
+    uncosted: i64,
+    buy_uncosted: i64,
+}
+
+impl From<&Totals> for TotalsData {
+    fn from(t: &Totals) -> Self {
+        TotalsData {
+            cards: t.cards,
+            buy: t.buy,
+            buy_cost: t.buy_cost,
+            print: t.print,
+            print_cost: t.print_cost,
+            worth: t.worth(),
+            cost: t.cost(),
+            unpriced: t.unpriced,
+            uncosted: t.uncosted,
+            buy_uncosted: t.buy_uncosted,
+        }
+    }
+}
+
+/// One card to get: how it's got under the chosen `How`, its market price with that price's
+/// date, and its estimated cost.
+#[derive(Serialize)]
+struct ItemData {
+    name: String,
+    n: i64,
+    usd: Option<f64>,
+    date: Option<String>,
+    image: Option<String>,
+    decks: Vec<String>,
+    get: &'static str,
+    cost: Option<f64>,
+}
+
+#[derive(Serialize)]
+struct Choice {
+    id: &'static str,
+    label: String,
+}
+
+/// A shopping list: the ways to get the cards, the one chosen and what it means, the totals and
+/// every card, cards to buy first, then prints, then cards without a price.
+#[derive(Serialize)]
+struct ShoppingData {
+    get: &'static str,
+    gets: Vec<Choice>,
+    /// The split's limit in dollars (`?upto=`), the suggested one and the highest allowed.
+    up_to: f64,
+    up_to_suggested: f64,
+    up_to_max: f64,
+    explain: String,
+    /// The oldest and newest price dates among the cards.
+    prices_from: Option<String>,
+    prices_to: Option<String>,
+    total: TotalsData,
+    items: Vec<ItemData>,
+}
+
+fn shopping_data(items: &[ToGet], how: How) -> ShoppingData {
+    let mut total = Totals::default();
+    for t in items {
+        total.add(t.n, t.usd(), how);
+    }
+    let group = |t: &ToGet| match how.get(t.usd()) {
+        Get::Buy => 0,
+        Get::Print => 1,
+        Get::Unknown => 2,
+    };
+    let mut sorted: Vec<&ToGet> = items.iter().collect();
+    sorted.sort_by(|a, b| group(a).cmp(&group(b)).then_with(|| a.name.cmp(&b.name)));
+    let dates: Vec<&str> = items.iter().filter_map(|t| t.price.as_ref().map(|p| p.1.as_str())).collect();
+    ShoppingData {
+        get: how.id(),
+        gets: Way::ALL.iter().map(|&w| how.with(w)).map(|h| Choice { id: h.id(), label: h.label() }).collect(),
+        up_to: how.limit(),
+        up_to_suggested: BUY_UP_TO as f64 / 100.0,
+        up_to_max: MAX_UP_TO as f64 / 100.0,
+        explain: how.explain(),
+        prices_from: dates.iter().min().map(|d| d.to_string()),
+        prices_to: dates.iter().max().map(|d| d.to_string()),
+        total: TotalsData::from(&total),
+        items: sorted
+            .into_iter()
+            .map(|t| {
+                let (get, cost) = how.cost(t.n, t.usd());
+                ItemData {
+                    name: t.name.clone(),
+                    n: t.n,
+                    usd: t.usd(),
+                    date: t.price.as_ref().map(|p| p.1.clone()),
+                    image: Some(t.image.clone()).filter(|i| !i.is_empty()),
+                    decks: t.decks.clone(),
+                    get: get.id(),
+                    cost,
+                }
+            })
+            .collect(),
+    }
+}
+
+/// A commander's art and color identity, as the app reads them.
+#[derive(Serialize)]
+struct ArtData {
+    image: String,
+    artist: Option<String>,
+}
+
+fn art_data(c: Commander) -> (Option<ArtData>, Option<String>) {
+    (c.0.map(|(image, artist, _)| ArtData { image, artist }), c.1)
+}
+
+fn owner_how(q: &BuildQuery) -> AppResult<How> {
+    How::parse(q.get.as_deref(), q.upto.as_deref()).ok_or_else(|| AppError::bad("get is buy or print, or empty for the split; upto is dollars from 0 to 1000, at most two decimals"))
+}
+
+/// `GET /api/research/{id}/view`: a note's page as data for its owner: each deck's commander art
+/// and what the build choice (`?build=`, `?builds=all`, else each deck's recommended build) adds
+/// to it, and the shopping list for all of them (`?get=`).
+pub(crate) async fn owner_note(State(st): State<AppState>, CurrentUser(u): CurrentUser, Path(id): Path<String>, Query(q): Query<BuildQuery>) -> AppResult<Json<Value>> {
+    let doc = titled(crate::deck_research::load(&st.pool, &u.id, &id).await?["document"].take());
+    let decks = doc["decks"].as_array().cloned().unwrap_or_default();
+    let all = match q.builds.as_deref() {
+        None | Some("") => false,
+        Some(ALL) => true,
+        Some(_) => return Err(AppError::bad("builds is all, or empty")),
+    };
+    let pick = q.build.as_deref().filter(|b| !b.is_empty() && !all);
+    if pick.is_some_and(|p| !decks.iter().any(|d| build_of(d, Some(p)).is_some())) {
+        return Err(AppError::NotFound("build"));
+    }
+    let how = owner_how(&q)?;
+    let which = if all { Which::All } else { pick.map_or(Which::Recommended, Which::Build) };
+    let per_deck = note_needs(&decks, which);
+    let items = to_get(&st.pool, wanted_of(&per_deck)).await?;
+    let price: HashMap<&str, Option<f64>> = items.iter().map(|t| (t.name.as_str(), t.usd())).collect();
+    let mut rows = Vec::new();
+    for (d, label, adds) in &per_deck {
+        let mut t = Totals::default();
+        for (name, n) in adds {
+            t.add(*n, price.get(name.as_str()).copied().flatten(), how);
+        }
+        let (art, identity) = art_data(commander_card(&st.pool, text(d, "commander")).await?);
+        let builds: Vec<Value> = which.builds(d).iter().map(|b| json!({"id": text(b, "id"), "label": text(b, "label")})).collect();
+        rows.push(json!({
+            "key": text(d, "key"),
+            "art": art,
+            "identity": identity,
+            "label": label,
+            "builds": builds,
+            "totals": TotalsData::from(&t),
+        }));
+    }
+    // Every list the choice covers, in the standard text format, as the shared page's Deck lists.
+    let lists: Vec<Value> =
+        decks.iter().flat_map(|d| which.builds(d).into_iter().map(move |b| json!({"deck": text(d, "key"), "build": text(b, "id"), "text": plain_list(b)}))).collect();
+    Ok(Json(json!({
+        "lists": lists,
+        "which": match which { Which::Recommended => "recommended", Which::Build(_) => "build", Which::All => "all" },
+        "build": pick,
+        "decks": rows,
+        "shopping": shopping_data(&items, how),
+    })))
+}
+
+/// `GET /api/research/{id}/view/{deck}`: one deck's page as data for its owner, at a build
+/// (`?build=`, else the recommended one): the changes from the starting list or another build
+/// (`?vs=`) with the cards' images, what the added cards come to (`?get=`), the list as cards
+/// and the commander's art.
+pub(crate) async fn owner_deck(
+    State(st): State<AppState>,
+    CurrentUser(u): CurrentUser,
+    Path((id, key)): Path<(String, String)>,
+    Query(q): Query<BuildQuery>,
+) -> AppResult<Json<Value>> {
+    let doc = titled(crate::deck_research::load(&st.pool, &u.id, &id).await?["document"].take());
+    let d = deck_of(&doc, &key).ok_or(AppError::NotFound("deck"))?;
+    let b = build_of(d, q.build.as_deref().filter(|b| !b.is_empty())).ok_or(AppError::NotFound("build"))?;
+    let vs = vs_of(d, b, q.vs.as_deref()).map_err(|_| AppError::NotFound("build"))?;
+    let how = owner_how(&q)?;
+    let (art, identity) = art_data(commander_card(&st.pool, text(d, "commander")).await?);
+    let (cards, cut) = cards_of(&st.pool, text(b, "list")).await?;
+    let (changes, vs_label) = changes_of(b, vs);
+    let images = lookup(&st.pool, changes.iter().flat_map(|c| [c.add.as_str(), c.cut.as_str()]).filter(|n| !n.is_empty())).await?;
+    let image = |name: &str| found(&images, name).and_then(|f| scryfall_image(f.4.clone()));
+    // From the starting list, each row is one of the build's swaps, in order: name it, so the
+    // owner's answer beside a row is for that swap. Compared with another build, rows are mixed.
+    let swap_ids: Vec<&str> = if vs.is_none() { b["swaps"].as_array().map(|a| a.iter().map(|s| text(s, "id")).collect()).unwrap_or_default() } else { Vec::new() };
+    let rows: Vec<Value> = changes
+        .iter()
+        .enumerate()
+        .map(|(i, c)| json!({"add": c.add, "cut": c.cut, "n": c.n, "why": c.why, "notes": c.notes, "add_image": image(&c.add), "cut_image": image(&c.cut), "swap": swap_ids.get(i).filter(|id| !id.is_empty())}))
+        .collect();
+    let shopping = if changes.iter().any(|c| !c.add.is_empty()) {
+        let items = to_get(&st.pool, changes.iter().filter(|c| !c.add.is_empty()).map(|c| (c.add.clone(), c.n, None)).collect()).await?;
+        Some(shopping_data(&items, how))
+    } else {
+        None
+    };
+    let unknown: Vec<&str> = cards.iter().filter(|c| c.type_line.is_none()).map(|c| c.name.as_str()).collect();
+    Ok(Json(json!({
+        "build": text(b, "id"),
+        "vs": vs.map(|v| text(v, "id")),
+        "vs_label": vs_label,
+        "art": art,
+        "identity": identity,
+        "changes": rows,
+        "shopping": shopping,
+        "cards": cards,
+        "cut": cut,
+        "unknown": unknown,
+        // The list in the standard text format, as the shared page's copy box and download give it.
+        "text": plain_list(b),
+    })))
+}
+
+/// `GET /api/research-plans`: the owner's notes as the Plans page lists them: newest first, each
+/// with its deck count, who it was copied from and up to four of its commanders' art. Only those
+/// fields leave the database; the notes themselves can be long.
+pub(crate) async fn owner_plans(State(st): State<AppState>, CurrentUser(u): CurrentUser) -> AppResult<Json<Value>> {
+    type Row = (String, String, i64, String, String, Option<String>, i64, Option<String>, Option<String>);
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT r.id, r.title, r.revision, r.updated_at, r.visibility, r.share_token,
+                COALESCE(json_array_length(r.document, '$.decks'), 0),
+                json_extract(r.document, '$.copied_from.by'),
+                {FIRST_COMMANDERS}
+         FROM research_reports r WHERE r.owner_id = ? ORDER BY r.updated_at DESC, r.id"
+    )))
+    .bind(&u.id)
+    .fetch_all(&st.pool)
+    .await?;
+    let mut out = Vec::new();
+    for (id, title, revision, updated_at, visibility, share_token, decks, copied_by, commanders) in rows {
+        let art: Vec<Value> = plan_art(&st.pool, commanders).await?.into_iter().map(|(image, artist, commander)| json!({"commander": commander, "image": image, "artist": artist})).collect();
+        out.push(json!({
+            "id": id, "title": title, "revision": revision, "updated_at": updated_at,
+            "visibility": visibility, "share_token": share_token,
+            "decks": decks, "copied_by": copied_by, "art": art,
+        }));
+    }
+    Ok(Json(Value::Array(out)))
+}
+
+/// Up to four of each note's commanders, by note: the art its plan tile shows, on the profile and
+/// in the app's Plans page alike.
+async fn plan_art(pool: &SqlitePool, commanders: Option<String>) -> AppResult<Vec<(String, Option<String>, String)>> {
+    let names: Vec<String> = commanders.and_then(|c| serde_json::from_str::<Vec<Option<String>>>(&c).ok()).unwrap_or_default().into_iter().flatten().collect();
+    let mut art = Vec::new();
+    for name in &names {
+        if let (Some(a), _) = commander_card(pool, name).await? {
+            art.push(a);
+        }
+    }
+    Ok(art)
+}
+
+/// The SQL for the first four commanders of a note's decks, as a JSON array.
+const FIRST_COMMANDERS: &str = "(SELECT json_group_array(c) FROM (SELECT json_extract(d.value, '$.commander') AS c FROM json_each(r.document, '$.decks') d LIMIT 4))";
+
+/// A profile's public plans as tiles, as the app's Plans page shows a person's plans: up to four
+/// of its commanders' art, its title, how many decks, when it was saved. Empty with none.
+pub(super) async fn profile_plans(pool: &SqlitePool, owner: &str) -> AppResult<String> {
+    let rows: Vec<(String, String, i64, String, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT r.share_token, r.title, COALESCE(json_array_length(r.document, '$.decks'), 0), r.updated_at, {FIRST_COMMANDERS}
+         FROM research_reports r WHERE r.owner_id = ? AND r.visibility = 'public' AND r.share_token IS NOT NULL ORDER BY r.updated_at DESC, r.id"
+    )))
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    if rows.is_empty() {
+        return Ok(String::new());
+    }
+    let mut s = String::from("<section class=\"share-notes\" aria-labelledby=\"notes-head\"><h2 id=\"notes-head\">Plans</h2><ul class=\"share-decks share-plans\">");
+    let mut credits = Vec::new();
+    for (token, title, decks, saved, commanders) in rows {
+        let art = plan_art(pool, commanders).await?;
+        write!(s, "<li class=\"share-deck\"><a class=\"share-deck-main\" href=\"/r/{}\">", e(&token)).unwrap();
+        if !art.is_empty() {
+            write!(s, "<span class=\"share-mosaic\" data-n=\"{}\">", art.len()).unwrap();
+            for (url, _, _) in &art {
+                write!(s, "<img src=\"{}\" alt=\"\" loading=\"lazy\">", e(url)).unwrap();
+            }
+            s.push_str("</span><div class=\"art-wash\"></div>");
+        }
+        write!(s, "<span class=\"share-deck-copy\"><b>{}</b><span>{decks} {}</span><small>Saved {}</small></span></a></li>", e(&title), if decks == 1 { "deck" } else { "decks" }, when(&saved)).unwrap();
+        credits.extend(art.into_iter().map(|a| credit(&Some(a))));
+    }
+    s.push_str("</ul>");
+    if !credits.is_empty() {
+        write!(s, "<details class=\"art-credits dim\"><summary>Art credits</summary><p>{}</p></details>", credits.join(" ")).unwrap();
+    }
+    s.push_str("</section>");
+    Ok(s)
 }

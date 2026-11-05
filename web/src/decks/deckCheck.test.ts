@@ -137,8 +137,8 @@ describe("what to check against", () => {
       { id: "saved:d1", label: "Current (saved deck)", kind: "current", savedDeck: "d1", source: "Saved", href: "", warnings: [] },
       { id: "saved:d2", label: "Original", kind: "original", savedDeck: "d2", source: "Saved", href: "", warnings: [] },
       { id: "plan:prismari:after", label: "Legacy: after prints", kind: "legacy", list: "Commander\n1 Rootha\n\nDeck\n1 Sol Ring", source: "Plan v28", href: "", warnings: [], pairs: [{ out: "Resculpt", in: "Counterspell", where: "Print, ordered." }] },
-      { id: "plan:prismari:b2", label: "[2] Plan (availability unchecked)", kind: "bracket", list: "Commander\n1 Rootha\n\nDeck\n1 Sol Ring", source: "Plan v28", href: "", warnings: [] },
-      { id: "research:r1:prismari-artistry:b2-owned-now", label: "[2] Buildable now", kind: "bracket", list: "Commander\n1 Rootha\n\nDeck\n1 Sol Ring", source: "Buildable now, revision 3, 2026-10-31", href: "", warnings: [] },
+      { id: "plan:prismari:b2", label: "Bracket 2: tracked plan", bracket: 2, kind: "bracket", list: "Commander\n1 Rootha\n\nDeck\n1 Sol Ring", source: "Plan v28", href: "", warnings: [] },
+      { id: "research:r1:prismari-artistry:b2-owned-now", label: "[2] Buildable now", kind: "bracket", list: "Commander\n1 Rootha\n\nDeck\n1 Sol Ring", source: "From the plan “Buildable now”, saved 31 Oct 2026", note: "Buildable now", href: "", warnings: [] },
       { id: "research:r1:prismari-artistry:current", label: "Research starting snapshot (2026-10-31)", kind: "legacy", list: "Commander\n1 Rootha", source: "Buildable now, revision 3, 2026-10-31", href: "", warnings: [] },
     ],
   };
@@ -154,10 +154,10 @@ describe("what to check against", () => {
       ["version:v1", "Earlier versions"],
       ["plan:prismari:after", "Plan"],
       ["plan:prismari:b2", "Plan"],
-      ["research:r1:prismari-artistry:b2-owned-now", "Research: Buildable now"],
+      ["research:r1:prismari-artistry:b2-owned-now", "Plan: Buildable now"],
     ]);
     expect(opts.find((o) => o.id === "plan:prismari:after")?.label).toBe("Plan: after prints");
-    expect(opts.find((o) => o.id === "plan:prismari:b2")?.label).toBe("Plan: [2] Plan");
+    expect(opts.find((o) => o.id === "plan:prismari:b2")?.label).toBe("Plan: Bracket 2");
     // On a configuration, the main deck's list is offered too.
     expect(targetOptions({ id: "d2", name: "Prismari Artistry (stock)", version_id: null }, family).map((o) => o.label).slice(0, 2)).toEqual(["The deck's current list", "Main deck's current list"]);
     // No plan or research: just the deck's own lists.

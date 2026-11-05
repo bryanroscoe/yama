@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
+import { ChangesHowTo } from "../plan/howto";
 import { Details, ErrorText } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
 import { Proposal, ProposalText } from "./Proposal";
@@ -105,9 +106,7 @@ export function ChangesPage() {
   return (
     <main className="page">
       <AreaHead title="Suggested changes" back={{ to: "/decks", label: "Decks" }} />
-      <p className="dim">
-        Suggestions take effect when you press Apply.
-      </p>
+      <ChangesHowTo open={!!all.data && !waiting.some((c) => c.status === "pending")} />
       <ErrorText error={all.error} />
       {all.isPending && <p className="dim">Loading…</p>}
       {all.data && !waiting.some((c) => c.status === "pending") && <p>Nothing is waiting for your review.</p>}

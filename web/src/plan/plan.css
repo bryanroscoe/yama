@@ -1881,3 +1881,9 @@
   gap: 8px;
   margin: 8px 0;
 }
+
+/* What Settings is for, under its head. */
+.plan-settings-lede {
+  max-width: 72ch;
+  margin: 0 0 16px;
+}

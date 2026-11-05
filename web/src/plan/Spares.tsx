@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { Details } from "../components/ui";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
+import { SparesHowTo } from "./howto";
 import type { PlanView } from "./view";
 
 const USE_WHEN: Record<SpareUse["when"], string> = {
@@ -42,11 +42,7 @@ export function Spares() {
   return (
     <>
       <PlansHead title="Spares" />
-      <Details label="How spares are counted">
-        <p>
-        Based on your now and after-prints lists, rather than a physical inventory.
-        </p>
-      </Details>
+      <SparesHowTo open={!sp.now.length && !sp.after.length && !sp.extras.length} />
       <div className="row plan-spares-tools">
         <input
           type="search"

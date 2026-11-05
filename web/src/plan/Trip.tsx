@@ -43,6 +43,7 @@ import { api, type DeckSummary } from "../api";
 import { marketSentence } from "./marks";
 import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
+import { TripHowTo } from "./howto";
 import type { PlanView } from "./view";
 
 const CHOICES: StorePreference[] = ["favorite", "ok", "maybe", "never"];
@@ -125,6 +126,7 @@ export function Trip() {
   return (
     <>
       <PlansHead title="Store trip" />
+      <TripHowTo open={trip.needed === 0 && !(view.b.shopping_wants ?? []).length} />
       <div className="area-note warn" role="note">
         <p>
           {trip.checkedOn.length

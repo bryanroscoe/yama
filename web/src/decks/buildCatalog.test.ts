@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, legacyConfiguration, printList, slotsText } from "./buildCatalog";
+import { buildFamilies, buildTargets, resolveBuildFamily, configurationLabel, duplexPages, exactChanges, legacyConfiguration, pairChanges, printList, slotsText, buildTitle } from "./buildCatalog";
 import type { ResearchBundle } from "../research/api";
 import type { DeckSummary } from "../api";
 
@@ -97,15 +97,15 @@ describe("build catalog", () => {
     expect(legacyConfiguration("Legacy: October upgrades")).toBe(true);
     for (const label of [null, "stock", "original", "[2]", "Bracket 4", "budget"]) expect(legacyConfiguration(label)).toBe(false);
     expect(configurationLabel("stock", "Deck")).toBe("Stock");
-    expect(configurationLabel("Bracket 2", "Deck")).toBe("[2]");
-    expect(configurationLabel("Bracket 4 — Lower friction", "Deck")).toBe("[4] Lower friction");
+    expect(configurationLabel("Bracket 2", "Deck")).toBe("Bracket 2");
+    expect(configurationLabel("Bracket 4 — Lower friction", "Deck")).toBe("Bracket 4: Lower friction");
     expect(configurationLabel(null, "Deck", true)).toBe("Current");
   });
   it("preserves distinct deck names after child configuration labels are cleared", () => {
     expect(["Combat version", "Combo version"].map((name) => configurationLabel(null, name))).toEqual(["Combat version", "Combo version"]);
     expect(configurationLabel("", "Combat version")).toBe("Combat version");
     expect(configurationLabel("   ", "Combat version")).toBe("Combat version");
-    expect(configurationLabel("[3]", "Combat version")).toBe("[3]");
+    expect(configurationLabel("[3]", "Combat version")).toBe("Bracket 3");
     expect(configurationLabel(null, "Main deck", true)).toBe("Current");
   });
   it("preserves unequal family names and resolves a renamed linked deck by saved id", () => {
@@ -116,7 +116,7 @@ describe("build catalog", () => {
     expect(families).toHaveLength(2);
     expect(resolveBuildFamily(families, null, saved.id)?.name).toBe("Scions & Spellcraft");
     expect(resolveBuildFamily(families, "Scions Spellcraft", null)?.choices).toHaveLength(1);
-    expect(families[0]?.choices[0]?.label).toBe("[2] Buildable now");
+    expect(families[0]?.choices[0]?.label).toBe("Bracket 2: Buildable now");
   });
   it("keeps plan-only and saved-only targets available without claiming ownership", () => {
     const decks = [
@@ -171,4 +171,42 @@ describe("build catalog", () => {
   it("serializes the full list including all basic copies", () => {
     expect(printList(slotsText([{ name: "Leader", qty: 1, board: "commander" }, { name: "Plains", qty: 99, board: "main" }]))).toHaveLength(100);
   });
+});
+
+describe("swap cards pair each cut with what its plan puts in", () => {
+  const card = (name: string) => ({ name, board: "main" as const });
+  it("uses the builds' own swaps, an undone swap and a shared starting card, then pairs the rest in order", () => {
+    // From Bracket 2 (cut Plains for Sol Ring; cut Island for Ponder) to Bracket 3 (cut Plains for
+    // Mana Crypt; cut Forest for Rhystic Study), plus one change no swap explains.
+    const swaps = exactChanges(
+      printList(list("Leader", 95, "1 Sol Ring\n1 Ponder\n1 Forest\n1 Odd A")),
+      printList(list("Leader", 95, "1 Mana Crypt\n1 Island\n1 Rhystic Study\n1 Odd B")),
+    );
+    const from = [{ out: "Plains", in: "Sol Ring" }, { out: "Island", in: "Ponder" }];
+    const to = [{ out: "Plains", in: "Mana Crypt", why: "Fast mana." }, { out: "Forest", in: "Rhystic Study", why: "Draw.", where: "To print." }];
+    const rows = pairChanges(swaps, from, to);
+    const by = (out: string) => rows.find((r) => r.out.name === out);
+    expect(rows).toHaveLength(4);
+    expect(by("Forest")).toMatchObject({ in: { name: "Rhystic Study" }, why: "Draw.", where: "To print." });
+    expect(by("Ponder")).toMatchObject({ in: { name: "Island" }, why: "Back to the starting list's card." });
+    expect(by("Sol Ring")).toMatchObject({ in: { name: "Mana Crypt" }, why: "Fast mana." });
+    expect(by("Odd A")).toMatchObject({ in: { name: "Odd B" }, why: null });
+    // Every change once, ordered by the card going out.
+    expect(rows.map((r) => r.out.name)).toEqual(["Forest", "Odd A", "Ponder", "Sol Ring"]);
+  });
+});
+
+it("pairs every copy a swap of several copies changes", () => {
+  const swaps = exactChanges(printList(list("Leader", 99)), printList(list("Leader", 97, "2 Island")));
+  const rows = pairChanges(swaps, [], [{ out: "Plains", in: "Island", why: "Blue.", qty: 2 }]);
+  expect(rows.map((r) => [r.out.name, r.in.name, r.why])).toEqual([["Plains", "Island", "Blue."], ["Plains", "Island", "Blue."]]);
+});
+
+it("names a build by its bracket one way, as the shared pages do", () => {
+  expect(buildTitle("[2] Buildable now")).toBe("Bracket 2: Buildable now");
+  expect(buildTitle("[3]")).toBe("Bracket 3");
+  expect(buildTitle("B4 - Combo")).toBe("Bracket 4: Combo");
+  expect(buildTitle("Bracket 3 · Upgraded")).toBe("Bracket 3 · Upgraded");
+  expect(buildTitle("B52 bomber")).toBe("B52 bomber");
+  expect(buildTitle("Current saved Yama list (reference)")).toBe("Current saved Yama list (reference)");
 });
