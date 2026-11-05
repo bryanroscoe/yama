@@ -1,0 +1,7 @@
+interface:
+  display_name: "Yama collection planning"
+  short_description: "Plan upgrades around the cards you own"
+  icon_small: "../../assets/yama-icon-120.png"
+  icon_large: "../../assets/yama-logo-512.png"
+  brand_color: "#0B0C0E"
+  default_prompt: "Use $yama-collection-planning to plan upgrades using cards I own."

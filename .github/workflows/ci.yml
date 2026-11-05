@@ -290,6 +290,7 @@ jobs:
           python3 -m unittest discover -s scripts/history -p 'test_*.py'
           python3 scripts/test_sync_main.py
           python3 scripts/test_dev_local.py
+          python3 scripts/test_package_yama_plugin.py
       - name: Test commander evidence and list validation
         run: python3 -m unittest discover -s scripts/research -p 'test_*.py'
       - name: Test dataset recovery conversion

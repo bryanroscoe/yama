@@ -163,7 +163,7 @@ claude.com/docs/connectors/building/authentication, and code.claude.com/docs/en/
 any app could register any https address, a stranger could send Bryan a Yama sign-in link for their
 app and collect his grant on their own site. So registration accepts only loopback `http`
 (`localhost`, `127.0.0.1`, `[::1]`: a program on the person's own computer, which the consent page
-says plainly) and https on `YAMA_OAUTH_REDIRECT_HOSTS` (default `claude.ai,claude.com`). Codes sent
+says plainly) and https on `YAMA_OAUTH_REDIRECT_HOSTS` (default `claude.ai,claude.com,chatgpt.com`). Codes sent
 to claude.ai can only be used by claude.ai's own connector flow. The one risk left is the one every
 OAuth server has: someone starts a connector flow for their own Claude account and sends the link;
 the consent page names the account being connected and says to allow only a sign-in you started.

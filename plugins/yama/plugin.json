@@ -1,0 +1,41 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "yama",
+  "version": "0.1.4",
+  "description": "Build and improve Magic: The Gathering Commander decks using your private Yama decks, collection, plans and research.",
+  "author": {
+    "name": "Bryan Roscoe"
+  },
+  "homepage": "https://yama.ing/docs/mcp/",
+  "keywords": [
+    "Magic: The Gathering",
+    "Commander",
+    "decks",
+    "collection"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Yama",
+        "shortDescription": "Your Commander decks and cards",
+        "longDescription": "Build Commander decks, research cards and rules, plan upgrades around the cards you own, and save plans to Yama. Sign in with your Yama account. Deck and collection changes are staged for your review before applying. Unofficial fan software, not affiliated with or endorsed by Wizards of the Coast.",
+        "developerName": "Bryan Roscoe",
+        "category": "Entertainment",
+        "logo": "./assets/yama-logo-512.png",
+        "composerIcon": "./assets/yama-icon-120.png",
+        "websiteURL": "https://yama.ing/docs/mcp/",
+        "privacyPolicyURL": "https://yama.ing/privacy/",
+        "defaultPrompt": [
+          "Review my Commander deck using my Yama collection and saved plans.",
+          "Help me plan upgrades using cards I own before buying more.",
+          "Research a Commander deck and save the plan in Yama."
+        ],
+        "logoDark": "./assets/yama-logo-512.png",
+        "composerIconDark": "./assets/yama-icon-120.png",
+        "brandColor": "#0B0C0E",
+        "brandColorDark": "#F2EFE8"
+      },
+      "onboardingSkill": "./skills/yama-setup/SKILL.md"
+    }
+  }
+}

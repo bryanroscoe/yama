@@ -1,0 +1,7 @@
+interface:
+  display_name: "Yama Commander research"
+  short_description: "Research cards, rules and Commander plans"
+  icon_small: "../../assets/yama-icon-120.png"
+  icon_large: "../../assets/yama-logo-512.png"
+  brand_color: "#0B0C0E"
+  default_prompt: "Use $yama-commander-research to research my deck and save a plan in Yama."

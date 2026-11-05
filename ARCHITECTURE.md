@@ -889,6 +889,17 @@ Bryan (2026-10-22): "allow admins to impersonate other people to see their colle
 
 ### Yama's tools for Claude (MCP, 2026-10-22)
 
+**Private Codex/ChatGPT plugin (2026-11-05):** `plugins/yama/` packages the existing
+hosted MCP endpoint with OAuth DCR and setup, deck-building, collection-planning
+and Commander-research skills. It adds no server, credentials, user data, card
+art or rules documents. `scripts/package_yama_plugin.py` builds a reproducible,
+allowlisted ZIP for private account installation; this does not publish a public
+listing. Defaults now allow `chatgpt.com` OAuth callbacks alongside Claude's hosts,
+while preserving explicit host overrides, loopback support and exact registered
+HTTPS URI matching. The skills retain owner privacy, separate research/ownership/
+purchase/print/installation state and exact-change approval before applying.
+See [package, authentication and verification](docs/codex-plugin.md).
+
 **Public guide (2026-10-27):** `/docs/mcp/` is a static, signed-out guide in
 `web/public/docs/mcp/`, served independently of the authenticated React app. It documents the
 complete tool catalog, Commander workflows, Claude/Codex setup, sources, privacy and proposal

@@ -66,7 +66,7 @@ pub struct Config {
     /// built from this, never from a request's Host header.
     pub public_url: Option<String>,
     /// Hosts an OAuth app may send people back to over https (YAMA_OAUTH_REDIRECT_HOSTS,
-    /// comma-separated; `claude.ai,claude.com` when unset). Loopback `http` redirects (Claude Code)
+    /// comma-separated; `claude.ai,claude.com,chatgpt.com` when unset). Loopback `http` redirects
     /// are always allowed; everything else is refused at registration (`oauth/redirect.rs`).
     pub oauth_redirect_hosts: Vec<String>,
     /// Requests slower than this many milliseconds are logged as warnings and listed in Admin,
@@ -84,10 +84,10 @@ pub struct Config {
     pub offline: bool,
 }
 
-/// The https hosts OAuth apps may redirect to when YAMA_OAUTH_REDIRECT_HOSTS isn't set: claude.ai's
-/// connector callback (`https://claude.ai/api/mcp/auth_callback`), and claude.com, where Anthropic
-/// says that callback may move.
-pub const DEFAULT_OAUTH_REDIRECT_HOSTS: [&str; 2] = ["claude.ai", "claude.com"];
+/// The https hosts OAuth apps may redirect to when YAMA_OAUTH_REDIRECT_HOSTS isn't set:
+/// Claude's connectors and OpenAI's ChatGPT/Codex plugin connection flow.
+/// Native clients can also use a loopback callback (see oauth::redirect).
+pub const DEFAULT_OAUTH_REDIRECT_HOSTS: [&str; 3] = ["claude.ai", "claude.com", "chatgpt.com"];
 
 /// YAMA_PUBLIC_URL as an origin (`https://host[:port]`, lower case, no default port), or why not.
 pub fn public_origin(raw: &str) -> anyhow::Result<String> {
