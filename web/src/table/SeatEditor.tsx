@@ -29,6 +29,8 @@ function SeatChoice({ label, options, value, onChange }: { label: string; option
       <label className="seat-choice">
         {label}
         <select value={value} onChange={(e) => onChange(e.target.value)}>
+          {/* A value none of the options names (a card's full name against the deck's spelling) shows as unpicked. */}
+          {!options.some((o) => o.key === value) && <option value={value} disabled>Choose one</option>}
           {options.map((o) => (
             <option key={o.key} value={o.key}>{o.label}</option>
           ))}

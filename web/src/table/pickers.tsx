@@ -249,9 +249,13 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
 }) {
   const id = useId();
   const list = useRef<HTMLUListElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    // Focus goes into the picker (its heading, so no keyboard comes up) and back to whatever opened it.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    heading.current?.focus();
     // Escape closes this picker only, not the seat sheet under it.
     const key = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -265,6 +269,7 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
     return () => {
       window.removeEventListener("keydown", key, true);
       document.body.style.overflow = overflow;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, []);
   // A new search starts at the top of its matches.
@@ -275,7 +280,7 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
   return createPortal(
     <div className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}>
       <div className="picker-head">
-        <h2 id={`${id}-title`}>{label}</h2>
+        <h2 id={`${id}-title`} ref={heading} tabIndex={-1}>{label}</h2>
         <button type="button" className="quiet" onClick={onClose}>Close</button>
       </div>
       <input
@@ -849,7 +854,7 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
             onClose={close}
             placeholder={placeholder}
             loading={loading}
-            empty={typing ? "No deck by that name. Close this and pick a commander instead." : "Type two letters to search the precons."}
+            empty={typing ? (text ? "No deck by that name. Tap No deck above to name the commander instead." : "No deck by that name. Close this and pick a commander instead.") : "Type two letters to search the precons."}
             extra={
               text && (
                 <button
