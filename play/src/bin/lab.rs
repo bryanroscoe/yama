@@ -243,24 +243,25 @@ type Job = GameSpec;
 fn llm_decks(jobs: &[(Job, AiDifficulty)]) -> std::collections::BTreeSet<String> {
     jobs.iter()
         .filter_map(|(j, _)| j.pilots.as_ref().map(|p| (j, p)))
-        .flat_map(|(j, p)| j.decks.iter().zip(p).filter(|(_, pl)| pl.starts_with("llm:")).map(|(d, _)| d.clone()))
+        .flat_map(|(j, p)| j.decks.iter().zip(p).filter(|(_, pl)| yama_play::pilot::Pilot::parse(pl).is_ok_and(|p| p.is_llm())).map(|(d, _)| d.clone()))
         .collect()
 }
 
-/// `<dir>/<deck id>.md` for each deck an LLM seat plays (--llm-guides); every one must exist.
+/// `<dir>/<deck id>.md` for each deck an LLM seat plays (--llm-guides); every one must exist
+/// and say something.
 fn read_guides(dir: &Path, decks: &std::collections::BTreeSet<String>) -> anyhow::Result<HashMap<String, String>> {
     let mut guides = HashMap::new();
     let mut missing = Vec::new();
     for d in decks {
         match std::fs::read_to_string(dir.join(format!("{d}.md"))) {
-            Ok(text) => {
+            Ok(text) if !text.trim().is_empty() => {
                 guides.insert(d.clone(), text);
             }
-            Err(_) => missing.push(d.as_str()),
+            _ => missing.push(d.as_str()),
         }
     }
     if !missing.is_empty() {
-        anyhow::bail!("--llm-guides {}: no guide for {}", dir.display(), missing.join(", "));
+        anyhow::bail!("--llm-guides {}: no guide (or an empty one) for {}", dir.display(), missing.join(", "));
     }
     Ok(guides)
 }
@@ -839,6 +840,24 @@ mod tests {
         let path = std::env::temp_dir().join(format!("lab-{name}-{}.jsonl", std::process::id()));
         std::fs::write(&path, text).unwrap();
         path
+    }
+
+    #[test]
+    fn guides_cover_trimmed_llm_labels_and_refuse_blank_files() {
+        let line = |pilots: &str| format!(r#"{{"game":"g","seed":1,"decks":["p/a","p/b"],"difficulty":"Hard","max_turns":9,"max_actions":99,"max_seconds":9,"pilots":{pilots}}}"#);
+        let jobs = vec![parse_job(&line(r#"[" llm:m ", "hard"]"#)).unwrap(), parse_job(&line(r#"["easy", "hard"]"#)).unwrap()];
+        let decks = llm_decks(&jobs);
+        assert_eq!(decks, std::collections::BTreeSet::from(["p/a".to_string()]), "a padded llm label is still an LLM seat");
+        let dir = std::env::temp_dir().join(format!("lab-guides-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("p")).unwrap();
+        std::fs::write(dir.join("p/a.md"), "Plan.").unwrap();
+        std::fs::write(dir.join("p/b.md"), " \n").unwrap();
+        let one = std::collections::BTreeSet::from(["p/a".to_string()]);
+        assert_eq!(read_guides(&dir, &one).unwrap().get("p/a").map(String::as_str), Some("Plan."));
+        let both = std::collections::BTreeSet::from(["p/a".to_string(), "p/b".to_string()]);
+        let err = read_guides(&dir, &both).unwrap_err().to_string();
+        assert!(err.contains("p/b") && !err.contains("p/a"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

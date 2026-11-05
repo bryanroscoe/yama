@@ -951,7 +951,7 @@ fn play(
             let mut prompt = String::from(if llm.is_some_and(|l| l.object_key) { "phase-llm+object-key" } else { "phase-llm" });
             let mut guide = String::new();
             if let Some(guides) = llm.and_then(|l| l.guides.as_ref()) {
-                let Some(text) = guides.get(&job.decks[i]) else {
+                let Some(text) = guides.get(&job.decks[i]).filter(|t| !t.trim().is_empty()) else {
                     return Ending::Error(format!("LLM seat {i}: no deck guide for {}", job.decks[i]));
                 };
                 prompt += &format!("+guide-{}", crate::pilot::sha8(text));
