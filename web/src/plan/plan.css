@@ -17,6 +17,7 @@
      card, reasons, prices, Want / Unsure / No), and on laptops .review-panes with .review-queue.
    - Buy: .buy-store (a store's card with "Fill the cart"), .buy-row, .buy-mini.
    - Prints: .prints-order, .prints-line, .prints-next (the draft order with its tier bar).
+   - Print with MakePlayingCards: .mpc-settings, .mpc-card, .mpc-choice, .mpc-options (image pickers).
    - Spares: .spare-card.
    - .plan-tick: "In the deck"; .plan-bought: what a "bought it" mark said.
    Touch targets stay at least 44 px. Sentence case; no all-caps; no middle-dot separators. */
@@ -1940,4 +1941,95 @@
 .plan-settings-lede {
   max-width: 72ch;
   margin: 0 0 16px;
+}
+
+/* ── print with MakePlayingCards (MpcPrint.tsx) ─────────────────────────── */
+
+.mpc-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: end;
+}
+.mpc-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.mpc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  min-width: 0;
+}
+.mpc-choice {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+/* Card images are shown as they are: no filter, crop or fade. */
+.mpc-thumb {
+  width: 72px;
+  aspect-ratio: 63 / 88;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--raised);
+}
+.mpc-thumb-empty {
+  display: block;
+  border: 1px dashed var(--line);
+}
+.mpc-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.25;
+}
+.mpc-choice-text b {
+  font-size: var(--t-label);
+  overflow-wrap: anywhere;
+}
+.mpc-choice-text button {
+  align-self: start;
+}
+.mpc-options {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.mpc-option {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 92px;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.mpc-option img {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--raised);
+}
+.mpc-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mpc-option[aria-selected="true"] {
+  border-color: var(--text);
 }

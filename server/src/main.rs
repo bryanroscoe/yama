@@ -22,6 +22,7 @@ mod games;
 mod lab;
 mod limits;
 mod mcp;
+mod mpc;
 mod oauth;
 mod play;
 mod plan;
