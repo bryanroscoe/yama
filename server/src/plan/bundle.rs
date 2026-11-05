@@ -29,7 +29,8 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// 5: a store's place in your order and a favourite's premium (2026-11-01).
 /// 6: store stock snapshots (`store_quotes`, `snapshots`) and hand-added wants (`shopping_wants`; 2026-11-01).
 /// 7: sealed products with their store prices (`sealed`), for the Trip page offline (2026-11-02).
-const SHAPE: u32 = 7;
+/// 8: a plan deck made from a note's build says which (`note`; 2026-11-04).
+const SHAPE: u32 = 8;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
@@ -120,6 +121,9 @@ struct DeckRow {
     deck_id: Option<String>,
     sort: i64,
     updated_at: String,
+    note_id: Option<String>,
+    note_deck_key: Option<String>,
+    note_build_id: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -402,7 +406,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     // Decks and their current lists
     let deck_rows: Vec<DeckRow> = sqlx::query_as(
         "SELECT id, key, name, source, status, product, commander, color_identity, owner_changes, bracket, groups, notes, deck_id,
-                sort, updated_at
+                sort, updated_at, note_id, note_deck_key, note_build_id
          FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived', sort, key",
     )
     .bind(owner)
@@ -764,6 +768,8 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 "owner_changes": parse_or(&d.owner_changes, json!([])), "bracket": parse(d.bracket.as_deref()),
                 "groups": parse_or(&d.groups, json!([])), "notes": parse_or(&d.notes, json!([])), "deck_id": d.deck_id,
                 "yama_deck": installs.decks.get(&d.id),
+                // A plan made from a note's build (`notes.rs`): which note, deck and build. Null otherwise.
+                "note": d.note_id.as_ref().map(|id| json!({"id": id, "deck": d.note_deck_key, "build": d.note_build_id})),
                 "sort": d.sort, "updated_at": d.updated_at, "states": states,
             })
         })

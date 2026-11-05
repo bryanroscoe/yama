@@ -85,7 +85,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "save_research",
         title: "Save private research for review in Yama",
-        description: "Store or refresh a yama-research/1 document in the caller's private Research section. This saves research notes directly and idempotently; review choices survive refreshes and changed targets are flagged. It never installs or saves a playable deck, alters a plan or inventory, approves a purchase, orders prints or starts games. Use when asked to store research in Yama. Owner comes from sign-in, never the document.",
+        description: "Store or refresh a yama-research/1 document: a deck plan's content (builds, swaps with reasons, acquisition evidence), private to the caller. This saves directly and idempotently; review choices survive refreshes and changed targets are flagged. A plan already tracking one of the note's builds follows the refreshed note (its swaps, store offers and lists are derived again). It never installs or saves a playable deck, changes inventory, approves a purchase, orders prints or starts games. To make a build the deck's plan, stage track_build afterwards. Use when asked to store research or a plan in Yama. Owner comes from sign-in, never the document.",
         schema: || json!({"type":"object","properties":{"document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."}},"required":["document"],"additionalProperties":false}),
         does: Does::Research,
     },
@@ -98,8 +98,8 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "overview",
-        title: "Your decks and plans",
-        description: "List this person's decks in Yama (with commanders) and their upgrade plans (with plan keys). Start here.",
+        title: "Your decks and deck plans",
+        description: "List this person's decks in Yama (with commanders) and their deck plans: each saved note's decks and builds, which build is tracked as that deck's plan (with its plan key), and plans imported from a plan file. Start here.",
         schema: no_args,
         does: Does::Read,
     },
@@ -114,11 +114,12 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "plan_deck",
-        title: "One upgrade plan",
-        description: "One upgrade plan: the stock list and the now and after lists as differences, every planned and \
+        title: "One deck plan",
+        description: "One deck plan: the stock list and the now and after lists as differences, every planned and \
                       proposed swap with its reasons and their review answers, whether each planned swap is installed \
                       (read from their Yama deck's current list when the plan has one), their shopping rules, the newest \
-                      paired lab run, and real games. Give the plan key from `overview`.",
+                      paired lab run, and real games. Give the plan key from `overview`. A note deck that has no \
+                      tracked build yet answers with its builds and how to track one.",
         schema: || obj(&[("key", "string", "The plan key, for example \"riders-of-rohan\".")], &["key"]),
         does: Does::Read,
     },
@@ -458,6 +459,26 @@ const TOOLS: &[Tool] = &[
                 "required": ["deck"],
                 "additionalProperties": false,
             })
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "track_build",
+        title: "Make a note's build the deck's plan",
+        description: staged!(
+            "Track one build of a deck in one of their saved notes as that deck's plan: its swaps become the plan's swaps, \
+             with Buy, Trip, prints, installed and bought marks and the plan tools (plan_deck, mark_bought, mark_installed, \
+             answer_review, swap_in_prints) working on it. Tracking another build of the same deck switches to it; the \
+             earlier build's marks are kept for a switch back. build null stops tracking. The plan follows the note when \
+             it's saved again. Give the note id and deck key from `overview` or `research`."
+        ),
+        schema: || {
+            json!({"type":"object","properties":{
+                "note":{"type":"string","description":"The note's id."},
+                "deck":{"type":"string","description":"The deck's key in the note."},
+                "build":{"type":["string","null"],"description":"The build's id; null to stop tracking this deck."},
+                "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."}
+            },"required":["note","deck","build"],"additionalProperties":false})
         },
         does: Does::Stage,
     },
@@ -862,6 +883,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "changes" => changes_text(pool, user).await,
         "edit_deck" => changes::edit_deck(st, user, via, args).await,
         "propose_swap" => changes::propose_swap(st, user, via, args).await,
+        "track_build" => changes::track_build(st, user, via, args).await,
         "answer_review" => changes::answer_review(st, user, via, args).await,
         "mark_bought" => changes::mark_bought(st, user, via, args).await,
         "mark_installed" => changes::mark_installed(st, user, via, args).await,
@@ -890,16 +912,22 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             Ok(format!("Discarded: {}", c.summary))
         }
         "overview" => {
-            let mut text=context::build(pool,user,"general",None).await?;
-            let reports=crate::deck_research::list(pool,&user.id).await?;
-            if let Some(rows)=reports.as_array().filter(|r|!r.is_empty()) {
-                text.push_str("\nSaved private research (use research for power, bracket builds, combos, acquisition evidence and review choices):\n");
-                for row in rows {let _=writeln!(text,"- {} (id {}, revision {}): /decks/research/{}",row["title"].as_str().unwrap_or_default(),row["id"].as_str().unwrap_or_default(),row["revision"],row["id"].as_str().unwrap_or_default());}
-            }
+            let mut text = context::build(pool, user, "general", None).await?;
+            text.push_str(&note_plans(pool, &user.id, None).await?);
             Ok(text)
-        },
+        }
         "deck" => deck(pool, user, text_arg(args, "deck")?).await,
-        "plan_deck" => context::build(pool, user, "plan_deck", Some(text_arg(args, "key")?)).await,
+        "plan_deck" => {
+            let key = text_arg(args, "key")?;
+            match context::build(pool, user, "plan_deck", Some(key)).await {
+                // A note deck with no tracked build yet is still a deck plan: say what it has.
+                Err(AppError::NotFound(_)) => {
+                    let text = note_plans(pool, &user.id, Some(key)).await?;
+                    if text.is_empty() { Err(AppError::NotFound("plan deck")) } else { Ok(text) }
+                }
+                other => other,
+            }
+        }
         "review_queue" => context::build(pool, user, "review", None).await,
         "shopping_trip" => {
             let today = match args.get("today").and_then(Value::as_str) {
@@ -1116,6 +1144,65 @@ fn identity(ci: &str) -> String {
 // ── decks ───────────────────────────────────────────────────────────────────
 
 /// The caller's deck by id or (case-insensitive) name. Several matches is a 400 naming them.
+/// Their notes' decks and builds as deck plans, with which build each deck tracks. With `only`,
+/// just the note decks with that key that aren't tracked (`plan_deck` on such a key); empty when
+/// there are none.
+async fn note_plans(pool: &SqlitePool, owner: &str, only: Option<&str>) -> AppResult<String> {
+    #[allow(clippy::type_complexity)]
+    let rows: Vec<(String, String, i64, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT r.id, r.title, r.revision, json_extract(d.value, '$.key'), json_extract(d.value, '$.name'),
+           (SELECT json_group_array(json_object('id', json_extract(b.value, '$.id'), 'label', json_extract(b.value, '$.label'),
+                                                'bracket', json_extract(b.value, '$.bracket')))
+            FROM json_each(d.value, '$.builds') b)
+         FROM research_reports r, json_each(r.document, '$.decks') d
+         WHERE r.owner_id = ? AND json_type(d.value, '$.key') = 'text'
+         ORDER BY r.updated_at DESC, r.id, d.key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let tracked: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        "SELECT note_id, note_deck_key, note_build_id, key, status FROM plan_decks WHERE owner_id = ? AND note_id IS NOT NULL",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    let tracked: HashMap<(String, String), (String, String, String)> =
+        tracked.into_iter().map(|(n, d, b, k, s)| ((n, d), (b, k, s))).collect();
+    let mut out = String::new();
+    let mut note_seen = String::new();
+    for (id, title, revision, deck_key, deck_name, builds) in rows {
+        let track = tracked.get(&(id.clone(), deck_key.clone())).filter(|t| t.2 != "archived");
+        if only.is_some_and(|k| k != deck_key || track.is_some()) {
+            continue;
+        }
+        if out.is_empty() {
+            out.push_str(match only {
+                None => "\nTheir notes, the content of their deck plans (`research` reads one; `track_build` makes one build a deck's tracked plan):\n",
+                Some(_) => "Not tracked yet. This deck is in their notes; `research` reads its builds and `track_build` makes one its plan:\n",
+            });
+        }
+        if note_seen != id {
+            let _ = writeln!(out, "- {title} (note id {id}, revision {revision}): /decks/research/{id}");
+            note_seen.clone_from(&id);
+        }
+        let builds: Vec<Value> = serde_json::from_str(&builds).unwrap_or_default();
+        let builds: Vec<String> = builds
+            .iter()
+            .map(|b| {
+                let bracket = b["bracket"].as_i64().map(|n| format!(", bracket {n}")).unwrap_or_default();
+                format!("{} ({}{bracket})", b["id"].as_str().unwrap_or("?"), b["label"].as_str().unwrap_or(""))
+            })
+            .collect();
+        let state = match track {
+            Some((build, key, _)) => format!("tracking build {build} as plan key {key}"),
+            None => "no build tracked".into(),
+        };
+        let _ = writeln!(out, "  - {} (deck key {deck_key}): {state}. Builds: {}", deck_name.as_deref().unwrap_or(&deck_key), builds.join("; "));
+    }
+    Ok(out)
+}
+
 pub(super) async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<String> {
     let by_id: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0").bind(wanted).bind(owner).fetch_optional(pool).await?;
     if let Some(id) = by_id {

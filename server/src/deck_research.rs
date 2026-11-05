@@ -655,7 +655,9 @@ pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult
     let id = document["id"].as_str().unwrap();
     let encoded = serde_json::to_string(document).map_err(anyhow::Error::from)?;
     let hash = sha256_hex(&encoded);
-    let mut tx = pool.begin().await?;
+    // Write lock first: saving also re-derives tracked plans (plan/notes.rs), so a read snapshot
+    // must not go stale under a concurrent write.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM research_reports WHERE owner_id=? AND id!=?")
             .bind(owner)
@@ -675,8 +677,24 @@ pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+    // Plans tracking one of this note's builds follow the note (plan/notes.rs).
+    let (followed, stopped) = if changed { crate::plan::notes::rederive(&mut tx, owner, id, document).await? } else { (0, 0) };
     tx.commit().await?;
-    Ok(saved(id, revision, &hash, changed))
+    let mut out = saved(id, revision, &hash, changed);
+    if followed + stopped > 0 {
+        let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        let mut parts = Vec::new();
+        if followed > 0 {
+            parts.push(format!("{} this note's builds now {} it", plural(followed, "plan tracking", "plans tracking"), if followed == 1 { "follows" } else { "follow" }));
+        }
+        if stopped > 0 {
+            parts.push(format!("{} stopped because the note no longer has {}", plural(stopped, "plan", "plans"), if stopped == 1 { "its deck or build" } else { "their decks or builds" }));
+        }
+        out["effect"] = json!(format!("Research saved. {}; no decks, collection, orders or games changed.", parts.join("; ")));
+        out["plans_updated"] = json!(followed);
+        out["plans_stopped"] = json!(stopped);
+    }
+    Ok(out)
 }
 
 fn saved(id: &str, revision: i64, hash: &str, changed: bool) -> Value {

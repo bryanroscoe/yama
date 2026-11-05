@@ -241,12 +241,21 @@ async fn general(pool: &SqlitePool, owner: &str) -> AppResult<String> {
         }
         let _ = writeln!(out, "- {name}{}", if notes.is_empty() { String::new() } else { format!(" ({})", notes.join("; ")) });
     }
-    let plans: Vec<(String, String, String)> =
-        sqlx::query_as("SELECT key, name, status FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived', sort, key").bind(owner).fetch_all(pool).await?;
+    #[allow(clippy::type_complexity)]
+    let plans: Vec<(String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT key, name, status, note_id, note_build_id FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived', sort, key",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
     if !plans.is_empty() {
-        out.push_str("\nTheir upgrade plans:\n");
-        for (key, name, status) in plans {
-            let _ = writeln!(out, "- {name} (plan key {key}, {status})");
+        out.push_str("\nTheir deck plans with tracking (Buy, Trip, prints, installed and bought marks):\n");
+        for (key, name, status, note, build) in plans {
+            let from = match (note, build) {
+                (Some(n), Some(b)) => format!("; build {b} of note {n}"),
+                _ => "; from a plan file".into(),
+            };
+            let _ = writeln!(out, "- {name} (plan key {key}, {status}{from})");
         }
     }
     Ok(out)
@@ -397,9 +406,23 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
     .fetch_optional(pool)
     .await?;
     let Some((id, name, status, product, commander, colors, bracket, notes, deck_id)) = row else { return Err(AppError::NotFound("plan deck")) };
+    let note: Option<(String, String, String)> =
+        sqlx::query_as("SELECT note_id, note_deck_key, note_build_id FROM plan_decks WHERE id = ? AND owner_id = ? AND note_id IS NOT NULL")
+            .bind(&id)
+            .bind(owner)
+            .fetch_optional(pool)
+            .await?;
     let mut out = String::new();
     let cmd: Vec<String> = serde_json::from_str(&commander).unwrap_or_default();
     let _ = writeln!(out, "Plan deck: {name} (key {key}, {status})");
+    if let Some((note, deck, build)) = &note {
+        let _ = writeln!(
+            out,
+            "Made from build {build} of deck {deck} in note {note}: the note holds the reasons and evidence (`research`), \
+             saving the note updates this plan, and `track_build` switches or stops it. Stock below is the build's list \
+             with its swaps undone."
+        );
+    }
     if let Some(p) = product {
         let _ = writeln!(out, "Product: {p}");
     }

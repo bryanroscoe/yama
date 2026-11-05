@@ -157,6 +157,16 @@ describe("where it came from", () => {
     expect(gotText({ how: "deck", deck: "beta", origin: "shop-1" }, ctx)).toBe("From Beta Deck (bought at Example, ordered 8 Oct 2026 for that deck).");
     // A deck outside the plan keeps its own name.
     expect(gotText({ how: "deck", deck: null, deck_name: "Old Deck", origin: "precon" }, ctx)).toBe("From Old Deck (came in that precon).");
+    // A plan tracking a note's build: the note's own words, on owner pages only.
+    expect(gotText({ how: "owned", detail: "in the blue binder." }, ctx)).toBe("In the blue binder.");
+    expect(gotText({ how: "owned", detail: "in the blue binder" }, ctx, { private: false })).toBe("A card you own.");
+    expect(gotText({ how: "owned" }, ctx)).toBe("A card you own.");
+    expect(gotText({ how: "deck", deck: "beta", deck_name: "Beta Deck", origin: "note" }, ctx)).toBe("From Beta Deck.");
+    const noteDeck = { ...ctx.decks.values().next().value!, note: { id: "audit", deck: "energy", build: "b3" } };
+    expect(slotSource({ name: "Island", qty: 30, board: "main", kind: "stock" }, ctx, noteDeck)).toBe("Already in the deck.");
+    expect(slotSource({ name: "Rhystic Study", qty: 1, board: "main", kind: "owner", got: { how: "owned", detail: "Moved from Ahoy Mateys" } }, ctx, noteDeck)).toBe(
+      "Moved from Ahoy Mateys.",
+    );
   });
 
   it("names the order, its date and the price paid, and never turns a missing price into $0", () => {

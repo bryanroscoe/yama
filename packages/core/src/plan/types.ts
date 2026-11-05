@@ -16,7 +16,9 @@ export interface ItemRef {
 export type Got =
   | { how: "bought"; order: string }
   | { how: "pulled"; product: string; date?: string | null }
-  | { how: "deck"; deck: string | null; deck_name?: string | null; origin: string };
+  | { how: "deck"; deck: string | null; deck_name?: string | null; origin: string }
+  /** A card you own, as a note's build records it (a plan tracking a note's build; `detail` says where). */
+  | { how: "owned"; detail?: string | null };
 
 /** One card in a list. Fields a writer left empty are missing. */
 export interface Slot {
@@ -133,6 +135,8 @@ export interface PlanDeck {
    * live main deck with this name. Null when there's none (bundles before 2026-10-28 lack it).
    */
   yama_deck?: YamaDeckRef | null;
+  /** A plan made from a note's build: which note, deck and build (bundle shape 8). Null otherwise. */
+  note?: { id: string; deck: string; build: string } | null;
   sort: number;
   updated_at: string;
   states: Partial<Record<StateName, PlanState>>;

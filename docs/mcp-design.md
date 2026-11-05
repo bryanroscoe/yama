@@ -61,6 +61,13 @@ preferences directly, an explicit exception to staged execution writes. They nev
 inventory, planner approval, order or game. Compact reads and deck/build/scenario filters avoid
 returning every list to a client that only needs one decision.
 
+**Deck plans (2026-11-04).** Bryan: "I would expect plans to be part of the MCP." A deck plan is a
+note's deck (its builds, swaps and reasons) and, once one build is chosen, that build tracked as
+the deck's plan: `track_build` stages it, and applying makes a Yama-made plan deck that Buy, Trip,
+prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `overview` lists
+every note deck with its builds and which one it tracks, beside imported plans; `plan_deck` on an
+untracked note deck lists its builds. Saving the note again updates the plan.
+
 Read (no review needed):
 
 | Tool | What it returns |
@@ -86,6 +93,7 @@ Write (staged):
 | Tool | Becomes, when applied |
 |---|---|
 | `edit_deck` | A new version of a Yama deck: add, remove, replace cards (one version per change, with a note) |
+| `track_build` | One build of a deck in a saved note becomes that deck's tracked plan, or switches or stops it (`build: null`), through `POST /api/plan/from-note`'s code (`server/src/plan/notes.rs`), which the plan page's "Track this build" will call |
 | `propose_swap` | A planner idea for a plan deck (the existing `idea` op), so it goes through Review and the repo's pull |
 | `answer_review` | A review answer (`review` op) |
 | `mark_bought`, `mark_installed` | The existing `bought` and `installed` ops |
