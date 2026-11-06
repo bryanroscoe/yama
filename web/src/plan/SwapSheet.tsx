@@ -17,7 +17,7 @@ const SHEETS = [
 ] as const;
 
 /**
- * `/decks/plan/prints/swap`: the swap sheet for when prints arrive, on screen and on paper. Sort the
+ * `/decks/plans/get/swap-sheet`: the swap sheet for when prints arrive, on screen and on paper. Sort the
  * prints into decks, then swap each deck from its now list to its after-prints list, with where each
  * card coming out goes. The same sheet commander-decks prints (mtg-print-swaps.pdf).
  */

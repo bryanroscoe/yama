@@ -64,13 +64,11 @@ const PlanLayout = plan.page("PlanLayout");
 const Plans = plan.page("Plans");
 const PlanPage = plan.page("PlanPage");
 const Archived = plan.page("Archived");
-const Buy = plan.page("Buy");
+const GetCards = plan.page("GetCards");
 const Trip = plan.page("Trip");
-const Prints = plan.page("Prints");
 const SwapSheetPage = plan.page("SwapSheetPage");
 const MpcPrint = plan.page("MpcPrint");
 const SwapCardsPage = plan.page("SwapCardsPage");
-const Spares = plan.page("Spares");
 const PlanSettings = plan.page("PlanSettings");
 const AdminLayout = admin.page("AdminLayout");
 const PeoplePage = admin.page("PeoplePage");
@@ -267,23 +265,16 @@ export function App() {
             <Route index element={<Plans />} />
             <Route path="archived" element={<Archived />} />
             <Route path="settings" element={<PlanSettings />} />
-            <Route path="get" element={<Trip />} />
+            <Route path="get" element={<GetCards />} />
+            <Route path="get/trip" element={<Trip />} />
+            <Route path="get/mpc" element={<MpcPrint />} />
+            <Route path="get/swap-sheet" element={<SwapSheetPage />} />
+            <Route path="get/swap-cards" element={<SwapCardsPage />} />
             <Route path=":key" element={<PlanPage />} />
           </Route>
+          {/* Old Plans addresses (until 2026-11-06): each opens its new home, none 404s. */}
+          <Route path="decks/plan/*" element={<OldPlanRedirect />} />
           <Route path="decks/plan" element={<OldPlanRedirect />} />
-          <Route path="decks/plan/review" element={<OldPlanRedirect />} />
-          <Route path="decks/plan/settings" element={<OldPlanRedirect />} />
-          <Route path="decks/plan/d/:key" element={<OldPlanRedirect />} />
-          {/* Buy, Trip, Prints and Spares until Get the cards replaces them. */}
-          <Route element={<Paged page={PlanLayout} />}>
-            <Route path="decks/plan/buy" element={<Buy />} />
-            <Route path="decks/plan/trip" element={<Trip />} />
-            <Route path="decks/plan/prints" element={<Prints />} />
-            <Route path="decks/plan/prints/swap" element={<SwapSheetPage />} />
-            <Route path="decks/plan/prints/mpc" element={<MpcPrint />} />
-            <Route path="decks/plan/swap-cards" element={<SwapCardsPage />} />
-            <Route path="decks/plan/spares" element={<Spares />} />
-          </Route>
           {/* Old links: the Lab was a section of Decks until 2026-10-28. Static "lab" outranks ":id". */}
           <Route path="decks/lab/*" element={<OldLabRedirect />} />
           {/* Datasets were a section of Decks until 2026-11-04; they're Lab evidence. */}

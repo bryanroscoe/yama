@@ -164,7 +164,7 @@ export const NEWS: NewsEntry[] = [
       "On the Trip page, mark a favourite store you want to support: it's on every trip it has a card for, and you can let it charge a little more. Put your stores in order of how easy they are to get to, and untick the ones you're not going to this time.",
       "Each store has its list to copy and its cart link where the store has one. Stores on TCGplayer Pro get a search link for each card, and what's left has a TCGplayer Mass Entry link to compare online.",
     ],
-    link: { to: "/decks/plan/trip", label: "Store trip" },
+    link: { to: "/decks/plans/get/trip", label: "Store trip" },
   },
   {
     id: "2026-11-01-store-trip",
@@ -175,7 +175,7 @@ export const NEWS: NewsEntry[] = [
       "Mark each store as your usual one, fine, maybe or one you won't go to. The trip never sends you to a store you won't go to.",
       "Proposals you haven't decided on and your real-card wishlist come along from stores you're visiting anyway. Listings are the dated checks in your plan, not a promise the card is still there.",
     ],
-    link: { to: "/decks/plan/trip", label: "Store trip" },
+    link: { to: "/decks/plans/get/trip", label: "Store trip" },
   },
   {
     id: "2026-11-01-lab-tables",
@@ -328,7 +328,7 @@ export const NEWS: NewsEntry[] = [
       "Print a card-sized note for each deck box: the bracket it's kept at, what comes out and goes in for each step down, with Game Changers marked. Going up, do the swaps in reverse.",
       "Print all swap cards is under Your plans, nine to a page with cut lines. A deck's own card is on its Brackets tab and in its Bracket bags panel. Print at actual size from a computer; on a phone the cards are easy to read.",
     ],
-    link: { to: "/decks/plan/swap-cards", label: "See your swap cards" },
+    link: { to: "/decks/plans/get/swap-cards", label: "See your swap cards" },
   },
   {
     id: "2026-10-29-scan-a-deck",
@@ -366,7 +366,7 @@ export const NEWS: NewsEntry[] = [
       "The Lab has its own tab. Old links under Decks still open it.",
       "Research is now called Agent notes: what Claude and other agents save for each other. Nothing there needs you; anything you should decide shows up in Review.",
     ],
-    link: { to: "/decks/plan/review", label: "Open Review" },
+    link: { to: "/decks/plans", label: "Open Plans" },
   },
   {
     id: "2026-10-28-shared-deck-pages",
@@ -568,7 +568,7 @@ export const NEWS: NewsEntry[] = [
       "Scan either the card coming in or the card coming out to see the swap and its recorded reasons. A photo or typed name works too. It recognizes either face and works across printings, including the stand-in actually in the deck.",
       "Each plan deck links to its takeout sheet and scanner. Scanning leaves your decks, collection and installed ticks as they are.",
     ],
-    link: { to: "/decks/plan/prints/swap", label: "Open the swap sheet" },
+    link: { to: "/decks/plans/get/swap-sheet", label: "Open the swap sheet" },
   },
   {
     id: "2026-10-23-collect-deck",
@@ -602,7 +602,7 @@ export const NEWS: NewsEntry[] = [
       "In Claude Code, add Yama with the command in Decks, Plans, Settings, then type /mcp. In Claude on the web, add a custom connector with the address shown there.",
       "Connections can now read and research cards and stage changes for review. Ask Claude leaves Apply to you; external clients can apply after you approve an exact change. Settings lists each connected app, with Disconnect.",
     ],
-    link: { to: "/decks/plan/settings", label: "Connect Claude" },
+    link: { to: "/decks/plans/settings", label: "Connect Claude" },
   },
   {
     id: "2026-10-22-lab-compare",

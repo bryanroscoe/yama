@@ -14,7 +14,7 @@ import { clearPlanData } from "./store";
 
 const VIA: Record<string, string> = { web: "uploaded in the browser", token: "sent by a script", cli: "imported on the server" };
 
-/** `/decks/plan/settings`: connecting Claude, keys for scripts, this device's copy, import history, rules and stores. */
+/** `/decks/plans/settings`: connecting Claude, keys for scripts, this device's copy, import history, rules and stores. */
 export function PlanSettings() {
   const { view, userId } = usePlanOutlet();
   const { b } = view;

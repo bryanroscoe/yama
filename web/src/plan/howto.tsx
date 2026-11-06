@@ -28,7 +28,7 @@ export function ReviewHowTo({ open }: { open: boolean }) {
           the other two keep it out, and your note says why. This page lists the decks with changes waiting.
         </>,
         <>
-          <b>Nothing changes your deck</b> until you put a card in. Planned swaps go on to <Link to="/decks/plan/buy">Buy</Link> and <Link to="/decks/plan/prints">Prints</Link>, then
+          <b>Nothing changes your deck</b> until you put a card in. Planned swaps go on to <Link to="/decks/plans/get#buy">Buy</Link> and <Link to="/decks/plans/get#print">Prints</Link>, then
           into the deck.
         </>,
       ]}
@@ -47,7 +47,7 @@ export function BuyHowTo({ open }: { open: boolean }) {
           <b>Cards your tracked plans buy</b>, grouped by the store that has them, with each store's dated price. Cards no store lists go to the bottom, to ask about or print.
         </>,
         <>
-          <b>Buy them</b>: where a store has a cart link, Replace cart fills it; otherwise take the list to the counter. A <Link to="/decks/plan/trip">store trip</Link> picks the fewest
+          <b>Buy them</b>: where a store has a cart link, Replace cart fills it; otherwise take the list to the counter. A <Link to="/decks/plans/get/trip">store trip</Link> picks the fewest
           stores for everything.
         </>,
         <>
@@ -56,8 +56,8 @@ export function BuyHowTo({ open }: { open: boolean }) {
       ]}
       actions={
         <>
-          <Link className="button outline" to="/decks/plan/trip">Plan a store trip</Link>
-          <Link className="button outline" to="/decks/plan/settings#shopping-rules">Your shopping rules</Link>
+          <Link className="button outline" to="/decks/plans/get/trip">Plan a store trip</Link>
+          <Link className="button outline" to="/decks/plans/settings#shopping-rules">Your shopping rules</Link>
         </>
       }
     />

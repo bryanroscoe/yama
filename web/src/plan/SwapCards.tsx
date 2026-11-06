@@ -8,7 +8,7 @@ import "./swapcards.css";
 const PAGE_RULE = "@page { size: letter; margin: 0.25in; }";
 
 /**
- * `/decks/plan/swap-cards`: card-sized bracket swap cards to keep in each deck box, one 2.5 x 3.5
+ * `/decks/plans/get/swap-cards`: card-sized bracket swap cards to keep in each deck box, one 2.5 x 3.5
  * inch card per deck, nine to a US-letter page with cut lines. `?deck=<key>` shows one deck's card.
  * The same cards commander-decks prints (mtg-bracket-swap-cards.html). On screen each card keeps its
  * proportions at a readable size, so what fits on screen fits on paper.
@@ -72,7 +72,7 @@ export function SwapCardsPage() {
         <div className="row">
           <button className="primary" disabled={!cards.length} onClick={() => window.print()}>Print</button>
           {deckKey && deck && <Link to={`/decks/plans/${encodeURIComponent(deck.key)}?tab=brackets`}>Back to {deck.name}</Link>}
-          {deckKey && all.length > 1 && <Link to="/decks/plan/swap-cards">All decks' swap cards</Link>}
+          {deckKey && all.length > 1 && <Link to="/decks/plans/get/swap-cards">All decks' swap cards</Link>}
         </div>
         {overflowing.length > 0 && (
           <p className="error" role="alert">

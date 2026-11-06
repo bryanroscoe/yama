@@ -1,5 +1,6 @@
 import { CardRef } from "../components/CardRef";
 import {
+  inForceBundle,
   boughtInfo,
   fmtDate,
   hassleOrder,
@@ -79,7 +80,7 @@ function printReason(p: PrintRow): string {
   }
 }
 
-/** `/decks/plan/trip`: which of your stores to visit, and what to print instead (docs/shopping-design.md). */
+/** `/decks/plans/get/trip`: which of your stores to visit, and what to print instead (docs/shopping-design.md). */
 export function Trip() {
   const { view, userId } = usePlanOutlet();
   const [params, setParams] = useSearchParams();
@@ -90,7 +91,8 @@ export function Trip() {
   const goingKey = going ? JSON.stringify(going) : null;
   const trip = useMemo(
     () =>
-      planTrip(view.b, {
+      // Only approved plans: one waiting for your OK puts nothing on a trip.
+      planTrip(inForceBundle(view.b, view.planOf, view.answers), {
         today: view.today,
         answers: view.answers,
         bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought),
