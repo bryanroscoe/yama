@@ -24,8 +24,10 @@ const riders = deck("riders", { target: 4, bags: { "3": [{ out: "Rhystic Study",
 
 function page(query: string, decks: PlanDeck[]) {
   const view = {
-    b: { decks, head: { guide_version: 27 }, game_changers: { checked_on: "2026-10-09", source: "test", names: ["Teferi's Protection", "The One Ring", "Smothering Tithe", "Rhystic Study"] } },
+    b: { decks, swaps: [], head: { guide_version: 27 }, game_changers: { checked_on: "2026-10-09", source: "test", names: ["Teferi's Protection", "The One Ring", "Smothering Tithe", "Rhystic Study"] } },
     deck: (key: string) => decks.find((d) => d.key === key),
+    answers: new Map(),
+    planOf: () => ({ state: "in_progress" }),
   } as unknown as PlanView;
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[`/cards${query}`]}><Routes>
