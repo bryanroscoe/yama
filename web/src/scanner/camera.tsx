@@ -34,10 +34,23 @@ export function zoomLevels(caps: CameraCaps): number[] {
   return LEVELS.filter((z) => z <= DIGITAL_MAX);
 }
 
-/** The middle of a w × h frame a digital zoom of `z` shows. */
-export function digitalRegion(w: number, h: number, z: number): { x: number; y: number; w: number; h: number } {
-  const k = Math.max(1, z);
-  return { x: (w - w / k) / 2, y: (h - h / k) / 2, w: w / k, h: h / k };
+/**
+ * The middle of a w × h frame a digital zoom of `z` shows. `view` is the size of the box the video
+ * fills (object-fit: cover, so one axis is already cut): zoomed in, the region is what's on screen.
+ * At 1× the whole frame is used, as before.
+ */
+export function digitalRegion(w: number, h: number, z: number, view?: { width: number; height: number }): { x: number; y: number; w: number; h: number } {
+  if (z <= 1) return { x: 0, y: 0, w, h };
+  let vw = w;
+  let vh = h;
+  if (view && view.width > 0 && view.height > 0) {
+    const s = Math.max(view.width / w, view.height / h);
+    vw = Math.min(w, view.width / s);
+    vh = Math.min(h, view.height / s);
+  }
+  const rw = vw / z;
+  const rh = vh / z;
+  return { x: (w - rw) / 2, y: (h - rh) / 2, w: rw, h: rh };
 }
 
 export function useCameraControls() {
@@ -46,8 +59,18 @@ export function useCameraControls() {
   const [torch, setTorchState] = useState(false);
   const [zoom, setZoomState] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  /** Every setting applied so far, sent together: one applyConstraints can replace the last. */
+  const applied = useRef<Record<string, unknown>>({});
+  const apply = async (t: MediaStreamTrack, patch: Record<string, unknown>) => {
+    const next = { ...applied.current, ...patch };
+    await t.applyConstraints({ advanced: [next as MediaTrackConstraintSet] });
+    applied.current = next;
+  };
   const attach = useCallback((t: MediaStreamTrack | null) => {
     track.current = t;
+    const caps = (t?.getCapabilities?.() ?? {}) as { focusMode?: string[] };
+    // Continuous focus, where offered, goes with every later setting too.
+    applied.current = caps.focusMode?.includes("continuous") ? { focusMode: "continuous" } : {};
     setCaps(t ? readCaps(t) : NO_CAPS);
     setTorchState(false);
     setZoomState(1);
@@ -57,7 +80,7 @@ export function useCameraControls() {
     const t = track.current;
     if (!t) return;
     try {
-      await t.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] });
+      await apply(t, { torch: on });
       setTorchState(on);
       setError(null);
     } catch {
@@ -69,7 +92,7 @@ export function useCameraControls() {
       const t = track.current;
       if (caps.zoom && t) {
         try {
-          await t.applyConstraints({ advanced: [{ zoom: z } as MediaTrackConstraintSet] });
+          await apply(t, { zoom: z });
         } catch {
           setError("The camera didn't zoom");
           return;

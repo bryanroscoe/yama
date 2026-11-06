@@ -114,6 +114,8 @@ interface Found {
   unlocked?: boolean;
   /** The printing the scanner settled by itself, before any change by the person. */
   settledId?: string;
+  /** A printing the text reader already read from the collector line, for settling it again. */
+  known?: { set?: string; number?: string; proven?: boolean };
   /** The part of the frame around the card, for Save scan photos. */
   shot?: Shot | null;
   /** What the scanner first said, when the person corrected it (Wrong card). */
@@ -216,7 +218,8 @@ async function readAt(image: RgbaImage, quad: Quad, reader: { ocr: OcrEngine; ca
 /** What the scanner said, for a kept photo. */
 const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
   guess_name: f.name,
-  guess_scryfall_id: f.settledId ?? f.chosen?.scryfall_id ?? f.art?.id,
+  // Only a printing the scanner settled itself; a tap isn't the scanner's guess.
+  guess_scryfall_id: f.settledId,
   guess_illustration_id: f.art?.illustrationId ?? undefined,
   method: f.method,
   score: f.confidence,
@@ -350,6 +353,7 @@ export function ScannerView({
       return;
     }
     setLockLoading(true);
+    setLockError(null);
     Promise.all(lockCodes.map((c) => lockedSet(c))).then(
       (sets) => {
         if (!live) return;
@@ -367,7 +371,8 @@ export function ScannerView({
       live = false;
     };
   }, [lockCodes, lockOffered]);
-  const lockOn = lockOffered && lock.length > 0 && lock.length === lockCodes.length;
+  // On only once the sets loaded are exactly the sets chosen (not an earlier choice still loaded).
+  const lockOn = lockOffered && lock.length > 0 && !lockError && lock.length === lockCodes.length && lock.every((l, i) => l.code === lockCodes[i]);
   const lockLabel = lock.map((s) => s.code.toUpperCase()).join(", ");
   useEffect(() => {
     if (!lockOn) {
@@ -449,6 +454,11 @@ export function ScannerView({
       textRef.current = null;
     };
   }, [textReader]);
+
+  // A new zoom moves everything in the recognizer's frame: drop the card it was tracking.
+  useEffect(() => {
+    artRef.current?.reset();
+  }, [cam.digital]);
 
   // The locked sets' artworks, for the recognizer to match as well.
   useEffect(() => {
@@ -573,7 +583,8 @@ export function ScannerView({
         method: "art",
         confidence: top.score,
         art: top,
-        others: r.matches.slice(1).filter((m, i, all) => m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i),
+        // Every other match, including the best anywhere when the set lock chose an in-set one.
+        others: [...r.matches, ...(r.pool ?? [])].filter((m, i, all) => m.index !== top.index && m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i),
         options: null,
         sameArt: true,
         chosen: null,
@@ -597,8 +608,12 @@ export function ScannerView({
     (res: ScanResult, shot: Shot | null = null) => {
       const best = res.candidates[0]!;
       const seq = ++foundSeq.current;
+      // The text reader's proof of a printing: set code and number found together with a matching
+      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
+      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
       const f: Found = {
         shot,
+        known: { set: best.set, number: best.number, proven },
         name: best.name,
         method: best.method,
         confidence: best.confidence,
@@ -617,10 +632,7 @@ export function ScannerView({
       setCopies(1);
       setPhase("found");
       buzz(30);
-      // The text reader's proof of a printing: set code and number found together with a matching
-      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
-      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
-      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number, proven });
+      if (!identityOnly) void settle(seq, f, { name: best.name }, null, f.known);
     },
     [identityOnly, settle],
   );
@@ -675,7 +687,8 @@ export function ScannerView({
       try {
         if (mode === "art" && art) {
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
-          const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current);
+          const box = v.closest(".scan-camera")?.getBoundingClientRect();
+          const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
           const { image, k } = smallRegion(v, zone, canvasRef.current);
           const r = await art.identify(image);
           if (stop) return;
@@ -688,7 +701,11 @@ export function ScannerView({
           const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
           // The card just added stays held until it has clearly gone (hold.ts): one missed
           // detection while it's still in view, or on its way out, would add it again.
-          if (blocked.current && artHoldFrame(blocked.current, r.quad && top ? top : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          // The held card still counts as seen when any match names it (with the set lock, the
+          // top match can flip between an in-set and an outside one while the card sits there).
+          const heldIndex = blocked.current?.index;
+          const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
+          if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
             last.current = undefined;
@@ -888,7 +905,7 @@ export function ScannerView({
     const f: Found = { ...found, outside: false, unlocked: true, options: null };
     const seq = ++foundSeq.current;
     setFound(f);
-    void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" ? (f.shot ?? null) : null);
+    void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" ? (f.shot ?? null) : null, f.known);
   };
 
   // Step 2 starts by itself when the printing isn't settled: several share the art and the

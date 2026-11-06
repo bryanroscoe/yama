@@ -119,6 +119,8 @@ describe("camera controls", () => {
     expect(zoomLevels(caps)).toEqual([1, 1.5, 2, 3]);
     expect(digitalRegion(1000, 600, 2)).toEqual({ x: 250, y: 150, w: 500, h: 300 });
     expect(digitalRegion(1000, 600, 1)).toEqual({ x: 0, y: 0, w: 1000, h: 600 });
+    // A portrait screen shows the middle 300 of a 1000 × 600 frame (cover); 2× is half of that.
+    expect(digitalRegion(1000, 600, 2, { width: 300, height: 600 })).toEqual({ x: 425, y: 150, w: 150, h: 300 });
   });
 });
 
@@ -177,6 +179,19 @@ describe("gallery search", () => {
     expect(all[2]!.score).toBeCloseTo(0.65, 3);
     expect(g.search(emb, [0, 2], 1).map((m) => m.index)).toEqual([0]);
     expect(halfToFloat(floatToHalf(0.5))).toBe(0.5);
+  });
+
+  it("reads packed dims too", () => {
+    const gallery = new Uint16Array([floatToHalf(1), floatToHalf(0)]);
+    const packed = (name: string, dims: number[], dataType: number, raw: Uint8Array) => [...field(1, dims.flatMap(varint)), ...num(2, dataType), ...field(8, [...new TextEncoder().encode(name)]), ...field(9, [...raw])];
+    const graph = field(7, [
+      ...field(5, packed("gallery", [1, 2], 10, new Uint8Array(gallery.buffer))),
+      ...field(5, packed("frames", [1, 1], 7, new Uint8Array(new BigInt64Array([0n]).buffer))),
+      ...field(5, packed("penalties", [1], 1, new Uint8Array(new Float32Array([0]).buffer))),
+    ]);
+    const g = readGallery(new Uint8Array(graph));
+    expect([g.count, g.dim]).toEqual([1, 2]);
+    expect(g.search(new Float32Array([0.5, 0]), [0], 1)[0]!.score).toBeCloseTo(0.5, 5);
   });
 
   it("refuses a graph without the gallery", () => {

@@ -59,7 +59,7 @@ export async function encodeShot(shot: Shot): Promise<{ image: string; quad: Qua
   out.width = w;
   out.height = h;
   out.getContext("2d")!.drawImage(source, 0, 0, w, h);
-  const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/jpeg", 0.85));
+  const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/jpeg", 0.8));
   if (!blob) return null;
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let bin = "";

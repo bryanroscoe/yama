@@ -6,7 +6,8 @@
 //! photos the scanner's accuracy work needs: a real eval set first, training data later.
 //!
 //! Private to the account: every query binds the owner, nothing here is shared or sent anywhere,
-//! the account keeps at most [`KEEP`] (oldest go first), and they're deleted with the account
+//! the account keeps at most [`KEEP`] photos and [`KEEP_BYTES`] (oldest go first), uploads are
+//! rate limited per account, and they're deleted with the account
 //! (admin/delete.rs) or on request (`DELETE /api/scan/samples`).
 
 use crate::auth::CurrentUser;
@@ -21,8 +22,10 @@ use serde_json::{json, Value};
 
 /// Most photos kept per account; a new one past this drops the oldest.
 pub const KEEP: i64 = 2000;
-/// Largest photo accepted. The scanner sends at most 640 px on the long side, about 30 to 60 kB.
-const MAX_IMAGE: usize = 256 * 1024;
+/// Most bytes of photos kept per account (they live in the main database); past it the oldest go.
+pub const KEEP_BYTES: i64 = 100 * 1024 * 1024;
+/// Largest photo accepted. The scanner sends at most 640 px on the long side, about 30 to 90 kB.
+const MAX_IMAGE: usize = 160 * 1024;
 const MAX_TEXT: usize = 200;
 
 pub fn router() -> Router<AppState> {
@@ -53,6 +56,7 @@ fn text(v: Option<String>) -> Option<String> {
 }
 
 async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s): Json<NewSample>) -> AppResult<Json<Value>> {
+    st.limits.scan_samples.check_user(&user)?;
     if !matches!(s.kind.as_str(), "added" | "corrected" | "wrong") {
         return Err(AppError::BadRequest("kind is added, corrected or wrong".into()));
     }
@@ -96,13 +100,18 @@ async fn add(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(s)
     .bind(bytes)
     .execute(&mut *tx)
     .await?;
-    // Keep the newest KEEP.
+    // Keep the newest KEEP, and no more than KEEP_BYTES of them.
     sqlx::query(
         "DELETE FROM scan_samples WHERE owner_id = ?1 AND id IN (
-           SELECT id FROM scan_samples WHERE owner_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?2)",
+           SELECT id FROM (
+             SELECT id, ROW_NUMBER() OVER w AS n, SUM(bytes) OVER w AS running
+               FROM scan_samples WHERE owner_id = ?1
+             WINDOW w AS (ORDER BY created_at DESC, rowid DESC ROWS UNBOUNDED PRECEDING))
+           WHERE n > ?2 OR running > ?3)",
     )
     .bind(&user.id)
     .bind(KEEP)
+    .bind(KEEP_BYTES)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -189,6 +198,26 @@ mod tests {
         b["image"] = json!(base64::engine::general_purpose::STANDARD.encode(&big));
         let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&token), Some(b)).await;
         assert!(status == StatusCode::BAD_REQUEST || status == StatusCode::PAYLOAD_TOO_LARGE, "{status}");
+    }
+
+    #[tokio::test]
+    async fn keeps_no_more_than_the_byte_cap() {
+        let (app, pool) = testutil::app().await;
+        let (me, token) = testutil::user(&pool, "me@example.com").await;
+        for (id, at) in [("oldest", "2026-01-01T00:00:00Z"), ("older", "2026-01-02T00:00:00Z")] {
+            sqlx::query("INSERT INTO scan_samples (id, owner_id, created_at, kind, image, bytes) VALUES (?, ?, ?, 'added', x'FFD8FF', ?)")
+                .bind(id)
+                .bind(&me)
+                .bind(at)
+                .bind(KEEP_BYTES / 2)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let (status, _) = testutil::send(&app, Method::POST, "/api/scan/samples", Some(&token), Some(body("added"))).await;
+        assert_eq!(status, StatusCode::OK);
+        let left: Vec<String> = sqlx::query_scalar("SELECT id FROM scan_samples WHERE owner_id = ? AND id LIKE 'old%' ORDER BY id").bind(&me).fetch_all(&pool).await.unwrap();
+        assert_eq!(left, ["older"]);
     }
 
     #[tokio::test]

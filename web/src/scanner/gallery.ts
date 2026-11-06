@@ -7,8 +7,8 @@
 // where `embeddings` holds one vector per frame type (the embed graph's output), `frames_i` is
 // the frame artwork i is printed in, and `penalties` are the bundle's frame and hub penalties;
 // then the top 5. Reading its three tensors lets us do the same over any subset, in plain
-// JavaScript, with the same scores the graph gives (checked in gallery.test.ts and the
-// recognizer eval).
+// JavaScript, with the same scores the graph gives (checked in setlock.test.ts, and against the
+// pinned bundle's graph: docs/scanner.md).
 
 export interface Gallery {
   /** Artworks in the gallery. */
@@ -58,6 +58,24 @@ function* fields(b: Uint8Array, start = 0, end = b.length): Generator<[number, n
   }
 }
 
+/** A packed repeated varint field. */
+function packedVarints(b: Uint8Array, start: number, end: number): number[] {
+  const out: number[] = [];
+  let p = start;
+  while (p < end) {
+    let r = 0;
+    let mul = 1;
+    for (;;) {
+      const x = b[p++]!;
+      r += (x & 127) * mul;
+      if (!(x & 128)) break;
+      mul *= 128;
+    }
+    out.push(r);
+  }
+  return out;
+}
+
 /** The graph's initializers by name (ModelProto.graph = 7, GraphProto.initializer = 5). */
 function initializers(model: Uint8Array): Map<string, Tensor> {
   const out = new Map<string, Tensor>();
@@ -72,7 +90,7 @@ function initializers(model: Uint8Array): Map<string, Tensor> {
       for (const [tf, tw, tv] of fields(model, ts, te)) {
         if (tf === 1) {
           if (tw === 0) t.dims.push(tv as number);
-          else for (const [, , d] of fields(model, ...(tv as [number, number]))) t.dims.push(d as number);
+          else t.dims.push(...packedVarints(model, ...(tv as [number, number])));
         } else if (tf === 2) t.dataType = tv as number;
         else if (tf === 8) t.name = text.decode(model.subarray(...(tv as [number, number])));
         else if (tf === 9) t.raw = model.subarray(...(tv as [number, number]));
