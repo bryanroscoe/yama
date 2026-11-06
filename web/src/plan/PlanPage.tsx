@@ -316,7 +316,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
               Not now: archive this plan
             </button>
           ) : (
-            <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "keep", next.n)}>
+            <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "keep", next.n, next.keys)}>
               Keep version {plan.version}
             </button>
           )}
