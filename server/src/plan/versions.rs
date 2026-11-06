@@ -44,6 +44,9 @@ pub struct Next {
     /// Where it came from: `{kind: "plan_file", app, guide_version, imported_at}` or
     /// `{kind: "note", note, title}` or `{kind: "yama"}`.
     pub source: Value,
+    /// What its changes say (each one's stored content hash, in key order): an approval names it,
+    /// so a change edited after the page loaded is never approved unseen.
+    pub hash: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,7 +114,9 @@ struct SwapRow {
     role: String,
     upgrade: Option<String>,
     import_id: Option<String>,
+    content_hash: Option<String>,
     created_at: String,
+    updated_at: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -139,19 +144,19 @@ fn name_key(name: &str) -> String {
 }
 
 /// The newest decision per live swap key, aliases followed: `want`, `unsure`, `no` or none.
-async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<String>) -> AppResult<HashMap<String, Option<String>>> {
+async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<String>) -> AppResult<HashMap<String, (Option<String>, String)>> {
     let aliases = super::aliases(&mut *conn, owner).await?;
     // The newest answer reaching a key wins, an answer made in Yama on a tie: as the pages read
     // them (core `answerIndex`). Rows come oldest first, so a later one replaces an earlier one.
-    let rows: Vec<(String, Option<String>)> =
-        sqlx::query_as("SELECT swap_key, decision FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
+    let rows: Vec<(String, Option<String>, String)> =
+        sqlx::query_as("SELECT swap_key, decision, at FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
             .bind(owner)
             .fetch_all(&mut *conn)
             .await?;
-    let mut out: HashMap<String, Option<String>> = HashMap::new();
-    for (key, decision) in rows {
+    let mut out: HashMap<String, (Option<String>, String)> = HashMap::new();
+    for (key, decision, at) in rows {
         if let Some(live_key) = super::resolve_key(&key, live, &aliases) {
-            out.insert(live_key, decision);
+            out.insert(live_key, (decision, at));
         }
     }
     Ok(out)
@@ -166,7 +171,7 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
     .fetch_all(&mut *conn)
     .await?;
     let swaps: Vec<SwapRow> = sqlx::query_as(
-        "SELECT ext_key AS key, plan_deck_id, stage, role, upgrade, import_id, created_at
+        "SELECT ext_key AS key, plan_deck_id, stage, role, upgrade, import_id, content_hash, created_at, updated_at
          FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
     )
     .bind(owner)
@@ -227,16 +232,22 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
         let has_version = !approved.is_empty() || implicit;
         let current = approved.iter().max_by_key(|v| v.n);
         let version = current.map(|v| v.n).or(implicit.then_some(1));
-        let decision = |k: &str| answers.get(k).cloned().flatten();
+        // A proposal changed after it was answered (a later plan file or note save edited it under
+        // the same key) is unanswered again: its new content waits for your OK as a new version,
+        // and the old answer doesn't approve what you never saw.
+        let decision = |sw: &SwapRow| match answers.get(&sw.key) {
+            Some((d, at)) if sw.stage != "proposed" || sw.updated_at.as_str() <= at.as_str() => d.clone(),
+            _ => None,
+        };
         let proposals: Vec<&&SwapRow> = mine.iter().filter(|s| s.stage == "proposed").collect();
         let (keys, skipped): (Vec<String>, Vec<String>) = if has_version {
             // A new version: proposals nobody has answered (or answered "unsure").
-            (proposals.iter().filter(|s| matches!(decision(&s.key).as_deref(), None | Some("unsure"))).map(|s| s.key.clone()).collect(), vec![])
+            (proposals.iter().filter(|s| matches!(decision(s).as_deref(), None | Some("unsure"))).map(|s| s.key.clone()).collect(), vec![])
         } else {
             // The first version: every proposal, the ones you said no to already skipped.
             (
                 proposals.iter().map(|s| s.key.clone()).collect(),
-                proposals.iter().filter(|s| decision(&s.key).as_deref() == Some("no")).map(|s| s.key.clone()).collect(),
+                proposals.iter().filter(|s| decision(s).as_deref() == Some("no")).map(|s| s.key.clone()).collect(),
             )
         };
         let top = top_by_name.get(&name_key(&d.name)).copied().unwrap_or(0).max(version.unwrap_or(0));
@@ -249,12 +260,14 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
                 (None, "import") => import.and_then(|i| imports.get(i)).cloned().unwrap_or(json!({"kind": "plan_file"})),
                 _ => json!({"kind": "yama"}),
             };
-            Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source }
+            let parts: Vec<String> = first.iter().map(|s| format!("{}={}", s.key, s.content_hash.as_deref().unwrap_or(&s.updated_at))).collect();
+            let hash = crate::util::sha256_hex(&parts.join("\n"))[..16].to_string();
+            Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source, hash }
         });
         // The plan in force: planned swaps and approved proposals.
         let in_plan: Vec<&&SwapRow> = mine
             .iter()
-            .filter(|s| s.role == "swap" && (s.stage == "planned" || (has_version && decision(&s.key).as_deref() == Some("want"))))
+            .filter(|s| s.role == "swap" && (s.stage == "planned" || (has_version && decision(s).as_deref() == Some("want"))))
             .collect();
         let installed = in_plan
             .iter()
@@ -328,6 +341,8 @@ pub struct PlanOp {
     pub version: Option<i64>,
     pub keys: Vec<String>,
     pub skip: Vec<String>,
+    /// The waiting version's `hash` as the page or the staged change saw it.
+    pub hash: Option<String>,
     /// (question, answer)
     pub answers: Vec<(String, String)>,
 }
@@ -496,6 +511,9 @@ pub async fn apply(conn: &mut SqliteConnection, owner: &str, deck_key: &str, op:
             let Some(next) = plan.next.clone() else { return Ok(Err("Nothing in this plan is waiting for your OK.".into())) };
             if op.version != Some(next.n) {
                 return Ok(Err(format!("The plan changed since you opened it: version {} is waiting now. Reload it and look again.", next.n)));
+            }
+            if op.hash.as_deref() != Some(next.hash.as_str()) {
+                return Ok(Err("A change in this plan was edited since you opened it. Reload it and look again.".into()));
             }
             if op.action == "keep" && plan.version.is_none() {
                 return Ok(Err("There's no earlier version to keep. Archive the plan instead.".into()));

@@ -18,7 +18,15 @@ fn deck<'a>(b: &'a Value, key: &str) -> &'a Value {
     b["decks"].as_array().unwrap().iter().find(|d| d["key"] == key).unwrap()
 }
 
-async fn ops(app: &Router, token: &str, ops: Value) -> Value {
+/// Post ops; an approve or keep without a hash gets the waiting version's, as the page sends it.
+async fn ops(app: &Router, token: &str, mut ops: Value) -> Value {
+    for op in ops.as_array_mut().unwrap() {
+        if op["kind"] == "plan" && (op["action"] == "approve" || op["action"] == "keep") && op.get("hash").is_none() {
+            let b = bundle(app, token).await;
+            let h = deck(&b, op["deck_key"].as_str().unwrap())["plan"]["next"]["hash"].clone();
+            op["hash"] = if h.is_null() { json!("none") } else { h };
+        }
+    }
     let (status, r) = send(app, Method::POST, "/api/plan/inputs", Some(token), Some(ops)).await;
     assert_eq!(status, StatusCode::OK, "{r}");
     r
@@ -26,7 +34,7 @@ async fn ops(app: &Router, token: &str, ops: Value) -> Value {
 
 fn plan_op(id: &str, deck: &str, action: &str, version: i64, keys: &[&str], skip: &[&str], answers: Value) -> Value {
     json!({"op_id": id, "kind": "plan", "deck_key": deck, "action": action, "version": version, "keys": keys, "skip": skip,
-           "answers": answers, "at": "2026-11-06T10:00:00Z"})
+           "answers": answers, "at": crate::util::now()})
 }
 
 async fn decision(pool: &SqlitePool, owner: &str, key: &str) -> Option<String> {
@@ -192,4 +200,34 @@ async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
     let (d, note): (Option<String>, Option<String>) =
         sqlx::query_as("SELECT decision, note FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).fetch_one(&pool).await.unwrap();
     assert_eq!((d.as_deref(), note.as_deref()), (Some("unsure"), Some("Only if cheap")));
+}
+
+#[tokio::test]
+async fn a_change_edited_after_you_looked_is_never_approved_unseen() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let seen = deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["hash"].as_str().unwrap().to_string();
+    // The plan file edits beta-1's cut under the same key.
+    let mut d = doc_with_beta_plan();
+    swap_mut(&mut d, "beta-1")["why"] = json!("Even faster");
+    import(&app, &token, &d).await;
+    let mut op = plan_op("h1", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]));
+    op["hash"] = json!(seen);
+    let r = ops(&app, &token, json!([op])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    assert!(r["results"][0]["error"].as_str().unwrap().contains("edited since you opened it"), "{r}");
+
+    // Approved, then edited again: the change waits as a new version and leaves the plan in force.
+    let r = ops(&app, &token, json!([plan_op("h2", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    sqlx::query("UPDATE plan_swaps SET why = 'Edited', updated_at = '2099-01-01T00:00:00Z' WHERE owner_id = ? AND ext_key = 'beta-1'")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE plan_meta SET revision = revision + 1 WHERE owner_id = ?").bind(&owner).execute(&pool).await.unwrap();
+    let b = bundle(&app, &token).await;
+    let beta = &deck(&b, "beta")["plan"];
+    assert_eq!(beta["next"]["keys"], json!(["beta-1"]), "{beta}");
+    assert_eq!(beta["changes"], 1, "only beta-2 is in force: {beta}");
 }

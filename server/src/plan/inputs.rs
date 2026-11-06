@@ -245,6 +245,10 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
                 }
             };
             let (included, skip) = (keys("keys")?, keys("skip")?);
+            let hash = text(op, "hash", 64)?;
+            if hash.is_none() && ["approve", "keep"].contains(&action.as_str()) {
+                return Err("hash: missing; the waiting version's hash as you saw it".into());
+            }
             let answers: Vec<(String, String)> = match field(op, "answers") {
                 None => vec![],
                 Some(Value::Array(a)) if a.len() > 50 => return Err("answers: at most 50".into()),
@@ -262,10 +266,10 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
                 Some(other) => return Err(format!("answers: expected a list of {{question, answer}}, got {other}")),
             };
             let record = json!({
-                "action": action, "version": version, "keys": included, "skip": skip,
+                "action": action, "version": version, "keys": included, "skip": skip, "hash": hash,
                 "answers": answers.iter().map(|(q, a)| json!({"question": q, "answer": a})).collect::<Vec<_>>(),
             });
-            let plan = super::versions::PlanOp { action, version, keys: included, skip, answers };
+            let plan = super::versions::PlanOp { action, version, keys: included, skip, hash, answers };
             return Ok(Parsed { kind, swap_key: None, deck_key, device_id, record, plan: Some(plan) });
         }
         _ => {

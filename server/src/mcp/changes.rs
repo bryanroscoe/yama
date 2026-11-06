@@ -905,7 +905,7 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
             kind: "approve_plan",
             summary,
             detail,
-            payload: json!({"deck_key": key, "deck": name, "action": action, "version": next.n, "keys": keys, "skip": skip, "answers": answers}),
+            payload: json!({"deck_key": key, "deck": name, "action": action, "version": next.n, "keys": keys, "skip": skip, "answers": answers, "hash": next.hash}),
         },
     )
     .await
@@ -915,7 +915,7 @@ async fn apply_approve_plan(st: &AppState, user: &User, id: &str, p: &Value) -> 
     let at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let op = json!({
         "op_id": format!("{DEVICE}-{id}"), "device_id": DEVICE, "at": at, "kind": "plan", "deck_key": p["deck_key"],
-        "action": p["action"], "version": p["version"], "keys": p["keys"], "skip": p["skip"], "answers": p["answers"],
+        "action": p["action"], "version": p["version"], "keys": p["keys"], "skip": p["skip"], "answers": p["answers"], "hash": p["hash"],
     });
     let reply = crate::plan::inputs::apply_ops(&st.pool, &user.id, vec![op], Utc::now()).await?;
     let r = reply.results.first().ok_or_else(|| anyhow::anyhow!("the planner returned no result"))?;
