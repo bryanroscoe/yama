@@ -765,7 +765,7 @@ export function ScannerView({
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
-        if (!stop && handleText(res, false, true)) return;
+        if (!stop && handleText(res, false, true, { image, quad: res.quad })) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
         next(250);
       } catch (err) {
@@ -800,7 +800,7 @@ export function ScannerView({
         const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
         const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
         if (r.quad && top && top.score >= LOCK_TWICE) {
-          const read = identityOnly ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          const read = identityOnly && !savingPhotos() ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
           bmp.close();
           if (current()) showArt(r, top, read);
           return;
@@ -812,7 +812,7 @@ export function ScannerView({
           const res = await readAt(hi.image, hi.quad, reader);
           if ((res.candidates[0]?.confidence ?? 0) >= SURE) {
             bmp.close();
-            if (current()) handleText(res, true);
+            if (current()) handleText(res, true, false, hi);
             return;
           }
         }
@@ -834,7 +834,7 @@ export function ScannerView({
         if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
       }
       if (!current()) return;
-      if (!res || !handleText(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
+      if (!res || !handleText(res, true, false, { image, quad: res.quad })) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
     } catch (err) {
       if (current()) setStatus(err instanceof Error ? err.message : String(err));
     } finally {
