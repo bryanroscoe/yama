@@ -68,7 +68,8 @@ export function PlanLayout() {
 
   // A plan deck's page opens on full-bleed commander art, like a deck's page.
   const deckMatch = useMatch("/decks/plans/:key");
-  const deckPage = !!deckMatch && !["archived", "get", "settings"].includes(deckMatch.params.key ?? "");
+  const reservedMatch = useMatch("/decks/plans/d/:key");
+  const deckPage = !!reservedMatch || (!!deckMatch && !["archived", "get", "settings"].includes(deckMatch.params.key ?? ""));
   const banner = plan.offline && (
     <p className="plan-banner small" role="status">
       No connection. This is the copy of your plans saved on this device{plan.bundle?.head ? `, imported ${fmtDate(plan.bundle.head.imported_at)}` : ""}.

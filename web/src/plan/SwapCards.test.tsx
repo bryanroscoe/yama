@@ -57,7 +57,7 @@ describe("bracket swap cards page", () => {
     const html = page("?deck=lorehold", [lorehold, riders]);
     expect(html).toContain("<h1>Lorehold deck swap card</h1>");
     expect(html.match(/class="sc-card"/g)).toHaveLength(1);
-    expect(html).toContain('href="/decks/plans/lorehold?tab=brackets"');
+    expect(html).toContain('href="/decks/plans/lorehold"');
     expect(html).toContain('href="/decks/plans/get/swap-cards"');
     expect(html).not.toContain("Riders deck");
   });

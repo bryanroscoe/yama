@@ -22,8 +22,8 @@ import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
 import "./plans.css";
 
-/** A deck plan's page. */
-export const planHref = (key: string) => `/decks/plans/${encodeURIComponent(key)}`;
+import { planHref } from "./href";
+export { planHref } from "./href";
 
 interface Row {
   deck: PlanDeck;

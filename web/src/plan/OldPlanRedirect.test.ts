@@ -8,6 +8,8 @@ describe("old plan addresses", () => {
     expect(planPath("/decks/plan/review")).toBe("/decks/plans");
     expect(planPath("/decks/plan/settings")).toBe("/decks/plans/settings");
     expect(planPath("/decks/plan/d/riders-of-rohan")).toBe("/decks/plans/riders-of-rohan");
+    // A plan called like a page under Plans keeps its own address.
+    expect(planPath("/decks/plan/d/get")).toBe("/decks/plans/d/get");
     expect(planPath("/decks/research/commander-audit-2026-10-27")).toBe("/decks/plans/archived/commander-audit-2026-10-27");
     expect(planPath("/decks/research/audit/blight-curse")).toBe("/decks/plans/archived/audit/blight-curse");
   });

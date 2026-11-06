@@ -23,7 +23,7 @@ export function planPath(pathname: string): string | null {
   };
   if (moved[p]) return moved[p];
   const deck = /^\/decks\/plan\/d\/([^/]+)$/.exec(p);
-  if (deck) return `/decks/plans/${deck[1]}`;
+  if (deck) return ["get", "settings", "archived", "d"].includes(decodeURIComponent(deck[1]!)) ? `/decks/plans/d/${deck[1]}` : `/decks/plans/${deck[1]}`;
   const note = /^\/decks\/research\/([^/]+)(\/[^/]+)?$/.exec(p);
   if (note) return `/decks/plans/archived/${note[1]}${note[2] ?? ""}`;
   return null;

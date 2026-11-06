@@ -233,7 +233,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
     let derived = derive(&mut *conn, owner, &plan_id, &req.note_id, &title, &req.deck_key, deck, build, &stamp).await?;
     bump(&mut *conn, owner, &stamp).await?;
     let result = Tracked {
-        link: format!("/decks/plans/{key}"),
+        link: super::page_link(&key),
         plan_deck_key: key,
         name,
         note_id: req.note_id.clone(),

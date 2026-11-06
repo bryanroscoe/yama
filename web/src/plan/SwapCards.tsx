@@ -1,3 +1,4 @@
+import { planHref } from "./href";
 import { inForceBundle, swapCard, swapCardPages, swapCards, type SwapCard } from "@yama/core/plan";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -74,7 +75,7 @@ export function SwapCardsPage() {
         </p>
         <div className="row">
           <button className="primary" disabled={!cards.length} onClick={() => window.print()}>Print</button>
-          {deckKey && deck && <Link to={`/decks/plans/${encodeURIComponent(deck.key)}?tab=brackets`}>Back to {deck.name}</Link>}
+          {deckKey && deck && <Link to={planHref(deck.key)}>Back to {deck.name}</Link>}
           {deckKey && all.length > 1 && <Link to="/decks/plans/get/swap-cards">All decks' swap cards</Link>}
         </div>
         {overflowing.length > 0 && (

@@ -94,7 +94,8 @@ export function Trip() {
   const trip = useMemo(
     () =>
       // Only approved plans: one waiting for your OK puts nothing on a trip.
-      planTrip(inForceBundle(view.b, view.planOf, view.answers, deckFilter), {
+      // One deck's trip has only its plan's buys: no hand-added wants or wishlist.
+      planTrip({ ...inForceBundle(view.b, view.planOf, view.answers, deckFilter), ...(deckFilter ? { shopping_wants: [], wishlist: [] } : {}) }, {
         today: view.today,
         answers: view.answers,
         bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought),

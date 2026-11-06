@@ -271,6 +271,8 @@ export function App() {
             <Route path="get/swap-sheet" element={<SwapSheetPage />} />
             <Route path="get/swap-cards" element={<SwapCardsPage />} />
             <Route path=":key" element={<PlanPage />} />
+            {/* A plan whose key is a page's name above (get, settings, archived). */}
+            <Route path="d/:key" element={<PlanPage />} />
           </Route>
           {/* Old Plans addresses (until 2026-11-06): each opens its new home, none 404s. */}
           <Route path="decks/plan/*" element={<OldPlanRedirect />} />

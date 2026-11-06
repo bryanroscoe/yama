@@ -1,3 +1,4 @@
+import { planHref } from "../plan/href";
 import { fmtDate, installedState, localBuyRule, rulesAt, type PlanDeck, type RuleSet, type Swap } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -87,7 +88,7 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
     onSuccess: async (r) => {
       setResult(r);
       await refresh();
-      if (!r.warnings.length) navigate(`/decks/plans/${encodeURIComponent(r.plan_deck_key)}`);
+      if (!r.warnings.length) navigate(planHref(r.plan_deck_key));
     },
   });
   if (!ready) {
@@ -107,7 +108,7 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
       {thisBuild ? (
         <div className="row">
           <span>This build is {tracked.name}'s plan now.</span>
-          <Link className="button primary" to={`/decks/plans/${encodeURIComponent(tracked.key)}`}>Open the plan</Link>
+          <Link className="button primary" to={planHref(tracked.key)}>Open the plan</Link>
         </div>
       ) : (
         <div className="row">
@@ -125,7 +126,7 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
               <li key={w}>{w}</li>
             ))}
           </ul>
-          <Link to={`/decks/plans/${encodeURIComponent(result.plan_deck_key)}`}>Open the plan waiting for your OK</Link>
+          <Link to={planHref(result.plan_deck_key)}>Open the plan waiting for your OK</Link>
         </>
       )}
       {conflictText(use.error) ? <p className="small warn" role="alert">{conflictText(use.error)}</p> : <ErrorText error={use.error} />}

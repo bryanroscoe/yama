@@ -155,6 +155,12 @@ async fn bundle_route(State(st): State<AppState>, CurrentUser(user): CurrentUser
     Ok(Json(bundle::load_bundle(&st.pool, &user.id).await?))
 }
 
+/// A plan's page in the app: `/decks/plans/<key>`, or `/decks/plans/d/<key>` for a key that is the
+/// name of a page under Plans (web/src/plan/href.ts).
+pub fn page_link(key: &str) -> String {
+    if ["get", "settings", "archived", "d"].contains(&key) { format!("/decks/plans/d/{key}") } else { format!("/decks/plans/{key}") }
+}
+
 /// One of the owner's plan decks by key: (id, source, status). Anyone else's key is a 404.
 pub async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<(String, String, String)> {
     sqlx::query_as("SELECT id, source, status FROM plan_decks WHERE owner_id = ? AND key = ?")
