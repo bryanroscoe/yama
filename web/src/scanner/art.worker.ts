@@ -5,7 +5,7 @@
 
 import * as ort from "onnxruntime-web/wasm";
 import wasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
-import { createRecognizer, parseArts, type BundleConstants, type OrtLike, type Recognizer } from "./recognizer";
+import { createRecognizer, parseArts, poolIndices, type Art, type BundleConstants, type OrtLike, type Recognizer } from "./recognizer";
 import type { ArtWorkerReply, ArtWorkerRequest, BundleInfo } from "./artClient";
 
 /** Also listed in public/sw.js, so the service worker's clean-up keeps it. */
@@ -16,6 +16,7 @@ ort.env.wasm.numThreads = 1;
 ort.env.logLevel = "warning";
 
 let recognizer: Recognizer | null = null;
+let arts: Art[] = [];
 const reply = (m: ArtWorkerReply, transfer: Transferable[] = []) => (self as DedicatedWorkerGlobalScope).postMessage(m, transfer);
 
 /** A file from the cache, or downloaded (with progress) and cached. */
@@ -86,10 +87,11 @@ async function load(info: BundleInfo, base: string) {
       report();
     });
   };
-  const [runtime, detector, embed, search, arts] = await Promise.all([get("runtime"), get("detector"), get("embed"), get("search"), get("arts")]);
+  const [runtime, detector, embed, search, artsFile] = await Promise.all([get("runtime"), get("detector"), get("embed"), get("search"), get("arts")]);
   ort.env.wasm.wasmBinary = runtime;
-  const gallery = parseArts(JSON.parse(new TextDecoder().decode(arts)));
+  const gallery = parseArts(JSON.parse(new TextDecoder().decode(artsFile)));
   recognizer = await createRecognizer(ort as unknown as OrtLike, { detector, embed, search }, info.constants as unknown as BundleConstants, gallery);
+  arts = gallery;
   reply({ type: "ready", ms: performance.now() - t0, arts: gallery.length });
 }
 
@@ -98,6 +100,12 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
   try {
     if (m.type === "load") await load(m.info, m.base);
     else if (m.type === "reset") recognizer?.reset();
+    else if (m.type === "pool") {
+      if (!recognizer) throw new Error("The card recognizer isn't loaded");
+      const indices = m.keys ? poolIndices(arts, m.keys) : null;
+      const ok = recognizer.setPool(indices);
+      reply({ type: "pooled", id: m.id, arts: ok ? (indices?.length ?? 0) : -1 });
+    }
     else if (m.type === "identify") {
       if (!recognizer) throw new Error("The card recognizer isn't loaded");
       const result = await recognizer.identify({ width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) });
@@ -106,6 +114,7 @@ self.onmessage = async (event: MessageEvent<ArtWorkerRequest>) => {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (m.type === "identify") reply({ type: "failed", id: m.id, message, buffer: m.buffer }, [m.buffer]);
+    else if (m.type === "pool") reply({ type: "pooled", id: m.id, arts: -1 });
     else reply({ type: "error", message });
   }
 };

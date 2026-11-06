@@ -4,7 +4,7 @@
 //! **What goes.** Every row the account owns: sessions, script keys, OAuth connections (grants,
 //! their tokens and codes), its invite, decks and their
 //! versions and checks, the collection and containers, synced ops, plans (every `plan_*` table),
-//! lab runs, experiments and usage, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
+//! lab runs, experiments and usage, scan photos, advisor keys, settings, conversations, usage and its shared-key grant, online-play settings, calendar
 //! watches, records of table games it deleted, "View as" sessions of it or by it (the audit rows go too), and the account itself. Its watched games stop, any live online game it is in
 //! ends, and its shared-table sockets close (tables it hosts end for their guests).
 //!
@@ -95,6 +95,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("research_reports", "owner_id"),
     ("research_review_ops", "owner_id"),
     ("research_reviews", "owner_id"),
+    ("scan_samples", "owner_id"),
     ("sealed_quote_ids", "owner_id"),
     ("sealed_quotes", "owner_id"),
     ("sell_offers", "owner_id"),
@@ -132,6 +133,8 @@ const OWNED_DELETES: &[(&str, &str)] = &[
     ("oauth_grants", "user_id"),
     ("calendar_watches", "user_id"),
     ("deleted_games", "deleted_by"),
+    // Scan photos it kept for improving the scanner.
+    ("scan_samples", "owner_id"),
     // Online play: saved stops and full control.
     ("play_prefs", "user_id"),
     ("assistant_changes", "owner_id"),

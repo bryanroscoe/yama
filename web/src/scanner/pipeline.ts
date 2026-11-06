@@ -13,6 +13,11 @@ import type { CatalogPrinting, Gray, OcrEngine, OcrResult, Quad, RgbaImage, Scan
 
 /** Bottom-left collector block (two lines) on 2015+ frames, with room for a misaligned card. */
 export const COLLECTOR_REGION: CardRegion = { x0: 0.03, y0: 0.91, x1: 0.5, y1: 0.99 };
+/**
+ * The same corner cut wider and down to the card's edge: the detector's corners can sit a little
+ * inside the card, and on borderless and older frames the line runs lower or further right.
+ */
+export const WIDE_COLLECTOR_REGION: CardRegion = { x0: 0.01, y0: 0.88, x1: 0.62, y1: 1 };
 /** Title bar, stopping before most mana costs. The text band inside is found per crop. */
 export const NAME_REGION: CardRegion = { x0: 0.05, y0: 0.03, x1: 0.8, y1: 0.125 };
 /** Tighter title crop, tried when the first read matched nothing (busy old frames). */
@@ -128,10 +133,25 @@ export async function decide(collectorText: string, nameText: string, opts: Pick
  * The quad is snapped to the card's edges first when they are clear.
  */
 export async function readCollectorLine(frame: RgbaImage, quad: Quad, ocr: OcrEngine): Promise<string> {
+  for await (const text of readCollectorLines(frame, quad, ocr)) return text;
+  return "";
+}
+
+/**
+ * Reads of the collector line, one crop at a time, for a caller that stops at the first read that
+ * settles the printing: the usual corner at the card's snapped edges, then at the detector's own
+ * corners (when snapping moved them), then the corner cut wider, to the card's edge, with no band
+ * clean-up (a line at the very edge, or a frame that puts it lower).
+ */
+export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine): AsyncGenerator<string> {
   const gray = toGray(frame);
-  const q = refineQuad(gray, quad) ?? quad;
-  const res = await ocr.read(crop(gray, q, COLLECTOR_REGION, COLLECTOR_DENSITY, false), { mode: "block", whitelist: COLLECTOR_WHITELIST });
-  return res.text;
+  const refined = refineQuad(gray, quad);
+  const q = refined ?? quad;
+  const read = async (at: Quad, region: CardRegion, pad: number) =>
+    (await ocr.read(prepareText(warpRegion(gray, at, region, Math.round(((region.x1 - region.x0) * COLLECTOR_DENSITY * 63) / 88), Math.round((region.y1 - region.y0) * COLLECTOR_DENSITY)), pad), { mode: "block", whitelist: COLLECTOR_WHITELIST })).text;
+  yield await read(q, COLLECTOR_REGION, 12);
+  if (refined) yield await read(quad, COLLECTOR_REGION, 12);
+  yield await read(q, WIDE_COLLECTOR_REGION, 16);
 }
 
 /**

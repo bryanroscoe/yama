@@ -38,6 +38,7 @@ mod public_precons;
 mod privacy_tests;
 mod routes;
 mod scan;
+mod scan_samples;
 mod sell;
 mod sharing;
 #[cfg(test)]

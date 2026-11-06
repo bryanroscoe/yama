@@ -415,3 +415,146 @@ button.scan-count {
   align-items: end;
   gap: 8px 12px;
 }
+/* Digital zoom: the video and the card outline are enlarged together, around the middle. */
+.scan-zoom {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  transition: transform 0.15s;
+}
+/* Flashlight and zoom, down the right side of the camera. */
+.scan-tools {
+  position: absolute;
+  right: 14px;
+  top: calc(max(14px, env(safe-area-inset-top)) + 52px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.scan .scan-tool {
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.scan .scan-tool:disabled {
+  opacity: 0.4;
+}
+.scan .scan-tool.is-on {
+  background: #fff;
+  color: #000;
+}
+.scan-zoom-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: rgb(0 0 0 / 0.35);
+}
+.scan-zoom-level {
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: #fff;
+}
+.scan-tool-error {
+  max-width: 8rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-size: var(--t-sm);
+  text-align: right;
+}
+/* The set lock, at the top of the camera: "Any set", or the sets it's locked to. */
+.scan .scan-lock {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 200px);
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: var(--t-label);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scan .scan-lock.is-on {
+  background: #fff;
+  color: #000;
+}
+.scan-lock-chosen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.scan-lock-chosen li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: var(--t-label);
+}
+.scan-lock-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-sm);
+}
+.scan-lock-search input {
+  width: 100%;
+  background: var(--ground);
+  color: var(--text);
+}
+.scan-lock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+.scan .scan-lock-set {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 700;
+  text-align: left;
+}
+.scan .scan-lock-set .dim {
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+/* Skip and Add share the row; "Wrong card?" sits under them. */
+.scan .scan-buttons .scan-alt {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 0;
+}
+.scan-keep label {
+  font-weight: 400;
+}
