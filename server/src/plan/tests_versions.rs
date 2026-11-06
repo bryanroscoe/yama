@@ -123,7 +123,7 @@ async fn open_questions_need_answers_and_undo_restores() {
     assert_eq!(b["versions"], json!([]));
 
     // Keep version 1 instead: every proposal is a no, and nothing waits.
-    let r = ops(&app, &token, json!([plan_op("q4", "alpha", "keep", 2, &[], &[], json!([]))])).await;
+    let r = ops(&app, &token, json!([plan_op("q4", "alpha", "keep", 2, &keys, &[], json!([]))])).await;
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
     assert_eq!(decision(&pool, &owner, "alpha-owned").await.as_deref(), Some("no"));
     let b = bundle(&app, &token).await;

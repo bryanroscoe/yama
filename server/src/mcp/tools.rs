@@ -1200,12 +1200,12 @@ async fn note_plans(pool: &SqlitePool, owner: &str, only: Option<&str>) -> AppRe
         }
         if out.is_empty() {
             out.push_str(match only {
-                None => "\nTheir notes, the content of their deck plans (`research` reads one; `track_build` makes one build a deck's tracked plan):\n",
-                Some(_) => "Not tracked yet. This deck is in their notes; `research` reads its builds and `track_build` makes one its plan:\n",
+                None => "\nTheir notes, archived plans kept for reference (`research` reads one; `track_build` makes one build a deck's next plan version, waiting for their OK):\n",
+                Some(_) => "Not a plan yet. This deck is in their notes; `research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n",
             });
         }
         if note_seen != id {
-            let _ = writeln!(out, "- {title} (note id {id}, revision {revision}): /decks/research/{id}");
+            let _ = writeln!(out, "- {title} (note id {id}, revision {revision}): /decks/plans/archived/{id}");
             note_seen.clone_from(&id);
         }
         let builds: Vec<Value> = serde_json::from_str(&builds).unwrap_or_default();
