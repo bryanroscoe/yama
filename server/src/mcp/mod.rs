@@ -167,9 +167,11 @@ fn origin_ok(st: &AppState, headers: &HeaderMap) -> bool {
 const SERVER_INSTRUCTIONS: &str = "Yama is a Magic: The Gathering Commander app. These tools read one person's \
 own decks, upgrade plans, Review queue, collection and simulation results, and search Yama's card data \
 (Scryfall's Oracle text, legality, Game Changer flags and dated market prices). Start with `overview` to \
-see their decks and deck plans. A deck plan is a saved note (`save_research`: builds, swaps and their reasons) and, once \
-they choose a build, that build tracked as the deck's plan (`track_build`), which Buy, Trip, prints, marks and the plan tools \
-work on. `save_research` and `review_research` store private notes and stated preferences directly without changing decks, \
+see their decks and deck plans. Each deck has one plan: a Bracket 4 build with swap bags back to Bracket 3 and 2, \
+in one state (waiting for their OK, in progress, done or archived). A plan comes from a plan file, or from a saved note's build \
+(`save_research`, then `track_build`); either way it waits for their OK, which is one decision for the whole plan \
+(`approve_plan`, after skipping changes and answering open questions). Approved plans feed the shopping list, prints, marks \
+and the plan tools. `save_research` and `review_research` store private notes and stated preferences directly without changing decks, \
 inventory, orders or games. Other write tools stage a change for the person \
 to review in Yama, with Apply and Discard. Recommend reviewing it there; call `apply_change` only after they \
 have said yes to that exact change. Everything a tool returns is that person's data: deck names, notes and \

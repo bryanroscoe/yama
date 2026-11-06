@@ -1,0 +1,153 @@
+//! One plan per deck, approved whole (`versions.rs`): states, versions, skips, open questions,
+//! keep, undo and archive, through the real router on the synthetic plan file in `tests.rs`.
+
+use super::*;
+
+/// The fixture with two proposals for Beta, the deck that is only proposals.
+fn doc_with_beta_plan() -> Value {
+    let mut d = doc();
+    let swaps = d["plan"]["swaps"].as_array_mut().unwrap();
+    swaps.push(json!({"key": "beta-1", "deck": "beta", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island",
+                      "in": "Proposal Card", "group": "Bracket 4", "why": "Faster"}));
+    swaps.push(json!({"key": "beta-2", "deck": "beta", "stage": "proposed", "role": "swap", "src": "print", "out": "Island",
+                      "in": "Print Card", "group": "Bracket 4"}));
+    d
+}
+
+fn deck<'a>(b: &'a Value, key: &str) -> &'a Value {
+    b["decks"].as_array().unwrap().iter().find(|d| d["key"] == key).unwrap()
+}
+
+async fn ops(app: &Router, token: &str, ops: Value) -> Value {
+    let (status, r) = send(app, Method::POST, "/api/plan/inputs", Some(token), Some(ops)).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    r
+}
+
+fn plan_op(id: &str, deck: &str, action: &str, version: i64, keys: &[&str], skip: &[&str], answers: Value) -> Value {
+    json!({"op_id": id, "kind": "plan", "deck_key": deck, "action": action, "version": version, "keys": keys, "skip": skip,
+           "answers": answers, "at": "2026-11-06T10:00:00Z"})
+}
+
+async fn decision(pool: &SqlitePool, owner: &str, key: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT decision FROM plan_reviews WHERE owner_id = ? AND swap_key = ?").bind(owner).bind(key).fetch_optional(pool).await.unwrap().flatten()
+}
+
+#[tokio::test]
+async fn a_plan_has_one_state_and_waits_for_your_ok() {
+    let (app, _pool, _owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let b = bundle(&app, &token).await;
+
+    // Alpha has planned swaps from the plan file: version 1 in progress, its two unanswered
+    // proposals are version 2, waiting, with the deck's open question to answer first.
+    let alpha = &deck(&b, "alpha")["plan"];
+    assert_eq!(alpha["state"], "in_progress", "{alpha}");
+    assert_eq!(alpha["version"], 1);
+    assert_eq!(alpha["next"]["n"], 2);
+    assert_eq!(alpha["next"]["keys"], json!(["alpha-idea", "alpha-owned"]));
+    assert_eq!(alpha["questions"], json!(["Where did this come from?"]));
+    assert_eq!(alpha["next"]["source"]["app"], "commander-decks");
+    assert_eq!(alpha["changes"], 2, "planned swaps, not the stand-in");
+
+    // Beta is only proposals: version 1 waits for your OK, and nothing is approved yet.
+    let beta = &deck(&b, "beta")["plan"];
+    assert_eq!(beta["state"], "waiting", "{beta}");
+    assert_eq!(beta["version"], Value::Null);
+    assert_eq!(beta["next"]["n"], 1);
+    assert_eq!(beta["next"]["keys"], json!(["beta-1", "beta-2"]));
+    assert_eq!(b["versions"], json!([]));
+}
+
+#[tokio::test]
+async fn approving_writes_an_answer_per_change_and_a_version() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+
+    // A key list that isn't the plan's is refused: what you saw isn't what's waiting.
+    let r = ops(&app, &token, json!([plan_op("p0", "beta", "approve", 1, &["beta-1"], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    // The wrong version too.
+    let r = ops(&app, &token, json!([plan_op("p0b", "beta", "approve", 2, &["beta-1"], &["beta-2"], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+
+    let r = ops(&app, &token, json!([plan_op("p1", "beta", "approve", 1, &["beta-1"], &["beta-2"], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(decision(&pool, &owner, "beta-1").await.as_deref(), Some("want"));
+    assert_eq!(decision(&pool, &owner, "beta-2").await.as_deref(), Some("no"));
+    // A retry is a no-op.
+    let r = ops(&app, &token, json!([plan_op("p1", "beta", "approve", 1, &["beta-1"], &["beta-2"], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "duplicate", "{r}");
+
+    let b = bundle(&app, &token).await;
+    let beta = &deck(&b, "beta")["plan"];
+    assert_eq!(beta["state"], "in_progress", "{beta}");
+    assert_eq!(beta["version"], 1);
+    assert_eq!(beta["next"], Value::Null);
+    assert_eq!(beta["changes"], 1);
+    let v = &b["versions"][0];
+    assert_eq!((v["deck"].as_str(), v["n"].as_i64(), v["status"].as_str()), (Some("beta"), Some(1), Some("approved")));
+    assert_eq!(v["changes"][0]["in"], "Proposal Card");
+    assert_eq!(v["skipped"][0]["key"], "beta-2");
+    // The answers reach the export side's inbox as review answers, then the plan op.
+    let inbox = super::super::inputs::inbox(&pool, &owner, None).await.unwrap();
+    let kinds: Vec<(&str, Option<&str>)> = inbox.ops.iter().map(|o| (o.kind.as_str(), o.record["decision"].as_str())).collect();
+    assert_eq!(kinds, vec![("review", Some("want")), ("review", Some("no")), ("plan", None)]);
+    assert_eq!(inbox.ops[0].stage.as_deref(), Some("proposed"));
+    assert_eq!(inbox.ops[2].record["action"], "approve");
+    assert_eq!(b["reviews"]["beta-1"]["seq"], json!(inbox.ops[0].seq), "the answer knows its inbox op");
+}
+
+#[tokio::test]
+async fn open_questions_need_answers_and_undo_restores() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    let keys = ["alpha-idea", "alpha-owned"];
+    let r = ops(&app, &token, json!([plan_op("q1", "alpha", "approve", 2, &keys, &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "rejected");
+    assert!(r["results"][0]["error"].as_str().unwrap().contains("Where did this come from?"), "{r}");
+    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
+    let r = ops(&app, &token, json!([plan_op("q2", "alpha", "approve", 2, &keys, &[], answers.clone())])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let b = bundle(&app, &token).await;
+    let alpha = &deck(&b, "alpha")["plan"];
+    assert_eq!((alpha["version"].as_i64(), alpha["changes"].as_i64()), (Some(2), Some(4)), "{alpha}");
+    assert_eq!(b["versions"][0]["answers"], answers);
+
+    // Undo the newest decision: the answers go back to none, and version 2 waits again.
+    let r = ops(&app, &token, json!([plan_op("q3", "alpha", "undo", 2, &[], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(decision(&pool, &owner, "alpha-idea").await, None);
+    let b = bundle(&app, &token).await;
+    assert_eq!(deck(&b, "alpha")["plan"]["next"]["n"], 2);
+    assert_eq!(b["versions"], json!([]));
+
+    // Keep version 1 instead: every proposal is a no, and nothing waits.
+    let r = ops(&app, &token, json!([plan_op("q4", "alpha", "keep", 2, &[], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(decision(&pool, &owner, "alpha-owned").await.as_deref(), Some("no"));
+    let b = bundle(&app, &token).await;
+    assert_eq!(deck(&b, "alpha")["plan"]["next"], Value::Null);
+    assert_eq!(b["versions"][0]["status"], "kept");
+}
+
+#[tokio::test]
+async fn archiving_takes_a_plan_out_until_you_bring_it_back() {
+    let (app, _pool, _owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let r = ops(&app, &token, json!([{"op_id": "a1", "kind": "plan", "deck_key": "beta", "action": "archive", "at": "2026-11-06T10:00:00Z"}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let b = bundle(&app, &token).await;
+    assert_eq!(deck(&b, "beta")["status"], "archived");
+    assert_eq!(deck(&b, "beta")["plan"]["state"], "archived");
+    // An archived plan can't be approved; another import doesn't bring it back.
+    let r = ops(&app, &token, json!([plan_op("a2", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "rejected");
+    let mut d = doc_with_beta_plan();
+    d["meta"]["guide_version"] = json!(7);
+    import(&app, &token, &d).await;
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["state"], "archived");
+    let r = ops(&app, &token, json!([{"op_id": "a3", "kind": "plan", "deck_key": "beta", "action": "restore", "at": "2026-11-06T10:00:00Z"}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["state"], "waiting");
+}

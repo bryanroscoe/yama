@@ -172,7 +172,9 @@ async fn yama_deck(pool: &SqlitePool, owner: &str, linked: Option<&str>, name: &
     })
 }
 
-/// Every live plan deck's Yama deck, and the installed state of each planned swap it can judge.
+/// Every live plan deck's Yama deck, and the installed state of each planned swap it can judge,
+/// and of each proposal you approved (a "want" answer: approving a plan writes one per change).
+/// Planned swaps claim shared copies first.
 pub async fn load(pool: &SqlitePool, owner: &str) -> AppResult<Installs> {
     let decks: Vec<(String, String, Option<String>)> =
         sqlx::query_as("SELECT id, name, deck_id FROM plan_decks WHERE owner_id = ? AND status != 'archived'").bind(owner).fetch_all(pool).await?;
@@ -202,8 +204,10 @@ pub async fn load(pool: &SqlitePool, owner: &str) -> AppResult<Installs> {
     let swaps: Vec<(String, String, String, Option<String>, String, Option<String>)> = sqlx::query_as(
         "SELECT s.ext_key, s.plan_deck_id, s.in_name, s.out_name, s.role, p.ext_key
          FROM plan_swaps s LEFT JOIN plan_swaps p ON p.id = s.parent_id AND p.owner_id = s.owner_id
-         WHERE s.owner_id = ? AND s.retired_at IS NULL AND s.stage = 'planned'
-         ORDER BY s.role = 'standin', s.sort, s.ext_key",
+         WHERE s.owner_id = ? AND s.retired_at IS NULL
+           AND (s.stage = 'planned'
+                OR EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key AND r.decision = 'want'))
+         ORDER BY s.stage = 'proposed', s.role = 'standin', s.sort, s.ext_key",
     )
     .bind(owner)
     .fetch_all(pool)

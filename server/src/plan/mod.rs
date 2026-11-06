@@ -19,6 +19,7 @@ pub mod stock;
 pub mod swap_in;
 pub mod tokens;
 pub mod trip;
+pub mod versions;
 pub mod wants;
 
 use crate::auth::CurrentUser;

@@ -140,6 +140,60 @@ export interface PlanDeck {
   sort: number;
   updated_at: string;
   states: Partial<Record<StateName, PlanState>>;
+  /** The deck's plan state and version (server `plan/versions.rs`, bundle shape 9). Missing from older bundles. */
+  plan?: DeckPlanState | null;
+}
+
+/** waiting: waiting for your OK; empty: no changes yet ("No plan yet"). */
+export type PlanStateName = "waiting" | "in_progress" | "done" | "archived" | "empty";
+
+/** Where a plan version came from. */
+export type VersionSource =
+  | { kind: "plan_file"; app?: string | null; guide_version?: number | null; imported_at?: string | null }
+  | { kind: "note"; note: string; title?: string | null }
+  | { kind: "yama" }
+  | { kind: "before_versions"; note?: string };
+
+/** A deck's plan: one state, the approved version in force, and the version waiting for your OK. */
+export interface DeckPlanState {
+  state: PlanStateName;
+  /** The approved version in force; null before the first approval. */
+  version: number | null;
+  approved_at: string | null;
+  /** Waiting for your OK: the first version (state waiting), or a new one of a plan in progress. */
+  next: {
+    n: number;
+    /** Every change in it (live proposal keys), in plan order. */
+    keys: string[];
+    /** Changes in it you already said no to: they start skipped. */
+    skipped: string[];
+    proposed_at: string | null;
+    source: VersionSource;
+  } | null;
+  /** Changes in the plan in force (swaps, not stand-ins or optional extras), and how many are in the deck. */
+  changes: number;
+  installed: number;
+  /** Open questions: each needs an answer before you approve. */
+  questions: string[];
+  /** You archived it (or another plan for the deck replaced it), and why. */
+  archived_at: string | null;
+  archived_note: string | null;
+}
+
+/** One decided version of a deck's plan (newest first in the bundle). */
+export interface PlanVersion {
+  deck: string;
+  deck_name: string;
+  n: number;
+  /** approved, or kept (you kept the version before it). */
+  status: "approved" | "kept";
+  changes: { key: string; in?: string; out?: string | null; src?: string; why?: string | null }[];
+  skipped: { key: string; in?: string; out?: string | null }[];
+  answers: { question: string; answer: string }[];
+  source: VersionSource | Record<string, unknown>;
+  proposed_at: string | null;
+  decided_at: string;
+  superseded_at: string | null;
 }
 
 export interface Swap {
@@ -466,6 +520,8 @@ export interface PlanBundle {
    * way), so the Trip page has them offline. Missing from older bundles.
    */
   sealed?: SealedView;
+  /** Every decided plan version, newest first (bundle shape 9). Missing from older bundles. */
+  versions?: PlanVersion[];
 }
 
 /** A card or sealed product you want, added by hand in Yama or by a change from Claude you applied. */

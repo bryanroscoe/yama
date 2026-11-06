@@ -30,7 +30,8 @@ pub const PRINTING_SOURCE: &str = "TCGplayer market via Scryfall";
 /// 6: store stock snapshots (`store_quotes`, `snapshots`) and hand-added wants (`shopping_wants`; 2026-11-01).
 /// 7: sealed products with their store prices (`sealed`), for the Trip page offline (2026-11-02).
 /// 8: a plan deck made from a note's build says which (`note`; 2026-11-04).
-const SHAPE: u32 = 8;
+/// 9: each deck's plan state and version (`plan`), and every decided version (`versions`; 2026-11-06).
+const SHAPE: u32 = 9;
 
 pub async fn rev(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let revision: Option<i64> = sqlx::query_scalar("SELECT revision FROM plan_meta WHERE owner_id = ?").bind(owner).fetch_optional(pool).await?;
@@ -124,6 +125,7 @@ struct DeckRow {
     note_id: Option<String>,
     note_deck_key: Option<String>,
     note_build_id: Option<String>,
+    archived_at: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -406,8 +408,8 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     // Decks and their current lists
     let deck_rows: Vec<DeckRow> = sqlx::query_as(
         "SELECT id, key, name, source, status, product, commander, color_identity, owner_changes, bracket, groups, notes, deck_id,
-                sort, updated_at, note_id, note_deck_key, note_build_id
-         FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived', sort, key",
+                sort, updated_at, note_id, note_deck_key, note_build_id, archived_at
+         FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived' OR archived_at IS NOT NULL, sort, key",
     )
     .bind(owner)
     .fetch_all(pool)
@@ -466,6 +468,11 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
     .await?;
     // Installed, from each plan deck's Yama deck (null where there's no deck to read).
     let installs = super::installed::load(pool, owner).await?;
+    // Each deck's plan state and version (`versions.rs`), from the same installed states.
+    let plans = {
+        let mut conn = pool.acquire().await?;
+        super::versions::load(&mut conn, owner, Some(&installs)).await?
+    };
     let swaps: Vec<Value> = swap_rows
         .into_iter()
         .map(|s| {
@@ -762,8 +769,10 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                     }),
                 );
             }
+            // A plan you archived in Yama reads as archived everywhere, as one the plan file archived.
+            let status = if d.archived_at.is_some() { "archived" } else { d.status.as_str() };
             json!({
-                "key": d.key, "name": d.name, "source": d.source, "status": d.status, "product": d.product,
+                "key": d.key, "name": d.name, "source": d.source, "status": status, "product": d.product,
                 "commander": parse_or(&d.commander, json!([])), "color_identity": d.color_identity,
                 "owner_changes": parse_or(&d.owner_changes, json!([])), "bracket": parse(d.bracket.as_deref()),
                 "groups": parse_or(&d.groups, json!([])), "notes": parse_or(&d.notes, json!([])), "deck_id": d.deck_id,
@@ -771,6 +780,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
                 // A plan made from a note's build (`notes.rs`): which note, deck and build. Null otherwise.
                 "note": d.note_id.as_ref().map(|id| json!({"id": id, "deck": d.note_deck_key, "build": d.note_build_id})),
                 "sort": d.sort, "updated_at": d.updated_at, "states": states,
+                "plan": plans.decks.get(&d.id),
             })
         })
         .collect();
@@ -788,6 +798,7 @@ pub async fn load_bundle(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
         "prices_as_of": prices_as_of,
         "store_prefs": store_prefs, "wishlist": wishlist,
     });
+    bundle["versions"] = json!(plans.versions);
     bundle["store_quotes"] = json!(store_quotes);
     bundle["shopping_wants"] = json!(shopping_wants);
     // Sealed products as of now (every store; no pick along the way), for the Trip page offline.

@@ -23,6 +23,7 @@ const SIMULATIONS: StagedChange["kind"][] = ["start_lab_run", "more_lab_games", 
 /** What part of Yama a change is about, as a tag before it: a plan's changes say so. */
 const AREA: Partial<Record<StagedChange["kind"], string>> = {
   track_build: "Plan",
+  approve_plan: "Plan",
   propose_swap: "Plan",
   answer_review: "Plan",
   mark_bought: "Plan",
