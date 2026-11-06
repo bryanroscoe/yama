@@ -855,7 +855,11 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
             None => return Err(AppError::bad(format!("\"{w}\" isn't one of the changes waiting in {name}'s version {}.", next.n))),
         }
     }
-    let keys: Vec<String> = next.keys.iter().filter(|k| !skip.contains(k)).cloned().collect();
+    // Keeping the version before answers no to every change waiting, so it names them all.
+    if action == "keep" {
+        skip.clear();
+    }
+    let keys: Vec<String> = if action == "keep" { next.keys.clone() } else { next.keys.iter().filter(|k| !skip.contains(k)).cloned().collect() };
     let mut answers: Vec<Value> = Vec::new();
     for a in args.get("answers").and_then(Value::as_array).into_iter().flatten() {
         let (Some(q), Some(ans)) = (a.get("question").and_then(Value::as_str), a.get("answer").and_then(Value::as_str)) else {

@@ -157,6 +157,30 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             }
         }
     };
+    // A plan in force from another build of this note keeps going until a new version is
+    // approved, but both builds would share this one plan row: switching would retire the plan
+    // you approved before you OK its replacement. Ask for it to be set aside first.
+    if req.proposed
+        && let Some((id, _, _)) = &existing
+    {
+        let (live, build_now, approved): (bool, Option<String>, bool) = sqlx::query_as(
+            "SELECT status != 'archived' AND archived_at IS NULL, note_build_id,
+                    EXISTS (SELECT 1 FROM plan_versions v WHERE v.plan_deck_id = plan_decks.id AND v.owner_id = plan_decks.owner_id AND v.status = 'approved')
+                    OR EXISTS (SELECT 1 FROM plan_swaps s WHERE s.plan_deck_id = plan_decks.id AND s.owner_id = plan_decks.owner_id
+                               AND s.retired_at IS NULL AND s.stage = 'planned')
+             FROM plan_decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(id)
+        .bind(owner)
+        .fetch_one(&mut *conn)
+        .await?;
+        if live && approved && build_now.as_deref() != Some(req.build_id.as_str()) {
+            return Err(AppError::Conflict(
+                "This deck's plan in progress came from another build of this note. Archive that plan first, or ask your assistant to propose the change as a new version."
+                    .into(),
+            ));
+        }
+    }
     let name = text(deck, "name").unwrap_or_else(|| req.deck_key.clone());
     let commander = json_text(&commanders(deck, build));
     let (plan_id, key) = match existing {

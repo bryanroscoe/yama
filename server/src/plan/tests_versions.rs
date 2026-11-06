@@ -151,3 +151,45 @@ async fn archiving_takes_a_plan_out_until_you_bring_it_back() {
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
     assert_eq!(deck(&bundle(&app, &token).await, "beta")["plan"]["state"], "waiting");
 }
+
+#[tokio::test]
+async fn keep_and_approve_refuse_changes_you_didnt_see() {
+    let (app, _pool, _owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    // Keep with only one of the two waiting changes named: refused, nothing answered.
+    let r = ops(&app, &token, json!([plan_op("k1", "alpha", "keep", 2, &["alpha-idea"], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    let r = ops(&app, &token, json!([plan_op("k2", "alpha", "keep", 2, &["alpha-idea", "alpha-owned"], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+}
+
+#[tokio::test]
+async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
+    let (app, pool, owner, token) = setup().await;
+    import(&app, &token, &doc()).await;
+    // An answer saved under an old key that now reaches alpha-idea through an alias.
+    sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-idea', 'alpha-idea', '2026-11-01T00:00:00Z')")
+        .bind(&owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, at, origin, op_id)
+         VALUES (?, 'old-idea', 'unsure', 'Only if cheap', 'Old Card', '2026-11-01T00:00:00Z', 'yama', 'o-1')",
+    )
+    .bind(&owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
+    let r = ops(&app, &token, json!([plan_op("al1", "alpha", "approve", 2, &["alpha-idea", "alpha-owned"], &[], answers)])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let (d, note, cut): (Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT decision, note, cut FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert_eq!((d.as_deref(), note.as_deref(), cut.as_deref()), (Some("want"), Some("Only if cheap"), Some("Old Card")));
+    let r = ops(&app, &token, json!([plan_op("al2", "alpha", "undo", 2, &[], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let (d, note): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT decision, note FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert_eq!((d.as_deref(), note.as_deref()), (Some("unsure"), Some("Only if cheap")));
+}

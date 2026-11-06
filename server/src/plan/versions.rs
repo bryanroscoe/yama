@@ -146,21 +146,20 @@ fn name_key(name: &str) -> String {
 /// The newest decision per live swap key, aliases followed: `want`, `unsure`, `no` or none.
 async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<String>) -> AppResult<HashMap<String, Option<String>>> {
     let aliases = super::aliases(&mut *conn, owner).await?;
-    let rows: Vec<(String, Option<String>, String)> =
-        sqlx::query_as("SELECT swap_key, decision, at FROM plan_reviews WHERE owner_id = ? ORDER BY at, swap_key").bind(owner).fetch_all(&mut *conn).await?;
-    let mut out: HashMap<String, (String, Option<String>)> = HashMap::new();
-    for (key, decision, at) in rows {
-        let Some(live_key) = super::resolve_key(&key, live, &aliases) else { continue };
-        // The answer under the live key itself wins over one that reached it through an alias.
-        let direct = key == live_key;
-        match out.get(&live_key) {
-            Some((old_at, _)) if !direct && old_at.as_str() >= at.as_str() => {}
-            _ => {
-                out.insert(live_key, (at, decision));
-            }
+    // The newest answer reaching a key wins, an answer made in Yama on a tie: as the pages read
+    // them (core `answerIndex`). Rows come oldest first, so a later one replaces an earlier one.
+    let rows: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT swap_key, decision FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
+            .bind(owner)
+            .fetch_all(&mut *conn)
+            .await?;
+    let mut out: HashMap<String, Option<String>> = HashMap::new();
+    for (key, decision) in rows {
+        if let Some(live_key) = super::resolve_key(&key, live, &aliases) {
+            out.insert(live_key, decision);
         }
     }
-    Ok(out.into_iter().map(|(k, (_, d))| (k, d)).collect())
+    Ok(out)
 }
 
 /// Every plan deck's state and every decided version, for one owner.
@@ -358,12 +357,42 @@ struct Prior {
     op_id: Option<String>,
 }
 
-async fn prior(conn: &mut SqliteConnection, owner: &str, key: &str) -> AppResult<Option<Prior>> {
-    Ok(sqlx::query_as("SELECT decision, note, cut, at, origin, op_id FROM plan_reviews WHERE owner_id = ? AND swap_key = ?")
+/**
+ * The answer in force for each live key, aliases followed the way the state is (`decisions`): the
+ * newest one that reaches it. Approving keeps its note and cut, and Undo writes it back under the
+ * live key, newer than any answer an alias holds.
+ */
+async fn priors(conn: &mut SqliteConnection, owner: &str, keys: &[String]) -> AppResult<HashMap<String, Prior>> {
+    let live: HashSet<String> = sqlx::query_scalar("SELECT ext_key FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL")
         .bind(owner)
-        .bind(key)
-        .fetch_optional(&mut *conn)
-        .await?)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
+    let aliases = super::aliases(&mut *conn, owner).await?;
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        swap_key: String,
+        decision: Option<String>,
+        note: Option<String>,
+        cut: Option<String>,
+        at: String,
+        origin: String,
+        op_id: Option<String>,
+    }
+    let rows: Vec<Row> = sqlx::query_as("SELECT swap_key, decision, note, cut, at, origin, op_id FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
+        .bind(owner)
+        .fetch_all(&mut *conn)
+        .await?;
+    let wanted: HashSet<&String> = keys.iter().collect();
+    let mut out: HashMap<String, Prior> = HashMap::new();
+    for r in rows {
+        let Some(k) = super::resolve_key(&r.swap_key, &live, &aliases) else { continue };
+        if wanted.contains(&k) {
+            out.insert(k, Prior { decision: r.decision, note: r.note, cut: r.cut, at: r.at, origin: r.origin, op_id: r.op_id });
+        }
+    }
+    Ok(out)
 }
 
 /// Write the answers and, for a deck from a plan file, put each in the export side's inbox as a
@@ -481,7 +510,8 @@ pub async fn apply(conn: &mut SqliteConnection, owner: &str, deck_key: &str, op:
             if op.keys.iter().any(|k| op.skip.contains(k)) {
                 return Ok(Err("A change can't be both kept and skipped.".into()));
             }
-            if op.action == "approve" && sent != want {
+            // Approve and Keep both answer every change waiting: what you saw must be what's waiting.
+            if sent != want {
                 return Ok(Err("The plan's changes changed since you opened it. Reload it and look again.".into()));
             }
             if op.action == "approve" {
@@ -497,8 +527,9 @@ pub async fn apply(conn: &mut SqliteConnection, owner: &str, deck_key: &str, op:
             // Answers before, for Undo.
             let mut before = serde_json::Map::new();
             let mut writes = Vec::new();
+            let found = priors(&mut *conn, owner, &next.keys).await?;
             for k in &next.keys {
-                let p = prior(&mut *conn, owner, k).await?;
+                let p = found.get(k).cloned();
                 let (note, cut) = p.as_ref().map(|p| (p.note.clone(), p.cut.clone())).unwrap_or_default();
                 let decision = if op.action == "approve" && op.keys.contains(k) { "want" } else { "no" };
                 before.insert(k.clone(), serde_json::to_value(&p).unwrap_or(Value::Null));
