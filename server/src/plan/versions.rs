@@ -1,5 +1,5 @@
 //! One plan per deck, approved as a whole (Bryan, 2026-11-06, the plans redesign; ARCHITECTURE.md,
-//! "Plans: one plan per deck"; migration 0068).
+//! "Plans: one plan per deck"; migration 0069).
 //!
 //! A deck's plan is in one state:
 //!

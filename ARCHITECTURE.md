@@ -1762,7 +1762,7 @@ options and no clear current proposal. This replaces the "plan is a note" model 
 
 - **One plan per deck, in one state.** Every deck has one current plan: a Bracket 4 build plus swap
   bags back to Bracket 3 and 2. Its state is waiting for your OK, in progress, done or archived
-  (`server/src/plan/versions.rs`, migration 0068; "empty" when it has no changes yet). The bundle
+  (`server/src/plan/versions.rs`, migration 0069; "empty" when it has no changes yet). The bundle
   (shape 9) carries each deck's `plan` and every decided version (`versions`); the MCP tools say the
   same (`overview`, `plan_deck`, `review_queue`).
 - **Approve is one decision.** Before approving you can skip any change and must answer the deck's
