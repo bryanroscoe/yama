@@ -313,10 +313,10 @@ export function GetCards() {
               ))}
           </section>
 
-          <p className="small dim plans-footer-links">
+          <div className="small dim plans-footer-links">
             <Link to="/decks/plans/settings">Your stores and shopping rule</Link>
             <Link to="/decks/plans/get/swap-cards">Print swap cards</Link>
-          </p>
+          </div>
         </>
       )}
     </>
