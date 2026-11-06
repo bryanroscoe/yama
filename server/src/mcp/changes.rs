@@ -846,13 +846,19 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
     let mut skip: Vec<String> = next.skipped.clone();
     for w in args.get("skip").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
         let w = w.trim();
-        let found = next.keys.iter().find(|k| k.as_str() == w).or_else(|| {
-            next.keys.iter().find(|k| swaps.iter().any(|s| &s.0 == *k && s.1.eq_ignore_ascii_case(w)))
-        });
-        match found {
-            Some(k) if !skip.contains(k) => skip.push(k.clone()),
-            Some(_) => {}
-            None => return Err(AppError::bad(format!("\"{w}\" isn't one of the changes waiting in {name}'s version {}.", next.n))),
+        // A key names one change; a card name names every change that puts it in (each copy of a
+        // note swap is its own change), so skipping a card skips all of them.
+        let found: Vec<&String> = match next.keys.iter().find(|k| k.as_str() == w) {
+            Some(k) => vec![k],
+            None => next.keys.iter().filter(|k| swaps.iter().any(|s| &s.0 == *k && s.1.eq_ignore_ascii_case(w))).collect(),
+        };
+        if found.is_empty() {
+            return Err(AppError::bad(format!("\"{w}\" isn't one of the changes waiting in {name}'s version {}.", next.n)));
+        }
+        for k in found {
+            if !skip.contains(k) {
+                skip.push(k.clone());
+            }
         }
     }
     // Keeping the version before answers no to every change waiting, so it names them all.

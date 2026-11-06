@@ -496,7 +496,7 @@ const TOOLS: &[Tool] = &[
             json!({"type":"object","properties":{
                 "plan":{"type":"string","description":"The plan key or deck name from `overview`."},
                 "action":{"type":"string","enum":["approve","keep"],"description":"approve (default) or keep the version before it."},
-                "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: the card each puts in, or its swap key."},
+                "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one."},
                 "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string"},"answer":{"type":"string"}},"required":["question","answer"],"additionalProperties":false},
                            "description":"Their answer to each open question, the question exactly as plan_deck lists it."}
             },"required":["plan"],"additionalProperties":false})
