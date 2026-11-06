@@ -15,11 +15,15 @@ import { api, shortDate, usd, type Printing } from "../api";
 import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
-import { readCloseup, readCollectorLine, scanFrame, SURE } from "./pipeline";
+import { readCloseup, readCollectorLines, scanFrame, SURE } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
 import { NameEntry } from "./NameEntry";
-import { choosePrinting, printingOptions } from "./printings";
+import { choosePrinting, printingOptions, type Choice } from "./printings";
 import type { ArtMatch, Recognition } from "./recognizer";
+import { deleteSamples, keepSample, sampleSummary, savingPhotos, setSavingPhotos, type SampleLabel, type SampleSummary, type Shot } from "./samples";
+import { SetLockPicker } from "./SetLockPicker";
+import { artInSets, inLockedSets, judgeLocked, lockedNames, lockedSet, poolKeys, savedLock, saveLock, suggestLock, type LockedSet } from "./setlock";
+import { CameraControls, digitalRegion, useCameraControls } from "./camera";
 import { createServerCatalog } from "./serverCatalog";
 import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
@@ -80,6 +84,11 @@ export interface ScannerViewProps {
   addedWord?: string;
   /** Buzz on a find, an add or a needed tap (where the browser can). Default on. */
   haptics?: boolean;
+  /**
+   * Offer the set lock: scan only some sets' art and file their printings (setlock.ts). Default on
+   * unless only the card's identity matters.
+   */
+  setLock?: boolean;
 }
 
 type Phase = "loading" | "scanning" | "found" | "no-camera";
@@ -97,7 +106,20 @@ interface Found {
   options: Printing[] | null;
   sameArt: boolean;
   chosen: Printing | null;
-  how: "only" | "collector" | "picked" | null;
+  /** "set": the only printing of it in the locked sets. */
+  how: "only" | "set" | "collector" | "picked" | null;
+  /** Locked to sets, and none of this card's printings (of this art) is in them: ask. */
+  outside?: boolean;
+  /** The person said it's from another set: the lock doesn't apply to this card. */
+  unlocked?: boolean;
+  /** The printing the scanner settled by itself, before any change by the person. */
+  settledId?: string;
+  /** A printing the text reader already read from the collector line, for settling it again. */
+  known?: { set?: string; number?: string; proven?: boolean };
+  /** The part of the frame around the card, for Save scan photos. */
+  shot?: Shot | null;
+  /** What the scanner first said, when the person corrected it (Wrong card). */
+  guess?: Pick<SampleLabel, "guess_name" | "guess_scryfall_id" | "guess_illustration_id" | "method" | "score">;
   /** The scanner settled the printing itself, with proof (not a guess, not a tap). */
   sure?: boolean;
   /** The person asked to see the other printings. */
@@ -135,6 +157,12 @@ function draw(source: CanvasImageSource, sx: number, sy: number, sw: number, sh:
 function small(source: CanvasImageSource, width: number, height: number, canvas: HTMLCanvasElement): { image: RgbaImage; k: number } {
   const k = Math.min(1, RECOGNIZER_SHORT_SIDE / Math.min(width, height));
   return { image: draw(source, 0, 0, width, height, width * k, height * k, canvas), k };
+}
+
+/** A region of the source with its short side at RECOGNIZER_SHORT_SIDE (never enlarged), and the scale used. */
+function smallRegion(source: CanvasImageSource, r: { x: number; y: number; w: number; h: number }, canvas: HTMLCanvasElement): { image: RgbaImage; k: number } {
+  const k = Math.min(1, RECOGNIZER_SHORT_SIDE / Math.min(r.w, r.h));
+  return { image: draw(source, r.x, r.y, r.w, r.h, r.w * k, r.h * k, canvas), k };
 }
 
 /** The part of the source around a card quad (source pixels), at full resolution, and the quad within it. */
@@ -187,6 +215,32 @@ async function readAt(image: RgbaImage, quad: Quad, reader: { ocr: OcrEngine; ca
   return best!;
 }
 
+/** What the scanner said, for a kept photo. */
+const guessOf = (f: Found): NonNullable<Found["guess"]> => ({
+  guess_name: f.name,
+  // Only a printing the scanner settled itself; a tap isn't the scanner's guess.
+  guess_scryfall_id: f.settledId,
+  guess_illustration_id: f.art?.illustrationId ?? undefined,
+  method: f.method,
+  score: f.confidence,
+});
+
+/** The lowest and highest market price among printings, for a card whose printing isn't settled. */
+export function priceRange(printings: Printing[], finish: "nonfoil" | "foil"): { low: number; high: number; date: string | null } | null {
+  const english = printings.filter((p) => p.lang === "en");
+  let low = Infinity;
+  let high = -Infinity;
+  let date: string | null = null;
+  for (const p of english.length ? english : printings) {
+    const v = finish === "foil" ? p.usd_foil : p.usd;
+    if (v == null) continue;
+    low = Math.min(low, v);
+    high = Math.max(high, v);
+    if (p.price_date && (!date || p.price_date > date)) date = p.price_date;
+  }
+  return low === Infinity ? null : { low, high, date };
+}
+
 const candidateOf = (f: Found, p: Printing | null): ScanCandidate => ({
   name: p?.name ?? f.name,
   set: p?.set_code,
@@ -220,6 +274,7 @@ export function ScannerView({
   overlay,
   addedWord = "Added",
   haptics = true,
+  setLock: lockOffered = !identityOnly,
 }: ScannerViewProps) {
   // Read through a ref, so callbacks made in an earlier render follow a change (a Mute switch).
   const hapticsRef = useRef(haptics);
@@ -270,6 +325,63 @@ export function ScannerView({
   const [confirming, setConfirming] = useState(false);
   /** What Keep adding just added, shown on the camera for a moment. */
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  /** Wrong card was tapped: the other cards it might be, a name box, or just scan again. */
+  const [wrongOpen, setWrongOpen] = useState(false);
+  const cam = useCameraControls();
+  const digitalRef = useRef(1);
+  digitalRef.current = cam.digital;
+
+  // The set lock: the sets chosen (kept on this device), their artworks for the recognizer, and
+  // their card names for reading text.
+  const [lockCodes, setLockCodes] = useState<string[]>(() => (lockOffered ? savedLock() : []));
+  const [lock, setLockSets] = useState<LockedSet[]>([]);
+  const [lockLoading, setLockLoading] = useState(false);
+  const [lockError, setLockError] = useState<string | null>(null);
+  const [lockOpen, setLockOpen] = useState(false);
+  /** Sets of the printings filed this scan, newest first, for suggesting a lock. */
+  const [filedSets, setFiledSets] = useState<string[]>([]);
+  const [suggestDismissed, setSuggestDismissed] = useState<string | null>(null);
+  const filedSetNames = useRef(new Map<string, string>());
+  const lockRef = useRef<{ codes: Set<string>; names: NameIndex | null; inSets: (m: ArtMatch) => boolean; label: string } | null>(null);
+  useEffect(() => {
+    if (!lockOffered) return;
+    let live = true;
+    saveLock(lockCodes);
+    if (lockCodes.length === 0) {
+      setLockSets([]);
+      setLockError(null);
+      return;
+    }
+    setLockLoading(true);
+    setLockError(null);
+    Promise.all(lockCodes.map((c) => lockedSet(c))).then(
+      (sets) => {
+        if (!live) return;
+        setLockSets(sets);
+        setLockError(null);
+        setLockLoading(false);
+      },
+      (e: unknown) => {
+        if (!live) return;
+        setLockError(e instanceof Error ? e.message : String(e));
+        setLockLoading(false);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [lockCodes, lockOffered]);
+  // On only once the sets loaded are exactly the sets chosen (not an earlier choice still loaded).
+  const lockOn = lockOffered && lock.length > 0 && !lockError && lock.length === lockCodes.length && lock.every((l, i) => l.code === lockCodes[i]);
+  const lockLabel = lock.map((s) => s.code.toUpperCase()).join(", ");
+  useEffect(() => {
+    if (!lockOn) {
+      lockRef.current = null;
+      return;
+    }
+    const keys = poolKeys(lock);
+    lockRef.current = { codes: new Set(lock.map((s) => s.code)), names: new NameIndex(lockedNames(lock)), inSets: artInSets(keys), label: lock.map((s) => s.name).join(" or ") };
+  }, [lock, lockOn]);
   useEffect(() => {
     if (!justAdded) return;
     const t = setTimeout(() => setJustAdded(null), 2500);
@@ -343,6 +455,18 @@ export function ScannerView({
     };
   }, [textReader]);
 
+  // A new zoom moves everything in the recognizer's frame: drop the card it was tracking.
+  useEffect(() => {
+    artRef.current?.reset();
+  }, [cam.digital]);
+
+  // The locked sets' artworks, for the recognizer to match as well.
+  useEffect(() => {
+    const art = artRef.current;
+    if (mode !== "art" || !art) return;
+    void art.setPool(lockOn ? poolKeys(lock) : null);
+  }, [mode, lock, lockOn]);
+
   // Camera.
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -360,6 +484,7 @@ export function ScannerView({
         if (stopped) return s.getTracks().forEach((t) => t.stop());
         stream = s;
         const track = s.getVideoTracks()[0];
+        cam.attach(track ?? null);
         if (track) {
           const caps = (track.getCapabilities?.() ?? {}) as { focusMode?: string[] };
           if (caps.focusMode?.includes("continuous")) {
@@ -382,8 +507,11 @@ export function ScannerView({
       });
     return () => {
       stopped = true;
+      cam.attach(null);
       stream?.getTracks().forEach((t) => t.stop());
     };
+    // cam.attach is stable (useCallback with no inputs).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Settle the printing of what was found (not needed when only the card's identity matters). */
@@ -393,22 +521,50 @@ export function ScannerView({
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
       try {
-        const opts = await printingOptions(query);
-        let choice = choosePrinting(opts);
+        let opts = await printingOptions(query);
+        // Locked to sets: choose among the printings in them. None there: ask (outside).
+        const lockNow = f.unlocked ? null : lockRef.current;
+        let bySet = false;
+        if (lockNow) {
+          const inSets = inLockedSets(opts.printings, lockNow.codes);
+          // A name typed by the person is what they say it is: no need to ask about the set.
+          const typed = f.method === "name" && f.confidence === 1;
+          if (inSets.length === 0 && !typed) {
+            update({ options: opts.printings, sameArt: opts.sameArt, outside: true, chosen: null, how: null, sure: false, reading: false });
+            return;
+          }
+          if (inSets.length > 0) {
+            opts = { sameArt: opts.sameArt, printings: inSets };
+            bySet = true;
+          }
+        }
+        let choice: Choice = choosePrinting(opts);
         // Read from the collector line by the text reader already: proof when the read was.
         if (!choice.chosen && known?.set && known.number) {
           const hit = opts.printings.find((p) => p.set_code === known.set && p.collector_number === known.number);
           if (hit) choice = { chosen: hit, how: "collector", options: [hit, ...choice.options.filter((p) => p !== hit)], certain: !!known.proven };
         }
+        const how: Found["how"] = bySet && choice.how === "only" ? "set" : choice.how;
         const reading = !choice.chosen && !!read;
-        update({ options: choice.options, sameArt: opts.sameArt, chosen: choice.chosen, how: choice.how, sure: choice.how === "only" || !!choice.certain, reading });
+        const sure = choice.how === "only" || !!choice.certain;
+        update({ options: choice.options, sameArt: opts.sameArt, outside: false, chosen: choice.chosen, how, sure, settledId: sure ? choice.chosen?.scryfall_id : undefined, reading });
         if (!reading) return;
-        // Several printings share the art: read the collector line to tell them apart.
-        const text = await readCollectorLine(read!.image, read!.quad, await ocrEngine());
-        // One read from the whole-card view settles it only when it's proof; otherwise the guess goes
-        // first in the picker and the close-up step confirms it.
-        const byLine = choosePrinting(opts, text);
-        update({ options: byLine.options, chosen: byLine.certain ? byLine.chosen : null, how: byLine.certain ? byLine.how : null, sure: !!byLine.certain, raw: text, reading: false });
+        // Several printings share the art: read the collector line to tell them apart, trying a
+        // few cuts of the corner until one settles it.
+        let first: string | null = null;
+        let best: Choice | null = null;
+        for await (const text of readCollectorLines(read!.image, read!.quad, await ocrEngine())) {
+          if (foundSeq.current !== seq) return;
+          first ??= text;
+          const c = choosePrinting(opts, text);
+          if (c.certain) {
+            update({ options: c.options, chosen: c.chosen, how: c.how, sure: true, settledId: c.chosen?.scryfall_id, raw: text, reading: false });
+            return;
+          }
+          best ??= c.chosen ? c : null;
+        }
+        // No read was proof: the best guess goes first in the picker and the close-up step confirms it.
+        update({ options: (best ?? choosePrinting(opts, first ?? "")).options, chosen: null, how: null, sure: false, raw: first ?? "", reading: false });
       } catch (e) {
         update({ options: [], reading: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -418,14 +574,17 @@ export function ScannerView({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null) => {
+    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "guess" | "unlocked"> = {}) => {
       const seq = ++foundSeq.current;
       const f: Found = {
+        shot: read,
+        ...carry,
         name: top.name,
         method: "art",
         confidence: top.score,
         art: top,
-        others: r.matches.slice(1).filter((m, i, all) => m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i),
+        // Every other match, including the best anywhere when the set lock chose an in-set one.
+        others: [...r.matches, ...(r.pool ?? [])].filter((m, i, all) => m.index !== top.index && m.name !== top.name && m.score >= top.score - 0.2 && all.findIndex((x) => x.name === m.name) === i),
         options: null,
         sameArt: true,
         chosen: null,
@@ -435,6 +594,7 @@ export function ScannerView({
       };
       setFound(f);
       setShowAll(false);
+      setWrongOpen(false);
       setCopies(1);
       setPhase("found");
       buzz(30);
@@ -445,10 +605,15 @@ export function ScannerView({
 
   /** Show a card read as text. */
   const showText = useCallback(
-    (res: ScanResult) => {
+    (res: ScanResult, shot: Shot | null = null) => {
       const best = res.candidates[0]!;
       const seq = ++foundSeq.current;
+      // The text reader's proof of a printing: set code and number found together with a matching
+      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
+      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
       const f: Found = {
+        shot,
+        known: { set: best.set, number: best.number, proven },
         name: best.name,
         method: best.method,
         confidence: best.confidence,
@@ -463,13 +628,11 @@ export function ScannerView({
       };
       setFound(f);
       setShowAll(false);
+      setWrongOpen(false);
       setCopies(1);
       setPhase("found");
       buzz(30);
-      // The text reader's proof of a printing: set code and number found together with a matching
-      // title (0.97), or an exact, anchored collector line on its own (0.85). See pipeline.ts decide.
-      const proven = best.confidence >= 0.95 || (best.method === "collector" && best.confidence >= 0.85);
-      if (!identityOnly) void settle(seq, f, { name: best.name }, null, { set: best.set, number: best.number, proven });
+      if (!identityOnly) void settle(seq, f, { name: best.name }, null, f.known);
     },
     [identityOnly, settle],
   );
@@ -477,7 +640,7 @@ export function ScannerView({
   /** A text read: lock on the same card twice, or once when it's certain. */
   const handleText = useCallback(
     /** `emptyFrees`: no card detector (text-only mode), so empty reads can end a hold (hold.ts). */
-    (res: ScanResult, single: boolean, emptyFrees = false) => {
+    (res: ScanResult, single: boolean, emptyFrees = false, shot: Shot | null = null) => {
       const best = res.candidates[0];
       const held = blockedName.current;
       // A photo is a deliberate read: no hold.
@@ -495,7 +658,7 @@ export function ScannerView({
       const seen = last.current && Date.now() - last.current.at < 2500 ? last.current.card : undefined;
       const lock = single || best.confidence >= 0.95 || (best.confidence >= 0.6 && sameCard(best, seen));
       last.current = { index: -1, card: best, at: Date.now() };
-      if (lock) showText(res);
+      if (lock) showText(res, shot);
       else setStatus(`Hold still: ${best.name}?`);
       return lock;
     },
@@ -504,7 +667,7 @@ export function ScannerView({
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode || closeup || photoBusy || paused) return;
+    if (phase !== "scanning" || !mode || closeup || photoBusy || paused || lockOpen) return;
     let stop = false;
     let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -523,14 +686,26 @@ export function ScannerView({
       hiCanvasRef.current ??= document.createElement("canvas");
       try {
         if (mode === "art" && art) {
-          const { image, k } = small(v, v.videoWidth, v.videoHeight, canvasRef.current);
+          // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
+          const box = v.closest(".scan-camera")?.getBoundingClientRect();
+          const zone = digitalRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
+          const { image, k } = smallRegion(v, zone, canvasRef.current);
           const r = await art.identify(image);
           if (stop) return;
-          setOutline(r.quad ? { quad: scaleQuad(r.quad, 1 / k), w: v.videoWidth, h: v.videoHeight } : null);
-          const top = r.matches[0];
+          const toVideo = (q: Quad) => q.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
+          setOutline(r.quad ? { quad: toVideo(r.quad), w: v.videoWidth, h: v.videoHeight } : null);
+          // Locked to sets: go on the best match among their art while it's about as good as the
+          // best anywhere; otherwise on the best anywhere, which settling then shows as outside.
+          const locked = lockRef.current;
+          const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
+          const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
           // The card just added stays held until it has clearly gone (hold.ts): one missed
           // detection while it's still in view, or on its way out, would add it again.
-          if (blocked.current && artHoldFrame(blocked.current, r.quad && top ? top : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          // The held card still counts as seen when any match names it (with the set lock, the
+          // top match can flip between an in-set and an outside one while the card sits there).
+          const heldIndex = blocked.current?.index;
+          const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
+          if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           if (!r.quad || !top) {
             if (++noCard.current >= AWAY_FRAMES) blockedName.current = null;
             last.current = undefined;
@@ -547,7 +722,7 @@ export function ScannerView({
           last.current = { index: top.index, at: Date.now() };
           if (top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev)) {
             unknownFrames = 0;
-            const read = identityOnly ? null : around(v, v.videoWidth, v.videoHeight, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+            const read = identityOnly && !savingPhotos() ? null : around(v, v.videoWidth, v.videoHeight, toVideo(r.quad), hiCanvasRef.current);
             showArt(r, top, read);
             return;
           }
@@ -559,13 +734,16 @@ export function ScannerView({
           setStatus("Hold still");
           if (++unknownFrames >= 3) {
             unknownFrames = 0;
-            const reader = await textReader();
+            const full = await textReader();
             if (stop) return;
-            const quad = scaleQuad(r.quad, 1 / k);
+            // Locked: read the name against the locked sets' cards only (new cards the art index
+            // doesn't know yet are usually in the set being scanned).
+            const reader = lockRef.current?.names ? { ...full, names: lockRef.current.names } : full;
+            const quad = toVideo(r.quad);
             const hi = around(v, v.videoWidth, v.videoHeight, quad, hiCanvasRef.current);
             // One orientation per attempt, so the camera stays responsive.
             const res = await readAt(hi.image, hi.quad, reader, [quarterTurns(hi.quad)[textFrame++ % 3]!]);
-            if (!stop && handleText(res, false)) return;
+            if (!stop && handleText(res, false, false, hi)) return;
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
             if (!stop && closeups && !res.candidates[0] && !blockedName.current && ++failedReads >= TITLE_AFTER) {
@@ -587,7 +765,7 @@ export function ScannerView({
         const flip = textFrame++ % 2 === 1;
         const guide: Quad = flip ? [upright[2], upright[3], upright[0], upright[1]] : upright;
         const res = await scanFrame(image, { ...reader, guide, tryUpsideDown: false });
-        if (!stop && handleText(res, false, true)) return;
+        if (!stop && handleText(res, false, true, { image, quad: res.quad })) return;
         if (!stop && !res.candidates[0]) setStatus("Line the card up with the frame");
         next(250);
       } catch (err) {
@@ -601,7 +779,7 @@ export function ScannerView({
       stop = true;
       clearTimeout(timer);
     };
-  }, [phase, mode, closeup, photoBusy, paused, identityOnly, closeups, showArt, handleText, textReader]);
+  }, [phase, mode, closeup, photoBusy, paused, lockOpen, identityOnly, closeups, showArt, handleText, textReader]);
 
   const fromPhoto = async (file: File) => {
     setStatus("Reading the photo");
@@ -618,9 +796,11 @@ export function ScannerView({
         art.reset();
         const { image, k } = small(bmp, bmp.width, bmp.height, canvasRef.current);
         const r = await art.identify(image);
-        const top = r.matches[0];
+        const locked = lockRef.current;
+        const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
+        const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
         if (r.quad && top && top.score >= LOCK_TWICE) {
-          const read = identityOnly ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          const read = identityOnly && !savingPhotos() ? null : around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
           bmp.close();
           if (current()) showArt(r, top, read);
           return;
@@ -632,7 +812,7 @@ export function ScannerView({
           const res = await readAt(hi.image, hi.quad, reader);
           if ((res.candidates[0]?.confidence ?? 0) >= SURE) {
             bmp.close();
-            if (current()) handleText(res, true);
+            if (current()) handleText(res, true, false, hi);
             return;
           }
         }
@@ -654,7 +834,7 @@ export function ScannerView({
         if ((res.candidates[0]?.confidence ?? 0) >= SURE) break;
       }
       if (!current()) return;
-      if (!res || !handleText(res, true)) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
+      if (!res || !handleText(res, true, false, { image, quad: res.quad })) setStatus("Couldn't read that photo. Fill the photo with the card, or type the name.");
     } catch (err) {
       if (current()) setStatus(err instanceof Error ? err.message : String(err));
     } finally {
@@ -663,11 +843,12 @@ export function ScannerView({
   };
 
   /** A card typed by name: straight to its printings. */
-  const fromName = (name: string, how: "typed" | "name" = "typed") => {
+  const fromName = (name: string, how: "typed" | "name" = "typed", carry: Pick<Found, "shot" | "guess"> = {}) => {
     const seq = ++foundSeq.current;
-    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false };
+    const f: Found = { name, method: "name", confidence: how === "typed" ? 1 : 0.9, others: [], options: null, sameArt: false, chosen: null, how: null, picking: false, ...carry };
     setFound(f);
     setShowAll(false);
+    setWrongOpen(false);
     setCopies(1);
     setPhase("found");
     if (!identityOnly) void settle(seq, f, { name });
@@ -676,6 +857,7 @@ export function ScannerView({
   /** Back to scanning. The card just shown isn't found again until it leaves the view. */
   const again = () => {
     foundSeq.current += 1;
+    setWrongOpen(false);
     blocked.current = found?.art ? { index: found.art.index, away: 0 } : null;
     noCard.current = 0;
     blockedName.current = found && !found.art ? hold(found.name, Date.now()) : null;
@@ -691,12 +873,44 @@ export function ScannerView({
   /** Switch to another card the art might be. */
   const pickOther = (m: ArtMatch) => {
     if (!found?.art) return;
-    showArt({ quad: null, upright: 1, matches: [m, found.art, ...found.others.filter((o) => o !== m)], timings: { detectMs: 0, embedMs: 0, totalMs: found.ms ?? 0 } }, m, null);
+    showArt({ quad: null, upright: 1, matches: [m, found.art, ...found.others.filter((o) => o !== m)], timings: { detectMs: 0, embedMs: 0, totalMs: found.ms ?? 0 } }, m, identityOnly ? null : (found.shot ?? null), {
+      shot: found.shot,
+      guess: found.guess ?? guessOf(found),
+      unlocked: found.unlocked,
+    });
+  };
+
+  /** Keep the photo of this card, if Save scan photos is on, with what the person said it was. */
+  const keep = (f: Found, kind: SampleLabel["kind"], label?: ScanCandidate) => {
+    if (!f.shot) return;
+    const changedPrinting = !!f.settledId && !!label?.scryfall_id && label.scryfall_id !== f.settledId;
+    void keepSample(f.shot, {
+      ...(f.guess ?? guessOf(f)),
+      kind: kind === "added" && (f.guess || changedPrinting) ? "corrected" : kind,
+      label_name: label?.name,
+      label_scryfall_id: label?.scryfall_id,
+      camera: camera ?? undefined,
+    });
+  };
+
+  /** Wrong card, with nothing more said: keep the photo as a miss and scan again. */
+  const wrongAgain = () => {
+    if (found) keep(found, "wrong");
+    again();
+  };
+
+  /** Not in the locked sets, but the person says it's this card from another set. */
+  const fromAnotherSet = () => {
+    if (!found) return;
+    const f: Found = { ...found, outside: false, unlocked: true, options: null };
+    const seq = ++foundSeq.current;
+    setFound(f);
+    void settle(seq, f, f.art ? { art: f.art.illustrationId, id: f.art.id } : { name: f.name }, f.method === "art" ? (f.shot ?? null) : null, f.known);
   };
 
   // Step 2 starts by itself when the printing isn't settled: several share the art and the
   // collector line couldn't be read from the whole-card view. Without close-ups, the picker asks.
-  const needsCollector = closeups && live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading;
+  const needsCollector = closeups && live && phase === "found" && !identityOnly && !!found?.options && found.options.length > 1 && !found.chosen && !found.reading && !found.outside;
   useEffect(() => {
     if (needsCollector) setCloseup("collector");
   }, [needsCollector]);
@@ -740,7 +954,7 @@ export function ScannerView({
           // Set code and number both read: done. One of them: the same answer twice.
           if (c.chosen && (c.certain || previous === c.chosen.scryfall_id)) {
             const chosenNow = c.chosen;
-            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, options: c.options, raw: text } : cur));
+            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, raw: text } : cur));
             setCloseup(null);
             buzz(30);
             return;
@@ -788,6 +1002,8 @@ export function ScannerView({
   const tapNeeded: string | null =
     phase !== "found" || !found || closeup
       ? null
+      : found.outside
+        ? `Not in ${lockLabel}: another set?`
       : confirming
         ? "Check the printing below"
         : (!chosen || found.picking) && !found.reading && !!found.options && found.options.length > 1
@@ -802,7 +1018,13 @@ export function ScannerView({
     if (!autoAdd || !onAccept || paused || phase !== "found" || !found || !(identityOnly ? addsByIdentity(found) : addsItself(found))) return;
     const c = identityOnly ? null : found.chosen!;
     const label = c ? `${c.name} (${c.set_code.toUpperCase()} ${c.collector_number})` : found.name;
-    const saved = onAccept(candidateOf(found, c), 1, true);
+    const card = candidateOf(found, c);
+    keep(found, "added", card);
+    if (c) {
+      filedSetNames.current.set(c.set_code, c.set_name);
+      setFiledSets((s) => [c.set_code, ...s].slice(0, 10));
+    }
+    const saved = onAccept(card, 1, true);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
     again();
@@ -822,7 +1044,10 @@ export function ScannerView({
   const price = chosen ? (finish === "foil" ? chosen.usd_foil : chosen.usd) : null;
   const isFound = phase === "found" && !!found;
   const options = found?.options ?? null;
-  const showPicker = !identityOnly && !!found && !!options && options.length > 1 && !found.reading && (found.picking || !chosen);
+  const showPicker = !identityOnly && !!found && !found.outside && !!options && options.length > 1 && !found.reading && (found.picking || !chosen);
+  const range = !identityOnly && found && !chosen && options && options.length > 1 ? priceRange(options, finish) : null;
+  const suggested = lockOffered && !lockOpen && lockCodes.length === 0 ? suggestLock(filedSets, new Set(lockCodes)) : null;
+  const suggestedName = suggested ? (filedSetNames.current.get(suggested) ?? suggested.toUpperCase()) : null;
   const loadingText =
     loadState?.kind === "downloading"
       ? `Getting card recognition ready (${Math.round(loadState.loaded / 1e6)} of ${Math.round(loadState.total / 1e6)} MB, once)`
@@ -833,12 +1058,14 @@ export function ScannerView({
   return (
     <div className="scan">
       <div className="scan-camera">
-        <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
-        {outline && phase === "scanning" && !closeup && (
-          <svg className="scan-outline" viewBox={`0 0 ${outline.w} ${outline.h}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-            <polygon points={outline.quad.map((p) => p.join(",")).join(" ")} />
-          </svg>
-        )}
+        <div className="scan-zoom" style={cam.digital > 1 ? { transform: `scale(${cam.digital})` } : undefined}>
+          <video ref={videoRef} className="scan-video" playsInline muted autoPlay aria-hidden="true" />
+          {outline && phase === "scanning" && !closeup && (
+            <svg className="scan-outline" viewBox={`0 0 ${outline.w} ${outline.h}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <polygon points={outline.quad.map((p) => p.join(",")).join(" ")} />
+            </svg>
+          )}
+        </div>
         <div className="scan-frame" aria-hidden="true">
           {closeup ? (
             <div ref={closeRef} className={`scan-closeup is-${closeup}`} />
@@ -862,9 +1089,24 @@ export function ScannerView({
           ) : (
             <span className="scan-count">{addedWord} {addedCount} so far</span>
           ))}
+        {lockOffered && (
+          <button className={`scan-lock${lockOn ? " is-on" : ""}`} onClick={() => setLockOpen((o) => !o)} aria-expanded={lockOpen}>
+            {lockCodes.length === 0 ? "Any set" : lockOn ? `Only ${lockLabel}` : lockError ? "Set lock failed" : "Getting the set…"}
+          </button>
+        )}
+        <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null) : overlay}
         <span className={`scan-chip${tapNeeded ? " is-tap" : isFound ? " found" : justAdded ? " found" : ""}`} role="status">
-          {tapNeeded ?? (isFound && closeup === "collector" ? "Found it. Now the printing" : isFound ? "Found it" : (justAdded ?? (mode ? status : loadingText)))}
+          {tapNeeded ??
+            (isFound && found?.outside
+              ? `Not in ${lockLabel}`
+              : isFound && closeup === "collector"
+                ? "Found it. Now the printing"
+                : isFound
+                  ? "Found it"
+                  : lockOpen
+                    ? "Choose the sets"
+                    : (justAdded ?? (mode ? status : loadingText)))}
         </span>
       </div>
 
@@ -883,10 +1125,33 @@ export function ScannerView({
             {controls}
           </div>
         )}
-        {!isFound && closeup !== "title" && (
+        {lockOpen && (
+          <SetLockPicker
+            codes={lockCodes}
+            loading={lockLoading}
+            onChange={(codes) => setLockCodes(codes)}
+            onClose={() => setLockOpen(false)}
+          />
+        )}
+        {!isFound && closeup !== "title" && !lockOpen && (
           <>
             {error && <p className="error">{error}</p>}
+            {lockError && <p className="error">Couldn't lock to {lockCodes.map((c) => c.toUpperCase()).join(", ")}: {lockError}</p>}
+            {suggested && suggestedName && suggestDismissed !== suggested && (
+              <div className="scan-step scan-suggest">
+                <p>
+                  The last few cards were all from <strong>{suggestedName}</strong>. Scan only that set? Its printings are then filed without reading the corner.
+                </p>
+                <div className="scan-other-ways">
+                  <button className="primary" onClick={() => setLockCodes([suggested])}>
+                    Only {suggested.toUpperCase()}
+                  </button>
+                  <button onClick={() => setSuggestDismissed(suggested)}>No thanks</button>
+                </div>
+              </div>
+            )}
             {controls}
+            <SavePhotosSwitch />
             <div className="scan-other-ways">
               <label className="scan-photo button">
                 Use a photo
@@ -912,7 +1177,7 @@ export function ScannerView({
             {recent.length > 0 && <p className="scan-note">Recent: {recent.slice(0, 3).join(", ")}.</p>}
           </>
         )}
-        {isFound && found && (
+        {isFound && found && !lockOpen && (
           <>
             <div className="scan-result">
               {chosen?.image_normal ? <img className="scan-thumb" src={chosen.image_normal} alt={chosen.name} /> : <div className="scan-thumb card-fallback">{found.name}</div>}
@@ -931,7 +1196,13 @@ export function ScannerView({
                     {price != null && <span className="dim"> market, {shortDate(chosen.price_date) ?? "date unknown"}</span>}
                   </span>
                 )}
-                <span className="scan-method">{explain(found, identityOnly)}</span>
+                {range && (
+                  <span>
+                    {range.low === range.high ? usd(range.low) : `${usd(range.low)} to ${usd(range.high)}`}
+                    <span className="dim"> market, by printing, {shortDate(range.date) ?? "date unknown"}</span>
+                  </span>
+                )}
+                <span className="scan-method">{explain(found, identityOnly, lock.map((l) => l.name).join(" or "))}</span>
                 {!identityOnly && chosen && options && options.length > 1 && !found.picking && (
                   <button className="scan-alt" onClick={() => setFound({ ...found, picking: true })}>
                     Change printing ({options.length})
@@ -939,6 +1210,22 @@ export function ScannerView({
                 )}
               </div>
             </div>
+            {found.outside && (
+              <div ref={tapRef} className="scan-step is-tap" role="alert">
+                <p>
+                  <strong>
+                    {found.name} isn't in {lock.map((l) => l.name).join(" or ") || "the sets you chose"}.
+                  </strong>{" "}
+                  Is it a card from another set?
+                </p>
+                <div className="scan-other-ways">
+                  <button className="primary" onClick={fromAnotherSet}>
+                    Yes, another set
+                  </button>
+                  <button onClick={() => setWrongOpen(true)}>Wrong card</button>
+                </div>
+              </div>
+            )}
             {closeup === "collector" && options && (
               <div className="scan-step">
                 <p>
@@ -947,7 +1234,7 @@ export function ScannerView({
                 {closeupRead && <p className="scan-note">Reading: {closeupRead}</p>}
               </div>
             )}
-            {live && !identityOnly && !closeup && !chosen && options && options.length > 1 && !found.reading && (
+            {live && !identityOnly && !closeup && !chosen && !found.outside && options && options.length > 1 && !found.reading && (
               <button className="scan-alt" onClick={() => setCloseup("collector")}>
                 Read the collector number up close
               </button>
@@ -1025,7 +1312,13 @@ export function ScannerView({
                     disabled={!ready}
                     onClick={() => {
                       if (unread && !confirming) return setConfirming(true);
-                      void onAccept(candidateOf(found, chosen), copies, false);
+                      const card = candidateOf(found, chosen);
+                      keep(found, "added", card);
+                      if (chosen) {
+                        filedSetNames.current.set(chosen.set_code, chosen.set_name);
+                        setFiledSets((s) => [chosen.set_code, ...s].slice(0, 10));
+                      }
+                      void onAccept(card, copies, false);
                       again();
                     }}
                   >
@@ -1033,8 +1326,34 @@ export function ScannerView({
                   </button>
                 </div>
               )}
-              <button onClick={again}>{onAccept ? "Not this" : "Scan next"}</button>
+              <button onClick={again}>{onAccept ? "Skip" : "Scan next"}</button>
+              {!wrongOpen && (
+                <button className="scan-alt" onClick={() => setWrongOpen(true)}>
+                  Wrong card?
+                </button>
+              )}
             </div>
+            {wrongOpen && (
+              <div className="scan-step scan-wrong">
+                <p>
+                  <strong>Which card is it?</strong>
+                  {found.others.length > 0 ? " It might be one of these, or type its name." : " Type its name, or scan it again."}
+                </p>
+                {found.others.length > 0 && (
+                  <div className="scan-other-ways">
+                    {found.others.map((m) => (
+                      <button key={m.index} onClick={() => pickOther(m)}>
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="scan-other-ways">
+                  <NameEntry onPick={(n) => fromName(n, "typed", { shot: found.shot, guess: found.guess ?? guessOf(found) })} />
+                  <button onClick={wrongAgain}>Scan it again</button>
+                </div>
+              </div>
+            )}
             {(found.others.length > 0 || recent.length > 0) && (
               <p className="scan-note">
                 {found.others.length > 0 && (
@@ -1095,14 +1414,17 @@ export function addsByIdentity(f: Pick<Found, "method" | "confidence" | "others"
   return f.method === "art" ? f.others.length === 0 : f.confidence >= SURE;
 }
 
-function explain(f: Found, identityOnly: boolean): string {
+function explain(f: Found, identityOnly: boolean, lockName = ""): string {
   const by = f.method === "art" ? "Recognized by its art" : f.method === "name" ? (f.confidence === 1 ? "Typed by name" : "Read from the card's name") : "Read from the collector number";
   if (identityOnly) return `${by}. Check the card name.`;
+  if (f.outside) return `${by}.`;
   if (f.options === null) return `${by}. Finding the printing…`;
   if (f.reading) return `${by}. ${f.options.length} printings share this art; reading the collector number…`;
   switch (f.how) {
     case "only":
       return f.sameArt ? `${by}. It's the only printing with this art.` : `${by}. It's the card's only printing.`;
+    case "set":
+      return `${by}. It's the only printing of it in ${lockName || "the sets you chose"}.`;
     case "collector":
       return f.method === "art" ? `${by}; the collector number picked the printing.` : `${by}.`;
     case "picked":
@@ -1111,4 +1433,60 @@ function explain(f: Found, identityOnly: boolean): string {
       if (f.options.length === 0) return `${by}. Yama's card data has no printing of it.`;
       return f.sameArt ? `${by}. ${f.options.length} printings share this art: pick yours.` : `${by}. Pick the printing.`;
   }
+}
+
+/** Save scan photos (samples.ts): off unless turned on, per device. */
+function SavePhotosSwitch() {
+  const [on, setOn] = useState(savingPhotos);
+  const [summary, setSummary] = useState<SampleSummary | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    sampleSummary().then(
+      (s) => live && setSummary(s),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [on]);
+  return (
+    <div className="scan-keep">
+      <input
+        id="scan-save-photos"
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setSavingPhotos(e.target.checked);
+          setOn(e.target.checked);
+        }}
+      />
+      <span>
+        <label htmlFor="scan-save-photos">
+          <strong>Save scan photos.</strong> Keep a small photo of each card you add or correct, with what it was, so the scanner can be tested and trained on real cards. They stay in your account, used for nothing else and shown to no one.
+        </label>{" "}
+        {on && summary && summary.count > 0 && (
+          <>
+            {summary.count} saved.{" "}
+            <button
+              className="scan-alt"
+              onClick={() =>
+                deleteSamples().then(
+                  (r) => {
+                    setSummary({ ...summary, count: 0, bytes: 0 });
+                    setNote(`Deleted ${r.deleted}.`);
+                  },
+                  (e: unknown) => setNote(e instanceof Error ? e.message : String(e)),
+                )
+              }
+            >
+              Delete them
+            </button>
+          </>
+        )}
+        {note && <span className="dim"> {note}</span>}
+      </span>
+    </div>
+  );
 }

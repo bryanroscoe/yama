@@ -7,6 +7,9 @@
 //!   cached. Nothing is downloaded until the server's card imports run or someone opens the scanner.
 //! - `GET /api/scan/printings`: every printing that shares a recognised artwork, so the scanner
 //!   only has to tell those apart (collector line, or the person picks).
+//! - `GET /api/scan/sets` and `GET /api/scan/set?code=`: the sets to lock a scan to, and one set's
+//!   printings with their artworks, so a locked scan matches only that set's art and files its
+//!   printing without reading the collector line (docs/scanner.md, "Set lock").
 
 use crate::auth::CurrentUser;
 use crate::cards::{Printing, PRINTING_SELECT};
@@ -56,6 +59,8 @@ pub fn router(data_dir: &Path) -> Router<AppState> {
     Router::new()
         .route("/api/scan/bundle", get(bundle_info))
         .route("/api/scan/printings", get(printings_by_art))
+        .route("/api/scan/sets", get(scan_sets))
+        .route("/api/scan/set", get(set_printings))
         .merge(files)
 }
 
@@ -298,6 +303,60 @@ async fn printings_by_art(State(st): State<AppState>, _user: CurrentUser, Query(
     Ok(Json(ArtPrintings { same_art: false, printings }))
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+struct ScanSet {
+    code: String,
+    name: String,
+    released_at: Option<String>,
+    /// English printings in Yama's card data.
+    cards: i64,
+}
+
+/// Every set with English printings, newest first, for the set lock's picker.
+async fn scan_sets(State(st): State<AppState>, _user: CurrentUser) -> AppResult<Json<Vec<ScanSet>>> {
+    let sets = sqlx::query_as::<_, ScanSet>(
+        "SELECT set_code AS code, MAX(set_name) AS name, MAX(released_at) AS released_at, COUNT(*) AS cards
+           FROM printings WHERE lang = 'en' GROUP BY set_code ORDER BY MAX(released_at) DESC, set_code",
+    )
+    .fetch_all(&st.pool)
+    .await?;
+    Ok(Json(sets))
+}
+
+#[derive(Deserialize)]
+struct SetParams {
+    code: String,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct SetPrinting {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    printing: Printing,
+    illustration_id: Option<String>,
+    back_illustration_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SetPrintings {
+    code: String,
+    name: String,
+    printings: Vec<SetPrinting>,
+}
+
+/// One set's printings with their artworks: what a scan locked to the set may match.
+async fn set_printings(State(st): State<AppState>, _user: CurrentUser, Query(p): Query<SetParams>) -> AppResult<Json<SetPrintings>> {
+    let code = p.code.trim().to_lowercase();
+    let select = PRINTING_SELECT.replacen("p.artist,", "p.artist, p.illustration_id, p.back_illustration_id,", 1);
+    let printings = sqlx::query_as::<_, SetPrinting>(AssertSqlSafe(format!("{select} WHERE p.set_code = ? ORDER BY p.lang = 'en' DESC, p.collector_number")))
+        .bind(&code)
+        .fetch_all(&st.pool)
+        .await?;
+    let Some(first) = printings.first() else { return Err(AppError::NotFound("set")) };
+    let name = first.printing.set_name.clone();
+    Ok(Json(SetPrintings { code, name, printings }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +405,42 @@ mod tests {
         let (status, _) = testutil::send(&app, Method::GET, "/api/scan/printings?name=Nothing", Some(&token), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = testutil::send(&app, Method::GET, "/api/scan/printings?art=i1&id=p1", None, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn sets_and_one_sets_printings_with_their_art() {
+        let (app, pool) = testutil::app().await;
+        let (_, token) = testutil::user(&pool, "scan@example.com").await;
+        sqlx::query("INSERT INTO cards (oracle_id, name, layout, color_identity, colors, cmc, updated_at) VALUES ('o', 'Sol Ring', 'normal', '', '', 1, '2026-10-28')")
+            .execute(&pool).await.unwrap();
+        for (id, set, name, num, lang, art, released) in [
+            ("p1", "ecc", "Edge of Eternities Commander", "57", "en", Some("i1"), "2025-08-01"),
+            ("p1j", "ecc", "Edge of Eternities Commander", "57", "ja", Some("i1"), "2025-08-01"),
+            ("p2", "c21", "Commander 2021", "263", "en", Some("i2"), "2021-04-23"),
+        ] {
+            sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, released_at, illustration_id, updated_at) VALUES (?, 'o', 'Sol Ring', ?, ?, ?, ?, ?, ?, '2026-10-28')")
+                .bind(id).bind(set).bind(name).bind(num).bind(lang).bind(released).bind(art).execute(&pool).await.unwrap();
+        }
+        let (status, sets) = testutil::send(&app, Method::GET, "/api/scan/sets", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(sets[0]["code"], "ecc");
+        assert_eq!(sets[0]["name"], "Edge of Eternities Commander");
+        assert_eq!(sets[0]["cards"], 1);
+        assert_eq!(sets[1]["code"], "c21");
+
+        let (status, set) = testutil::send(&app, Method::GET, "/api/scan/set?code=ECC", Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(set["name"], "Edge of Eternities Commander");
+        let printings = set["printings"].as_array().unwrap();
+        assert_eq!(printings.len(), 2);
+        assert_eq!(printings[0]["scryfall_id"], "p1");
+        assert_eq!(printings[0]["illustration_id"], "i1");
+        assert_eq!(printings[0]["set_code"], "ecc");
+
+        let (status, _) = testutil::send(&app, Method::GET, "/api/scan/set?code=zzz", Some(&token), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = testutil::send(&app, Method::GET, "/api/scan/sets", None, None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 

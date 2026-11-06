@@ -18,23 +18,37 @@ export interface BundleInfo {
 export type ArtWorkerRequest =
   | { type: "load"; info: BundleInfo; base: string }
   | { type: "reset" }
+  | { type: "pool"; id: number; keys: PoolKeys | null }
   | { type: "identify"; id: number; width: number; height: number; buffer: ArrayBuffer };
 
 export type ArtWorkerReply =
   | { type: "progress"; loaded: number; total: number }
   | { type: "ready"; ms: number; arts: number }
   | { type: "error"; message: string }
+  | { type: "pooled"; id: number; arts: number }
   | { type: "result"; id: number; result: Recognition; buffer: ArrayBuffer }
   | { type: "failed"; id: number; message: string; buffer: ArrayBuffer };
 
 /** The short side of the frames the recognizer is given. The bundle's detector looks at 640 px. */
 export const RECOGNIZER_SHORT_SIDE = 640;
 
+/** What the set lock matches: the artworks of these printings. */
+export interface PoolKeys {
+  illustrations: string[];
+  /** Scryfall IDs, for printings without illustration data. */
+  ids: string[];
+}
+
 export interface ArtRecognizer {
   /** Takes ownership of `image.data`'s buffer. */
   identify(image: RgbaImage): Promise<Recognition>;
   /** Forget the card being tracked (between photos, say). */
   reset(): void;
+  /**
+   * Match only these artworks as well (the set lock), into `Recognition.pool`; null stops. Resolves
+   * to how many of the bundle's artworks they are, or -1 when this bundle can't be searched by part.
+   */
+  setPool(keys: PoolKeys | null): Promise<number>;
   dispose(): void;
 }
 
@@ -66,6 +80,7 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
   if (!info?.ready || !info.constants) return null;
   const worker = new Worker(new URL("./art.worker.ts", import.meta.url), { type: "module" });
   const pending = new Map<number, { resolve: (r: Recognition) => void; reject: (e: Error) => void }>();
+  const pooling = new Map<number, (arts: number) => void>();
   let nextId = 1;
   let disposed = false;
 
@@ -85,6 +100,11 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
 
   worker.onmessage = (e: MessageEvent<ArtWorkerReply>) => {
     const m = e.data;
+    if (m.type === "pooled") {
+      pooling.get(m.id)?.(m.arts);
+      pooling.delete(m.id);
+      return;
+    }
     if (m.type !== "result" && m.type !== "failed") return;
     const p = pending.get(m.id);
     pending.delete(m.id);
@@ -109,11 +129,21 @@ export async function loadArtRecognizer(onState?: (s: LoadState) => void): Promi
     reset() {
       if (!disposed) worker.postMessage({ type: "reset" } satisfies ArtWorkerRequest);
     },
+    setPool(keys) {
+      if (disposed) return Promise.resolve(-1);
+      const id = nextId++;
+      return new Promise<number>((resolve) => {
+        pooling.set(id, resolve);
+        worker.postMessage({ type: "pool", id, keys } satisfies ArtWorkerRequest);
+      });
+    },
     dispose() {
       disposed = true;
       worker.terminate();
       for (const p of pending.values()) p.reject(new Error("The scanner is closed"));
       pending.clear();
+      for (const p of pooling.values()) p(-1);
+      pooling.clear();
     },
   };
 }

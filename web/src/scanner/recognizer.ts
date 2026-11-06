@@ -8,6 +8,7 @@
 //
 // The onnxruntime namespace is passed in, so the web worker and the Node eval share this file.
 
+import { readGallery, type Gallery } from "./gallery";
 import type { Point, Quad, RgbaImage } from "./types";
 
 /** `manifest.constants` of the bundle. */
@@ -50,6 +51,11 @@ export interface Recognition {
   upright: number;
   /** Best first. Empty when no card is in view. */
   matches: ArtMatch[];
+  /**
+   * With a pool set (the set lock): the best matches among the pool's artworks only, best first.
+   * Scored exactly as `matches` are, so the two compare directly.
+   */
+  pool?: ArtMatch[];
   timings: { detectMs: number; embedMs: number; totalMs: number };
 }
 
@@ -57,7 +63,15 @@ export interface Recognizer {
   identify(frame: RgbaImage): Promise<Recognition>;
   /** Forget the tracked card (after it was accepted, say). */
   reset(): void;
+  /**
+   * Also search just these artworks (gallery indices) each frame, into `Recognition.pool`; null
+   * stops. False when the bundle's search graph can't be read for this (then nothing is pooled).
+   */
+  setPool(indices: number[] | null): boolean;
 }
+
+/** Pool matches kept per frame. */
+const POOL_TOP = 3;
 
 /** The parts of onnxruntime-web this uses. */
 export interface OrtLike {
@@ -137,6 +151,13 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
   const detector = await ort.InferenceSession.create(graphs.detector, options);
   const embed = await ort.InferenceSession.create(graphs.embed, options);
   const search = await ort.InferenceSession.create(graphs.search, options);
+  let gallery: Gallery | null = null;
+  try {
+    gallery = readGallery(graphs.search);
+  } catch (e) {
+    console.warn("The set lock can't search this bundle", e);
+  }
+  let pool: number[] | null = null;
   const size = constants.det_input;
   const now = () => performance.now();
 
@@ -159,10 +180,11 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
     side: Math.max((d.short * constants.card_aspect) / constants.refine_fill, constants.refine_min_side),
   });
 
-  const match = async (frame: RgbaImage, quad: Quad): Promise<ArtMatch[]> => {
+  const match = async (frame: RgbaImage, quad: Quad): Promise<{ matches: ArtMatch[]; pool?: ArtMatch[] }> => {
     const scene = new ort.Tensor("uint8", new Uint8Array(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength), [frame.height, frame.width, 4]);
     const vectors = await embed.run({ scene, quad: new ort.Tensor("float32", Float32Array.from(quad.flat()), [4, 2]) });
-    const ranked = await search.run({ embeddings: Object.values(vectors)[0] });
+    const embedding = Object.values(vectors)[0]!;
+    const ranked = await search.run({ embeddings: embedding });
     const indices = ranked.indices!.data as BigInt64Array | Int32Array;
     const scores = ranked.scores!.data as Float32Array;
     const out: ArtMatch[] = [];
@@ -172,7 +194,11 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
       // A masked or padded row scores below -1; real scores are cosines.
       if (art && scores[i]! >= -1) out.push({ ...art, index, score: scores[i]! });
     }
-    return out;
+    if (!pool || !gallery) return { matches: out };
+    const pooled = gallery
+      .search(embedding.data as Float32Array, pool, POOL_TOP)
+      .flatMap(({ index, score }) => (arts[index] ? [{ ...arts[index]!, index, score }] : []));
+    return { matches: out, pool: pooled };
   };
 
   let tracked: Window | null = null;
@@ -202,9 +228,9 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
     const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
-    const matches = inView ? await match(frame, fine.quad) : [];
+    const found = inView ? await match(frame, fine.quad) : { matches: [], pool: pool && gallery ? [] : undefined };
     const t2 = now();
-    return { quad: inView ? fine.quad : null, upright: fine.vote, matches, timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0 } };
+    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0 } };
   };
 
   // Each graph's first run sets up its kernels; pay that before the first real frame.
@@ -220,7 +246,26 @@ export async function createRecognizer(ort: OrtLike, graphs: { detector: Uint8Ar
       tracked = null;
       trackedFor = 0;
     },
+    setPool(indices) {
+      if (!gallery) {
+        pool = null;
+        return false;
+      }
+      pool = indices;
+      return true;
+    },
   };
+}
+
+/** The gallery indices of the artworks these printings show (by illustration, or by the printing itself). */
+export function poolIndices(gallery: Art[], keys: { illustrations: string[]; ids: string[] }): number[] {
+  const ills = new Set(keys.illustrations);
+  const ids = new Set(keys.ids);
+  const out: number[] = [];
+  gallery.forEach((a, i) => {
+    if ((a.illustrationId && ills.has(a.illustrationId)) || ids.has(a.id.replace(/-1$/, ""))) out.push(i);
+  });
+  return out;
 }
 
 /**

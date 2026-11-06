@@ -147,6 +147,8 @@ pub struct Limits {
     pub join_codes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
+    /// Scan photos kept for improving the scanner (scan_samples.rs), per account.
+    pub scan_samples: RateLimiter,
     /// Mythic Tools bridge game previews and imports, per account (bridges/mythic). The page
     /// previews again on each change, so this allows more than `imports`.
     pub mythic_bridge: RateLimiter,
@@ -186,6 +188,7 @@ impl Default for Limits {
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
+            scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
             mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
