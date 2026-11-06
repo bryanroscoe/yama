@@ -243,22 +243,53 @@ async fn general(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     }
     #[allow(clippy::type_complexity)]
     let plans: Vec<(String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT key, name, status, note_id, note_build_id FROM plan_decks WHERE owner_id = ? ORDER BY status = 'archived', sort, key",
+        "SELECT id, key, name, note_id, note_build_id FROM plan_decks WHERE owner_id = ?
+         ORDER BY status = 'archived' OR archived_at IS NOT NULL, sort, key",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
     if !plans.is_empty() {
-        out.push_str("\nTheir deck plans with tracking (Buy, Trip, prints, installed and bought marks):\n");
-        for (key, name, status, note, build) in plans {
+        let installs = crate::plan::installed::load(pool, owner).await?;
+        let mut conn = pool.acquire().await?;
+        let states = crate::plan::versions::load(&mut conn, owner, Some(&installs)).await?;
+        out.push_str(
+            "\nTheir deck plans, one per deck (each is a Bracket 4 build with swap bags back to 3 and 2). A plan is waiting for \
+             their OK, in progress, done or archived; approving is one decision for the whole plan (`approve_plan`), after \
+             skipping any change and answering its open questions. Only approved plans feed the shopping list and prints:\n",
+        );
+        for (id, key, name, note, build) in plans {
             let from = match (note, build) {
                 (Some(n), Some(b)) => format!("; build {b} of note {n}"),
                 _ => "; from a plan file".into(),
             };
-            let _ = writeln!(out, "- {name} (plan key {key}, {status}{from})");
+            let state = states.decks.get(&id).map(plan_state_text).unwrap_or_default();
+            let _ = writeln!(out, "- {name} (plan key {key}{from}): {state}");
         }
     }
     Ok(out)
+}
+
+/// A deck plan's state in words, for the tools.
+pub(crate) fn plan_state_text(p: &crate::plan::versions::DeckPlan) -> String {
+    let mut s = match p.state {
+        "waiting" => "waiting for their OK".to_string(),
+        "in_progress" => format!("in progress, version {}, {} of {} changes in the deck", p.version.unwrap_or(1), p.installed, p.changes),
+        "done" => format!("done, version {}, all {} changes in the deck", p.version.unwrap_or(1), p.changes),
+        "archived" => format!("archived{}", p.archived_note.as_deref().map(|n| format!(" ({n})")).unwrap_or_default()),
+        _ => "no changes yet".to_string(),
+    };
+    if let Some(n) = &p.next {
+        let what = if p.state == "waiting" { "version" } else { "new version" };
+        let _ = write!(s, "; {what} {} with {} changes waiting for their OK", n.n, n.keys.len());
+        if !n.skipped.is_empty() {
+            let _ = write!(s, " ({} already skipped)", n.skipped.len());
+        }
+        if !p.questions.is_empty() {
+            let _ = write!(s, ", {} open question{} to answer first", p.questions.len(), if p.questions.len() == 1 { "" } else { "s" });
+        }
+    }
+    s
 }
 
 // ── plan deck ───────────────────────────────────────────────────────────────
@@ -415,6 +446,24 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
     let mut out = String::new();
     let cmd: Vec<String> = serde_json::from_str(&commander).unwrap_or_default();
     let _ = writeln!(out, "Plan deck: {name} (key {key}, {status})");
+    let state = {
+        let installs = crate::plan::installed::load(pool, owner).await?;
+        let mut conn = pool.acquire().await?;
+        crate::plan::versions::load(&mut conn, owner, Some(&installs)).await?.decks.remove(&id)
+    };
+    if let Some(p) = &state {
+        let _ = writeln!(out, "Plan: {}", plan_state_text(p));
+        if let Some(n) = &p.next {
+            let _ = writeln!(
+                out,
+                "Version {} is waiting for their OK: the proposed swaps listed as waiting below. They approve it whole in Yama, or you \
+                 stage `approve_plan` (with any changes to skip and the answers to its open questions) once they've said so; until \
+                 then {}.",
+                n.n,
+                if p.state == "waiting" { "nothing in it is bought or printed" } else { "the version before keeps going" }
+            );
+        }
+    }
     if let Some((note, deck, build)) = &note {
         let _ = writeln!(
             out,
@@ -588,9 +637,10 @@ fn is_answered(answers: &Answers, key: &str) -> bool {
 
 pub(crate) async fn review(pool: &SqlitePool, owner: &str) -> AppResult<String> {
     let mut out = String::from(
-        "They are on Review: proposed swaps for their plan decks. Each needs want, unsure or don't want. \
-         Want means an agent moves the swap into the plan; unsure and don't want keep it out, and agents read their note. \
-         Planned swaps are already in the plan and aren't on this list.\n",
+        "Proposed swaps for their plan decks. A deck's proposals together are a plan version waiting for their OK: they \
+         approve it whole on the deck's plan page (skipping any change first), or answer one change at a time with want, \
+         unsure or don't want. Want means an agent moves the swap into the plan; unsure and don't want keep it out, and \
+         agents read their note. Planned swaps are already in the plan and aren't on this list.\n",
     );
     out.push_str(&plan_settings(pool, owner).await?);
     let answers = reviews(pool, owner).await?;

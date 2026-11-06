@@ -466,11 +466,11 @@ const TOOLS: &[Tool] = &[
         name: "track_build",
         title: "Make a note's build the deck's plan",
         description: staged!(
-            "Track one build of a deck in one of their saved notes as that deck's plan: its swaps become the plan's swaps, \
-             with Buy, Trip, prints, installed and bought marks and the plan tools (plan_deck, mark_bought, mark_installed, \
-             answer_review, swap_in_prints) working on it. Tracking another build of the same deck switches to it; the \
-             earlier build's marks are kept for a switch back. build null stops tracking. The plan follows the note when \
-             it's saved again. Give the note id and deck key from `overview` or `research`."
+            "Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version \
+             waiting for their OK (\"Use a deck from it\" on the plan pages). Once they approve it (in Yama, or \
+             `approve_plan`), Buy, prints, installed and bought marks and the plan tools (plan_deck, mark_bought, \
+             mark_installed, swap_in_prints) work on it, and it replaces any other plan for the same deck. Another build \
+             of the same deck switches to it; build null stops it. Give the note id and deck key from `overview` or `research`."
         ),
         schema: || {
             json!({"type":"object","properties":{
@@ -479,6 +479,27 @@ const TOOLS: &[Tool] = &[
                 "build":{"type":["string","null"],"description":"The build's id; null to stop tracking this deck."},
                 "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."}
             },"required":["note","deck","build"],"additionalProperties":false})
+        },
+        does: Does::Stage,
+    },
+    Tool {
+        name: "approve_plan",
+        title: "Approve a deck's plan",
+        description: staged!(
+            "Approve a deck's plan version whole, as the plan page's Approve plan does: every change waiting in it goes into \
+             the plan except the ones in skip, and the open questions plan_deck lists need their answers first. Only stage \
+             it when they have said to. action keep instead keeps the version before it (for a new version of a plan in \
+             progress). Nothing is bought or printed by approving: buys go on their shopping list and prints on the next \
+             print order."
+        ),
+        schema: || {
+            json!({"type":"object","properties":{
+                "plan":{"type":"string","description":"The plan key or deck name from `overview`."},
+                "action":{"type":"string","enum":["approve","keep"],"description":"approve (default) or keep the version before it."},
+                "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one."},
+                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string"},"answer":{"type":"string"}},"required":["question","answer"],"additionalProperties":false},
+                           "description":"Their answer to each open question, the question exactly as plan_deck lists it."}
+            },"required":["plan"],"additionalProperties":false})
         },
         does: Does::Stage,
     },
@@ -884,6 +905,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         "edit_deck" => changes::edit_deck(st, user, via, args).await,
         "propose_swap" => changes::propose_swap(st, user, via, args).await,
         "track_build" => changes::track_build(st, user, via, args).await,
+        "approve_plan" => changes::approve_plan(st, user, via, args).await,
         "answer_review" => changes::answer_review(st, user, via, args).await,
         "mark_bought" => changes::mark_bought(st, user, via, args).await,
         "mark_installed" => changes::mark_installed(st, user, via, args).await,
@@ -1178,12 +1200,12 @@ async fn note_plans(pool: &SqlitePool, owner: &str, only: Option<&str>) -> AppRe
         }
         if out.is_empty() {
             out.push_str(match only {
-                None => "\nTheir notes, the content of their deck plans (`research` reads one; `track_build` makes one build a deck's tracked plan):\n",
-                Some(_) => "Not tracked yet. This deck is in their notes; `research` reads its builds and `track_build` makes one its plan:\n",
+                None => "\nTheir notes, archived plans kept for reference (`research` reads one; `track_build` makes one build a deck's next plan version, waiting for their OK):\n",
+                Some(_) => "Not a plan yet. This deck is in their notes; `research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n",
             });
         }
         if note_seen != id {
-            let _ = writeln!(out, "- {title} (note id {id}, revision {revision}): /decks/research/{id}");
+            let _ = writeln!(out, "- {title} (note id {id}, revision {revision}): /decks/plans/archived/{id}");
             note_seen.clone_from(&id);
         }
         let builds: Vec<Value> = serde_json::from_str(&builds).unwrap_or_default();

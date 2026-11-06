@@ -1754,3 +1754,37 @@ in the order in his own browser.
   copies of one card, one double-faced back, a common card back) through to MPC's preview with every
   slot right, and refused an order whose card back wasn't a Drive id; nothing was added to a cart.
   MPC can change its pages without notice; the helper then stops and says where.
+
+### Plans: one plan per deck (2026-11-06)
+
+Bryan approved the plans redesign (design canvas "Yama plans redesign", 6 Nov 2026): too many plan
+options and no clear current proposal. This replaces the "plan is a note" model above.
+
+- **One plan per deck, in one state.** Every deck has one current plan: a Bracket 4 build plus swap
+  bags back to Bracket 3 and 2. Its state is waiting for your OK, in progress, done or archived
+  (`server/src/plan/versions.rs`, migration 0069; "empty" when it has no changes yet). The bundle
+  (shape 9) carries each deck's `plan` and every decided version (`versions`); the MCP tools say the
+  same (`overview`, `plan_deck`, `review_queue`).
+- **Approve is one decision.** Before approving you can skip any change and must answer the deck's
+  open questions. Approving is one `plan` op (`POST /api/plan/inputs`, idempotent by op id): every
+  kept change becomes a `want` answer and every skipped one a `no` in `plan_reviews`, the answers
+  Review always wrote, so the shopping list, prints and the plan file's export side read them
+  unchanged. For a deck from a plan file each answer is also an inbox op (`<op id>/<n>`), so
+  commander-decks' `pull.py` promotes them as before, and the plan op itself carries the version,
+  the skips and the question answers. A key list that isn't exactly what's waiting (the plan
+  changed since the page loaded) is refused. Undo restores the answers from before; Keep the version
+  before answers no to every change in the new one; Archive and Restore set `plan_decks.archived_at`,
+  which an import never writes, so a later plan file can't bring an archived plan back.
+- **Versions.** A decision is a numbered version of the deck's plan (`plan_versions`, counted per deck
+  name). Every plan deck that already had planned swaps became version 1; one that is only
+  proposals (Multiverse Reforged, and the decks commander-decks proposed on 5 Nov) has none and waits
+  for your OK. Proposals that reach a plan in progress, unanswered, are its next version, waiting
+  for your OK, while the version before keeps going. Approving a plan replaces any other live plan
+  for the same deck (archived as "Replaced by version N"); earlier versions stay readable.
+- **Notes are archived plans.** Research notes are kept for reference and are never a current plan.
+  Using a deck from one (`POST /api/plan/from-note` with `proposed: true`, or `track_build`) makes
+  that build's changes proposals: the deck's next version, waiting for your OK. `approve_plan`
+  stages a whole-plan approval for Claude, applied by the person like any other change.
+- **Publishing from commander-decks** needs no format change: a deck exported as `proposals_only`
+  with its proposals and bags arrives as one plan waiting for your OK, not 496 separate Review items.
+  `pull.py` lists the plan decisions with their answers.

@@ -12,6 +12,10 @@
 //!   (`for_export`). Its script reads them from `GET /api/plan/inbox` and moves the cursor with
 //!   `POST /api/plan/inbox/ack`. `seq` is a global AUTOINCREMENT, so two devices can't collide.
 //! - "Bought it" is a claim. It never creates an order, changes a list or counts as owned.
+//! - A `plan` op decides a whole deck plan (`versions.rs`): approve it with the changes you
+//!   skipped and your answers to its open questions, keep the version before it, undo the newest
+//!   decision, archive it or bring it back. Approving writes one review answer per change, each
+//!   also an inbox op for the export side, so a plan file's deck is promoted there as before.
 
 use super::tokens::SyncUser;
 use crate::auth::CurrentUser;
@@ -31,11 +35,15 @@ use std::collections::{HashMap, HashSet};
 pub const MAX_OPS: usize = 500;
 /// One op as sent, in bytes. A note is at most 2000 characters, so real ops are far smaller.
 const MAX_OP_BYTES: usize = 16 * 1024;
+/// A plan op lists every change in a plan by key (a hundred keys of a few dozen characters).
+const MAX_PLAN_OP_BYTES: usize = 128 * 1024;
+/// Keys in one plan op.
+const MAX_PLAN_KEYS: usize = 400;
 /// How far ahead of the server a device clock may be before its time is clamped.
 const FUTURE_SECONDS: i64 = 300;
 /// Inbox ops per page.
 pub const INBOX_PAGE: i64 = 1000;
-pub const KINDS: [&str; 4] = ["review", "installed", "bought", "idea"];
+pub const KINDS: [&str; 5] = ["review", "installed", "bought", "idea", "plan"];
 
 pub fn router() -> Router<AppState> {
     use axum::routing::{get, post};
@@ -114,8 +122,10 @@ struct Parsed {
     swap_key: Option<String>,
     deck_key: Option<String>,
     device_id: Option<String>,
-    /// The normalized record the export side reads: the full answer, mark or idea.
+    /// The normalized record the export side reads: the full answer, mark, idea or plan decision.
     record: Value,
+    /// A plan op, checked.
+    plan: Option<super::versions::PlanOp>,
 }
 
 fn field<'a>(op: &'a Map<String, Value>, name: &str) -> Option<&'a Value> {
@@ -208,6 +218,60 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
             });
             (Some(swap_key()?), record)
         }
+        "plan" => {
+            if deck_key.is_none() {
+                return Err("deck_key: missing; the plan deck this decides".into());
+            }
+            let action = needed(op, "action", 20, "approve, keep, undo, archive or restore")?;
+            if !super::versions::ACTIONS.contains(&action.as_str()) {
+                return Err(format!("action: \"{action}\" isn't one of {}", super::versions::ACTIONS.join(", ")));
+            }
+            let version = match field(op, "version") {
+                None => None,
+                Some(v) => Some(v.as_i64().filter(|n| *n >= 1).ok_or_else(|| format!("version: {v} isn't a version number"))?),
+            };
+            if version.is_none() && ["approve", "keep", "undo"].contains(&action.as_str()) {
+                return Err("version: missing; the version you're deciding".into());
+            }
+            let keys = |name: &str| -> Result<Vec<String>, String> {
+                match field(op, name) {
+                    None => Ok(vec![]),
+                    Some(Value::Array(a)) if a.len() > MAX_PLAN_KEYS => Err(format!("{name}: at most {MAX_PLAN_KEYS} keys")),
+                    Some(Value::Array(a)) => a
+                        .iter()
+                        .map(|k| k.as_str().filter(|k| !k.trim().is_empty() && k.chars().count() <= 500).map(String::from).ok_or_else(|| format!("{name}: {k} isn't a swap key")))
+                        .collect(),
+                    Some(other) => Err(format!("{name}: expected a list of swap keys, got {other}")),
+                }
+            };
+            let (included, skip) = (keys("keys")?, keys("skip")?);
+            let hash = text(op, "hash", 64)?;
+            if hash.is_none() && ["approve", "keep"].contains(&action.as_str()) {
+                return Err("hash: missing; the waiting version's hash as you saw it".into());
+            }
+            let answers: Vec<(String, String)> = match field(op, "answers") {
+                None => vec![],
+                Some(Value::Array(a)) if a.len() > 50 => return Err("answers: at most 50".into()),
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .map(|x| {
+                        let q = x.get("question").and_then(Value::as_str).filter(|q| q.chars().count() <= 2000);
+                        let ans = x.get("answer").and_then(Value::as_str).filter(|q| q.chars().count() <= 2000);
+                        match (q, ans) {
+                            (Some(q), Some(ans)) => Ok((q.to_string(), ans.trim().to_string())),
+                            _ => Err(format!("answers: {x} isn't {{question, answer}} (each up to 2000 characters)")),
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+                Some(other) => return Err(format!("answers: expected a list of {{question, answer}}, got {other}")),
+            };
+            let record = json!({
+                "action": action, "version": version, "keys": included, "skip": skip, "hash": hash,
+                "answers": answers.iter().map(|(q, a)| json!({"question": q, "answer": a})).collect::<Vec<_>>(),
+            });
+            let plan = super::versions::PlanOp { action, version, keys: included, skip, hash, answers };
+            return Ok(Parsed { kind, swap_key: None, deck_key, device_id, record, plan: Some(plan) });
+        }
         _ => {
             if deck_key.is_none() {
                 return Err("deck_key: missing; the plan deck the idea is for".into());
@@ -218,7 +282,7 @@ fn parse(op: &Map<String, Value>) -> Result<Parsed, String> {
             (None, record)
         }
     };
-    Ok(Parsed { kind, swap_key, deck_key, device_id, record })
+    Ok(Parsed { kind, swap_key, deck_key, device_id, record, plan: None })
 }
 
 // ── applying ───────────────────────────────────────────────────────────────
@@ -281,9 +345,11 @@ pub async fn apply_ops(pool: &SqlitePool, owner: &str, ops: Vec<Value>, received
         sqlx::query("SAVEPOINT plan_op").execute(&mut *conn).await?;
         let outcome = match op.as_object() {
             None => Err(format!("op: expected an object, got {op}")),
-            Some(_) if payload.len() > MAX_OP_BYTES => Err(format!("op: at most {MAX_OP_BYTES} bytes")),
+            Some(obj) if payload.len() > if obj.get("kind").and_then(Value::as_str) == Some("plan") { MAX_PLAN_OP_BYTES } else { MAX_OP_BYTES } => {
+                Err(format!("op: at most {} bytes", if obj.get("kind").and_then(Value::as_str) == Some("plan") { MAX_PLAN_OP_BYTES } else { MAX_OP_BYTES }))
+            }
             Some(obj) => match (parse(obj), op_time(obj, received)) {
-                (Ok(p), Ok(at)) => apply(&mut *conn, owner, &ctx, &p, &op_id, &at).await?.map(|(deck_key, for_export)| (p, at, deck_key, for_export)),
+                (Ok(p), Ok(at)) => apply(&mut *conn, owner, &ctx, &p, &op_id, &at, &received_at).await?.map(|(deck_key, for_export)| (p, at, deck_key, for_export)),
                 (Err(e), _) | (_, Err(e)) => Err(e),
             },
         };
@@ -358,7 +424,11 @@ async fn insert_input(
 
 /// Write one checked op. `Ok(Err(..))` rejects the op; `Err(..)` is a database failure that fails the
 /// batch. Returns the deck the op is about (when known) and whether the export side should see it.
-async fn apply(conn: &mut SqliteConnection, owner: &str, ctx: &Ctx, p: &Parsed, op_id: &str, at: &str) -> AppResult<Result<(Option<String>, bool), String>> {
+async fn apply(conn: &mut SqliteConnection, owner: &str, ctx: &Ctx, p: &Parsed, op_id: &str, at: &str, received_at: &str) -> AppResult<Result<(Option<String>, bool), String>> {
+    if let Some(plan) = &p.plan {
+        let deck_key = p.deck_key.clone().unwrap_or_default();
+        return Ok(super::versions::apply(&mut *conn, owner, &deck_key, plan, op_id, at, received_at).await?.map(|for_export| (Some(deck_key), for_export)));
+    }
     let swap = p.swap_key.as_deref().and_then(|k| ctx.swap(k));
     let deck_key = swap.as_ref().map(|(_, s)| s.deck_key.clone()).or_else(|| p.deck_key.clone());
     let deck = deck_key.as_deref().and_then(|k| ctx.decks.get(k));

@@ -58,6 +58,11 @@ pub struct TrackRequest {
     /// would be applied. Claude's staged `track_build` always sets it.
     #[serde(default)]
     pub expected_note_hash: Option<String>,
+    /// Make the build's changes proposals, waiting for your OK as the deck's next plan version
+    /// (versions.rs), instead of putting them straight into the plan. The plan pages ("Use a deck
+    /// from it") and Claude's `track_build` always set it.
+    #[serde(default)]
+    pub proposed: bool,
 }
 
 impl TrackRequest {
@@ -67,7 +72,7 @@ impl TrackRequest {
 
     /// What a retry must repeat exactly to get the first answer back.
     fn identity(&self) -> Value {
-        json!({"note_id": self.note_id, "deck_key": self.deck_key, "build_id": self.build_id, "deck_id": self.deck_id()})
+        json!({"note_id": self.note_id, "deck_key": self.deck_key, "build_id": self.build_id, "deck_id": self.deck_id(), "proposed": self.proposed})
     }
 }
 
@@ -152,18 +157,44 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             }
         }
     };
+    // A plan in force from another build of this note keeps going until a new version is
+    // approved, but both builds would share this one plan row: switching would retire the plan
+    // you approved before you OK its replacement. Ask for it to be set aside first.
+    if req.proposed
+        && let Some((id, _, _)) = &existing
+    {
+        let (live, build_now, approved): (bool, Option<String>, bool) = sqlx::query_as(
+            "SELECT status != 'archived' AND archived_at IS NULL, note_build_id,
+                    EXISTS (SELECT 1 FROM plan_versions v WHERE v.plan_deck_id = plan_decks.id AND v.owner_id = plan_decks.owner_id AND v.status = 'approved')
+                    OR EXISTS (SELECT 1 FROM plan_swaps s WHERE s.plan_deck_id = plan_decks.id AND s.owner_id = plan_decks.owner_id
+                               AND s.retired_at IS NULL AND s.stage = 'planned')
+             FROM plan_decks WHERE id = ? AND owner_id = ?",
+        )
+        .bind(id)
+        .bind(owner)
+        .fetch_one(&mut *conn)
+        .await?;
+        if live && approved && build_now.as_deref() != Some(req.build_id.as_str()) {
+            return Err(AppError::Conflict(
+                "This deck's plan in progress came from another build of this note. Archive that plan first, or ask your assistant to propose the change as a new version."
+                    .into(),
+            ));
+        }
+    }
     let name = text(deck, "name").unwrap_or_else(|| req.deck_key.clone());
     let commander = json_text(&commanders(deck, build));
     let (plan_id, key) = match existing {
         Some((id, key, _)) => {
             sqlx::query(
-                "UPDATE plan_decks SET name = ?, status = 'active', commander = ?, deck_id = ?, note_build_id = ?, updated_at = ?
+                "UPDATE plan_decks SET name = ?, status = 'active', commander = ?, deck_id = ?, note_build_id = ?,
+                   note_proposed = MAX(note_proposed, ?), archived_at = NULL, archived_note = NULL, updated_at = ?
                  WHERE id = ? AND owner_id = ?",
             )
             .bind(&name)
             .bind(&commander)
             .bind(&deck_id)
             .bind(&req.build_id)
+            .bind(req.proposed)
             .bind(&stamp)
             .bind(&id)
             .bind(owner)
@@ -177,8 +208,8 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             let sort: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(sort), 0) + 1 FROM plan_decks WHERE owner_id = ?").bind(owner).fetch_one(&mut *conn).await?;
             sqlx::query(
                 "INSERT INTO plan_decks (id, owner_id, key, name, source, status, commander, deck_id, sort, note_id, note_deck_key,
-                   note_build_id, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'yama', 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
+                   note_build_id, note_proposed, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'yama', 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(owner)
@@ -190,6 +221,7 @@ pub async fn track(pool: &SqlitePool, owner: &str, req: &TrackRequest) -> AppRes
             .bind(&req.note_id)
             .bind(&req.deck_key)
             .bind(&req.build_id)
+            .bind(req.proposed)
             .bind(&stamp)
             .bind(&stamp)
             .execute(&mut *conn)
@@ -477,6 +509,13 @@ async fn derive(
 ) -> AppResult<Derived> {
     let build_id = text(build, "id").unwrap_or_default();
     let mut warnings = Vec::new();
+    // A build taken up after plans were approved whole waits for your OK: its changes are proposals.
+    let proposed: bool = sqlx::query_scalar("SELECT note_proposed FROM plan_decks WHERE id = ? AND owner_id = ?")
+        .bind(plan_id)
+        .bind(owner)
+        .fetch_one(&mut *conn)
+        .await?;
+    let stage = if proposed { "proposed" } else { "planned" };
     let after: List = parse_list(build["list"].as_str().unwrap_or_default(), true)
         .into_iter()
         .filter_map(|l| match l.board {
@@ -552,18 +591,19 @@ async fn derive(
             sqlx::query(
                 "INSERT INTO plan_swaps (id, owner_id, plan_deck_id, ext_key, stage, role, src, store_label, out_name, in_name, sort, got,
                    why, why_out, note, content_hash, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(owner_id, ext_key) DO UPDATE SET plan_deck_id = excluded.plan_deck_id, stage = excluded.stage,
                    role = excluded.role, src = excluded.src, store_label = excluded.store_label, out_name = excluded.out_name,
                    in_name = excluded.in_name, sort = excluded.sort, got = excluded.got, why = excluded.why, why_out = excluded.why_out,
                    note = excluded.note, content_hash = excluded.content_hash, retired_at = NULL, updated_at = excluded.updated_at
-                 WHERE plan_swaps.content_hash IS NOT excluded.content_hash OR plan_swaps.retired_at IS NOT NULL
+                 WHERE plan_swaps.content_hash IS NOT excluded.content_hash OR plan_swaps.retired_at IS NOT NULL OR plan_swaps.stage != excluded.stage
                    OR plan_swaps.plan_deck_id != excluded.plan_deck_id",
             )
             .bind(new_id())
             .bind(owner)
             .bind(plan_id)
             .bind(&key)
+            .bind(stage)
             .bind(row["role"].as_str())
             .bind(source.src)
             .bind(&source.store_label)

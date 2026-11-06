@@ -253,7 +253,7 @@ async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
     assert!(!err, "{text}");
     assert!(text.contains("note id audit") && text.contains("deck key energy): no build tracked") && text.contains("b3 (Bracket 3, bracket 3)"), "{text}");
     let (err, text) = call(&app, key, "plan_deck", json!({"key": "energy"})).await;
-    assert!(!err && text.starts_with("Not tracked yet"), "{text}");
+    assert!(!err && text.starts_with("Not a plan yet"), "{text}");
 
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;
     assert!(!err && text.contains("Track Bracket 3 as Energy's plan"), "{text}");
@@ -265,7 +265,7 @@ async fn claude_sees_notes_as_deck_plans_and_stages_tracking() {
     assert_eq!(applied["status"], "applied", "{applied}");
 
     let (_, text) = call(&app, key, "overview", json!({})).await;
-    assert!(text.contains("tracking build b3 as plan key energy") && text.contains("Energy (plan key energy, active; build b3 of note audit)"), "{text}");
+    assert!(text.contains("tracking build b3 as plan key energy") && text.contains("Energy (plan key energy; build b3 of note audit): waiting for their OK; version 1 with 3 changes waiting"), "{text}");
     let (err, text) = call(&app, key, "plan_deck", json!({"key": "energy"})).await;
     assert!(!err && text.contains("Made from build b3 of deck energy in note audit"), "{text}");
     let (err, text) = call(&app, key, "track_build", json!({"note": "audit", "deck": "energy", "build": "b3"})).await;

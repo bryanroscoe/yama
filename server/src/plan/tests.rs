@@ -1599,3 +1599,6 @@ async fn restoring_a_yama_backup_never_deletes_a_rule_set() {
     assert_eq!(b["settings"].as_array().unwrap().len(), 3);
     assert_eq!(b["settings"][2]["note"], "Restored");
 }
+
+#[path = "tests_versions.rs"]
+mod versions;
