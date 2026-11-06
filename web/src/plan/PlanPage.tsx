@@ -38,8 +38,8 @@ const money = (n: number) => `$${n.toFixed(2)}`;
 const changesWord = (n: number) => (n === 1 ? "1 change" : `${n} changes`);
 
 /** Send a whole-plan decision; the outbox keeps it until the server has it. */
-function decide(userId: string, deck: PlanDeck, action: PlanDecisionOp["action"], version: number | null, keys: string[] = [], skip: string[] = [], answers: PlanDecisionOp["answers"] = []) {
-  outbox.enqueue(userId, { kind: "plan", op_id: crypto.randomUUID(), device_id: deviceId(), at: opTime(), deck_key: deck.key, action, version, keys, skip, answers });
+function decide(userId: string, deck: PlanDeck, action: PlanDecisionOp["action"], version: number | null, keys: string[] = [], skip: string[] = [], answers: PlanDecisionOp["answers"] = [], hash: string | null = null) {
+  outbox.enqueue(userId, { kind: "plan", op_id: crypto.randomUUID(), device_id: deviceId(), at: opTime(), deck_key: deck.key, action, version, keys, skip, answers, hash });
 }
 
 /** `/decks/plans/:key`: one deck's plan, as one page whatever its state (design boards ProposedPlan, InProgress, NewVersion). */
@@ -155,6 +155,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
       live.map((c) => c.swap.key),
       changes.filter((c) => skipped.has(c.swap.key)).map((c) => c.swap.key),
       plan.questions.map((q) => ({ question: q, answer: answers[q]!.trim() })),
+      next.hash,
     );
   const bags = deck.bracket?.bags ?? {};
   const gcs = deck.bracket?.game_changers ?? null;
@@ -316,7 +317,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
               Not now: archive this plan
             </button>
           ) : (
-            <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "keep", next.n, next.keys)}>
+            <button className="outline plans-wide-button" onClick={() => decide(userId, deck, "keep", next.n, next.keys, [], [], next.hash)}>
               Keep version {plan.version}
             </button>
           )}

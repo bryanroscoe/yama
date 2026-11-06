@@ -29,7 +29,7 @@ export function planOf(deck: PlanDeck, swaps: Swap[]): DeckPlanState {
     state,
     version: planned.length ? 1 : null,
     approved_at: null,
-    next: proposals.length && !archived ? { n: planned.length ? 2 : 1, keys: proposals, skipped: [], proposed_at: null, source: { kind: "yama" } } : null,
+    next: proposals.length && !archived ? { n: planned.length ? 2 : 1, keys: proposals, skipped: [], proposed_at: null, source: { kind: "yama" }, hash: "" } : null,
     changes: planned.length,
     installed: 0,
     questions: deck.notes.filter((n) => n.kind === "open_question").map((n) => n.text),
@@ -82,7 +82,8 @@ export function changePrice(s: Swap, b: Pick<PlanBundle, "quotes" | "stores" | "
   const quotes = [...b.quotes.filter((q) => q.swap === s.key), ...(b.store_quotes ?? []).filter((q) => q.card === s.in)];
   const stores = new Map(b.stores.map((st) => [st.key, st]));
   const listed = newestChecks(quotes)
-    .filter((q) => q.price != null && q.in_stock !== false)
+    // Dollar totals take dollar prices only; a listing in another currency isn't compared.
+    .filter((q) => q.price != null && q.in_stock !== false && (q.currency ?? "USD") === "USD")
     .sort((x, y) => x.price! - y.price!);
   const best = listed[0];
   if (best) return { usd: best.price!, date: best.checked, store: (best.store ? stores.get(best.store)?.name : null) ?? best.store_label ?? null };
@@ -152,6 +153,14 @@ export function getLine(c: PlanCounts): string {
   return s ? s[0]!.toUpperCase() + s.slice(1) : "Nothing to get";
 }
 
+/**
+ * Whether an answer approves a change: a want, given after the change last changed. A proposal a
+ * plan file or note save edited after it was answered is unanswered again (server `versions.rs`).
+ */
+export function approves(s: Swap, answer: Review | undefined): boolean {
+  return answer?.decision === "want" && (s.stage !== "proposed" || !s.updated_at || !answer.at || s.updated_at <= answer.at);
+}
+
 /** The changes in a plan's version waiting for your OK, in plan order. */
 export function waitingSwaps(plan: DeckPlanState, swaps: Swap[]): Swap[] {
   if (!plan.next) return [];
@@ -167,7 +176,7 @@ export function inForceSwaps(deck: PlanDeck, plan: DeckPlanState, swaps: Swap[],
   if (plan.version == null) return [];
   return swaps
     .filter((s) => s.deck === deck.key && !s.retired && s.role === "swap")
-    .filter((s) => s.stage === "planned" || answers.get(s.key)?.decision === "want")
+    .filter((s) => s.stage === "planned" || approves(s, answers.get(s.key)))
     .sort((a, b) => (a.stage === b.stage ? a.sort - b.sort : a.stage === "planned" ? -1 : 1));
 }
 

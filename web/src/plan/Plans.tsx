@@ -59,7 +59,9 @@ export function Plans() {
   const versions = rows.filter((r) => inForce(r.plan) && r.plan.next);
   const progress = rows.filter((r) => r.plan.state === "in_progress");
   const done = rows.filter((r) => r.plan.state === "done");
-  const empty = rows.filter((r) => r.plan.state === "empty");
+  // Decks with no changes yet: yours wait for a plan; one you don't have yet is listed with them.
+  const empty = rows.filter((r) => r.plan.state === "empty" && !have(r));
+  const noPlan = rows.filter((r) => r.plan.state === "empty" && have(r));
   const archived = rows.filter((r) => r.plan.state === "archived").length + new Set((view.b.versions ?? []).filter((v) => v.superseded_at || v.status === "kept").map((v) => `${v.deck}/${v.n}`)).size;
   // Start with the plan that has waited longest.
   const start = [...waitingMine].sort((a, b) => (a.plan.next?.proposed_at ?? "").localeCompare(b.plan.next?.proposed_at ?? ""))[0];
@@ -185,6 +187,24 @@ export function Plans() {
                 <b className="plans-list-main">{r.deck.name}</b>
                 <span className="small dim">No plan yet</span>
               </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {noPlan.length > 0 && (
+        <section className="plans-section" aria-labelledby="plans-none">
+          <div className="plans-section-head">
+            <h2 id="plans-none">No plan yet</h2>
+            <span className="dim">Ask your assistant for a plan; it waits here for your OK.</span>
+          </div>
+          <div className="plans-list">
+            {noPlan.map((r) => (
+              <Link key={r.deck.key} to={planHref(r.deck.key)} className="plans-list-row">
+                <b className="plans-list-main">{r.deck.name}</b>
+                <span className="small dim">No changes yet</span>
+                <Chevron />
+              </Link>
             ))}
           </div>
         </section>

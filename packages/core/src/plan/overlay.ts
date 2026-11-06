@@ -66,6 +66,8 @@ export interface PlanDecisionOp extends OpBase {
   keys: string[];
   skip: string[];
   answers: { question: string; answer: string }[];
+  /** The waiting version's hash as you saw it (approve and keep). */
+  hash?: string | null;
 }
 
 export type PlanOp = ReviewOp | InstalledOp | BoughtOp | IdeaOp | PlanDecisionOp;

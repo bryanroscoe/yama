@@ -13,7 +13,7 @@ function swap(over: Partial<Swap>): Swap {
 }
 
 const plan = (over: Partial<DeckPlanState> = {}): DeckPlanState => ({
-  state: "waiting", version: null, approved_at: null, next: { n: 1, keys: ["a", "b"], skipped: [], proposed_at: "2026-11-05T10:00:00Z", source: { kind: "plan_file", app: "commander-decks", guide_version: 35 } },
+  state: "waiting", version: null, approved_at: null, next: { n: 1, keys: ["a", "b"], skipped: [], proposed_at: "2026-11-05T10:00:00Z", source: { kind: "plan_file", app: "commander-decks", guide_version: 35 }, hash: "h" },
   changes: 0, installed: 0, questions: [], archived_at: null, archived_note: null, ...over,
 });
 
@@ -94,5 +94,16 @@ describe("a plan's state", () => {
     const reviews = overlayReviews({}, [{ local: "pending", op: { kind: "plan", op_id: "o", at: "2026-11-06T00:00:00Z", deck_key: "blight", action: "approve", version: 1, keys: ["a"], skip: ["b"], answers: [] } }]);
     expect(reviews.a?.decision).toBe("want");
     expect(reviews.b?.decision).toBe("no");
+  });
+});
+
+describe("approving", () => {
+  it("takes a want given after the change last changed", async () => {
+    const { approves } = await import("./plans");
+    const s = swap({ updated_at: "2026-11-05T00:00:00Z" });
+    expect(approves(s, { decision: "want", at: "2026-11-06T00:00:00Z" } as Review)).toBe(true);
+    expect(approves(s, { decision: "want", at: "2026-11-04T00:00:00Z" } as Review)).toBe(false);
+    expect(approves({ ...s, stage: "planned" }, { decision: "want", at: "2026-11-04T00:00:00Z" } as Review)).toBe(true);
+    expect(approves(s, { decision: "unsure", at: "2026-11-06T00:00:00Z" } as Review)).toBe(false);
   });
 });
