@@ -403,7 +403,9 @@ fn wants(b: &Value, answers: &HashMap<String, &Value>, bought: &HashSet<String>)
         }
         let answer = answers.get(key);
         let decision = answer.and_then(|a| s(a, "decision"));
-        if !planned && decision != Some("want") && deck["plan"].is_object() {
+        // A want given before the proposal last changed doesn't approve its new content.
+        let fresh = answer.and_then(|a| s(a, "at")).is_none_or(|at| s(sw, "updated_at").is_none_or(|u| u <= at));
+        if !planned && (decision != Some("want") || !fresh) && deck["plan"].is_object() {
             continue;
         }
         if !planned && decision == Some("no") {

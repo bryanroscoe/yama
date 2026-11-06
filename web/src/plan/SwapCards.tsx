@@ -17,10 +17,12 @@ export function SwapCardsPage() {
   const { view } = usePlanOutlet();
   const [params] = useSearchParams();
   const deckKey = params.get("deck");
+  // Only a plan in force has a swap card: one waiting for your OK isn't in the box yet.
   const deck = deckKey ? view.deck(deckKey) : undefined;
+  const inBox = !!deck && ["in_progress", "done"].includes(view.planOf(deck).state);
   // A plan waiting for your OK isn't in the box yet: its swap cards come once you approve it.
   const all = useMemo(() => swapCards(inForceBundle(view.b, view.planOf, view.answers)), [view]);
-  const one = useMemo(() => (deck ? swapCard(deck, view.b.game_changers?.names ?? []) : null), [deck, view.b.game_changers]);
+  const one = useMemo(() => (deck && inBox ? swapCard(deck, view.b.game_changers?.names ?? []) : null), [deck, inBox, view.b.game_changers]);
   const cards = deckKey ? (one ? [one] : []) : all;
   const guide = view.b.head?.guide_version;
   const sheet = useRef<HTMLDivElement>(null);

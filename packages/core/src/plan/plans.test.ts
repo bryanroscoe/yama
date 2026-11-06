@@ -105,6 +105,8 @@ describe("approving", () => {
     expect(approves(s, { decision: "want", at: "2026-11-04T00:00:00Z" } as Review)).toBe(false);
     expect(approves({ ...s, stage: "planned" }, { decision: "want", at: "2026-11-04T00:00:00Z" } as Review)).toBe(true);
     expect(approves(s, { decision: "unsure", at: "2026-11-06T00:00:00Z" } as Review)).toBe(false);
+  });
+});
 
 describe("Get the cards", () => {
   it("reads only the plans in force, and only what was approved in them", async () => {

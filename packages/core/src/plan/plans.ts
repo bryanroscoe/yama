@@ -280,6 +280,6 @@ export function inForceBundle<B extends Pick<PlanBundle, "decks" | "swaps">>(b: 
   return {
     ...b,
     decks: b.decks.map((d) => (live.has(d.key) ? d : { ...d, status: "archived" as const })),
-    swaps: b.swaps.filter((s) => live.has(s.deck) && (s.stage === "planned" || answers.get(s.key)?.decision === "want")),
+    swaps: b.swaps.filter((s) => live.has(s.deck) && (s.stage === "planned" || approves(s, answers.get(s.key)))),
   };
 }

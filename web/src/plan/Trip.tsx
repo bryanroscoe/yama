@@ -89,16 +89,18 @@ export function Trip() {
   // key may hold any character); no "going": every store you'll go to.
   const going = params.has("going") ? params.getAll("store").filter((k) => stores.some((s) => s.key === k)) : null;
   const goingKey = going ? JSON.stringify(going) : null;
+  // From Get the cards filtered to one deck (?deck=): only that plan's buys.
+  const deckFilter = params.get("deck") && view.deck(params.get("deck")!) ? params.get("deck") : null;
   const trip = useMemo(
     () =>
       // Only approved plans: one waiting for your OK puts nothing on a trip.
-      planTrip(inForceBundle(view.b, view.planOf, view.answers), {
+      planTrip(inForceBundle(view.b, view.planOf, view.answers, deckFilter), {
         today: view.today,
         answers: view.answers,
         bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought),
         stores: goingKey == null ? null : (JSON.parse(goingKey) as string[]),
       }),
-    [view, goingKey],
+    [view, goingKey, deckFilter],
   );
   const willGo = stores.filter((s) => storePreference(view.b, s.key) !== "never");
   const toggle = (key: string) => {
