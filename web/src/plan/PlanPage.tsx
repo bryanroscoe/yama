@@ -393,7 +393,7 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
   const box = deck.bracket?.box ?? deck.bracket?.target ?? 4;
   const bags = deck.bracket?.bags ?? {};
   const newest = (view.b.versions ?? []).find((v) => v.deck === deck.key);
-  const swapSheet = `/decks/plan/prints/swap?deck=${encodeURIComponent(deck.key)}`;
+  const swapSheet = `/decks/plans/get/swap-sheet?deck=${encodeURIComponent(deck.key)}`;
   const lists: { label: string; about: string; state: "stock" | "now" | "after" }[] = [
     { label: "The precon", about: "as it came", state: "stock" },
     { label: "The deck now", about: `${inDeck.length} changes in`, state: "now" },
@@ -421,7 +421,7 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
             <Link className="button outline" to={`${swapSheet}&sheet=takeout`}>
               Takeout sheet
             </Link>
-            <Link className="button outline" to={`/decks/plan/swap-cards?deck=${encodeURIComponent(deck.key)}`}>
+            <Link className="button outline" to={`/decks/plans/get/swap-cards?deck=${encodeURIComponent(deck.key)}`}>
               Print swap card
             </Link>
           </div>

@@ -1427,7 +1427,8 @@ async fn set_pref(app: &Router, token: &str, store: &str, body: Value) -> (Statu
 async fn store_preferences_and_the_wishlist_reach_the_bundle_and_the_trip() {
     let (app, pool, id, token) = setup().await;
     import(&app, &token, &doc()).await;
-    yama_answer(&pool, &id, "alpha-idea", Some("want"), "2026-10-19T10:00:00Z").await;
+    // Answered after the import, so the want approves the proposal as it stands.
+    yama_answer(&pool, &id, "alpha-idea", Some("want"), &crate::util::now()).await;
     let before = bundle(&app, &token).await;
     assert_eq!(before["store_prefs"], json!({}));
     assert_eq!(before["wishlist"], json!([]));

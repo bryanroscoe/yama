@@ -6,7 +6,7 @@ import type { MpcImage } from "@yama/core/plan";
 import { MpcPrint, mpcThumb, type MpcImages } from "./MpcPrint";
 
 const lines = vi.hoisted(() => ({ value: [] as { card: string; back: string | null }[] }));
-vi.mock("@yama/core/plan", async (orig) => ({ ...(await orig<typeof import("@yama/core/plan")>()), printPlan: () => ({ next: { lines: lines.value } }) }));
+vi.mock("@yama/core/plan", async (orig) => ({ ...(await orig<typeof import("@yama/core/plan")>()), printPlan: () => ({ next: { lines: lines.value } }), inForceBundle: (b: unknown) => b }));
 vi.mock("./PlanLayout", () => ({ usePlanOutlet: () => ({ view: { b: {}, answers: {}, today: "2026-11-05" } }), PlansHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
 const ID = (n: string) => `1${n.padEnd(32, "x")}`;
@@ -18,7 +18,7 @@ function page(answer: MpcImages | null) {
   if (answer) qc.setQueryData(["mpc-images", names], answer);
   return renderToStaticMarkup(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/decks/plan/prints/mpc"]}>
+      <MemoryRouter initialEntries={["/decks/plans/get/mpc"]}>
         <MpcPrint />
       </MemoryRouter>
     </QueryClientProvider>,

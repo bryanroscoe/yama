@@ -561,3 +561,78 @@ button.link-button:hover {
     order: 3;
   }
 }
+
+/* Get the cards */
+.plans-filter {
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+}
+.plans-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 12px;
+}
+.plans-steps a {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 16px;
+  min-height: 64px;
+  color: var(--text);
+  text-decoration: none;
+}
+.plans-steps a:hover {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.plans-steps a > :not(.plans-step-n) {
+  grid-column: 2;
+}
+.plans-step-n {
+  grid-row: span 2;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+.plans-store {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plans-store .plans-rows {
+  background: var(--ground);
+}
+.plans-store-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plans-check {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -6px 0;
+  flex: none;
+  cursor: pointer;
+}
+.plans-check input {
+  width: 20px;
+  height: 20px;
+}
+.plans-section h2 + .dim,
+.plans-section-head .dim {
+  flex: 1 1 280px;
+}

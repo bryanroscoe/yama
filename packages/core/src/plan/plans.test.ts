@@ -107,3 +107,19 @@ describe("approving", () => {
     expect(approves(s, { decision: "unsure", at: "2026-11-06T00:00:00Z" } as Review)).toBe(false);
   });
 });
+
+describe("Get the cards", () => {
+  it("reads only the plans in force, and only what was approved in them", async () => {
+    const { inForceBundle } = await import("./plans");
+    const decks = [
+      { key: "a", status: "active", plan: plan({ state: "in_progress", version: 1, next: null }) },
+      { key: "w", status: "proposals_only", plan: plan() },
+    ] as unknown as PlanDeck[];
+    const swaps = [swap({ key: "1", deck: "a", stage: "planned" }), swap({ key: "2", deck: "a" }), swap({ key: "3", deck: "a" }), swap({ key: "4", deck: "w" })];
+    const answers = new Map<string, Review>([["2", { decision: "want" } as Review], ["4", { decision: "want" } as Review]]);
+    const g = inForceBundle({ decks, swaps }, (d) => d.plan!, answers);
+    expect(g.swaps.map((s) => s.key)).toEqual(["1", "2"]);
+    expect(g.decks.map((d) => d.status)).toEqual(["active", "archived"]);
+    expect(inForceBundle({ decks, swaps }, (d) => d.plan!, answers, "w").swaps).toEqual([]);
+  });
+});

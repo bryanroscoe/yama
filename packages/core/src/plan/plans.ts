@@ -32,7 +32,7 @@ export function planOf(deck: PlanDeck, swaps: Swap[]): DeckPlanState {
     next: proposals.length && !archived ? { n: planned.length ? 2 : 1, keys: proposals, skipped: [], proposed_at: null, source: { kind: "yama" }, hash: "" } : null,
     changes: planned.length,
     installed: 0,
-    questions: deck.notes.filter((n) => n.kind === "open_question").map((n) => n.text),
+    questions: (deck.notes ?? []).filter((n) => n.kind === "open_question").map((n) => n.text),
     archived_at: null,
     archived_note: null,
   };
@@ -267,4 +267,19 @@ export function overlayPlan(plan: DeckPlanState, decisions: PlanDecision[]): Dec
     }
   }
   return p;
+}
+
+/**
+ * The bundle as Get the cards reads it: only the plans in force, and in them only planned swaps and
+ * the proposals you approved. A plan waiting for your OK, archived or empty reads as archived, so
+ * every shopping, print and spares view leaves it out; nothing is bought or printed before you
+ * approve. With `deck`, only that deck's plan.
+ */
+export function inForceBundle<B extends Pick<PlanBundle, "decks" | "swaps">>(b: B, planOfDeck: (d: PlanDeck) => DeckPlanState, answers: Map<string, Review>, deck?: string | null): B {
+  const live = new Set(b.decks.filter((d) => inForce(planOfDeck(d)) && (!deck || d.key === deck)).map((d) => d.key));
+  return {
+    ...b,
+    decks: b.decks.map((d) => (live.has(d.key) ? d : { ...d, status: "archived" as const })),
+    swaps: b.swaps.filter((s) => live.has(s.deck) && (s.stage === "planned" || approves(s, answers.get(s.key)))),
+  };
 }

@@ -14,7 +14,7 @@ import {
 } from "@yama/core/plan";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArtPanel, artCredit } from "../components/ArtPanel";
+import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ConnectButton } from "../components/HowTo";
 import { Pips } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
@@ -71,6 +71,8 @@ export function Plans() {
     return { buy: n("to_buy"), print: n("to_print"), move: n("to_move"), putIn: n("in_hand") };
   }, [rows, view]);
   const anyApproved = rows.some((r) => inForce(r.plan));
+  // The small art beside new versions and done plans, credited once under the page.
+  const thumbArtists = [...new Set([...versions, ...done].filter((r) => view.art(r.deck)).map((r) => view.card(r.deck.commander[0])?.artist))];
 
   return (
     <>
@@ -217,13 +219,14 @@ export function Plans() {
         </Link>
       </section>
 
-      <p className="small dim plans-footer-links">
+      {thumbArtists.some(Boolean) && <p className="small dim art-credits">Small pictures: {artCredits(thumbArtists)}</p>}
+      <div className="small dim plans-footer-links">
         <Link to="/decks/plans/settings">Shopping rules and stores</Link>
         <ConnectButton className="link-button" />
         <button type="button" className="link-button" onClick={() => setImporting(true)}>
           Import a plan file
         </button>
-      </p>
+      </div>
     </>
   );
 }

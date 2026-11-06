@@ -19,7 +19,7 @@ function page(today: string, search = "") {
   outlet.value = { view: { ...planView(b), today }, userId: "owner" };
   return renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={[`/decks/plan/trip${search}`]}>
+      <MemoryRouter initialEntries={[`/decks/plans/get/trip${search}`]}>
         <Trip />
       </MemoryRouter>
     </QueryClientProvider>,

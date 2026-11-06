@@ -28,7 +28,7 @@ export function usePlanOutlet(): PlanOutlet {
  */
 const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] = [
   { to: "/decks/plans", label: "Plans", end: true, also: "/decks/plans/archived" },
-  { to: "/decks/plans/get", label: "Get the cards", also: "/decks/plan/" },
+  { to: "/decks/plans/get", label: "Get the cards" },
 ];
 
 /** After a sync, wait this long for more taps before fetching the bundle again. */
