@@ -954,7 +954,7 @@ export function ScannerView({
           // Set code and number both read: done. One of them: the same answer twice.
           if (c.chosen && (c.certain || previous === c.chosen.scryfall_id)) {
             const chosenNow = c.chosen;
-            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, options: c.options, raw: text } : cur));
+            setFound((cur) => (cur && cur === f ? { ...cur, chosen: chosenNow, how: "collector", sure: true, settledId: chosenNow.scryfall_id, options: c.options, raw: text } : cur));
             setCloseup(null);
             buzz(30);
             return;
