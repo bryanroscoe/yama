@@ -83,7 +83,7 @@ export interface InstalledState {
 export function installedState(s: Swap, m: Mark | undefined): InstalledState {
   const st = s.upgrade?.status;
   const planStatus = st === "installed" || st === "skipped" ? st : null;
-  if (s.stage === "planned" && s.deck_installed != null) {
+  if (s.deck_installed != null) {
     return { on: s.deck_installed, skipped: !s.deck_installed && (planStatus === "skipped" || !!s.deck_superseded), from: "deck", planStatus };
   }
   if (m && (!planStatus || !s.updated_at || m.at > s.updated_at)) return { on: !!m.value, skipped: false, from: "yama", planStatus };

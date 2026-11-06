@@ -66,7 +66,7 @@ export function SharingPage() {
       {notes.isPending && <p>Loading plans…</p>}
       {sharedNotes?.length === 0 && <p>No plans shared yet. Open a plan and choose Share this plan.</p>}
       <ul className="sharing-list">{sharedNotes?.map((n) => <SharedLink key={n.id} name={n.title} manage={`/decks/research/${encodeURIComponent(n.id)}`} url={n.share_token ? noteShareUrl(n.share_token) : null} visibility={n.visibility!} />)}</ul>
-      <Link className="sharing-browse" to="/decks/plan">All my plans</Link>
+      <Link className="sharing-browse" to="/decks/plans">All my plans</Link>
     </section>
     <section className="grp-section" aria-labelledby="sharing-settings-title">
       <h2 id="sharing-settings-title">Sharing settings</h2>

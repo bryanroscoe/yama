@@ -53,7 +53,22 @@ export interface IdeaOp extends OpBase {
   why: string | null;
 }
 
-export type PlanOp = ReviewOp | InstalledOp | BoughtOp | IdeaOp;
+/**
+ * A decision on a whole deck plan (server `plan/versions.rs`): approve its waiting version with the
+ * changes you skipped and your answers to its open questions, keep the version before it, undo the
+ * newest decision, archive it or bring it back.
+ */
+export interface PlanDecisionOp extends OpBase {
+  kind: "plan";
+  deck_key: string;
+  action: "approve" | "keep" | "undo" | "archive" | "restore";
+  version: number | null;
+  keys: string[];
+  skip: string[];
+  answers: { question: string; answer: string }[];
+}
+
+export type PlanOp = ReviewOp | InstalledOp | BoughtOp | IdeaOp | PlanDecisionOp;
 
 /** An op on this device: still in the outbox, or accepted by the server but not in the bundle yet. */
 export interface LocalOp {
@@ -104,6 +119,19 @@ export function isClear(r: ReviewRecord): boolean {
 export function overlayReviews(reviews: Record<string, Review>, ops: LocalOp[]): Record<string, Review> {
   const out: Record<string, Review> = { ...reviews };
   for (const { op, local, seq } of ops) {
+    // A whole-plan decision answers each of its changes: want for the kept ones, no for the rest.
+    if (op.kind === "plan" && (op.action === "approve" || op.action === "keep")) {
+      const said: [string, Decision][] = [
+        ...op.keys.map((k): [string, Decision] => [k, op.action === "approve" ? "want" : "no"]),
+        ...op.skip.map((k): [string, Decision] => [k, "no"]),
+      ];
+      for (const [k, decision] of said) {
+        const old = out[k];
+        const next: Review = { decision, note: old?.note ?? null, cut: old?.cut ?? null, deck: old?.deck ?? null, card: old?.card ?? null, at: op.at, origin: "yama", op_id: op.op_id, seq: null, local };
+        out[k] = next;
+      }
+      continue;
+    }
     if (op.kind !== "review") continue;
     const next: Review = {
       decision: op.decision,

@@ -20,8 +20,9 @@ describe("the Decks sections control", () => {
     expect(current("/decks")).toEqual(["/decks"]);
     expect(current("/sharing")).toEqual(["/sharing"]);
     expect(current("/decks/builds")).toEqual(["/decks/builds"]);
-    expect(current("/decks/plan/review")).toEqual(["/decks/plan"]);
-    expect(current("/decks/research/abc")).toEqual(["/decks/plan"]);
+    expect(current("/decks/plans/blight-curse")).toEqual(["/decks/plans"]);
+    expect(current("/decks/plan/trip")).toEqual(["/decks/plans"]);
+    expect(current("/decks/plans/archived/abc")).toEqual(["/decks/plans"]);
   });
 
   it("keeps Decks chosen while adding a deck or reading suggested changes", () => {

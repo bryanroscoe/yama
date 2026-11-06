@@ -102,7 +102,7 @@ describe("deck research evidence", () => {
     client.clear();
     expect(note).toContain("Copied from");expect(note).toContain("@saget&#x27;s shared plan");expect(note).toContain("Saved 27 Oct 2026");
     expect(note).toContain("1 to buy locally: about $1.50");expect(note).toContain("as of 27 Oct 2026");expect(note).toContain("Shopping list");expect(note).toContain("Deck lists");
-    expect(note).toContain("1 Sol Ring");expect(note).toContain('href="/decks/research/audit/energy"');
+    expect(note).toContain("1 Sol Ring");expect(note).toContain('href="/decks/plans/archived/audit/energy"');expect(note).toContain(">Archived</span>");
     // The split's limit, set from the page: a dollar field under the Get choices.
     expect(note).toContain('<label for="note-upto">Buy cards up to');expect(note).toMatch(/id="note-upto" type="number"[^>]*max="1000"[^>]*value="2.00"/);
   });

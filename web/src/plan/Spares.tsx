@@ -115,7 +115,7 @@ function SpareRow({ s, view }: { s: Spare; view: PlanView }) {
           <CardRef name={s.card} oracleId={view.oracleId(s.card)} image={view.card(s.card)?.image_normal}/>
         </b>
         <span className="dim">
-          From <Link to={`/decks/plan/d/${s.from.key}`}>{s.from.name}</Link>. {s.why}
+          From <Link to={`/decks/plans/${s.from.key}`}>{s.from.name}</Link>. {s.why}
         </span>
         {uses.map(({ u, warn }) => (
           <span key={u.swap.key} className={`spare-next${warn ? " warn" : ""}`}>

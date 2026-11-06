@@ -15,6 +15,10 @@ import {
   type Review,
   type SourceContext,
   type Swap,
+  type DeckPlanState,
+  type PlanDecision,
+  overlayPlan,
+  planOf as basePlanOf,
 } from "@yama/core/plan";
 
 export interface PlanView {
@@ -41,6 +45,8 @@ export interface PlanView {
   art: (deck: PlanDeck) => string | null;
   /** Who picks answers up for imported decks, as the banner names it. */
   app: string;
+  /** The deck's plan state, with this device's own decisions (approve, keep, archive) laid over it. */
+  planOf: (deck: PlanDeck) => DeckPlanState;
 }
 
 export function planView(b: PlanBundle, local: LocalOp[] = []): PlanView {
@@ -57,6 +63,11 @@ export function planView(b: PlanBundle, local: LocalOp[] = []): PlanView {
   };
   const byDeck = new Map<string, Swap[]>();
   for (const s of b.swaps) byDeck.set(s.deck, [...(byDeck.get(s.deck) ?? []), s]);
+  // Whole-plan decisions still on this device, by deck, in the order they were made.
+  const decisions = new Map<string, PlanDecision[]>();
+  for (const { op } of local) {
+    if (op.kind === "plan") decisions.set(op.deck_key, [...(decisions.get(op.deck_key) ?? []), { deck_key: op.deck_key, action: op.action, version: op.version }]);
+  }
   return {
     b,
     ctx,
@@ -74,5 +85,6 @@ export function planView(b: PlanBundle, local: LocalOp[] = []): PlanView {
     swapsOf: (key) => byDeck.get(key) ?? [],
     art: (deck) => deck.commander.map((c) => card(c)?.image_art_crop).find(Boolean) ?? null,
     app: b.head?.app ?? "your planner",
+    planOf: (deck) => overlayPlan(basePlanOf(deck, b.swaps), decisions.get(deck.key) ?? []),
   };
 }

@@ -1,0 +1,563 @@
+/* The plans pages (2026-11-06, design canvas "Yama plans redesign"): Plans (`Plans.tsx`), a deck's
+   plan (`PlanPage.tsx`) and Archived (`Archived.tsx`). Night table tokens only (design/tokens.md):
+   surfaces, hairlines, white as the only accent, warn for waiting and good for done. Sentence
+   case, no all-caps, no middle-dot separators; every target at least 44 px. */
+
+.plans-lede {
+  margin: 0 0 24px;
+}
+
+.plans-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 40px 0 0;
+}
+.plans-section h2,
+.plans-section-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-xl);
+  line-height: 1;
+}
+.plans-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Where to start, and Get the cards */
+.plans-start {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.plans-start-card,
+.plans-get-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 20px;
+}
+.plans-start-card {
+  flex: 2 1 420px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.plans-start-art {
+  margin: 0;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 132px;
+}
+.plans-start-art img {
+  width: 132px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+.plans-start-text {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plans-card-title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+.plans-get-card {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  text-decoration: none;
+}
+.plans-get-card:hover,
+.plans-tile:hover .plans-tile-art,
+.plans-list-row:is(a):hover {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.plans-big-button {
+  min-height: 52px;
+}
+
+/* Tiles */
+.plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 16px;
+}
+.plans-tile {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+  color: var(--text);
+  text-decoration: none;
+}
+.plans-tile .plans-tile-art {
+  min-height: 96px;
+  border-radius: 0;
+  display: grid;
+}
+.plans-tile .plans-tile-art.tall {
+  min-height: 128px;
+}
+.plans-tile-art > .art-body {
+  align-self: end;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+}
+.plans-tile-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.75rem;
+  line-height: 1;
+  color: var(--on-art);
+}
+.plans-tile-cmdr {
+  font-size: var(--t-sm);
+  color: var(--on-art-dim);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.plans-tile-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plans-tile-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plans-tile-body .tag {
+  align-self: flex-start;
+}
+.plans-bar {
+  display: block;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+.plans-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--good);
+}
+.plans-bar.big {
+  height: 10px;
+}
+
+/* One-line rows: new versions, decks you don't have yet, archived */
+.plans-list {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.plans-list-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  min-height: 64px;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+  flex-wrap: wrap;
+}
+.plans-list-row:first-child {
+  border-top: 0;
+}
+.plans-list-main {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.plans-version {
+  display: block;
+}
+.plans-version > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+.plans-version > summary::-webkit-details-marker {
+  display: none;
+}
+.plans-thumb {
+  width: 56px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--raised);
+  flex: none;
+}
+.plans-thumb.round {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+}
+.plans-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.plans-done-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px 8px 8px;
+  min-height: 52px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+}
+.plans-done-chip .good {
+  color: var(--good);
+}
+.plans-tile-body .warn {
+  color: var(--warn);
+}
+.plans-archived-link {
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.plans-archived-link a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  color: var(--text);
+  text-decoration: none;
+  flex-wrap: wrap;
+}
+.plans-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  align-items: center;
+}
+.plans-footer-links a,
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--dim);
+}
+button.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-weight: 400;
+  text-decoration: underline;
+  border-radius: 0;
+}
+button.link-button:hover {
+  background: none;
+  color: var(--text);
+}
+.plans-empty {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 24px;
+}
+.plans-crumbs {
+  margin: 0 0 8px;
+}
+
+/* A deck's plan */
+.plans-hero-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.plans-hero-meta .tag {
+  background: var(--art-chip);
+}
+.plans-hero-meta .tag.warn {
+  background: color-mix(in srgb, var(--ground) 70%, var(--warn) 20%);
+}
+.plans-hero-meta .tag.good {
+  background: color-mix(in srgb, var(--ground) 70%, var(--good) 20%);
+}
+.plans-hero-line {
+  color: var(--on-art-dim);
+  font-size: var(--t-sm);
+  text-shadow: var(--art-shadow);
+}
+.plans-deck-body {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.plans-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: flex-start;
+}
+.plans-main {
+  flex: 999 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.plans-main h2,
+.plans-main h3 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+}
+.plans-side {
+  flex: 1 1 300px;
+  position: sticky;
+  top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.plans-side h2,
+.plans-side h3 {
+  margin: 8px 0 0;
+  font-size: var(--t-md);
+}
+.plans-side h2:first-child,
+.plans-side h3:first-child {
+  margin-top: 0;
+}
+.plans-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.plans-total-n {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-big);
+  line-height: 1;
+}
+.plans-figures {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.plans-figures > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.plans-figures dt {
+  color: var(--dim);
+}
+.plans-figures dd {
+  margin: 0;
+  font-weight: 700;
+}
+.plans-wide-button,
+.plans-side .plans-big-button {
+  width: 100%;
+}
+.plans-version-head h2 {
+  margin: 8px 0 4px;
+}
+.plans-questions {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.plans-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plans-question textarea {
+  width: 100%;
+}
+.plans-changes-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.plans-group {
+  margin-top: 16px;
+}
+.plans-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plans-group-head h4 {
+  margin: 0;
+  font-size: var(--t-md);
+}
+.plans-rows {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.plans-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.plans-row:first-child {
+  border-top: 0;
+}
+.plans-row-main {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.plans-row.skipped .plans-row-main b {
+  text-decoration: line-through;
+  color: var(--dim);
+}
+.plans-row.skipped .plans-why {
+  color: var(--dim);
+}
+.plans-skip-pill {
+  margin-left: 8px;
+}
+.plans-row-meta {
+  flex: 0 1 auto;
+}
+.plans-skip {
+  min-width: 72px;
+}
+.plans-bag {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 16px;
+}
+.plans-bag ul,
+.plans-plain {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plans-bag h3,
+.plans-bag h4 {
+  margin: 0;
+  font-size: var(--t-base);
+}
+.plans-details {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.plans-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.plans-links {
+  gap: 12px;
+}
+.plans-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.plans-progress-count {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plans-approve {
+  scroll-margin-top: 16px;
+}
+.plans-archived-banner,
+.plans-rejected {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plans-rejected {
+  border-color: var(--bad);
+}
+.plans-archived-banner p,
+.plans-rejected p {
+  margin: 0;
+}
+.note-archived {
+  margin: 8px 0;
+}
+
+@media (max-width: 720px) {
+  .plans-side {
+    position: static;
+  }
+  .plans-start-card {
+    padding: 16px;
+  }
+  .plans-row-meta {
+    flex-basis: 100%;
+    order: 3;
+  }
+}

@@ -23,7 +23,7 @@ export const NEWS: NewsEntry[] = [
       "Each change on a plan's page shows its cards' pictures, as shared plans do. A note for your assistant says where it's saved.",
       "Checkboxes are back to a normal size on every page.",
     ],
-    link: { to: "/decks/plan", label: "Open Plans" },
+    link: { to: "/decks/plans", label: "Open Plans" },
   },
   {
     id: "2026-11-05-track-this-build",
@@ -34,7 +34,7 @@ export const NEWS: NewsEntry[] = [
       "A plan's shopping list now starts at your own shopping rule's buy limit when you've set one.",
       "Your assistant can track a build for you too; it waits in Suggested changes, tagged Plan, until you apply it.",
     ],
-    link: { to: "/decks/plan", label: "Open Plans" },
+    link: { to: "/decks/plans", label: "Open Plans" },
   },
   {
     id: "2026-11-04-steadier-navigation",
@@ -56,7 +56,7 @@ export const NEWS: NewsEntry[] = [
       "Builds is now Swap cards: builds are named plainly (Bracket 3: Upgraded), and the changes between two lists show with each plan's reason before you print them for the deck box.",
       "Every Plans page, Swap cards and Suggested changes now says what it's for, where its contents come from and what to do there. What only an AI assistant connected to Yama can make (plans, swap proposals, suggested changes) says so, with a button to connect one.",
     ],
-    link: { to: "/decks/plan", label: "Open Plans" },
+    link: { to: "/decks/plans", label: "Open Plans" },
   },
   {
     id: "2026-11-03-buylist-references",

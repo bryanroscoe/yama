@@ -18,10 +18,10 @@ export const DECK_SECTIONS: { to: string; label: string; end?: boolean; also?: s
   { to: "/decks", label: "Decks", end: true, also: ["/decks/import", "/decks/changes"] },
   { to: "/sharing", label: "Sharing" },
   { to: "/decks/builds", label: "Swap cards" },
-  { to: "/decks/plan", label: "Plans", also: ["/decks/research"] },
+  { to: "/decks/plans", label: "Plans", also: ["/decks/research", "/decks/plan"] },
 ];
 
-/** Proposals with no answer yet, over the plans that aren't archived (the Plans badge). */
+/** Plans and new plan versions waiting for your OK (the Plans badge). */
 function useToReview(): number {
   const userId = useMe().data?.id;
   const plan = usePlan(userId);
@@ -29,9 +29,11 @@ function useToReview(): number {
   return useMemo(() => {
     if (!plan.bundle || !userId) return 0;
     const view = planView(plan.bundle, outbox.localOps(userId));
-    const active = new Set(view.b.decks.filter((d) => d.status !== "archived").map((d) => d.key));
-    return view.b.swaps.filter((s) => !s.retired && s.stage === "proposed" && active.has(s.deck) && !view.answers.get(s.key)?.decision).length;
-    // `box` changes when a tap lands in the outbox, so the count follows answers made here.
+    return view.b.decks.filter((d) => {
+      const p = view.planOf(d);
+      return p.next != null && p.state !== "archived";
+    }).length;
+    // `box` changes when a tap lands in the outbox, so the count follows decisions made here.
   }, [plan.bundle, box, userId]);
 }
 
@@ -80,11 +82,11 @@ export function DeckTabs() {
         const label = (
           <>
             {s.label}
-            {s.to === "/decks/plan" && toReview > 0 && (
+            {s.to === "/decks/plans" && toReview > 0 && (
               <span className="deck-tab-badge num">
                 <span className="visually-hidden">, </span>
                 {toReview}
-                <span className="visually-hidden"> to review</span>
+                <span className="visually-hidden"> waiting for your OK</span>
               </span>
             )}
           </>

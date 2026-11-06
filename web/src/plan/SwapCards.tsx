@@ -71,7 +71,7 @@ export function SwapCardsPage() {
         </p>
         <div className="row">
           <button className="primary" disabled={!cards.length} onClick={() => window.print()}>Print</button>
-          {deckKey && deck && <Link to={`/decks/plan/d/${encodeURIComponent(deck.key)}?tab=brackets`}>Back to {deck.name}</Link>}
+          {deckKey && deck && <Link to={`/decks/plans/${encodeURIComponent(deck.key)}?tab=brackets`}>Back to {deck.name}</Link>}
           {deckKey && all.length > 1 && <Link to="/decks/plan/swap-cards">All decks' swap cards</Link>}
         </div>
         {overflowing.length > 0 && (

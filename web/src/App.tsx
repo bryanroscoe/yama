@@ -18,6 +18,7 @@ import { VIEWING_KEY } from "./viewingFlag";
 import { area, Paged } from "./lazyPages";
 import { CardsPage } from "./pages/Cards";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
+import { OldPlanRedirect } from "./plan/OldPlanRedirect";
 // What's new is small and its notice shows on every page.
 import { NewsNotice, WhatsNewPage } from "./pages/WhatsNew";
 import { joinLink, useRestoreHosting } from "./table/share";
@@ -60,8 +61,9 @@ const RunPage = lab.page("RunPage");
 const RunDeckPage = lab.page("RunDeckPage");
 const RunTablePage = lab.page("RunTablePage");
 const PlanLayout = plan.page("PlanLayout");
-const Overview = plan.page("Overview");
-const Review = plan.page("Review");
+const Plans = plan.page("Plans");
+const PlanPage = plan.page("PlanPage");
+const Archived = plan.page("Archived");
 const Buy = plan.page("Buy");
 const Trip = plan.page("Trip");
 const Prints = plan.page("Prints");
@@ -70,7 +72,6 @@ const MpcPrint = plan.page("MpcPrint");
 const SwapCardsPage = plan.page("SwapCardsPage");
 const Spares = plan.page("Spares");
 const PlanSettings = plan.page("PlanSettings");
-const DeckPlan = plan.page("DeckPlan");
 const AdminLayout = admin.page("AdminLayout");
 const PeoplePage = admin.page("PeoplePage");
 const UsagePage = admin.page("UsagePage");
@@ -254,23 +255,34 @@ export function App() {
           <Route path="collection" element={<Paged page={CollectionPage} title="Collection" kind="tiles" />} />
           <Route path="decks" element={<Paged page={DecksPage} title="Decks" kind="tiles" />} />
           <Route path="decks/builds" element={<Paged page={BuildChoicesPage} />} />
+          {/* `/decks/research` keeps `?copy=` for shared plans' Save a copy; a note is an archived plan. */}
           <Route path="decks/research" element={<Paged page={ResearchPage} />} />
-          <Route path="decks/research/:reportId" element={<Paged page={ResearchPage} kind="detail" />} />
-          <Route path="decks/research/:reportId/:deckKey" element={<Paged page={ResearchPage} kind="detail" />} />
-          {/* Static "plan" outranks ":id", so plan pages never reach DeckPage. Every plan page
-              comes with the layout, so only the layout needs a stand-in. */}
-          <Route path="decks/plan" element={<Paged page={PlanLayout} />}>
-            <Route index element={<Overview />} />
-            <Route path="review" element={<Review />} />
-            <Route path="buy" element={<Buy />} />
-            <Route path="trip" element={<Trip />} />
-            <Route path="prints" element={<Prints />} />
-            <Route path="prints/swap" element={<SwapSheetPage />} />
-            <Route path="prints/mpc" element={<MpcPrint />} />
-            <Route path="swap-cards" element={<SwapCardsPage />} />
-            <Route path="spares" element={<Spares />} />
+          <Route path="decks/research/*" element={<OldPlanRedirect />} />
+          <Route path="decks/plans/archived/:reportId" element={<Paged page={ResearchPage} kind="detail" />} />
+          <Route path="decks/plans/archived/:reportId/:deckKey" element={<Paged page={ResearchPage} kind="detail" />} />
+          {/* Plans (2026-11-06): every deck's plan, Get the cards, the archive. Static "plans"
+              outranks ":id", so plan pages never reach DeckPage. Every plan page comes with the
+              layout, so only the layout needs a stand-in. */}
+          <Route path="decks/plans" element={<Paged page={PlanLayout} />}>
+            <Route index element={<Plans />} />
+            <Route path="archived" element={<Archived />} />
             <Route path="settings" element={<PlanSettings />} />
-            <Route path="d/:key" element={<DeckPlan />} />
+            <Route path="get" element={<Trip />} />
+            <Route path=":key" element={<PlanPage />} />
+          </Route>
+          <Route path="decks/plan" element={<OldPlanRedirect />} />
+          <Route path="decks/plan/review" element={<OldPlanRedirect />} />
+          <Route path="decks/plan/settings" element={<OldPlanRedirect />} />
+          <Route path="decks/plan/d/:key" element={<OldPlanRedirect />} />
+          {/* Buy, Trip, Prints and Spares until Get the cards replaces them. */}
+          <Route element={<Paged page={PlanLayout} />}>
+            <Route path="decks/plan/buy" element={<Buy />} />
+            <Route path="decks/plan/trip" element={<Trip />} />
+            <Route path="decks/plan/prints" element={<Prints />} />
+            <Route path="decks/plan/prints/swap" element={<SwapSheetPage />} />
+            <Route path="decks/plan/prints/mpc" element={<MpcPrint />} />
+            <Route path="decks/plan/swap-cards" element={<SwapCardsPage />} />
+            <Route path="decks/plan/spares" element={<Spares />} />
           </Route>
           {/* Old links: the Lab was a section of Decks until 2026-10-28. Static "lab" outranks ":id". */}
           <Route path="decks/lab/*" element={<OldLabRedirect />} />

@@ -134,7 +134,7 @@ export function buildFamilies(research: BuildNote[], plan: PlanBundle | undefine
   const ctx = plan ? sourceContext({ orders: plan.orders ?? [], stores: plan.stores ?? [], decks: plan.decks ?? [] }) : null;
   for (const deck of plans) {
     const f = planFamilies.get(deck.key)!;
-    const href = `/decks/plan/d/${encodeURIComponent(deck.key)}`;
+    const href = `/decks/plans/${encodeURIComponent(deck.key)}`;
     for (const state of ["stock", "now", "after"] as const) {
       const s = deck.states[state]; if (!s) continue;
       f.choices.push({ id: `plan:${deck.key}:${state}`, label: state === "stock" ? "Stock (plan list)" : state === "now" ? "Legacy: now snapshot" : "Legacy: after prints", kind: state === "stock" ? "original" : "legacy", list: slotsText(s.cards), pairs: ctx ? slotPairs(s.cards, ctx, deck) : [], source: `From the ${deck.name} plan, ${fmtDate(s.updated_at)}`, href, warnings: s.unresolved.map((name) => `Unresolved card: ${name}`) });

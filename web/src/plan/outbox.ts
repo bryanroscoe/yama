@@ -162,11 +162,12 @@ export class PlanOutbox {
 
   /**
    * Queue a tap. Answers and marks are full records, so an unsent one for the same swap is replaced
-   * by the newer one (three taps on one card send one op). Ideas are never merged.
+   * by the newer one (three taps on one card send one op). Ideas and plan decisions are never merged.
    */
   enqueue(userId: string, op: PlanOp) {
     const b = this.box(userId);
-    const same = (o: PlanOp) => op.kind !== "idea" && o.kind === op.kind && "swap_key" in o && o.swap_key === op.swap_key;
+    // Plan decisions are never merged either: each is a step (approve, then undo).
+    const same = (o: PlanOp) => op.kind !== "idea" && op.kind !== "plan" && o.kind === op.kind && "swap_key" in o && o.swap_key === op.swap_key;
     this.write(userId, { ...b, pending: [...b.pending.filter((o) => !same(o)), op] });
     if (!this.autoSync) return;
     clearTimeout(this.timers.get(userId));

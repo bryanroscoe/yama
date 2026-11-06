@@ -1,7 +1,7 @@
 import { fmtDate, installedState, localBuyRule, rulesAt, type PlanDeck, type RuleSet, type Swap } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { api, ApiError } from "../api";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
@@ -11,9 +11,9 @@ import { planView } from "../plan/view";
 import type { Build, ResearchBundle, ResearchDeck } from "./api";
 
 /**
- * Tracking a plan's build: the plan stays the note, its face; tracking makes one build the deck's
- * plan in the planner (server/src/plan/notes.rs), which is what Buy, Trip, Prints, installed ticks
- * and the assistant's plan tools work from. People see "Track this build", never the planner.
+ * A note's build as a deck's plan (server/src/plan/notes.rs): using it makes the build a plan
+ * version waiting for your OK, which, once approved, is what Get the cards, installed ticks and
+ * the assistant's plan tools work from. People never see "track" or "planner".
  */
 
 export interface Tracked {
@@ -65,94 +65,70 @@ function conflictText(e: unknown): string | null {
   return e instanceof ApiError && e.status === 409 ? "This plan changed since the page loaded. Reload the page to see the new version, then try again." : null;
 }
 
-/** "Track this build", or what's tracked now with Switch and Stop. Owner only. */
+/**
+ * A note is an archived plan (Bryan, 2026-11-06: one plan per deck): kept for reference, never a
+ * current plan. "Use a deck from it" makes this build that deck's next plan version, waiting for
+ * your OK on Plans (`POST /api/plan/from-note` with `proposed`). Owner only.
+ */
 export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; deck: ResearchDeck; build: Build }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const userId = useMe().data?.id;
   const { ready, error: planError, deck: tracked } = useTracked(bundle.document.id, deck.key);
   const [result, setResult] = useState<Tracked | null>(null);
-  // Returned, so the button stays busy until the refreshed plans say what's tracked now.
+  // Returned, so the button stays busy until the refreshed plans say what's there now.
   const refresh = () => qc.invalidateQueries({ queryKey: ["plan", userId] });
-  const track = useMutation({
+  const use = useMutation({
     mutationFn: () =>
       api<Tracked>("/api/plan/from-note", {
         method: "POST",
-        json: { note_id: bundle.document.id, deck_key: deck.key, build_id: build.id, op_id: crypto.randomUUID(), expected_note_hash: bundle.content_hash ?? undefined },
+        json: { note_id: bundle.document.id, deck_key: deck.key, build_id: build.id, op_id: crypto.randomUUID(), expected_note_hash: bundle.content_hash ?? undefined, proposed: true },
       }),
-    onSuccess: (r) => {
+    onSuccess: async (r) => {
       setResult(r);
-      return refresh();
+      await refresh();
+      if (!r.warnings.length) navigate(`/decks/plans/${encodeURIComponent(r.plan_deck_key)}`);
     },
   });
-  const stop = useMutation({
-    mutationFn: (key: string) => api<{ plan_deck_key: string }>(`/api/plan/from-note/${encodeURIComponent(key)}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setResult(null);
-      return refresh();
-    },
-  });
-  const busy = track.isPending || stop.isPending;
   if (!ready) {
     return (
-      <section className="note-track" aria-label="Track this build">
-        {planError ? <ErrorText error={planError} /> : <p className="dim" role="status">Checking what you track…</p>}
+      <section className="note-track" aria-label="Archived plan">
+        {planError ? <ErrorText error={planError} /> : <p className="dim" role="status">Checking your plans…</p>}
       </section>
     );
   }
   const active = tracked && tracked.status !== "archived";
   const thisBuild = active && tracked.note?.build === build.id;
-  const otherBuild = active && !thisBuild ? deck.builds.find((b) => b.id === tracked.note?.build) : null;
-  const error = track.error ?? stop.error;
   return (
-    <section className="note-track" aria-label="Track this build">
+    <section className="note-track" aria-label="Archived plan">
+      <p>
+        <span className="tag plain">Archived</span> <b>{deck.name}: {build.label}</b>. This note is kept for reference. Nothing in it is on your shopping list.
+      </p>
       {thisBuild ? (
-        <>
-          <p>
-            <b>You're tracking this build</b> as your {tracked.name} plan. Its cards to buy are on your <Link to="/decks/plan/buy">buy list</Link> and{" "}
-            <Link to="/decks/plan/trip">store trip</Link>, prints on <Link to="/decks/plan/prints">Prints</Link>, and each change below shows where its card is.
-          </p>
-          <div className="row">
-            <Link className="button primary" to={`/decks/plan/d/${encodeURIComponent(tracked.key)}`}>Open the tracked plan</Link>
-            <button type="button" className="quiet" disabled={busy} onClick={() => confirm(`Stop tracking ${tracked.name}? It leaves your buy list and prints; your answers and ticks are kept if you track it again.`) && stop.mutate(tracked.key)}>
-              Stop tracking
-            </button>
-          </div>
-        </>
-      ) : otherBuild ? (
-        <>
-          <p>
-            <b>You're tracking {otherBuild.label}</b> for this deck. Switching makes this build the plan instead. Your ticks and bought marks on {otherBuild.label} are kept and come back if you switch back.
-          </p>
-          <div className="row">
-            <button type="button" className="primary" disabled={busy} onClick={() => track.mutate()}>
-              {track.isPending ? "Switching…" : "Switch to this build"}
-            </button>
-            <Link className="button outline" to={`/decks/plan/d/${encodeURIComponent(tracked!.key)}`}>Open the tracked plan</Link>
-          </div>
-        </>
+        <div className="row">
+          <span>This build is {tracked.name}'s plan now.</span>
+          <Link className="button primary" to={`/decks/plans/${encodeURIComponent(tracked.key)}`}>Open the plan</Link>
+        </div>
       ) : (
-        <>
-          <p>
-            <b>Ready to make this build?</b> Track it: its cards to buy go on your buy list and store trip, its prints on Prints, and you tick each change as it goes into the deck.
-            You can switch builds or stop at any time, and the plan itself doesn't change.
-            {tracked && tracked.status === "archived" ? " You tracked this deck before; your ticks and bought marks on a build come back when you track it again." : ""}
-          </p>
-          <div className="row">
-            <button type="button" className="primary" disabled={busy} onClick={() => track.mutate()}>
-              {track.isPending ? "Tracking…" : "Track this build"}
-            </button>
-          </div>
-        </>
+        <div className="row">
+          <Link className="button" to="/decks/plans">Go to Plans</Link>
+          <button type="button" className="primary" disabled={use.isPending} onClick={() => use.mutate()}>
+            {use.isPending ? "Adding…" : "Use a deck from it"}
+          </button>
+          <span className="small dim">Makes this build a new version of {deck.name}'s plan, waiting for your OK. Until you approve it, the plan you have keeps going.</span>
+        </div>
       )}
       {result && result.warnings.length > 0 && (
-        <ul className="small warn note-track-warnings" aria-label="Check these">
-          {result.warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
+        <>
+          <ul className="small warn note-track-warnings" aria-label="Check these">
+            {result.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+          <Link to={`/decks/plans/${encodeURIComponent(result.plan_deck_key)}`}>Open the plan waiting for your OK</Link>
+        </>
       )}
-      {result && !result.deck_id && <p className="small dim">No Yama deck has this deck's name, so ticks come from you; link a deck from the tracked plan's page to read them from the deck.</p>}
-      {conflictText(error) ? <p className="small warn" role="alert">{conflictText(error)}</p> : <ErrorText error={error} />}
+      {conflictText(use.error) ? <p className="small warn" role="alert">{conflictText(use.error)}</p> : <ErrorText error={use.error} />}
     </section>
   );
 }

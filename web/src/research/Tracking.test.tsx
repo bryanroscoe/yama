@@ -46,34 +46,28 @@ function render(node: React.ReactNode, plan: PlanBundle | null) {
 }
 const deckOf = note.document.decks[0]!;
 
-describe("tracking a plan's build", () => {
-  it("offers nothing until the plans say what's tracked", () => {
+describe("a note's build as a deck's plan", () => {
+  it("offers nothing until the plans say what's there", () => {
     const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, null);
-    expect(html).toContain("Checking what you track");
+    expect(html).toContain("Checking your plans");
     expect(html).not.toContain("</button>");
   });
-  it("offers to track a build no plan follows, and says what tracking does", () => {
+  it("is archived, and offers to use a deck from it as a version waiting for your OK", () => {
     const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, planBundle([]));
-    expect(html).toContain(">Track this build</button>");
-    expect(html).toContain("buy list");
-    expect(html).toContain("the plan itself doesn&#x27;t change");
+    expect(html).toContain(">Archived</span>");
+    expect(html).toContain(">Use a deck from it</button>");
+    expect(html).toContain("waiting for your OK");
+    expect(html).toContain("Nothing in it is on your shopping list");
   });
-  it("says this build is tracked, opens the tracked plan and offers to stop", () => {
+  it("says when this build is the deck's plan and opens it", () => {
     const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, planBundle([planDeck()]));
-    expect(html).toContain("You&#x27;re tracking this build");
-    expect(html).toContain('href="/decks/plan/d/party"');
-    expect(html).toContain(">Stop tracking</button>");
-    expect(html).not.toContain(">Track this build</button>");
+    expect(html).toContain("This build is");
+    expect(html).toContain('href="/decks/plans/party"');
+    expect(html).not.toContain(">Use a deck from it</button>");
   });
-  it("offers to switch when another build of the deck is tracked", () => {
+  it("offers another build of the deck as a new version", () => {
     const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[0]!} />, planBundle([planDeck()]));
-    expect(html).toContain("You&#x27;re tracking Bracket 3");
-    expect(html).toContain(">Switch to this build</button>");
-  });
-  it("offers to track again after stopping", () => {
-    const html = render(<TrackPanel bundle={note} deck={deckOf} build={deckOf.builds[1]!} />, planBundle([planDeck({ status: "archived" })]));
-    expect(html).toContain(">Track this build</button>");
-    expect(html).toContain("You tracked this deck before");
+    expect(html).toContain(">Use a deck from it</button>");
   });
   it("finds every copy a tracked swap made, and where each card is", () => {
     const swaps = [
