@@ -1,4 +1,4 @@
-import { swapCard, swapCardPages, swapCards, type SwapCard } from "@yama/core/plan";
+import { inForceBundle, swapCard, swapCardPages, swapCards, type SwapCard } from "@yama/core/plan";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -18,7 +18,8 @@ export function SwapCardsPage() {
   const [params] = useSearchParams();
   const deckKey = params.get("deck");
   const deck = deckKey ? view.deck(deckKey) : undefined;
-  const all = useMemo(() => swapCards(view.b), [view.b]);
+  // A plan waiting for your OK isn't in the box yet: its swap cards come once you approve it.
+  const all = useMemo(() => swapCards(inForceBundle(view.b, view.planOf, view.answers)), [view]);
   const one = useMemo(() => (deck ? swapCard(deck, view.b.game_changers?.names ?? []) : null), [deck, view.b.game_changers]);
   const cards = deckKey ? (one ? [one] : []) : all;
   const guide = view.b.head?.guide_version;
