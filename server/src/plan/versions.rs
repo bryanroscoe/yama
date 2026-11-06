@@ -44,8 +44,9 @@ pub struct Next {
     /// Where it came from: `{kind: "plan_file", app, guide_version, imported_at}` or
     /// `{kind: "note", note, title}` or `{kind: "yama"}`.
     pub source: Value,
-    /// What its changes say (each one's stored content hash, in key order): an approval names it,
-    /// so a change edited after the page loaded is never approved unseen.
+    /// What its changes say and how they're answered (content hash, decision and time, in order):
+    /// an approval names it, so a change edited, or answered elsewhere, after the page loaded is
+    /// never approved unseen.
     pub hash: String,
 }
 
@@ -278,7 +279,15 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
                 (None, "import") => import.and_then(|i| imports.get(i)).cloned().unwrap_or(json!({"kind": "plan_file"})),
                 _ => json!({"kind": "yama"}),
             };
-            let parts: Vec<String> = first.iter().map(|s| format!("{}={}", s.key, s.content_hash.as_deref().unwrap_or(&s.updated_at))).collect();
+            // Each change's content and the answer it has now: an approval made on what the page
+            // showed is refused if either moved since (a newer answer from another device too).
+            let parts: Vec<String> = first
+                .iter()
+                .map(|s| {
+                    let (d, at) = answers.get(&s.key).map(|(d, at)| (d.as_deref().unwrap_or("-"), at.as_str())).unwrap_or(("-", "-"));
+                    format!("{}={}|{d}|{at}", s.key, s.content_hash.as_deref().unwrap_or(&s.updated_at))
+                })
+                .collect();
             let hash = crate::util::sha256_hex(&parts.join("\n"))[..16].to_string();
             Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source, hash }
         });

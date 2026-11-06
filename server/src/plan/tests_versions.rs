@@ -243,3 +243,17 @@ async fn an_archived_plans_decisions_stay_as_they_were() {
     let r = ops(&app, &token, json!([plan_op("u3", "beta", "undo", 1, &[], &[], json!([]))])).await;
     assert_eq!(r["results"][0]["status"], "rejected", "{r}");
 }
+
+#[tokio::test]
+async fn an_approval_made_before_a_newer_answer_is_refused() {
+    let (app, _pool, _owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let seen = deck(&bundle(&app, &token).await, "beta")["plan"]["next"]["hash"].as_str().unwrap().to_string();
+    // Another device says no to beta-2 after this page loaded.
+    let r = ops(&app, &token, json!([{"op_id": "n1", "kind": "review", "swap_key": "beta-2", "decision": "no", "at": crate::util::now()}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let mut op = plan_op("n2", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]));
+    op["hash"] = json!(seen);
+    let r = ops(&app, &token, json!([op])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+}
