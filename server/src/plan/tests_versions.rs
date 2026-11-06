@@ -231,3 +231,15 @@ async fn a_change_edited_after_you_looked_is_never_approved_unseen() {
     assert_eq!(beta["next"]["keys"], json!(["beta-1"]), "{beta}");
     assert_eq!(beta["changes"], 1, "only beta-2 is in force: {beta}");
 }
+
+#[tokio::test]
+async fn an_archived_plans_decisions_stay_as_they_were() {
+    let (app, _pool, _owner, token) = setup().await;
+    import(&app, &token, &doc_with_beta_plan()).await;
+    let r = ops(&app, &token, json!([plan_op("u1", "beta", "approve", 1, &["beta-1", "beta-2"], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let r = ops(&app, &token, json!([{"op_id": "u2", "kind": "plan", "deck_key": "beta", "action": "archive", "at": crate::util::now()}])).await;
+    assert_eq!(r["results"][0]["status"], "applied", "{r}");
+    let r = ops(&app, &token, json!([plan_op("u3", "beta", "undo", 1, &[], &[], json!([]))])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+}

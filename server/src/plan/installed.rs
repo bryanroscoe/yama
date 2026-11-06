@@ -201,17 +201,21 @@ pub async fn load(pool: &SqlitePool, owner: &str) -> AppResult<Installs> {
         out.decks.insert(plan_id, deck);
     }
     // Plan order, swaps before stand-ins, so the swaps the plan means to keep claim shared copies first.
-    let swaps: Vec<(String, String, String, Option<String>, String, Option<String>)> = sqlx::query_as(
-        "SELECT s.ext_key, s.plan_deck_id, s.in_name, s.out_name, s.role, p.ext_key
+    let approved = {
+        let mut conn = pool.acquire().await?;
+        super::versions::approved_proposals(&mut conn, owner).await?
+    };
+    #[allow(clippy::type_complexity)]
+    let swaps: Vec<(String, String, String, Option<String>, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT s.ext_key, s.plan_deck_id, s.in_name, s.out_name, s.role, p.ext_key, s.stage
          FROM plan_swaps s LEFT JOIN plan_swaps p ON p.id = s.parent_id AND p.owner_id = s.owner_id
          WHERE s.owner_id = ? AND s.retired_at IS NULL
-           AND (s.stage = 'planned'
-                OR EXISTS (SELECT 1 FROM plan_reviews r WHERE r.owner_id = s.owner_id AND r.swap_key = s.ext_key AND r.decision = 'want'))
          ORDER BY s.stage = 'proposed', s.role = 'standin', s.sort, s.ext_key",
     )
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    let swaps = swaps.into_iter().filter(|s| s.6 == "planned" || approved.contains(&s.0)).map(|(a, b, c, d, e, f, _)| (a, b, c, d, e, f));
     let mut budgets: HashMap<&str, Budget> = lists.iter().map(|(k, (stock, deck))| (k.as_str(), Budget::new(stock, deck))).collect();
     let mut standins: Vec<(String, String)> = Vec::new();
     for (key, plan_id, inn, out_name, role, parent) in swaps {

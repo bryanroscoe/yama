@@ -162,6 +162,24 @@ async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<Stri
     Ok(out)
 }
 
+/// Live proposals you approved: a want, reached through aliases as the state reads it, given after
+/// the proposal last changed. Installed states are read for these as for planned swaps.
+pub async fn approved_proposals(conn: &mut SqliteConnection, owner: &str) -> AppResult<HashSet<String>> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as("SELECT ext_key, stage, updated_at FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL")
+        .bind(owner)
+        .fetch_all(&mut *conn)
+        .await?;
+    let live: HashSet<String> = rows.iter().map(|r| r.0.clone()).collect();
+    let answers = decisions(&mut *conn, owner, &live).await?;
+    Ok(rows
+        .into_iter()
+        .filter(|(k, stage, updated)| {
+            stage == "proposed" && answers.get(k).is_some_and(|(d, at)| d.as_deref() == Some("want") && updated.as_str() <= at.as_str())
+        })
+        .map(|(k, ..)| k)
+        .collect())
+}
+
 /// Every plan deck's state and every decided version, for one owner.
 pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&Installs>) -> AppResult<Plans> {
     let decks: Vec<DeckRow> = sqlx::query_as(
@@ -618,6 +636,12 @@ pub async fn apply(conn: &mut SqliteConnection, owner: &str, deck_key: &str, op:
             let Some((vid, n, vstatus, prior_text)) = last else { return Ok(Err("There's no decision to undo.".into())) };
             if op.version != Some(n) {
                 return Ok(Err(format!("Only the newest decision can be undone: version {n}.")));
+            }
+            // A plan another plan replaced (or one set aside) keeps its history: undoing it would
+            // rewrite answers under the plan in force now.
+            let superseded: Option<String> = sqlx::query_scalar("SELECT superseded_at FROM plan_versions WHERE id = ?").bind(&vid).fetch_one(&mut *conn).await?;
+            if plan.state == "archived" || superseded.is_some() {
+                return Ok(Err("This plan has been replaced or archived, so its decisions stay as they were.".into()));
             }
             let p = parse(&prior_text);
             let mut writes = Vec::new();
