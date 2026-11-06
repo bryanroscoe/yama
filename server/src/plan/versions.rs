@@ -93,7 +93,6 @@ pub struct Plans {
 #[derive(sqlx::FromRow)]
 struct DeckRow {
     id: String,
-    key: String,
     name: String,
     source: String,
     status: String,
@@ -110,10 +109,6 @@ struct SwapRow {
     plan_deck_id: String,
     stage: String,
     role: String,
-    src: String,
-    in_name: String,
-    out_name: Option<String>,
-    why: Option<String>,
     upgrade: Option<String>,
     import_id: Option<String>,
     created_at: String,
@@ -165,13 +160,13 @@ async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<Stri
 /// Every plan deck's state and every decided version, for one owner.
 pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&Installs>) -> AppResult<Plans> {
     let decks: Vec<DeckRow> = sqlx::query_as(
-        "SELECT id, key, name, source, status, notes, note_id, import_id, archived_at, archived_note FROM plan_decks WHERE owner_id = ?",
+        "SELECT id, name, source, status, notes, note_id, import_id, archived_at, archived_note FROM plan_decks WHERE owner_id = ?",
     )
     .bind(owner)
     .fetch_all(&mut *conn)
     .await?;
     let swaps: Vec<SwapRow> = sqlx::query_as(
-        "SELECT ext_key AS key, plan_deck_id, stage, role, src, in_name, out_name, why, upgrade, import_id, created_at
+        "SELECT ext_key AS key, plan_deck_id, stage, role, upgrade, import_id, created_at
          FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
     )
     .bind(owner)
