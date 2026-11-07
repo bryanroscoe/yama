@@ -65,9 +65,14 @@ export function GetCards() {
       <PlansHead title="Get the cards" />
       <p className="dim plans-lede">Everything your approved plans still need, in the order you'd do it.</p>
       {live.length === 0 ? (
-        <p className="plans-empty">
-          Nothing to get yet. Approve a plan on <Link to="/decks/plans">Plans</Link> and its buys, prints and moves show up here.
-        </p>
+        <div className="plans-empty">
+          <p>Nothing to get yet. Approve a plan on <Link to="/decks/plans">Plans</Link> and its buys, prints and moves show up here.</p>
+          {(view.b.shopping_wants?.length ?? 0) > 0 && (
+            <p>
+              Cards you added to your shopping list by hand are on the <Link to="/decks/plans/get/trip">store trip</Link>.
+            </p>
+          )}
+        </div>
       ) : (
         <>
           <div className="segmented plans-filter" role="group" aria-label="Show plans">

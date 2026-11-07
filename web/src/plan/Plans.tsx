@@ -70,7 +70,8 @@ export function Plans() {
     const n = (k: string) => steps.filter((s) => s.step === k).length;
     return { buy: n("to_buy"), print: n("to_print"), move: n("to_move"), putIn: n("in_hand") };
   }, [rows, view]);
-  const anyApproved = rows.some((r) => inForce(r.plan));
+  // Get the cards shows for any approved plan, and for cards added to the shopping list by hand.
+  const anyApproved = rows.some((r) => inForce(r.plan)) || (view.b.shopping_wants?.length ?? 0) > 0;
   // The small art beside new versions and done plans, credited once under the page.
   const thumbArtists = [...new Set([...versions, ...done].filter((r) => view.art(r.deck)).map((r) => view.card(r.deck.commander[0])?.artist))];
 
