@@ -63,7 +63,7 @@ describe("returning to shared content", () => {
     const html = page({ id: "u1" }, true);
     expect(html).toContain("No decks shared yet");
     expect(html).toContain("No plans shared yet");
-    expect(html).toContain('href="/decks/plan"');
+    expect(html).toContain('href="/decks/plans"');
   });
 
   it("offers handle setup when there is no public profile yet", () => {

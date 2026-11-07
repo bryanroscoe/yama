@@ -212,7 +212,7 @@ export interface DeckPlanSummary {
   identity: string | null;
 }
 
-export const noteHref = (id: string) => `/decks/research/${encodeURIComponent(id)}`;
+export const noteHref = (id: string) => `/decks/plans/archived/${encodeURIComponent(id)}`;
 export const deckHref = (id: string, deck: string, build?: string) => `${noteHref(id)}/${encodeURIComponent(deck)}${build ? `?build=${encodeURIComponent(build)}` : ""}`;
 
 export const planSummaries = ({ signal }: { signal?: AbortSignal } = {}) => api<PlanSummary[]>("/api/research-plans", { signal });

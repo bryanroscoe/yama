@@ -109,7 +109,7 @@ export function BoughtLine({ swap, view }: { swap: Swap; view: PlanView }) {
   );
 }
 
-function sendBought(userId: string, swap: Swap, fields: Omit<BoughtOp, "kind" | "op_id" | "device_id" | "at" | "swap_key" | "deck_key">) {
+export function sendBought(userId: string, swap: Swap, fields: Omit<BoughtOp, "kind" | "op_id" | "device_id" | "at" | "swap_key" | "deck_key">) {
   const op: BoughtOp = { kind: "bought", op_id: crypto.randomUUID(), device_id: deviceId(), at: opTime(), swap_key: swap.key, deck_key: swap.deck, ...fields };
   outbox.enqueue(userId, op);
 }

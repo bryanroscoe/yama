@@ -1,5 +1,6 @@
 import { CardRef } from "../components/CardRef";
 import {
+  inForceBundle,
   boughtInfo,
   fmtDate,
   hassleOrder,
@@ -79,7 +80,7 @@ function printReason(p: PrintRow): string {
   }
 }
 
-/** `/decks/plan/trip`: which of your stores to visit, and what to print instead (docs/shopping-design.md). */
+/** `/decks/plans/get/trip`: which of your stores to visit, and what to print instead (docs/shopping-design.md). */
 export function Trip() {
   const { view, userId } = usePlanOutlet();
   const [params, setParams] = useSearchParams();
@@ -88,15 +89,19 @@ export function Trip() {
   // key may hold any character); no "going": every store you'll go to.
   const going = params.has("going") ? params.getAll("store").filter((k) => stores.some((s) => s.key === k)) : null;
   const goingKey = going ? JSON.stringify(going) : null;
+  // From Get the cards filtered to one deck (?deck=): only that plan's buys.
+  const deckFilter = params.get("deck") && view.deck(params.get("deck")!) ? params.get("deck") : null;
   const trip = useMemo(
     () =>
-      planTrip(view.b, {
+      // Only approved plans: one waiting for your OK puts nothing on a trip.
+      // One deck's trip has only its plan's buys: no hand-added wants or wishlist.
+      planTrip({ ...inForceBundle(view.b, view.planOf, view.answers, deckFilter), ...(deckFilter ? { shopping_wants: [], wishlist: [] } : {}) }, {
         today: view.today,
         answers: view.answers,
         bought: (k) => !!boughtInfo(view.markBy.get(k)?.bought),
         stores: goingKey == null ? null : (JSON.parse(goingKey) as string[]),
       }),
-    [view, goingKey],
+    [view, goingKey, deckFilter],
   );
   const willGo = stores.filter((s) => storePreference(view.b, s.key) !== "never");
   const toggle = (key: string) => {

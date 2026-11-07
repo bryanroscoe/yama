@@ -10,6 +10,7 @@ import {
   type MpcImage,
   type MpcOrder,
   type MpcStock,
+  inForceBundle,
 } from "@yama/core/plan";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -136,13 +137,13 @@ function Choice({ label, card, images, chosen, onPick }: { label: string; card: 
 }
 
 /**
- * `/decks/plan/prints/mpc`: the next print order as a MakePlayingCards project. Images come from
+ * `/decks/plans/get/mpc`: the next print order as a MakePlayingCards project. Images come from
  * MPC Autofill's community index; the Yama print helper for Chrome fills them into MPC, where you
  * check the preview and add to cart yourself (ARCHITECTURE.md, "Printing with MakePlayingCards").
  */
 export function MpcPrint() {
   const { view } = usePlanOutlet();
-  const plan = useMemo(() => printPlan(view.b, { answers: view.answers, today: view.today }), [view]);
+  const plan = useMemo(() => printPlan(inForceBundle(view.b, view.planOf, view.answers), { answers: view.answers, today: view.today }), [view]);
   const cards: MpcCard[] = useMemo(() => plan.next.lines.map((l) => ({ card: l.card, back: l.back })), [plan]);
   const names = useMemo(() => [...new Set(cards.flatMap((c) => (c.back ? [c.card, c.back] : [c.card])))].sort(), [cards]);
   const [saved, setSaved] = useState(loadSaved);
@@ -178,7 +179,7 @@ export function MpcPrint() {
       <PlansHead title="Print with MakePlayingCards" />
       <p className="area-note">
         Images for your next print order from MPC Autofill, a community index of print-ready scans. The Yama print helper for Chrome
-        fills them into a MakePlayingCards project; you check MPC's preview and add to cart yourself. <Link to="/decks/plan/prints">Back to Prints</Link>
+        fills them into a MakePlayingCards project; you check MPC's preview and add to cart yourself. <Link to="/decks/plans/get#print">Back to Prints</Link>
       </p>
       {!cards.length && <p className="empty">No prints waiting. Prints appear once a tracked plan prints a card.</p>}
       {cards.length > 0 && (

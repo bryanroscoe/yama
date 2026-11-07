@@ -930,7 +930,7 @@ async fn apply_approve_plan(st: &AppState, user: &User, id: &str, p: &Value) -> 
     }
     let deck = p["deck"].as_str().unwrap_or("the deck");
     let label = if p["action"] == "keep" { format!("Kept {deck}'s plan as it was") } else { format!("Approved {deck}'s plan, version {}", p["version"]) };
-    Ok(json!({"label": label, "link": format!("/decks/plan/d/{}", p["deck_key"].as_str().unwrap_or_default())}))
+    Ok(json!({"label": label, "link": crate::plan::page_link(p["deck_key"].as_str().unwrap_or_default())}))
 }
 
 async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
@@ -961,7 +961,7 @@ async fn apply_track_build(st: &AppState, user: &User, id: &str, p: &Value) -> A
                 .fetch_optional(&st.pool)
                 .await?;
             crate::plan::notes::stop(&st.pool, &user.id, &key.ok_or(AppError::NotFound("plan deck"))?).await?;
-            Ok(json!({"label": format!("Stopped tracking {}'s plan", p["deck"].as_str().unwrap_or("the deck")), "link": "/decks/plan"}))
+            Ok(json!({"label": format!("Stopped tracking {}'s plan", p["deck"].as_str().unwrap_or("the deck")), "link": "/decks/plans"}))
         }
     }
 }
@@ -1019,7 +1019,7 @@ async fn apply_plan(st: &AppState, user: &User, kind: &str, id: &str, p: &Value)
         "mark_bought" => format!("Marked in {deck}'s plan"),
         _ => format!("Marked in {deck}'s plan"),
     };
-    Ok(json!({"label": label, "link": format!("/decks/plan/d/{}", p["deck_key"].as_str().unwrap_or_default())}))
+    Ok(json!({"label": label, "link": crate::plan::page_link(p["deck_key"].as_str().unwrap_or_default())}))
 }
 
 // ── lab runs ────────────────────────────────────────────────────────────────
@@ -1625,7 +1625,7 @@ async fn apply_swap_in(st: &AppState, user: &User, p: &Value) -> AppResult<Value
     } else {
         format!("Prints swapped into {}: {} proxies added, {} cards moved", done.plan_name, done.proxies_added, done.moved)
     };
-    Ok(json!({"label": label, "link": format!("/decks/plan/d/{key}")}))
+    Ok(json!({"label": label, "link": crate::plan::page_link(&key)}))
 }
 
 // ── applying and discarding ─────────────────────────────────────────────────

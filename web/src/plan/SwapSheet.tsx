@@ -1,5 +1,5 @@
 import { CardRef } from "../components/CardRef";
-import { swapSheet, takeoutLines, type PlanCard, type SheetDeck, type SheetStep } from "@yama/core/plan";
+import { inForceBundle, swapSheet, takeoutLines, type PlanCard, type SheetDeck, type SheetStep } from "@yama/core/plan";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
@@ -17,13 +17,15 @@ const SHEETS = [
 ] as const;
 
 /**
- * `/decks/plan/prints/swap`: the swap sheet for when prints arrive, on screen and on paper. Sort the
+ * `/decks/plans/get/swap-sheet`: the swap sheet for when prints arrive, on screen and on paper. Sort the
  * prints into decks, then swap each deck from its now list to its after-prints list, with where each
  * card coming out goes. The same sheet commander-decks prints (mtg-print-swaps.pdf).
  */
 export function SwapSheetPage() {
   const { view } = usePlanOutlet();
-  const sheet = useMemo(() => swapSheet({ ...view.b, marks: Object.fromEntries(view.markBy) }), [view]);
+  // Only plans in force: a plan waiting for your OK has nothing to swap in yet.
+  const b = useMemo(() => inForceBundle(view.b, view.planOf, view.answers), [view]);
+  const sheet = useMemo(() => swapSheet({ ...b, marks: Object.fromEntries(view.markBy) }), [b, view.markBy]);
   const [swapping, setSwapping] = useState<SheetDeck | null>(null);
   const [params, setParams] = useSearchParams();
   const mode = SHEETS.find((s) => s.value === params.get("sheet"))?.value ?? "full";
@@ -32,7 +34,7 @@ export function SwapSheetPage() {
   const pictures = include("pictures");
   const reasons = params.get("reasons") === "1";
   const hasContent = mode !== "full" || include("instructions") || include("sort") || include("swaps");
-  const availableDecks = view.b.decks.filter((d) => d.status === "active");
+  const availableDecks = b.decks.filter((d) => d.status === "active");
   // Repeated deck keys keep existing single-deck links working. The scope flag distinguishes
   // explicitly selecting no decks from the default of every deck.
   const requestedDecks = params.getAll("deck").filter(Boolean);

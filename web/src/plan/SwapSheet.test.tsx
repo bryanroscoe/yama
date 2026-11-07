@@ -37,11 +37,13 @@ function selectedSheet(query = "", extraDecks = false) {
   };
   const decks = extraDecks ? [deck, { ...deck, key: "second", name: "Second deck" }, { ...deck, key: "third", name: "Third deck" }] : [deck];
   const view = {
-    b: { decks, swaps: [{ key: "swap", in: "New card", out: "Old card", why: "Adds card draw.", why_out: "Costs too much mana." }], marks: {}, names: {}, cards: {} },
+    b: { decks, swaps: [{ key: "swap", deck: deck.key, stage: "planned", in: "New card", out: "Old card", why: "Adds card draw.", why_out: "Costs too much mana." }], marks: {}, names: {}, cards: {} },
     markBy: new Map(),
     deck: (key: string) => decks.find((d) => d.key === key),
     card: () => ({ image_small: "https://cards.scryfall.io/test.webp" }),
     oracleId: () => undefined,
+    answers: new Map(),
+    planOf: () => ({ state: "in_progress" }),
   } as unknown as PlanView;
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[`/sheet${query}`]}><Routes>

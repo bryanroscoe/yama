@@ -17,7 +17,6 @@ import { AcquisitionItem, AgentShopping, ComboCard, LocalChecks, PrintedWishlist
 import { CardViews, ChangesTable, Choices, CopyBox, GetChoices, SectionHead, ShoppingTable, ShoppingText, ShoppingTotals } from "./parts";
 import { ShareNote } from "./ShareNote";
 import { TrackPanel, trackedSwaps, useBuyRule, usePlansSettled, useTracked } from "./Tracking";
-import { PlansForDeck } from "./PlanTiles";
 import { useScrollToHash } from "../components/useScrollToHash";
 import { bracketLabel, cardsWord, deckHref, deckView, moved, noteHref, noteView, pickBuild, uptoOf, type GetId, type NoteView, type Totals } from "./view";
 import "../plan/plan.css";
@@ -109,10 +108,20 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
   const guideNames = [...new Set(doc.decks.flatMap((d) => d.builds.flatMap((b) => listEntries(b.list).map((r) => r.name))))];
   return (
     <main className="page plan note-page">
-      <AreaHead slim back={{ to: "/decks/plan", label: "Back to plans" }} />
+      <AreaHead slim back={{ to: "/decks/plans/archived", label: "Back to archived plans" }} />
       <section className="note-head">
+        <nav className="plan-crumbs" aria-label="Breadcrumb">
+          <Link to="/decks">Decks</Link>
+          <span aria-hidden="true">/</span>
+          <Link to="/decks/plans">Plans</Link>
+          <span aria-hidden="true">/</span>
+          <Link to="/decks/plans/archived">Archived</Link>
+        </nav>
         <Origin doc={doc} />
         <h1>{doc.title}</h1>
+        <p className="note-archived">
+          <span className="tag plain">Archived</span> A research note, kept for reference. It's never a current plan, and nothing in it is on your shopping list. Open a deck and choose Use a deck from it to make that build a new version of the deck's plan, waiting for your OK.
+        </p>
         {doc.summary && <p className="note-summary">{doc.summary}</p>}
         <p className="dim">
           {doc.decks.length} {doc.decks.length === 1 ? "deck" : "decks"}. Saved {fmtDate(bundle.updated_at)}
@@ -484,7 +493,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   return (
     <main className="plan plan-deck-page note-page">
       <ArtPanel as="header" className="plan-hero" art={v?.art?.image} artist={v?.art?.artist} wash="bottom" toGround credit={false}>
-        <BackButton to="/decks/plan" label="Back to plans" className="on-art" />
+        <BackButton to={noteHref(doc.id)} label="Back to the note" className="on-art" />
         {v?.art && (
           <span className="plan-hero-credit">
             {deck.commander}. {artCredit(v.art.artist)}
@@ -494,7 +503,9 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
           <nav className="plan-crumbs" aria-label="Breadcrumb">
             <Link to="/decks">Decks</Link>
             <span aria-hidden="true">/</span>
-            <Link to="/decks/plan">Plans</Link>
+            <Link to="/decks/plans">Plans</Link>
+            <span aria-hidden="true">/</span>
+            <Link to="/decks/plans/archived">Archived</Link>
             <span aria-hidden="true">/</span>
             <Link to={noteHref(doc.id)}>{doc.title}</Link>
           </nav>
@@ -511,7 +522,6 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
 
       <div className="page plan-deck-body">
         <DeckChanged name={deck.name} savedAt={bundle.updated_at} />
-        <PlansForDeck name={deck.name} current={{ note: doc.id, deck: deck.key }} />
         {deck.builds.length > 1 && (
           <Choices
             label="Builds of this deck"
@@ -532,10 +542,10 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
               {build.game_changers.length} Game Changer{build.game_changers.length === 1 ? "" : "s"}
             </span>
           )}
-          <a className="pill note-pill-link" href="#changes-head">
+          <a className="tag note-pill-link" href="#changes-head">
             {added} in, {removed} out from the starting list
           </a>
-          {isOwnedBuild(build) && <span className="pill good">Buildable now from your cards</span>}
+          {isOwnedBuild(build) && <span className="tag good">Buildable now from your cards</span>}
         </div>
 
         <TrackPanel key={build.id} bundle={bundle} deck={deck} build={build} />
@@ -702,7 +712,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
                           {copies.length > 0 && (
                             <p className="note-swap-state">
                               {copies.map((c) => (
-                                <span key={c.key} className={`pill ${tracking.status(c) === "In the deck" ? "good" : "quiet"}`}>{tracking.status(c)}</span>
+                                <span key={c.key} className={`tag ${tracking.status(c) === "In the deck" ? "good" : "quiet"}`}>{tracking.status(c)}</span>
                               ))}
                             </p>
                           )}
@@ -812,9 +822,9 @@ function ResearchDetails({ deck, names }: { deck: ResearchDeck; names: string[] 
 function NoteMissing({ id, what }: { id?: string; what: string }) {
   return (
     <main className="page plan note-page">
-      <AreaHead slim back={{ to: id ? noteHref(id) : "/decks/plan", label: id ? "Back to this plan" : "Back to plans" }} />
+      <AreaHead slim back={{ to: id ? noteHref(id) : "/decks/plans", label: id ? "Back to this plan" : "Back to plans" }} />
       <p>
-        {what} {id ? <Link to={noteHref(id)}>Open the plan.</Link> : <Link to="/decks/plan">Open your plans.</Link>}
+        {what} {id ? <Link to={noteHref(id)}>Open the plan.</Link> : <Link to="/decks/plans">Open your plans.</Link>}
       </p>
     </main>
   );
@@ -863,13 +873,13 @@ function CopyShared({ token }: { token: string }) {
   }, [copy]);
   return (
     <main className="page plan note-page">
-      <AreaHead slim back={{ to: "/decks/plan", label: "Back to plans" }} />
+      <AreaHead slim back={{ to: "/decks/plans", label: "Back to plans" }} />
       <section className="research-copy">
         {copy.isError ? (
           <>
             <p>The shared plan wasn't copied.</p>
             <ErrorText error={copy.error} />
-            <Link to="/decks/plan">Open your plans</Link>
+            <Link to="/decks/plans">Open your plans</Link>
           </>
         ) : (
           <p>Saving a copy of the shared plan…</p>
@@ -881,8 +891,8 @@ function CopyShared({ token }: { token: string }) {
 
 // ── The route ────────────────────────────────────────────────────────────────
 
-/** `/decks/research[/:reportId[/:deckKey]]`. The list of plans lives on Plans (`/decks/plan`);
- *  this address keeps `?copy=` for shared plans' "Save a copy" and every link to a note. */
+/** `/decks/plans/archived/:reportId[/:deckKey]`: a research note, an archived plan. `/decks/research`
+ *  keeps `?copy=` for shared plans' "Save a copy"; its other addresses redirect here. */
 export function ResearchPage() {
   const { reportId, deckKey } = useParams();
   const [params] = useSearchParams();
@@ -890,13 +900,13 @@ export function ResearchPage() {
   const data = useQuery({ queryKey: ["research", userId, reportId], queryFn: ({ signal }) => report(reportId!, signal), enabled: !!reportId, select: titled });
   if (!reportId) {
     const token = params.get("copy");
-    return token ? <CopyShared token={token} /> : <Navigate to="/decks/plan" replace />;
+    return token ? <CopyShared token={token} /> : <Navigate to="/decks/plans/archived" replace />;
   }
   const b = data.data;
   if (!b) {
     return (
       <main className="page plan note-page">
-        <AreaHead slim back={{ to: "/decks/plan", label: "Back to plans" }} />
+        <AreaHead slim back={{ to: "/decks/plans", label: "Back to plans" }} />
         <ErrorText error={data.error} />
         {data.isPending && <p className="dim">Loading the plan…</p>}
       </main>

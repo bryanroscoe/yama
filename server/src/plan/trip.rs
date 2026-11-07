@@ -388,6 +388,14 @@ fn wants(b: &Value, answers: &HashMap<String, &Value>, bought: &HashSet<String>)
         if s(deck, "status") == Some("archived") {
             continue;
         }
+        // Only plans in force (versions.rs): one waiting for their OK puts nothing on a trip, and
+        // in a plan in progress only its approved changes do (as Get the cards, `inForceBundle`).
+        if let Some(state) = deck["plan"]["state"].as_str()
+            && state != "in_progress"
+            && state != "done"
+        {
+            continue;
+        }
         let key = s(sw, "key").unwrap_or_default();
         let planned = s(sw, "stage") == Some("planned");
         if (planned && !sw["order_item"].is_null()) || bought.contains(key) {
@@ -395,6 +403,11 @@ fn wants(b: &Value, answers: &HashMap<String, &Value>, bought: &HashSet<String>)
         }
         let answer = answers.get(key);
         let decision = answer.and_then(|a| s(a, "decision"));
+        // A want given before the proposal last changed doesn't approve its new content.
+        let fresh = answer.and_then(|a| s(a, "at")).is_none_or(|at| s(sw, "updated_at").is_none_or(|u| u <= at));
+        if !planned && (decision != Some("want") || !fresh) && deck["plan"].is_object() {
+            continue;
+        }
         if !planned && decision == Some("no") {
             continue;
         }

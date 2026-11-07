@@ -1633,6 +1633,9 @@ late source/preview responses, reviewed saves, and draft retention across layout
 
 ### One plan page (2026-11-04)
 
+Superseded on 2026-11-06 by "Plans: one plan per deck" below. The pages, addresses, Review, Buy, Trip,
+Prints and Spares described here are gone; old addresses redirect.
+
 Bryan (2026-11-04): copied public notes looked "all broken" and "nothing like the other ones"; the
 plans, Buy, Trip and Spares pages are "very confusing right now and not consistent"; the public
 shared plan (`/r/<token>`) is the more useful one, and plans "should be consistent and reusable for
@@ -1785,6 +1788,24 @@ options and no clear current proposal. This replaces the "plan is a note" model 
   Using a deck from one (`POST /api/plan/from-note` with `proposed: true`, or `track_build`) makes
   that build's changes proposals: the deck's next version, waiting for your OK. `approve_plan`
   stages a whole-plan approval for Claude, applied by the person like any other change.
+- **Pages and addresses** (`web/src/plan`). Plans (`/decks/plans`, `Plans.tsx`) lists each deck once
+  by its plan's state: where to start (the plan waiting longest), Get the cards, waiting for your
+  OK (new plans and new versions), in progress (n of m in, the next step), done, decks with no plan
+  and decks you don't have yet, and the archive. A deck's plan (`/decks/plans/<key>`, or
+  `/decks/plans/d/<key>` when the key is `get`, `settings`, `archived` or `d`; `planHref`) is one page
+  whatever its state (`PlanPage.tsx`): skip, answer, Approve plan, the bracket picker with the
+  Bracket 3 and 2 bags, a new version beside the plan in progress with Keep version N, what's left,
+  what's in the deck, the lists to copy and the Lab, Undo and Archive. Get the cards
+  (`/decks/plans/get`, `GetCards.tsx`) replaces Buy, Trip, Prints and Spares: buy (the store trip's
+  stops, a tick per card), print, move between decks with the spares, put in, for every plan in
+  force or one (`?deck=`); its tools are the store trip, MakePlayingCards, the swap sheet and the
+  swap cards (`get/trip`, `get/mpc`, `get/swap-sheet`, `get/swap-cards`). Archived
+  (`/decks/plans/archived`) holds research notes (their pages under `/decks/plans/archived/<id>`,
+  with Use a deck from it), earlier versions and plans set aside; Settings is a link
+  (`/decks/plans/settings`). Only plans in force feed anything that buys, prints or swaps
+  (core `inForceBundle`; the server's `shopping_trip`). Every old address (`/decks/plan`, its
+  `d/<key>`, Review, Buy, Trip, Prints, Spares, the print tools, `/decks/research/<id>[/<deck>]`)
+  redirects (`OldPlanRedirect.tsx`); `/decks/research?copy=` still saves a shared copy.
 - **Publishing from commander-decks** needs no format change: a deck exported as `proposals_only`
   with its proposals and bags arrives as one plan waiting for your OK, not 496 separate Review items.
   `pull.py` lists the plan decisions with their answers.

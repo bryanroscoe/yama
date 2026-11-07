@@ -21,20 +21,15 @@ export function usePlanOutlet(): PlanOutlet {
   return useOutletContext<PlanOutlet>();
 }
 
-/** The Plans pages, in order. Swap cards print from Overview, so Overview stays underlined there. */
+/**
+ * The Plans section's two pages (Bryan, 2026-11-06: the plans redesign collapses Overview, Review,
+ * Buy, Trip, Prints, Spares and Settings to these). Settings, the archive and a deck's plan are
+ * links from them. `also`: pages that count as part of one (the print tools under Get the cards).
+ */
 const PLAN_PAGES: { to: string; label: string; end?: boolean; also?: string }[] = [
-  { to: "/decks/plan", label: "Overview", end: true, also: "/decks/plan/swap-cards" },
-  { to: "/decks/plan/review", label: "Review" },
-  { to: "/decks/plan/buy", label: "Buy" },
-  { to: "/decks/plan/trip", label: "Trip" },
-  { to: "/decks/plan/prints", label: "Prints" },
-  { to: "/decks/plan/spares", label: "Spares" },
-  { to: "/decks/plan/settings", label: "Settings" },
+  { to: "/decks/plans", label: "Plans", end: true, also: "/decks/plans/archived" },
+  { to: "/decks/plans/get", label: "Get the cards" },
 ];
-
-/** The Plans pages that are of use before any deck is tracked: Review lists a plan's changes
- *  waiting for an answer too. */
-const UNTRACKED = new Set(["/decks/plan", "/decks/plan/review", "/decks/plan/trip", "/decks/plan/settings"]);
 
 /** After a sync, wait this long for more taps before fetching the bundle again. */
 const REFRESH_AFTER_SYNC_MS = 8000;
@@ -72,7 +67,9 @@ export function PlanLayout() {
   }, [userId, qc]);
 
   // A plan deck's page opens on full-bleed commander art, like a deck's page.
-  const deckPage = !!useMatch("/decks/plan/d/:key");
+  const deckMatch = useMatch("/decks/plans/:key");
+  const reservedMatch = useMatch("/decks/plans/d/:key");
+  const deckPage = !!reservedMatch || (!!deckMatch && !["archived", "get", "settings"].includes(deckMatch.params.key ?? ""));
   const banner = plan.offline && (
     <p className="plan-banner small" role="status">
       No connection. This is the copy of your plans saved on this device{plan.bundle?.head ? `, imported ${fmtDate(plan.bundle.head.imported_at)}` : ""}.
@@ -101,18 +98,14 @@ export function PlanLayout() {
 export function PlansHead({ title, index = false, action, status }: { title: ReactNode; index?: boolean; action?: ReactNode; status?: ReactNode }) {
   const { view } = useOutletContext<PlanOutlet | undefined>() ?? {};
   const { pathname } = useLocation();
-  // Without a tracked deck, the pages that need one (Review, Buy, Prints, Spares) have nothing to
-  // show; the shopping list (Trip) and Settings (connecting an assistant, shopping rules) still do.
-  const tracked = !!view && view.b.decks.length > 0;
-  const pages = tracked ? PLAN_PAGES : PLAN_PAGES.filter((p) => UNTRACKED.has(p.to));
   return (
     <AreaHead
       title={title}
       index={index}
-      back={{ to: "/decks/plan", label: "Back to plans" }}
+      back={{ to: "/decks/plans", label: "Back to plans" }}
       action={action}
       status={status}
-      nav={view ? <SubNav label="Plans pages" pages={pages} also={pathname} /> : undefined}
+      nav={view ? <SubNav label="Plans pages" pages={PLAN_PAGES} also={pathname} /> : undefined}
     />
   );
 }

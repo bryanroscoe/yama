@@ -30,7 +30,7 @@ describe("the Lab is its own section", () => {
 
   it("leaves the Decks sections, with agent notes under Plans and no Lab or Datasets", () => {
     expect(DECK_SECTIONS.map((s) => s.label)).toEqual(["Decks", "Sharing", "Swap cards", "Plans"]);
-    expect(DECK_SECTIONS.find((s) => s.label === "Plans")?.also).toEqual(["/decks/research"]);
+    expect(DECK_SECTIONS.find((s) => s.label === "Plans")?.also).toEqual(["/decks/research", "/decks/plan"]);
     expect(DECK_SECTIONS.some((s) => s.to.includes("lab") || s.to.includes("datasets"))).toBe(false);
   });
 

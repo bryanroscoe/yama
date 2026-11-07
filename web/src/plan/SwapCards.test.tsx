@@ -24,8 +24,10 @@ const riders = deck("riders", { target: 4, bags: { "3": [{ out: "Rhystic Study",
 
 function page(query: string, decks: PlanDeck[]) {
   const view = {
-    b: { decks, head: { guide_version: 27 }, game_changers: { checked_on: "2026-10-09", source: "test", names: ["Teferi's Protection", "The One Ring", "Smothering Tithe", "Rhystic Study"] } },
+    b: { decks, swaps: [], head: { guide_version: 27 }, game_changers: { checked_on: "2026-10-09", source: "test", names: ["Teferi's Protection", "The One Ring", "Smothering Tithe", "Rhystic Study"] } },
     deck: (key: string) => decks.find((d) => d.key === key),
+    answers: new Map(),
+    planOf: () => ({ state: "in_progress" }),
   } as unknown as PlanView;
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[`/cards${query}`]}><Routes>
@@ -55,8 +57,8 @@ describe("bracket swap cards page", () => {
     const html = page("?deck=lorehold", [lorehold, riders]);
     expect(html).toContain("<h1>Lorehold deck swap card</h1>");
     expect(html.match(/class="sc-card"/g)).toHaveLength(1);
-    expect(html).toContain('href="/decks/plan/d/lorehold?tab=brackets"');
-    expect(html).toContain('href="/decks/plan/swap-cards"');
+    expect(html).toContain('href="/decks/plans/lorehold"');
+    expect(html).toContain('href="/decks/plans/get/swap-cards"');
     expect(html).not.toContain("Riders deck");
   });
 

@@ -1,3 +1,4 @@
+import { planHref } from "../plan/href";
 import { CardHover, CardRef } from "../components/CardRef";
 import { BuylistReferences, DeckPrices, neededCost, SinglesPrice } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -290,7 +291,7 @@ export function DeckPage() {
   </>;
   const legal = v.ok ? <span className="pill good deck-legal-pill">Commander-legal</span> : <span className="pill bad deck-legal-pill">Not legal yet</span>;
   const planLink = plan && (
-    <Link to={`/decks/plan/d/${plan.deck.key}`} className="deck-plan-link">
+    <Link to={planHref(plan.deck.key)} className="deck-plan-link">
       <span className="deck-plan-text">
         <b>
           Plan: {plan.line}

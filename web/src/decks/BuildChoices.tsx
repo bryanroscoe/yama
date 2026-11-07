@@ -54,7 +54,7 @@ export function BuildChoicesPage() {
         <><b>Pick the build to switch to</b> and the list to change from. Each card that changes shows with the reason its plan gives.</>,
         <><b>Print</b> double-sided on US Letter and cut out the cards. Keep them in the deck box: one side takes the deck to the build, the other brings it back.</>,
       ]}
-      actions={<><Link className="button primary" to="/decks/plan">Get a plan with bracket builds</Link><Link className="button outline" to="/decks">Open your decks</Link></>}
+      actions={<><Link className="button primary" to="/decks/plans">Get a plan with bracket builds</Link><Link className="button outline" to="/decks">Open your decks</Link></>}
     />
     {errors}
     {loading && <p className="dim">Loading your decks and plans…</p>}
@@ -198,7 +198,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
       {status}
       {!to || !from ? <div className="stack">
         <p>This deck has one list so far, so there's nothing to swap between yet. Give it another: save its stock list or a new configuration from the deck's page, or get a plan with bracket builds for it.</p>
-        <div className="row">{deck && <Link className="button primary" to={`/decks/${deck.id}`}>Open the deck</Link>}<Link className="button outline" to="/decks/plan">Get a plan</Link></div>
+        <div className="row">{deck && <Link className="button primary" to={`/decks/${deck.id}`}>Open the deck</Link>}<Link className="button outline" to="/decks/plans">Get a plan</Link></div>
       </div> : <>
         <BuildChips choices={all} value={to.id} onChange={(id) => pick("to", id)} />
         <div className="note-pills">

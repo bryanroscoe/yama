@@ -128,9 +128,9 @@ const TOOLS: &[Tool] = &[
         title: "Which stores to visit",
         description: "Plan a trip to their stores for the cards they want to buy: the fewest stores that cover the most \
                       cards under their local buy rule (the rule set in force that day), honoring their store preferences \
-                      (a favourite to support is on every trip it has a card for; fine; maybe; won't go) and their order of how easy stores are to get to. Needed cards are planned buys with no order yet and proposals \
-                      they want; undecided proposals and their real-card wishlist only come along from stores already on \
-                      the trip. Gives each store's cards, listed total and cart link (or card search links on a TCGplayer Pro store), the best choice with fewer stores, \
+                      (a favourite to support is on every trip it has a card for; fine; maybe; won't go) and their order of how easy stores are to get to. Needed cards are the buys in their approved plans with no order \
+                      yet (a plan waiting for their OK adds nothing); their real-card wishlist only comes along from stores \
+                      already on the trip. Gives each store's cards, listed total and cart link (or card search links on a TCGplayer Pro store), the best choice with fewer stores, \
                       what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
                       purchases; a missing price is unknown, never $0.",
         schema: || {

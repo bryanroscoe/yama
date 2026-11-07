@@ -564,9 +564,11 @@ describe("marks and counts", () => {
     expect(installedState({ ...withStatus("skipped")[0]!, deck_installed: false }, undefined)).toMatchObject({ on: false, skipped: true, from: "deck" });
     // A stand-in whose print is in is out of the deck but done.
     expect(installedState({ ...withStatus("ordered")[0]!, role: "standin", deck_installed: false, deck_superseded: true }, undefined)).toMatchObject({ on: false, skipped: true, from: "deck" });
-    // No Yama deck (null) falls back to the record; proposals are never judged by the deck.
+    // No Yama deck (null) falls back to the record. The server judges an approved proposal by the
+    // deck too (approving a plan answers want), and sends nothing for any other proposal.
     expect(installedState({ ...s, deck_installed: null }, undefined)).toMatchObject({ on: true, from: "plan" });
-    expect(installedState({ ...s, stage: "proposed", deck_installed: true }, undefined).from).toBe("plan");
+    expect(installedState({ ...s, stage: "proposed", deck_installed: true }, undefined).from).toBe("deck");
+    expect(installedState({ ...s, stage: "proposed", deck_installed: null }, undefined).from).toBe("plan");
     const fromDeck = overviewCounts({ ...bundle, swaps: withStatus("installed").map((x) => ({ ...x, deck_installed: false })) }, { answers, marks: new Map(), today: "2026-10-19" });
     expect(fromDeck.installed).toBe(0);
   });

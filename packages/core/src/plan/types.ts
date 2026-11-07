@@ -169,6 +169,8 @@ export interface DeckPlanState {
     skipped: string[];
     proposed_at: string | null;
     source: VersionSource;
+    /** What its changes say: an approval names it, so an edited change is never approved unseen. */
+    hash: string;
   } | null;
   /** Changes in the plan in force (swaps, not stand-ins or optional extras), and how many are in the deck. */
   changes: number;
