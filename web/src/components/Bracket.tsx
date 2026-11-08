@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { powerEstimate, type PowerEstimate, type PowerFactor } from "@yama/core";
-import { useEffect, useMemo, useRef } from "react";
-import { api, type Combo, type DeckCheck, type DeckEntry, type Estimated } from "../api";
+import { useEffect, useRef } from "react";
+import { api, type Combo, type DeckCheck, type Estimated } from "../api";
+import { useDeckAnalysis } from "../decks/DeckAnalysis";
 import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
-import { statCards } from "./DeckStats";
 import { NameList } from "./OnlineSupport";
 import { Details, ErrorText } from "./ui";
 import "./decks.css";
@@ -59,14 +58,12 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
  * the cards and combos behind the estimate, and the local Game Changer count when there's no
  * estimate to show.
  */
-export function BracketPanel({ deckId, versionId, declared, gameChangers, cards, onCard, onDeclare }: {
+export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard, onDeclare }: {
   deckId: string;
   versionId: string | null;
   declared: number | null;
   /** From our own card data; null while the flags aren't loaded. */
   gameChangers: string[] | null;
-  /** The deck as loaded, for the power-level estimate's card-text factors. */
-  cards: DeckEntry[];
   onCard: (name: string) => void;
   onDeclare: () => void;
 }) {
@@ -82,9 +79,13 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, cards,
   // A fresh answer changes the estimate chip on the deck list.
   const seen = useRef<string | null>(null);
   useEffect(() => {
-    if (r && seen.current !== null && seen.current !== r.checked_at) void qc.invalidateQueries({ queryKey: ["decks"] });
+    if (r && seen.current !== null && seen.current !== r.checked_at) {
+      void qc.invalidateQueries({ queryKey: ["decks"] });
+      // Its combos count toward the power level.
+      void qc.invalidateQueries({ queryKey: ["deck-analysis", deckId] });
+    }
     seen.current = r?.checked_at ?? "";
-  }, [r, qc]);
+  }, [r, qc, deckId]);
 
   // Grouped by Commander Spellbook's own count, which leaves the commander out and counts a
   // notable prerequisite as a piece.
@@ -93,16 +94,8 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, cards,
   const longer = r?.combos.filter((x) => !x.definitely_two_card && !x.arguably_two_card) ?? [];
   const status = checkStatus(c);
   const shown = r ? estimateValue(r.bracket_tag, r.bracket) : null;
-  const power = useMemo(
-    () => r && powerEstimate(statCards(cards), {
-      bracket: suggestedBracket(r.bracket_tag, r.bracket),
-      gameChangers: r.game_changers,
-      twoCardCombos: r.combos.filter((x) => x.definitely_two_card).map((x) => x.cards.join(" + ")),
-      massLandDenial: r.mld,
-      extraTurns: r.extra_turns,
-    }),
-    [r, cards],
-  );
+  const power = useDeckAnalysis(deckId, versionId).data?.current ?? null;
+
 
   return (
     <section className="deck-panel" aria-labelledby="bracket-head">
@@ -141,9 +134,9 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, cards,
         </div>
         {power && (
           <div className="bracket-side estimate">
-            <span className="label">Older power-level scale</span>
-            <span className="value">About {power.score.toFixed(1)} / 10</span>
-            <span className="sub">Unofficial Yama estimate</span>
+            <span className="label">Power level, 1 to 10</span>
+            <span className="value">{power.power.toFixed(1)} <span className="sub">±{power.margin.toFixed(1)}</span></span>
+            <span className="sub">{power.label}, unofficial Yama estimate</span>
           </div>
         )}
       </div>
@@ -155,7 +148,6 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, cards,
         {r && <p>{gameChangerFloor(r.game_changers.length)}</p>}
         {r && <p>Commander Spellbook counts your commander as always available, so it isn't counted as a combo piece. A listed combo doesn't establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.</p>}
       </Details>
-      {power && <PowerBreakdown power={power} onCard={onCard} />}
       {r && <button className="name-link small" onClick={onDeclare}>Choose or change your bracket</button>}
       <BracketGuide />
 
@@ -232,45 +224,6 @@ export function BracketGuide() {
       <p className="note">Sources, reviewed October 25, 2026: <a href="https://magic.wizards.com/en/formats/commander" target="_blank" rel="noreferrer">Wizards' bracket overview</a>, <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025" target="_blank" rel="noreferrer">October 2025 update</a> and <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026" target="_blank" rel="noreferrer">February 2026 update</a>.</p>
     </details>
   );
-}
-
-const signed = (n: number) => `+${n.toFixed(2)}`;
-
-/** How the power-level estimate adds up: the band from the suggestion, then each factor. */
-function PowerBreakdown({ power, onCard }: { power: PowerEstimate; onCard: (name: string) => void }) {
-  const [lo, hi] = power.band;
-  return (
-    <Details label="How the power estimate adds up">
-      <p>
-        Yama's unofficial 1–10 estimate uses this list and its stored Spellbook check. Other sites use different formulas; their numbers aren't directly comparable. The bracket {power.bracket} suggestion sets a {lo}–{hi} range, then the factors below move the score within it. This measures card-list signals, not played performance.
-      </p>
-      <ul className="power-factors">
-        {power.factors.map((f) => (
-          <li key={f.key}>
-            <span className="power-factor-head">
-              <b>{f.label}</b>
-              <span className="num">{signed(f.points)}</span>
-            </span>
-            <span className="note">{f.rule}. {factorCount(f)}</span>
-            {f.cards.length > 0 && (
-              <span className="names">
-                {f.key === "combos" ? f.cards.join(", ") : <NameList names={f.cards} onCard={onCard} />}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-      <p>{lo} plus these factors comes to {power.score.toFixed(1)}.</p>
-      {power.unknownCards.length > 0 && (
-        <p>Not in Yama's card data, so not counted: <NameList names={power.unknownCards} onCard={onCard} /></p>
-      )}
-    </Details>
-  );
-}
-
-function factorCount(f: PowerFactor): string {
-  if (f.key === "curve") return f.count ? `This deck: ${f.count.toFixed(2)}.` : "No nonland cards to average.";
-  return `This deck: ${f.count}, full credit at ${f.cap}.`;
 }
 
 const sameNames = (a: string[], b: string[] | null) =>

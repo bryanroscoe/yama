@@ -21,6 +21,7 @@ import { ArtPanel, ArtCredits, artCredit, artCredits } from "../components/ArtPa
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
 import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
+import { DeckAnalysisPanel } from "../decks/DeckAnalysis";
 import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
@@ -597,7 +598,7 @@ export function DeckPage() {
                 {d.reserved_list.length > 0 && (
                   <p className="names"><NameList names={d.reserved_list} onCard={openByName} /></p>
                 )}
-                <p className="card-note">Cards Wizards has promised never to reprint. Being on the list says a card is scarce, not that it's strong, so the power estimate leaves it out.</p>
+                <p className="card-note">Cards Wizards has promised never to reprint. Being on the list says a card is scarce, not that it's strong, so the power level leaves it out.</p>
               </div>
             ) : (
               <div>
@@ -608,12 +609,12 @@ export function DeckPage() {
             <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
           </div>
 
+          <DeckAnalysisPanel deckId={d.id} versionId={d.version_id} cards={d.cards} onCard={openByName} />
           <BracketPanel
             deckId={d.id}
             versionId={d.version_id}
             declared={d.bracket}
             gameChangers={d.game_changers}
-            cards={d.cards}
             onCard={openByName}
             onDeclare={() => setEditing(true)}
           />

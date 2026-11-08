@@ -458,7 +458,7 @@ async fn a_shared_deck_page_says_what_the_deck_page_says() {
 }
 
 #[tokio::test]
-async fn a_shared_deck_page_shows_how_the_power_estimate_adds_up() {
+async fn a_shared_deck_page_shows_the_power_level_and_how_it_adds_up() {
     let (app, pool) = app().await;
     let (_, bt) = user(&pool, "bryan@example.com").await;
     card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
@@ -470,27 +470,16 @@ async fn a_shared_deck_page_shows_how_the_power_estimate_adds_up() {
     send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "visibility": "link" }))).await;
     let token = token_of(&pool, &id).await;
 
-    // Without a stored check there's no suggestion, so no band to score within.
+    // The power level needs no Spellbook check; without one, combos just don't count yet.
     let (_, _, body) = page(&app, &format!("/d/{token}")).await;
-    assert!(!body.contains("Older power-level scale"), "{body}");
-
-    let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
-    sqlx::query(
-        "UPDATE deck_version_checks SET checked_at = '2026-10-27T00:00:00Z', bracket_tag = 'P', game_changers = '[\"Sol Ring\"]', mld = '[]', extra_turns = '[]', combos = '[]', unrecognized = '[]' WHERE version_id = ?",
-    )
-    .bind(&version)
-    .execute(&pool)
-    .await
-    .unwrap();
-    let (_, _, body) = page(&app, &format!("/d/{token}")).await;
-    // Bracket 3's band starts at 5; Sol Ring is cheap mana, Lightning Bolt cheap interaction,
-    // the curve is low and Sol Ring is the Game Changer.
-    assert!(body.contains("Older power-level scale") && body.contains("Unofficial Yama estimate"), "{body}");
-    assert!(body.contains("How the power estimate adds up") && body.contains("sets a 5–7 range"), "{body}");
-    assert!(body.contains("<b>Cheap mana</b>") && body.contains("<small class=\"names\">Sol Ring</small>"), "{body}");
-    assert!(body.contains("<b>Cheap interaction</b>") && body.contains("<small class=\"names\">Lightning Bolt</small>"), "{body}");
-    assert!(body.contains("This deck: 1.00."), "the curve's average: {body}");
-    assert!(!body.contains("Reserve List cards</b>"), "the Reserve List isn't a factor");
+    assert!(body.contains("<h2 id=\"analysis-head\">Power level</h2>"), "{body}");
+    assert!(body.contains("unofficial Yama estimate"), "{body}");
+    for v in ["Speed", "Consistency", "Interaction", "Mana base", "Threats"] {
+        assert!(body.contains(&format!("<span class=\"vector-label\">{v}</span>")), "{v}: {body}");
+    }
+    // Sol Ring is fast mana, half again as the commander; Lightning Bolt is instant removal.
+    assert!(body.contains("How it adds up") && body.contains("<b>Fast mana</b>") && body.contains("Sol Ring 13.5"), "{body}");
+    assert!(body.contains("<b>Spot removal</b>") && body.contains("Lightning Bolt 6.8"), "{body}");
 }
 
 #[test]
