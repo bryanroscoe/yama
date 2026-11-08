@@ -521,7 +521,7 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
-.cp-set-sub.good {
+.cp-set-sub .good {
   color: var(--good);
 }
 .cp-add-row {

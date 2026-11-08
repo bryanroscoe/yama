@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "../api";
-import { finishFor, printingLabel, reprintOps } from "./collectionEdit";
+import { finishChoices, finishFor, finishWord, ownedFinishes, printingLabel, reprintOps } from "./collectionEdit";
 
 const row: CollectionItem = {
   id: "row",
@@ -63,4 +63,27 @@ describe("finishFor", () => {
 it("labels a printing by set, code and number", () => {
   expect(printingLabel({ set_name: "Set", set_code: "ltr", collector_number: "258", lang: "en" })).toBe("Set (LTR) #258");
   expect(printingLabel({ set_name: "Set", set_code: "ltr", collector_number: "258", lang: "ja" })).toBe("Set (LTR) #258, ja");
+});
+
+describe("finish words", () => {
+  it("names a finish the way the card page and sheet show it", () => {
+    expect(finishWord("nonfoil")).toBe("regular");
+    expect(finishWord("foil")).toBe("foil");
+    expect(finishWord("etched")).toBe("etched foil");
+  });
+  it("says which finishes you own, regular first", () => {
+    expect(ownedFinishes(["nonfoil"])).toBe("regular");
+    expect(ownedFinishes(["foil", "nonfoil", "foil"])).toBe("regular and foil");
+    expect(ownedFinishes(["etched", "foil", "nonfoil"])).toBe("regular, foil and etched foil");
+  });
+});
+
+describe("finishChoices", () => {
+  it("offers the printing's finishes, keeping the row's own", () => {
+    expect(finishChoices("foil", ["nonfoil", "foil"])).toEqual(["nonfoil", "foil"]);
+    expect(finishChoices("foil", ["nonfoil"])).toEqual(["foil", "nonfoil"]);
+  });
+  it("offers every finish until the printing is known", () => {
+    expect(finishChoices("nonfoil", undefined)).toEqual(["nonfoil", "foil", "etched"]);
+  });
 });

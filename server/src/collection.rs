@@ -192,6 +192,9 @@ pub async fn apply_op(tx: &mut Transaction<'_, Sqlite>, owner: &str, op: &Op) ->
             }
         }
         OpKind::Update { item_id, condition, finish, lang, container_id, purchase_price, note, proxy, scryfall_id, split } => {
+            if finish.as_deref().is_some_and(|f| !matches!(f, "nonfoil" | "foil" | "etched")) {
+                return Err(AppError::bad("finish must be nonfoil, foil or etched"));
+            }
             let item_id = &resolve_item(tx, owner, item_id).await?;
             let Some(item) = load_item(tx, owner, item_id).await? else { return Ok(true) };
             if let Some(Some(c)) = container_id {
@@ -1075,6 +1078,41 @@ mod tests {
         tx.commit().await.unwrap();
         let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![("foil".into(), 4)]);
+    }
+
+    #[tokio::test]
+    async fn update_sets_a_foil_back_to_regular_and_refuses_unknown_finishes() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        let mut tx = pool.begin().await.unwrap();
+        let add = Op {
+            op_id: "a".into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: "p1".into(),
+                qty: 1,
+                copy: CopyKind { condition: nm(), finish: "foil".into(), lang: en(), ..Default::default() },
+                container_id: None,
+                purchase_price: None,
+                purchase_currency: None,
+            },
+        };
+        apply_op(&mut tx, &owner, &add).await.unwrap();
+        tx.commit().await.unwrap();
+        let id: String = sqlx::query_scalar("SELECT id FROM collection_items").fetch_one(&pool).await.unwrap();
+        let set = |op_id: &str, finish: &str| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Update { item_id: id.clone(), condition: None, finish: Some(finish.into()), lang: None, container_id: None, purchase_price: None, note: None, proxy: None, scryfall_id: None, split: None },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        assert!(apply_op(&mut tx, &owner, &set("b", "shiny")).await.is_err());
+        drop(tx);
+        let mut tx = pool.begin().await.unwrap();
+        apply_op(&mut tx, &owner, &set("c", "nonfoil")).await.unwrap();
+        tx.commit().await.unwrap();
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT finish, qty FROM collection_items").fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![("nonfoil".into(), 1)]);
     }
 
     #[tokio::test]
