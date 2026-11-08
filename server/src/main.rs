@@ -35,6 +35,7 @@ mod prices;
 mod public_page;
 mod public_commanders;
 mod public_precons;
+mod request_log;
 #[cfg(test)]
 mod privacy_tests;
 mod routes;
@@ -203,11 +204,26 @@ async fn main() -> anyhow::Result<()> {
     }
     // Plain text when the log isn't a terminal (`docker logs`), so it can be searched; sqlx's slow
     // statements on one line, and copied into the perf summary (`perf.rs`).
+    // With YAMA_LOG_DIR, the same lines also go to daily files there, which outlive the container,
+    // with email addresses hidden (request_log.rs). Lines are written as they come; the guard
+    // waits for the last of a command's when main returns.
+    let (file_log, _file_log_guard) = match request_log::settings().and_then(|(dir, days)| request_log::file_appender(&dir, days)) {
+        Some(appender) => {
+            let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default().lossy(false).finish(appender);
+            (Some(tracing_subscriber::fmt::layer().fmt_fields(request_log::FileFields).with_ansi(false).with_writer(writer)), Some(guard))
+        }
+        None => (None, None),
+    };
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,yama_server=debug".into()))
         .with(tracing_subscriber::fmt::layer().fmt_fields(perf::LogFields).with_ansi(std::io::stdout().is_terminal()))
+        .with(file_log)
         .with(perf::SlowStatements)
         .init();
+    // Commands (`docker exec yama yama-server import-mythic …`) change data too: say which ran.
+    if !matches!(args.first().map(String::as_str), Some("serve") | None) {
+        tracing::info!(target: request_log::TARGET, command = %request_log::command_line(&args), "command");
+    }
 
     let cfg = config::Config::from_env()?;
     perf::configure(cfg.slow_request_ms, cfg.slow_query_ms);

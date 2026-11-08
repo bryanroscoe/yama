@@ -120,6 +120,8 @@ pub fn app(state: AppState) -> Router {
     router = router.layer(axum::middleware::from_fn_with_state(state.clone(), crate::view_as::guard));
     // Every request's time, by the route it matched (perf.rs; Admin, Server).
     router = router.layer(axum::middleware::from_fn(crate::perf::track));
+    // A line per write request with the account that sent it, kept on the data volume (request_log.rs).
+    router = router.layer(axum::middleware::from_fn(crate::request_log::log_writes));
     router = router.layer(CompressionLayer::new()).layer(TraceLayer::new_for_http());
     // The built web app, after the layers above: its files are precompressed and cached by
     // their own rules (web_files.rs), with no CORS. Still timed.

@@ -22,6 +22,10 @@ services:
       # The Android app (web/android) runs at https://localhost and calls the API with a bearer
       # token, never cookies (docs/mobile.md).
       YAMA_CORS_ORIGINS: https://localhost
+      # The server's log, with a line for every write request and command, in daily files on the
+      # data volume (data/logs/yama.YYYY-MM-DD.log), kept 180 days (YAMA_LOG_DAYS). `docker logs`
+      # starts over at every deploy (server/src/request_log.rs).
+      YAMA_LOG_DIR: /data/logs
     volumes:
       - ./data:/data
     ports:

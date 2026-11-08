@@ -166,35 +166,42 @@ impl FromRequestParts<AppState> for CurrentUser {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
-        // An admin viewing as someone (view_as.rs): the middleware checked the view and the
-        // admin's own session, and refuses anything but reading, so this request is theirs.
-        if let Some(view) = parts.extensions.get::<crate::view_as::ViewAs>() {
-            return Ok(CurrentUser(view.target.clone()));
-        }
-        let bearer = bearer_token(&parts.headers);
-        // OAuth access and refresh tokens (`oauth/`) are for `/mcp` only. Refuse them here rather
-        // than fall back to the cookie, so a client sending one hears it doesn't work.
-        if bearer.as_deref().is_some_and(crate::oauth::is_oauth_token) {
-            return Err(AppError::Unauthorized);
-        }
-        // WebSockets from the native apps can't send headers or share the web cookie, so they
-        // pass the token as `?token=`. Only honored on WebSocket upgrades.
-        let ws_token = parts
-            .headers
-            .get(axum::http::header::UPGRADE)
-            .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
-            .then(|| parts.uri.query())
-            .flatten()
-            .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("token=")))
-            .map(str::to_string);
-        let token = bearer.or(ws_token).or_else(|| cookie_token(&parts.headers));
-        if let Some(token) = token
-            && let Some(user) = user_for_token(state, &token).await?
-        {
-            return Ok(CurrentUser(user));
-        }
-        access_user(parts, state).await?.map(CurrentUser).ok_or(AppError::Unauthorized)
+        let user = signed_in(parts, state).await?;
+        // A write request's log line says whose it was (request_log.rs).
+        crate::request_log::note_user(&parts.extensions, &user.id);
+        Ok(CurrentUser(user))
     }
+}
+
+async fn signed_in(parts: &mut Parts, state: &AppState) -> Result<User, AppError> {
+    // An admin viewing as someone (view_as.rs): the middleware checked the view and the
+    // admin's own session, and refuses anything but reading, so this request is theirs.
+    if let Some(view) = parts.extensions.get::<crate::view_as::ViewAs>() {
+        return Ok(view.target.clone());
+    }
+    let bearer = bearer_token(&parts.headers);
+    // OAuth access and refresh tokens (`oauth/`) are for `/mcp` only. Refuse them here rather
+    // than fall back to the cookie, so a client sending one hears it doesn't work.
+    if bearer.as_deref().is_some_and(crate::oauth::is_oauth_token) {
+        return Err(AppError::Unauthorized);
+    }
+    // WebSockets from the native apps can't send headers or share the web cookie, so they
+    // pass the token as `?token=`. Only honored on WebSocket upgrades.
+    let ws_token = parts
+        .headers
+        .get(axum::http::header::UPGRADE)
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"))
+        .then(|| parts.uri.query())
+        .flatten()
+        .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("token=")))
+        .map(str::to_string);
+    let token = bearer.or(ws_token).or_else(|| cookie_token(&parts.headers));
+    if let Some(token) = token
+        && let Some(user) = user_for_token(state, &token).await?
+    {
+        return Ok(user);
+    }
+    access_user(parts, state).await?.ok_or(AppError::Unauthorized)
 }
 
 /// Extractor: the signed-in user, when they may use the power-user features (simulations, watched

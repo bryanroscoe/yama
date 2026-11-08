@@ -189,10 +189,34 @@ ssh saget 'docker logs --tail 50 yama'
 ./deploy/health.sh   # reads saget's LAN address from deploy/.env or the environment
 ```
 
+## Who changed what
+
+`docker logs` starts over whenever a deploy recreates the container, so the server also writes
+its log to daily files on the data volume (2026-11-08, `server/src/request_log.rs`):
+`/mnt/user/appdata/yama/data/logs/yama.YYYY-MM-DD.log` (UTC days), kept 180 days
+(`YAMA_LOG_DAYS`). Besides everything `docker logs` shows, it has a line for every write request
+(method, path without the query string, status, time and the account id that sent it), every
+MCP tool call with its account, and every `yama-server` command run with `docker exec` (its
+arguments, password and token values hidden). A write cut off before it was answered (the
+client went away) is logged with status 499: it may still have changed something. Request
+bodies are never logged, and email addresses are written as `[email]` in the files (`docker logs`
+still shows them). The lines name account ids, so treat the files like the database: read them
+on saget, don't copy them off. Run commands as the container's own user (no `docker exec -u 0`):
+a day's file made by root can't be written by the server.
+
+```sh
+ssh saget 'grep -h "yama_server::writes" /mnt/user/appdata/yama/data/logs/yama.*.log | grep "user=ACCOUNT_ID" | tail -50'
+ssh saget 'grep -h "path=/api/collection" /mnt/user/appdata/yama/data/logs/yama.2026-11-*.log'
+ssh saget 'grep -h " command " /mnt/user/appdata/yama/data/logs/yama.*.log'   # imports and other commands
+```
+
+The collection's own history is also in the database: `applied_ops` keeps every collection
+change applied, with its device and time.
+
 ## Finding slowness
 
 The server times every request, slow SQL statement and background job (2026-11-02,
-`server/src/perf.rs`). Nothing logged names a person: a request is its method and route
+`server/src/perf.rs`). Nothing these timings log names a person (the write lines under "Who changed what" do): a request is its method and route
 template (`GET /api/decks/{id}`, never the path or query string), a statement its SQL text with
 `?` for every value, a job its name and a count.
 
