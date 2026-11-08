@@ -10,8 +10,8 @@ const entry = (name: string, type_line: string, o: Partial<DeckEntry>): DeckEntr
 
 const deck = {
   cards: [
-    entry("Plateau", "Land — Mountain Plains", { proxies: 1, cheapest_usd: 610.5, cheapest_printing: { scryfall_id: "p", set_code: "3ed", set_name: "Revised Edition", collector_number: "283" } }),
-    entry("Sol Ring", "Artifact", { owned: 1, cheapest_usd: 1.25, printing: { set_code: "sld", collector_number: "1011", finish: "foil", from: "owned" }, cheapest_printing: { scryfall_id: "s", set_code: "cmm", set_name: "Commander Masters", collector_number: "410" } }),
+    entry("Plateau", "Land — Mountain Plains", { proxies: 1, cheapest_usd: 610.5, cheapest_printing: { scryfall_id: "p", set_code: "3ed", set_name: "Revised Edition", collector_number: "283", date: "2026-11-04" } }),
+    entry("Sol Ring", "Artifact", { owned: 1, cheapest_usd: 1.25, printing: { set_code: "sld", collector_number: "1011", finish: "foil", from: "owned" }, cheapest_printing: { scryfall_id: "s", set_code: "cmm", set_name: "Commander Masters", collector_number: "410", date: "2026-11-07" } }),
   ],
   ownership: { price_date: "2026-11-07" },
 } as unknown as DeckView;
@@ -33,5 +33,8 @@ describe("the deck page's Prices view", () => {
     expect(html).toContain(">Lands</button>");
     expect(html).toContain(">Artifacts</button>");
     expect(html.indexOf("Plateau")).toBeLessThan(html.indexOf("Sol Ring"));
+    // Prices a few days apart keep their own dates.
+    expect(html).toContain("TCGplayer market via Scryfall, Nov 4 to Nov 7");
+    expect(html).toContain("Price from Nov 4");
   });
 });

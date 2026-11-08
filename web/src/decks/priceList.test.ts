@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeckEntry } from "../api";
-import { groupsIn, leaveOut, priceRows, priceText, priceTotal, shownRows } from "./priceList";
+import { groupsIn, leaveOut, priceRows, priceSourceLine, priceText, priceTotal, shownRows } from "./priceList";
 
 const entry = (name: string, o: Partial<DeckEntry>): DeckEntry => ({
   oracle_id: name.toLowerCase(),
@@ -22,8 +22,8 @@ const entry = (name: string, o: Partial<DeckEntry>): DeckEntry => ({
 const typed = (type_line: string) => ({ card: { type_line } as DeckEntry["card"] });
 
 const cards: DeckEntry[] = [
-  entry("Plateau", { ...typed("Land — Mountain Plains"), proxies: 1, cheapest_usd: 610.5, cheapest_printing: { scryfall_id: "p", set_code: "3ed", set_name: "Revised Edition", collector_number: "283" } }),
-  entry("Sol Ring", { ...typed("Artifact"), owned: 1, cheapest_usd: 1.25, cheapest_printing: { scryfall_id: "s", set_code: "cmm", set_name: "Commander Masters", collector_number: "410" } }),
+  entry("Plateau", { ...typed("Land — Mountain Plains"), proxies: 1, cheapest_usd: 610.5, cheapest_printing: { scryfall_id: "p", set_code: "3ed", set_name: "Revised Edition", collector_number: "283", date: "2026-11-04" } }),
+  entry("Sol Ring", { ...typed("Artifact"), owned: 1, cheapest_usd: 1.25, cheapest_printing: { scryfall_id: "s", set_code: "cmm", set_name: "Commander Masters", collector_number: "410", date: "2026-11-07" } }),
   entry("Plains", { ...typed("Basic Land — Plains"), qty: 11, owned: 8, proxies: 1, cheapest_usd: 0.1 }),
   entry("Unpriced Card", { needed: 1 }),
   entry("Sideboard Card", { board: "side", cheapest_usd: 99 }),
@@ -52,10 +52,16 @@ describe("the deck's price list", () => {
     expect(priceTotal(rows, "need")).toEqual({ usd: null, copies: 3, unpriced: 1, basics: 2 });
   });
 
+  it("keeps each card's own price date: the range, and the date of a card priced earlier", () => {
+    expect(priceSourceLine(rows, null)).toBe("TCGplayer market via Scryfall, Nov 4 to Nov 7");
+    expect(priceSourceLine(rows.filter((r) => r.name === "Sol Ring"), null)).toBe("TCGplayer market via Scryfall, Nov 7");
+    expect(priceSourceLine([], "2026-11-06")).toBe("TCGplayer market via Scryfall, Nov 6");
+  });
+
   it("copies as text a friend can read", () => {
     const text = priceText(shownRows(rows, "all", "price"), "all", "TCGplayer market via Scryfall, Nov 7");
     expect(text.split("\n")).toEqual([
-      "1 Plateau, proxy: $610.50 at Revised Edition (3ED 283)",
+      "1 Plateau, proxy: $610.50 at Revised Edition (3ED 283), price from Nov 4",
       "1 Sol Ring: $1.25 at Commander Masters (CMM 410)",
       "11 Plains, 8 real, 1 proxy, 2 not owned: $1.10 ($0.10 each)",
       "1 Unpriced Card, not owned: no price",

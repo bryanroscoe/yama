@@ -618,7 +618,7 @@ async fn a_decks_cards_name_the_cheapest_printing_behind_each_price() {
     let tomb = entry("Ancient Tomb");
     assert_eq!(tomb["proxies"], 1);
     assert_eq!(tomb["cheapest_usd"], 59.0);
-    assert_eq!(tomb["cheapest_printing"], serde_json::json!({"scryfall_id": "t-tmp", "set_code": "tmp", "set_name": "Tempest", "collector_number": "315"}));
+    assert_eq!(tomb["cheapest_printing"], serde_json::json!({"scryfall_id": "t-tmp", "set_code": "tmp", "set_name": "Tempest", "collector_number": "315", "date": "2026-10-31"}));
     let tower = entry("Command Tower");
     assert!(tower["cheapest_usd"].is_null() && tower["cheapest_printing"].is_null(), "a missing price stays missing");
     assert_eq!(view["ownership"]["proxy_value_usd"], 59.0);

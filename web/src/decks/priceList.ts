@@ -1,4 +1,4 @@
-import { usd, type CheapestPrinting, type DeckEntry, type PrintRef } from "../api";
+import { shortDate, usd, type CheapestPrinting, type DeckEntry, type PrintRef } from "../api";
 import { GROUP_ORDER, groupOf } from "@yama/core";
 import { isBasic } from "./deckScan";
 
@@ -126,6 +126,26 @@ export function totalNote(t: PriceTotal): string {
   return notes.length ? ` (${notes.join(", ")})` : "";
 }
 
+/** The newest price date among the rows, and the oldest (YYYY-MM-DD). */
+export function priceDates(rows: PriceRow[]): { oldest: string | null; newest: string | null } {
+  const dates = rows.map((r) => r.cheapest?.date).filter((d): d is string => !!d).sort();
+  return { oldest: dates[0] ?? null, newest: dates[dates.length - 1] ?? null };
+}
+
+/** Where the prices come from with their dates: one date, or the range when cards differ. */
+export function priceSourceLine(rows: PriceRow[], fallback: string | null | undefined): string {
+  const { oldest, newest } = priceDates(rows);
+  const last = shortDate(newest ?? fallback);
+  if (!last) return "TCGplayer market via Scryfall, date unknown";
+  return oldest && oldest !== newest ? `TCGplayer market via Scryfall, ${shortDate(oldest)} to ${last}` : `TCGplayer market via Scryfall, ${last}`;
+}
+
+/** A card priced on an earlier day than the newest names its own date: "Nov 4". */
+export function olderDate(r: PriceRow, newest: string | null): string | null {
+  const d = r.cheapest?.date;
+  return d && newest && d < newest ? shortDate(d) : null;
+}
+
 /** "Plateau (3ED 283)". */
 export function printingLabel(p: { set_code: string; collector_number: string }): string {
   return `${p.set_code.toUpperCase()} ${p.collector_number}`;
@@ -141,12 +161,14 @@ export function kindText(r: PriceRow): string {
 
 /** The view as plain text to paste in a chat: one line a card, priciest first, then the total. */
 export function priceText(rows: PriceRow[], show: PriceShow, date: string, left?: { groups: string[]; rows: PriceRow[] }): string {
+  const { newest } = priceDates(rows);
   const lines = rows.map((r) => {
+    const older = olderDate(r, newest);
     const n = copiesIn(r, show);
     const kind = show === "all" ? kindText(r) : "";
     const price = r.each == null ? "no price" : n > 1 ? `${usd(r.each * n)} (${usd(r.each)} each)` : usd(r.each);
     const where = r.cheapest ? ` at ${r.cheapest.set_name} (${printingLabel(r.cheapest)})` : "";
-    return `${n} ${r.name}${kind}: ${price}${where}`;
+    return `${n} ${r.name}${kind}: ${price}${where}${older ? `, price from ${older}` : ""}`;
   });
   const t = priceTotal(rows, show);
   lines.push("", `Total: ${usd(t.usd)} for ${t.copies} ${t.copies === 1 ? "card" : "cards"}${totalNote(t)}.`);

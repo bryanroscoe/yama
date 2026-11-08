@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { priceSource, usd, type DeckView } from "../api";
+import { usd, type DeckView } from "../api";
 import { CardHover } from "../components/CardRef";
 import { CopyButton } from "../plan/parts";
-import { copiesIn, groupList, onlyBasics, totalNote, groupsIn, leaveOut, priceRows, priceText, priceTotal, printingLabel, shownRows, type PriceRow, type PriceShow, type PriceSort } from "./priceList";
+import { copiesIn, groupList, olderDate, onlyBasics, priceDates, priceSourceLine, totalNote, groupsIn, leaveOut, priceRows, priceText, priceTotal, printingLabel, shownRows, type PriceRow, type PriceShow, type PriceSort } from "./priceList";
 import "./price-list.css";
 
 const SHOWS: { show: PriceShow; label: string }[] = [
@@ -37,7 +37,10 @@ export function DeckPriceList({ deck, onOpen }: { deck: DeckView; onOpen: (oracl
   const leftGroups = groups.filter((g) => out.has(g));
   const { kept: rows, left } = useMemo(() => leaveOut(all, out), [all, out]);
   const visible = useMemo(() => shownRows(rows, show, sort), [rows, show, sort]);
-  const source = priceSource(deck.ownership.price_date);
+  // Each card's price has its own date (up to three days apart): name the range, and the
+  // date of any card priced earlier than the newest.
+  const source = priceSourceLine(all, deck.ownership.price_date);
+  const newest = priceDates(all).newest;
   const total = priceTotal(rows, show);
   const leftTotal = priceTotal(left, show);
   const toggle = (g: string) => {
@@ -101,7 +104,7 @@ export function DeckPriceList({ deck, onOpen }: { deck: DeckView; onOpen: (oracl
       </div>
       {visible.length === 0 ? <p className="empty">No cards here.</p> : (
         <ol className="price-rows">
-          {visible.map((r) => <PriceLine key={r.key} r={r} show={show} onOpen={onOpen} />)}
+          {visible.map((r) => <PriceLine key={r.key} r={r} show={show} older={olderDate(r, newest)} onOpen={onOpen} />)}
         </ol>
       )}
       <p className="dim small price-note">
@@ -111,7 +114,7 @@ export function DeckPriceList({ deck, onOpen }: { deck: DeckView; onOpen: (oracl
   );
 }
 
-function PriceLine({ r, show, onOpen }: { r: PriceRow; show: PriceShow; onOpen: (oracleId: string) => void }) {
+function PriceLine({ r, show, older, onOpen }: { r: PriceRow; show: PriceShow; older: string | null; onOpen: (oracleId: string) => void }) {
   const n = copiesIn(r, show);
   return (
     <li className="price-row">
@@ -138,6 +141,7 @@ function PriceLine({ r, show, onOpen }: { r: PriceRow; show: PriceShow; onOpen: 
       <span className="price-row-price num">
         {r.each == null ? <span className="dim">No price</span> : <b>{usd(r.each * n)}</b>}
         {r.each != null && n > 1 && <span className="dim small">{usd(r.each)} each</span>}
+        {older && <span className="dim small">Price from {older}</span>}
       </span>
     </li>
   );

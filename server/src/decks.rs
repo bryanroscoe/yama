@@ -651,6 +651,8 @@ struct CheapestPrinting {
     set_code: String,
     set_name: String,
     collector_number: String,
+    /// The date of that printing's price (YYYY-MM-DD): within three days of the card's newest.
+    date: String,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -912,6 +914,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
                     set_code: p.set_code.clone(),
                     set_name: p.set_name.clone(),
                     collector_number: p.collector_number.clone(),
+                    date: p.date.clone(),
                 }),
             ),
             _ => (None, None, None),

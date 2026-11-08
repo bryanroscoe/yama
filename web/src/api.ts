@@ -373,6 +373,8 @@ export interface CheapestPrinting {
   set_code: string;
   set_name: string;
   collector_number: string;
+  /** The date of that price (YYYY-MM-DD). */
+  date?: string;
 }
 
 export interface DeckEntry extends DeckCard {
