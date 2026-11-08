@@ -59,14 +59,12 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
  * the cards and combos behind the estimate, and the local Game Changer count when there's no
  * estimate to show.
  */
-export function BracketPanel({ deckId, versionId, declared, gameChangers, reservedList, cards, onCard, onDeclare }: {
+export function BracketPanel({ deckId, versionId, declared, gameChangers, cards, onCard, onDeclare }: {
   deckId: string;
   versionId: string | null;
   declared: number | null;
   /** From our own card data; null while the flags aren't loaded. */
   gameChangers: string[] | null;
-  /** Reserve List cards, from our own card data; null while the flags aren't loaded. */
-  reservedList: string[] | null;
   /** The deck as loaded, for the power-level estimate's card-text factors. */
   cards: DeckEntry[];
   onCard: (name: string) => void;
@@ -102,9 +100,8 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, reserv
       twoCardCombos: r.combos.filter((x) => x.definitely_two_card).map((x) => x.cards.join(" + ")),
       massLandDenial: r.mld,
       extraTurns: r.extra_turns,
-      reservedList,
     }),
-    [r, cards, reservedList],
+    [r, cards],
   );
 
   return (

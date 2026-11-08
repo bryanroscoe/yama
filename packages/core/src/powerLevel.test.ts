@@ -6,7 +6,7 @@ const card = (name: string, typeLine: string, cmc: number, oracleText = "", prod
   name, qty: 1, board: "main", cmc, typeLine, manaCost: null, producedMana, oracleText, ...extra,
 });
 
-const none: PowerSignals = { bracket: 2, gameChangers: [], twoCardCombos: [], massLandDenial: [], extraTurns: [], reservedList: [] };
+const none: PowerSignals = { bracket: 2, gameChangers: [], twoCardCombos: [], massLandDenial: [], extraTurns: [] };
 
 const solRing = card("Sol Ring", "Artifact", 1, "{T}: Add {C}{C}.", "C");
 const rampant = card("Rampant Growth", "Sorcery", 2, "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.");
@@ -107,7 +107,6 @@ describe("power estimate", () => {
     const top = powerEstimate(maxed, {
       bracket: 4, gameChangers: ["A", "B", "C", "D", "E"], twoCardCombos: ["X + Y", "Y + Z", "Z + W"],
       massLandDenial: ["Armageddon"], extraTurns: ["Time Warp", "Temporal Manipulation"],
-      reservedList: ["Gaea's Cradle", "Underground Sea", "Grim Monolith", "Mox Diamond", "Survival of the Fittest"],
     })!;
     expect(top.score).toBe(9);
     expect(top.factors.reduce((n, f) => n + f.weight, 0)).toBeCloseTo(1);
@@ -115,29 +114,22 @@ describe("power estimate", () => {
 
   it("moves inside the band by capped, weighted factors and names the cards behind them", () => {
     const deck = [solRing, rampant, brainstorm, swords, counterspell, demonic, forest, card("Spare", "Sideboard", 1, "", "C", { board: "side" })];
-    const e = powerEstimate(deck, { ...none, bracket: 3, gameChangers: ["Demonic Tutor"], twoCardCombos: ["A + B"], reservedList: ["Gaea's Cradle"] })!;
+    const e = powerEstimate(deck, { ...none, bracket: 3, gameChangers: ["Demonic Tutor"], twoCardCombos: ["A + B"] })!;
     const by = Object.fromEntries(e.factors.map((f) => [f.key, f]));
     expect(by.mana!.count).toBe(2);
     expect(by.mana!.cards).toEqual(["Sol Ring", "Rampant Growth"]);
     expect(by.interaction!.count).toBe(2);
     expect(by.tutors!.cards).toEqual(["Demonic Tutor"]);
     // Nonland average 1.33: the curve factor is full.
-    expect(by.curve!.points).toBeCloseTo(0.2);
-    expect(by.reserved!.points).toBeCloseTo(0.025);
-    expect(by.reserved!.cards).toEqual(["Gaea's Cradle"]);
+    expect(by.curve!.points).toBeCloseTo(0.3);
     expect(by.gameChangers!.points).toBeCloseTo(0.075);
     expect(by.combos!.points).toBeCloseTo(0.15);
-    // 5 + mana .075 + draw .025 + interaction .075 + tutors .05 + curve .2 + GC .075 + combos .15
-    // + Reserve List .025
-    expect(e.score).toBe(5.7);
+    // 5 + mana .075 + draw .025 + interaction .075 + tutors .05 + curve .3 + GC .075 + combos .15
+    expect(e.score).toBe(5.8);
   });
 
-  it("counts no Reserve List cards while the flags aren't loaded, and says so", () => {
-    const e = powerEstimate([big], { ...none, reservedList: null })!;
-    const reserved = e.factors.find((f) => f.key === "reserved")!;
-    expect(reserved.points).toBe(0);
-    expect(reserved.rule).toMatch(/aren't loaded/);
-    expect(e.score).toBe(3);
+  it("leaves Reserve List cards out: the list says a card is scarce, not strong", () => {
+    expect(powerEstimate([big], none)!.factors.map((f) => f.key)).not.toContain("reserved");
   });
 
   it("lists cards missing from the card data instead of guessing at them", () => {
