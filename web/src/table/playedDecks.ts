@@ -24,6 +24,8 @@ export interface PlayedDeck {
   name: string;
   /** A deck name the seat was given (a precon, a friend's brew), not just its commanders. */
   named: boolean;
+  /** The label as saved. "Tymna the Weaver and Friends" reads as a pair until the cards say no. */
+  label?: string;
   /** The commander, and the partner or Background beside it. */
   commanders: string[];
   /** The player's name as the newest game shows it. */
@@ -42,10 +44,11 @@ export function mergeGames(...lists: (GameRow[] | undefined)[]): GameRow[] {
   return [...byId.values()];
 }
 
-/** The same person: the same member or account; by name only when one side has neither. */
+/** The same person: the same account or member; by name only when one side has neither. */
 export function samePerson(a: DeckOwner, b: DeckOwner): boolean {
-  if (a.memberId && b.memberId) return a.memberId === b.memberId;
+  // An account is one person in every playgroup; a member row is one group's.
   if (a.userId && b.userId) return a.userId === b.userId;
+  if (a.memberId && b.memberId) return a.memberId === b.memberId;
   // A friend's member row and an older game's typed name are one person, so two Alexes stay
   // apart only when both are known; a name alone never claims an account that's elsewhere.
   if ((a.memberId || a.userId) && (b.memberId || b.userId)) return false;
@@ -81,7 +84,7 @@ export function playedDecks(games: GameRow[] | undefined, me?: string): PlayedDe
         had.games += 1;
         continue;
       }
-      out.set(key, { key, name, named, commanders, player, memberId: s.member_id ?? undefined, userId: s.user_id ?? undefined, games: 1, last: g.started_at });
+      out.set(key, { key, name, named, label: label || undefined, commanders, player, memberId: s.member_id ?? undefined, userId: s.user_id ?? undefined, games: 1, last: g.started_at });
     }
   }
   return [...out.values()];

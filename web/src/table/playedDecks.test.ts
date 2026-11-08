@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameRow, GameSeat } from "../api";
-import { decksOf, mergeGames, playedDecks, playedLine, possessive } from "./playedDecks";
+import { decksOf, mergeGames, playedDecks, playedLine, possessive, samePerson } from "./playedDecks";
 
 const seat = (s: Partial<GameSeat>): GameSeat => ({
   seat: 0,
@@ -66,6 +66,13 @@ describe("playedDecks", () => {
     expect(playedLine(d!)).toBe("Matt, 2 games, last Oct 25");
     expect(playedLine({ ...d!, games: 1 }, false)).toBe("Played Oct 25");
     expect(possessive("Chelsey Roscoe")).toBe("Chelsey's");
+  });
+});
+
+describe("samePerson", () => {
+  it("is one account across playgroups, whatever its member rows", () => {
+    expect(samePerson({ name: "Chelsey", memberId: "m-a", userId: "u-c" }, { name: "Chelsey", memberId: "m-b", userId: "u-c" })).toBe(true);
+    expect(samePerson({ name: "Alex", memberId: "m-a" }, { name: "Alex", memberId: "m-b" })).toBe(false);
   });
 });
 

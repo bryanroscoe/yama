@@ -188,6 +188,14 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
       // Two or more are a choice until the cards say two can pair (deckCommanders), so a game
       // started before the lookup answers, or offline, never pairs alternatives.
       partnerName: p.kind === "played" ? p.deck.commanders[1] : undefined,
+      // Nothing of a partner picked before carries over (its art, colors, what it pairs with).
+      partnerArt: undefined,
+      partnerArtist: undefined,
+      partnerIdentity: undefined,
+      ownIdentity: undefined,
+      pairs: undefined,
+      pairsWith: undefined,
+      pairScope: undefined,
       commanderChoices: listed.length > 1 && p.kind !== "played" ? listed : undefined,
       colorIdentity: p.kind === "precon" ? p.precon.color_identity : p.kind === "played" ? "" : p.deck.color_identity,
       art: d.commander_image ?? undefined,
@@ -195,8 +203,14 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
     };
     onChange(picked);
     // The cards' own art and colors land only if the seat still holds this deck by then.
-    // A deck played before was saved with its pair already decided, so it isn't asked again.
-    void deckCommanders(d, { checkPair: p.kind !== "played" }).then((c) => c && onChange((now) => (stillHolds(now, picked) ? c : null)));
+    // A deck played before was saved as a pair ("Tana and Tymna"), kept while offline. If its
+    // cards don't pair, the "partner" was part of its name ("Tymna the Weaver and Friends").
+    const savedPair = p.kind === "played" && !!picked.partnerName;
+    void deckCommanders(d).then((c) => {
+      if (!c) return;
+      const notAPair = savedPair && !c.partnerName && p.kind === "played" ? { commanderChoices: undefined, deckLabel: p.deck.label ?? p.deck.name } : {};
+      onChange((now) => (stillHolds(now, picked) ? { ...c, ...notAPair } : null));
+    });
   };
   const typeDeck = (t: string) => {
     setDeckText(t);
