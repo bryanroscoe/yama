@@ -278,9 +278,9 @@ const sameNames = (a: string[], b: string[] | null) =>
 
 function ComboList({ combos, onCard }: { combos: Combo[]; onCard: (name: string) => void }) {
   return (
-    <ul className="combo-list">
+    <ul className="deck-combo-list">
       {combos.map((c) => (
-        <li key={c.id} className="combo">
+        <li key={c.id} className="deck-combo">
           <span className="cards">
             <NameList names={c.cards} onCard={onCard} />
             {c.templates.length > 0 && <span className="meta">, plus {c.templates.join(", ").toLowerCase()}</span>}
