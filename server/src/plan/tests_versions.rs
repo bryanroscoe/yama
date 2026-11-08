@@ -348,3 +348,34 @@ fn problems_name_each_clash_once_and_ignore_copies() {
     let twice = Next { cuts: vec![cut("p", "Port Town", Some("Restless Anchorage")), cut("q", "Port Town", Some("Restless Anchorage"))], ..next };
     assert_eq!(problems(&twice, &[]), vec!["Two changes put in Port Town for Restless Anchorage. Keep one of them."]);
 }
+
+#[tokio::test]
+async fn the_approval_hash_covers_the_cuts_as_shown() {
+    let (app, pool, owner, token) = setup().await;
+    let mut d = doc_with_cuts();
+    d["plan"]["swaps"].as_array_mut().unwrap().push(json!({"key": "alpha-late", "deck": "alpha", "stage": "proposed", "role": "swap",
+        "src": "buy", "out": "Old Card", "later_out": "Fallback Card", "in": "Patient Card"}));
+    import(&app, &token, &d).await;
+    let seen = deck(&bundle(&app, &token).await, "alpha")["plan"]["next"]["hash"].as_str().unwrap().to_string();
+    // Another device chooses a different cut for the planned Print Card: Old Card is no longer going,
+    // so alpha-late's cut moves back from its fallback. A page that showed the fallback is stale.
+    sqlx::query(
+        "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, at, origin, op_id)
+         VALUES (?, 'plan|Alpha Deck|Print Card|Old Card', 'want', NULL, 'Other Cut', '2099-01-01T00:00:00Z', 'yama', 'h-cut')
+         ON CONFLICT(owner_id, swap_key) DO UPDATE SET cut = excluded.cut, at = excluded.at",
+    )
+    .bind(&owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE plan_meta SET revision = revision + 1 WHERE owner_id = ?").bind(&owner).execute(&pool).await.unwrap();
+    let next = deck(&bundle(&app, &token).await, "alpha")["plan"]["next"].clone();
+    let late = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-late").unwrap().clone();
+    assert_eq!(late["out"], "Old Card", "{next}");
+    assert_ne!(next["hash"].as_str().unwrap(), seen, "{next}");
+    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
+    let mut op = plan_op("hc1", "alpha", "approve", 2, &["alpha-idea", "alpha-owned", "alpha-late"], &[], answers);
+    op["hash"] = json!(seen);
+    let r = ops(&app, &token, json!([op])).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+}

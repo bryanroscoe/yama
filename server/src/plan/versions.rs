@@ -385,15 +385,14 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
             };
             // Each change's content and the answer it has now: an approval made on what the page
             // showed is refused if either moved since (a newer answer from another device too).
-            let parts: Vec<String> = first
+            let mut parts: Vec<String> = first
                 .iter()
                 .map(|s| {
                     let (d, at) = answers.get(&s.key).map(|(d, at, _)| (d.as_deref().unwrap_or("-"), at.as_str())).unwrap_or(("-", "-"));
                     format!("{}={}|{d}|{at}", s.key, s.content_hash.as_deref().unwrap_or(&s.updated_at))
                 })
                 .collect();
-            let hash = crate::util::sha256_hex(&parts.join("\n"))[..16].to_string();
-            let cuts = first
+            let cuts: Vec<Cut> = first
                 .iter()
                 .filter(|s| s.role == "swap")
                 .map(|s| {
@@ -414,6 +413,10 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
                     Cut { key: s.key.clone(), card_in: s.in_name.clone(), out, instead_of, gone_for }
                 })
                 .collect();
+            // And the cut each change makes as the page showed it: it depends on the plan in
+            // force too (a fallback, an "already goes out"), which can change on another device.
+            parts.extend(cuts.iter().map(|c| format!("cut:{}={}|{}", c.key, c.out.as_deref().unwrap_or("-"), c.gone_for.as_deref().unwrap_or("-"))));
+            let hash = crate::util::sha256_hex(&parts.join("\n"))[..16].to_string();
             Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source, hash, cuts }
         });
         let installed = in_plan
