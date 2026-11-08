@@ -397,7 +397,9 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
                 .iter()
                 .filter(|s| s.role == "swap")
                 .map(|s| {
-                    let gone = |o: &str| in_force_cuts.get(&name_key(o)).cloned();
+                    // A deck holds several of a basic land, so a basic the plan in force cuts is
+                    // never "already gone" for another change.
+                    let gone = |o: &str| if is_basic(o) { None } else { in_force_cuts.get(&name_key(o)).cloned() };
                     let chosen = answers.get(&s.key).and_then(|a| a.2.clone());
                     // The plan file's fallback (`later_out`, "the cut to use if `out` has already
                     // left") takes over when the plan in force already takes `out` out, as the

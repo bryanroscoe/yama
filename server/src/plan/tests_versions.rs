@@ -277,7 +277,9 @@ async fn approving_waits_until_every_cut_is_settled() {
     // A cut already made, with the plan file's fallback cut: the fallback is used, no problem.
     swaps.push(json!({"key": "alpha-later", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Old Card",
                       "later_out": "Fallback Card", "in": "Patient Card"}));
-    // Basic lands: two changes may each take one out.
+    // Basic lands: two changes may each take one out, and so may a change after the plan in force
+    // cut one (the fixture's planned Bought Card cuts Cut Card, not a basic, so add one that does).
+    swaps.push(json!({"key": "alpha-basic-planned", "deck": "alpha", "stage": "planned", "role": "swap", "src": "buy", "out": "Island", "in": "Planned Land"}));
     swaps.push(json!({"key": "alpha-land-1", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land One"}));
     swaps.push(json!({"key": "alpha-land-2", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land Two"}));
     import(&app, &token, &d).await;
@@ -285,6 +287,8 @@ async fn approving_waits_until_every_cut_is_settled() {
     let next = &deck(&b, "alpha")["plan"]["next"];
     let gone = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-gone").unwrap();
     assert_eq!((gone["out"].as_str(), gone["gone_for"].as_str()), (Some("Old Card"), Some("Print Card")), "{next}");
+    let basic = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-land-1").unwrap();
+    assert_eq!(basic["gone_for"], Value::Null, "a basic is never already gone: {next}");
     let later = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-later").unwrap();
     assert_eq!((later["out"].as_str(), later["instead_of"].as_str(), later["gone_for"].as_str()), (Some("Fallback Card"), Some("Old Card"), None), "{next}");
 
