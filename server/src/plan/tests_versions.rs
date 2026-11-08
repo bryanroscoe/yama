@@ -293,12 +293,14 @@ async fn approving_waits_until_every_cut_is_settled() {
     };
     let r = try_approve("c1", &[]).await;
     assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    // Each problem on its own, the other two skipped.
+    let r = try_approve("c2", &["alpha-gone", "alpha-same"]).await;
     assert!(r["results"][0]["error"].as_str().unwrap().contains("Spare Card names no card to cut"), "{r}");
-    let r = try_approve("c2", &["alpha-owned"]).await;
+    let r = try_approve("c3", &["alpha-owned", "alpha-same"]).await;
     assert!(r["results"][0]["error"].as_str().unwrap().contains("Old Card already goes out for Print Card"), "{r}");
-    let r = try_approve("c3", &["alpha-owned", "alpha-gone"]).await;
+    let r = try_approve("c4", &["alpha-owned", "alpha-gone"]).await;
     assert!(r["results"][0]["error"].as_str().unwrap().contains("Proposal Card and Rival Card both cut Sol Ring"), "{r}");
-    let r = try_approve("c4", &["alpha-owned", "alpha-gone", "alpha-same"]).await;
+    let r = try_approve("c5", &["alpha-owned", "alpha-gone", "alpha-same"]).await;
     assert_eq!(r["results"][0]["status"], "applied", "two Island cuts are fine: {r}");
 }
 
