@@ -122,6 +122,16 @@
     --t-button: 0.9375rem;
   }
 }
+/* A laptop with a touchscreen too (any coarse pointer) keeps touch-sized targets. */
+@media (any-pointer: coarse) {
+  :root {
+    --target: 44px;
+    --target-primary: 52px;
+    --target-compact: 44px;
+    --r-button: 999px;
+    --t-button: 1rem;
+  }
+}
 
 * {
   box-sizing: border-box;
