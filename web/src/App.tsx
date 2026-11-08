@@ -297,6 +297,9 @@ export function App() {
           <Route path="decks/changes" element={<Paged page={ChangesPage} />} />
           <Route path="decks/import" element={<Paged page={ImportPage} />} />
           <Route path="decks/:id" element={<Paged page={DeckPage} kind="detail" />} />
+          {/* The deck page's Stats and History tabs (docs/redesign/deck-page/SPEC.md). */}
+          <Route path="decks/:id/stats" element={<Paged page={DeckPage} kind="detail" />} />
+          <Route path="decks/:id/history" element={<Paged page={DeckPage} kind="detail" />} />
           <Route path="decks/:id/scan" element={<Paged page={DeckScanPage} kind="detail" />} />
           <Route path="decks/:id/check" element={<Paged page={DeckCheckPage} kind="detail" />} />
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing" />} />

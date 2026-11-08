@@ -13,6 +13,15 @@ const BOARD: Record<string, string> = { commander: " (commander)", side: " (side
 
 /** Every saved version of a deck, and what changed between any two of them. */
 export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: string; currentVersionId: string | null; onClose: () => void }) {
+  return (
+    <Sheet label="Version history" onClose={onClose}>
+      <DeckHistoryBody deckId={deckId} currentVersionId={currentVersionId} onClose={onClose} />
+    </Sheet>
+  );
+}
+
+/** The versions and their differences: in a sheet, or as the deck page's History tab (no onClose). */
+export function DeckHistoryBody({ deckId, currentVersionId, onClose }: { deckId: string; currentVersionId: string | null; onClose?: () => void }) {
   const versions = useQuery({ queryKey: ["deck-versions", deckId, currentVersionId], queryFn: ({ signal }) => api<DeckVersionRow[]>(`/api/decks/${deckId}/versions`, { signal }) });
   // Restoring saves the old list as a new version, so the one it replaces stays here too.
   const qc = useQueryClient();
@@ -45,11 +54,10 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
   const [from, to] = index(fromPick) > index(toPick) ? [fromPick, toPick] : [toPick, fromPick];
 
   return (
-    <Sheet label="Version history" onClose={onClose}>
       <div className="stack deck-history">
         <div className="sheet-head">
           <h2>Version history</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
+          {onClose && <button className="quiet" onClick={onClose}>Close</button>}
         </div>
         <ErrorText error={versions.error} />
         {list.length === 1 && <p className="dim">Only one version so far. Each save in Edit deck adds one.</p>}
@@ -89,7 +97,6 @@ export function DeckHistory({ deckId, currentVersionId, onClose }: { deckId: str
           </>
         )}
       </div>
-    </Sheet>
   );
 }
 
