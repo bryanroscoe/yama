@@ -27,7 +27,8 @@ import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistory } from "../components/DeckHistory";
 import { DeckResults } from "../components/DeckResults";
-import { AskClaude } from "../advisor/AskClaude";
+import { AskClaudeButton, AskClaudeSheet, useAskClaudeOffered } from "../advisor/AskClaude";
+import { MenuSeparator, MoreMenu } from "../components/MoreMenu";
 import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
@@ -200,6 +201,8 @@ export function DeckPage() {
   const [mythic, setMythic] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const askOffered = useAskClaudeOffered();
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
   const offer = search.get("collect") === "1";
@@ -227,6 +230,7 @@ export function DeckPage() {
     setMythic(false);
     setConfiguring(false);
     setDeleting(false);
+    setAsking(false);
     setOpen(null);
   }, [id]);
 
@@ -287,24 +291,27 @@ export function DeckPage() {
       ) : null}
     </>
   );
-  const moreActions = (className: string) => <>
-    <button className={className} onClick={() => setEditing(true)}>Deck settings</button>
-    <Link className={`button ${className}`} to={`/decks/${d.id}/scan`}>Scan cards</Link>
-    <Link className={`button ${className}`} to={`/decks/${d.id}/check`}>Check cards</Link>
-    <button className={className} onClick={() => setCollecting(true)}>Add to collection</button>
-    <button className={className} onClick={() => setExporting(true)}>Export</button>
-    <MythicSendButton className={className} onClick={() => setMythic(true)} />
-    <button className={className} onClick={() => setHistory(true)}>History</button>
-    <button className={className} onClick={() => setConfiguring(true)}>New configuration</button>
-    <AskClaude className={className} context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
-    <button className={`${className} deck-delete`} onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
+  // More, a floating menu (design/tokens.md, rule 2): the cards, the list and sending it, then delete.
+  const moreActions = <>
+    <Link className="button" to={`/decks/${d.id}/scan`}>Scan cards</Link>
+    <Link className="button" to={`/decks/${d.id}/check`}>Check cards</Link>
+    <button onClick={() => setCollecting(true)}>Add to collection</button>
+    <MenuSeparator />
+    <button onClick={() => setHistory(true)}>History</button>
+    <button onClick={() => setConfiguring(true)}>New configuration</button>
+    <button onClick={() => setExporting(true)}>Export</button>
+    <MythicSendButton className="" onClick={() => setMythic(true)} />
+    {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
+    <MenuSeparator />
+    <button onClick={() => setEditing(true)}>Deck settings</button>
+    <button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
   </>;
   const actions = <>
     <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
     <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
     <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
     <button className="on-art" onClick={() => setSharing(true)}>Share</button>
-    <details className="deck-actions-more"><summary>More</summary><div className="deck-extra-actions">{moreActions("on-art")}</div></details>
+    <MoreMenu className="on-art">{moreActions}</MoreMenu>
   </>;
   const legal = v.ok ? <span className="pill good deck-legal-pill">Commander-legal</span> : <span className="pill bad deck-legal-pill">Not legal yet</span>;
   const planLink = plan && (
@@ -428,7 +435,7 @@ export function DeckPage() {
         <div className="row deck-actions-phone">
           <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
           <button className="outline" onClick={() => setSharing(true)}>Share</button>
-          <details className="deck-actions-more"><summary>More</summary><div className="deck-extra-actions">{moreActions("outline")}</div></details>
+          <MoreMenu className="outline">{moreActions}</MoreMenu>
         </div>
 
         {/* The status row: legality, the plan for this deck, and its simulated strength. */}
@@ -443,6 +450,7 @@ export function DeckPage() {
 
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} onDelete={() => { setEditing(false); setDeleting(true); }} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
+        {asking && askOffered && <AskClaudeSheet context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} onClose={() => setAsking(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}

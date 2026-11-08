@@ -41,22 +41,40 @@ export function useAdvisorStatus(enabled = true) {
 /** The button and its sheet. */
 export function AskClaude({ context, about, ideasFor, className = "" }: Props) {
   const [open, setOpen] = useState(false);
-  const power = usePower();
-  const status = useAdvisorStatus();
-  // Nothing to offer on a server without the advisor, to anyone but admins and power users (also
-  // once a grant is withdrawn while a status is still cached), or before the status is known.
-  if (!power || !status.data || status.data.reason === "off") return null;
+  if (!useAskClaudeOffered()) return null;
   return (
     <>
-      <button type="button" className={`ask-claude-button ${className}`.trim()} onClick={() => setOpen(true)} aria-haspopup="dialog">
-        <SparkIcon /> Ask Claude
-      </button>
-      {open && (
-        <Sheet label="Ask Claude" onClose={() => setOpen(false)}>
-          <AskPanel context={context} about={about} ideasFor={ideasFor ?? null} onClose={() => setOpen(false)} />
-        </Sheet>
-      )}
+      <AskClaudeButton className={className} onClick={() => setOpen(true)} />
+      {open && <AskClaudeSheet context={context} about={about} ideasFor={ideasFor} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+/**
+ * Whether Ask Claude is offered: not on a server without the advisor, not to anyone but admins and
+ * power users (also once a grant is withdrawn while a status is still cached), not before the
+ * status is known.
+ */
+export function useAskClaudeOffered(): boolean {
+  const power = usePower();
+  const status = useAdvisorStatus();
+  return !!power && !!status.data && status.data.reason !== "off";
+}
+
+/** The button alone, for a menu that keeps the sheet's state itself (MoreMenu closes on a pick). */
+export function AskClaudeButton({ className = "", onClick }: { className?: string; onClick: () => void }) {
+  return (
+    <button type="button" className={`ask-claude-button ${className}`.trim()} onClick={onClick} aria-haspopup="dialog">
+      <SparkIcon /> Ask Claude
+    </button>
+  );
+}
+
+export function AskClaudeSheet({ context, about, ideasFor, onClose }: Omit<Props, "className"> & { onClose: () => void }) {
+  return (
+    <Sheet label="Ask Claude" onClose={onClose}>
+      <AskPanel context={context} about={about} ideasFor={ideasFor ?? null} onClose={onClose} />
+    </Sheet>
   );
 }
 
