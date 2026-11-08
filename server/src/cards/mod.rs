@@ -63,6 +63,12 @@ pub struct Card {
     /// On Wizards' Reserve List, per Scryfall. `None` until an oracle import that reads the
     /// flag has run; never read it as false.
     pub reserved: Option<bool>,
+    /// The release date of a card whose every printing is dated after today (a card from a set
+    /// still in prerelease). Only `decks::card_info` loads it; `None` everywhere else, and for
+    /// any card already out.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub releases_on: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -1,5 +1,6 @@
 use super::*;
 use crate::mcp::{Question, QuestionToken, Via, tools};
+use crate::decks::{Board, DeckCard};
 use crate::testutil;
 use axum::http::{Method, StatusCode};
 use axum::{Router, routing::get};
@@ -181,6 +182,46 @@ async fn full_list_creation_is_staged_atomic_and_cannot_repeat() {
         .await
         .is_err()
     );
+}
+
+#[tokio::test]
+async fn prerelease_cards_save_with_a_note_and_other_illegal_cards_do_not() {
+    let st = testutil::state().await;
+    seed(&st).await;
+    let (me, _) = account(&st, "me@example.com").await;
+    // One card out only in a set that hasn't released; one card not legal for good (its only
+    // printing is long out); and Sol Ring, reprinted in the upcoming set beside an undated one.
+    for (id, name, released) in [("spock", "Spock", "2999-01-01"), ("clown", "Clown", "2017-12-08")] {
+        sqlx::query("INSERT INTO cards (oracle_id,name,type_line,cmc,oracle_text,color_identity,legalities,game_changer,updated_at) VALUES (?,?,'Creature','1','','U','{\"commander\":\"not_legal\"}',0,'now')")
+            .bind(id).bind(name).execute(&st.pool).await.unwrap();
+        sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES (?,?)").bind(name).bind(id).execute(&st.pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,updated_at) VALUES (?,?,?,'new','New','1','en','[\"nonfoil\"]',0,?,'now')")
+            .bind(id).bind(id).bind(name).bind(released).execute(&st.pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,updated_at) VALUES ('ring-new','ring','Sol Ring','new','New','2','en','[\"nonfoil\"]',0,'2999-01-01','now')")
+        .execute(&st.pool).await.unwrap();
+    let info = crate::decks::card_info(
+        &st.pool,
+        &["spock", "clown", "ring"].map(|id| DeckCard { oracle_id: id.into(), name: id.into(), qty: 1, board: Board::Main }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(info["spock"].releases_on.as_deref(), Some("2999-01-01"));
+    assert_eq!(info["clown"].releases_on, None);
+    assert_eq!(info["ring"].releases_on, None); // the 'tst' printing has no date; a dated one is out or none is
+    let via = Via::Question(Question::default());
+    let list = "Commander\n1 Test Commander\nDeck\n1 Spock\n98 Island";
+    tools::call(&st, &me, &via, "save_deck", &json!({"name":"Trek","list":list})).await.unwrap();
+    let change = crate::mcp::changes::list(&st.pool, &me.id, true, None).await.unwrap().remove(0);
+    let detail = change.detail.unwrap();
+    assert!(detail.contains("Commander checks: no problems found."), "{detail}");
+    assert!(detail.contains("Prerelease: Spock is from a set releasing 2999-01-01"), "{detail}");
+    assert_eq!(crate::mcp::changes::apply(&st, &me, &change.id).await.unwrap().status, "applied");
+    let err = tools::call(&st, &me, &via, "save_deck", &json!({"name":"Clowns","list":"Commander\n1 Test Commander\nDeck\n1 Clown\n98 Island"}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Clown is not legal in Commander"), "{err}");
 }
 
 #[tokio::test]

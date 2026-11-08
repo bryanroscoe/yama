@@ -1615,7 +1615,15 @@ pub(crate) async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResul
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows = sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")))
+    // `releases_on`: the first release date when every printing is dated after today (a
+    // prerelease card). An undated printing counts as out.
+    let rows = sqlx::query_as::<_, Card>(AssertSqlSafe(format!(
+        "SELECT {CARD_COLUMNS}, \
+            (SELECT CASE WHEN COUNT(*) = COUNT(p.released_at) AND MIN(p.released_at) > date('now') \
+                         THEN MIN(p.released_at) END \
+             FROM printings p WHERE p.oracle_id = cards.oracle_id) AS releases_on \
+         FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))"
+    )))
         .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
         .fetch_all(pool)
         .await?;
@@ -1643,6 +1651,10 @@ pub struct Validation {
     pub color_identity: String,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
+    /// Cards from a set that hasn't released yet. Scryfall marks them not legal in Commander
+    /// until their release date, but people play them from the prerelease on (Bryan, 8 Nov
+    /// 2026), so they don't fail the check.
+    pub prerelease: Vec<String>,
 }
 
 pub(crate) const BASICS: [&str; 11] = [
@@ -1728,6 +1740,11 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
         match card.legalities.get("commander").map(String::as_str) {
             Some("legal") => {}
             Some("banned") => v.errors.push(format!("{} is banned in Commander", c.name)),
+            Some("not_legal") if card.releases_on.is_some() => v.prerelease.push(format!(
+                "{} is from a set releasing {}; Scryfall lists it as Commander-legal from then",
+                c.name,
+                card.releases_on.as_deref().unwrap_or_default()
+            )),
             Some(other) => v.errors.push(format!("{} is {} in Commander", c.name, other.replace('_', " "))),
             None => v.warnings.push(format!("no Commander legality data for {}", c.name)),
         }
@@ -1782,6 +1799,7 @@ mod tests {
             edhrec_rank: None,
             game_changer: Some(false),
             reserved: Some(false),
+            releases_on: None,
         }
     }
 
@@ -1973,6 +1991,28 @@ mod tests {
         // Basics and "any number" cards still may repeat across rows.
         let rats = vec![dc("Omo", 1, Board::Commander), dc("Relentless Rats", 30, Board::Main), dc("Relentless Rats", 2, Board::Main), dc("Forest", 67, Board::Main)];
         assert!(!validate(&rats, &info).errors.iter().any(|e| e.contains("singleton")));
+    }
+
+    #[test]
+    fn prerelease_cards_pass_with_a_note() {
+        let mut picard = card("Picard", "Legendary Creature — Human", "W", "", "not_legal");
+        picard.releases_on = Some("2026-11-13".into());
+        let un = card("Un-Card", "Creature — Clown", "W", "", "not_legal");
+        let info: HashMap<String, Card> = [card("Cmdr", "Legendary Creature — Human", "W", "", "legal"), picard, un, card("Plains", "Basic Land — Plains", "", "", "legal")]
+            .into_iter()
+            .map(|c| (c.oracle_id.clone(), c))
+            .collect();
+        let dc = |name: &str, qty, board| DeckCard { oracle_id: name.into(), name: name.into(), qty, board };
+        let deck = vec![dc("Cmdr", 1, Board::Commander), dc("Picard", 1, Board::Main), dc("Plains", 98, Board::Main)];
+        let v = validate(&deck, &info);
+        assert!(v.ok, "{:?}", v.errors);
+        assert!(v.warnings.is_empty());
+        assert_eq!(v.prerelease, ["Picard is from a set releasing 2026-11-13; Scryfall lists it as Commander-legal from then"]);
+        // A card that is not legal for any other reason (no future release date) still fails.
+        let deck = vec![dc("Cmdr", 1, Board::Commander), dc("Un-Card", 1, Board::Main), dc("Plains", 98, Board::Main)];
+        let v = validate(&deck, &info);
+        assert_eq!(v.errors, ["Un-Card is not legal in Commander"]);
+        assert!(v.prerelease.is_empty());
     }
 }
 
