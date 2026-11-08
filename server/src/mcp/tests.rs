@@ -633,3 +633,60 @@ async fn add_wish_is_staged_then_on_the_shopping_list() {
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1);
 }
+
+#[tokio::test]
+async fn deleting_a_deck_or_a_configuration_waits_for_review() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, session) = user(&pool, "bryan@example.com").await;
+    let main = my_deck(&pool, &a).await;
+    let mut configs = Vec::new();
+    for (label, op) in [("Stock", "cfg-1"), ("Budget", "cfg-2")] {
+        let (s, made) = send(&app, Method::POST, &format!("/api/decks/{main}/configurations"), Some(&session), Some(json!({"configuration": label, "op_id": op}))).await;
+        assert_eq!(s, StatusCode::OK, "{made}");
+        configs.push(made["id"].as_str().unwrap().to_string());
+    }
+    let archived = |id: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, bool>("SELECT archived FROM decks WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+    };
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    assert!(r["result"]["tools"].as_array().unwrap().iter().any(|t| t["name"] == "delete_deck"), "{r}");
+
+    // One configuration: staged, then applied; the main deck and the other configuration stay.
+    let (err, text) = call(&app, &mcp, "delete_deck", json!({"deck": configs[1]})).await;
+    assert!(!err && text.contains("Delete the Budget configuration of Elf Ball"), "{text}");
+    assert!(!archived(configs[1].clone()).await, "staging deletes nothing");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err && text.contains("Deleted"), "{text}");
+    assert!(archived(configs[1].clone()).await && !archived(main.clone()).await && !archived(configs[0].clone()).await);
+
+    // The main deck with its configurations, pinned to the ones named when it was staged.
+    let (err, text) = call(&app, &mcp, "delete_deck", json!({"deck": "Elf Ball", "configurations": true})).await;
+    assert!(!err && text.contains("Delete Elf Ball and its 1 configuration") && text.contains("Stock"), "{text}");
+    let pinned = change_id(&text);
+    let (s, _) = send(&app, Method::POST, &format!("/api/decks/{main}/configurations"), Some(&session), Some(json!({"configuration": "Late", "op_id": "cfg-3"}))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": pinned})).await;
+    assert!(err && text.contains("configurations changed"), "{text}");
+    assert!(!archived(main.clone()).await);
+    call(&app, &mcp, "discard_change", json!({"id": pinned})).await;
+
+    // Without configurations: the main deck goes and its configurations become decks of their own.
+    let (_, text) = call(&app, &mcp, "delete_deck", json!({"deck": main})).await;
+    assert!(text.contains("stay as decks of their own"), "{text}");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err && text.contains("its 2 configurations are now decks of their own"), "{text}");
+    assert!(archived(main.clone()).await && !archived(configs[0].clone()).await);
+    let parent: Option<String> = sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ?").bind(&configs[0]).fetch_one(&pool).await.unwrap();
+    assert_eq!(parent, None);
+
+    // A deck that's gone can't be deleted again, and someone else's is never found.
+    let (err, _) = call(&app, &mcp, "delete_deck", json!({"deck": main})).await;
+    assert!(err);
+    let (_, other) = user(&pool, "sam@example.com").await;
+    let theirs = key(&app, &other, Some("mcp")).await;
+    let (err, _) = call(&app, &theirs, "delete_deck", json!({"deck": configs[0]})).await;
+    assert!(err, "another account's deck isn't found");
+}

@@ -338,8 +338,23 @@ async fn configurations_group_one_level_deep() {
     let (s, _) = send(&app, Method::POST, &format!("/api/decks/{other}/configurations"), Some(&bt), Some(json!({ "configuration": "x", "op_id": "used" }))).await;
     assert_eq!(s, StatusCode::CONFLICT);
 
-    // Archiving the main deck leaves its configurations as main decks.
-    send(&app, Method::DELETE, &format!("/api/decks/{main}"), Some(&bt), None).await;
+    // Deleting a deck with its configurations takes them all out of the list.
+    let budget = budget["id"].as_str().unwrap().to_string();
+    let (s, done) = send(&app, Method::DELETE, &format!("/api/decks/{other}?configurations=true"), Some(&bt), None).await;
+    assert_eq!(s, StatusCode::OK, "{done}");
+    assert_eq!(done["deleted"], json!([other, budget]));
+    let gone: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks WHERE id IN (?, ?) AND archived = 1").bind(&other).bind(&budget).fetch_one(&pool).await.unwrap();
+    assert_eq!(gone, 2);
+
+    // Deleting the main deck alone leaves its configurations as main decks.
+    let (_, done) = send(&app, Method::DELETE, &format!("/api/decks/{main}"), Some(&bt), None).await;
+    let mut kept: Vec<&str> = done["kept"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+    kept.sort();
+    let mut expected = [stock.as_str(), tech.as_str()];
+    expected.sort();
+    assert_eq!(kept, expected);
+    let tech_parent: Option<String> = sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ?").bind(&tech).fetch_one(&pool).await.unwrap();
+    assert_eq!(tech_parent, None);
     let parent: Option<String> = sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ?").bind(&stock).fetch_one(&pool).await.unwrap();
     assert_eq!(parent, None);
 }

@@ -402,6 +402,16 @@
 }
 .deck-actions-more[open] { flex-basis: 100%; }
 .deck-extra-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
+/* Delete deck / Delete configuration (decks/DeleteDeck.tsx): red text in the menus, a filled
+   red button only on the confirming sheet. */
+.deck-page button.deck-delete { color: var(--bad); }
+.deck-page button.deck-delete:hover { border-color: var(--bad); }
+.deck-delete-sheet p { margin: 0; }
+.deck-delete-choice { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.deck-delete-choice legend { padding: 0 4px; font-weight: 700; overflow-wrap: anywhere; }
+.deck-delete-choice label { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 400; }
+.deck-delete-sheet button.deck-danger { background: var(--bad); border-color: var(--bad); color: var(--ground); }
+.deck-delete-sheet button.deck-danger:disabled { background: var(--raised); border-color: var(--raised); color: var(--dim); opacity: 1; }
 .deck-text-list textarea { min-height: 28rem; font-family: monospace; font-size: var(--t-sm); }
 .deck-sources { margin-top: 24px; }
 .deck-page .hero-title { overflow-wrap: anywhere; font-size: clamp(3rem, 7vw, 7rem); line-height: .98; }

@@ -247,6 +247,7 @@ export function toolActivity(name: string): string {
     case "changes":
       return "Checking changes waiting for you…";
     case "edit_deck":
+    case "delete_deck":
     case "save_deck":
     case "propose_swap":
     case "answer_review":
