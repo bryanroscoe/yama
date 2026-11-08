@@ -182,7 +182,8 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
       // A deck played before keeps its name, or is just its commanders when that's all it was.
       deckLabel:
         p.kind === "mine" ? (me && seat.userId === me.id ? undefined : p.deck.name) : p.kind === "theirs" ? p.deck.name : p.kind === "played" ? (p.deck.named ? p.deck.name : undefined) : p.precon.name,
-      deckTyped: undefined,
+      // A deck saved by its name alone still needs its commander named.
+      deckTyped: p.kind === "played" && p.deck.named && !p.deck.commanders.length ? true : undefined,
       commanderName: d.commanders[0] ?? "",
       // Two or more are a choice until the cards say two can pair (deckCommanders), so a game
       // started before the lookup answers, or offline, never pairs alternatives.

@@ -889,11 +889,11 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, who, your
   const precons = usePreconCatalog(typing || scope === "precons");
   // The games this account can see (the people search's query): what everyone has played.
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }), enabled: !isGuest() });
-  const played = useMemo(() => playedDecks(games.data), [games.data]);
+  const me = useMe().data;
+  const played = useMemo(() => playedDecks(games.data, me?.id), [games.data, me?.id]);
   const scopes = deckScopes({ who, yours, played: played.length > 0, mine: decks.length > 0 });
   // A filter that's gone (the seat became yours) falls back to all.
   const shownScope = scopes.some((s) => s.key === scope) ? scope : "all";
-  const me = useMe().data;
   const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, played, who, me: me?.id, precons: precons.data?.precons, yours, scope: shownScope });
   // A name nothing matches can still be the deck's (a friend's brew): its commander comes after.
   const typedName = query.trim();

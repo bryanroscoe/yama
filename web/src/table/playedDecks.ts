@@ -48,15 +48,19 @@ export function samePerson(a: DeckOwner, b: DeckOwner): boolean {
 /**
  * Every deck each person played, once per person: newest game first, so a renamed member reads
  * as they're called now. A seat that played one of your Yama decks is left out (your decks are
- * listed as themselves), as are AI seats and temporary labels ("Player 2").
+ * listed as themselves), as are AI seats and temporary labels ("Player 2"). The server keeps a
+ * seat's deck version only for the seated account's own deck or, on a guest's seat, a deck the
+ * recorder lent, so a version on your seat or a guest's is yours, and one on another account's
+ * seat is theirs and stays.
  */
-export function playedDecks(games: GameRow[] | undefined): PlayedDeck[] {
+export function playedDecks(games: GameRow[] | undefined, me?: string): PlayedDeck[] {
   const out = new Map<string, PlayedDeck>();
   const newest = [...(games ?? [])].sort((a, b) => b.started_at.localeCompare(a.started_at));
   for (const g of newest) {
     for (const s of g.seats) {
       const player = s.display_name?.trim() ?? "";
-      if (s.ai_kind || s.deck_version_id || !player || isPlaceholderName(player)) continue;
+      const yourDeck = !!s.deck_version_id && (!s.user_id || s.user_id === me);
+      if (s.ai_kind || yourDeck || !player || isPlaceholderName(player)) continue;
       const { commander, partner } = splitPair(s);
       const label = s.deck_label?.trim() ?? "";
       const commanders = [commander, partner].filter((c): c is string => !!c);

@@ -35,7 +35,7 @@ describe("playedDecks", () => {
   ];
 
   it("keeps each person's decks once, with how often and when they were last played", () => {
-    const played = playedDecks(games);
+    const played = playedDecks(games, "me");
     // Your own Yama decks, AI seats and temporary labels aren't listed.
     expect(played.map((d) => `${d.player}:${d.name}:${d.games}`)).toEqual(["Matt:Food and Fellowship:2", "matt:Jace:1", "Chris:Tana and Tymna:1"]);
     const pair = played.find((d) => d.player === "Chris")!;
@@ -44,14 +44,25 @@ describe("playedDecks", () => {
     expect(played[0]).toMatchObject({ named: true, last: "2026-10-25T19:00:00Z" });
   });
 
+  it("keeps a deck another account played from its own list, and drops yours", () => {
+    const withVersions = [
+      game("c", "2026-10-27T19:00:00Z", [
+        { member_id: "m-chelsey", user_id: "u-chelsey", display_name: "Chelsey", deck_version_id: "her-v", deck_label: "Kaalia", commander_name: "Kaalia of the Vast" },
+        { member_id: "m-me", user_id: "me", display_name: "Bryan", deck_version_id: "my-v", commander_name: "Varina, Lich Queen" },
+        { member_id: "m-matt", display_name: "Matt", deck_version_id: "lent-v", deck_label: "Eternal Might", commander_name: "Varina, Lich Queen" },
+      ]),
+    ];
+    expect(playedDecks(withVersions, "me").map((d) => `${d.player}:${d.name}`)).toEqual(["Chelsey:Kaalia"]);
+  });
+
   it("finds one person's decks under their member row and their typed name", () => {
-    const mine = decksOf(playedDecks(games), { name: "Matt", memberId: "m-matt" });
+    const mine = decksOf(playedDecks(games, "me"), { name: "Matt", memberId: "m-matt" });
     expect(mine.map((d) => d.name)).toEqual(["Food and Fellowship", "Jace"]);
-    expect(decksOf(playedDecks(games), { name: "" })).toEqual([]);
+    expect(decksOf(playedDecks(games, "me"), { name: "" })).toEqual([]);
   });
 
   it("says whose and how often", () => {
-    const [d] = playedDecks(games);
+    const [d] = playedDecks(games, "me");
     expect(playedLine(d!)).toBe("Matt, 2 games, last Oct 25");
     expect(playedLine({ ...d!, games: 1 }, false)).toBe("Played Oct 25");
     expect(possessive("Chelsey Roscoe")).toBe("Chelsey's");
