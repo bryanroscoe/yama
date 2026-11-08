@@ -121,9 +121,9 @@ pub(crate) fn legality(v: &Validation) -> String {
     } else {
         "<span class=\"pill bad\">Not legal yet</span>".to_string()
     };
-    if !v.errors.is_empty() || !v.warnings.is_empty() {
+    if !v.errors.is_empty() || !v.warnings.is_empty() || !v.prerelease.is_empty() {
         s.push_str("<ul class=\"public-deck-errors\">");
-        for x in v.errors.iter().chain(&v.warnings) {
+        for x in v.errors.iter().chain(&v.warnings).chain(&v.prerelease) {
             write!(s, "<li>{}</li>", e(x)).unwrap();
         }
         s.push_str("</ul>");
@@ -523,4 +523,17 @@ pub(crate) fn stats_panel(st: &DeckStats) -> String {
     }
     s.push_str("</section>");
     s
+}
+
+#[cfg(test)]
+mod prerelease_tests {
+    use super::*;
+
+    #[test]
+    fn legality_lists_prerelease_cards_on_a_legal_deck() {
+        let v = Validation { ok: true, total: 100, prerelease: vec!["Spock is new in a set dated 2026-11-13".into()], ..Default::default() };
+        let html = legality(&v);
+        assert!(html.contains("Commander-legal"), "{html}");
+        assert!(html.contains("<li>Spock is new in a set dated 2026-11-13</li>"), "{html}");
+    }
 }
