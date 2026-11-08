@@ -622,7 +622,8 @@ export function sync(): Promise<void> {
           }
         }
         if (finished && stillCurrent()) {
-          if (current!.log !== snapshot.log) throw new Error("This game has finished on Yama. Your newer changes are kept on this phone; check Game history before continuing.");
+          // A tap still settling wasn't in this upload: keep it here rather than retire the game.
+          if (current!.log !== snapshot.log || snapshot.log.some((l) => l.seq > through)) throw new Error("This game has finished on Yama. Your newer changes are kept on this phone; check Game history before continuing.");
           current = null;
           derived = null;
           emit(); // Free the obsolete counter before retaining its small ended marker.

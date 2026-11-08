@@ -358,6 +358,17 @@ describe("saving after commander changes", () => {
     await store.deleteGame("late-local-edit");
   });
 
+  it("keeps a tap still settling when the server says the game finished elsewhere", async () => {
+    store.startGame(setup("finished-mid-burst"));
+    await store.sync();
+    serverFinished = true;
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    await store.sync();
+    expect(store.getGame()?.log.at(-1)?.event).toMatchObject({ type: "life", delta: -2 });
+    serverFinished = false;
+    await store.deleteGame("finished-mid-burst");
+  });
+
   it.each(["discard", "adopt"])("does not resurrect a legacy guest result after %s", async (operation) => {
     const legacy = { setup: setup(`retired-guest-${operation}`), guest: true, log: [{ seq: 1, at: "2026-11-02T20:00:00Z", event: { type: "finish", winnerSeat: 0, endedAt: "2026-11-02T20:00:00Z" } }], redo: [], syncedThrough: 0 };
     items.set("yama.table.guestGames", JSON.stringify([legacy]));
