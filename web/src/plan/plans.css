@@ -345,7 +345,8 @@ button.link-button:hover {
 .plans-side {
   flex: 1 1 300px;
   position: sticky;
-  top: 16px;
+  /* Below the sticky section tabs. */
+  top: calc(var(--sticky-top) + 64px);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 20px;
@@ -548,8 +549,14 @@ button.link-button:hover {
   gap: 12px;
   flex-wrap: wrap;
 }
-.plans-approve {
-  scroll-margin-top: 16px;
+.plans-approve,
+.plans-section {
+  /* Below the sticky section tabs when a tab jumps here. */
+  scroll-margin-top: calc(var(--sticky-top) + 64px);
+}
+.plans-show-all {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 .plans-archived-banner,
 .plans-rejected {
