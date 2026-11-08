@@ -35,6 +35,13 @@ export interface PlayedDeck {
   last: string;
 }
 
+/** Game lists put together, each game once (yours and a playgroup's overlap). */
+export function mergeGames(...lists: (GameRow[] | undefined)[]): GameRow[] {
+  const byId = new Map<string, GameRow>();
+  for (const list of lists) for (const g of list ?? []) if (!byId.has(g.id)) byId.set(g.id, g);
+  return [...byId.values()];
+}
+
 /** The same person: the same member or account; by name only when one side has neither. */
 export function samePerson(a: DeckOwner, b: DeckOwner): boolean {
   if (a.memberId && b.memberId) return a.memberId === b.memberId;

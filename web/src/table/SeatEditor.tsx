@@ -259,6 +259,7 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
             decks={decks}
             handle={seat.handle}
             who={seat}
+            playgroupId={group?.id}
             yours={isMe}
             trailing={deckShown && seat.colorIdentity ? <span className="combo-trailing"><Pips identity={seat.colorIdentity} label={false} /></span> : null}
           />

@@ -11,7 +11,7 @@ import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
 import { useCardArt } from "../components/useCardArt";
 import { useMe } from "../auth";
-import { decksOf, fold, playedBy, playedDecks, playedLine, possessive, samePerson, type DeckOwner, type PlayedDeck } from "./playedDecks";
+import { decksOf, fold, mergeGames, playedBy, playedDecks, playedLine, possessive, samePerson, type DeckOwner, type PlayedDeck } from "./playedDecks";
 import { Pips } from "../components/ui";
 import { cardSearchPath, isGuest } from "../guest";
 import "./pickers.css";
@@ -862,7 +862,7 @@ function pickName(p: DeckPick): string {
  * Picking one names its commanders; the commander fields stay the other way to say what the seat
  * played.
  */
-export function DeckSearch({ text, onText, onPick, decks = [], handle, who, yours, onLeave, trailing }: {
+export function DeckSearch({ text, onText, onPick, decks = [], handle, who, playgroupId, yours, onLeave, trailing }: {
   text: string;
   onText: (t: string) => void;
   onPick: (p: DeckPick) => void;
@@ -871,6 +871,8 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, who, your
   handle?: string;
   /** Who sits at the seat: their decks come first. */
   who?: DeckOwner;
+  /** The game's playgroup: its games others logged without you count too. */
+  playgroupId?: string;
   /** The seat is yours: your decks come first and aren't "lent". */
   yours: boolean;
   onLeave?: () => void;
@@ -889,8 +891,15 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, who, your
   const precons = usePreconCatalog(typing || scope === "precons");
   // The games this account can see (the people search's query): what everyone has played.
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }), enabled: !isGuest() });
+  // `/api/games` is the games you logged or sat in; the playgroup's own list (the Group page's
+  // query) adds the ones another member logged without you.
+  const groupGames = useQuery({
+    queryKey: ["games", "group", playgroupId],
+    queryFn: ({ signal }) => api<GameRow[]>(`/api/games?playgroup=${encodeURIComponent(playgroupId!)}`, { signal }),
+    enabled: !isGuest() && !!playgroupId,
+  });
   const me = useMe().data;
-  const played = useMemo(() => playedDecks(games.data, me?.id), [games.data, me?.id]);
+  const played = useMemo(() => playedDecks(mergeGames(games.data, groupGames.data), me?.id), [games.data, groupGames.data, me?.id]);
   const scopes = deckScopes({ who, yours, played: played.length > 0, mine: decks.length > 0 });
   // A filter that's gone (the seat became yours) falls back to all.
   const shownScope = scopes.some((s) => s.key === scope) ? scope : "all";

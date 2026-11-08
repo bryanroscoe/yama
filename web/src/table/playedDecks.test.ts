@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameRow, GameSeat } from "../api";
-import { decksOf, playedDecks, playedLine, possessive } from "./playedDecks";
+import { decksOf, mergeGames, playedDecks, playedLine, possessive } from "./playedDecks";
 
 const seat = (s: Partial<GameSeat>): GameSeat => ({
   seat: 0,
@@ -66,5 +66,14 @@ describe("playedDecks", () => {
     expect(playedLine(d!)).toBe("Matt, 2 games, last Oct 25");
     expect(playedLine({ ...d!, games: 1 }, false)).toBe("Played Oct 25");
     expect(possessive("Chelsey Roscoe")).toBe("Chelsey's");
+  });
+});
+
+describe("mergeGames", () => {
+  it("counts a game in both your list and the playgroup's once", () => {
+    const g = game("a", "2026-10-20T19:00:00Z", [{ member_id: "m-matt", display_name: "Matt", deck_label: "Jace", commander_name: "Jace" }]);
+    const other = game("b", "2026-10-21T19:00:00Z", [{ member_id: "m-matt", display_name: "Matt", deck_label: "Jace", commander_name: "Jace" }]);
+    expect(mergeGames([g], [g, other], undefined).map((x) => x.id)).toEqual(["a", "b"]);
+    expect(playedDecks(mergeGames([g], [g, other]))[0]!.games).toBe(2);
   });
 });
