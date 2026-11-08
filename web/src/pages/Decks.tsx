@@ -569,6 +569,23 @@ export function DeckPage() {
                 <p className="card-note">The Game Changer list isn't loaded on this server yet. It comes with the next card data import.</p>
               </div>
             )}
+            {d.reserved_list ? (
+              <div>
+                <p>
+                  <b>Reserve List: {d.reserved_list.length} {d.reserved_list.length === 1 ? "card" : "cards"}</b>
+                  {d.reserved_list_as_of && <span className="as-of"> Scryfall's data as of {day(d.reserved_list_as_of)}</span>}
+                </p>
+                {d.reserved_list.length > 0 && (
+                  <p className="names"><NameList names={d.reserved_list} onCard={openByName} /></p>
+                )}
+                <p className="card-note">Cards Wizards has promised never to reprint. Being on the list says a card is scarce, not that it's strong; the power estimate gives it a little weight.</p>
+              </div>
+            ) : (
+              <div>
+                <p><b>Reserve List: not checked yet</b></p>
+                <p className="card-note">The Reserve List flags aren't loaded on this server yet. They come with the next card data import.</p>
+              </div>
+            )}
             <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
           </div>
 
@@ -577,6 +594,7 @@ export function DeckPage() {
             versionId={d.version_id}
             declared={d.bracket}
             gameChangers={d.game_changers}
+            reservedList={d.reserved_list ?? null}
             cards={d.cards}
             onCard={openByName}
             onDeclare={() => setEditing(true)}

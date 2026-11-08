@@ -1248,7 +1248,7 @@ pub(super) async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> App
 
 pub(super) use crate::decks::card_info;
 
-/// Legality and Game Changers for a list, as lines.
+/// Legality, Game Changers and Reserve List cards for a list, as lines.
 pub(super) fn checks(cards: &[DeckCard], info: &HashMap<String, Card>) -> String {
     let v = crate::decks::validate(cards, info);
     let mut out = String::new();
@@ -1268,6 +1268,13 @@ pub(super) fn checks(cards: &[DeckCard], info: &HashMap<String, Card>) -> String
             let _ = writeln!(out, "Game Changers ({}): {}", g.len(), g.join(", "));
         }
         None => out.push_str("Game Changers: unknown (the list isn't loaded for every card).\n"),
+    }
+    match crate::decks::reserved_list(cards, info) {
+        Some(r) if r.is_empty() => out.push_str("Reserve List cards: none.\n"),
+        Some(r) => {
+            let _ = writeln!(out, "Reserve List cards ({}): {}", r.len(), r.join(", "));
+        }
+        None => out.push_str("Reserve List cards: unknown (the flag isn't loaded for every card).\n"),
     }
     out
 }

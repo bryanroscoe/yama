@@ -297,6 +297,7 @@ pub(crate) struct SharedDeck {
 pub(crate) struct SharedDetails {
     pub(crate) validation: crate::decks::Validation,
     pub(crate) game_changers: Option<Vec<String>>,
+    pub(crate) reserved_list: Option<Vec<String>>,
     pub(crate) check: Option<crate::deck_checks::CheckResult>,
     pub(crate) stats: crate::deck_stats::DeckStats,
     pub(crate) singles: crate::deck_prices::SinglesValue,
@@ -442,6 +443,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
     Ok(SharedDetails {
         validation: crate::decks::validate(&d.list, &info),
         game_changers: crate::decks::game_changers(&d.list, &info),
+        reserved_list: crate::decks::reserved_list(&d.list, &info),
         check,
         stats: crate::deck_stats::stats(pool, &d.list, &info).await?,
         singles: crate::deck_prices::singles(&serde_json::to_value(&d.list).map_err(anyhow::Error::from)?, &prices),

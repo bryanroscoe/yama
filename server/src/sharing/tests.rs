@@ -423,6 +423,10 @@ async fn a_shared_deck_page_says_what_the_deck_page_says() {
     assert!(body.contains("$3.75") && body.contains("in singles"), "{body}");
     assert!(body.contains("id=\"layout-stacks\"") && body.contains("public-stack-card"));
     assert!(!body.contains("Simulated games"), "no plan, no lab results");
+    assert!(body.contains("Reserve List flags aren't loaded"), "unknown flags aren't read as none");
+    sqlx::query("UPDATE cards SET reserved = (oracle_id = 'o-bolt')").execute(&pool).await.unwrap();
+    let (_, _, body) = page(&app, &format!("/d/{token}")).await;
+    assert!(body.contains("<b>1 card</b>: Lightning Bolt"), "{body}");
 
     // A stored check shows Yama's suggestion with its reasons; viewing never starts one.
     let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
