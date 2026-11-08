@@ -14,6 +14,15 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-08-shared-power-estimate",
+    date: "2026-11-08",
+    title: "Power estimate on shared decks",
+    items: [
+      "A shared deck's page now shows the power-level estimate beside its brackets, with how it adds up: each factor's points, its rule and the cards behind it, as on your own deck page.",
+      "Your assistant's deck analysis includes the same estimate.",
+    ],
+  },
+  {
     id: "2026-11-08-delete-decks",
     date: "2026-11-08",
     title: "Delete a deck or a configuration",
