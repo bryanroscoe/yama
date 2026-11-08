@@ -48,6 +48,75 @@ pub struct Next {
     /// an approval names it, so a change edited, or answered elsewhere, after the page loaded is
     /// never approved unseen.
     pub hash: String,
+    /// What each change in it takes out (swaps only; stand-ins and optional extras aren't
+    /// checked), for the checks an approval has to pass (`problems`).
+    pub cuts: Vec<Cut>,
+}
+
+/// One waiting change's cut: the card it takes out (your chosen cut, else the plan's), and the
+/// change in the plan in force that already takes that card out, if one does.
+#[derive(Debug, Clone, Serialize)]
+pub struct Cut {
+    pub key: String,
+    #[serde(rename = "in")]
+    pub card_in: String,
+    pub out: Option<String>,
+    /// The card going in for the change in force that already cuts `out`.
+    pub gone_for: Option<String>,
+}
+
+/// Basic lands: a deck holds several, so two changes can each take one out.
+fn is_basic(name: &str) -> bool {
+    let n = name.trim().to_lowercase();
+    let n = n.strip_prefix("snow-covered ").unwrap_or(&n);
+    matches!(n, "plains" | "island" | "swamp" | "mountain" | "forest" | "wastes")
+}
+
+/// A swap's copies (`key#2`, `key#3`) are one change: they never clash with each other.
+fn base_key(key: &str) -> &str {
+    match key.rsplit_once('#') {
+        Some((base, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => key,
+    }
+}
+
+/// Why the changes kept from `next` (every key not in `skip`) can't be approved as they are, one
+/// line per problem, in plan order (the plans redesign's New version board, 6 Nov 2026): a change
+/// that names no card to cut, a cut a change in force already takes out, and two changes cutting
+/// the same card. Skipping a change settles its problem. Web core `planProblems` is the same rule.
+pub fn problems(next: &Next, skip: &[String]) -> Vec<String> {
+    let kept: Vec<&Cut> = next.cuts.iter().filter(|c| !skip.contains(&c.key)).collect();
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for c in &kept {
+        let Some(o) = c.out.as_deref().filter(|o| !o.trim().is_empty()) else {
+            out.push(format!("{} names no card to cut. Skip it, or ask your assistant for one.", c.card_in));
+            continue;
+        };
+        if is_basic(o) {
+            continue;
+        }
+        if let Some(g) = &c.gone_for {
+            out.push(format!("{}: {o} already goes out for {g}. Skip it.", c.card_in));
+            continue;
+        }
+        let same: Vec<&&Cut> = kept
+            .iter()
+            .filter(|d| base_key(&d.key) != base_key(&c.key) && d.gone_for.is_none() && d.out.as_deref().is_some_and(|x| name_key(x) == name_key(o)))
+            .collect();
+        if !same.is_empty() && seen.insert(name_key(o)) {
+            let mut names: Vec<&str> = vec![c.card_in.as_str()];
+            for d in &same {
+                if !names.contains(&d.card_in.as_str()) {
+                    names.push(d.card_in.as_str());
+                }
+            }
+            let (last, rest) = names.split_last().expect("at least two names");
+            let both = if rest.len() == 1 { "both" } else { "all" };
+            out.push(format!("{} and {last} {both} cut {o}. Keep one of them.", rest.join(", ")));
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -113,6 +182,8 @@ struct SwapRow {
     plan_deck_id: String,
     stage: String,
     role: String,
+    in_name: String,
+    out_name: Option<String>,
     upgrade: Option<String>,
     import_id: Option<String>,
     content_hash: Option<String>,
@@ -146,18 +217,23 @@ fn name_key(name: &str) -> String {
 
 /// The newest decision per live swap key, aliases followed: `want`, `unsure`, `no` or none.
 async fn decisions(conn: &mut SqliteConnection, owner: &str, live: &HashSet<String>) -> AppResult<HashMap<String, (Option<String>, String)>> {
+    Ok(answers(conn, owner, live).await?.into_iter().map(|(k, (d, at, _))| (k, (d, at))).collect())
+}
+
+/// The newest answer per live swap key, aliases followed: decision, time and the cut you chose.
+async fn answers(conn: &mut SqliteConnection, owner: &str, live: &HashSet<String>) -> AppResult<HashMap<String, (Option<String>, String, Option<String>)>> {
     let aliases = super::aliases(&mut *conn, owner).await?;
     // The newest answer reaching a key wins, an answer made in Yama on a tie: as the pages read
     // them (core `answerIndex`). Rows come oldest first, so a later one replaces an earlier one.
-    let rows: Vec<(String, Option<String>, String)> =
-        sqlx::query_as("SELECT swap_key, decision, at FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
+    let rows: Vec<(String, Option<String>, String, Option<String>)> =
+        sqlx::query_as("SELECT swap_key, decision, at, cut FROM plan_reviews WHERE owner_id = ? ORDER BY at, origin = 'yama', swap_key")
             .bind(owner)
             .fetch_all(&mut *conn)
             .await?;
-    let mut out: HashMap<String, (Option<String>, String)> = HashMap::new();
-    for (key, decision, at) in rows {
+    let mut out = HashMap::new();
+    for (key, decision, at, cut) in rows {
         if let Some(live_key) = super::resolve_key(&key, live, &aliases) {
-            out.insert(live_key, (decision, at));
+            out.insert(live_key, (decision, at, cut.filter(|c| !c.trim().is_empty())));
         }
     }
     Ok(out)
@@ -190,14 +266,14 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
     .fetch_all(&mut *conn)
     .await?;
     let swaps: Vec<SwapRow> = sqlx::query_as(
-        "SELECT ext_key AS key, plan_deck_id, stage, role, upgrade, import_id, content_hash, created_at, updated_at
+        "SELECT ext_key AS key, plan_deck_id, stage, role, in_name, out_name, upgrade, import_id, content_hash, created_at, updated_at
          FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
     )
     .bind(owner)
     .fetch_all(&mut *conn)
     .await?;
     let live: HashSet<String> = swaps.iter().map(|s| s.key.clone()).collect();
-    let answers = decisions(&mut *conn, owner, &live).await?;
+    let answers = answers(&mut *conn, owner, &live).await?;
     let marks: HashMap<String, bool> = sqlx::query_as::<_, (String, i64)>("SELECT swap_key, value FROM plan_marks WHERE owner_id = ? AND kind = 'installed'")
         .bind(owner)
         .fetch_all(&mut *conn)
@@ -255,7 +331,7 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
         // the same key) is unanswered again: its new content waits for your OK as a new version,
         // and the old answer doesn't approve what you never saw.
         let decision = |sw: &SwapRow| match answers.get(&sw.key) {
-            Some((d, at)) if sw.stage != "proposed" || sw.updated_at.as_str() <= at.as_str() => d.clone(),
+            Some((d, at, _)) if sw.stage != "proposed" || sw.updated_at.as_str() <= at.as_str() => d.clone(),
             _ => None,
         };
         let proposals: Vec<&&SwapRow> = mine.iter().filter(|s| s.stage == "proposed").collect();
@@ -269,6 +345,15 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
                 proposals.iter().filter(|s| decision(s).as_deref() == Some("no")).map(|s| s.key.clone()).collect(),
             )
         };
+        // The plan in force: planned swaps and approved proposals.
+        let in_plan: Vec<&&SwapRow> = mine
+            .iter()
+            .filter(|s| s.role == "swap" && (s.stage == "planned" || (has_version && decision(s).as_deref() == Some("want"))))
+            .collect();
+        // Each card the plan in force takes out, and the card going in for it.
+        let cut_of = |sw: &SwapRow| answers.get(&sw.key).and_then(|a| a.2.clone()).or_else(|| sw.out_name.clone());
+        let in_force_cuts: HashMap<String, String> =
+            in_plan.iter().filter_map(|s| cut_of(s).map(|o| (name_key(&o), s.in_name.clone()))).collect();
         let top = top_by_name.get(&name_key(&d.name)).copied().unwrap_or(0).max(version.unwrap_or(0));
         let next = (!keys.is_empty()).then(|| {
             let first: Vec<&&&SwapRow> = proposals.iter().filter(|s| keys.contains(&s.key)).collect();
@@ -284,18 +369,22 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
             let parts: Vec<String> = first
                 .iter()
                 .map(|s| {
-                    let (d, at) = answers.get(&s.key).map(|(d, at)| (d.as_deref().unwrap_or("-"), at.as_str())).unwrap_or(("-", "-"));
+                    let (d, at) = answers.get(&s.key).map(|(d, at, _)| (d.as_deref().unwrap_or("-"), at.as_str())).unwrap_or(("-", "-"));
                     format!("{}={}|{d}|{at}", s.key, s.content_hash.as_deref().unwrap_or(&s.updated_at))
                 })
                 .collect();
             let hash = crate::util::sha256_hex(&parts.join("\n"))[..16].to_string();
-            Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source, hash }
+            let cuts = first
+                .iter()
+                .filter(|s| s.role == "swap")
+                .map(|s| {
+                    let out = cut_of(s);
+                    let gone_for = out.as_deref().and_then(|o| in_force_cuts.get(&name_key(o)).cloned());
+                    Cut { key: s.key.clone(), card_in: s.in_name.clone(), out, gone_for }
+                })
+                .collect();
+            Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source, hash, cuts }
         });
-        // The plan in force: planned swaps and approved proposals.
-        let in_plan: Vec<&&SwapRow> = mine
-            .iter()
-            .filter(|s| s.role == "swap" && (s.stage == "planned" || (has_version && decision(s).as_deref() == Some("want"))))
-            .collect();
         let installed = in_plan
             .iter()
             .filter(|s| {
@@ -562,6 +651,9 @@ pub async fn apply(conn: &mut SqliteConnection, owner: &str, deck_key: &str, op:
                     if !op.answers.iter().any(|(qq, a)| qq == q && !a.trim().is_empty()) {
                         return Ok(Err(format!("Answer this question first: {q}")));
                     }
+                }
+                if let Some(p) = problems(&next, &op.skip).first() {
+                    return Ok(Err(format!("Settle this first: {p}")));
                 }
             }
             // Answers before, for Undo.

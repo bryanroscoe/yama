@@ -968,6 +968,14 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
         if keys.is_empty() {
             return Err(AppError::bad("Every change would be skipped; there's nothing to approve."));
         }
+        // The page's checks: no card to cut, a cut already going, two changes cutting one card.
+        let problems = crate::plan::versions::problems(&next, &skip);
+        if !problems.is_empty() {
+            return Err(AppError::bad(format!(
+                "Settle these first (skip a change, or propose a fixed one):\n- {}",
+                problems.join("\n- ")
+            )));
+        }
     }
     let summary = if action == "approve" {
         format!("Approve {name}'s plan, version {}: {} changes{}", next.n, keys.len(), if skip.is_empty() { String::new() } else { format!(", {} skipped", skip.len()) })

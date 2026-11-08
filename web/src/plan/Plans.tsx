@@ -39,7 +39,12 @@ export function waitingCounts(view: PlanView, deck: PlanDeck, plan: DeckPlanStat
 
 /** Where each change of a plan in progress stands, from its marks and orders. */
 export function progressSteps(view: PlanView, deck: PlanDeck, plan: DeckPlanState) {
-  return inForceSwaps(deck, plan, view.b.swaps, view.answers).map((s) => ({ swap: s, step: changeStep(s, view.markBy.get(s.key), view.ctx.orders) }));
+  return inForceSwaps(deck, plan, view.b.swaps, view.answers).map((s) => ({
+    swap: s,
+    step: changeStep(s, view.markBy.get(s.key), view.ctx.orders),
+    /** The card it takes out: your chosen cut, else the plan's. */
+    out: view.answers.get(s.key)?.cut || s.out,
+  }));
 }
 
 const cardsWord = (n: number) => (n === 1 ? "1 change" : `${n} changes`);

@@ -1806,6 +1806,15 @@ options and no clear current proposal. This replaces the "plan is a note" model 
   changed since the page loaded) is refused. Undo restores the answers from before; Keep the version
   before answers no to every change in the new one; Archive and Restore set `plan_decks.archived_at`,
   which an import never writes, so a later plan file can't bring an archived plan back.
+- **Cuts are checked before approving** (design board "New version", 6 Nov 2026). Each waiting
+  swap's cut is your chosen cut, else the plan's (`next.cuts`). An approval is refused, on the page,
+  by the op and by `approve_plan`, while a kept change names no card to cut, cuts a card the plan
+  in force already takes out ("out of date"; such a change starts skipped), or cuts the same card
+  as another kept change. Basic lands and the copies of one note swap are exempt. Skipping settles
+  it. Server `versions::problems` and core `planProblems` are the same rule.
+- **Both cards on every change** (Bryan, 8 Nov 2026). A change shows the card going in, an arrow,
+  then the card it replaces, small (52 px wide, 34 px on a phone), each opening the full card; the
+  text says "replaces". A change with no cut shows a dashed empty slot.
 - **Versions.** A decision is a numbered version of the deck's plan (`plan_versions`, counted per deck
   name). Every plan deck that already had planned swaps became version 1; one that is only
   proposals (Multiverse Reforged, and the decks commander-decks proposed on 5 Nov) has none and waits

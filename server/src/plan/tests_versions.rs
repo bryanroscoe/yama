@@ -14,6 +14,13 @@ fn doc_with_beta_plan() -> Value {
     d
 }
 
+/// The fixture with a card to cut for alpha-owned, so alpha's version 2 passes the approval checks.
+fn doc_with_cuts() -> Value {
+    let mut d = doc();
+    swap_mut(&mut d, "alpha-owned")["out"] = json!("Spare Cut");
+    d
+}
+
 fn deck<'a>(b: &'a Value, key: &str) -> &'a Value {
     b["decks"].as_array().unwrap().iter().find(|d| d["key"] == key).unwrap()
 }
@@ -109,7 +116,7 @@ async fn approving_writes_an_answer_per_change_and_a_version() {
 #[tokio::test]
 async fn open_questions_need_answers_and_undo_restores() {
     let (app, pool, owner, token) = setup().await;
-    import(&app, &token, &doc()).await;
+    import(&app, &token, &doc_with_cuts()).await;
     let keys = ["alpha-idea", "alpha-owned"];
     let r = ops(&app, &token, json!([plan_op("q1", "alpha", "approve", 2, &keys, &[], json!([]))])).await;
     assert_eq!(r["results"][0]["status"], "rejected");
@@ -163,7 +170,7 @@ async fn archiving_takes_a_plan_out_until_you_bring_it_back() {
 #[tokio::test]
 async fn keep_and_approve_refuse_changes_you_didnt_see() {
     let (app, _pool, _owner, token) = setup().await;
-    import(&app, &token, &doc()).await;
+    import(&app, &token, &doc_with_cuts()).await;
     // Keep with only one of the two waiting changes named: refused, nothing answered.
     let r = ops(&app, &token, json!([plan_op("k1", "alpha", "keep", 2, &["alpha-idea"], &[], json!([]))])).await;
     assert_eq!(r["results"][0]["status"], "rejected", "{r}");
@@ -174,7 +181,7 @@ async fn keep_and_approve_refuse_changes_you_didnt_see() {
 #[tokio::test]
 async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
     let (app, pool, owner, token) = setup().await;
-    import(&app, &token, &doc()).await;
+    import(&app, &token, &doc_with_cuts()).await;
     // An answer saved under an old key that now reaches alpha-idea through an alias.
     sqlx::query("INSERT INTO plan_key_aliases (owner_id, old_key, new_key, created_at) VALUES (?, 'old-idea', 'alpha-idea', '2026-11-01T00:00:00Z')")
         .bind(&owner)
@@ -183,7 +190,7 @@ async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
         .unwrap();
     sqlx::query(
         "INSERT INTO plan_reviews (owner_id, swap_key, decision, note, cut, at, origin, op_id)
-         VALUES (?, 'old-idea', 'unsure', 'Only if cheap', 'Old Card', '2026-11-01T00:00:00Z', 'yama', 'o-1')",
+         VALUES (?, 'old-idea', 'unsure', 'Only if cheap', 'Other Card', '2026-11-01T00:00:00Z', 'yama', 'o-1')",
     )
     .bind(&owner)
     .execute(&pool)
@@ -194,7 +201,7 @@ async fn approving_keeps_an_answer_an_alias_holds_and_undo_brings_it_back() {
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
     let (d, note, cut): (Option<String>, Option<String>, Option<String>) =
         sqlx::query_as("SELECT decision, note, cut FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-idea'").bind(&owner).fetch_one(&pool).await.unwrap();
-    assert_eq!((d.as_deref(), note.as_deref(), cut.as_deref()), (Some("want"), Some("Only if cheap"), Some("Old Card")));
+    assert_eq!((d.as_deref(), note.as_deref(), cut.as_deref()), (Some("want"), Some("Only if cheap"), Some("Other Card")));
     let r = ops(&app, &token, json!([plan_op("al2", "alpha", "undo", 2, &[], &[], json!([]))])).await;
     assert_eq!(r["results"][0]["status"], "applied", "{r}");
     let (d, note): (Option<String>, Option<String>) =
@@ -256,4 +263,67 @@ async fn an_approval_made_before_a_newer_answer_is_refused() {
     op["hash"] = json!(seen);
     let r = ops(&app, &token, json!([op])).await;
     assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+}
+
+#[tokio::test]
+async fn approving_waits_until_every_cut_is_settled() {
+    let (app, _pool, _owner, token) = setup().await;
+    let mut d = doc();
+    let swaps = d["plan"]["swaps"].as_array_mut().unwrap();
+    // A cut the plan in force already takes out (Print Card replaces Old Card), and two more
+    // changes that both cut Sol Ring with alpha-idea. alpha-owned names no cut at all.
+    swaps.push(json!({"key": "alpha-gone", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Old Card", "in": "Late Card"}));
+    swaps.push(json!({"key": "alpha-same", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "Rival Card"}));
+    // Basic lands: two changes may each take one out.
+    swaps.push(json!({"key": "alpha-land-1", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land One"}));
+    swaps.push(json!({"key": "alpha-land-2", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land Two"}));
+    import(&app, &token, &d).await;
+    let b = bundle(&app, &token).await;
+    let next = &deck(&b, "alpha")["plan"]["next"];
+    let gone = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-gone").unwrap();
+    assert_eq!((gone["out"].as_str(), gone["gone_for"].as_str()), (Some("Old Card"), Some("Print Card")), "{next}");
+
+    let all = ["alpha-idea", "alpha-owned", "alpha-gone", "alpha-same", "alpha-land-1", "alpha-land-2"];
+    let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
+    let keep = |skip: &[&str]| all.iter().filter(|k| !skip.contains(k)).copied().collect::<Vec<_>>();
+    let try_approve = |id: &'static str, skip: &'static [&'static str]| {
+        let (app, token, answers) = (app.clone(), token.clone(), answers.clone());
+        let keys = keep(skip);
+        async move { ops(&app, &token, json!([plan_op(id, "alpha", "approve", 2, &keys, skip, answers)])).await }
+    };
+    let r = try_approve("c1", &[]).await;
+    assert_eq!(r["results"][0]["status"], "rejected", "{r}");
+    assert!(r["results"][0]["error"].as_str().unwrap().contains("Spare Card names no card to cut"), "{r}");
+    let r = try_approve("c2", &["alpha-owned"]).await;
+    assert!(r["results"][0]["error"].as_str().unwrap().contains("Old Card already goes out for Print Card"), "{r}");
+    let r = try_approve("c3", &["alpha-owned", "alpha-gone"]).await;
+    assert!(r["results"][0]["error"].as_str().unwrap().contains("Proposal Card and Rival Card both cut Sol Ring"), "{r}");
+    let r = try_approve("c4", &["alpha-owned", "alpha-gone", "alpha-same"]).await;
+    assert_eq!(r["results"][0]["status"], "applied", "two Island cuts are fine: {r}");
+}
+
+#[test]
+fn problems_name_each_clash_once_and_ignore_copies() {
+    use super::super::versions::{Cut, Next, problems};
+    let cut = |key: &str, card_in: &str, out: Option<&str>| Cut { key: key.into(), card_in: card_in.into(), out: out.map(str::to_string), gone_for: None };
+    let next = Next {
+        n: 1,
+        keys: vec![],
+        skipped: vec![],
+        proposed_at: None,
+        source: json!({"kind": "yama"}),
+        hash: String::new(),
+        cuts: vec![
+            cut("a", "One", Some("Thing")),
+            cut("b", "Two", Some("thing")),
+            cut("c", "Three", Some("Thing")),
+            cut("n|x", "Copy", Some("Rats")),
+            cut("n|x#2", "Copy", Some("Rats")),
+            cut("s", "Snowy", Some("Snow-Covered Forest")),
+            cut("t", "Snowy Two", Some("Snow-Covered Forest")),
+        ],
+    };
+    assert_eq!(problems(&next, &[]), vec!["One, Two and Three all cut Thing. Keep one of them."]);
+    assert_eq!(problems(&next, &["c".into()]), vec!["One and Two both cut Thing. Keep one of them."]);
+    assert!(problems(&next, &["b".into(), "c".into()]).is_empty());
 }

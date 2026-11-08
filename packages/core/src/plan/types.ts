@@ -154,6 +154,17 @@ export type VersionSource =
   | { kind: "yama" }
   | { kind: "before_versions"; note?: string };
 
+/**
+ * One waiting change's cut: the card it takes out (your chosen cut, else the plan's), and the card
+ * going in for the change in force that already takes it out (server `versions.rs` `Cut`).
+ */
+export interface PlanCut {
+  key: string;
+  in: string;
+  out: string | null;
+  gone_for: string | null;
+}
+
 /** A deck's plan: one state, the approved version in force, and the version waiting for your OK. */
 export interface DeckPlanState {
   state: PlanStateName;
@@ -171,6 +182,8 @@ export interface DeckPlanState {
     source: VersionSource;
     /** What its changes say: an approval names it, so an edited change is never approved unseen. */
     hash: string;
+    /** What each swap in it takes out, for the approval checks (`planProblems`). Absent from older bundles. */
+    cuts?: PlanCut[];
   } | null;
   /** Changes in the plan in force (swaps, not stand-ins or optional extras), and how many are in the deck. */
   changes: number;

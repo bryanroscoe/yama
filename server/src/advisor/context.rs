@@ -462,6 +462,13 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
                 n.n,
                 if p.state == "waiting" { "nothing in it is bought or printed" } else { "the version before keeps going" }
             );
+            let problems = crate::plan::versions::problems(n, &n.skipped);
+            if !problems.is_empty() {
+                let _ = writeln!(out, "It can't be approved until each of these is settled, by skipping a change or proposing a fixed one:");
+                for p in problems {
+                    let _ = writeln!(out, "- {p}");
+                }
+            }
         }
     }
     if let Some((note, deck, build)) = &note {

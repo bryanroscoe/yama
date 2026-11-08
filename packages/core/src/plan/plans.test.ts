@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeKind, changePrice, changeStep, countChanges, getLine, inForceSwaps, nextStep, overlayPlan, planChange, planOf, sourceText, versionLine } from "./plans";
+import { changeKind, changePrice, changeStep, countChanges, getLine, inForceSwaps, nextStep, overlayPlan, planChange, planOf, planProblems, sourceText, startSkipped, versionLine } from "./plans";
 import { overlayReviews } from "./overlay";
 import type { DeckPlanState, PlanDeck, Review, Swap } from "./types";
 
@@ -94,6 +94,43 @@ describe("a plan's state", () => {
     const reviews = overlayReviews({}, [{ local: "pending", op: { kind: "plan", op_id: "o", at: "2026-11-06T00:00:00Z", deck_key: "blight", action: "approve", version: 1, keys: ["a"], skip: ["b"], answers: [] } }]);
     expect(reviews.a?.decision).toBe("want");
     expect(reviews.b?.decision).toBe("no");
+  });
+});
+
+describe("approval checks", () => {
+  // Riders of Rohan's version 2 as it waits on 8 Nov: two pairs share a cut, one names none, and
+  // Banishing Light's cut already goes out for Raise the Palisade.
+  const cuts = [
+    { key: "banish", in: "Banishing Light", out: "Earthquake", gone_for: "Raise the Palisade" },
+    { key: "archangel", in: "Archangel of Tithes", out: "Frontier Warmonger", gone_for: null },
+    { key: "aetherize", in: "Aetherize", out: null, gone_for: null },
+    { key: "borrower", in: "Brazen Borrower", out: "Wayfarer's Bauble", gone_for: null },
+    { key: "eomer", in: "Éomer, King of Rohan", out: "Wayfarer's Bauble", gone_for: null },
+    { key: "devotion", in: "Increasing Devotion", out: "frontier warmonger", gone_for: null },
+    { key: "land-1", in: "Tundra", out: "Plains", gone_for: null },
+    { key: "land-2", in: "Plateau", out: "Plains", gone_for: null },
+    { key: "n|x", in: "Rats", out: "Thing", gone_for: null },
+    { key: "n|x#2", in: "Rats", out: "Thing", gone_for: null },
+  ];
+  it("name each problem beside its change, and count a clash once", () => {
+    const p = planProblems(cuts, new Set());
+    expect(p.count).toBe(4);
+    expect(p.byKey.get("banish")).toBe("Out of date: Earthquake already goes out for Raise the Palisade.");
+    expect(p.byKey.get("aetherize")).toMatch(/^No card named to cut/);
+    expect(p.byKey.get("borrower")).toBe("Same cut as Éomer, King of Rohan. Keep one of them.");
+    expect(p.byKey.get("devotion")).toBe("Same cut as Archangel of Tithes. Keep one of them.");
+    expect(p.byKey.has("land-1") || p.byKey.has("n|x")).toBe(false);
+  });
+  it("are settled by skipping", () => {
+    const skipped = startSkipped({ n: 2, keys: [], skipped: ["aetherize"], proposed_at: null, source: { kind: "yama" }, hash: "h", cuts });
+    expect([...skipped].sort()).toEqual(["aetherize", "banish"]);
+    expect(planProblems(cuts, skipped).count).toBe(2);
+    skipped.add("eomer");
+    skipped.add("devotion");
+    expect(planProblems(cuts, skipped)).toEqual({ byKey: new Map(), count: 0 });
+  });
+  it("pass a bundle from before the checks", () => {
+    expect(planProblems(undefined, new Set()).count).toBe(0);
   });
 });
 
