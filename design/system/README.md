@@ -43,7 +43,7 @@ Examples: "Waiting for your OK", "Approve plan", "38 changes", "6 to buy, $5.00"
 - **Display: Big Shoulders Display** 500/700/800 (Google Fonts) for page titles, deck names on art, section headings and big numbers.
 - **Body: Atkinson Hyperlegible Next** 400/700 for everything else, tabular figures in tables.
 - **Mono: Atkinson Hyperlegible Mono**, only in the card search box.
-- Page title 48 px phone / 64 px laptop at 0.9 leading; hero deck title 56 / 96 px; sections 24-36 px; body 16 px; meta 13-14 px; credits 10-12 px.
+- Page title 48 px phone / 64 px laptop at 0.9 leading; hero deck title 56 px phone / 56-64 px laptop (96 px only for a phone-width poster); sections 24-36 px; body 16 px; meta 13-14 px; credits 10-12 px.
 
 ### Shape and space
 

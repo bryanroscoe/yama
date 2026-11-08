@@ -8,7 +8,8 @@
 body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body)}
 .row{display:flex;flex-wrap:wrap;gap:24px;padding:24px}
 .seg{display:inline-flex;padding:3px;gap:2px;background:var(--surface);border-radius:999px}
-.seg button{font:inherit;font-weight:700;border:0;background:transparent;color:var(--dim);border-radius:999px;min-height:44px;padding:8px 16px;cursor:pointer}
+.seg button{font:inherit;font-weight:700;border:0;background:transparent;color:var(--dim);border-radius:999px;min-height:36px;padding:0 16px;cursor:pointer}
+@media (pointer: coarse){.seg button{min-height:44px;padding:8px 16px}}
 .seg button[aria-pressed="true"]{background:var(--text);color:var(--ground)}
 </style>
 </head>
