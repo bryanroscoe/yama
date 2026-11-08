@@ -6,6 +6,32 @@
   gap: 12px;
 }
 
+.price-out {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.price-out > span {
+  margin-right: 4px;
+}
+.price-out > button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--t-label);
+  font-weight: 400;
+}
+/* Left out: struck through and dimmed, so what still counts reads at a glance. */
+.price-out > button[aria-pressed="true"] {
+  background: var(--raised);
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
 .price-shows {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

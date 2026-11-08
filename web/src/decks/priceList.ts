@@ -1,4 +1,5 @@
 import { usd, type CheapestPrinting, type DeckEntry, type PrintRef } from "../api";
+import { GROUP_ORDER, groupOf } from "@yama/core";
 import { isBasic } from "./deckScan";
 
 /** The deck page's Prices view: every card with what its cheapest printing costs, and whether
@@ -23,6 +24,8 @@ export interface PriceRow {
   /** The printing of your own copy, when you have one. */
   yours: PrintRef | null;
   basic: boolean;
+  /** The deck page's group: Commander, Creatures, Lands and so on (the front face decides). */
+  group: string;
 }
 
 /** Same split as the server's totals: real copies first, then proxies, then what's missing. */
@@ -45,6 +48,7 @@ export function priceRows(cards: DeckEntry[]): PriceRow[] {
         cheapest: e.cheapest_printing ?? null,
         yours: e.printing?.from === "owned" ? e.printing : null,
         basic: isBasic(e.name),
+        group: groupOf(e.board, e.card?.type_line),
       };
     });
 }
@@ -94,13 +98,29 @@ export function priceTotal(rows: PriceRow[], show: PriceShow): PriceTotal {
   return t;
 }
 
+/** The deck's groups in page order, to leave some out of the prices. */
+export function groupsIn(rows: PriceRow[]): string[] {
+  const present = new Set(rows.map((r) => r.group));
+  return GROUP_ORDER.filter((g) => present.has(g));
+}
+
+/** Rows split into those kept and those in a group left out. */
+export function leaveOut(rows: PriceRow[], out: ReadonlySet<string>): { kept: PriceRow[]; left: PriceRow[] } {
+  return { kept: rows.filter((r) => !out.has(r.group)), left: rows.filter((r) => out.has(r.group)) };
+}
+
+/** "Lands and Artifacts". */
+export function groupList(groups: string[]): string {
+  return groups.length <= 1 ? groups.join("") : `${groups.slice(0, -1).join(", ")} and ${groups[groups.length - 1]}`;
+}
+
 /** "Plateau (3ED 283)". */
 export function printingLabel(p: { set_code: string; collector_number: string }): string {
   return `${p.set_code.toUpperCase()} ${p.collector_number}`;
 }
 
 /** The view as plain text to paste in a chat: one line a card, priciest first, then the total. */
-export function priceText(rows: PriceRow[], show: PriceShow, date: string): string {
+export function priceText(rows: PriceRow[], show: PriceShow, date: string, left?: { groups: string[]; rows: PriceRow[] }): string {
   const lines = rows.map((r) => {
     const n = copiesIn(r, show);
     const kind = show !== "all" ? "" : r.proxy && !r.real && !r.need ? ", proxy" : r.proxy ? `, ${r.proxy} proxied` : r.need === r.qty ? ", not owned" : "";
@@ -110,6 +130,11 @@ export function priceText(rows: PriceRow[], show: PriceShow, date: string): stri
   });
   const t = priceTotal(rows, show);
   const missing = [t.unpriced ? `${t.unpriced} without a price` : "", t.basics ? `${t.basics} basic lands left out` : ""].filter(Boolean).join(", ");
-  lines.push("", `Total: ${usd(t.usd)} for ${t.copies} ${t.copies === 1 ? "card" : "cards"}${missing ? ` (${missing})` : ""}.`, `Cheapest nonfoil paper printing of each card, ${date}. Market prices, not store quotes.`);
+  lines.push("", `Total: ${usd(t.usd)} for ${t.copies} ${t.copies === 1 ? "card" : "cards"}${missing ? ` (${missing})` : ""}.`);
+  if (left && left.groups.length > 0) {
+    const l = priceTotal(left.rows, show);
+    lines.push(`Left out: ${groupList(left.groups)}, ${usd(l.usd)} for ${l.copies} ${l.copies === 1 ? "card" : "cards"}${l.unpriced ? ` (${l.unpriced} without a price)` : ""}.`);
+  }
+  lines.push(`Cheapest nonfoil paper printing of each card, ${date}. Market prices, not store quotes.`);
   return lines.join("\n");
 }
