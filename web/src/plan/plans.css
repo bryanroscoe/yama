@@ -481,6 +481,29 @@ button.link-button:hover {
 .plans-skip {
   min-width: 72px;
 }
+/* A change's two cards: in, an arrow, then the card it replaces (Bryan, 8 Nov 2026). */
+.plan-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--dim);
+}
+.plan-pair .thumb,
+.plan-pair .card-fallback,
+.plan-pair-empty {
+  width: 52px;
+}
+.plan-pair-empty {
+  aspect-ratio: 488 / 680;
+  border-radius: var(--card-radius);
+  border: 2px dashed var(--line);
+  box-sizing: border-box;
+}
+.plans-problem {
+  color: var(--warn);
+  font-weight: 700;
+}
 .plans-bag {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -552,6 +575,11 @@ button.link-button:hover {
 @media (max-width: 720px) {
   .plans-side {
     position: static;
+  }
+  .plan-pair .thumb,
+  .plan-pair .card-fallback,
+  .plan-pair-empty {
+    width: 34px;
   }
   .plans-start-card {
     padding: 16px;

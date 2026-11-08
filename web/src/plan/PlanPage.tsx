@@ -10,11 +10,14 @@ import {
   inForce,
   opTime,
   planChange,
+  planProblems,
   proposalBuild,
+  startSkipped,
   versionLine,
   waitingSwaps,
   type DeckPlanState,
   type PlanChange,
+  type PlanCut,
   type PlanDeck,
   type PlanDecisionOp,
 } from "@yama/core/plan";
@@ -28,7 +31,7 @@ import { Pips } from "../components/ui";
 import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
-import { CopyButton, Thumb } from "./parts";
+import { CopyButton, SwapPair } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { planHref, progressSteps } from "./Plans";
 import type { PlanView } from "./view";
@@ -131,7 +134,7 @@ function Rejected({ deck, userId }: { deck: PlanDeck; userId: string }) {
  */
 function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; plan: DeckPlanState; view: PlanView; userId: string; first?: boolean }) {
   const next = plan.next!;
-  const [skipped, setSkipped] = useState<Set<string>>(() => new Set(next.skipped));
+  const [skipped, setSkipped] = useState<Set<string>>(() => startSkipped(next));
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [bracket, setBracket] = useState<4 | 3 | 2>(4);
   const swaps = useMemo(() => waitingSwaps(plan, view.swapsOf(deck.key)), [plan, view, deck.key]);
@@ -139,6 +142,8 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
   const live = changes.filter((c) => !skipped.has(c.swap.key));
   const counts = countChanges(live);
   const open = plan.questions.filter((q) => !answers[q]?.trim());
+  const problems = planProblems(next.cuts, skipped);
+  const cutBy = useMemo(() => new Map((next.cuts ?? []).map((c) => [c.key, c])), [next.cuts]);
   const toggle = (k: string) =>
     setSkipped((s) => {
       const n = new Set(s);
@@ -236,7 +241,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
                       </div>
                       <ul className="plans-rows">
                         {rows.map((c) => (
-                          <ChangeRow key={c.swap.key} change={c} view={view} skipped={skipped.has(c.swap.key)} onToggle={() => toggle(c.swap.key)} />
+                          <ChangeRow key={c.swap.key} change={c} view={view} skipped={skipped.has(c.swap.key)} problem={problems.byKey.get(c.swap.key)} cut={cutBy.get(c.swap.key)} onToggle={() => toggle(c.swap.key)} />
                         ))}
                       </ul>
                     </div>
@@ -303,13 +308,19 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
           </dl>
           {priceNote && <p className="small dim">{priceNote}</p>}
           <p className="small">Approving puts the buys on your shopping list and the prints on your next print order. Nothing is bought until you mark it.</p>
-          {open.length === 0 && live.length > 0 ? (
+          {open.length === 0 && live.length > 0 && problems.count === 0 ? (
             <button className="primary plans-big-button" onClick={approve}>
               {first ? "Approve plan" : `Approve version ${next.n}`}
             </button>
           ) : (
             <button className="primary plans-big-button" disabled>
-              {live.length === 0 ? "Every change is skipped" : open.length === 1 ? "Answer the question first" : `Answer ${open.length} questions first`}
+              {live.length === 0
+                ? "Every change is skipped"
+                : problems.count
+                  ? `Settle ${problems.count === 1 ? "1 clash" : `${problems.count} clashes`} first`
+                  : open.length === 1
+                    ? "Answer the question first"
+                    : `Answer ${open.length} questions first`}
             </button>
           )}
           {first ? (
@@ -327,8 +338,10 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
   );
 }
 
-function ChangeRow({ change, view, skipped, onToggle }: { change: PlanChange; view: PlanView; skipped: boolean; onToggle: () => void }) {
+function ChangeRow({ change, view, skipped, problem, cut, onToggle }: { change: PlanChange; view: PlanView; skipped: boolean; problem: string | undefined; cut: PlanCut | undefined; onToggle: () => void }) {
   const s = change.swap;
+  // The server's cut when it sent one (your chosen cut, the plan's, or its fallback).
+  const out = cut ? cut.out : view.answers.get(s.key)?.cut || s.out;
   const meta =
     change.kind === "buy"
       ? change.price
@@ -341,13 +354,16 @@ function ChangeRow({ change, view, skipped, onToggle }: { change: PlanChange; vi
           : "";
   return (
     <li className={`plans-row${skipped ? " skipped" : ""}`}>
-      <Thumb name={s.in} card={view.card(s.in)} oracleId={view.oracleId(s.in)} dim={skipped} />
+      <SwapPair cardIn={s.in} cardOut={out} view={view} dim={skipped} />
       <span className="plans-row-main">
         <span>
-          <b>{s.in}</b> {s.out ? <span className="dim">for {s.out}</span> : <span className="dim">added</span>}
+          <b>{s.in}</b> <span className="dim">{out ? `replaces ${out}` : "no cut named"}</span>
           {skipped && <span className="tag small plain plans-skip-pill">Skipped</span>}
         </span>
         {s.why && <span className="small plans-why">{s.why}</span>}
+        {cut?.instead_of && <span className="small dim">{cut.instead_of} already goes out, so it takes {out} instead.</span>}
+        {problem && <span className="small plans-problem">{problem}</span>}
+        {skipped && cut?.gone_for && <span className="small dim">Skipped to start with: {out} already goes out for {cut.gone_for}.</span>}
       </span>
       <span className="small dim plans-row-meta">{meta}</span>
       <button type="button" className="outline small plans-skip" onClick={onToggle} aria-label={`${skipped ? "Undo skipping" : "Skip"} ${s.in}`}>
@@ -455,12 +471,12 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
             <section aria-labelledby="plans-left">
               <h2 id="plans-left">Left to do ({left.length})</h2>
               <ul className="plans-rows">
-                {left.map(({ swap: s, step }) => (
+                {left.map(({ swap: s, step, out }) => (
                   <li key={s.key} className="plans-row">
-                    <Thumb name={s.in} card={view.card(s.in)} oracleId={view.oracleId(s.in)} />
+                    <SwapPair cardIn={s.in} cardOut={out} view={view} />
                     <span className="plans-row-main">
                       <span>
-                        <b>{s.in}</b> {s.out ? <span className="dim">for {s.out}</span> : null}
+                        <b>{s.in}</b> {out && <span className="dim">replaces {out}</span>}
                       </span>
                       <span className="small dim">{STEP_LABEL[step]}</span>
                     </span>
@@ -486,9 +502,9 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
                 <b>In the deck ({inDeck.length})</b> <span className="small dim">Each beside the card it replaced.</span>
               </summary>
               <ul className="plans-plain">
-                {inDeck.map(({ swap: s }) => (
+                {inDeck.map(({ swap: s, out }) => (
                   <li key={s.key}>
-                    <b>{s.in}</b> {s.out && <span className="dim">for {s.out}</span>}
+                    <b>{s.in}</b> {out && <span className="dim">for {out}</span>}
                   </li>
                 ))}
               </ul>

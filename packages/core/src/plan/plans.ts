@@ -7,7 +7,7 @@ import { fmtDate } from "./source";
 import { installedState } from "./marks";
 import { newestChecks } from "./quotes";
 import { cheapestMarket } from "./rules";
-import type { DeckPlanState, Mark, Order, PlanBundle, PlanDeck, PlanHead, PlanStateName, Quote, Review, Swap, VersionSource } from "./types";
+import type { DeckPlanState, Mark, PlanCut, Order, PlanBundle, PlanDeck, PlanHead, PlanStateName, Quote, Review, Swap, VersionSource } from "./types";
 
 export const PLAN_STATE_LABEL: Record<PlanStateName, string> = {
   waiting: "Waiting for your OK",
@@ -282,4 +282,60 @@ export function inForceBundle<B extends Pick<PlanBundle, "decks" | "swaps">>(b: 
     decks: b.decks.map((d) => (live.has(d.key) ? d : { ...d, status: "archived" as const })),
     swaps: b.swaps.filter((s) => live.has(s.deck) && (s.stage === "planned" || approves(s, answers.get(s.key)))),
   };
+}
+
+// ── approval checks ────────────────────────────────────────────────────────
+
+const BASICS = new Set(["plains", "island", "swamp", "mountain", "forest", "wastes"]);
+const nameKey = (n: string) => n.trim().toLowerCase();
+const isBasic = (n: string) => BASICS.has(nameKey(n).replace(/^snow-covered /, ""));
+/** A swap's copies (`key#2`) are one change: they never clash with each other. */
+const baseKey = (k: string) => k.replace(/#\d+$/, "");
+
+export interface PlanProblems {
+  /** Why each kept change can't be approved as it is, by key. */
+  byKey: Map<string, string>;
+  /** How many problems: a clash between several changes counts once. */
+  count: number;
+}
+
+/**
+ * The checks a version passes before you approve it (the plans redesign's New version board):
+ * every kept swap names a card to cut, no cut is one the plan in force already takes out, and no
+ * two kept changes cut the same card (basic lands aside). Skipping a change settles its problem.
+ * The server refuses an approval on the same rule (`versions.rs` `problems`).
+ */
+export function planProblems(cuts: PlanCut[] | undefined, skipped: Set<string>): PlanProblems {
+  const kept = (cuts ?? []).filter((c) => !skipped.has(c.key));
+  const byKey = new Map<string, string>();
+  const groups = new Set<string>();
+  let count = 0;
+  for (const c of kept) {
+    const out = c.out?.trim();
+    if (!out) {
+      byKey.set(c.key, "No card named to cut. Skip it, or ask your assistant for one.");
+      count++;
+      continue;
+    }
+    if (isBasic(out)) continue;
+    if (c.gone_for) {
+      byKey.set(c.key, `Out of date: ${out} already goes out for ${c.gone_for}.`);
+      count++;
+      continue;
+    }
+    const same = kept.filter((d) => baseKey(d.key) !== baseKey(c.key) && !d.gone_for && d.out && nameKey(d.out) === nameKey(out));
+    if (!same.length) continue;
+    const others = [...new Set(same.map((d) => d.in).filter((n) => n !== c.in))];
+    byKey.set(c.key, others.length ? `Same cut as ${others.join(" and ")}. Keep one of them.` : `Another change also puts in ${c.in} for ${out}. Keep one of them.`);
+    if (!groups.has(nameKey(out))) {
+      groups.add(nameKey(out));
+      count++;
+    }
+  }
+  return { byKey, count };
+}
+
+/** Changes that start skipped: the ones you said no to, and cuts the plan in force already makes. */
+export function startSkipped(next: NonNullable<DeckPlanState["next"]>): Set<string> {
+  return new Set([...next.skipped, ...(next.cuts ?? []).filter((c) => c.gone_for).map((c) => c.key)]);
 }

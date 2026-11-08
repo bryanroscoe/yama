@@ -8,6 +8,7 @@ import {
   nextStep,
   planChange,
   sourceText,
+  startSkipped,
   waitingSwaps,
   type DeckPlanState,
   type PlanDeck,
@@ -32,14 +33,20 @@ interface Row {
 
 /** The changes of a plan's waiting version that aren't skipped yet, counted by where they come from. */
 export function waitingCounts(view: PlanView, deck: PlanDeck, plan: DeckPlanState) {
-  const skipped = new Set(plan.next?.skipped ?? []);
+  // The same changes the plan's page starts skipped.
+  const skipped = plan.next ? startSkipped(plan.next) : new Set<string>();
   const swaps = waitingSwaps(plan, view.swapsOf(deck.key)).filter((s) => !skipped.has(s.key));
   return countChanges(swaps.map((s) => planChange(s, view.b, view.deckName)));
 }
 
 /** Where each change of a plan in progress stands, from its marks and orders. */
 export function progressSteps(view: PlanView, deck: PlanDeck, plan: DeckPlanState) {
-  return inForceSwaps(deck, plan, view.b.swaps, view.answers).map((s) => ({ swap: s, step: changeStep(s, view.markBy.get(s.key), view.ctx.orders) }));
+  return inForceSwaps(deck, plan, view.b.swaps, view.answers).map((s) => ({
+    swap: s,
+    step: changeStep(s, view.markBy.get(s.key), view.ctx.orders),
+    /** The card it takes out: your chosen cut, else the plan's. */
+    out: view.answers.get(s.key)?.cut || s.out,
+  }));
 }
 
 const cardsWord = (n: number) => (n === 1 ? "1 change" : `${n} changes`);

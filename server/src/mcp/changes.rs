@@ -925,11 +925,19 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
             .bind(&id)
             .fetch_all(pool)
             .await?;
+    // Each change as it will be approved: the cut the page shows (a chosen cut, or the plan's
+    // fallback when its cut is already going), else the plan's.
     let label = |k: &str| {
-        swaps.iter().find(|s| s.0 == k).map(|(_, i, o)| o.as_ref().map(|o| format!("{i} for {o}")).unwrap_or_else(|| i.clone())).unwrap_or_else(|| k.to_string())
+        let cut = next.cuts.iter().find(|c| c.key == k).map(|c| c.out.clone());
+        swaps
+            .iter()
+            .find(|s| s.0 == k)
+            .map(|(_, i, o)| cut.clone().unwrap_or_else(|| o.clone()).map(|o| format!("{i} for {o}")).unwrap_or_else(|| i.clone()))
+            .unwrap_or_else(|| k.to_string())
     };
     // Skips name a change by its key or by the card it puts in.
-    let mut skip: Vec<String> = next.skipped.clone();
+    // The page's starting skips: answered no, and cuts the plan in force already makes.
+    let mut skip: Vec<String> = crate::plan::versions::start_skipped(&next);
     for w in args.get("skip").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
         let w = w.trim();
         // A key names one change; a card name names every change that puts it in (each copy of a
@@ -967,6 +975,14 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
         }
         if keys.is_empty() {
             return Err(AppError::bad("Every change would be skipped; there's nothing to approve."));
+        }
+        // The page's checks: no card to cut, a cut already going, two changes cutting one card.
+        let problems = crate::plan::versions::problems(&next, &skip);
+        if !problems.is_empty() {
+            return Err(AppError::bad(format!(
+                "Settle these first (skip a change, or propose a fixed one):\n- {}",
+                problems.join("\n- ")
+            )));
         }
     }
     let summary = if action == "approve" {

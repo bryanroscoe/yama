@@ -21,6 +21,22 @@ export function Thumb({ name, card, oracleId, dim = false }: { name: string; car
 }
 
 /**
+ * A change as two cards: the one going in, an arrow, then the one it replaces, small (Bryan,
+ * 8 Nov 2026). Tap either for the full card. A change with no cut named shows a dashed empty slot.
+ */
+export function SwapPair({ cardIn, cardOut, view, dim = false }: { cardIn: string; cardOut: string | null | undefined; view: { card: (n: string) => PlanCard | undefined; oracleId: (n: string) => string | undefined }; dim?: boolean }) {
+  return (
+    <span className="plan-pair">
+      <Thumb name={cardIn} card={view.card(cardIn)} oracleId={view.oracleId(cardIn)} dim={dim} />
+      <svg className="plan-pair-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M19 12H5M11 6l-6 6 6 6" />
+      </svg>
+      {cardOut ? <Thumb name={cardOut} card={view.card(cardOut)} oracleId={view.oracleId(cardOut)} dim={dim} /> : <span className="plan-pair-empty" aria-hidden="true" />}
+    </span>
+  );
+}
+
+/**
  * Copies text. Where the clipboard isn't available (a phone on plain http), it shows the text in
  * a sheet to select and copy by hand.
  */
