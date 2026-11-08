@@ -199,7 +199,11 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
     let produced = crate::decks::produced_mana(&st.pool, &list.cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
     let facts = crate::analysis::facts_for(&list.cards, &info, &produced);
     let entries: Vec<crate::analysis::Entry> = list.cards.iter().map(|c| crate::analysis::Entry { card: c, facts: facts.get(&c.oracle_id) }).collect();
-    let power = list.cards.iter().any(|c| c.qty > 0).then(|| crate::analysis::analyze(&entries, check.as_ref(), &mut crate::analysis::Cache::default()));
+    let mut power = list.cards.iter().any(|c| c.qty > 0).then(|| crate::analysis::analyze(&entries, check.as_ref(), &mut crate::analysis::Cache::default()));
+    // A pasted name that matched no card is a card the analysis couldn't score.
+    if let Some(a) = power.as_mut() {
+        crate::analysis::add_unresolved(a, &list.unknown);
+    }
     Ok(
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,

@@ -174,3 +174,16 @@ fn cards_spellbook_did_not_know_widen_the_margin() {
     assert_eq!(partial.combos.unrecognized, 2);
     assert!((partial.margin - known.margin - 0.2).abs() < 1e-9, "{} vs {}", partial.margin, known.margin);
 }
+
+#[test]
+fn unresolved_names_count_as_unknown_cards() {
+    let rock = card("Test Rock", 2.0, "Artifact", "{T}: Add {C}.");
+    let one = DeckCard { oracle_id: "o-rock".into(), name: "Test Rock".into(), qty: 1, board: Board::Main };
+    let r = check(&serde_json::json!([])).unwrap();
+    let mut a = analyze(&[Entry { card: &one, facts: Some(&rock) }], Some(&r), &mut Cache::default());
+    let before = a.margin;
+    add_unresolved(&mut a, &["Sol Rnig".into(), "Homebrew".into()]);
+    assert_eq!(a.unknown_cards, ["Sol Rnig", "Homebrew"]);
+    assert!((a.margin - before - 0.2).abs() < 1e-9, "{} vs {before}", a.margin);
+    assert_eq!(a.confidence, "medium");
+}

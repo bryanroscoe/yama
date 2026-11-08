@@ -405,25 +405,7 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
     let power = (pl * 10.0).round() / 10.0;
     caps.retain(|c| c.at < uncapped);
 
-    // The ± range.
-    let mut margin = 0.3 + (0.1 * unknown_cards.len() as f64).min(0.5);
-    if !combos.checked {
-        margin += 0.2;
-    }
-    // Cards Spellbook didn't know may be in combos it couldn't find.
-    margin += (0.1 * combos.unrecognized as f64).min(0.3);
-    let share = if nonland > 0 { unscored as f64 / nonland as f64 } else { 0.0 };
-    if share > 0.35 {
-        margin += (share - 0.35).min(0.3);
-    }
-    let margin = (margin * 10.0).round() / 10.0;
-    let confidence = if margin <= 0.4 {
-        "high"
-    } else if margin <= 0.6 {
-        "medium"
-    } else {
-        "low"
-    };
+    let (margin, confidence) = spread(unknown_cards.len(), &combos, unscored, nonland);
     let (label, description) = SCALE[(power.floor() as usize).clamp(1, 10) - 1];
     let power_bracket = if power <= 5.0 {
         2
@@ -470,6 +452,40 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
         nonland,
         unknown_cards,
     }
+}
+
+/// The ± range and its confidence. It widens with cards missing from the card data, with no
+/// Spellbook check or cards Spellbook didn't know (their combos may be missing), and with many
+/// nonland cards the text rules don't score.
+fn spread(unknown: usize, combos: &Combos, unscored: i64, nonland: i64) -> (f64, &'static str) {
+    let mut margin = 0.3 + (0.1 * unknown as f64).min(0.5);
+    if !combos.checked {
+        margin += 0.2;
+    }
+    margin += (0.1 * combos.unrecognized as f64).min(0.3);
+    let share = if nonland > 0 { unscored as f64 / nonland as f64 } else { 0.0 };
+    if share > 0.35 {
+        margin += (share - 0.35).min(0.3);
+    }
+    let margin = (margin * 10.0).round() / 10.0;
+    let confidence = if margin <= 0.4 {
+        "high"
+    } else if margin <= 0.6 {
+        "medium"
+    } else {
+        "low"
+    };
+    (margin, confidence)
+}
+
+/// Names a pasted list had that matched no card: they're unknown cards too, so the margin
+/// widens as it does for cards missing from the card data.
+pub fn add_unresolved(a: &mut DeckAnalysis, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    a.unknown_cards.extend(names.iter().cloned());
+    (a.margin, a.confidence) = spread(a.unknown_cards.len(), &a.combos, a.unscored, a.nonland);
 }
 
 /// The facts for a list from loaded card data and produced mana.
