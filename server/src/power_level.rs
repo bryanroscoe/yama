@@ -289,15 +289,15 @@ pub fn estimate(all: &[PowerCard], signals: &PowerSignals) -> Option<PowerEstima
             points: curve_share * curve_weight * width,
             cards: vec![],
         },
-        factor("gameChangers", "Game Changers", "Cards on the official Game Changer list", 4.0, 0.15, names(&signals.game_changers)),
-        factor("combos", "Two-card combos", "Commander Spellbook's definite two-card combos", 2.0, 0.15, names(&signals.two_card_combos)),
+        factor("gameChangers", "Game Changers", "Cards on the official Game Changer list", 4.0, 0.15, names(signals.game_changers.as_slice())),
+        factor("combos", "Two-card combos", "Commander Spellbook's definite two-card combos", 2.0, 0.15, names(signals.two_card_combos.as_slice())),
         factor(
             "denial",
             "Mass land denial and extra turns",
             "Cards Commander Spellbook flags for either",
             2.0,
             0.05,
-            names(&[signals.mass_land_denial.clone(), signals.extra_turns.clone()].concat()),
+            names([signals.mass_land_denial.as_slice(), signals.extra_turns.as_slice()].concat().as_slice()),
         ),
     ];
     let score = band[0] as f64 + factors.iter().fold(0.0, |n, f| n + f.points);
