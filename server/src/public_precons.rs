@@ -147,6 +147,9 @@ pub struct Precon {
     pub meta: Option<consensus::Meta>,
     /// Rating v2: real games from the enabled datasets with the published simulation.
     pub v2: Option<v2::Row>,
+    /// Every list under the commander, from each enabled source that doesn't rate the stock list
+    /// (Mythic Tools). Beside the rank, never in it.
+    pub commander_games: Vec<v2::CommanderGames>,
     pub rating_status: &'static str,
     pub catalog_updated_at: Option<String>,
     pub source_url: Option<String>,
@@ -155,6 +158,46 @@ pub struct Precon {
     // pair one version's rating with another version's detail/export. Never serialize raw JSON.
     #[serde(skip)]
     stock_cards: String,
+}
+
+/// A stock list's real-game figure as the pages show it.
+pub(crate) struct StockReal<'a> {
+    pub source: &'a str,
+    /// Four-player-normalised win rate, percent.
+    pub rate: f64,
+    pub games: u64,
+    pub url: Option<&'a str>,
+    /// The day the figure describes (snapshot or fetch).
+    pub as_of: Option<String>,
+}
+
+impl Precon {
+    /// The stock list's real games: the enabled dataset's newest snapshot (what the rank reads),
+    /// else the catalog's cached Playgroup.gg figure.
+    pub(crate) fn stock_real(&self) -> Option<StockReal<'_>> {
+        if let Some(r) = self.v2.as_ref().and_then(|v| v.real.as_ref()) {
+            return Some(StockReal {
+                source: &r.source,
+                rate: r.all_time,
+                games: r.games,
+                url: r.url.as_deref(),
+                as_of: Some(r.as_of.format("%Y-%m-%d").to_string()),
+            });
+        }
+        self.real_games.as_ref().map(|r| StockReal {
+            source: r.source,
+            rate: r.win_rate_4p,
+            games: r.games.max(0) as u64,
+            url: Some(&r.url),
+            as_of: r.fetched_at.clone(),
+        })
+    }
+
+    /// Games-weighted win share over every list under the commander, across the sources that have one.
+    pub(crate) fn commander_rate(&self) -> Option<f64> {
+        let games: u64 = self.commander_games.iter().map(|f| f.games).sum();
+        (games > 0).then(|| self.commander_games.iter().map(|f| f.rate * f.games as f64).sum::<f64>() / games as f64)
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -301,12 +344,13 @@ impl Filters {
                     ),
                 "name" => a.name.cmp(&b.name),
                 "year" => b.released.cmp(&a.released),
+                // Highest first; decks without the figure after.
                 "real" => b
-                    .real_games
-                    .as_ref()
-                    .map(|r| r.win_rate_4p)
-                    .partial_cmp(&a.real_games.as_ref().map(|r| r.win_rate_4p))
+                    .stock_real()
+                    .map(|r| r.rate)
+                    .partial_cmp(&a.stock_real().map(|r| r.rate))
                     .unwrap_or(std::cmp::Ordering::Equal),
+                "commander" => b.commander_rate().partial_cmp(&a.commander_rate()).unwrap_or(std::cmp::Ordering::Equal),
                 "sealed" => a
                     .sealed_price
                     .as_ref()
@@ -587,6 +631,7 @@ async fn build(pool: &SqlitePool) -> AppResult<Built> {
             simulations,
             meta: None,
             v2: None,
+            commander_games: Vec::new(),
             rating_status: if published.is_some() && !unchanged {
                 "stock_list_changed"
             } else if published.is_none() {

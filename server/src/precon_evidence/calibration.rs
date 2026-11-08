@@ -112,6 +112,101 @@ pub fn mapping(cases: &[Case]) -> Option<Mapping> {
     })
 }
 
+/// Real rate regressed on one or more predictors (the simulation's log strength, a commander's
+/// win share on another service): rate ≈ coefficients · (1, predictors…).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Fit {
+    /// Intercept first, then one per predictor.
+    pub coefficients: Vec<f64>,
+    /// The predictors' own error in squared points, after the real rates' sampling noise.
+    pub variance: f64,
+    pub precons: usize,
+}
+impl Fit {
+    pub fn rate(&self, x: &[f64]) -> f64 {
+        let (intercept, slopes) = self.coefficients.split_first().expect("a fit has an intercept");
+        (intercept + slopes.iter().zip(x).map(|(b, x)| b * x).sum::<f64>()).clamp(0.0, 100.0)
+    }
+}
+
+fn weight(r: &Real) -> f64 {
+    1.0 / (r.variance() + MIN_SIM_VARIANCE)
+}
+
+/// Solve `a · x = b` by Gaussian elimination with partial pivoting; `None` when singular.
+fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+    let n = b.len();
+    for col in 0..n {
+        let pivot = (col..n).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
+        if a[pivot][col].abs() < 1e-12 {
+            return None;
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        for row in col + 1..n {
+            let f = a[row][col] / a[col][col];
+            for k in col..n {
+                a[row][k] -= f * a[col][k];
+            }
+            b[row] -= f * b[col];
+        }
+    }
+    let mut x = vec![0.0; n];
+    for row in (0..n).rev() {
+        let tail: f64 = (row + 1..n).map(|k| a[row][k] * x[k]).sum();
+        x[row] = (b[row] - tail) / a[row][row];
+    }
+    x.iter().all(|v| v.is_finite()).then_some(x)
+}
+
+/// Weighted least squares of real rate on the predictors, weighted like [`mapping`]. Every point
+/// needs the same number of predictors; too few points (fewer than [`MIN_CASES`] or than the
+/// coefficients need) give `None`.
+pub fn fit(points: &[(Vec<f64>, Real)]) -> Option<Fit> {
+    let k = 1 + points.first()?.0.len();
+    if points.len() < MIN_CASES.max(k + 2) || points.iter().any(|(x, _)| x.len() + 1 != k || x.iter().any(|v| !v.is_finite())) {
+        return None;
+    }
+    let mut a = vec![vec![0.0; k]; k];
+    let mut b = vec![0.0; k];
+    for (x, r) in points {
+        let w = weight(r);
+        let row: Vec<f64> = std::iter::once(1.0).chain(x.iter().copied()).collect();
+        for i in 0..k {
+            b[i] += w * row[i] * r.rate;
+            for j in 0..k {
+                a[i][j] += w * row[i] * row[j];
+            }
+        }
+    }
+    let coefficients = solve(a, b)?;
+    let predict = |x: &[f64]| coefficients[0] + coefficients[1..].iter().zip(x).map(|(b, x)| b * x).sum::<f64>();
+    let n = points.len() as f64;
+    let residual = points.iter().map(|(x, r)| (r.rate - predict(x)).powi(2)).sum::<f64>() / (n - k as f64).max(1.0);
+    let noise = points.iter().map(|(_, r)| r.variance()).sum::<f64>() / n;
+    Some(Fit {
+        coefficients,
+        variance: (residual - noise).max(MIN_SIM_VARIANCE),
+        precons: points.len(),
+    })
+}
+
+/// Leave-one-out error: each point predicted by a fit on all the others, squared and weighted like
+/// the fit. `None` when any refit fails.
+pub fn loo_error(points: &[(Vec<f64>, Real)]) -> Option<f64> {
+    let mut total = 0.0;
+    let mut weights = 0.0;
+    for i in 0..points.len() {
+        let rest: Vec<(Vec<f64>, Real)> = points.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, p)| p.clone()).collect();
+        let f = fit(&rest)?;
+        let (x, r) = &points[i];
+        let w = weight(r);
+        total += w * (r.rate - f.rate(x)).powi(2);
+        weights += w;
+    }
+    (weights > 0.0).then(|| total / weights)
+}
+
 /// Average ranks (ties share the mean rank).
 fn ranks(xs: &[f64]) -> Vec<f64> {
     let mut idx: Vec<usize> = (0..xs.len()).collect();
@@ -326,6 +421,27 @@ mod tests {
             holdout: Some((truth - noise, 200)),
             sim: Some(sim),
         }
+    }
+
+    #[test]
+    fn a_fit_recovers_two_predictors_and_leave_one_out_rewards_the_useful_one() {
+        // rate = 10 + 4·a + 0.5·b exactly, with a third predictor that is noise.
+        let real = |rate: f64| Real { rate, effective_games: 10_000.0 };
+        let wobble = |i: usize| ((i * 37) % 11) as f64 - 5.0;
+        let pts: Vec<(Vec<f64>, Real)> =
+            (0..20).map(|i| (vec![i as f64 / 4.0, 20.0 + wobble(i)], real(10.0 + i as f64 + 0.5 * (20.0 + wobble(i))))).collect();
+        let f = fit(&pts).unwrap();
+        assert!((f.coefficients[0] - 10.0).abs() < 1e-6 && (f.coefficients[1] - 4.0).abs() < 1e-6 && (f.coefficients[2] - 0.5).abs() < 1e-6);
+        assert_eq!(f.variance, MIN_SIM_VARIANCE, "an exact fit still claims the floor");
+        let without: Vec<(Vec<f64>, Real)> = pts.iter().map(|(x, r)| (vec![x[0]], *r)).collect();
+        assert!(loo_error(&pts).unwrap() < loo_error(&without).unwrap());
+        let noise: Vec<(Vec<f64>, Real)> =
+            pts.iter().enumerate().map(|(i, (x, _))| (vec![x[0], wobble(i * 3 + 1)], real(10.0 + 4.0 * x[0]))).collect();
+        let plain: Vec<(Vec<f64>, Real)> = noise.iter().map(|(x, r)| (vec![x[0]], *r)).collect();
+        assert!(loo_error(&noise).unwrap() >= loo_error(&plain).unwrap() - 1e-9, "a useless predictor doesn't win");
+        assert!(fit(&pts[..5]).is_none(), "too few points");
+        let flat: Vec<(Vec<f64>, Real)> = (0..10).map(|i| (vec![1.0], real(20.0 + i as f64))).collect();
+        assert!(fit(&flat).is_none(), "a constant predictor can't be fitted beside the intercept");
     }
 
     #[test]

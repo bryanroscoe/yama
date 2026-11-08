@@ -104,19 +104,23 @@ export interface RealHistory {
 export interface CommanderObservation {
   source: RealHistory["source"]; entity: string; name: string; url: string | null; window_days: number; rate: number; games: number; as_of: string; note: string;
 }
-export interface PreconEvidence { real: RealHistory | null; also?: RealHistory[]; commander: CommanderObservation | null }
+/** A source's wins over every list under the precon's commanders (Mythic Tools), beside but never in the rating. */
+export interface CommanderLists { source: RealHistory["source"]; name: string; rate: number; games: number; decks: number | null; note: string }
+export interface PreconEvidence { real: RealHistory | null; also?: RealHistory[]; commander: CommanderObservation | null; all_lists?: CommanderLists[] }
 export interface CalibrationScore { predictor: string; spearman: number | null; spearman_ci: [number, number] | null; mse: number | null }
 export interface CalibrationEvaluation {
   cases: number; held_out_games: number; scores: CalibrationScore[];
   mapping: { intercept: number; slope: number; sim_variance: number; precons: number } | null;
   v2_minus_real: [number, [number, number]] | null; gate_passed: boolean; verdict: string;
 }
-export interface V2Estimate { precon: string; rate: number; lo: number; hi: number; real_share: number; rank: number; rank_lo: number; rank_hi: number }
+export interface V2Estimate { precon: string; rate: number; lo: number; hi: number; real_share: number; commander_source?: string; rank: number; rank_lo: number; rank_hi: number }
+/** Whether a commander-only source (Mythic Tools) earned a place for precons without stock games: leave-one-out errors in squared points. */
+export interface CommanderTest { source: string; precons: number; error_without: number | null; error_with: number | null; used: boolean }
 /** Rating v2 (server/src/precon_evidence): real games and the simulation on one scale, weighted by measured precision. */
 export interface RatingV2 {
   method: string; as_of: string; split: string; ranked: number; gate_passed: boolean; note: string;
   simulation: { kind: string; id: string; name: string; engine: string; created_at: string; precons: number } | null;
-  calibration: CalibrationEvaluation | null; precons: V2Estimate[];
+  calibration: CalibrationEvaluation | null; commander?: CommanderTest | null; precons: V2Estimate[];
 }
 
 export interface UpgradeabilitySource {

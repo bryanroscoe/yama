@@ -163,8 +163,19 @@ fn rating_v2(v: &v2::Row, detailed: bool) -> String {
     if detailed {
         write!(
             out,
-            "<details><summary>How this rank is made</summary><p>Estimated four-player win rate {:.1}%, 90% interval {:.1}–{:.1}%. Rank range {}–{}.</p><p>{:.0}% of the estimate’s weight is real games; the rest is the simulation.</p>",
-            v.rate, v.lo, v.hi, v.rank_lo, v.rank_hi, 100.0 * v.real_share
+            "<details><summary>How this rank is made</summary><p>Estimated four-player win rate {:.1}%, 90% interval {:.1}–{:.1}%. Rank range {}–{}.</p><p>{}</p>",
+            v.rate,
+            v.lo,
+            v.hi,
+            v.rank_lo,
+            v.rank_hi,
+            match &v.commander_source {
+                Some(source) => format!(
+                    "No stock-list games yet: estimated from the simulation and {}’s games under this commander, both mapped onto the stock-list results of the precons that have them.",
+                    e(source)
+                ),
+                None => format!("{:.0}% of the estimate’s weight is real games; the rest is the simulation.", 100.0 * v.real_share),
+            }
         )
         .unwrap();
         if let Some(r) = &v.real {
@@ -182,13 +193,24 @@ fn rating_v2(v: &v2::Row, detailed: bool) -> String {
     out
 }
 
-/// Each real-game source with its attribution and licence, as its licence asks.
+/// The real-game sources that rate stock lists, and so feed the rank, by name.
 fn sources_line(info: &v2::Info) -> String {
+    let names: Vec<String> = info.sources.iter().filter(|s| s.stock_lists).map(|s| e(&s.name)).collect();
+    if names.is_empty() { "none yet".into() } else { names.join(" and ") }
+}
+
+/// The sources with figures for every list under a commander only, shown beside the rank.
+fn commander_sources(info: Option<&v2::Info>) -> Vec<&str> {
+    info.into_iter().flat_map(|i| &i.sources).filter(|s| !s.stock_lists).map(|s| s.name.as_str()).collect()
+}
+
+/// Each real-game source with its attribution and licence, as its licence asks: inline spans that
+/// sit in a paragraph, one line each.
+fn source_credits(info: &v2::Info) -> String {
     info.sources
         .iter()
-        .map(|s| format!("{} ({}; {})", e(&s.name), e(&s.attribution), e(&s.license)))
-        .collect::<Vec<_>>()
-        .join(", ")
+        .map(|s| format!("<span class=\"source-credit\">{}: {} Licence: {}.</span>", e(&s.name), e(s.attribution.trim_end_matches('.')).to_string() + ".", e(s.license.trim_end_matches('.'))))
+        .collect()
 }
 
 fn meta(p: &Precon, detailed: bool) -> String {
@@ -532,7 +554,42 @@ fn upgradeability(p: &Precon, full: bool) -> String {
 }
 
 fn real(p: &Precon, detailed: bool) -> String {
-    p.real_games.as_ref().map(|r|format!("<a class=\"result-value\" href=\"{}\">{:.1}%</a><small>{} stock games</small>{}",e(&r.url),r.win_rate_4p,count(r.games),if detailed{format!("<p class=\"dim\">Playgroup.gg, fetched {}.</p><details><summary>About real-game results</summary><p>Normalised to four players; pilots and opponents differ from the simulation. This is observed evidence, not a personal win-rate forecast.</p></details>",when(r.fetched_at.as_deref().unwrap_or("")))}else{String::new()})).unwrap_or_else(||"<span class=\"dim\">No real-game data</span>".into())
+    let mut out = match p.stock_real() {
+        Some(r) => {
+            let value = match r.url {
+                Some(u) => format!("<a class=\"result-value\" href=\"{}\">{:.1}%</a>", e(u), r.rate),
+                None => format!("<span class=\"result-value\">{:.1}%</span>", r.rate),
+            };
+            let mut out = format!("{value}<small>{} stock games, {}</small>", count(r.games as i64), e(r.source));
+            if detailed {
+                write!(out, "<p class=\"dim\">Stock lists only, normalised to four players. As of {}.</p>", when(r.as_of.as_deref().unwrap_or(""))).unwrap();
+            }
+            out
+        }
+        None => "<span class=\"dim\">No stock-list games</span>".into(),
+    };
+    for f in &p.commander_games {
+        let decks = match (detailed, f.decks) {
+            (true, Some(d)) => format!(" from {} decks", count(d as i64)),
+            _ => String::new(),
+        };
+        write!(
+            out,
+            "<span class=\"commander-games\"><strong>{:.1}%</strong> {}, any list: {} games{decks}</span>",
+            f.rate,
+            e(&f.source),
+            count(f.games as i64)
+        )
+        .unwrap();
+    }
+    if detailed {
+        out.push_str("<details><summary>About real-game results</summary><p>Stock-list results are normalised to four players; pilots and opponents differ from the simulation. This is observed evidence, not a personal win-rate forecast.</p>");
+        if let Some(f) = p.commander_games.first() {
+            write!(out, "<p>“Any list” counts every game the source recorded under {}: stock and upgraded lists, every pod size and power level, so 25% isn’t the even share. It describes the commander, not this stock list, and isn’t part of the rank.</p>", e(&f.commander)).unwrap();
+        }
+        out.push_str("<p><a href=\"/precons/methodology#real\">Real-game sources ↗</a></p></details>");
+    }
+    out
 }
 fn price(p: &Precon, detailed: bool) -> String {
     let singles = &p.singles_value;
@@ -574,21 +631,40 @@ fn selected(value: &str, actual: &str) -> &'static str {
     if value == actual { " selected" } else { "" }
 }
 fn query(filters: &Filters, page: usize) -> String {
+    query_sorted(filters, &filters.s, Some(page))
+}
+/// This page's filters with another sort, from the first page when `page` is `None`.
+fn query_sorted(filters: &Filters, sort: &str, page: Option<usize>) -> String {
     let mut q = url::form_urlencoded::Serializer::new(String::new());
     for (key, value) in [
-        ("q", &filters.q),
+        ("q", filters.q.as_str()),
         ("c", &filters.c),
         ("m", &filters.m),
         ("y", &filters.y),
         ("set", &filters.set),
-        ("s", &filters.s),
+        ("s", sort),
     ] {
         if !value.is_empty() {
             q.append_pair(key, value);
         }
     }
-    q.append_pair("page", &page.to_string());
+    if let Some(page) = page {
+        q.append_pair("page", &page.to_string());
+    }
     format!("/precons?{}", e(&q.finish()))
+}
+/// A column heading that sorts the table by it, best first.
+fn sort_heading(filters: &Filters, sort: &str, label: &str, note: &str) -> String {
+    let current = if filters.s.is_empty() { "meta" } else { filters.s.as_str() };
+    let active = current == sort;
+    format!(
+        "<th scope=\"col\"{}><a class=\"sort-link{}\" href=\"{}\">{}{}</a><small>{note}</small></th>",
+        if active { " aria-sort=\"descending\"" } else { "" },
+        if active { " is-sorted" } else { "" },
+        query_sorted(filters, sort, None),
+        e(label),
+        if active { "<span aria-hidden=\"true\"> ↓</span>" } else { "" }
+    )
 }
 
 pub(super) async fn index(
@@ -637,7 +713,7 @@ pub(super) async fn index(
             )
             .unwrap();
         }
-        write!(body,"<div class=\"featured-copy\"><span class=\"source-chip\">Experimental rank #{}</span><h2>{}</h2><p>{}</p>{}<span class=\"featured-link\">View deck <span aria-hidden=\"true\">↗</span></span><small class=\"feature-credit\">{}</small></div></a>",featured_rank(p).unwrap_or_default(),e(&p.name),e(&p.commanders.join(" and ")),if p.meta.as_ref().is_some_and(|m|m.flagged)||p.v2.as_ref().is_some_and(|v|v.real_share==0.0){"<small class=\"featured-caution\">Simulation limitations apply</small>"}else{""},credit(p)).unwrap();
+        write!(body,"<div class=\"featured-copy\"><span class=\"source-chip\">Experimental rank #{}</span><h2>{}</h2><p>{}</p>{}<span class=\"featured-link\">View deck <span aria-hidden=\"true\">↗</span></span><small class=\"feature-credit\">{}</small></div></a>",featured_rank(p).unwrap_or_default(),e(&p.name),e(&p.commanders.join(" and ")),if p.meta.as_ref().is_some_and(|m|m.flagged)||p.v2.as_ref().is_some_and(|v|v.real_share==0.0&&v.commander_source.is_none()){"<small class=\"featured-caution\">Simulation limitations apply</small>"}else if p.v2.as_ref().is_some_and(|v|v.commander_source.is_some()){"<small class=\"featured-caution\">No stock-list games yet</small>"}else{""},credit(p)).unwrap();
     } else {
         body.push_str("<div class=\"hero-note\"><h2>No ranked matches.</h2><a href=\"/precons/methodology\">How we rank ↗</a></div>");
     }
@@ -651,15 +727,23 @@ pub(super) async fn index(
         )
         .unwrap();
     }
-    write!(body,"<span class=\"source-chip\">Playgroup.gg</span>{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental</span></div><details class=\"ranking-help\"><summary>About these results</summary><div class=\"details-body\">",run_line(data.publication.as_ref())).unwrap();
+    match &data.rating_v2 {
+        Some(info) if !info.sources.is_empty() => {
+            for s in &info.sources {
+                write!(body, "<span class=\"source-chip\">{}{}</span>", e(&s.name), if s.stock_lists { "" } else { ", by commander" }).unwrap();
+            }
+        }
+        _ => body.push_str("<span class=\"source-chip\">Playgroup.gg</span>"),
+    }
+    write!(body,"{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental</span></div><details class=\"ranking-help\"><summary>About these results</summary><div class=\"details-body\">",run_line(data.publication.as_ref())).unwrap();
     if let Some(info) = &data.rating_v2 {
         write!(
             body,
-            "<p>Rating v2 ranks {} precons by estimated four-player win rate, from recent real games ({}){}. {}</p>",
-            info.ranked,
+            "<p>Meta rank (rating v2) ranks {} by estimated four-player win rate, from recent real games of stock lists ({}){}. {}</p>",
+            if info.ranked == 1 { "1 precon".to_string() } else { format!("{} precons", count(info.ranked as i64)) },
             sources_line(info),
             info.simulation.as_deref().map(|n| format!(" and the simulation: {}", e(n))).unwrap_or_default(),
-            simulation_test(info)
+            simulation_test(info).to_string() + &commander_test(info)
         )
         .unwrap();
     } else if data.meta_cohort >= 4 {
@@ -674,20 +758,49 @@ pub(super) async fn index(
             "<p>Meta ranks await enough shared evidence. Browse the available source results.</p>",
         );
     }
+    let model = data.publication.as_ref().map(|p| consensus::engine_family(&p.engine));
+    if let Some(family) = model {
+        write!(body, "<p>{family} model is Yama’s published {family} benchmark, shown on its own and not part of the meta rank.</p>").unwrap();
+    }
+    let by_commander = commander_sources(data.rating_v2.as_ref());
+    write!(
+        body,
+        "<p>Real games shows each stock list’s own results{}. Sort by any column.</p>",
+        if by_commander.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " and, beneath, {}’s games for every list under the same commander. Those mix stock and upgraded lists and every pod size, so they describe the commander; they count toward the rank only for precons without stock games, as described above",
+                e(&by_commander.join(" and "))
+            )
+        }
+    )
+    .unwrap();
+    if let Some(info) = data.rating_v2.as_ref().filter(|i| !i.sources.is_empty()) {
+        write!(body, "<p>{}</p>", source_credits(info)).unwrap();
+    }
     body.push_str("<p>Ranks summarise evidence, not a forecast for your table. Decks missing evidence stay unranked. Win rates describe different fields; the dashed mark shows the 25% equal-deck baseline.</p><p>Upgradeability shows the highest supported in-box grade and the configurations assessed. Unassessed commanders may be stronger. Open a deck for its reasoning, source dates and the 1–5 rubric.</p><a href=\"/precons/methodology\">Sources and methodology ↗</a></div></details></div>");
     write!(body,"<form class=\"public-filters\" method=\"get\" action=\"/precons\" data-live aria-label=\"Filter precons\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search deck, commander or set\"></label><label><span class=\"sr-only\">Sort</span><select name=\"s\">",e(&filters.q)).unwrap();
-    for (value, label) in [
-        ("meta", "Rank"),
-        ("rank", "Primary sim rank"),
-        ("real", "Real-game win rate"),
+    let model_label = format!("{} model", model.unwrap_or("Simulation"));
+    let commander_label = (!by_commander.is_empty()).then(|| format!("Real games, any list ({})", by_commander.join(" and ")));
+    let sorts: Vec<(&str, &str)> = [
+        ("meta", "Meta rank"),
+        ("rank", model_label.as_str()),
+        ("real", "Real games, stock lists"),
+    ]
+    .into_iter()
+    .chain(commander_label.as_deref().map(|l| ("commander", l)))
+    .chain([
         ("upgradeability", "Upgradeability"),
         ("name", "Deck name"),
         ("year", "Newest first"),
         ("sealed", "Sealed market price"),
-    ] {
+    ])
+    .collect();
+    for (value, label) in sorts {
         write!(
             body,
-            "<option value=\"{value}\"{}>{label}</option>",
+            "<option value=\"{value}\"{}>{}</option>",
             selected(
                 value,
                 if filters.s.is_empty() {
@@ -695,7 +808,8 @@ pub(super) async fn index(
                 } else {
                     &filters.s
                 }
-            )
+            ),
+            e(label)
         )
         .unwrap();
     }
@@ -755,19 +869,21 @@ pub(super) async fn index(
     if matched == 0 {
         body.push_str("<div class=\"empty-state\"><h2>No matching precons</h2><p>Try a commander, a different color or <a href=\"/precons\">clear the filters</a>.</p></div>");
     } else {
-        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table\"><caption class=\"sr-only\">Stock precon comparison</caption><thead><tr><th scope=\"col\">Stock deck</th><th scope=\"col\">Rank</th>");
-        for source in &sources {
-            write!(
-                body,
-                "<th scope=\"col\">{} model</th>",
-                consensus::engine_family(&source.engine)
-            )
-            .unwrap();
+        body.push_str("<div class=\"public-table-wrap\"><table class=\"public-table\"><caption class=\"sr-only\">Stock precon comparison</caption><thead><tr><th scope=\"col\">Stock deck</th>");
+        body.push_str(&sort_heading(&filters, "meta", "Meta rank", if data.rating_v2.is_some() { "Real games and simulation" } else { "Sources combined" }));
+        for (i, source) in sources.iter().enumerate() {
+            let label = format!("{} model", consensus::engine_family(&source.engine));
+            if i == 0 {
+                body.push_str(&sort_heading(&filters, "rank", &label, "Simulated pods"));
+            } else {
+                write!(body, "<th scope=\"col\">{}</th>", e(&label)).unwrap();
+            }
         }
-        body.push_str("<th scope=\"col\">Real games</th><th scope=\"col\"><a href=\"/precons/methodology#upgradeability\">Upgradeability</a></th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
+        body.push_str(&sort_heading(&filters, "real", "Real games", if by_commander.is_empty() { "Stock lists" } else { "Stock lists, then any list" }));
+        body.push_str("<th scope=\"col\"><a href=\"/precons/methodology#upgradeability\">Upgradeability</a></th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
         for p in data.precons.iter().skip(start).take(24) {
             let thumb=p.art.as_ref().map(|a|format!("<img class=\"deck-thumb\" src=\"{}\" alt=\"\" loading=\"lazy\" width=\"64\" height=\"76\">",e(&a.url))).unwrap_or_default();
-            write!(body,"<tr><th scope=\"row\"><a class=\"deck-link\" href=\"/precons/{}\">{thumb}<span><strong>{}</strong><small>{}</small><span class=\"deck-meta\">{}<span>{} / {}</span></span></span></a><small class=\"thumb-credit\">{}</small></th><td class=\"meta-cell\" data-label=\"Rank\">{}</td>",e(&p.id),e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(&p.set_code),e(p.released.as_deref().and_then(|s|s.get(..4)).unwrap_or("—")),credit(p),meta(p,false)).unwrap();
+            write!(body,"<tr><th scope=\"row\"><a class=\"deck-link\" href=\"/precons/{}\">{thumb}<span><strong>{}</strong><small>{}</small><span class=\"deck-meta\">{}<span>{} / {}</span></span></span></a><small class=\"thumb-credit\">{}</small></th><td class=\"meta-cell\" data-label=\"Meta rank\">{}</td>",e(&p.id),e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(&p.set_code),e(p.released.as_deref().and_then(|s|s.get(..4)).unwrap_or("—")),credit(p),meta(p,false)).unwrap();
             for source in &sources {
                 let r = p
                     .simulations
@@ -853,9 +969,9 @@ pub(super) async fn detail(
         .unwrap();
     }
     write!(body,"<div class=\"art-heading\"><h1>{}</h1><p>{}</p><div class=\"deck-meta\">{}<span>{} / {} / {} cards</span></div></div><p class=\"art-credit\">{}</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/precons/{}/decklist.txt\">Download stock list</a><a class=\"button\" href=\"/lab/p/{}\">Save to my decks</a><a class=\"text-action\" href=\"/lab/try?precon={}\">Try a change ↗</a></div>",e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(p.set_name.as_deref().unwrap_or(&p.set_code)),when(p.released.as_deref().unwrap_or("")),p.card_count,credit(p),e(&p.id),e(&p.id),e(&p.id)).unwrap();
-    body.push_str("<section class=\"evidence-heading\"><div><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Rank</h3>");
+    body.push_str("<section class=\"evidence-heading\"><div><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Meta rank</h3>");
     body.push_str(&meta(p, true));
-    body.push_str("</section><section class=\"public-panel\"><h3>Real-game win rate</h3>");
+    body.push_str("</section><section class=\"public-panel\"><h3>Real games</h3>");
     body.push_str(&real(p, true));
     body.push_str("</section>");
     for source in data.publication.iter().chain(data.comparisons.iter()) {
@@ -932,11 +1048,16 @@ pub(super) async fn methodology(
         "<section id=\"v2\"><p class=\"eyebrow\">Experimental / v2</p><h2>Rating v2: the default rank</h2><p>Rating v2 estimates each stock precon’s four-player win rate from real games, read over time. A real-game source reports cumulative snapshots; the games played between two snapshots give that period’s rate. Periods are pooled to at least 40 games and weighted towards recent play with a 180-day half-life, and a precon’s trend is the change in those rates per month. Uploading a new dataset revision updates every rank within minutes.</p><p>The simulation joins in only on merit. It is one engine’s games, named below, from tournaments of stock precons in balanced four-player pods, pooled across runs of one engine version and counting only pods of four stock lists. We choose Forge, whose results have tracked real games more closely than Phase’s. Precons are ranked by the low end of their 90% interval, so a deck with a few lucky games can’t top the list. Every few minutes the rating rebuilds a test: freeze everything known six weeks ago, predict each precon’s real games since, and compare. The simulation gets weight beside real games only when that combined prediction beats real games alone, with a 90% interval clear of zero. Until then it ranks only precons with no real games, mapped onto the real-game scale. Each estimated win rate shows a 90% interval, and each rank a range drawn from that uncertainty; the share of weight from real games is on each deck’s page.</p><p>{}</p><p>Real-game results come from different pilots, opponents and selection effects than our simulation, and none of this is a forecast for your table. Decks with neither real games nor a simulated result stay unranked.</p></section>",
         match &rating {
             Some(info) => format!(
-                "Currently {} precons, as of {}. Real-game sources: {}. {}",
+                "Currently {} precons, as of {}. Real-game sources for stock lists: {}. {}{}{}",
                 info.ranked,
                 when(&info.as_of.format("%Y-%m-%d").to_string()),
                 sources_line(info),
-                info.simulation.as_deref().map(|n| format!("Simulation: {}. ", e(n))).unwrap_or_default() + simulation_test(info)
+                info.simulation.as_deref().map(|n| format!("Simulation: {}. ", e(n))).unwrap_or_default() + simulation_test(info) + &commander_test(info),
+                match commander_sources(Some(info)).as_slice() {
+                    [] => String::new(),
+                    names => format!(" Shown beside the rank, not in it: {}, by commander.", e(&names.join(" and "))),
+                },
+                source_credits(info)
             ),
             None => "No real-game source is enabled, so the pages fall back to meta rank v1 below.".into(),
         }
@@ -968,7 +1089,7 @@ pub(super) async fn methodology(
     } else {
         body.push_str("<p>No simulation ranking has been published yet.</p>");
     }
-    body.push_str("</section><section id=\"real\"><h2>Real-game evidence</h2><p><a href=\"https://playgroup.gg/commander/precons\">Playgroup.gg</a> supplies attributed aggregate stock-precon results, normalised to a four-player baseline. These are not raw binomial win counts. Its source rules describe stock matching and pilot eligibility; the opponents and pilots differ from our simulation. Yama’s catalog rank is among mapped precons and may differ from the source’s full ranking. Open any deck for its game count and fetch date.</p><p>The same real results may already inform simulation confidence labels. They are not an independent validation set for those labels, the meta score or a future calibrated forecast.</p></section><section id=\"sources\"><p class=\"eyebrow\">Provenance</p><h2>Lists, prices and publication</h2><p><a href=\"https://mtgjson.com/data-models/deck/\">MTGJSON</a> supplies stock-list data. Each published simulation is checked against its original index and stock lists. Changed lists lose the old result; missing results remain missing.</p><p>Singles replacement estimates use TCGplayer market data via <a href=\"https://scryfall.com\">Scryfall</a>. Sealed references use TCGplayer product data via <a href=\"https://tcgcsv.com\">TCGCSV</a>. Each price carries its cached date. Missing copies make a singles total partial; neither estimate proves store availability, a checkout price or resale proceeds. <a href=\"https://edhrec.com/precons\">EDHREC</a> links offer upgrade ideas and guides, not measured win-rate improvements.</p><p>Publication is deliberate. Imports do not automatically replace the reviewed public snapshots. Only stock catalog data and explicitly reviewed benchmark projections are public. Personal decks, collections, games, experiments and account information remain private. Reading these pages never starts simulations.</p><h3>Content rights</h3><p>All rights reserved in Yama’s original software, written analysis and presentation. Third-party material remains with its owners. This notice does not claim exclusive rights in facts, game rules, card lists or ideas. See <a href=\"/tos/#rights\">content rights and reuse</a>.</p></section></div>");
+    body.push_str("</section><section id=\"real\"><h2>Real-game evidence</h2><p><a href=\"https://playgroup.gg/commander/precons\">Playgroup.gg</a> supplies attributed aggregate stock-precon results, normalised to a four-player baseline. These are not raw binomial win counts. Its source rules describe stock matching and pilot eligibility; the opponents and pilots differ from our simulation. Yama’s catalog rank is among mapped precons and may differ from the source’s full ranking. Open any deck for its game count and fetch date.</p><p>Some sources record games by commander rather than by stock list. <a href=\"https://mythic.tools\">Mythic Tools</a> is one: Yama derives each commander’s wins over every game its players recorded under it. A deck shows that figure as “any list” when its commanders match exactly (a partner pair as a pair). It mixes stock and upgraded lists, pod sizes and power levels, so a 25% rate isn’t the even share for four players and the figure says more about the commander than the stock list. It never changes the rank of a precon with stock games. For a precon without them, rating v2 maps it onto the stock-list scale beside the simulation, fitted on the precons that have stock games, but only while that beats the simulation alone with each of those precons left out in turn (see Rating v2 above). A source that rates stock lists, such as Playgroup.gg, isn’t repeated by commander.</p><p>The same real results may already inform simulation confidence labels. They are not an independent validation set for those labels, the meta score or a future calibrated forecast.</p></section><section id=\"sources\"><p class=\"eyebrow\">Provenance</p><h2>Lists, prices and publication</h2><p><a href=\"https://mtgjson.com/data-models/deck/\">MTGJSON</a> supplies stock-list data. Each published simulation is checked against its original index and stock lists. Changed lists lose the old result; missing results remain missing.</p><p>Singles replacement estimates use TCGplayer market data via <a href=\"https://scryfall.com\">Scryfall</a>. Sealed references use TCGplayer product data via <a href=\"https://tcgcsv.com\">TCGCSV</a>. Each price carries its cached date. Missing copies make a singles total partial; neither estimate proves store availability, a checkout price or resale proceeds. <a href=\"https://edhrec.com/precons\">EDHREC</a> links offer upgrade ideas and guides, not measured win-rate improvements.</p><p>Publication is deliberate. Imports do not automatically replace the reviewed public snapshots. Only stock catalog data and explicitly reviewed benchmark projections are public. Personal decks, collections, games, experiments and account information remain private. Reading these pages never starts simulations.</p><h3>Content rights</h3><p>All rights reserved in Yama’s original software, written analysis and presentation. Third-party material remains with its owners. This notice does not claim exclusive rights in facts, game rules, card lists or ideas. See <a href=\"/tos/#rights\">content rights and reuse</a>.</p></section></div>");
     Ok(response(
         &headers,
         page(
@@ -1070,6 +1191,23 @@ pub(super) async fn sitemap(
     }
     body.push_str("</urlset>");
     Ok(cached(&headers, body, "application/xml; charset=utf-8"))
+}
+
+/// Whether a commander-only source helps rank precons without stock games, in a sentence (or nothing).
+fn commander_test(info: &v2::Info) -> String {
+    let Some(t) = &info.commander else { return String::new() };
+    let against = if info.simulation.is_some() { "the simulation alone" } else { "the average" };
+    match (t.used, t.error_without, t.error_with) {
+        (true, Some(a), Some(b)) => format!(
+            " For precons without stock games, {}’s games under the same commander join in: predicting each of {} precons with stock games from the others, adding them cut the error from {:.1} to {:.1} squared points against {against}.",
+            e(&t.source), t.precons, a, b
+        ),
+        (false, Some(a), Some(b)) => format!(
+            " {}’s games under the same commander don’t join the rank: predicting each of {} precons with stock games from the others, they didn’t beat {against} ({:.1} against {:.1} squared points).",
+            e(&t.source), t.precons, b, a
+        ),
+        _ => format!(" {}’s games under the same commander don’t join the rank: too few precons with stock games to test them.", e(&t.source)),
+    }
 }
 
 /// Whether the simulation counts beside real games, in a sentence.

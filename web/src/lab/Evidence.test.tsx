@@ -37,6 +37,12 @@ describe("EvidenceSection", () => {
     expect(html).toContain("CC BY 4.0");
     expect(renderToStaticMarkup(<EvidenceSection evidence={null} />)).toBe("");
   });
+
+  it("shows a commander-only source's figure for every list", () => {
+    const source = { name: "Mythic Tools", attribution: "Derived from Mythic Tools.", license: "Derived rates only", datasets: [] };
+    const html = renderToStaticMarkup(<EvidenceSection evidence={{ real: null, commander: null, all_lists: [{ source, name: "Ghalta, Primal Hunger", rate: 44.35, games: 7984, decks: 3077, note: "Every list." }] }} />);
+    expect(html).toContain("Commander, any list: Ghalta, Primal Hunger won 44.4% of 7,984 games from 3,077 decks on Mythic Tools.");
+  });
   it("words trends", () => {
     expect(trendText(-1.24)).toBe("Falling about 1.2 points a month.");
     expect(trendText(0.2)).toBe("Steady over the snapshots.");

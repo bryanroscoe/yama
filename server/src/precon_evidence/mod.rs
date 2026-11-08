@@ -36,6 +36,8 @@ weighted by games and a 180-day recency half-life at each interval's midpoint. T
 than raw wins, so these are approximations without binomial intervals.";
 pub const COMMANDER_NOTE: &str = "Every list recorded under this commander: stock and upgraded lists, pod sizes and power levels mixed. \
 Not a rating of this precon's list and never part of its real-game rate.";
+pub const ALL_LISTS_NOTE: &str = "Wins over every game the source recorded under this commander: stock and upgraded lists, every pod size \
+and power level. Not a rating of this precon's list and never part of its rank.";
 const PRECON_PREFIX: &str = "playgroup:precon:";
 const COMMANDER_PREFIX: &str = "playgroup:commander:";
 /// Commander windows to show, in order of preference.
@@ -102,6 +104,21 @@ pub struct CommanderObservation {
     pub note: &'static str,
 }
 
+/// A source's figure for every list under the precon's commanders, from its per-commander records
+/// (Mythic Tools' are the reason it exists). Shown for each source that doesn't rate the stock list
+/// itself; it never enters the precon's real-game rate or rating.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommanderLists {
+    pub source: SourceLabel,
+    pub name: String,
+    /// Wins over all reported games, percent. Pod sizes are mixed, so 25% isn't the even share.
+    pub rate: f64,
+    pub games: u64,
+    /// Decks or pilots behind the games, when the source reports them.
+    pub decks: Option<u64>,
+    pub note: &'static str,
+}
+
 impl PreconEvidence {
     /// The same evidence without each history's snapshots, intervals and notes, for lists.
     pub fn summary(mut self) -> Self {
@@ -122,6 +139,9 @@ pub struct PreconEvidence {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<RealHistory>,
     pub commander: Option<CommanderObservation>,
+    /// Each other source's figure for every list under the commander, most games first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub all_lists: Vec<CommanderLists>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -192,6 +212,8 @@ struct CatalogPrecon {
     playgroup_url: Option<String>,
     playgroup_id: Option<i64>,
     reference_matches: bool,
+    /// The commanders' sorted Oracle ids joined by `+`, as commander records are keyed.
+    commander_key: Option<String>,
 }
 
 fn norm_url(u: &str) -> String {
@@ -260,8 +282,18 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
     .await?
     .into_iter()
     .map(|(id, name, playgroup_name, playgroup_url, playgroup_id, cards)| {
-        let reference_matches = serde_json::from_str::<Vec<crate::lab::PreconCard>>(&cards)
-            .is_ok_and(|c| crate::upgradeability::allows_reference_results(&id, &c));
+        let cards = serde_json::from_str::<Vec<crate::lab::PreconCard>>(&cards).ok();
+        let reference_matches = cards.as_ref().is_some_and(|c| crate::upgradeability::allows_reference_results(&id, c));
+        // A commander Yama's card data doesn't know leaves no key, so a partner pair never reads as one card.
+        let commanders: Option<std::collections::BTreeSet<&str>> = cards
+            .iter()
+            .flatten()
+            .filter(|c| c.board == crate::decks::Board::Commander)
+            .map(|c| c.oracle_id.as_deref())
+            .collect();
+        let commander_key = commanders
+            .filter(|c| !c.is_empty())
+            .map(|c| c.into_iter().collect::<Vec<_>>().join("+"));
         CatalogPrecon {
             id,
             name,
@@ -269,6 +301,7 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
             playgroup_url,
             playgroup_id,
             reference_matches,
+            commander_key,
         }
     })
     .collect();
@@ -595,6 +628,38 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
         if ev.real.is_some() {
             ev.commander = None;
         }
+    }
+    // Every list under the commander, from each source that rates no stock list (Mythic Tools): a
+    // source that rates stock lists already speaks for its precons, or stands in by commander above.
+    let stock_sources: HashSet<String> = by_precon
+        .values()
+        .flat_map(|ev| ev.real.iter().chain(ev.also.iter()))
+        .map(|r| r.source.name.clone())
+        .collect();
+    let figures = crate::public_commanders::precon_source_figures(pool).await?;
+    let labels: HashMap<&str, &SourceLabel> = report.source_labels.iter().map(|l| (l.name.as_str(), l)).collect();
+    for p in &catalog {
+        let Some(key) = &p.commander_key else { continue };
+        for (source, by_key) in figures.iter().filter(|(s, _)| !stock_sources.contains(*s)) {
+            let (Some(f), Some(label)) = (by_key.get(key), labels.get(source.as_str())) else {
+                continue;
+            };
+            if !(f.win_rate.is_finite() && (0.0..=1.0).contains(&f.win_rate)) {
+                continue;
+            }
+            let ev = by_precon.entry(p.id.clone()).or_default();
+            ev.all_lists.push(CommanderLists {
+                source: (*label).clone(),
+                name: f.name.clone(),
+                rate: 100.0 * f.win_rate,
+                games: f.games,
+                decks: f.decks,
+                note: ALL_LISTS_NOTE,
+            });
+        }
+    }
+    for ev in by_precon.values_mut() {
+        ev.all_lists.sort_by(|a, b| b.games.cmp(&a.games).then_with(|| a.source.name.cmp(&b.source.name)));
     }
     report.catalog_without_real_games = catalog
         .iter()
@@ -1175,6 +1240,9 @@ pub struct V2Estimate {
     pub hi: f64,
     /// Share of the estimate's precision that comes from real games (0–1).
     pub real_share: f64,
+    /// The commander-only source (Mythic Tools) whose figure the estimate used, for a precon without stock games.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commander_source: Option<String>,
     pub rank: usize,
     /// 90% range of the rank, by simulation from each estimate's uncertainty.
     pub rank_lo: usize,
@@ -1191,6 +1259,8 @@ pub struct RatingV2 {
     /// Whether the simulation earned a place beside real games in the time-split test.
     pub gate_passed: bool,
     pub calibration: Option<calibration::Evaluation>,
+    /// The commander-only source's leave-one-out test, when there is one.
+    pub commander: Option<CommanderTest>,
     pub split: DateTime<Utc>,
     pub ranked: usize,
     pub precons: Vec<V2Estimate>,
@@ -1199,7 +1269,95 @@ pub struct RatingV2 {
 
 const V2_NOTE: &str = "Experimental. Real games and the simulation's strength on one scale, each weighted by how precise it has \
 proved: the simulation counts beside real games only if it passed the time-split test, and otherwise ranks only precons without \
-real games. Ranked by the low end of each 90% interval, so thin evidence can't top the list. Not a forecast for any particular table.";
+real games. For those, a commander-only source's figure (Mythic Tools' games under the same commander) joins the simulation when, \
+fitted on the precons with stock games and each left out in turn, it predicts their rates better than the simulation alone. Ranked \
+by the low end of each 90% interval, so thin evidence can't top the list. Not a forecast for any particular table.";
+
+/// Whether a commander-only source earns a place in rating v2, for precons without stock games.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommanderTest {
+    pub source: String,
+    /// Precons with stock games, the source's figure and (with a simulation) a strength: the test cases.
+    pub precons: usize,
+    /// Leave-one-out error in squared points, without the figure (the simulation alone, or the
+    /// average without one) and with it.
+    pub error_without: Option<f64>,
+    pub error_with: Option<f64>,
+    pub used: bool,
+}
+
+/// A commander-only source fitted onto the stock-list scale.
+struct CommanderModel {
+    /// Its figure (percent) by catalog precon.
+    figures: HashMap<String, f64>,
+    /// Rate on (log strength, figure), and on the figure alone for precons the simulation doesn't cover.
+    with_sim: Option<calibration::Fit>,
+    alone: Option<calibration::Fit>,
+    test: CommanderTest,
+}
+
+impl CommanderModel {
+    /// The estimate and its variance for a precon without stock games, when the figure passed its test.
+    fn estimate(&self, id: &str, sim: Option<f64>) -> Option<(f64, f64, String)> {
+        if !self.test.used {
+            return None;
+        }
+        let c = *self.figures.get(id)?;
+        let (rate, var) = match (sim, &self.with_sim) {
+            (Some(s), Some(f)) => (f.rate(&[s.ln(), c]), f.variance),
+            _ => {
+                let f = self.alone.as_ref()?;
+                (f.rate(&[c]), f.variance)
+            }
+        };
+        Some((rate, var, self.test.source.clone()))
+    }
+}
+
+/// The commander-only source covering the most precons with stock games, fitted beside the
+/// simulation on those precons and tested by leaving each out in turn. It never touches a precon
+/// with stock games, and it has one snapshot, so the time-split test can't judge it.
+fn commander_model(
+    evidence: &HashMap<String, PreconEvidence>,
+    reals: &HashMap<&str, calibration::Real>,
+    simulation: Option<&SimSource>,
+) -> Option<CommanderModel> {
+    let mut coverage: BTreeMap<&str, usize> = BTreeMap::new();
+    for (id, ev) in evidence {
+        for f in &ev.all_lists {
+            *coverage.entry(f.source.name.as_str()).or_default() += usize::from(reals.contains_key(id.as_str()));
+        }
+    }
+    let source = coverage.iter().max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))?.0.to_string();
+    let figures: HashMap<String, f64> = evidence
+        .iter()
+        .filter_map(|(id, ev)| Some((id.clone(), ev.all_lists.iter().find(|f| f.source.name == source)?.rate)))
+        .collect();
+    let strength = |id: &str| simulation.and_then(|s| s.strengths.get(id).copied()).filter(|s| *s > 0.0);
+    let mut cases: Vec<(&str, f64, Option<f64>, calibration::Real)> = reals
+        .iter()
+        .filter_map(|(id, r)| Some((*id, *figures.get(*id)?, strength(id), *r)))
+        .collect();
+    cases.sort_by(|a, b| a.0.cmp(b.0));
+    let alone_points: Vec<(Vec<f64>, calibration::Real)> = cases.iter().map(|c| (vec![c.1], c.3)).collect();
+    let alone = calibration::fit(&alone_points);
+    let (with_sim, error_without, error_with, precons) = if simulation.is_some() {
+        let both: Vec<_> = cases.iter().filter_map(|c| Some((c.2?.ln(), c.1, c.3))).collect();
+        let with: Vec<(Vec<f64>, calibration::Real)> = both.iter().map(|(s, c, r)| (vec![*s, *c], *r)).collect();
+        let without: Vec<(Vec<f64>, calibration::Real)> = both.iter().map(|(s, _, r)| (vec![*s], *r)).collect();
+        (calibration::fit(&with), calibration::loo_error(&without), calibration::loo_error(&with), with.len())
+    } else {
+        let without: Vec<(Vec<f64>, calibration::Real)> = cases.iter().map(|c| (Vec::new(), c.3)).collect();
+        (None, calibration::loo_error(&without), calibration::loo_error(&alone_points), cases.len())
+    };
+    let used = matches!((error_without, error_with), (Some(a), Some(b)) if b < a);
+    Some(CommanderModel {
+        figures,
+        with_sim,
+        alone,
+        test: CommanderTest { source, precons, error_without, error_with, used },
+    })
+}
 
 /// Normal deviates from a deterministic stream (Box–Muller on xorshift).
 struct Normal(u64);
@@ -1281,15 +1439,28 @@ pub async fn rating_v2_from(
         .collect();
     let mapping = calibration::mapping(&current);
     let reals: HashMap<&str, calibration::Real> = current.iter().filter_map(|c| Some((c.precon.as_str(), c.train?))).collect();
+    let commander = commander_model(&evidence, &reals, simulation.as_ref());
     let mut ids: Vec<&str> = reals.keys().copied().collect();
     if let Some(s) = &simulation {
         ids.extend(s.strengths.keys().map(String::as_str).filter(|id| !reals.contains_key(id)));
     }
+    if let Some(c) = commander.as_ref().filter(|c| c.test.used) {
+        ids.extend(c.figures.keys().map(String::as_str).filter(|id| !reals.contains_key(id)));
+    }
     ids.sort();
-    let mut rows: Vec<(String, f64, f64, f64)> = Vec::new();
+    ids.dedup();
+    // (precon, rate, variance, real share, the commander source when its figure counted)
+    let mut rows: Vec<(String, f64, f64, f64, Option<String>)> = Vec::new();
     for id in ids {
         let real = reals.get(id).copied();
-        let sim = simulation.as_ref().and_then(|s| s.strengths.get(id).copied());
+        let sim = simulation.as_ref().and_then(|s| s.strengths.get(id).copied()).filter(|s| *s > 0.0);
+        // Without stock games, a commander figure that passed its test joins the simulation.
+        if real.is_none() {
+            if let Some((rate, var, source)) = commander.as_ref().and_then(|c| c.estimate(id, sim)) {
+                rows.push((id.to_string(), rate, var, 0.0, Some(source)));
+                continue;
+            }
+        }
         // Without a passed gate, the simulation only speaks for precons real games don't cover.
         let sim = if gate_passed || real.is_none() { sim } else { None };
         let Some((rate, var)) = calibration::combine(real, sim, mapping.as_ref()) else {
@@ -1300,7 +1471,7 @@ pub async fn rating_v2_from(
             (Some(_), false) => 1.0,
             (None, _) => 0.0,
         };
-        rows.push((id.to_string(), rate, var, real_share));
+        rows.push((id.to_string(), rate, var, real_share, None));
     }
     let z = 1.644_853_626_951_472_2;
     let low = |rate: f64, var: f64| (rate - z * var.sqrt()).max(0.0);
@@ -1317,7 +1488,7 @@ pub async fn rating_v2_from(
     let mut precons: Vec<V2Estimate> = rows
         .iter()
         .zip(draws.iter_mut())
-        .map(|((id, rate, var, share), d)| {
+        .map(|((id, rate, var, share, commander_source), d)| {
             d.sort_unstable();
             V2Estimate {
                 precon: id.clone(),
@@ -1325,6 +1496,7 @@ pub async fn rating_v2_from(
                 lo: low(*rate, *var),
                 hi: (rate + z * var.sqrt()).min(100.0),
                 real_share: *share,
+                commander_source: commander_source.clone(),
                 // Ranked by the low end of the 90% interval, so a few lucky games can't top the list.
                 rank: 1 + rows.iter().filter(|r| low(r.1, r.2) > low(*rate, *var) + 1e-9).count(),
                 rank_lo: d[d.len() / 20],
@@ -1340,6 +1512,7 @@ pub async fn rating_v2_from(
         mapping,
         gate_passed,
         calibration,
+        commander: commander.map(|c| c.test),
         split,
         ranked: precons.len(),
         precons,

@@ -24,6 +24,8 @@ pub struct Info {
     pub simulation: Option<String>,
     pub ranked: usize,
     pub sources: Vec<Source>,
+    /// Whether a commander-only source (Mythic Tools) earned a place for precons without stock games.
+    pub commander: Option<precon_evidence::CommanderTest>,
     pub note: &'static str,
 }
 
@@ -34,6 +36,20 @@ pub struct Source {
     pub name: String,
     pub attribution: String,
     pub license: String,
+    /// Whether it rates stock lists, and so feeds the rating. A source that only has per-commander
+    /// figures (Mythic Tools) is shown beside the rank, never in it.
+    pub stock_lists: bool,
+}
+
+/// One source's figure for every list under a precon's commanders: wins over all reported games.
+#[derive(Clone, Serialize)]
+pub struct CommanderGames {
+    pub source: String,
+    pub commander: String,
+    /// Percent; pods of every size, so 25% isn't the even share.
+    pub rate: f64,
+    pub games: u64,
+    pub decks: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -61,10 +77,12 @@ pub struct Row {
     pub hi: f64,
     /// Share of the estimate's precision from real games (0–1).
     pub real_share: f64,
+    /// The commander-only source whose figure the estimate used, for a precon without stock games.
+    pub commander_source: Option<String>,
     pub real: Option<Real>,
 }
 
-type Table = Arc<(Info, HashMap<String, Row>)>;
+type Table = Arc<(Info, HashMap<String, Row>, HashMap<String, Vec<CommanderGames>>)>;
 /// The rating, kept until its inputs change (derived.rs).
 static TABLE: crate::derived::Kept<Table> = crate::derived::Kept::new("public precons rating rebuild");
 
@@ -98,6 +116,12 @@ pub(crate) async fn key(pool: &SqlitePool) -> AppResult<String> {
 async fn derive(pool: &SqlitePool) -> AppResult<Table> {
     let as_of = Utc::now();
     let loaded = precon_evidence::load(pool, as_of).await?;
+    let rating_sources: std::collections::HashSet<&str> = loaded
+        .by_precon
+        .values()
+        .flat_map(|ev| ev.real.iter().chain(ev.also.iter()))
+        .map(|r| r.source.name.as_str())
+        .collect();
     let sources: Vec<Source> = loaded
         .report
         .source_labels
@@ -106,6 +130,26 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
             name: s.name.clone(),
             attribution: s.attribution.clone(),
             license: s.license.clone(),
+            stock_lists: rating_sources.contains(s.name.as_str()),
+        })
+        .collect();
+    let lists: HashMap<String, Vec<CommanderGames>> = loaded
+        .by_precon
+        .iter()
+        .filter(|(_, ev)| !ev.all_lists.is_empty())
+        .map(|(id, ev)| {
+            let figures = ev
+                .all_lists
+                .iter()
+                .map(|f| CommanderGames {
+                    source: f.source.name.clone(),
+                    commander: f.name.clone(),
+                    rate: f.rate,
+                    games: f.games,
+                    decks: f.decks,
+                })
+                .collect();
+            (id.clone(), figures)
         })
         .collect();
     let real: HashMap<String, Real> = loaded
@@ -138,9 +182,10 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
             simulation: None,
             ranked: 0,
             sources,
+            commander: None,
             note: "",
         };
-        return Ok(Arc::new((info, HashMap::new())));
+        return Ok(Arc::new((info, HashMap::new(), lists)));
     }
     // A choice that no longer qualifies (a list changed) drops the simulation, not the rating.
     let simulation = precon_evidence::chosen_simulation(pool).await.unwrap_or_else(|e| {
@@ -162,6 +207,7 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
                     lo: e.lo,
                     hi: e.hi,
                     real_share: e.real_share,
+                    commander_source: e.commander_source.clone(),
                     real: real.get(&e.precon).cloned(),
                 },
             )
@@ -175,9 +221,10 @@ async fn derive(pool: &SqlitePool) -> AppResult<Table> {
         simulation: v2.simulation.map(|s| s.name),
         ranked: v2.ranked,
         sources,
+        commander: v2.commander,
         note: v2.note,
     };
-    Ok(Arc::new((info, table)))
+    Ok(Arc::new((info, table, lists)))
 }
 
 async fn table(pool: &SqlitePool) -> AppResult<Table> {
@@ -214,10 +261,11 @@ pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<
             return Ok(None);
         }
     };
-    let (info, by_id) = &*table;
+    let (info, by_id, lists) = &*table;
     let active = info.ranked > 0;
     for row in rows.iter_mut() {
         row.v2 = by_id.get(&row.id).cloned();
+        row.commander_games = lists.get(&row.id).cloned().unwrap_or_default();
         // One rank per page: while v2 is active, a deck it doesn't rank is unranked, not v1-ranked.
         if active {
             row.meta = None;
