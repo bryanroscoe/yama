@@ -2,7 +2,7 @@
 // design/system/components/SectionTabs): a sticky strip of a long page's 3-5 sections, so you jump
 // between them instead of scrolling through stacked disclosures. These are jump links to sections
 // that all stay open; the one in view is marked current.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
 export interface SectionTab {
@@ -56,14 +56,29 @@ export function SectionTabs({ tabs, label = "Sections" }: { tabs: SectionTab[]; 
  * History). Each tab is a link, so the back button and a shared link land on the same tab.
  */
 export function PageTabs({ tabs, current, hrefFor, label = "Sections" }: { tabs: SectionTab[]; current: string; hrefFor: (id: string) => string; label?: string }) {
+  // A new tab opens at its start: when the strip is stuck to the top (the page scrolled past it),
+  // scroll back to where it sits, so the tab's content starts just under it.
+  const mark = useRef<HTMLSpanElement>(null);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const top = mark.current?.getBoundingClientRect().top;
+    if (top != null && top < 0) window.scrollTo({ top: window.scrollY + top });
+  }, [current]);
   return (
+    <>
+    <span ref={mark} aria-hidden="true" />
     <nav className="section-tabs" aria-label={label}>
       {tabs.map((t) => (
-        <Link key={t.id} to={hrefFor(t.id)} replace aria-current={current === t.id ? "page" : undefined}>
+        <Link key={t.id} to={hrefFor(t.id)} aria-current={current === t.id ? "page" : undefined}>
           {t.label}
           {t.note != null && t.note !== "" && <span>{t.note}</span>}
         </Link>
       ))}
     </nav>
+    </>
   );
 }

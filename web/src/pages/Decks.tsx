@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, priceSource, shortDate, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
@@ -205,15 +205,11 @@ export function DeckPage() {
   const askOffered = useAskClaudeOffered();
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
-  // The deck's sections are tabs (design/tokens.md, rule 4): Cards, Stats, History, in the address.
-  const tab = (["stats", "history"] as const).find((t) => t === search.get("tab")) ?? "cards";
-  const tabHref = (t: string) => {
-    const q = new URLSearchParams(search);
-    if (t === "cards") q.delete("tab");
-    else q.set("tab", t);
-    const qs = q.toString();
-    return `/decks/${id}${qs ? `?${qs}` : ""}`;
-  };
+  // The deck's sections are tabs (design/tokens.md, rule 4; deck page SPEC): Cards at /decks/:id,
+  // Stats and History at /decks/:id/stats and /history, so links and Back land on the same tab.
+  const { pathname } = useLocation();
+  const tab = (["stats", "history"] as const).find((t) => pathname.endsWith(`/${t}`)) ?? "cards";
+  const tabHref = (t: string) => `/decks/${id}${t === "cards" ? "" : `/${t}`}${search.size ? `?${search}` : ""}`;
   const offer = search.get("collect") === "1";
   const [collecting, setCollecting] = useState(offer);
   const closeCollect = () => {
