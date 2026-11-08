@@ -777,6 +777,9 @@ function deckMatches(q: string, name: string, words: string[]): boolean {
   return fold(q).split(/\s+/).every((w) => hay.includes(w));
 }
 
+/** No decks of yours, the same list each render (so what's built from it is kept). */
+const NO_DECKS: DeckSummary[] = [];
+
 /** Precons listed with nothing typed: the newest, since there are hundreds. */
 const PRECONS_BROWSED = 60;
 
@@ -862,7 +865,7 @@ function pickName(p: DeckPick): string {
  * Picking one names its commanders; the commander fields stay the other way to say what the seat
  * played.
  */
-export function DeckSearch({ text, onText, onPick, decks = [], handle, who, playgroupId, yours, onLeave, trailing }: {
+export function DeckSearch({ text, onText, onPick, decks = NO_DECKS, handle, who, playgroupId, yours, onLeave, trailing }: {
   text: string;
   onText: (t: string) => void;
   onPick: (p: DeckPick) => void;
@@ -899,7 +902,7 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, who, play
     enabled: !isGuest() && !!playgroupId,
   });
   const me = useMe().data;
-  const played = useMemo(() => playedDecks(mergeGames(games.data, groupGames.data), me?.id), [games.data, groupGames.data, me?.id]);
+  const played = useMemo(() => playedDecks(mergeGames(games.data, groupGames.data), me?.id, decks), [games.data, groupGames.data, me?.id, decks]);
   const scopes = deckScopes({ who, yours, played: played.length > 0, mine: decks.length > 0 });
   // A filter that's gone (the seat became yours) falls back to all.
   const shownScope = scopes.some((s) => s.key === scope) ? scope : "all";

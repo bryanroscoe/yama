@@ -60,16 +60,21 @@ export function samePerson(a: DeckOwner, b: DeckOwner): boolean {
  * as they're called now. A seat that played one of your Yama decks is left out (your decks are
  * listed as themselves), as are AI seats and temporary labels ("Player 2"). The server keeps a
  * seat's deck version only for the seated account's own deck or, on a guest's seat, a deck the
- * recorder lent, so a version on your seat or a guest's is yours, and one on another account's
- * seat is theirs and stays.
+ * game's recorder lent. So a version on your own seat is yours; one on another account's seat is
+ * theirs and stays; one on a guest's seat is yours only when it's one of your decks (its current
+ * version, or a lent deck's name), since another member may have logged the game and lent theirs.
  */
-export function playedDecks(games: GameRow[] | undefined, me?: string): PlayedDeck[] {
+export function playedDecks(games: GameRow[] | undefined, me?: string, mine: { name: string; current_version_id?: string | null }[] = []): PlayedDeck[] {
+  const yourVersions = new Set(mine.flatMap((d) => (d.current_version_id ? [d.current_version_id] : [])));
+  const yourNames = new Set(mine.map((d) => fold(d.name)));
   const out = new Map<string, PlayedDeck>();
   const newest = [...(games ?? [])].sort((a, b) => b.started_at.localeCompare(a.started_at));
   for (const g of newest) {
     for (const s of g.seats) {
       const player = s.display_name?.trim() ?? "";
-      const yourDeck = !!s.deck_version_id && (!s.user_id || s.user_id === me);
+      const yourDeck =
+        !!s.deck_version_id &&
+        (s.user_id ? s.user_id === me : yourVersions.has(s.deck_version_id) || (!!s.deck_label && yourNames.has(fold(s.deck_label))));
       if (s.ai_kind || yourDeck || !player || isPlaceholderName(player)) continue;
       const { commander, partner } = splitPair(s);
       const label = s.deck_label?.trim() ?? "";

@@ -52,7 +52,9 @@ describe("playedDecks", () => {
         { member_id: "m-matt", display_name: "Matt", deck_version_id: "lent-v", deck_label: "Eternal Might", commander_name: "Varina, Lich Queen" },
       ]),
     ];
-    expect(playedDecks(withVersions, "me").map((d) => `${d.player}:${d.name}`)).toEqual(["Chelsey:Kaalia"]);
+    expect(playedDecks(withVersions, "me", [{ name: "Eternal Might", current_version_id: "other" }]).map((d) => `${d.player}:${d.name}`)).toEqual(["Chelsey:Kaalia"]);
+    // A guest who borrowed another member's deck (they logged the game) keeps it.
+    expect(playedDecks(withVersions, "me", []).map((d) => `${d.player}:${d.name}`)).toEqual(["Chelsey:Kaalia", "Matt:Eternal Might"]);
   });
 
   it("finds one person's decks under their member row and their typed name", () => {
