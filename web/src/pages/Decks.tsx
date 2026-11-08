@@ -461,7 +461,7 @@ export function DeckPage() {
         {groups.length === 0 && layout !== "prices" && <p className="empty">Nothing left to get for this deck.</p>}
 
         <div hidden={layout !== "text"}><DeckTextList key={d.id} deck={d} drafts={textDrafts.current} /></div>
-        {layout === "prices" && <DeckPriceList deck={d} onOpen={setOpen} />}
+        {layout === "prices" && <DeckPriceList key={d.id} deck={d} onOpen={setOpen} />}
         {layout === "text" || layout === "prices" ? null : layout === "stacks" ? (
           <div className="deck-stacks-wrap">
             <div className="deck-stacks">

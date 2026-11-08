@@ -119,11 +119,19 @@ export function printingLabel(p: { set_code: string; collector_number: string })
   return `${p.set_code.toUpperCase()} ${p.collector_number}`;
 }
 
+/** ", proxy" or ", not owned" for a card that is all one kind ("" when all real); a card split
+ *  between kinds counts each, ", 8 real, 1 proxy, 2 not owned". */
+export function kindText(r: PriceRow): string {
+  const parts = ([[r.real, "real"], [r.proxy, r.proxy === 1 ? "proxy" : "proxies"], [r.need, "not owned"]] as const).filter(([n]) => n > 0);
+  if (parts.length > 1) return `, ${parts.map(([n, w]) => `${n} ${w}`).join(", ")}`;
+  return r.proxy ? ", proxy" : r.need ? ", not owned" : "";
+}
+
 /** The view as plain text to paste in a chat: one line a card, priciest first, then the total. */
 export function priceText(rows: PriceRow[], show: PriceShow, date: string, left?: { groups: string[]; rows: PriceRow[] }): string {
   const lines = rows.map((r) => {
     const n = copiesIn(r, show);
-    const kind = show !== "all" ? "" : r.proxy && !r.real && !r.need ? ", proxy" : r.proxy ? `, ${r.proxy} proxied` : r.need === r.qty ? ", not owned" : "";
+    const kind = show === "all" ? kindText(r) : "";
     const price = r.each == null ? "no price" : n > 1 ? `${usd(r.each * n)} (${usd(r.each)} each)` : usd(r.each);
     const where = r.cheapest ? ` at ${r.cheapest.set_name} (${printingLabel(r.cheapest)})` : "";
     return `${n} ${r.name}${kind}: ${price}${where}`;

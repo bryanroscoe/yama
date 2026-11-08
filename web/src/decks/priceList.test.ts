@@ -57,7 +57,7 @@ describe("the deck's price list", () => {
     expect(text.split("\n")).toEqual([
       "1 Plateau, proxy: $610.50 at Revised Edition (3ED 283)",
       "1 Sol Ring: $1.25 at Commander Masters (CMM 410)",
-      "11 Plains, 1 proxied: $1.10 ($0.10 each)",
+      "11 Plains, 8 real, 1 proxy, 2 not owned: $1.10 ($0.10 each)",
       "1 Unpriced Card, not owned: no price",
       "",
       "Total: $612.85 for 14 cards (1 without a price).",
