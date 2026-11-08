@@ -367,6 +367,16 @@ export interface PrintRef {
   from: "owned" | "default";
 }
 
+/** The printing behind a card's cheapest market price. */
+export interface CheapestPrinting {
+  scryfall_id: string;
+  set_code: string;
+  set_name: string;
+  collector_number: string;
+  /** The date of that price (YYYY-MM-DD). */
+  date?: string;
+}
+
 export interface DeckEntry extends DeckCard {
   card: Card | null;
   owned: number;
@@ -375,6 +385,8 @@ export interface DeckEntry extends DeckCard {
   locations: Record<string, number>;
   needed: number;
   cheapest_usd: number | null;
+  /** Servers from 2026-11-07 on; null with no price. */
+  cheapest_printing?: CheapestPrinting | null;
   printing: PrintRef | null;
   /** Colors of mana the card makes ("WUBRGC" letters), "" for none, null until loaded. */
   produced_mana: string | null;
