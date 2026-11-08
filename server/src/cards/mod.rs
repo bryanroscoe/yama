@@ -34,12 +34,20 @@ pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, ca
     cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank, cards.game_changer, cards.reserved";
 
 /// `Card::releases_on`, to select after [`CARD_COLUMNS`] from `cards`: the card's first release
-/// date when every printing is dated on or after the day its legality data was imported, so
-/// Scryfall's "not legal" may only mean "not out yet". An undated printing counts as out. It is
-/// compared with the import date, not today, because the legalities stay as imported (until the
-/// next oracle import) after release day.
+/// date when every printing is dated on or after the date of the Scryfall data its legality came
+/// from, so Scryfall's "not legal" may only mean "not out yet". That date is the source date of
+/// the last successful oracle import (the card's own import time when none is recorded), not
+/// today: the legalities stay as imported after release day, until the next oracle import.
+/// An undated printing counts as out. Only paper printings outside joke ("funny") sets qualify:
+/// digital-only cards and acorn cards stay not legal after release.
 pub const RELEASES_ON: &str = "(SELECT CASE WHEN COUNT(*) = COUNT(p.released_at) \
-        AND MIN(p.released_at) >= date(cards.updated_at) THEN MIN(p.released_at) END \
+        AND SUM(COALESCE(p.digital, 0)) = 0 AND SUM(COALESCE(p.set_type, '') = 'funny') = 0 \
+        AND MIN(p.released_at) >= COALESCE( \
+            (SELECT substr(COALESCE(r.source_updated_at, r.finished_at), 1, 10) FROM import_runs r \
+             WHERE r.kind = 'oracle_cards' AND r.error IS NULL AND r.finished_at IS NOT NULL \
+             ORDER BY r.finished_at DESC LIMIT 1), \
+            date(cards.updated_at)) \
+        THEN MIN(p.released_at) END \
     FROM printings p WHERE p.oracle_id = cards.oracle_id) AS releases_on";
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]

@@ -189,31 +189,39 @@ async fn prerelease_cards_save_with_a_note_and_other_illegal_cards_do_not() {
     let st = testutil::state().await;
     seed(&st).await;
     let (me, _) = account(&st, "me@example.com").await;
-    // Spock: out only in a set that hasn't released. Worf: released after his legality data was
-    // imported, which stays "not legal" until the next oracle import. Clown: not legal for good
-    // (out long before the import). Sol Ring: reprinted in the new set beside an undated printing.
-    for (id, name, released, imported) in [
-        ("spock", "Spock", "2999-01-01", "2026-11-01T00:00:00Z"),
-        ("worf", "Worf", "2026-11-05", "2026-11-01T00:00:00Z"),
-        ("clown", "Clown", "2017-12-08", "2026-11-01T00:00:00Z"),
+    // The legalities come from Scryfall data of 1 November, imported on the 20th.
+    sqlx::query("INSERT INTO import_runs (id,kind,source_updated_at,started_at,finished_at) VALUES ('r1','oracle_cards','2026-11-01T09:00:00Z','2026-11-20T00:00:00Z','2026-11-20T00:05:00Z')")
+        .execute(&st.pool).await.unwrap();
+    // Spock: out only in a set that hasn't released. Worf: released after the data was made,
+    // which says "not legal" until a newer import. Clown: not legal for good (out long before).
+    // Acorn and Alchemy: new, but from a joke set or digital only, so not legal after release
+    // either. Sol Ring: reprinted in the new set beside an undated printing.
+    for (id, name, released, set_type, digital) in [
+        ("spock", "Spock", "2999-01-01", "expansion", 0),
+        ("worf", "Worf", "2026-11-05", "commander", 0),
+        ("clown", "Clown", "2017-12-08", "funny", 0),
+        ("acorn", "Acorn", "2999-01-01", "funny", 0),
+        ("alchemy", "Alchemy", "2999-01-01", "alchemy", 1),
     ] {
-        sqlx::query("INSERT INTO cards (oracle_id,name,type_line,cmc,oracle_text,color_identity,legalities,game_changer,updated_at) VALUES (?,?,'Creature','1','','U','{\"commander\":\"not_legal\"}',0,?)")
-            .bind(id).bind(name).bind(imported).execute(&st.pool).await.unwrap();
+        sqlx::query("INSERT INTO cards (oracle_id,name,type_line,cmc,oracle_text,color_identity,legalities,game_changer,updated_at) VALUES (?,?,'Creature','1','','U','{\"commander\":\"not_legal\"}',0,'2026-11-20T00:01:00Z')")
+            .bind(id).bind(name).execute(&st.pool).await.unwrap();
         sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES (?,?)").bind(name).bind(id).execute(&st.pool).await.unwrap();
-        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,updated_at) VALUES (?,?,?,'new','New','1','en','[\"nonfoil\"]',0,?,'now')")
-            .bind(id).bind(id).bind(name).bind(released).execute(&st.pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,set_type,updated_at) VALUES (?,?,?,'new','New','1','en','[\"nonfoil\"]',?,?,?,'now')")
+            .bind(id).bind(id).bind(name).bind(digital).bind(released).bind(set_type).execute(&st.pool).await.unwrap();
     }
     sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,updated_at) VALUES ('ring-new','ring','Sol Ring','new','New','2','en','[\"nonfoil\"]',0,'2999-01-01','now')")
         .execute(&st.pool).await.unwrap();
     let info = crate::decks::card_info(
         &st.pool,
-        &["spock", "worf", "clown", "ring"].map(|id| DeckCard { oracle_id: id.into(), name: id.into(), qty: 1, board: Board::Main }),
+        &["spock", "worf", "clown", "acorn", "alchemy", "ring"].map(|id| DeckCard { oracle_id: id.into(), name: id.into(), qty: 1, board: Board::Main }),
     )
     .await
     .unwrap();
     assert_eq!(info["spock"].releases_on.as_deref(), Some("2999-01-01"));
     assert_eq!(info["worf"].releases_on.as_deref(), Some("2026-11-05"));
     assert_eq!(info["clown"].releases_on, None);
+    assert_eq!(info["acorn"].releases_on, None);
+    assert_eq!(info["alchemy"].releases_on, None);
     assert_eq!(info["ring"].releases_on, None); // the 'tst' printing has no date; a dated one is out or none is
     let via = Via::Question(Question::default());
     let list = "Commander\n1 Test Commander\nDeck\n1 Spock\n1 Worf\n97 Island";
