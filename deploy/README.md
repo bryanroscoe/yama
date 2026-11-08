@@ -197,8 +197,12 @@ its log to daily files on the data volume (2026-11-08, `server/src/request_log.r
 (`YAMA_LOG_DAYS`). Besides everything `docker logs` shows, it has a line for every write request
 (method, path without the query string, status, time and the account id that sent it), every
 MCP tool call with its account, and every `yama-server` command run with `docker exec` (its
-arguments, password and token values hidden). Request bodies are never logged. The lines
-name accounts, so treat the files like the database: read them on saget, don't copy them off.
+arguments, password and token values hidden). A write cut off before it was answered (the
+client went away) is logged with status 499: it may still have changed something. Request
+bodies are never logged, and email addresses are written as `[email]` in the files (`docker logs`
+still shows them). The lines name account ids, so treat the files like the database: read them
+on saget, don't copy them off. Run commands as the container's own user (no `docker exec -u 0`):
+a day's file made by root can't be written by the server.
 
 ```sh
 ssh saget 'grep -h "yama_server::writes" /mnt/user/appdata/yama/data/logs/yama.*.log | grep "user=ACCOUNT_ID" | tail -50'

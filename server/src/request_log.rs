@@ -18,15 +18,23 @@
 //!   password, token, key or secret flag hidden.
 //! - **MCP tool calls** say whose they were (`mcp/mod.rs`).
 //!
-//! Request bodies are never logged.
+//! Request bodies are never logged, and in the files anything shaped like an email address is
+//! written as `[email]` ([`FileFields`]): the files outlive deleted accounts by up to
+//! `YAMA_LOG_DAYS`, and an account id or a deck's id matches nothing once it is gone.
+//! `docker logs` is unchanged.
 
 use axum::extract::Request;
 use axum::http::{Extensions, Method};
 use axum::middleware::Next;
 use axum::response::Response;
+use std::borrow::Cow;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
+use tracing::field::{Field, Visit};
+use tracing_subscriber::field::{MakeVisitor, VisitFmt, VisitOutput};
+use tracing_subscriber::fmt::format::Writer;
 
 /// The target of the write and command lines, so they can be picked out (`grep "yama_server::writes"`).
 pub const TARGET: &str = "yama_server::writes";
@@ -55,27 +63,50 @@ fn is_write(method: &Method) -> bool {
     !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
 }
 
-/// Middleware: one log line per write request, after it is answered.
+/// Middleware: one log line per write request, once it is answered. A request dropped before
+/// that (the client went away, as a phone losing signal mid-sync does, or the handler panicked)
+/// still gets its line, with status 499: it may have changed something before it stopped.
 pub async fn log_writes(mut req: Request, next: Next) -> Response {
     if !is_write(req.method()) {
         return next.run(req).await;
     }
     let who = Who::default();
     req.extensions_mut().insert(who.clone());
-    let method = req.method().clone();
-    let path = req.uri().path().to_string();
-    let started = Instant::now();
+    let mut line = WriteLine { method: req.method().clone(), path: req.uri().path().to_string(), who, started: Instant::now(), done: false };
     let res = next.run(req).await;
-    tracing::info!(
-        target: TARGET,
-        method = %method,
-        path = %path,
-        status = res.status().as_u16(),
-        ms = started.elapsed().as_millis() as u64,
-        user = who.get().unwrap_or("-"),
-        "write"
-    );
+    line.finish(res.status().as_u16());
     res
+}
+
+struct WriteLine {
+    method: Method,
+    path: String,
+    who: Who,
+    started: Instant,
+    done: bool,
+}
+
+impl WriteLine {
+    fn finish(&mut self, status: u16) {
+        self.done = true;
+        tracing::info!(
+            target: TARGET,
+            method = %self.method,
+            path = %self.path,
+            status,
+            ms = self.started.elapsed().as_millis() as u64,
+            user = %self.who.get().unwrap_or("-"),
+            "write"
+        );
+    }
+}
+
+impl Drop for WriteLine {
+    fn drop(&mut self) {
+        if !self.done {
+            self.finish(499);
+        }
+    }
 }
 
 /// A command's arguments for the log, with the value after any password, token, key or secret
@@ -101,6 +132,77 @@ pub fn command_line(args: &[String]) -> String {
         }
     }
     out.join(" ")
+}
+
+/// The files' field formatter: the log's own ([`crate::perf::LogFields`]), with anything shaped
+/// like an email address written as `[email]`.
+pub struct FileFields;
+
+impl<'a> MakeVisitor<Writer<'a>> for FileFields {
+    type Visitor = HideEmails<crate::perf::ShortStatements<'a>>;
+
+    fn make_visitor(&self, target: Writer<'a>) -> Self::Visitor {
+        HideEmails(crate::perf::LogFields.make_visitor(target))
+    }
+}
+
+pub struct HideEmails<V>(V);
+
+impl<V: Visit> Visit for HideEmails<V> {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.0.record_str(field, &hide_emails(value))
+    }
+    fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+        match hide_emails(&value.to_string()) {
+            Cow::Owned(hidden) => self.0.record_debug(field, &format_args!("{hidden}")),
+            Cow::Borrowed(_) => self.0.record_error(field, value),
+        }
+    }
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        match hide_emails(&format!("{value:?}")) {
+            Cow::Owned(hidden) => self.0.record_debug(field, &format_args!("{hidden}")),
+            Cow::Borrowed(_) => self.0.record_debug(field, value),
+        }
+    }
+}
+
+impl<V: VisitOutput<fmt::Result>> VisitOutput<fmt::Result> for HideEmails<V> {
+    fn finish(self) -> fmt::Result {
+        self.0.finish()
+    }
+}
+
+impl<V: VisitFmt> VisitFmt for HideEmails<V> {
+    fn writer(&mut self) -> &mut dyn fmt::Write {
+        self.0.writer()
+    }
+}
+
+/// `text` with every run that looks like an email address (`x@y.z`) replaced by `[email]`.
+pub fn hide_emails(text: &str) -> Cow<'_, str> {
+    if !text.contains('@') {
+        return Cow::Borrowed(text);
+    }
+    let part = |c: char| c.is_alphanumeric() || "._%+-@".contains(c);
+    let mut out = String::with_capacity(text.len());
+    let mut changed = false;
+    let mut rest = text;
+    while let Some(start) = rest.find(part) {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let end = rest.find(|c: char| !part(c)).unwrap_or(rest.len());
+        let word = &rest[..end];
+        let is_email = word.split_once('@').is_some_and(|(local, domain)| !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.'));
+        if is_email {
+            out.push_str("[email]");
+            changed = true;
+        } else {
+            out.push_str(word);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    if changed { Cow::Owned(out) } else { Cow::Borrowed(text) }
 }
 
 /// Where the log files go and how many days to keep, from the environment.
@@ -150,17 +252,26 @@ mod tests {
     }
 
     #[test]
+    fn emails_are_hidden() {
+        assert_eq!(hide_emails("account deleted account=a.b+c@example.com games=3"), "account deleted account=[email] games=3");
+        assert_eq!(hide_emails("path=/api/invites/x%40y@mail.example.org"), "path=/api/invites/[email]");
+        assert_eq!(hide_emails("\"bob@example.com\""), "\"[email]\"");
+        assert!(matches!(hide_emails("no address @ here, nor @handle or user@localhost"), Cow::Borrowed(_)));
+    }
+
+    #[test]
     fn daily_files_go_in_the_folder() {
         let dir = std::env::temp_dir().join(format!("yama-log-test-{}", crate::util::new_id()));
         let appender = file_appender(&dir, 3).expect("a writable folder");
         let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default().lossy(false).finish(appender);
-        let subscriber = tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer));
-        tracing::subscriber::with_default(subscriber, || tracing::info!(target: TARGET, "hello"));
+        let subscriber = tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().fmt_fields(FileFields).with_ansi(false).with_writer(writer));
+        tracing::subscriber::with_default(subscriber, || tracing::info!(target: TARGET, account = %"someone@example.com", "hello"));
         drop(guard);
         let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
         let name = files.iter().filter_map(|p| p.file_name()?.to_str().map(String::from)).find(|n| n.starts_with("yama.") && n.ends_with(".log"));
         let name = name.unwrap_or_else(|| panic!("no daily file in {files:?}"));
-        assert!(std::fs::read_to_string(dir.join(&name)).unwrap().contains("hello"));
+        let text = std::fs::read_to_string(dir.join(&name)).unwrap();
+        assert!(text.contains("hello") && text.contains("account=[email]") && !text.contains("someone@"), "{text}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -202,5 +313,24 @@ mod tests {
         assert!(lines[0].contains("method=POST") && lines[0].contains("path=/api/containers") && lines[0].contains(&format!("user={user_id}")), "{log}");
         assert!(lines[1].contains("status=401") && lines[1].contains("user=-"), "{log}");
         assert!(!log.contains("secret=1") && !log.contains(&token), "{log}");
+    }
+
+    /// A write whose request is dropped before it's answered is still logged.
+    #[test]
+    fn a_dropped_write_is_logged() {
+        let buf = Buf::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(move || writer.clone()));
+        tracing::subscriber::with_default(subscriber, || {
+            let who = Who::default();
+            note_user(&{
+                let mut e = Extensions::new();
+                e.insert(who.clone());
+                e
+            }, "u1");
+            drop(WriteLine { method: Method::DELETE, path: "/api/collection/items/x".into(), who, started: Instant::now(), done: false });
+        });
+        let log = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+        assert!(log.contains("status=499") && log.contains("path=/api/collection/items/x") && log.contains("user=u1"), "{log}");
     }
 }

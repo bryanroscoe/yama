@@ -70,6 +70,7 @@ impl FromRequestParts<AppState> for Worker {
                     .bind(sha256_hex(key))
                     .fetch_one(&st.pool)
                     .await?;
+                crate::request_log::note_user(&parts.extensions, &owner.id);
                 return Ok(Self {
                     owner: owner.id,
                     token,

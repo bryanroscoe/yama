@@ -185,7 +185,7 @@ each proposed card with card. Never silently send a deck list to an outside prov
 requires share_list=true and the person's request. Popularity and descriptive mana counts are not \
 proof of performance. Use save_deck to stage a complete newly constructed or imported list.";
 
-async fn mcp_route(State(st): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extensions, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     if !origin_ok(&st, &headers) {
         return (StatusCode::FORBIDDEN, Json(json!({"error": "origin not allowed"}))).into_response();
     }
@@ -199,6 +199,8 @@ async fn mcp_route(State(st): State<AppState>, headers: HeaderMap, body: axum::b
             return r;
         }
     };
+    // The request's write line says whose it was (request_log.rs).
+    crate::request_log::note_user(&extensions, &user.id);
     let Ok(msg) = serde_json::from_slice::<Value>(&body) else {
         return (StatusCode::BAD_REQUEST, Json(rpc_error(&Value::Null, -32700, "parse error"))).into_response();
     };
