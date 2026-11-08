@@ -266,6 +266,11 @@ async fn enabled_revisions(pool: &SqlitePool) -> AppResult<Vec<Enabled>> {
 
 /// Everything the shared precon pages show from datasets, as of `as_of`.
 pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence> {
+    load_with(pool, as_of, true).await
+}
+
+/// [`load`], optionally without the per-commander figures (the time-split test never reads them).
+async fn load_with(pool: &SqlitePool, as_of: DateTime<Utc>, commander_figures: bool) -> AppResult<Evidence> {
     let revisions = enabled_revisions(pool).await?;
     let sources: Vec<Value> = sqlx::query_as::<_, (String, String, String)>(
         "SELECT u.email, s.source_name, s.enabled_at FROM precon_evidence_sources s JOIN users u ON u.id = s.owner_id ORDER BY s.source_name, u.email",
@@ -636,7 +641,11 @@ pub async fn load(pool: &SqlitePool, as_of: DateTime<Utc>) -> AppResult<Evidence
         .flat_map(|ev| ev.real.iter().chain(ev.also.iter()))
         .map(|r| r.source.name.clone())
         .collect();
-    let figures = crate::public_commanders::precon_source_figures(pool).await?;
+    let figures = if commander_figures {
+        crate::public_commanders::precon_source_figures(pool).await?
+    } else {
+        BTreeMap::new()
+    };
     let labels: HashMap<&str, &SourceLabel> = report.source_labels.iter().map(|l| (l.name.as_str(), l)).collect();
     for p in &catalog {
         let Some(key) = &p.commander_key else { continue };
@@ -1084,7 +1093,7 @@ async fn calibrate_with(
     after: &Evidence,
     sims: Vec<SimSource>,
 ) -> AppResult<CalibrationReport> {
-    let before = load(pool, split).await?.by_precon;
+    let before = load_with(pool, split, false).await?.by_precon;
     let mut cases: Vec<calibration::Case> = Vec::new();
     let mut all_time: HashMap<String, f64> = HashMap::new();
     for (id, ev) in &after.by_precon {
@@ -1290,9 +1299,10 @@ pub struct CommanderTest {
 struct CommanderModel {
     /// Its figure (percent) by catalog precon.
     figures: HashMap<String, f64>,
-    /// Rate on (log strength, figure), and on the figure alone for precons the simulation doesn't cover.
-    with_sim: Option<calibration::Fit>,
-    alone: Option<calibration::Fit>,
+    /// The tested fit: rate on (log strength, figure) with a simulation, else on the figure alone.
+    /// Its variance is the leave-one-out error beyond sampling noise.
+    fit: Option<calibration::Fit>,
+    with_sim: bool,
     test: CommanderTest,
 }
 
@@ -1303,14 +1313,14 @@ impl CommanderModel {
             return None;
         }
         let c = *self.figures.get(id)?;
-        let (rate, var) = match (sim, &self.with_sim) {
-            (Some(s), Some(f)) => (f.rate(&[s.ln(), c]), f.variance),
-            _ => {
-                let f = self.alone.as_ref()?;
-                (f.rate(&[c]), f.variance)
-            }
+        let f = self.fit.as_ref()?;
+        // Only the predictors that were tested: with a simulation, a precon it doesn't rate isn't estimated.
+        let rate = match (self.with_sim, sim) {
+            (true, Some(s)) => f.rate(&[s.ln(), c]),
+            (true, None) => return None,
+            (false, _) => f.rate(&[c]),
         };
-        Some((rate, var, self.test.source.clone()))
+        Some((rate, f.variance, self.test.source.clone()))
     }
 }
 
@@ -1339,23 +1349,24 @@ fn commander_model(
         .filter_map(|(id, r)| Some((*id, *figures.get(*id)?, strength(id), *r)))
         .collect();
     cases.sort_by(|a, b| a.0.cmp(b.0));
-    let alone_points: Vec<(Vec<f64>, calibration::Real)> = cases.iter().map(|c| (vec![c.1], c.3)).collect();
-    let alone = calibration::fit(&alone_points);
-    let (with_sim, error_without, error_with, precons) = if simulation.is_some() {
-        let both: Vec<_> = cases.iter().filter_map(|c| Some((c.2?.ln(), c.1, c.3))).collect();
-        let with: Vec<(Vec<f64>, calibration::Real)> = both.iter().map(|(s, c, r)| (vec![*s, *c], *r)).collect();
-        let without: Vec<(Vec<f64>, calibration::Real)> = both.iter().map(|(s, _, r)| (vec![*s], *r)).collect();
-        (calibration::fit(&with), calibration::loo_error(&without), calibration::loo_error(&with), with.len())
+    let with_sim = simulation.is_some();
+    // The candidate and its baseline on the same precons: the simulation alone with one, the average without.
+    let (with, without): (Vec<(Vec<f64>, calibration::Real)>, Vec<(Vec<f64>, calibration::Real)>) = if with_sim {
+        cases.iter().filter_map(|c| Some(((vec![c.2?.ln(), c.1], c.3), (vec![c.2?.ln()], c.3)))).unzip()
     } else {
-        let without: Vec<(Vec<f64>, calibration::Real)> = cases.iter().map(|c| (Vec::new(), c.3)).collect();
-        (None, calibration::loo_error(&without), calibration::loo_error(&alone_points), cases.len())
+        cases.iter().map(|c| ((vec![c.1], c.3), (Vec::new(), c.3))).unzip()
     };
+    let (error_without, error_with) = (calibration::loo_error(&without), calibration::loo_error(&with));
     let used = matches!((error_without, error_with), (Some(a), Some(b)) if b < a);
+    let fit = calibration::fit(&with).zip(calibration::loo_variance(&with)).map(|(mut f, variance)| {
+        f.variance = variance;
+        f
+    });
     Some(CommanderModel {
         figures,
+        fit,
         with_sim,
-        alone,
-        test: CommanderTest { source, precons, error_without, error_with, used },
+        test: CommanderTest { source, precons: with.len(), error_without, error_with, used },
     })
 }
 

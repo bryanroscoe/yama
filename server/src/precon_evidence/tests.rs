@@ -661,17 +661,26 @@ async fn a_commander_only_source_shows_every_list_under_the_exact_commanders() {
     assert_eq!(v2.precons.iter().map(|p| p.precon.as_str()).collect::<Vec<_>>(), ["test-riders"]);
 }
 
-/// Twelve precons with stock games and a Mythic figure each, plus one with Mythic alone. `mythic`
-/// gives precon i's Mythic win share from its stock rate.
+/// Twelve precons with stock games and a Mythic figure each, plus two with Mythic alone (deck-12
+/// and deck-13). `mythic` gives precon i's Mythic win share from its stock rate; `strength`, when
+/// given, puts precon i in a global simulation run.
 async fn commander_field(mythic: impl Fn(usize, f64) -> f64) -> (SqlitePool, RatingV2) {
+    commander_field_with(mythic, None).await
+}
+
+async fn commander_field_with(mythic: impl Fn(usize, f64) -> f64, strength: Option<&dyn Fn(usize) -> Option<f64>>) -> (SqlitePool, RatingV2) {
     let (_, pool) = app().await;
     let (owner, _) = user(&pool, "bryan@example.com").await;
     enable(&pool, &owner, "Playgroup.gg").await.unwrap();
     enable(&pool, &owner, "Mythic Tools").await.unwrap();
     let mut stock = Vec::new();
     let mut figures = Vec::new();
-    for i in 0..13 {
+    let mut strengths = Vec::new();
+    for i in 0..14 {
         let id = format!("deck-{i:02}");
+        if let Some(s) = strength.and_then(|f| f(i)) {
+            strengths.push((id.clone(), s));
+        }
         precon(&pool, &id, &id, None, None).await;
         let cards = json!([{"name": format!("c{i}"), "oracle_id": format!("c{i}"), "qty": 1, "board": "commander"}]).to_string();
         sqlx::query("UPDATE precons SET cards = ? WHERE id = ?").bind(cards).bind(&id).execute(&pool).await.unwrap();
@@ -686,6 +695,10 @@ async fn commander_field(mythic: impl Fn(usize, f64) -> f64) -> (SqlitePool, Rat
     let mut doc = document("mythic-commander-scores", figures);
     doc["source"] = json!({"name":"Mythic Tools","url":"https://mythic.tools","attribution":"Derived from Mythic Tools.","license":"Derived rates only"});
     import(&pool, &owner, &doc).await;
+    if strength.is_some() {
+        let pairs: Vec<(&str, f64)> = strengths.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+        global_run(&pool, &pairs).await;
+    }
     let v2 = rating_v2_with(&pool, at("2026-10-29"), load(&pool, at("2026-10-29")).await.unwrap()).await.unwrap();
     (pool, v2)
 }
@@ -713,4 +726,22 @@ async fn a_commander_figure_that_predicts_nothing_stays_out() {
     assert!(!t.used, "{t:?}");
     assert!(v2.precons.iter().all(|p| p.commander_source.is_none()));
     assert!(!v2.precons.iter().any(|p| p.precon == "deck-12"), "no simulation and no stock games: unranked");
+}
+
+#[tokio::test]
+async fn with_a_simulation_the_commander_figure_joins_it_and_never_stands_alone() {
+    // The simulation knows little (a wobble around 1); Mythic tracks the stock rates. deck-13 has no strength.
+    let wobble = |i: usize| (i != 13).then(|| [0.9, 1.1, 1.0, 1.2, 0.8][i % 5]);
+    let (_, v2) = commander_field_with(|i, rate| (2.0 * rate + [0.5, -0.5, 0.3][i % 3]) / 100.0, Some(&wobble)).await;
+    assert!(v2.simulation.is_some());
+    let t = v2.commander.as_ref().unwrap();
+    assert!(t.used, "{t:?}");
+    assert_eq!(t.precons, 12, "tested on the precons with stock games and a strength");
+    let new = v2.precons.iter().find(|p| p.precon == "deck-12").expect("ranked from the simulation and its commander figure");
+    assert_eq!(new.commander_source.as_deref(), Some("Mythic Tools"));
+    assert!((new.rate - 32.0).abs() < 2.0, "{}", new.rate);
+    assert!(
+        !v2.precons.iter().any(|p| p.precon == "deck-13"),
+        "a precon the simulation doesn't rate isn't estimated from an untested commander-only fit"
+    );
 }

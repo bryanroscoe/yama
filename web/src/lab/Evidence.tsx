@@ -105,7 +105,7 @@ export function RatingV2Section({ v2, id }: { v2: RatingV2 | undefined; id: stri
         About {rate(e.rate)} expected wins in 4-player pods ({rate(e.lo)} to {rate(e.hi)}), rank {e.rank} of {v2.ranked}
         {e.rank_lo !== e.rank_hi ? `, somewhere from ${e.rank_lo} to ${e.rank_hi}` : ""}.{" "}
         {e.commander_source
-          ? `No stock-list games yet: estimated from the simulation and ${e.commander_source}'s games under this commander.`
+          ? `No stock-list games yet: ${e.commander_source}'s games under this commander help estimate it.`
           : real === 100 ? "All of it comes from real games." : real === 0 ? "All of it comes from the simulation." : `${real}% of its weight comes from real games.`}
       </p>
       <p className="lab-note">

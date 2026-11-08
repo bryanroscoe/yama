@@ -207,6 +207,15 @@ pub fn loo_error(points: &[(Vec<f64>, Real)]) -> Option<f64> {
     (weights > 0.0).then(|| total / weights)
 }
 
+/// A predictor's own error from its leave-one-out error, after the real rates' sampling noise, with
+/// the same floor as [`fit`]. Out of sample, so it carries the fit's own uncertainty too: an in-sample
+/// residual would let a never-played precon look surer than one with hundreds of stock games.
+pub fn loo_variance(points: &[(Vec<f64>, Real)]) -> Option<f64> {
+    let error = loo_error(points)?;
+    let noise = points.iter().map(|(_, r)| r.variance()).sum::<f64>() / points.len() as f64;
+    Some((error - noise).max(MIN_SIM_VARIANCE))
+}
+
 /// Average ranks (ties share the mean rank).
 fn ranks(xs: &[f64]) -> Vec<f64> {
     let mut idx: Vec<usize> = (0..xs.len()).collect();
