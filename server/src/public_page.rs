@@ -203,6 +203,23 @@ fn combos(list: &[&Combo]) -> String {
     s
 }
 
+/// How many of the list's cards are on Wizards' Reserve List, and which (the deck page's
+/// "Reserve List" line in `pages/Decks.tsx`). `None`: the flags aren't loaded yet.
+pub(crate) fn reserved_panel(reserved: Option<&[String]>) -> String {
+    let body = match reserved {
+        None => "<p class=\"dim\">Reserve List flags aren't loaded on this server yet.</p>".to_string(),
+        Some([]) => "<p>None of this deck's cards are on the Reserve List.</p>".to_string(),
+        Some(r) => format!("<p><b>{}</b>: {}</p>", plural(r.len() as i64, "card", "cards"), e(&r.join(", "))),
+    };
+    format!(
+        "<section class=\"public-panel public-reserved\" aria-labelledby=\"reserved-head\"><h2 id=\"reserved-head\">Reserve List</h2>{body}<p class=\"dim\">{}</p></section>",
+        e(RESERVED_NOTE)
+    )
+}
+
+/// What the Reserve List is, under every count of it.
+pub(crate) const RESERVED_NOTE: &str = "Cards Wizards has promised never to reprint, from Scryfall's card data. Being on the list says a card is scarce, not that it's strong.";
+
 /// The bracket the owner declares beside Yama's starting suggestion, the reason for it, and the
 /// cards and combos behind it (components/Bracket.tsx, BracketPanel). `game_changers` is the
 /// count from our own card data, for when there's no check result.

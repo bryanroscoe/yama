@@ -15,8 +15,10 @@ export interface SeatDraft {
   /** One of your decks. */
   deckId?: string;
   deckVersionId?: string;
-  /** A deck picked that isn't one of yours: a precon, or one of the player's public decks. */
+  /** A deck picked that isn't one of yours: a precon, one of the player's public decks, or one played before. */
   deckLabel?: string;
+  /** The deck's name was typed (a deck Yama doesn't know): its commander is named separately. */
+  deckTyped?: boolean;
   commanderName: string;
   colorIdentity: string;
   art?: string;
@@ -40,7 +42,7 @@ export interface Me {
 }
 
 /** What a seat drops when it stops being someone's: their account, profile and deck. */
-export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined } as const;
+export const NOT_AN_ACCOUNT = { userId: undefined, handle: undefined, deckId: undefined, deckVersionId: undefined, deckLabel: undefined, deckTyped: undefined, commanderChoices: undefined } as const;
 
 /**
  * The seat's label on the server: the deck picked (a precon, or the player's public deck), else
@@ -109,15 +111,19 @@ export function stillHolds(now: SeatDraft, then: Pick<SeatDraft, "deckId" | "dec
 /**
  * The seat's commander fields as edited. Other commanders aren't the deck the seat was saved with
  * (an edited game can hold a deck version with no name to show), so the deck goes; art and colors
- * filled in for the same commanders keep it.
+ * filled in for the same commanders keep it. A deck name typed by hand stays: its commander is
+ * what's being named.
  */
 export function commandersPatch(seat: SeatDraft, d: Partial<SeatDraft>): Partial<SeatDraft> {
   const changed = (d.commanderName ?? "") !== seat.commanderName || (d.partnerName ?? "") !== (seat.partnerName ?? "");
+  const drop = seat.deckTyped
+    ? { deckId: undefined, deckVersionId: undefined, commanderChoices: undefined }
+    : { deckId: undefined, deckVersionId: undefined, deckLabel: undefined, deckTyped: undefined, commanderChoices: undefined };
   return {
     ...d,
     commanderName: d.commanderName ?? "",
     colorIdentity: d.colorIdentity ?? "",
-    ...(changed ? { deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined } : {}),
+    ...(changed ? drop : {}),
   };
 }
 

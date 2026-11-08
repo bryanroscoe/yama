@@ -607,3 +607,141 @@ async fn a_reset_after_the_split_keeps_the_held_out_games_before_it() {
     let report = calibrate(&pool, None, at("2026-09-15"), at("2026-10-29")).await.unwrap();
     assert_eq!(report.precons_with_holdout, 1, "Sep 6 to Oct 17 is still the held-out set");
 }
+
+#[tokio::test]
+async fn a_commander_only_source_shows_every_list_under_the_exact_commanders() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(&pool, &owner, "Mythic Tools").await.unwrap();
+    let cards = |ids: &[&str]| {
+        serde_json::to_string(
+            &ids.iter().map(|id| json!({"name": id, "oracle_id": id, "qty": 1, "board": "commander"})).collect::<Vec<_>>(),
+        )
+        .unwrap()
+    };
+    for (id, commanders) in [("test-riders", cards(&["solo"])), ("pair-deck", cards(&["b-partner", "a-partner"])), ("other-pair", cards(&["a-partner", "c-partner"]))] {
+        precon(&pool, id, id, None, None).await;
+        sqlx::query("UPDATE precons SET cards = ? WHERE id = ?").bind(commanders).bind(id).execute(&pool).await.unwrap();
+    }
+    import(&pool, &owner, &document("playgroup-history", rohan(SHA_A))).await;
+    // A Playgroup.gg-style commander record by printing: Playgroup rates stock lists, so it's never repeated by commander.
+    let mut playgroup = document("playgroup-commanders", vec![json!({"id":"commander:1","kind":"commander","entity":"playgroup:commander:1","sources":[SHA_A],
+        "data":{"name":"solo","oracle_ids":["solo"],"game_played_count":100,"game_win_count":30}})]);
+    playgroup["id"] = json!("playgroup-commanders");
+    import(&pool, &owner, &playgroup).await;
+    let record = |key: &str, ids: &[&str], games: u64, rate: f64| {
+        json!({"id":format!("mythic:commander:{key}"),"kind":"commander","entity":format!("mythic:commander:{key}"),"sources":[SHA_A],
+            "data":{"name":key,"oracle_ids":ids,"score_0_100":55.0,"interval_low":50.0,"interval_high":60.0,"games":games,"decks":games / 3,"win_rate":rate}})
+    };
+    let mut mythic = document("mythic-commander-scores", vec![
+        record("solo", &["solo"], 900, 0.41),
+        record("pair", &["a-partner", "b-partner"], 300, 0.3),
+        record("a-only", &["a-partner"], 5000, 0.5),
+        json!({"id":"mythic:commander:score-only","kind":"commander","entity":"mythic:commander:score-only","sources":[SHA_A],
+            "data":{"name":"score only","oracle_ids":["c-partner"],"score_0_100":55.0,"interval_low":50.0,"interval_high":60.0,"games":0}}),
+    ]);
+    mythic["source"] = json!({"name":"Mythic Tools","url":"https://mythic.tools","attribution":"Derived from Mythic Tools.","license":"Derived rates only"});
+    import(&pool, &owner, &mythic).await;
+
+    let ev = load(&pool, at("2026-10-29")).await.unwrap();
+    let riders = &ev.by_precon["test-riders"];
+    assert!(riders.real.is_some(), "the stock figure is unchanged");
+    assert_eq!(riders.all_lists.len(), 1, "Playgroup.gg rates stock lists, so only Mythic shows by commander");
+    let m = &riders.all_lists[0];
+    assert_eq!((m.source.name.as_str(), m.games, m.decks), ("Mythic Tools", 900, Some(300)));
+    assert!((m.rate - 41.0).abs() < 1e-9);
+    let pair = &ev.by_precon["pair-deck"].all_lists;
+    assert_eq!(pair.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["pair"], "partners match as a pair, never one of them alone");
+    assert!(!ev.by_precon.contains_key("other-pair"), "no pair record and a score alone give nothing");
+    assert!(ev.report.catalog_without_real_games >= 2, "a commander figure is not a real-game rate");
+
+    // Too few precons with stock games to test it, so the rating doesn't read it.
+    let v2 = rating_v2_with(&pool, at("2026-10-29"), ev).await.unwrap();
+    assert_eq!(v2.precons.iter().map(|p| p.precon.as_str()).collect::<Vec<_>>(), ["test-riders"]);
+}
+
+/// Twelve precons with stock games and a Mythic figure each, plus two with Mythic alone (deck-12
+/// and deck-13). `mythic` gives precon i's Mythic win share from its stock rate; `strength`, when
+/// given, puts precon i in a global simulation run.
+async fn commander_field(mythic: impl Fn(usize, f64) -> f64) -> (SqlitePool, RatingV2) {
+    commander_field_with(mythic, None).await
+}
+
+async fn commander_field_with(mythic: impl Fn(usize, f64) -> f64, strength: Option<&dyn Fn(usize) -> Option<f64>>) -> (SqlitePool, RatingV2) {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool, "bryan@example.com").await;
+    enable(&pool, &owner, "Playgroup.gg").await.unwrap();
+    enable(&pool, &owner, "Mythic Tools").await.unwrap();
+    let mut stock = Vec::new();
+    let mut figures = Vec::new();
+    let mut strengths = Vec::new();
+    for i in 0..14 {
+        let id = format!("deck-{i:02}");
+        if let Some(s) = strength.and_then(|f| f(i)) {
+            strengths.push((id.clone(), s));
+        }
+        precon(&pool, &id, &id, None, None).await;
+        let cards = json!([{"name": format!("c{i}"), "oracle_id": format!("c{i}"), "qty": 1, "board": "commander"}]).to_string();
+        sqlx::query("UPDATE precons SET cards = ? WHERE id = ?").bind(cards).bind(&id).execute(&pool).await.unwrap();
+        let rate = 14.0 + 1.5 * i as f64;
+        if i < 12 {
+            stock.push(precon_obs(&id, &id, "2026-10-17", 2000, rate, SHA_A));
+        }
+        figures.push(json!({"id":format!("mythic:commander:c{i}"),"kind":"commander","entity":format!("mythic:commander:c{i}"),"sources":[SHA_A],
+            "data":{"name":format!("c{i}"),"oracle_ids":[format!("c{i}")],"score_0_100":50.0,"interval_low":40.0,"interval_high":60.0,"games":3000,"decks":900,"win_rate":mythic(i, rate)}}));
+    }
+    import(&pool, &owner, &document("playgroup-history", stock)).await;
+    let mut doc = document("mythic-commander-scores", figures);
+    doc["source"] = json!({"name":"Mythic Tools","url":"https://mythic.tools","attribution":"Derived from Mythic Tools.","license":"Derived rates only"});
+    import(&pool, &owner, &doc).await;
+    if strength.is_some() {
+        let pairs: Vec<(&str, f64)> = strengths.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+        global_run(&pool, &pairs).await;
+    }
+    let v2 = rating_v2_with(&pool, at("2026-10-29"), load(&pool, at("2026-10-29")).await.unwrap()).await.unwrap();
+    (pool, v2)
+}
+
+#[tokio::test]
+async fn a_commander_figure_that_predicts_stock_games_ranks_precons_without_them() {
+    // Mythic's rate runs about twice the stock rate (mixed pod sizes), with a little wobble.
+    let (_, v2) = commander_field(|i, rate| (2.0 * rate + [0.5, -0.5, 0.3][i % 3]) / 100.0).await;
+    let t = v2.commander.as_ref().unwrap();
+    assert_eq!((t.source.as_str(), t.precons), ("Mythic Tools", 12));
+    assert!(t.used, "{t:?}");
+    assert!(t.error_with.unwrap() < t.error_without.unwrap());
+    let new = v2.precons.iter().find(|p| p.precon == "deck-12").expect("ranked from its commander figure");
+    assert_eq!((new.real_share, new.commander_source.as_deref()), (0.0, Some("Mythic Tools")));
+    assert!((new.rate - 32.0).abs() < 1.5, "mapped onto the stock scale: {}", new.rate);
+    assert!(new.hi - new.lo < 10.0);
+    let stocked = v2.precons.iter().find(|p| p.precon == "deck-11").unwrap();
+    assert_eq!((stocked.real_share, stocked.commander_source.as_deref()), (1.0, None), "stock games stand alone");
+}
+
+#[tokio::test]
+async fn a_commander_figure_that_predicts_nothing_stays_out() {
+    let (_, v2) = commander_field(|i, _| [0.30, 0.55, 0.42, 0.61, 0.25, 0.48][i % 6]).await;
+    let t = v2.commander.as_ref().unwrap();
+    assert!(!t.used, "{t:?}");
+    assert!(v2.precons.iter().all(|p| p.commander_source.is_none()));
+    assert!(!v2.precons.iter().any(|p| p.precon == "deck-12"), "no simulation and no stock games: unranked");
+}
+
+#[tokio::test]
+async fn with_a_simulation_the_commander_figure_joins_it_and_never_stands_alone() {
+    // The simulation knows little (a wobble around 1); Mythic tracks the stock rates. deck-13 has no strength.
+    let wobble = |i: usize| (i != 13).then(|| [0.9, 1.1, 1.0, 1.2, 0.8][i % 5]);
+    let (_, v2) = commander_field_with(|i, rate| (2.0 * rate + [0.5, -0.5, 0.3][i % 3]) / 100.0, Some(&wobble)).await;
+    assert!(v2.simulation.is_some());
+    let t = v2.commander.as_ref().unwrap();
+    assert!(t.used, "{t:?}");
+    assert_eq!(t.precons, 12, "tested on the precons with stock games and a strength");
+    let new = v2.precons.iter().find(|p| p.precon == "deck-12").expect("ranked from the simulation and its commander figure");
+    assert_eq!(new.commander_source.as_deref(), Some("Mythic Tools"));
+    assert!((new.rate - 32.0).abs() < 2.0, "{}", new.rate);
+    assert!(
+        !v2.precons.iter().any(|p| p.precon == "deck-13"),
+        "a precon the simulation doesn't rate isn't estimated from an untested commander-only fit"
+    );
+}

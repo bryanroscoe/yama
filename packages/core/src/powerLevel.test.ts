@@ -128,6 +128,10 @@ describe("power estimate", () => {
     expect(e.score).toBe(5.8);
   });
 
+  it("leaves Reserve List cards out: the list says a card is scarce, not strong", () => {
+    expect(powerEstimate([big], none)!.factors.map((f) => f.key)).not.toContain("reserved");
+  });
+
   it("lists cards missing from the card data instead of guessing at them", () => {
     const e = powerEstimate([solRing, { ...big, name: "Mystery", cmc: null, typeLine: null }], none)!;
     expect(e.unknownCards).toEqual(["Mystery"]);

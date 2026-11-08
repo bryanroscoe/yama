@@ -298,3 +298,16 @@ describe("fitsSegmented", () => {
     expect(fitsSegmented(["A", "B", "C", "D"].map((label) => ({ label })))).toBe(false);
   });
 });
+
+describe("a deck name typed by hand", () => {
+  it("stays while its commander is named, and goes with the seat's person", () => {
+    const typed: SeatDraft = { ...emptySeat(), name: "Matt", deckLabel: "Turtle Power", deckTyped: true };
+    const patch = commandersPatch(typed, { commanderName: "Donatello, the Brains", colorIdentity: "U" });
+    expect({ ...typed, ...patch }).toMatchObject({ deckLabel: "Turtle Power", deckTyped: true, commanderName: "Donatello, the Brains" });
+    expect(seatDeckLabel({ ...typed, ...patch })).toBe("Turtle Power");
+    // A deck picked from a list still gives way to other commanders.
+    const precon: SeatDraft = { ...emptySeat(), deckLabel: "Food and Fellowship", commanderName: "Frodo, Adventurous Hobbit" };
+    expect(commandersPatch(precon, { commanderName: "Atraxa, Praetors' Voice" })).toMatchObject({ deckLabel: undefined });
+    expect(personPatch({ name: "Chris" }, undefined, me)).toMatchObject({ deckLabel: undefined, deckTyped: undefined });
+  });
+});

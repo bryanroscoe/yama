@@ -734,6 +734,47 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert_eq!(v.real_share, 1.0);
     assert_eq!(c.precons[0].id, "island-deck", "the default order follows rating v2");
     assert!(c.precons.iter().all(|p| p.meta.is_none()), "no v1 ranks beside v2");
+    assert!(info.sources[0].stock_lists);
+    assert!(c.precons.iter().all(|p| p.commander_games.is_empty()), "a stock-list source isn't repeated by commander");
+
+    // Mythic Tools rates commanders, not stock lists: it never changes a precon with stock games.
+    let mythic = json!({"schema":"yama-dataset/1","id":"mythic-commander-scores","title":"Mythic Tools commander scores","generated_at":"2026-11-02T00:00:00Z",
+        "source":{"name":"Mythic Tools","url":"https://mythic.tools","attribution":"Derived from Mythic Tools' aggregate per-commander game records.","license":"No published terms; derived rates and scores only"},
+        "method":"Clean-room derivation","coverage":{},
+        "sources":[{"sha256":"b".repeat(64),"url":null,"retrieved_at":"2026-11-02T00:00:00Z","source_as_of":null,"captured_at":null,"flags":[],"transformation":null,"original_response_sha256":null}],
+        "records":[
+            {"id":"mythic:commander:commander","kind":"commander","entity":"mythic:commander:commander","sources":["b".repeat(64)],"data":{
+                "name":"Commander","oracle_ids":["commander"],"score_0_100":65.66,"interval_low":61.65,"interval_high":69.43,
+                "games":7984,"decks":3077,"win_rate":0.4435,"baseline":0.36,"prior_strength":100.0,"confidence":"moderate","notes":""}},
+            {"id":"mythic:commander:other","kind":"commander","entity":"mythic:commander:other","sources":["b".repeat(64)],"data":{
+                "name":"Someone Else","oracle_ids":["commander","other"],"score_0_100":50.0,"interval_low":40.0,"interval_high":60.0,
+                "games":10,"decks":5,"win_rate":0.9}}
+        ]});
+    crate::datasets::import(&st.pool, &owner, &serde_json::to_vec(&mythic).unwrap(), false).await.unwrap();
+    crate::precon_evidence::enable(&st.pool, &owner, "Mythic Tools").await.unwrap();
+    let c = catalog(&st.pool).await.unwrap();
+    let info = c.rating_v2.as_ref().unwrap();
+    let source = |n: &str| info.sources.iter().find(|s| s.name == n).unwrap();
+    assert!(source("Playgroup.gg").stock_lists);
+    assert!(!source("Mythic Tools").stock_lists, "Mythic is credited, but as a commander-only source");
+    let island = c.precons.iter().find(|p| p.id == "island-deck").unwrap();
+    assert_eq!(island.commander_games.len(), 1, "only the exact commander set matches, never a partner pair");
+    let m = &island.commander_games[0];
+    assert_eq!((m.source.as_str(), m.commander.as_str(), m.games, m.decks), ("Mythic Tools", "Commander", 7984, Some(3077)));
+    assert!((m.rate - 44.35).abs() < 1e-9);
+    let v2_before = island.v2.as_ref().unwrap();
+    assert_eq!((v2_before.rank, v2_before.real_share), (1, 1.0), "Mythic never enters the rank");
+
+    // Each evidence column sorts, best first, decks without it last.
+    let sorted = |s: &str| {
+        let mut rows = c.precons.clone();
+        Filters { s: s.into(), ..Default::default() }.apply(&mut rows).unwrap();
+        rows.into_iter().map(|p| p.id).collect::<Vec<_>>()
+    };
+    // The forest deck's cached Playgroup.gg figure (24.2%) beats the island's dataset figure (20.5%).
+    assert_eq!(sorted("real"), ["forest-deck", "island-deck"]);
+    assert_eq!(sorted("rank"), ["island-deck", "forest-deck"], "the Phase rank, the unreliable result last");
+    assert_eq!(sorted("commander")[0], "forest-deck", "equal commander figures fall back to name order");
 
     let pool = st.pool.clone();
     let app = crate::routes::app(st);
@@ -742,15 +783,50 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(!json.contains("playgroup-history"), "private dataset ids stay private");
     assert!(!json.contains("bryan@example.com"), "the owner stays private");
     let (_, _, html) = request(&app, "/precons", &[]).await;
-    assert!(html.contains("Rating v2 ranks"));
-    assert!(html.contains("Playgroup.gg / Arcane Digital B.V. &lt;script&gt;x&lt;/script&gt;; CC BY 4.0"));
+    assert!(html.contains("Meta rank (rating v2) ranks 1 precon by"), "only the island deck has real games");
+    assert!(html.contains("real games of stock lists (Playgroup.gg)"), "Mythic isn't named as an input to the rank");
+    assert!(html.contains("Playgroup.gg: Playgroup.gg / Arcane Digital B.V. &lt;script&gt;x&lt;/script&gt;. Licence: CC BY 4.0."));
+    assert!(html.contains("<span class=\"source-chip\">Mythic Tools, by commander</span>"));
+    assert!(html.contains("<strong>44.4%</strong> Mythic Tools, any list: 7,984 games"));
+    assert!(html.contains("<option value=\"commander\">Real games, any list (Mythic Tools)</option>"));
+    assert!(html.contains("<option value=\"rank\">Phase model</option>"));
+    assert!(html.contains("aria-sort=\"descending\"><a class=\"sort-link is-sorted\" href=\"/precons?s=meta\">Meta rank"));
+    assert!(html.contains("href=\"/precons?s=real\">Real games</a>"));
+    let (_, _, html) = request(&app, "/precons?s=real&q=deck", &[]).await;
+    assert!(html.contains("<option value=\"real\" selected>"));
+    assert!(html.contains("href=\"/precons?q=deck&amp;s=rank\">Phase model</a>"), "a heading keeps the filters");
     assert!(!html.contains("<script>x"));
     let (_, _, html) = request(&app, "/precons/island-deck", &[]).await;
     assert!(html.contains("all-time 20.5% over 447 games"));
+    assert!(html.contains("20.5%</a><small>447 stock games, Playgroup.gg</small>"), "the dataset's newer figure, not the cached one");
+    assert!(html.contains("Mythic Tools, any list: 7,984 games from 3,077 decks"));
     let (_, _, html) = request(&app, "/precons/methodology", &[]).await;
     assert!(html.contains("id=\"v2\""));
 
     // Stopping the source is seen on the next request, despite the cache.
     crate::precon_evidence::disable(&pool, &owner, "Playgroup.gg").await.unwrap();
-    assert!(catalog(&pool).await.unwrap().rating_v2.is_none());
+    let c = catalog(&pool).await.unwrap();
+    assert!(c.rating_v2.is_none());
+    // Mythic alone ranks nothing, but its figures keep their credit and their sort.
+    assert_eq!(c.real_sources.iter().map(|s| (s.name.as_str(), s.stock_lists)).collect::<Vec<_>>(), [("Mythic Tools", false)]);
+    assert!(c.precons.iter().all(|p| p.commander_games.len() == 1));
+    let (_, _, html) = request(&app, "/precons", &[]).await;
+    assert!(html.contains("<option value=\"commander\">Real games, any list (Mythic Tools)</option>"));
+    assert!(html.contains("<span class=\"source-chip\">Mythic Tools, by commander</span>"));
+    assert!(!html.contains("<span class=\"source-chip\">Playgroup.gg</span>"), "no fallback chip for a source that's off");
+    assert!(html.contains("Mythic Tools: Derived from Mythic Tools"));
+    let (_, _, html) = request(&app, "/precons/island-deck", &[]).await;
+    assert!(html.contains("It isn’t part of this deck’s rank."));
+}
+
+#[tokio::test]
+async fn a_card_data_import_refreshes_rating_v2() {
+    // A commander record named only by printing or name may resolve after a card data import.
+    let pool = crate::db::test_pool().await;
+    let before = v2::key(&pool).await.unwrap();
+    sqlx::query("INSERT INTO import_runs (id, kind, source_url, started_at, finished_at) VALUES ('run', 'scryfall', 'https://example.com', '2026-11-08T00:00:00Z', '2026-11-08T00:05:00Z')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_ne!(v2::key(&pool).await.unwrap(), before);
 }

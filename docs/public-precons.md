@@ -8,7 +8,7 @@ Help someone answer: which stock precons interest me, how do they compare, how m
 
 | Page | Public content |
 |---|---|
-| `/precons` | Search and filters for name, set, year and colors; simulated rankings with games and uncertainty; a separate real-game sort; dated sealed and singles market references |
+| `/precons` | Search and filters for name, set, year and colors; the meta rank, the Phase model and real games, each sortable from its heading (real games also by the commander's figure for any list, from Mythic Tools); dated sealed and singles market references |
 | `/precons/:slug` | Stock list, commander and credited art, simulation results and limitations, separately sourced real-game results, market references, links to reviews and upgrade guides, copy/download stock list |
 | `/precons/methodology` | What each ranking measures, the opponent field, engine and AI versions, scored and excluded games, uncertainty, source dates, publication date and known limitations |
 

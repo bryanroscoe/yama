@@ -94,7 +94,8 @@ async fn run_from(
 /// re-imports that kind on its next pass, even if Scryfall's file hasn't changed.
 pub fn importer_version(kind: &str) -> i64 {
     match kind {
-        "oracle_cards" => 3, // 2: game_changer; 3: produced_mana (both migration 0008)
+        // 2: game_changer; 3: produced_mana (both migration 0008); 4: reserved (0070)
+        "oracle_cards" => 4,
         // 2: digital, set_type (migration 0008); 3: illustration IDs (0036); 4: Cardmarket's etched
         // price and the price history (0060), so the current file is read again once.
         "default_cards" => 4,
@@ -104,6 +105,8 @@ pub fn importer_version(kind: &str) -> i64 {
 
 /// The oracle importer version that first read Scryfall's Game Changer flag.
 const GAME_CHANGER_VERSION: i64 = 2;
+/// The oracle importer version that first read Scryfall's Reserve List flag.
+const RESERVED_VERSION: i64 = 4;
 
 /// The newest successful import of `kind` made by the current importer version, as a date
 /// (YYYY-MM-DD): when Scryfall generated the file, or for a file given on the command line,
@@ -118,6 +121,12 @@ pub async fn current_import_date(pool: &SqlitePool, kind: &str) -> sqlx::Result<
 /// importer versions, which read other fields.
 pub async fn game_changers_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
     import_date_since(pool, "oracle_cards", GAME_CHANGER_VERSION).await
+}
+
+/// Date of the Scryfall data behind the Reserve List flags (YYYY-MM-DD), or `None` before an
+/// oracle import that reads them.
+pub async fn reserved_list_date(pool: &SqlitePool) -> sqlx::Result<Option<String>> {
+    import_date_since(pool, "oracle_cards", RESERVED_VERSION).await
 }
 
 async fn import_date_since(pool: &SqlitePool, kind: &str, min_version: i64) -> sqlx::Result<Option<String>> {
@@ -537,6 +546,10 @@ struct ScryCard {
     /// every card; absent or null stays unknown (NULL), never false.
     #[serde(default)]
     game_changer: Option<bool>,
+    /// On Wizards' Reserve List (oracle_cards). As with `game_changer`, absent or null stays
+    /// unknown (NULL), never false.
+    #[serde(default)]
+    reserved: Option<bool>,
     /// Colors of mana the card can make. Scryfall leaves it out for cards that make none.
     #[serde(default)]
     produced_mana: Option<Vec<String>>,
@@ -722,8 +735,8 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
                 "INSERT INTO cards (oracle_id, name, mana_cost, cmc, type_line, oracle_text, colors, color_identity,
                     power, toughness, loyalty, keywords, legalities, rarity, layout, edhrec_rank, default_printing,
                     image_small, image_normal, image_art_crop, back_image_normal, artist, faces, game_changer,
-                    produced_mana, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    reserved, produced_mana, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                  ON CONFLICT(oracle_id) DO UPDATE SET name=excluded.name, mana_cost=excluded.mana_cost,
                     cmc=excluded.cmc, type_line=excluded.type_line, oracle_text=excluded.oracle_text,
                     colors=excluded.colors, color_identity=excluded.color_identity, power=excluded.power,
@@ -733,7 +746,7 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
                     image_small=excluded.image_small, image_normal=excluded.image_normal,
                     image_art_crop=excluded.image_art_crop, back_image_normal=excluded.back_image_normal,
                     artist=excluded.artist, faces=excluded.faces, game_changer=excluded.game_changer,
-                    produced_mana=excluded.produced_mana, updated_at=excluded.updated_at",
+                    reserved=excluded.reserved, produced_mana=excluded.produced_mana, updated_at=excluded.updated_at",
             )
             .bind(&oracle_id)
             .bind(&c.name)
@@ -759,6 +772,7 @@ async fn import_oracle_inner(pool: &SqlitePool, path: &Path) -> anyhow::Result<u
             .bind(&c.artist)
             .bind(faces)
             .bind(c.game_changer)
+            .bind(c.reserved)
             .bind(produced_mana(c.produced_mana.as_deref().unwrap_or_default()))
             .bind(&stamp)
             .execute(&mut *tx)
@@ -1239,7 +1253,7 @@ mod tests {
     /// JPEG keys and the new WebP ones side by side.
     const WEBP: &str = r#"[
       {"id":"p1","oracle_id":"o1","name":"Sol Ring","layout":"normal","cmc":1.0,"type_line":"Artifact",
-       "color_identity":[],"legalities":{"commander":"legal"},"game_changer":true,
+       "color_identity":[],"legalities":{"commander":"legal"},"game_changer":true,"reserved":false,
        "image_uris":{"small":"https://cards.scryfall.io/small/front/s.jpg","normal":"https://cards.scryfall.io/normal/front/s.jpg",
          "large":"https://cards.scryfall.io/large/front/s.jpg","art_crop":"https://cards.scryfall.io/art_crop/front/s.jpg",
          "thumb":"https://cards.scryfall.io/thumb/front/s.webp","grid":"https://cards.scryfall.io/grid/front/s.webp",
@@ -1284,6 +1298,9 @@ mod tests {
         assert_eq!(dfc.1.as_deref(), Some("front.webp"));
         assert_eq!(dfc.3.as_deref(), Some("back.jpg"), "the renamed jpeg key is a fallback for grid");
         assert_eq!(dfc.4, None, "a null game_changer stays unknown");
+        let reserved: Vec<Option<bool>> =
+            sqlx::query_scalar("SELECT reserved FROM cards WHERE oracle_id IN ('o1','o2') ORDER BY oracle_id").fetch_all(&pool).await.unwrap();
+        assert_eq!(reserved, [Some(false), None], "a missing reserved flag stays unknown");
 
         let printing: (Option<String>, Option<String>) =
             sqlx::query_as("SELECT image_small, image_normal FROM printings WHERE scryfall_id='p1'").fetch_one(&pool).await.unwrap();
@@ -1454,6 +1471,7 @@ mod tests {
         import_oracle(&pool, &path, None).await.unwrap();
         assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), Some(now()[..10].to_string()));
         assert_eq!(game_changers_date(&pool).await.unwrap(), Some(now()[..10].to_string()));
+        assert_eq!(reserved_list_date(&pool).await.unwrap(), Some(now()[..10].to_string()));
 
         // A version-2 run (Game Changers, no produced_mana) still dates the Game Changer flags,
         // while the oracle data as a whole counts as behind, so the scheduler re-imports it.
@@ -1467,5 +1485,7 @@ mod tests {
         .unwrap();
         assert_eq!(current_import_date(&pool, "oracle_cards").await.unwrap(), None);
         assert_eq!(game_changers_date(&pool).await.unwrap().as_deref(), Some("2026-10-18"));
+        // ...but not the Reserve List flags, which version 4 first read.
+        assert_eq!(reserved_list_date(&pool).await.unwrap(), None);
     }
 }

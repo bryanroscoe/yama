@@ -1520,3 +1520,12 @@ a.source-chip:hover,a.source-chip:focus-visible {
   .commander-table tr { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .commander-table td:last-child { grid-column:1/-1; }
 }
+
+/* Sortable headings and the per-commander line under a stock list's real games. */
+.public-table thead th .sort-link { color:inherit; text-decoration:none; }
+.public-table thead th .sort-link:hover,.public-table thead th .sort-link:focus-visible { color:var(--text); text-decoration:underline; }
+.public-table thead th .sort-link.is-sorted { color:var(--text); }
+.public-table thead th small { display:block; }
+.commander-games { display:block; margin-top:8px; font-size:13px; line-height:1.35; color:var(--dim); }
+.commander-games strong { color:var(--text); font-weight:400; }
+.source-credit { display:block; margin-top:4px; color:var(--dim); overflow-wrap:anywhere; }

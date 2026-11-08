@@ -4,11 +4,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { CommanderPick } from "@yama/core";
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { api, type Card, type DeckSummary, type FoundPerson, type ProfileDeck, type SearchResult } from "../api";
+import { api, type Card, type DeckSummary, type FoundPerson, type GameRow, type ProfileDeck, type SearchResult } from "../api";
 import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
+import { useCardArt } from "../components/useCardArt";
+import { useMe } from "../auth";
+import { decksOf, fold, mergeGames, playedBy, playedDecks, playedLine, possessive, samePerson, type DeckOwner, type PlayedDeck } from "./playedDecks";
 import { Pips } from "../components/ui";
 import { cardSearchPath, isGuest } from "../guest";
 import "./pickers.css";
@@ -44,6 +47,7 @@ export function Combobox<T>({
   onLeave,
   onOpen,
   toggle,
+  head,
 }: {
   label: string;
   text: string;
@@ -64,6 +68,8 @@ export function Combobox<T>({
   onOpen?: () => void;
   /** A button at the field's end that opens the whole list, as a dropdown does; its label. */
   toggle?: string;
+  /** A first line in the open list (filters for what it shows). */
+  head?: ReactNode;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -88,7 +94,8 @@ export function Combobox<T>({
     onPick(o.value);
     setOpen(false);
   };
-  const showList = open && (options.length > 0 || (!!empty && text.trim().length > 0) || loading);
+  // With filters at its head, the list stays open to say what a filter found nothing for.
+  const showList = open && (options.length > 0 || (!!empty && (text.trim().length > 0 || !!head)) || loading);
   const openList = () => {
     onOpen?.();
     setOpen(true);
@@ -157,6 +164,7 @@ export function Combobox<T>({
         )}
         {showList && (
           <ul className="combo-list" role="listbox" id={`${id}-list`} aria-label={label}>
+            {head && <li className="combo-head" role="presentation">{head}</li>}
             {options.map((o, i) => (
               <li
                 key={o.key}
@@ -729,11 +737,24 @@ export function PlayerSearch({ label = "Player", text, people, onText, onPick, p
 
 // ── decks ─────────────────────────────────────────────────────────────────
 
-/** A deck a seat can name: one of yours, one of the player's public decks, or a precon. */
+/**
+ * A deck a seat can name: one of yours, one of the player's public decks, one somebody played at
+ * your games before (Mythic Tools' way of knowing a friend's decks), a precon, or a name typed for
+ * a deck Yama doesn't know (its commander is then named in the commander fields).
+ */
 export type DeckPick =
   | { kind: "mine"; deck: DeckSummary }
   | { kind: "theirs"; handle: string; deck: ProfileDeck }
-  | { kind: "precon"; precon: PreconItem };
+  | { kind: "played"; deck: PlayedDeck; theirs: boolean }
+  | { kind: "precon"; precon: PreconItem }
+  | { kind: "named"; name: string };
+
+/**
+ * Which decks the search shows (Bryan, 7 Nov 2026: the player's own decks first, and a way to
+ * search everyone's, or the precons): all of them, the player's, any played at your games,
+ * yours, or the precon catalog.
+ */
+export type DeckScope = "all" | "theirs" | "played" | "yours" | "precons";
 
 /** The precon catalog (the Lab's query, so either page fills the other's cache). */
 function usePreconCatalog(enabled: boolean) {
@@ -750,47 +771,111 @@ function useProfileDecks(handle: string | undefined) {
   });
 }
 
-/** Lowercase, without accents: "eowyn" finds Éowyn. */
-const fold = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-
-/** Its name or a commander's has every word typed. */
-function deckMatches(q: string, name: string, commanders: string[]): boolean {
-  const hay = fold([name, ...commanders].join(" "));
+/** Its name, a commander's or (for a deck someone played) the player's has every word typed. */
+function deckMatches(q: string, name: string, words: string[]): boolean {
+  const hay = fold([name, ...words].join(" "));
   return fold(q).split(/\s+/).every((w) => hay.includes(w));
 }
 
+/** No decks of yours, the same list each render (so what's built from it is kept). */
+const NO_DECKS: DeckSummary[] = [];
+
+/** Precons listed with nothing typed: the newest, since there are hundreds. */
+const PRECONS_BROWSED = 60;
+
 /**
- * The decks offered for what was typed: on your own seat your decks, then precons; on anyone
- * else's their public decks, then yours (to lend), then precons. With nothing typed, every one of
- * theirs and yours, as a dropdown would; typed, the first twenty matches. Precons only once two
- * letters are typed (there are hundreds); a reprinted list shows once.
+ * The decks offered for what was typed. On anyone else's seat: their public decks and the decks
+ * they've played at your games (most played first), then everyone else's played decks, then
+ * yours to lend, then precons. On your own seat: yours, then the rest. With nothing typed, every
+ * deck as a dropdown would; typed, the first twenty matches. In "All", precons only once two
+ * letters are typed (there are hundreds); a reprinted list shows once. Typing a player's name
+ * finds the decks they played.
  */
 export function deckPicks(
   text: string,
-  { mine = [], handle, theirs = [], precons = [], yours }: { mine?: DeckSummary[]; handle?: string; theirs?: ProfileDeck[]; precons?: PreconItem[]; yours: boolean },
+  { mine = [], handle, theirs = [], played = [], who, me, precons = [], yours, scope = "all" }: {
+    mine?: DeckSummary[];
+    handle?: string;
+    theirs?: ProfileDeck[];
+    played?: PlayedDeck[];
+    /** Who sits at the seat. */
+    who?: DeckOwner;
+    /** Your account. */
+    me?: string;
+    precons?: PreconItem[];
+    yours: boolean;
+    scope?: DeckScope;
+  },
 ): DeckPick[] {
-  const q = text.trim().toLowerCase();
-  const hit = (name: string, commanders: string[]) => !q || deckMatches(q, name, commanders);
+  const q = text.trim();
+  const hit = (name: string, words: string[]) => !q || deckMatches(q, name, words);
   // A deck's other configurations (stock, after prints) are picked after the deck itself.
   const own: DeckPick[] = mine.filter((d) => !d.parent_id && hit(d.name, d.commanders)).map((deck) => ({ kind: "mine", deck }));
-  const theirsPicks: DeckPick[] = handle && !yours ? theirs.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "theirs", handle, deck })) : [];
-  const preconPicks: DeckPick[] = q.length >= 2 ? precons.filter((p) => !p.same_list_as && hit(p.name, p.commanders)).map((precon) => ({ kind: "precon", precon })) : [];
-  const all = [...theirsPicks, ...own, ...preconPicks];
-  return q ? all.slice(0, 20) : all;
+  const theirPublic: DeckPick[] = handle && !yours ? theirs.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "theirs", handle, deck })) : [];
+  // A deck you played that's one of yours by name, or one the player played that's one of their
+  // public decks, is listed as that. Someone else's deck that shares a name with yours (their own
+  // copy of a precon you have) stays theirs.
+  const isThem = (d: PlayedDeck) => !!who && samePerson(playedBy(d), who);
+  const yourNames = new Set(mine.map((d) => fold(d.name)));
+  const theirNames = new Set(handle && !yours ? theirs.map((d) => fold(d.name)) : []);
+  const known = played.filter((d) => !(me && d.userId === me && yourNames.has(fold(d.name))) && !(isThem(d) && theirNames.has(fold(d.name))));
+  const theirPlayed: DeckPick[] = (who ? decksOf(known, who) : []).filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "played", deck, theirs: true }));
+  const others: DeckPick[] = known
+    .filter((d) => !isThem(d) && hit(d.name, [...d.commanders, d.player]))
+    .sort((a, b) => b.last.localeCompare(a.last))
+    .map((deck) => ({ kind: "played", deck, theirs: false }));
+  const catalog = precons.filter((p) => !p.same_list_as && hit(p.name, p.commanders));
+  const preconPicks = (list: PreconItem[]): DeckPick[] => list.map((precon) => ({ kind: "precon", precon }));
+  const typed = (all: DeckPick[]) => (q ? all.slice(0, 20) : all);
+  switch (scope) {
+    case "theirs":
+      return typed(yours ? [...own, ...theirPlayed] : [...theirPublic, ...theirPlayed]);
+    case "played":
+      return typed([...theirPlayed, ...others]);
+    case "yours":
+      return typed(own);
+    case "precons":
+      return q ? preconPicks(catalog).slice(0, 20) : preconPicks([...catalog].sort((a, b) => (b.released ?? "").localeCompare(a.released ?? "")).slice(0, PRECONS_BROWSED));
+    case "all": {
+      const precon = q.length >= 2 ? preconPicks(catalog) : [];
+      return typed(yours ? [...own, ...theirPlayed, ...others, ...precon] : [...theirPublic, ...theirPlayed, ...others, ...own, ...precon]);
+    }
+  }
+}
+
+/** The filters a seat's deck search offers, the player's own only on someone else's seat. */
+export function deckScopes({ who, yours, played, mine }: { who?: DeckOwner; yours: boolean; played: boolean; mine: boolean }): { key: DeckScope; label: string }[] {
+  const out: { key: DeckScope; label: string }[] = [{ key: "all", label: "All" }];
+  if (!yours && who?.name.trim()) out.push({ key: "theirs", label: possessive(who.name) });
+  if (played) out.push({ key: "played", label: "Played" });
+  if (mine) out.push({ key: "yours", label: "Yours" });
+  out.push({ key: "precons", label: "Precons" });
+  return out;
+}
+
+/** A deck's name as the seat would keep it, for "is this already listed?". */
+function pickName(p: DeckPick): string {
+  return p.kind === "precon" ? p.precon.name : p.kind === "named" ? p.name : p.deck.name;
 }
 
 /**
- * A seat's deck: search the player's public decks (when they have a profile handle), your decks
- * (on someone else's seat, lent to them) and the precon catalog. Picking one names its
- * commanders; the commander fields stay the other way to say what the seat played.
+ * A seat's deck: the player's own decks first (their public decks, and every deck they've played
+ * at your games), then everyone's, yours (on someone else's seat, lent to them) and the precon
+ * catalog, with filters for each. A name typed that matches nothing can be the deck's name too.
+ * Picking one names its commanders; the commander fields stay the other way to say what the seat
+ * played.
  */
-export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, onLeave, trailing }: {
+export function DeckSearch({ text, onText, onPick, decks = NO_DECKS, handle, who, playgroupId, yours, onLeave, trailing }: {
   text: string;
   onText: (t: string) => void;
   onPick: (p: DeckPick) => void;
   decks?: DeckSummary[];
   /** The player's profile handle. */
   handle?: string;
+  /** Who sits at the seat: their decks come first. */
+  who?: DeckOwner;
+  /** The game's playgroup: its games others logged without you count too. */
+  playgroupId?: string;
   /** The seat is yours: your decks come first and aren't "lent". */
   yours: boolean;
   onLeave?: () => void;
@@ -798,6 +883,9 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
 }) {
   // Opened without typing (focus, the arrow): the whole list, even with a deck's name in the field.
   const [browsing, setBrowsing] = useState(false);
+  // Typing in the field (on a desktop): the list is open on what's typed.
+  const [typingHere, setTypingHere] = useState(false);
+  const [scope, setScope] = useState<DeckScope>("all");
   // On a touch screen the list opens as its own page, searched by its own box (`find`).
   const touch = useTouch();
   const [picking, setPicking] = useState(false);
@@ -805,7 +893,31 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
   const query = picking ? find : browsing ? "" : text;
   const typing = query.trim().length >= 2;
   const theirs = useProfileDecks(yours ? undefined : handle);
-  const precons = usePreconCatalog(typing);
+  const precons = usePreconCatalog(typing || scope === "precons");
+  // The games this account can see (the people search's query): what everyone has played.
+  const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<GameRow[]>("/api/games", { signal }), enabled: !isGuest() });
+  // `/api/games` is the games you logged or sat in; the playgroup's own list (the Group page's
+  // query) adds the ones another member logged without you.
+  const groupGames = useQuery({
+    queryKey: ["games", "group", playgroupId],
+    queryFn: ({ signal }) => api<GameRow[]>(`/api/games?playgroup=${encodeURIComponent(playgroupId!)}`, { signal }),
+    enabled: !isGuest() && !!playgroupId,
+  });
+  const me = useMe().data;
+  const played = useMemo(() => playedDecks(mergeGames(games.data, groupGames.data), me?.id, decks), [games.data, groupGames.data, me?.id, decks]);
+  const scopes = deckScopes({ who, yours, played: played.length > 0, mine: decks.length > 0 });
+  // A filter that's gone (the seat became yours) falls back to all.
+  const shownScope = scopes.some((s) => s.key === scope) ? scope : "all";
+  const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, played, who, me: me?.id, precons: precons.data?.precons, yours, scope: shownScope });
+  // A name nothing matches can still be the deck's (a friend's brew): its commander comes after.
+  const typedName = query.trim();
+  const all = typedName && !picks.some((p) => fold(pickName(p)) === fold(typedName)) ? [...picks, { kind: "named", name: typedName } as DeckPick] : picks;
+  // Played decks know only their commanders' names; their art comes from the cards.
+  // Looked up only while the list is open, not for every seat as the page opens.
+  // (A deck already picked fills the field without opening anything.)
+  const listOpen = picking || browsing || typingHere;
+  const art = useCardArt(listOpen ? picks.flatMap((p) => (p.kind === "played" ? [p.deck.commanders[0]] : [])).slice(0, 40) : []);
+  const whoName = who?.name.trim() || "This player";
   const toOption = (p: DeckPick): Option<DeckPick> => {
     const lead = (c: string[]) => c.join(" and ");
     switch (p.kind) {
@@ -819,20 +931,56 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
         const d = p.deck;
         return { key: `theirs:${d.version_id ?? d.name}`, value: p, label: d.name, sub: `${lead(d.commanders) || "No commander set"} (@${p.handle})`, art: d.art, identity: d.color_identity };
       }
+      case "played": {
+        const d = p.deck;
+        const line = playedLine(d, !p.theirs);
+        return { key: `played:${p.theirs ? "theirs" : "other"}:${d.key}`, value: p, label: d.name, sub: d.named ? `${lead(d.commanders) || "No commander named"} (${line})` : line, art: art.get(d.commanders[0] ?? "")?.art ?? null };
+      }
       case "precon": {
         const d = p.precon;
         const year = d.released?.slice(0, 4);
         return { key: `precon:${d.id}`, value: p, label: d.name, sub: `${lead(d.commanders)} (precon${year ? `, ${year}` : ""})`, art: d.art?.url ?? null, identity: d.color_identity };
       }
+      case "named":
+        return { key: `named:${p.name}`, value: p, label: `Use "${p.name}"`, sub: "A deck Yama doesn't know. Name its commander next." };
     }
   };
-  const artist = (p: DeckPick) => (p.kind === "mine" ? p.deck.commander_artist : p.kind === "theirs" ? p.deck.artist : (p.precon.art?.artist ?? null));
-  const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, precons: precons.data?.precons, yours });
-  const options = picks.map(toOption);
-  const placeholder = handle && !yours ? `Search @${handle}'s decks, yours or precons` : "Search your decks or precons";
-  const loading = (typing && precons.isFetching && !precons.data) || (theirs.isFetching && !theirs.data);
+  const artist = (p: DeckPick) =>
+    p.kind === "mine" ? p.deck.commander_artist : p.kind === "theirs" ? p.deck.artist : p.kind === "played" ? (art.get(p.deck.commanders[0] ?? "")?.artist ?? null) : p.kind === "precon" ? (p.precon.art?.artist ?? null) : null;
+  const options = all.map(toOption);
+  const placeholder =
+    shownScope === "precons" ? "Search the precons" : shownScope === "yours" ? "Search your decks" : shownScope === "theirs" ? `Search ${possessive(whoName)} decks` : !yours && who?.name.trim() ? `Search ${possessive(whoName)} decks, anyone's or precons` : "Search decks or precons";
+  const loading = ((typing || shownScope === "precons") && precons.isFetching && !precons.data) || (theirs.isFetching && !theirs.data) || (games.isFetching && !games.data);
   // Scryfall asks for the artist wherever an art crop shows.
-  const credits = options.some((o) => o.art) && <span>{artCredits(picks.filter((_, i) => options[i]!.art).map(artist))}</span>;
+  const credits = options.some((o) => o.art) && <span>{artCredits(all.filter((_, i) => options[i]!.art).map(artist))}</span>;
+  const empty =
+    shownScope === "theirs"
+      ? `${whoName} has no decks here yet. Theirs show up once they've played one at your games or shared one on their profile. Type a deck's name to use it.`
+      : shownScope === "played"
+        ? "No decks played at your games yet."
+        : typing
+          ? "No deck by that name."
+          : undefined;
+  const hint = shownScope === "all" && !typing && <span className="combo-hint">Type two letters to search the precons too, or a player's name for their decks.</span>;
+  const filters = scopes.length > 2 && (
+    <div className="segmented deck-scopes" role="group" aria-label="Show decks">
+      {scopes.map((s) => (
+        <button
+          key={s.key}
+          type="button"
+          // On a desktop the list closes when the field loses focus, so the filters are for the
+          // pointer; the keyboard narrows by typing (a player's name, a deck's or a precon's).
+          tabIndex={touch ? undefined : -1}
+          aria-pressed={s.key === shownScope}
+          // Keep the deck field focused, so its list stays open.
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => setScope(s.key)}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
   if (touch) {
     const close = () => setPicking(false);
     return (
@@ -840,7 +988,7 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
         <PickerField
           label="Deck"
           text={text}
-          placeholder={yours || !handle ? "Pick a deck" : `Pick @${handle}'s deck, yours or a precon`}
+          placeholder={yours || !who?.name.trim() ? "Pick a deck" : `Pick ${possessive(whoName)} deck, anyone's or a precon`}
           trailing={trailing}
           onOpen={() => {
             setFind("");
@@ -860,26 +1008,29 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
             onClose={close}
             placeholder={placeholder}
             loading={loading}
-            empty={typing ? (text ? "No deck by that name. Tap No deck above to name the commander instead." : "No deck by that name. Close this and pick a commander instead.") : "Type two letters to search the precons."}
+            empty={empty ?? "No decks to show. Type a deck's name to use it."}
             extra={
-              text && (
-                <button
-                  type="button"
-                  className="quiet small picker-extra"
-                  onClick={() => {
-                    close();
-                    // Clearing the deck puts the seat back on its commander alone.
-                    onText("");
-                    onLeave?.();
-                  }}
-                >
-                  No deck, just name the commander
-                </button>
-              )
+              <>
+                {filters}
+                {text && (
+                  <button
+                    type="button"
+                    className="quiet small picker-extra"
+                    onClick={() => {
+                      close();
+                      // Clearing the deck puts the seat back on its commander alone.
+                      onText("");
+                      onLeave?.();
+                    }}
+                  >
+                    No deck, just name the commander
+                  </button>
+                )}
+              </>
             }
             footer={
               <>
-                {!typing && <span className="combo-hint">Type two letters to search the precons too.</span>}
+                {hint}
                 {credits}
               </>
             }
@@ -894,15 +1045,18 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
       text={text}
       onText={(t) => {
         setBrowsing(false);
+        setTypingHere(true);
         onText(t);
       }}
       options={options}
       onPick={(p) => {
         setBrowsing(false);
+        setTypingHere(false);
         onPick(p);
       }}
       onLeave={() => {
         setBrowsing(false);
+        setTypingHere(false);
         onLeave?.();
       }}
       onOpen={() => setBrowsing(true)}
@@ -910,15 +1064,16 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, yours, on
       trailing={trailing}
       placeholder={placeholder}
       loading={loading}
+      head={filters || undefined}
       footer={
         options.length > 0 && (
           <>
-            {!typing && <span className="combo-hint">Type two letters to search the precons too.</span>}
+            {hint}
             {credits}
           </>
         )
       }
-      empty={typing ? "No deck by that name. Pick a commander instead." : undefined}
+      empty={empty ?? (typing ? "No deck by that name. Pick a commander instead." : undefined)}
     />
   );
 }

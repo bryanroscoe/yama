@@ -157,6 +157,9 @@ export interface Card {
   /** On the Commander Game Changers list, per Scryfall. null until the server has loaded the
    *  flags (or the saved offline list lacks them): unknown, not false. */
   game_changer: boolean | null;
+  /** On Wizards' Reserve List, per Scryfall. null until the server has loaded the flags, and
+   *  in the offline copy on this device, which doesn't carry them: unknown, not false. */
+  reserved?: boolean | null;
 }
 
 /** A ruling from Scryfall's rulings file. */
@@ -442,6 +445,11 @@ export interface DeckView {
   game_changers: string[] | null;
   /** Date of the Scryfall data behind the flags (YYYY-MM-DD). */
   game_changers_as_of: string | null;
+  /** Reserve List cards in the commander and main deck, by name (servers from 2026-11-07 on).
+   *  null while any of those cards has no flag loaded yet. */
+  reserved_list?: string[] | null;
+  /** Date of the Scryfall data behind the Reserve List flags (YYYY-MM-DD). */
+  reserved_list_as_of?: string | null;
   /** What Card Kingdom was buying your copies for (servers from 2026-11-03 on; null before its prices are in). */
   buylist?: BuylistValue | null;
 }

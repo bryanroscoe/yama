@@ -482,6 +482,11 @@ struct DeckView {
     game_changers: Option<Vec<String>>,
     /// Date of the Scryfall data the flags come from (YYYY-MM-DD), if loaded.
     game_changers_as_of: Option<String>,
+    /// Names of the cards on Wizards' Reserve List (commander and main deck). `None` while any
+    /// of those cards has no flag loaded yet.
+    reserved_list: Option<Vec<String>>,
+    /// Date of the Scryfall data the Reserve List flags come from (YYYY-MM-DD), if loaded.
+    reserved_list_as_of: Option<String>,
     /// What Card Kingdom was buying your copies for (the AGENTS.md deck valuation rule); none
     /// before any Card Kingdom prices are in.
     buylist: Option<BuylistValue>,
@@ -843,6 +848,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
     let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
+    let reserved_list = reserved_list(&cards, &card_info);
+    let reserved_list_as_of = crate::cards::import::reserved_list_date(&st.pool).await?;
     let (bracket, parent_id, configuration, visibility, share_token): (Option<i64>, Option<String>, Option<String>, String, Option<String>) =
         sqlx::query_as("SELECT bracket, parent_id, configuration, visibility, share_token FROM decks WHERE id = ?")
             .bind(&id)
@@ -977,6 +984,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         ownership: totals,
         game_changers,
         game_changers_as_of,
+        reserved_list,
+        reserved_list_as_of,
         buylist,
     }))
 }
@@ -1517,10 +1526,20 @@ async fn recheck(
 /// it's only as fresh as the last card import. `None` when any of those cards has no flag yet
 /// (before the first import that reads it): a count then would be a guess.
 pub fn game_changers(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option<Vec<String>> {
+    flagged(cards, info, |c| c.game_changer)
+}
+
+/// Cards on Wizards' Reserve List in the deck (not the sideboard), by name, sorted, from
+/// Scryfall's flag. `None` when any of those cards has no flag yet, as with [`game_changers`].
+pub fn reserved_list(cards: &[DeckCard], info: &HashMap<String, Card>) -> Option<Vec<String>> {
+    flagged(cards, info, |c| c.reserved)
+}
+
+fn flagged(cards: &[DeckCard], info: &HashMap<String, Card>, flag: impl Fn(&Card) -> Option<bool>) -> Option<Vec<String>> {
     let mut names = Vec::new();
     for c in cards.iter().filter(|c| c.board != Board::Side) {
         let Some(card) = info.get(&c.oracle_id) else { continue };
-        if card.game_changer? {
+        if flag(card)? {
             names.push(c.name.clone());
         }
     }
@@ -1702,6 +1721,7 @@ mod tests {
             default_printing: None,
             edhrec_rank: None,
             game_changer: Some(false),
+            reserved: Some(false),
         }
     }
 
@@ -1731,6 +1751,22 @@ mod tests {
         info.get_mut("Sol Ring").unwrap().game_changer = Some(false);
         info.get_mut("Cyclonic Rift").unwrap().game_changer = None;
         assert_eq!(game_changers(&cards, &info), Some(vec!["Rhystic Study".to_string()]));
+    }
+
+    #[test]
+    fn reserved_list_skips_the_sideboard_and_waits_for_flags() {
+        let mut cradle = card("Gaea's Cradle", "Legendary Land", "", "", "legal");
+        cradle.reserved = Some(true);
+        let mut lotus = card("Lion's Eye Diamond", "Artifact", "", "", "legal");
+        lotus.reserved = Some(true);
+        let sol = card("Sol Ring", "Artifact", "", "", "legal");
+        let mut info: HashMap<String, Card> = [cradle, lotus, sol].into_iter().map(|c| (c.oracle_id.clone(), c)).collect();
+        let dc = |name: &str, board| DeckCard { oracle_id: name.into(), name: name.into(), qty: 1, board };
+        let cards = vec![dc("Gaea's Cradle", Board::Main), dc("Sol Ring", Board::Commander), dc("Lion's Eye Diamond", Board::Side)];
+        assert_eq!(reserved_list(&cards, &info), Some(vec!["Gaea's Cradle".to_string()]));
+        // Before an import reads the flag, the count is unknown, not zero.
+        info.get_mut("Sol Ring").unwrap().reserved = None;
+        assert_eq!(reserved_list(&cards, &info), None);
     }
 
     fn item(set: &str, number: &str, container: Option<&str>, proxy: bool, finish: &str) -> crate::collection::Item {
