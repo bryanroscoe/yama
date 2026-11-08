@@ -1285,6 +1285,9 @@ pub(super) fn checks(cards: &[DeckCard], info: &HashMap<String, Card>) -> String
     for w in &v.warnings {
         let _ = writeln!(out, "Warning: {w}");
     }
+    for p in &v.prerelease {
+        let _ = writeln!(out, "Prerelease: {p}");
+    }
     match crate::decks::game_changers(cards, info) {
         Some(g) if g.is_empty() => out.push_str("Game Changers: none.\n"),
         Some(g) => {

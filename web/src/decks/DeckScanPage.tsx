@@ -389,10 +389,11 @@ function Checks({ check }: { check: ScanCheck }) {
       <p className={v.ok ? "deck-scan-good" : "deck-scan-warn"}>
         {v.ok ? `Legal: ${v.total} cards, singleton, inside the commander's colors.` : `${v.errors.length === 1 ? "One problem" : `${v.errors.length} problems`}. You can still save it; it's what's in the box.`}
       </p>
-      {(v.errors.length > 0 || v.warnings.length > 0) && (
+      {(v.errors.length > 0 || v.warnings.length > 0 || !!v.prerelease?.length) && (
         <ul className="deck-scan-plain">
           {v.errors.map((e) => <li key={e} className="deck-scan-warn">{e}</li>)}
           {v.warnings.map((w) => <li key={w} className="dim">{w}</li>)}
+          {v.prerelease?.map((p) => <li key={p} className="dim">{p}</li>)}
         </ul>
       )}
       <p className="small dim">Legality is from Yama's card data, as of its last card update.</p>

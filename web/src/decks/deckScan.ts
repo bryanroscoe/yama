@@ -187,7 +187,7 @@ export interface ScanCheck {
   commander_changed: boolean;
   same: boolean;
   kept_sideboard: number;
-  validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
+  validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[]; prerelease?: string[] };
 }
 
 export interface ScanSaved {

@@ -5,7 +5,7 @@
 //! state of the database. Every statement binds the owner.
 
 use super::model::{self, Checked, Meta, Plan, Slot};
-use crate::cards::{CARD_COLUMNS, Card};
+use crate::cards::{CARD_COLUMNS, Card, RELEASES_ON};
 use crate::decks::{Board, DeckCard};
 use crate::error::{AppError, AppResult};
 use crate::util::{new_id, now, sha256_hex};
@@ -360,7 +360,7 @@ fn default_computed_by(meta: &Meta) -> String {
 async fn card_info(pool: &SqlitePool, resolved: &HashMap<String, String>) -> AppResult<HashMap<String, Card>> {
     let ids: Vec<&String> = resolved.values().collect();
     let cards: Vec<Card> = sqlx::query_as(AssertSqlSafe(format!(
-        "SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))"
+        "SELECT {CARD_COLUMNS}, {RELEASES_ON} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))"
     )))
     .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
     .fetch_all(pool)
