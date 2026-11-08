@@ -2345,3 +2345,59 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .app-update { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px var(--page-pad); border-bottom: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
 .app-update button { min-height: var(--target); }
+
+/* ── More: a floating menu (components/MoreMenu.tsx; design/tokens.md, rule 2) ─────────────── */
+.more-menu {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.more-menu > button {
+  width: 100%;
+}
+.more-menu-pop {
+  position: fixed;
+  z-index: 60;
+  min-width: 240px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+.more-menu-items {
+  display: flex;
+  flex-direction: column;
+}
+/* Every action in the menu is a plain row, whatever button or link style it came with. */
+.more-menu-items > :is(button, a) {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: var(--target);
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--t-label);
+  font-weight: 400;
+  text-align: left;
+  text-decoration: none;
+}
+.more-menu-items > :is(button, a):hover {
+  background: var(--raised);
+}
+.more-menu-items > .deck-delete {
+  color: var(--bad);
+}
+.more-menu-sep {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 6px 0;
+}
+/* On a phone, the same actions as 48 px rows in a bottom sheet. */
+.more-menu-sheet .more-menu-items > :is(button, a) {
+  min-height: 48px;
+  font-size: var(--t-base);
+}

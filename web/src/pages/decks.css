@@ -235,30 +235,10 @@
     gap: 8px;
   }
   .deck-page .deck-actions-phone button,
-  .deck-page .deck-actions-phone .button,
-  .deck-actions-more > summary {
-    min-height: var(--target);
+  .deck-page .deck-actions-phone .button {
+    width: 100%;
     padding: 8px 12px;
     font-size: var(--t-label);
-  }
-  /* Opening it leaves the summary beside Edit deck; the actions spread under both columns
-     (back by one column plus the gap) instead of the summary jumping to a row of its own. */
-  .deck-actions-more[open] .deck-extra-actions {
-    width: calc(200% + 8px);
-    margin-left: calc(-100% - 8px);
-  }
-  .deck-actions-more > summary {
-    justify-content: center;
-    border: 1px solid var(--line);
-    border-radius: var(--r-pill);
-    font-weight: 700;
-  }
-  .deck-actions-more > summary:hover { border-color: var(--dim); }
-  .deck-extra-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    padding-top: 12px;
   }
 }
 
@@ -394,14 +374,6 @@
   }
 }
 
-/* Keep the common actions in one row; everything else opens in place. */
-.deck-actions-more { min-width: 0; }
-.deck-actions-more > summary {
-  min-height: 48px; padding: 10px 20px; border: 1px solid var(--line);
-  border-radius: var(--r-pill); justify-content: center; font-weight: 700;
-}
-.deck-actions-more[open] { flex-basis: 100%; }
-.deck-extra-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
 /* Delete deck / Delete configuration (decks/DeleteDeck.tsx): red text in the menus, a filled
    red button only on the confirming sheet. */
 .deck-page button.deck-delete { color: var(--bad); }
@@ -422,7 +394,6 @@
 }
 @media (max-width: 899px) {
   .deck-page .deck-actions-phone { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .deck-actions-more[open] .deck-extra-actions { width: calc(300% + 16px); margin-left: calc(-200% - 16px); }
   .deck-toolbar { flex-wrap: wrap; }
 }
 .deck-lists > a, .deck-playgroup-builds li > a { display: inline-flex; align-items: center; min-height: var(--target); }
@@ -430,5 +401,4 @@
 .deck-playgroup-builds ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 8px; padding-left: 20px; }
 .deck-page .deck-more > details { margin-bottom: 20px; }
 @media (max-width: 899px) {
-  .deck-page .deck-actions-more[open] .deck-extra-actions { padding-top: 16px; }
 }
