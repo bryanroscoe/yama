@@ -40,8 +40,6 @@ pub struct PowerSignals {
     pub two_card_combos: Vec<String>,
     pub mass_land_denial: Vec<String>,
     pub extra_turns: Vec<String>,
-    /// None while the Reserve List flags aren't loaded: nothing counts.
-    pub reserved_list: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,7 +271,7 @@ pub fn estimate(all: &[PowerCard], signals: &PowerSignals) -> Option<PowerEstima
     let copies: i64 = nonland.iter().map(|c| c.qty).sum();
     let average = (copies > 0).then(|| nonland.iter().map(|c| c.cmc.unwrap_or(0.0) * c.qty as f64).sum::<f64>() / copies as f64);
     let curve_share = average.map_or(0.0, |a| ((CURVE_FLAT - a) / (CURVE_FLAT - CURVE_FULL)).clamp(0.0, 1.0));
-    let curve_weight = 0.1;
+    let curve_weight = 0.15;
     let names = |v: &[String]| (v.len() as f64, v.to_vec());
 
     let factors = vec![
@@ -301,19 +299,6 @@ pub fn estimate(all: &[PowerCard], signals: &PowerSignals) -> Option<PowerEstima
             0.05,
             names(&[signals.mass_land_denial.clone(), signals.extra_turns.clone()].concat()),
         ),
-        // Being on the list says a card is scarce, not strong, so the weight is small.
-        factor(
-            "reserved",
-            "Reserve List cards",
-            if signals.reserved_list.is_some() {
-                "Cards on Wizards' Reserve List, which is never reprinted"
-            } else {
-                "Reserve List flags aren't loaded yet, so nothing counts here"
-            },
-            4.0,
-            0.05,
-            names(signals.reserved_list.as_deref().unwrap_or(&[])),
-        ),
     ];
     let score = band[0] as f64 + factors.iter().fold(0.0, |n, f| n + f.points);
     Some(PowerEstimate { score: round1(score.min(band[1] as f64)), bracket, band, factors, unknown_cards })
@@ -337,7 +322,6 @@ pub fn for_deck(
     info: &HashMap<String, Card>,
     produced: &HashMap<String, Option<String>>,
     check: Option<&CheckResult>,
-    reserved_list: Option<Vec<String>>,
 ) -> Option<PowerEstimate> {
     let r = check?;
     let cards: Vec<PowerCard> = list
@@ -363,7 +347,6 @@ pub fn for_deck(
             two_card_combos: r.combos.iter().filter(|x| x.definitely_two_card).map(|x| x.cards.join(" + ")).collect(),
             mass_land_denial: r.mld.clone(),
             extra_turns: r.extra_turns.clone(),
-            reserved_list,
         },
     )
 }
@@ -415,7 +398,6 @@ mod tests {
                 two_card_combos: strings(&s["twoCardCombos"]),
                 mass_land_denial: strings(&s["massLandDenial"]),
                 extra_turns: strings(&s["extraTurns"]),
-                reserved_list: (!s["reservedList"].is_null()).then(|| strings(&s["reservedList"])),
             };
             let got = estimate(&cards, &signals);
             let want = &c["expected"];

@@ -445,7 +445,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
     };
     let reserved_list = crate::decks::reserved_list(&d.list, &info);
     let produced = crate::decks::produced_mana(pool, &d.list.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
-    let power = crate::power_level::for_deck(&d.list, &info, &produced, check.as_ref(), reserved_list.clone());
+    let power = crate::power_level::for_deck(&d.list, &info, &produced, check.as_ref());
     Ok(SharedDetails {
         validation: crate::decks::validate(&d.list, &info),
         game_changers: crate::decks::game_changers(&d.list, &info),

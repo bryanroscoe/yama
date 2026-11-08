@@ -450,7 +450,6 @@ async fn a_shared_deck_page_shows_how_the_power_estimate_adds_up() {
     card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
     sqlx::query("UPDATE cards SET cmc = 1, oracle_text = '{T}: Add {C}{C}.', produced_mana = 'C' WHERE oracle_id = 'o-sol'").execute(&pool).await.unwrap();
     sqlx::query("UPDATE cards SET cmc = 1, oracle_text = 'Lightning Bolt deals 3 damage to any target.', produced_mana = '' WHERE oracle_id = 'o-bolt'").execute(&pool).await.unwrap();
-    sqlx::query("UPDATE cards SET reserved = 0").execute(&pool).await.unwrap();
     let (_, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Shared", "text": "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt" }))).await;
     let id = made["id"].as_str().unwrap().to_string();
     send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "visibility": "link" }))).await;
@@ -476,7 +475,7 @@ async fn a_shared_deck_page_shows_how_the_power_estimate_adds_up() {
     assert!(body.contains("<b>Cheap mana</b>") && body.contains("<small class=\"names\">Sol Ring</small>"), "{body}");
     assert!(body.contains("<b>Cheap interaction</b>") && body.contains("<small class=\"names\">Lightning Bolt</small>"), "{body}");
     assert!(body.contains("This deck: 1.00."), "the curve's average: {body}");
-    assert!(body.contains("Cards on Wizards&#39; Reserve List"), "flags loaded, none in the list");
+    assert!(!body.contains("Reserve List cards</b>"), "the Reserve List isn't a factor");
 }
 
 #[test]

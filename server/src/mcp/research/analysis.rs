@@ -197,7 +197,7 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
         None => None,
     };
     let produced = crate::decks::produced_mana(&st.pool, &list.cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
-    let power = crate::power_level::for_deck(&list.cards, &info, &produced, check.as_ref(), reserved_list.clone());
+    let power = crate::power_level::for_deck(&list.cards, &info, &produced, check.as_ref());
     Ok(
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
