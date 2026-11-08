@@ -818,3 +818,15 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     let (_, _, html) = request(&app, "/precons/island-deck", &[]).await;
     assert!(html.contains("It isn’t part of this deck’s rank."));
 }
+
+#[tokio::test]
+async fn a_card_data_import_refreshes_rating_v2() {
+    // A commander record named only by printing or name may resolve after a card data import.
+    let pool = crate::db::test_pool().await;
+    let before = v2::key(&pool).await.unwrap();
+    sqlx::query("INSERT INTO import_runs (id, kind, source_url, started_at, finished_at) VALUES ('run', 'scryfall', 'https://example.com', '2026-11-08T00:00:00Z', '2026-11-08T00:05:00Z')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_ne!(v2::key(&pool).await.unwrap(), before);
+}
