@@ -93,6 +93,7 @@ Write (staged):
 | Tool | Becomes, when applied |
 |---|---|
 | `edit_deck` | A new version of a Yama deck: add, remove, replace cards (one version per change, with a note) |
+| `delete_deck` | Deletes (archives) a deck or one configuration, the deck page's Delete: its configurations become decks of their own unless `configurations` is true, which deletes the ones named when it was staged |
 | `track_build` | One build of a deck in a saved note becomes that deck's next plan version, waiting for their OK (`POST /api/plan/from-note` with `proposed: true`), or switches or stops it (`build: null`) |
 | `approve_plan` | Approves a deck's waiting plan version whole (skips and open-question answers included), or keeps the version before it: the `plan` op (`server/src/plan/versions.rs`) |
 | `propose_swap` | A planner idea for a plan deck (the existing `idea` op), so it goes through Review and the repo's pull |

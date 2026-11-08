@@ -378,6 +378,97 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
     Ok(json!({"label": format!("{deck} has a new version"), "link": format!("/decks/{deck_id}")}))
 }
 
+// ── deleting a deck ─────────────────────────────────────────────────────────
+
+/// A deck's live configurations: (id, label).
+async fn configurations_of(pool: &SqlitePool, owner: &str, deck: &str) -> AppResult<Vec<(String, String)>> {
+    let rows: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT id, name, configuration FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at")
+            .bind(owner)
+            .bind(deck)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().map(|(id, name, label)| (id, label.unwrap_or(name))).collect())
+}
+
+pub async fn delete_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let pool = &st.pool;
+    let id = deck_id(pool, &user.id, text_arg(args, "deck")?).await?;
+    let with_configurations = match args.get("configurations") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(AppError::bad("configurations must be true or false")),
+    };
+    let (name, parent, label): (String, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT d.name, (SELECT p.name FROM decks p WHERE p.id = d.parent_id AND p.archived = 0), d.configuration FROM decks d WHERE d.id = ? AND d.owner_id = ?")
+            .bind(&id)
+            .bind(&user.id)
+            .fetch_one(pool)
+            .await?;
+    let configs = configurations_of(pool, &user.id, &id).await?;
+    let labels = configs.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join(", ");
+    let (summary, detail) = match (&parent, configs.is_empty(), with_configurations) {
+        (Some(main), _, _) => (
+            format!("Delete the {} configuration of {main}", label.as_deref().unwrap_or(&name)),
+            format!("{name} leaves their decks; {main} and its other configurations stay."),
+        ),
+        (None, true, _) => (format!("Delete {name}"), format!("{name} leaves their decks.")),
+        (None, false, true) => (
+            format!("Delete {name} and its {} configuration{}", configs.len(), if configs.len() == 1 { "" } else { "s" }),
+            format!("{name} and its configurations ({labels}) leave their decks."),
+        ),
+        (None, false, false) => (
+            format!("Delete {name}"),
+            format!("{name} leaves their decks. Its configurations ({labels}) stay as decks of their own."),
+        ),
+    };
+    let detail = format!("{detail} Its share link stops working; games already played keep their record.");
+    let pinned: Vec<&str> = configs.iter().map(|(c, _)| c.as_str()).collect();
+    stage(
+        st,
+        user,
+        via,
+        Staged {
+            kind: "delete_deck",
+            summary,
+            detail,
+            payload: json!({"deck_id": id, "deck": name, "configurations": with_configurations, "configuration_ids": pinned}),
+        },
+    )
+    .await
+}
+
+async fn apply_delete_deck(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let pool = &st.pool;
+    let deck_id = p["deck_id"].as_str().unwrap_or_default();
+    let deck = p["deck"].as_str().unwrap_or("the deck");
+    let live: Option<bool> = sqlx::query_scalar("SELECT archived FROM decks WHERE id = ? AND owner_id = ?").bind(deck_id).bind(&user.id).fetch_optional(pool).await?;
+    if live != Some(false) {
+        return Err(AppError::Conflict(format!("{deck} isn't in your decks any more.")));
+    }
+    let with_configurations = p["configurations"] == true;
+    // Deleting configurations deletes the ones that were named when this was suggested, never one
+    // made since.
+    if with_configurations {
+        let pinned: Vec<&str> = p["configuration_ids"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        let current: Vec<String> = configurations_of(pool, &user.id, deck_id).await?.into_iter().map(|(id, _)| id).collect();
+        if current.iter().map(String::as_str).ne(pinned.iter().copied()) {
+            return Err(AppError::Conflict(format!(
+                "{deck}'s configurations changed after this was suggested, so it wasn't applied. Discard it and ask again."
+            )));
+        }
+    }
+    st.limits.deck_writes.check_user(user)?;
+    let done = crate::decks::delete(pool, &user.id, deck_id, with_configurations).await?;
+    let label = match (done.deleted.len(), done.kept.len()) {
+        (1, 0) => format!("Deleted {deck}"),
+        (1, 1) => format!("Deleted {deck}; its configuration is now a deck of its own"),
+        (1, kept) => format!("Deleted {deck}; its {kept} configurations are now decks of their own"),
+        (n, _) => format!("Deleted {deck} and {} configuration{}", n - 1, if n == 2 { "" } else { "s" }),
+    };
+    Ok(json!({"label": label, "link": "/decks"}))
+}
+
 // ── complete deck lists ─────────────────────────────────────────────────────
 
 /// Complete-list construction/import/restore uses the existing edit_deck change kind. The
@@ -1983,6 +2074,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
     let done = match row.kind.as_str() {
         "edit_deck" if p["complete_list"] == true => apply_complete_deck(st, user, &row.id, &p).await,
         "edit_deck" => apply_edit_deck(st, user, &row.summary, &p).await,
+        "delete_deck" => apply_delete_deck(st, user, &p).await,
         "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" => apply_plan(st, user, &row.kind, &row.id, &p).await,
         "start_lab_run" => apply_lab_run(st, user, &row.id, &p).await,
         "more_lab_games" => apply_more_games(st, user, &p).await,

@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-08-delete-decks",
+    date: "2026-11-08",
+    title: "Delete a deck or a configuration",
+    items: [
+      "On a deck's page, More now ends with Delete deck, or Delete configuration when you're on one. Deleting a deck with configurations asks whether to keep them as decks of their own or delete them too.",
+      "Your assistant can delete one for you as well; it waits in Suggested changes with a Delete button until you press it.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
     id: "2026-11-05-plans-by-deck",
     date: "2026-11-05",
     title: "Plans, deck by deck",

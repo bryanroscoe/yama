@@ -5,7 +5,7 @@ use crate::cards::{CARD_COLUMNS, Card};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{new_id, now};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -1327,20 +1327,64 @@ async fn use_list(
     Ok(Json(result))
 }
 
-async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    archive(&st.pool, &user.id, &id).await
+#[derive(Deserialize)]
+struct DeleteQuery {
+    /// Delete its configurations too; otherwise they become main decks of their own.
+    #[serde(default)]
+    configurations: bool,
 }
 
-/// Archive one of `owner`'s decks: it leaves the deck list, and its versions and games stay
-/// (`DELETE /api/decks/{id}` and `yama-server deck archive`).
+/// What a delete took out of the deck list: the deck and any configurations deleted with it.
+#[derive(Serialize)]
+pub struct Deleted {
+    pub deleted: Vec<String>,
+    /// Configurations that stayed and are now main decks of their own.
+    pub kept: Vec<String>,
+}
+
+async fn archive_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, Query(q): Query<DeleteQuery>) -> AppResult<Json<Deleted>> {
+    Ok(Json(delete(&st.pool, &user.id, &id, q.configurations).await?))
+}
+
+/// Archive one of `owner`'s decks, keeping its configurations as main decks
+/// (`yama-server deck archive`). See [`delete`].
 pub async fn archive(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
+    delete(pool, owner, id, false).await.map(|_| ())
+}
+
+/// Delete one of `owner`'s decks (`DELETE /api/decks/{id}`, the deck page's Delete and the MCP
+/// `delete_deck` change). A delete is an archive: the deck leaves the deck list, its share
+/// link stops working, and its versions stay so games already played keep their record (account deletion removes them). With `configurations`, its configurations go too;
+/// otherwise they become main decks of their own rather than hang off a deleted one.
+pub async fn delete(pool: &SqlitePool, owner: &str, id: &str, configurations: bool) -> AppResult<Deleted> {
     owned_deck(pool, owner, id).await?;
     let mut tx = pool.begin().await?;
-    sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ?").bind(now()).bind(id).execute(&mut *tx).await?;
-    // Its configurations become main decks of their own rather than hang off an archived one.
-    sqlx::query("UPDATE decks SET parent_id = NULL WHERE parent_id = ?").bind(id).execute(&mut *tx).await?;
+    let at = now();
+    let children: Vec<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at")
+        .bind(owner)
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+    if configurations {
+        sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE owner_id = ? AND parent_id = ? AND archived = 0")
+            .bind(&at)
+            .bind(owner)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ? AND owner_id = ?").bind(&at).bind(id).bind(owner).execute(&mut *tx).await?;
+    // Configurations left (and any archived before) no longer hang off a deleted deck.
+    sqlx::query("UPDATE decks SET parent_id = NULL, updated_at = ? WHERE owner_id = ? AND parent_id = ?").bind(&at).bind(owner).bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(())
+    let mut deleted = vec![id.to_string()];
+    let kept = if configurations {
+        deleted.extend(children);
+        Vec::new()
+    } else {
+        children
+    };
+    Ok(Deleted { deleted, kept })
 }
 
 /// Rename one of `owner`'s decks (`yama-server deck rename`; the web renames through

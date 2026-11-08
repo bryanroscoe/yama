@@ -463,6 +463,28 @@ const TOOLS: &[Tool] = &[
         does: Does::Stage,
     },
     Tool {
+        name: "delete_deck",
+        title: "Delete a deck or configuration",
+        description: staged!(
+            "Delete one of their Yama decks, or one configuration of a deck (name the configuration's own deck). \
+             It leaves their decks and its share link stops working; games already played with it keep their record. \
+             A main deck's configurations become decks of their own unless configurations is true, which deletes them too. \
+             It can't be undone from Yama, so only stage it when they asked to delete that deck."
+        ),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "deck": {"type": "string", "description": "The deck's (or configuration's) name or id."},
+                    "configurations": {"type": "boolean", "description": "For a main deck: delete its configurations too (default false: they become decks of their own)."},
+                },
+                "required": ["deck"],
+                "additionalProperties": false,
+            })
+        },
+        does: Does::Stage,
+    },
+    Tool {
         name: "track_build",
         title: "Make a note's build the deck's plan",
         description: staged!(
@@ -903,6 +925,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         }
         "changes" => changes_text(pool, user).await,
         "edit_deck" => changes::edit_deck(st, user, via, args).await,
+        "delete_deck" => changes::delete_deck(st, user, via, args).await,
         "propose_swap" => changes::propose_swap(st, user, via, args).await,
         "track_build" => changes::track_build(st, user, via, args).await,
         "approve_plan" => changes::approve_plan(st, user, via, args).await,
