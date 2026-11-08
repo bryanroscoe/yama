@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Approve a plan on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 2240px; position: relative; background: var(--ground); overflow: hidden;">
+
+<header style="position: relative; height: 250px; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; background: var(--raised);">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 13px;">Auntie Ool art_crop</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.3) 0%, rgb(11 12 14 / 0.4) 40%, #0b0c0e 100%);"></span>
+<a href="PhonePlans.dc.html" aria-label="Back to plans" style="position: absolute; top: 14px; left: 14px; width: 44px; height: 44px; border-radius: 50%; background: rgb(11 12 14 / 0.6); display: grid; place-items: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+<span style="position: absolute; top: 26px; right: 14px; font-size: 10px; color: rgb(255 255 255 / 0.85);">Art: [artist], © Wizards</span>
+<span style="position: relative; display: flex; flex-direction: column; gap: 6px;">
+<span style="font-size: 13px; font-weight: 700;">Auntie Ool, Cursewretch</span>
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 56px; line-height: 0.85;">Blight Curse</h1>
+<span style="align-self: flex-start; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: {{pillFg}}; background: {{pillBg}};">{{pillText}}</span>
+<span style="font-size: 13px; color: #d5d7db;">Version 1, proposed by Claude on 28 Oct from the commander review</span>
+</span>
+</header>
+
+<div style="padding: 12px 16px 100px; display: flex; flex-direction: column; gap: 20px;">
+
+<sc-if value="{{q1open}}" hint-placeholder-val="{{true}}">
+<section aria-label="Question" style="padding: 14px; border-radius: 16px; background: rgb(240 180 90 / 0.08); box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4); display: flex; flex-direction: column; gap: 10px;">
+<span><b>Yawgmoth comes out of Revival Trance,</b> which plays it at Bracket 4.</span>
+<button type="button" onClick="{{q1print}}" style="min-height: 44px; border-radius: 999px; border: 0; background: var(--raised); color: var(--text); font-weight: 700;">Print a copy</button>
+<button type="button" onClick="{{q1take}}" style="min-height: 44px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700;">Take it from Revival Trance</button>
+</section>
+</sc-if>
+<sc-if value="{{q2open}}" hint-placeholder-val="{{true}}">
+<section aria-label="Question" style="padding: 14px; border-radius: 16px; background: rgb(240 180 90 / 0.08); box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4); display: flex; flex-direction: column; gap: 10px;">
+<span><b>Generous Patron comes from Counter Blitz,</b> which you don't have yet.</span>
+<button type="button" onClick="{{q2print}}" style="min-height: 44px; border-radius: 999px; border: 0; background: var(--raised); color: var(--text); font-weight: 700;">Print a copy</button>
+<button type="button" onClick="{{q2wait}}" style="min-height: 44px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700;">Wait for Counter Blitz</button>
+</section>
+</sc-if>
+
+<section aria-label="Summary" style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+<span style="display: flex; align-items: baseline; gap: 8px;"><span style="font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1;">{{total}}</span><span style="color: var(--dim);">{{totalLine}}</span></span>
+<span style="font-size: 14px;">Have {{nHave}}, from other decks {{nMove}}, buy {{nBuy}} ({{cost}}), print {{nPrint}}</span>
+<sc-if value="{{isReview}}" hint-placeholder-val="{{true}}">
+<span style="font-size: 13px; color: var(--dim);">Approving puts the buys on your shopping list and the prints on your next order.</span>
+<sc-if value="{{canApprove}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{approve}}" style="min-height: 52px; border-radius: 999px; border: 0; background: var(--text); color: var(--ground); font-weight: 700;">Approve plan</button></sc-if>
+<sc-if value="{{blocked}}" hint-placeholder-val="{{true}}"><button type="button" disabled="{{true}}" style="min-height: 52px; border-radius: 999px; border: 0; background: var(--raised); color: var(--dim); font-weight: 700; cursor: default;">{{blockedLabel}}</button></sc-if>
+</sc-if>
+<sc-if value="{{isApproved}}" hint-placeholder-val="{{false}}">
+<span>Next: {{nextStep}}</span>
+<a href="PhoneGetCards.dc.html" style="display: flex; justify-content: center; align-items: center; min-height: 52px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none;">Get the cards</a>
+<button type="button" onClick="{{undo}}" style="min-height: 44px; border-radius: 999px; border: 0; background: transparent; color: var(--text); font-weight: 700;">Undo approval</button>
+</sc-if>
+</section>
+
+<div role="group" aria-label="Bracket" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;">
+<button type="button" aria-pressed="{{p4}}" onClick="{{show4}}" style="min-height: 44px; border: 0; border-radius: 999px; font-weight: 700; background: {{bg4}}; color: {{fg4}};">Bracket 4</button>
+<button type="button" aria-pressed="{{p3}}" onClick="{{show3}}" style="min-height: 44px; border: 0; border-radius: 999px; font-weight: 700; background: {{bg3}}; color: {{fg3}};">3</button>
+<button type="button" aria-pressed="{{p2}}" onClick="{{show2}}" style="min-height: 44px; border: 0; border-radius: 999px; font-weight: 700; background: {{bg2}}; color: {{fg2}};">2</button>
+</div>
+
+<sc-if value="{{is4}}" hint-placeholder-val="{{true}}">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+<section style="display: flex; flex-direction: column; gap: 6px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 22px;">{{g.title}}</h2>
+<span style="font-size: 13px; color: var(--dim);">{{g.note}}</span>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; gap: 10px; align-items: center; padding: 8px 4px 8px 10px; border-top: 1px solid var(--line);">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><span style="width: 34px; height: 48px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 9px; color: var(--dim);">In</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 34px; height: 48px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 9px; color: var(--dim);">Out</span></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3;"><b style="font-size: 15px; text-decoration: {{r.strike}};">{{r.inn}}</b><span style="font-size: 13px; color: var(--dim);">replaces {{r.out}}{{r.meta}}</span></span>
+<button type="button" onClick="{{r.toggle}}" aria-label="{{r.aria}}" style="min-height: 44px; min-width: 60px; padding: 0 10px; border-radius: 999px; border: 0; background: transparent; color: var(--text); font-weight: 700;">{{r.label}}</button>
+</div>
+</sc-for>
+<sc-if value="{{g.more}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{g.expand}}" style="width: 100%; min-height: 48px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700;">{{g.more}}</button>
+</sc-if>
+</div>
+</section>
+</sc-for>
+</sc-if>
+<sc-if value="{{is3}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; color: var(--dim);">From Bracket 4, swap 11 back.</p>
+<p style="margin: 0;"><b>Take out:</b> Ancient Tomb, Blowfly Infestation, Chord of Calling, Chrome Mox, Diabolic Intent, Eldritch Evolution, Mana Vault, Mox Diamond, Vampiric Tutor, Yawgmoth, Zulaport Cutthroat</p>
+<p style="margin: 0;"><b>Put back:</b> Chain Reaction, Contagion Clasp, Finale of Eternity, Flourishing Defenses, Forest, Infernal Grasp, Mountain, Skinrender, Soul-Guide Lantern, Vernal Fen, Wickersmith's Tools</p>
+</sc-if>
+<sc-if value="{{is2}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; color: var(--dim);">From Bracket 3, swap 3 more.</p>
+<p style="margin: 0;"><b>Take out:</b> Demonic Tutor, The One Ring, Worldly Tutor</p>
+<p style="margin: 0;"><b>Put back:</b> Eventide's Shadow, Night's Whisper, Painful Truths</p>
+</sc-if>
+</div>
+
+<nav aria-label="Yama" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; background: var(--surface); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));">
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Table</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Play</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Cards</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Collection</a>
+<a href="#" aria-current="page" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--text); text-decoration: none;">Decks</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Lab</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":2240}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { bracket: 4, skipped: {}, q1: null, q2: null, stage: 'review', printOpen: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const set = (o) => () => this.setState(o);
+    const rows = [
+      ['owned', 'Elvish Mystic', 'Kulrath Knight', null, null],
+      ['transfer', 'Cultivate', 'Liliana, Death Wielder', 'Fantastic Four', null],
+      ['transfer', 'Generous Patron', "Hoarder's Greed", 'Counter Blitz', null],
+      ['transfer', 'Yawgmoth, Thran Physician', 'Flourishing Defenses', 'Revival Trance', null],
+      ['buy', 'Cankerbloom', "Vraska, Betrayal's Sting", null, 0.5],
+      ['buy', 'Farseek', 'Burning Curiosity', null, 0.75],
+      ['buy', 'Poison-Tip Archer', 'Tree of Perdition', null, 0.75],
+      ['buy', 'Zulaport Cutthroat', 'Skinrender', null, 1.5],
+      ['buy', 'Rampant Growth', 'Aberrant Return', null, 0.5],
+      ['buy', 'Scuzzback Scrounger', 'Cathartic Pyre', null, 1.0],
+      ['print', 'Obelisk Spider', 'Incremental Blight'], ['print', 'Nest of Scarabs', 'Chimil, the Inner Sun'],
+      ['print', "Nature's Lore", 'Cathartic Reunion'], ['print', 'Bayou', 'Golgari Rot Farm'],
+      ['print', 'Overgrown Tomb', 'Savage Lands'], ['print', 'Verdant Catacombs', 'Evolving Wilds'],
+      ['print', 'Wooded Foothills', 'Terramorphic Expanse'], ['print', 'Bloodstained Mire', 'Path of Ancestry'],
+      ['print', 'Undergrowth Stadium', 'Smoldering Marsh'], ['print', 'Skullclamp', "Commander's Sphere"],
+      ['print', 'Persistent Constrictor', 'Ferrafor, Young Yew'], ['print', 'Heroic Intervention', 'Grave Titan'],
+      ['print', 'Stomping Ground', 'Gruul Turf'], ['print', 'Blood Crypt', 'Rakdos Carnarium'],
+      ['print', 'Taiga', 'Canyon Slough'], ['print', 'Badlands', 'Sheltered Thicket'],
+      ['print', 'Demonic Tutor', 'Harmonize'], ['print', 'Worldly Tutor', "Night's Whisper"],
+      ['print', 'Eldritch Evolution', 'Carnifex Demon'], ['print', 'Veil of Summer', 'Infernal Grasp'],
+      ['print', 'Diabolic Intent', "Wickersmith's Tools"], ['print', 'Mana Vault', 'Contagion Clasp'],
+      ['print', 'Chrome Mox', 'Forest'], ['print', 'Mox Diamond', 'Mountain'],
+      ['print', 'Ancient Tomb', 'Vernal Fen'], ['print', 'The One Ring', 'Chain Reaction'],
+      ['print', 'Vampiric Tutor', "Eventide's Shadow"], ['print', 'Chord of Calling', 'Painful Truths']
+    ];
+    const kindOf = (r) => {
+      if (r[1] === 'Yawgmoth, Thran Physician' && s.q1 === 'print') return 'print';
+      if (r[1] === 'Generous Patron' && s.q2 === 'print') return 'print';
+      return r[0];
+    };
+    const money = (n) => '$' + n.toFixed(2);
+    const live = rows.filter((r) => !s.skipped[r[1]]);
+    const count = (k) => live.filter((r) => kindOf(r) === k).length;
+    const buyCost = live.filter((r) => kindOf(r) === 'buy').reduce((a, r) => a + r[4], 0);
+    const toRow = (r) => {
+      const sk = !!s.skipped[r[1]];
+      const k = kindOf(r);
+      const meta = k === 'buy' ? ', ' + money(r[4]) : k === 'transfer' ? ', from ' + r[3] : '';
+      return { inn: r[1], out: r[2], meta, strike: sk ? 'line-through' : 'none', label: sk ? 'Undo' : 'Skip',
+        aria: (sk ? 'Undo skipping ' : 'Skip ') + r[1],
+        toggle: () => this.setState({ skipped: { ...this.state.skipped, [r[1]]: !sk } }) };
+    };
+    const group = (k, title, note) => {
+      let rs = rows.filter((r) => kindOf(r) === k).map(toRow);
+      const n = rs.length;
+      let more = '';
+      if (k === 'print' && !s.printOpen && n > 5) { rs = rs.slice(0, 5); more = 'Show all ' + n; }
+      return { title: title + ' (' + n + ')', note, rows: rs, more, expand: set({ printOpen: true }) };
+    };
+    const groups = [
+      group('owned', 'You have it', 'In your collection'),
+      group('transfer', 'From other decks', 'Moved when you put this deck together'),
+      group('buy', 'To buy', 'Mothership, checked 28 Oct'),
+      group('print', 'To print', 'Your next print order')
+    ].filter((g) => g.rows.length);
+    const open = (s.q1 ? 0 : 1) + (s.q2 ? 0 : 1);
+    const approved = s.stage === 'approved';
+    const seg = (n) => s.bracket === n ? ['#f2efe8', '#0b0c0e', 'true'] : ['transparent', '#a9adb3', 'false'];
+    const [bg4, fg4, p4] = seg(4), [bg3, fg3, p3] = seg(3), [bg2, fg2, p2] = seg(2);
+    const nSkipped = rows.length - live.length;
+    return {
+      pillText: approved ? 'In progress' : 'Waiting for your OK',
+      pillFg: approved ? '#8fd3a8' : '#f0b45a',
+      pillBg: approved ? 'rgb(143 211 168 / 0.14)' : 'rgb(240 180 90 / 0.14)',
+      q1open: !s.q1 && !approved, q2open: !s.q2 && !approved,
+      q1print: set({ q1: 'print' }), q1take: set({ q1: 'take' }), q2print: set({ q2: 'print' }), q2wait: set({ q2: 'wait' }),
+      is4: s.bracket === 4, is3: s.bracket === 3, is2: s.bracket === 2,
+      show4: set({ bracket: 4 }), show3: set({ bracket: 3 }), show2: set({ bracket: 2 }),
+      bg4, fg4, p4, bg3, fg3, p3, bg2, fg2, p2,
+      groups,
+      total: String(live.length), totalLine: nSkipped ? 'changes, ' + nSkipped + ' skipped' : 'changes',
+      nHave: count('owned'), nMove: count('transfer'), nBuy: count('buy'), nPrint: count('print'), cost: money(buyCost),
+      isReview: !approved, isApproved: approved, canApprove: open === 0, blocked: open > 0,
+      blockedLabel: open === 1 ? 'Answer the question first' : 'Answer ' + open + ' questions first',
+      approve: set({ stage: 'approved' }), undo: set({ stage: 'review' }),
+      nextStep: 'buy ' + count('buy') + ' at Mothership (' + money(buyCost) + ') and print ' + count('print') + '.'
+    };
+  }
+}
+</script>
+</body>
+</html>

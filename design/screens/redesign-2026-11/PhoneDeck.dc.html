@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Revival Trance on a phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+td,th{padding:8px 12px;text-align:left;border-top:1px solid #2a2e33;font-variant-numeric:tabular-nums}
+th{font-size:13px;color:#a9adb3;font-weight:700;border-top:0}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; min-height: 3000px; background: var(--ground); display: flex; flex-direction: column;">
+
+<header style="position: relative; min-height: 260px; display: flex; align-items: flex-end; background: var(--raised);">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 13px; padding: 0 40px; text-align: center;">Terra, Herald of Hope art_crop (Scryfall, at runtime)</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 30%, #0b0c0e 100%);"></span>
+<a href="#" style="position: absolute; top: 12px; left: 16px; display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 14px 0 10px; border-radius: 999px; background: rgb(11 12 14 / 0.82); color: var(--text); text-decoration: none; font-weight: 700;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Decks</a>
+<span style="position: absolute; top: 64px; right: 16px; font-size: 10px; padding: 2px 8px; border-radius: 999px; background: rgb(11 12 14 / 0.82); color: #d5d7db;">Art: Marta Nael, © Wizards of the Coast</span>
+<div style="position: relative; width: 100%; padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700;"><span aria-hidden="true" style="display: flex; gap: 3px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #f1e4bc;"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #4b4049; box-shadow: 0 0 0 1px #a9adb3;"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #d4472e;"></span></span>Terra, Herald of Hope</span>
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9;">Revival Trance</h1>
+<span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;"><span style="font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: {{pillFg}}; background: {{pillBg}};">{{pillText}}</span><span style="font-size: 14px; color: #d5d7db;">{{statusLine}}</span></span>
+</div>
+</header>
+
+<div style="padding: 8px 16px 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+<button type="button" onClick="{{toCards}}" style="display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); color: var(--text); text-align: left;"><span style="font-size: 12px; font-weight: 700; color: var(--dim);">Bracket</span><b style="font-family: var(--display); font-size: 30px; line-height: 1.1;">{{declBig}}</b><span style="font-size: 11px; color: var(--dim);">{{declWord}}</span></button>
+<button type="button" onClick="{{toPrices}}" style="display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); color: var(--text); text-align: left;"><span style="font-size: 12px; font-weight: 700; color: var(--dim);">Value</span><b style="font-family: var(--display); font-size: 30px; line-height: 1.1;">[n]</b><span style="font-size: 11px; color: var(--dim);">Scryfall, [date]</span></button>
+<button type="button" onClick="{{toHistory}}" style="display: flex; flex-direction: column; align-items: flex-start; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); color: var(--text); text-align: left;"><span style="font-size: 12px; font-weight: 700; color: var(--dim);">Record</span><b style="font-family: var(--display); font-size: 30px; line-height: 1.1;">[n]</b><span style="font-size: 11px; color: var(--dim);">wins, [n] games</span></button>
+</div>
+
+<div style="padding: 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+<a href="DeckEditList.dc.html" style="grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 52px; border-radius: 999px; background: var(--text); color: var(--ground); text-decoration: none; font-weight: 700; font-size: 17px;">Edit list</a>
+<button type="button" onClick="{{toggleCheck}}" aria-haspopup="dialog" aria-expanded="{{checkOpen}}" style="min-height: 44px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-weight: 700;">Check cards</button>
+<a href="DeckShare.dc.html" style="display: flex; justify-content: center; align-items: center; min-height: 44px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 700;">Share</a>
+<a href="PhoneDeckMore.dc.html" style="display: flex; justify-content: center; align-items: center; min-height: 44px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 700;">More</a>
+<button type="button" onClick="{{togglePicker}}" aria-haspopup="dialog" aria-expanded="{{pickerOpen}}" style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 700;"><span><span style="color: var(--dim); font-weight: 400;">List </span>{{pickerLabel}}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+</div>
+
+<nav aria-label="Deck sections" style="position: sticky; top: 0; z-index: 20; margin-top: 0; background: var(--ground); border-bottom: 1px solid var(--line);">
+<div style="max-width: 1232px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 56px); display: flex; gap: 28px; overflow-x: auto;">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+<button type="button" onClick="{{t.pick}}" aria-current="{{t.current}}" style="display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0; border: 0; border-bottom: 2px solid {{t.under}}; background: transparent; color: {{t.fg}}; font-weight: 700; font-size: 15px; white-space: nowrap;">{{t.label}}<span style="font-weight: 400; font-size: 13px; color: var(--dim);">{{t.count}}</span></button>
+</sc-for>
+</div>
+</nav>
+
+<div style="max-width: 1232px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 56px) 96px; display: flex; flex-direction: column; gap: 32px;">
+
+<sc-if value="{{showSwaps}}" hint-placeholder-val="{{false}}">
+<section aria-labelledby="h-swap" style="padding: 16px 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-swap" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">{{swapHead}}</h2>
+<span style="display: flex; gap: 8px;"><button type="button" style="height: 44px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-size: 14px; font-weight: 700;">Print swap cards</button><button type="button" onClick="{{backTo4}}" style="height: 44px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">Back to the box</button></span>
+</div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;">
+<sc-for list="{{swaps}}" as="p" hint-placeholder-count="2">
+<div style="display: flex; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--ground); border: 1px solid var(--line);">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><button type="button" aria-label="{{p.inLabel}}" style="width: 44px; height: 61px; border-radius: 3px; border: 0; background: var(--raised); font-size: 10px; color: var(--dim); padding: 0;">In</button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><button type="button" aria-label="{{p.outLabel}}" style="width: 44px; height: 61px; border-radius: 3px; border: 0; background: var(--raised); font-size: 10px; color: var(--dim); padding: 0;">Out</button></span>
+<span style="display: flex; flex-direction: column; min-width: 0;"><b>{{p.inn}}</b><span style="font-size: 13px; color: var(--dim);">replaces {{p.out}}</span></span>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{tabCards}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+<main style="flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; gap: 12px 16px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+<div style="display: flex; gap: 12px 16px; flex-wrap: wrap; align-items: center;">
+<span role="group" aria-label="Show" style="display: inline-flex; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;">
+<sc-for list="{{showOpts}}" as="o" hint-placeholder-count="3"><button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="height: 38px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button></sc-for>
+</span>
+<span role="group" aria-label="View" style="display: inline-flex; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;">
+<sc-for list="{{viewOpts}}" as="o" hint-placeholder-count="3"><button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="height: 38px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button></sc-for>
+</span>
+</div>
+<span style="display: flex; align-items: center; gap: 12px;"><span style="font-size: 14px;"><b>[n]</b> <span style="color: var(--dim);">{{totalLine}}</span></span><button type="button" onClick="{{copy}}" style="height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">{{copyLabel}}</button></span>
+</div>
+<div style="display: flex; gap: 12px 20px; flex-wrap: wrap; align-items: center;">
+<span style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 14px; color: var(--dim);">Group by</span>
+<span role="group" aria-label="Group by" style="display: inline-flex; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;">
+<sc-for list="{{groupOpts}}" as="o" hint-placeholder-count="3"><button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="height: 38px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button></sc-for>
+</span></span>
+<span style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 14px; color: var(--dim);">Sort</span>
+<span role="group" aria-label="Sort" style="display: inline-flex; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;">
+<sc-for list="{{sortOpts}}" as="o" hint-placeholder-count="3"><button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="height: 38px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button></sc-for>
+</span></span>
+</div>
+
+<sc-if value="{{showTypeBar}}" hint-placeholder-val="{{true}}">
+<nav aria-label="Jump to a card type" style="display: flex; flex-direction: column; gap: 4px;">
+<span style="display: flex; gap: 2px; height: 10px; border-radius: 999px; overflow: hidden;">
+<sc-for list="{{typeBar}}" as="t" hint-placeholder-count="6"><a href="{{t.href}}" aria-label="{{t.aria}}" style="flex: {{t.grow}} 1 0; background: {{t.color}};"></a></sc-for>
+</span>
+<span style="display: flex; gap: 0 16px; flex-wrap: wrap;">
+<sc-for list="{{typeBar}}" as="t" hint-placeholder-count="6"><a href="{{t.href}}" style="display: inline-flex; align-items: center; gap: 6px; height: 44px; font-size: 13px; color: var(--text); text-decoration: none;"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: {{t.color}};"></span>{{t.label}} <span style="color: var(--dim);">{{t.count}}</span></a></sc-for>
+</span>
+</nav>
+</sc-if>
+
+<sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
+<div style="padding: 24px; border-radius: 16px; border: 2px dashed var(--line); color: var(--dim); text-align: center;">{{emptyText}}</div>
+</sc-if>
+
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<section id="{{g.id}}" style="display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line);">
+<button type="button" onClick="{{g.collapse}}" aria-expanded="{{g.expanded}}" style="display: flex; align-items: baseline; gap: 10px; height: 52px; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left;"><span style="font-family: var(--display); font-weight: 700; font-size: 22px;">{{g.title}}</span><span style="font-size: 14px; color: var(--dim);">{{g.countText}}</span></button>
+<span style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 14px; color: var(--dim);">[n]</span><button type="button" onClick="{{g.collapse}}" aria-label="{{g.collapseLabel}}" style="width: 32px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--dim);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: {{g.chev}};"><path d="m6 9 6 6 6-6"></path></svg></button></span>
+</div>
+<sc-if value="{{g.expanded}}" hint-placeholder-val="{{true}}">
+<sc-if value="{{isPictures}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+<sc-for list="{{g.cards}}" as="c" hint-placeholder-count="6">
+<button type="button" aria-label="{{c.aria}}" style="display: flex; flex-direction: column; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left;">
+<span style="width: 100%; aspect-ratio: 63 / 88; border-radius: 6px; background: var(--raised); display: flex; flex-direction: column; justify-content: space-between; padding: 7px; font-size: 12px; font-weight: 700; line-height: 1.25; box-shadow: inset 0 0 0 1px {{c.ring}};"><span>{{c.label}}</span><span style="font-size: 10px; font-weight: 400; color: var(--dim);">Card image</span></span>
+<sc-if value="{{c.chip}}" hint-placeholder-val="{{false}}"><span style="align-self: flex-start; font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 999px; color: {{c.chipFg}}; background: {{c.chipBg}}; box-shadow: inset 0 0 0 1px {{c.chipLine}};">{{c.chip}}</span></sc-if>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{isList}}" hint-placeholder-val="{{false}}">
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;">
+<sc-for list="{{g.cards}}" as="c" hint-placeholder-count="6">
+<button type="button" style="width: 100%; display: flex; gap: 12px; align-items: center; height: 52px; padding: 0 14px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; font-size: 14px;">
+<span style="width: 36px; height: 26px; border-radius: 4px; background: var(--raised); flex: none;"></span>
+<span style="flex: 1 1 auto; min-width: 0;">{{c.label}}</span>
+<sc-if value="{{c.chip}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 999px; color: {{c.chipFg}}; background: {{c.chipBg}}; box-shadow: inset 0 0 0 1px {{c.chipLine}};">{{c.chip}}</span></sc-if>
+<span style="min-width: 48px; text-align: right; color: var(--dim);">[n]</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{isTable}}" hint-placeholder-val="{{false}}">
+<div style="overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;">
+<table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+<thead><tr><th>Card</th><th>Mana value</th><th>Copy</th><th>Cheapest printing</th><th style="text-align: right;">Price</th></tr></thead>
+<tbody>
+<sc-for list="{{g.cards}}" as="c" hint-placeholder-count="6">
+<tr><td>{{c.label}}</td><td>{{c.mv}}</td><td style="color: {{c.kindFg}};">{{c.kind}}</td><td style="color: var(--dim);">[set and number]</td><td style="text-align: right; color: var(--dim);">[n]</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</sc-if>
+<sc-if value="{{g.hasMore}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{g.toggle}}" style="align-self: flex-start; height: 44px; padding: 0 12px; border-radius: 8px; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 700; text-decoration: underline;">{{g.moreLabel}}</button>
+</sc-if>
+</sc-if>
+</section>
+</sc-for>
+<span style="font-size: 12px; color: var(--dim);">Card images from Scryfall, © Wizards of the Coast. Unofficial fan software, not affiliated with or endorsed by Wizards of the Coast.</span>
+</main>
+
+<aside aria-label="This deck" style="flex: 1 1 100%; max-width: none; display: flex; flex-direction: column; gap: 16px;">
+<section aria-labelledby="h-why" style="padding: 16px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px;">
+<span style="display: flex; align-items: center; gap: 8px;"><h2 id="h-why" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 22px;">{{whyHead}}</h2><button type="button" onClick="{{helpWhy}}" aria-label="Help: brackets" aria-expanded="{{hWhy}}" style="width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--dim); font-size: 14px; font-weight: 700;">?</button></span>
+<sc-if value="{{hWhy}}" hint-placeholder-val="{{false}}"><div role="note" style="padding: 10px 14px; border-radius: 10px; background: var(--raised); font-size: 14px; display: flex; flex-direction: column; gap: 6px;"><span>{{gcRule}}</span><span style="color: var(--dim);">Game Changers and Reserve List: Scryfall, 28 Oct. Combos: Commander Spellbook, 27 Oct.</span><a href="#">How brackets work</a></div></sc-if>
+<div style="display: flex; flex-direction: column; font-size: 14px;">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line);">
+<span style="display: flex; justify-content: space-between;"><span>Game Changers</span><b>{{gcCount}}</b></span>
+<span style="display: flex; gap: 4px; flex-wrap: wrap;"><sc-for list="{{gcChips}}" as="c" hint-placeholder-count="5"><span style="font-size: 12px; padding: 1px 8px; border-radius: 999px; background: {{c.bg}}; color: {{c.fg}}; text-decoration: {{c.strike}};">{{c.label}}</span></sc-for></span>
+</div>
+<div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line);"><span>Two-card combos</span><b>None found</b></div>
+<div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line);"><span>Mass land denial</span><b>None</b></div>
+<div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line);"><span>Extra turns</span><b>None</b></div>
+<div style="display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line);"><span>Reserve List</span><b>3, all proxies</b></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line);">
+<span style="font-size: 14px; font-weight: 700;">You tell the table</span>
+<span role="group" aria-label="Declared bracket" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 3px; gap: 2px; background: var(--ground); border-radius: 999px;">
+<sc-for list="{{declOpts}}" as="o" hint-placeholder-count="5"><button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" aria-label="{{o.aria}}" style="height: 38px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button></sc-for>
+</span>
+</div>
+</section>
+</aside>
+</div>
+</sc-if>
+
+<sc-if value="{{tabStats}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch;">
+<section aria-labelledby="h-curve" style="flex: 1 1 100%; min-width: 0; padding: 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="display: flex; align-items: center; gap: 8px;"><h2 id="h-curve" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Mana curve</h2><button type="button" onClick="{{helpCurve}}" aria-label="Help: mana curve" aria-expanded="{{hCurve}}" style="width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--dim); font-size: 14px; font-weight: 700;">?</button></span>
+<span role="group" aria-label="Compare with" style="display: inline-flex; padding: 3px; gap: 2px; background: var(--ground); border-radius: 999px;">
+<sc-for list="{{cmpOpts}}" as="o" hint-placeholder-count="3"><button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="height: 38px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button></sc-for>
+</span>
+</div>
+<sc-if value="{{hCurve}}" hint-placeholder-val="{{false}}"><div role="note" style="padding: 10px 14px; border-radius: 10px; background: var(--raised); font-size: 14px;">62 nonland cards; the commander isn't counted. A typical curve per bracket needs data Yama doesn't have yet.</div></sc-if>
+<div role="img" aria-label="{{curveAria}}" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; align-items: end; height: 200px; border-bottom: 1px solid var(--line);">
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="7">
+<div style="position: relative; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px;">
+<span style="font-size: 13px; font-weight: 700;">{{b.n}}</span>
+<span style="width: 100%; height: {{b.h}}; border-radius: 6px 6px 0 0; background: #d5d7db;"></span>
+<sc-if value="{{b.showCmp}}" hint-placeholder-val="{{true}}"><span aria-hidden="true" style="position: absolute; left: -4px; right: -4px; bottom: {{b.ch}}; border-top: 3px dashed #f0b45a;"></span></sc-if>
+</div>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; text-align: center; font-size: 13px; color: var(--dim);"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7+</span></div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 12px; border-top: 1px solid var(--line);">
+<span style="display: flex; flex-direction: column;"><b style="font-family: var(--display); font-size: 28px;">{{avg}}</b><span style="font-size: 13px; color: var(--dim);">Average</span></span>
+<span style="display: flex; flex-direction: column;"><b style="font-family: var(--display); font-size: 28px;">{{low}}</b><span style="font-size: 13px; color: var(--dim);">2 or less</span></span>
+<span style="display: flex; flex-direction: column;"><b style="font-family: var(--display); font-size: 28px;">{{mid}}</b><span style="font-size: 13px; color: var(--dim);">3 or 4</span></span>
+<span style="display: flex; flex-direction: column;"><b style="font-family: var(--display); font-size: 28px;">{{high}}</b><span style="font-size: 13px; color: var(--dim);">5 or more</span></span>
+<sc-if value="{{hasCmpLine}}" hint-placeholder-val="{{true}}"><span style="display: flex; flex-direction: column;"><b style="font-family: var(--display); font-size: 28px; color: var(--warn);">3.74</b><span style="font-size: 13px; color: var(--dim);">Stock average</span></span></sc-if>
+</div>
+</section>
+<section aria-labelledby="h-colors" style="flex: 1 1 100%; min-width: 0; padding: 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px;">
+<span style="display: flex; align-items: center; gap: 8px;"><h2 id="h-colors" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Color balance</h2><button type="button" onClick="{{helpColors}}" aria-label="Help: color balance" aria-expanded="{{hColors}}" style="width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--dim); font-size: 14px; font-weight: 700;">?</button></span>
+<sc-if value="{{hColors}}" hint-placeholder-val="{{false}}"><div role="note" style="padding: 10px 14px; border-radius: 10px; background: var(--raised); font-size: 14px;">Shares of colored symbols and of the 37 lands' access to each color. Fetch lands count for the basics they find. No target ratio implied.</div></sc-if>
+<span style="display: grid; grid-template-columns: 88px 1fr 40px; gap: 8px; font-size: 13px; color: var(--dim);"><span></span><span><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #d5d7db;"></span> Symbols <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #6f757d; margin-left: 10px;"></span> Lands</span><span></span></span>
+<sc-for list="{{colors}}" as="c" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 88px 1fr 72px; gap: 4px 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); font-size: 14px;">
+<span style="grid-row: span 2; display: flex; align-items: center; gap: 8px; font-weight: 700;"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 50%; background: {{c.dot}}; box-shadow: 0 0 0 1px #a9adb3;"></span>{{c.name}}</span>
+<span style="height: 10px; border-radius: 999px; background: var(--ground); overflow: hidden;"><span style="display: block; height: 10px; width: {{c.pipW}}; background: #d5d7db;"></span></span><span style="text-align: right;">{{c.pipText}}</span>
+<span style="height: 10px; border-radius: 999px; background: var(--ground); overflow: hidden;"><span style="display: block; height: 10px; width: {{c.srcW}}; background: #6f757d;"></span></span><span style="text-align: right;">{{c.srcText}}</span>
+</div>
+</sc-for>
+</section>
+</div>
+<section aria-labelledby="h-themes" style="display: flex; flex-direction: column; gap: 16px;">
+<span style="display: flex; align-items: center; gap: 8px;"><h2 id="h-themes" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Themes</h2><button type="button" onClick="{{helpThemes}}" aria-label="Help: themes" aria-expanded="{{hThemes}}" style="width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--dim); font-size: 14px; font-weight: 700;">?</button></span>
+<sc-if value="{{hThemes}}" hint-placeholder-val="{{false}}"><div role="note" style="align-self: flex-start; padding: 10px 14px; border-radius: 10px; background: var(--raised); font-size: 14px;">Read from the card text. New: Yama doesn't tag themes yet.</div></sc-if>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line);">
+<span style="display: flex; justify-content: space-between; gap: 8px;"><b>{{t.name}}</b><span style="font-size: 14px; color: var(--dim);">{{t.count}}</span></span>
+<span style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px;"><sc-for list="{{t.cards}}" as="c" hint-placeholder-count="5"><button type="button" aria-label="{{c.aria}}" style="aspect-ratio: 63 / 88; border-radius: 4px; border: 0; background: var(--raised); color: var(--text); padding: 4px; font-size: 9px; font-weight: 700; line-height: 1.2; text-align: left; display: flex;">{{c.name}}</button></sc-for></span>
+<button type="button" style="align-self: flex-start; height: 44px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; font-weight: 700; text-decoration: underline;">{{t.more}}</button>
+</div>
+</sc-for>
+</div>
+</section>
+<section aria-labelledby="h-combos" style="display: flex; flex-direction: column; gap: 12px;">
+<span style="display: flex; align-items: center; gap: 8px;"><h2 id="h-combos" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Combos one card away</h2><span style="font-size: 13px; color: var(--dim);">Commander Spellbook, 27 Oct</span></span>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 4px 16px;">
+<sc-for list="{{combos}}" as="k" hint-placeholder-count="3">
+<div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 12px 0; border-top: {{k.rule}};">
+<span style="display: flex; align-items: center; gap: 6px;"><sc-for list="{{k.cards}}" as="c" hint-placeholder-count="2"><span style="display: inline-flex; align-items: center; gap: 6px;"><sc-if value="{{c.plus}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="color: var(--dim);">+</span></sc-if><button type="button" aria-label="{{c.aria}}" style="width: 48px; height: 67px; border-radius: 4px; background: var(--raised); border: {{c.border}}; color: var(--text); padding: 3px; font-size: 8px; font-weight: 700; line-height: 1.2; text-align: left; display: flex;">{{c.name}}</button></span></sc-for></span>
+<span style="flex: 1 1 280px; display: flex; flex-direction: column; font-size: 14px;"><b>{{k.title}}</b><span style="color: var(--dim);">{{k.result}}</span></span>
+</div>
+</sc-for>
+</div>
+</section>
+<section aria-labelledby="h-online" style="display: flex; align-items: baseline; gap: 12px;">
+<h2 id="h-online" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Online play</h2>
+<span style="color: var(--dim);">[n] cards not playable yet</span>
+</section>
+</div>
+</sc-if>
+
+<sc-if value="{{tabPlan}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<section aria-labelledby="h-current" style="padding: 20px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="display: flex; align-items: center; gap: 12px;"><h2 id="h-current" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Current plan</h2><span style="font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: var(--good); background: rgb(143 211 168 / 0.14);">In progress</span></span>
+<a href="InProgress.dc.html" style="display: inline-flex; align-items: center; height: 44px; padding: 0 14px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 700;">Open the plan</a>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="display: flex; align-items: baseline; gap: 10px;"><b style="font-family: var(--display); font-size: 40px; line-height: 1;">[n] of [n]</b><span>in</span></span>
+<span role="img" aria-label="[n] of [n] changes in" style="height: 8px; border-radius: 999px; background: var(--line); overflow: hidden;"><span style="display: block; width: 0%; height: 8px; background: var(--good);"></span></span>
+</div>
+<span><b>Next:</b> settle Karmic Guide</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 14px; font-weight: 700;">Left to do</span>
+<div style="background: var(--ground); border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px;">
+<div style="display: flex; gap: 12px; align-items: center; padding: 8px 0;">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><span style="width: 44px; height: 61px; border-radius: 3px; background: var(--raised); display: grid; place-items: center; font-size: 9px; color: var(--dim);">In</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 44px; height: 61px; border-radius: 3px; background: var(--raised); display: grid; place-items: center; font-size: 9px; color: var(--dim);">Out</span></span>
+<span style="flex: 1 1 auto; display: flex; flex-direction: column; font-size: 14px;"><b>Karmic Guide</b><span style="color: var(--dim);">replaces Sepulchral Primordial</span></span>
+<span style="font-size: 13px; font-weight: 700; padding: 1px 10px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">Waiting on your answer</span>
+</div>
+<div style="display: flex; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line);">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><span style="width: 44px; height: 61px; border-radius: 3px; border: 2px dashed var(--line);"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 44px; height: 61px; border-radius: 3px; border: 2px dashed var(--line);"></span></span>
+<span style="flex: 1 1 auto; font-size: 14px; color: var(--dim);">[n] more</span>
+</div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="h-next" style="display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-next" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Up next</h2>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px; padding: 8px 16px;">
+<span style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;"><b>Version [n] of this plan</b><span style="font-size: 13px; font-weight: 700; padding: 1px 10px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">Waiting for your OK</span><span style="font-size: 14px; color: var(--dim);">[n] changes</span></span>
+<a href="NewVersion.dc.html" style="display: inline-flex; align-items: center; height: 44px; padding: 0 14px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 700;">Review</a>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px; padding: 8px 16px; border-top: 1px solid var(--line);">
+<span style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;"><b>A Bracket [n] build</b><span style="font-size: 13px; font-weight: 700; padding: 1px 10px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">Waiting for your OK</span><span style="font-size: 14px; color: var(--dim);">[n] changes</span></span>
+<a href="NewVersion.dc.html" style="display: inline-flex; align-items: center; height: 44px; padding: 0 14px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 700;">Review</a>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="h-ideas" style="display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-ideas" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Ideas</h2>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;">
+<sc-for list="{{ideas}}" as="i" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line);">
+<b>{{i.gap}}</b>
+<span style="display: flex; gap: 6px;"><sc-for list="{{i.cards}}" as="c" hint-placeholder-count="3"><button type="button" aria-label="{{c.aria}}" style="width: 64px; aspect-ratio: 63 / 88; border-radius: 4px; border: 0; background: var(--raised); color: var(--text); padding: 4px; font-size: 9px; font-weight: 700; line-height: 1.2; text-align: left; display: flex;">{{c.name}}</button></sc-for></span>
+<button type="button" style="align-self: flex-start; height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">Ask for it in the plan</button>
+</div>
+</sc-for>
+</div>
+</section>
+
+<a href="Archived.dc.html" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 44px; font-size: 14px; color: var(--text);">Earlier: [n] archived plans</a>
+</div>
+</sc-if>
+
+<sc-if value="{{tabHistory}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+<section aria-labelledby="h-lists" style="flex: 1 1 100%; max-width: none; display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-lists" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Earlier lists</h2>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;">
+<sc-for list="{{versions}}" as="v" hint-placeholder-count="3">
+<button type="button" onClick="{{v.pick}}" aria-pressed="{{v.pressed}}" style="width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; padding: 6px 14px; border: 0; border-top: 1px solid var(--line); background: {{v.bg}}; color: var(--text); text-align: left; font-size: 14px;"><b>{{v.label}}</b><span style="color: var(--dim);">{{v.note}}</span></button>
+</sc-for>
+</div>
+</section>
+<section aria-labelledby="h-vchanges" style="flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 16px;">
+<h2 id="h-vchanges" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px;">{{vHead}}</h2>
+<sc-if value="{{vHasPairs}}" hint-placeholder-val="{{true}}">
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px;">
+<sc-for list="{{vPairs}}" as="p" hint-placeholder-count="3">
+<div style="display: flex; gap: 12px; align-items: center; padding: 8px 0; border-top: {{p.rule}};">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><span style="width: 40px; height: 56px; border-radius: 3px; background: var(--raised); display: grid; place-items: center; font-size: 9px; color: var(--dim);">In</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 40px; height: 56px; border-radius: 3px; background: var(--raised); display: grid; place-items: center; font-size: 9px; color: var(--dim);">Out</span></span>
+<span style="display: flex; flex-direction: column; font-size: 14px;"><b>{{p.inn}}</b><span style="color: var(--dim);">replaces {{p.out}}</span></span>
+</div>
+</sc-for>
+</div>
+<button type="button" style="align-self: flex-start; height: 44px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; font-weight: 700; text-decoration: underline;">{{vMore}}</button>
+</sc-if>
+<sc-if value="{{vCanRestore}}" hint-placeholder-val="{{true}}"><button type="button" style="align-self: flex-start; height: 44px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-size: 14px; font-weight: 700;">Put this list back</button></sc-if>
+<h2 style="margin: 16px 0 0; font-family: var(--display); font-weight: 700; font-size: 24px;">Games with this deck</h2>
+<span style="color: var(--dim);">[n] games</span>
+</section>
+</div>
+</sc-if>
+
+</div>
+<sc-if value="{{checkOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; justify-content: flex-end; background: rgb(0 0 0 / 0.6);">
+<section role="dialog" aria-modal="true" aria-label="Check cards" style="padding: 8px 8px 24px; border-radius: 24px 24px 0 0; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column;">
+<span aria-hidden="true" style="align-self: center; width: 40px; height: 4px; margin: 4px 0 8px; border-radius: 999px; background: var(--line);"></span>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 0 8px 4px 12px;"><h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">Check cards</h2><button type="button" onClick="{{closeCheck}}" style="min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--text); font-weight: 700;">Close</button></div>
+<button type="button" onClick="{{closeCheck}}" style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left;"><span>Check the box against the list</span><span style="font-size: 13px; color: var(--dim);">Saves nothing</span></button>
+<button type="button" onClick="{{closeCheck}}" style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left;"><span>Scan the box as the list</span><span style="font-size: 13px; color: var(--dim);">Saves a version</span></button>
+<button type="button" onClick="{{closeCheck}}" style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left;"><span>Compare with my collection</span><span style="font-size: 13px; color: var(--dim);">Still need, proxies</span></button>
+</section>
+</div>
+</sc-if>
+<sc-if value="{{pickerOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; justify-content: flex-end; background: rgb(0 0 0 / 0.6);">
+<section role="dialog" aria-modal="true" aria-label="Which list" style="padding: 8px 8px 24px; border-radius: 24px 24px 0 0; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column;">
+<span aria-hidden="true" style="align-self: center; width: 40px; height: 4px; margin: 4px 0 8px; border-radius: 999px; background: var(--line);"></span>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 0 8px 4px 12px;"><h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">List</h2><button type="button" onClick="{{closePicker}}" style="min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--text); font-weight: 700;">Close</button></div>
+<sc-for list="{{pickerItems}}" as="p" hint-placeholder-count="6">
+<sc-if value="{{p.head}}" hint-placeholder-val="{{false}}"><span style="padding: 8px 12px 2px; font-size: 13px; color: var(--dim); border-top: {{p.rule}};">{{p.head}}</span></sc-if>
+<button type="button" aria-pressed="{{p.checked}}" onClick="{{p.pick}}" style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 12px; border: 0; border-radius: 12px; background: {{p.bg}}; color: var(--text); text-align: left;"><span>{{p.label}}</span><span style="font-size: 13px; color: var(--dim);">{{p.note}}</span></button>
+</sc-for>
+</section>
+</div>
+</sc-if>
+
+<nav aria-label="Main" style="position: sticky; bottom: 0; height: 76px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); background: var(--ground);">
+<a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"></path></svg>Table</a>
+<a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="12" rx="1.5"></rect><rect x="13" y="6" width="8" height="12" rx="1.5"></rect></svg>Play</a>
+<a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-4.5-4.5"></path></svg>Cards</a>
+<a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="10" height="14" rx="1.5"></rect><path d="M17 7v12M20 9v8"></path></svg><span style="font-size: 10px;">Collection</span></a>
+<a href="#" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="16" rx="1.5"></rect><path d="M4 7v12a2 2 0 0 0 2 2h10"></path></svg>Decks</a>
+<a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"></path></svg>Lab</a>
+<a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--dim); text-decoration: none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M3 20a6 6 0 0 1 12 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3 6"></path></svg>Group</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":3000}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { check: false, hWhy: false, hCurve: false, hColors: false, hThemes: false, tab: 'cards', list: 'current', bracket: 4, show: 'all', view: 'list', group: 'type', sort: 'mv', collapsed: {}, open: {}, menu: false, picker: false, decl: null, copied: false, cmp: 'stock', version: 0 };
+  }
+  renderVals() {
+    const s = this.state;
+    const set = (o) => () => this.setState(o);
+    const CUR = {
+      Commander: ["s3:Terra, Herald of Hope"],
+      Creatures: ["s1:Stitcher's Supplier", "s2:Banon, the Returners' Leader", "b2:Fear of Missing Out", "s2:Gau, Feral Youth", "b2:Harmonic Prodigy", "s2:Millikin", "s2:Priest of Fell Rites", "p2:Selfless Spirit", "b3:Alesha, Who Laughs at Fate", "p3:Braids, Arisen Nightmare", "p3:Imperial Recruiter", "s3:Locke, Treasure Hunter", "p3:Loran of the Third Path", "s3:Mog, Moogle Warrior", "s3:Morbid Opportunist", "s3:Shadow, Mysterious Assassin", "s3:The Warring Triad", "s4:Anger", "s4:Celes, Rune Knight", "s4:Edgar, Master Machinist", "s4:Gogo, Mysterious Mime", "p4:Luminous Broodmoth", "s4:Palace Jailer", "s4:Pitiless Plunderer", "s4:Siegfried, Famed Swordsman", "s4:Summon: Esper Valigarmanda", "b4:Vile Entomber", "p4:Yawgmoth, Thran Physician", "s5:General Leo Cristophe", "m5:Karmic Guide", "p6:Aurelia, the Warleader", "s6:Sun Titan", "s7:Cyan, Vengeful Samurai"],
+      Instants: ["b1:Swords to Plowshares", "p1:Vampiric Tutor", "s3:Crackling Doom", "p3:Deflecting Swat", "p3:Teferi's Protection", "s4:Espers to Magicite"],
+      Sorceries: ["b1:Faithless Looting", "s1:Reanimate", "p2:Demonic Tutor", "b3:Buried Alive", "s3:Legions to Ashes", "s5:Tragic Arrogance", "s7:Ruinous Ultimatum"],
+      Artifacts: ["s1:Sol Ring", "s1:Wayfarer's Bauble", "s2:Arcane Signet", "p2:Brotherhood Regalia", "s2:Key to the City", "s2:Mind Stone", "s2:Swiftfoot Boots", "s2:Talisman of Conviction", "b2:Talisman of Hierarchy", "s2:Talisman of Indulgence", "p3:Sword of Feast and Famine", "s3:The Falcon, Airship Restored", "p3:The Reaver Cleaver", "p4:The One Ring"],
+      Enchantments: ["p2:Ripples of Undeath", "p4:Smothering Tithe"],
+      Lands: ["p0:Arid Mesa", "s0:Ash Barrens", "p0:Badlands", "s0:Battlefield Forge", "b0:Blackcleave Cliffs", "p0:Blood Crypt", "p0:Bloodstained Mire", "s0:Clifftop Retreat", "s0:Command Tower", "b0:Concealed Courtyard", "s0:Demolition Field", "s0:Dragonskull Summit", "s0:Exotic Orchard", "s0:Fetid Heath", "b0:Godless Shrine", "s0:Graven Cairns", "b0:Haunted Ridge", "s0:High Market", "s0:Isolated Chapel", "p0:Marsh Flats", "s0:3 Mountain", "s0:4 Plains", "p0:Plateau", "s0:Rogue's Passage", "s0:Rugged Prairie", "p0:Sacred Foundry", "p0:Scrubland", "s0:Sulfurous Springs", "b0:Sundown Pass", "s0:3 Swamp"]
+    };
+    const STOCK = {
+      Commander: ["u3:Terra, Herald of Hope"],
+      Creatures: ["u1:Stitcher's Supplier", "u2:Banon, the Returners' Leader", "u2:Gau, Feral Youth", "u2:Millikin", "u2:Priest of Fell Rites", "u3:Locke, Treasure Hunter", "u3:Mog, Moogle Warrior", "u3:Morbid Opportunist", "u3:Setzer, Wandering Gambler", "u3:Shadow, Mysterious Assassin", "u3:Strago and Relm", "u3:The Warring Triad", "u4:Anger", "u4:Celes, Rune Knight", "u4:Edgar, Master Machinist", "u4:Gogo, Mysterious Mime", "u4:Interceptor, Shadow's Hound", "u4:Palace Jailer", "u4:Pitiless Plunderer", "u4:Siegfried, Famed Swordsman", "u4:Solemn Simulacrum", "u4:Summon: Esper Valigarmanda", "u5:Archfiend of Depravity", "u5:General Leo Cristophe", "u5:Sabin, Master Monk", "u6:Combustible Gearhulk", "u6:Flayer of the Hatebound", "u6:Ruin Grinder", "u6:Sun Titan", "u6:Umaro, Raging Yeti", "u7:Angel of the Ruins", "u7:Cyan, Vengeful Samurai", "u7:Kefka, Dancing Mad", "u7:Meteor Golem", "u7:Sepulchral Primordial"],
+      Instants: ["u3:Bedevil", "u3:Crackling Doom", "u3:Laughing Mad", "u3:Mortify", "u4:Big Score", "u4:Espers to Magicite"],
+      Sorceries: ["u1:Reanimate", "u2:Night's Whisper", "u2:Stitch Together", "u3:Legions to Ashes", "u4:Snort", "u5:Tragic Arrogance", "u6:Rejoin the Fight", "u7:Ruinous Ultimatum", "u9:Rise of the Dark Realms"],
+      Artifacts: ["u1:Phoenix Down", "u1:Sol Ring", "u1:Wayfarer's Bauble", "u2:Arcane Signet", "u2:Coin of Fate", "u2:Key to the City", "u2:Mind Stone", "u2:Swiftfoot Boots", "u2:Talisman of Conviction", "u2:Talisman of Indulgence", "u3:Commander's Sphere", "u3:The Falcon, Airship Restored"],
+      Lands: ["u0:Ash Barrens", "u0:Battlefield Forge", "u0:Clifftop Retreat", "u0:Command Tower", "u0:Demolition Field", "u0:Desolate Mire", "u0:Dragonskull Summit", "u0:Evolving Wilds", "u0:Exotic Orchard", "u0:Fetid Heath", "u0:Foreboding Ruins", "u0:Furycalm Snarl", "u0:Geothermal Bog", "u0:Graven Cairns", "u0:High Market", "u0:Isolated Chapel", "u0:3 Mountain", "u0:Nomad Outpost", "u0:Path of Ancestry", "u0:4 Plains", "u0:Rogue's Passage", "u0:Rugged Prairie", "u0:Sacred Peaks", "u0:Shadowblood Ridge", "u0:Shineshadow Snarl", "u0:Smoldering Marsh", "u0:Sulfurous Springs", "u0:Sunlit Marsh", "u0:Sunscorched Divide", "u0:3 Swamp"]
+    };
+    const TYPES = ['Commander', 'Creatures', 'Instants', 'Sorceries', 'Artifacts', 'Enchantments', 'Lands'];
+    const SHADES = { Commander: '#d5d7db', Creatures: '#a9adb3', Instants: '#6f757d', Sorceries: '#8b9199', Artifacts: '#5a6068', Enchantments: '#c2c5ca', Lands: '#40454c' };
+    const OUT_AT = { 'Demonic Tutor': 3, 'Vampiric Tutor': 3, 'The One Ring': 2, 'Smothering Tithe': 2, "Teferi's Protection": 2 };
+    const NAMES = { 1: 'Exhibition', 2: 'Core', 3: 'Upgraded', 4: 'Optimized', 5: 'cEDH' };
+    const isCur = s.list === 'current';
+    const b = isCur ? s.bracket : 4;
+    const src = isCur ? CUR : STOCK;
+    const seg = (on) => on ? { bg: '#f2efe8', fg: '#0b0c0e', pressed: 'true' } : { bg: 'transparent', fg: '#a9adb3', pressed: 'false' };
+    const all = [];
+    TYPES.forEach((t) => (src[t] || []).forEach((str) => {
+      const i = str.indexOf(':');
+      const k = str[0], mv = Number(str.slice(1, i));
+      let name = str.slice(i + 1), qty = 1;
+      const m = name.match(/^(\d+) (.+)$/);
+      if (m) { qty = Number(m[1]); name = m[2]; }
+      const out = isCur && OUT_AT[name] && b <= OUT_AT[name];
+      const proxy = k === 'p';
+      let chip = '', chipFg = '#a9adb3', chipBg = 'transparent', chipLine = '#2a2e33', ring = 'transparent';
+      if (out) { chip = 'Out at Bracket ' + b; chipFg = '#f0b45a'; chipBg = 'rgb(240 180 90 / 0.14)'; chipLine = 'transparent'; ring = '#f0b45a'; }
+      else if (proxy) { chip = 'Proxy'; }
+      all.push({ type: t, name, qty, mv, proxy, label: (qty > 1 ? qty + ' ' : '') + name, chip, chipFg, chipBg, chipLine, ring,
+        kind: out ? 'Out at Bracket ' + b : proxy ? 'Proxy' : k === 'u' ? '' : 'Real', kindFg: out ? '#f0b45a' : '#f2efe8',
+        aria: (qty > 1 ? qty + ' ' : '') + name + (chip ? ', ' + chip : '') });
+    }));
+    const filtered = all.filter((c) => s.show === 'all' || (s.show === 'proxy' && c.proxy));
+    const keyOf = (c) => {
+      if (c.type === 'Commander') return 'Commander';
+      if (s.group === 'type') return c.type;
+      if (s.group === 'mv') return c.type === 'Lands' ? 'Lands' : c.mv >= 7 ? 'Mana value 7 or more' : 'Mana value ' + c.mv;
+      return 'Main deck';
+    };
+    const order = [], by = {};
+    filtered.forEach((c) => { const k = keyOf(c); if (!by[k]) { by[k] = []; order.push(k); } by[k].push(c); });
+    if (s.group === 'mv') order.sort((x, y) => { const r = (z) => z === 'Commander' ? -1 : z === 'Lands' ? 99 : z.indexOf('7 or') > 0 ? 7 : Number(z.replace('Mana value ', '')); return r(x) - r(y); });
+    const cmp = s.sort === 'mv' ? (x, y) => x.mv - y.mv || x.name.localeCompare(y.name) : (x, y) => x.name.localeCompare(y.name);
+    const groups = s.show === 'need' ? [] : order.map((k) => {
+      const cards = by[k].slice().sort(cmp);
+      const count = cards.reduce((a, c) => a + c.qty, 0);
+      const opened = !!s.open[k];
+      const many = cards.length > 7 && s.view !== 'table';
+      const collapsed = !!s.collapsed[k];
+      return {
+        id: 'g-' + k.replace(/[^A-Za-z0-9]/g, ''), title: k, countText: String(count),
+        cards: many && !opened ? cards.slice(0, 6) : cards,
+        hasMore: many, moreLabel: opened ? 'Show fewer' : 'Show all ' + cards.length,
+        toggle: () => this.setState({ open: { ...this.state.open, [k]: !opened } }),
+        expanded: !collapsed, chev: collapsed ? 'rotate(-90deg)' : 'none', collapseLabel: (collapsed ? 'Show ' : 'Hide ') + k,
+        collapse: () => this.setState({ collapsed: { ...this.state.collapsed, [k]: !collapsed } })
+      };
+    });
+    const typeCount = {};
+    all.forEach((c) => { typeCount[c.type] = (typeCount[c.type] || 0) + c.qty; });
+    const typeBar = TYPES.filter((t) => typeCount[t]).map((t) => ({ label: t, count: typeCount[t], grow: typeCount[t], color: SHADES[t], href: '#g-' + t, aria: t + ', ' + typeCount[t] + ' cards' }));
+    const GC4 = ['Demonic Tutor', 'Smothering Tithe', "Teferi's Protection", 'The One Ring', 'Vampiric Tutor'];
+    const GCB = { 4: GC4, 3: ['Smothering Tithe', "Teferi's Protection", 'The One Ring'], 2: [] };
+    const gcIn = isCur ? GCB[b] : [];
+    const gcChips = (isCur ? GC4 : []).map((n) => { const on = gcIn.indexOf(n) >= 0; return { label: on ? n : n + ', out', bg: on ? '#1e2125' : 'transparent', fg: on ? '#f2efe8' : '#a9adb3', strike: on ? 'none' : 'line-through' }; });
+    const B3 = [['Stitch Together', 'Demonic Tutor'], ['Laughing Mad', 'Vampiric Tutor']];
+    const B2 = B3.concat([["Night's Whisper", 'The One Ring'], ['Solemn Simulacrum', 'Smothering Tithe'], ['Rejoin the Fight', "Teferi's Protection"]]);
+    const swaps = (b === 3 ? B3 : B2).map(([x, y]) => ({ inn: x, out: y, inLabel: x + ', full card', outLabel: y + ', full card' }));
+    const pick = (list, br) => () => this.setState({ list, bracket: br, picker: false, show: 'all' });
+    const sel = (list, br) => s.list === list && (list === 'stock' || s.bracket === br);
+    const pItem = (head, rule, label, note, list, br) => ({ head, rule, label, note, checked: sel(list, br) ? 'true' : 'false', bg: sel(list, br) ? '#1e2125' : 'transparent', pick: list.indexOf('stock-') === 0 ? () => this.setState({ picker: false }) : pick(list, br) });
+    const pickerItems = [
+      pItem('In the box', 'none', 'Current, Bracket 4', '', 'current', 4),
+      pItem('With the swap bag', '1px solid #2a2e33', 'Current, Bracket 3', '2 swaps', 'current', 3),
+      pItem('', '', 'Current, Bracket 2', '5 swaps', 'current', 2),
+      pItem('Saved lists', '1px solid #2a2e33', 'Stock', '', 'stock', 4),
+      pItem('Older snapshots', '1px solid #2a2e33', 'Now', 'Saved [date]', 'stock-x', 0),
+      pItem('', '', 'After prints', 'Saved [date]', 'stock-y', 0)
+    ];
+    const CURVE = { 4: [7, 17, 17, 14, 3, 2, 2], 3: [6, 17, 18, 14, 3, 2, 2], 2: [6, 18, 17, 13, 3, 3, 2] };
+    const SCURVE = [5, 13, 14, 13, 4, 6, 7];
+    const AVG = { 4: '3.05', 3: '3.08', 2: '3.10' };
+    const LMH = { 4: [24, 31, 7], 3: [23, 32, 7], 2: [24, 30, 8] };
+    const PIPS = { 4: [29, 26, 21], 3: [29, 26, 22], 2: [27, 28, 22] };
+    const SRC = [20, 20, 21];
+    const cur = isCur ? CURVE[b] : SCURVE;
+    const hasCmp = s.cmp === 'stock' && isCur;
+    const bars = cur.map((n, i) => ({ n, h: (n * 8) + 'px', showCmp: hasCmp, ch: (SCURVE[i] * 8) + 'px' }));
+    const [low, mid, high] = isCur ? LMH[b] : [18, 27, 17];
+    const pips = isCur ? PIPS[b] : [23, 32, 25];
+    const pt = pips.reduce((x, y) => x + y, 0), st = SRC.reduce((x, y) => x + y, 0);
+    const pct = (n, t) => Math.round((n / t) * 100);
+    const colors = [['White', '#f1e4bc'], ['Black', '#4b4049'], ['Red', '#d4472e']].map(([name, dot], i) => ({
+      name, dot, pipW: pct(pips[i], pt) * 2 + '%', pipText: pct(pips[i], pt) + '%', srcW: pct(SRC[i], st) * 2 + '%', srcText: pct(SRC[i], st) + '%',
+      raw: pips[i] + ' symbols, ' + SRC[i] + ' lands'
+    }));
+    const most = ['White', 'Black', 'Red'][pips.indexOf(Math.max(...pips))];
+    const card = (n) => ({ name: n, aria: n + ', full card' });
+    const themes = [
+      { name: 'Reanimation', count: '7 cards', cards: ['Reanimate', 'Karmic Guide', 'Sun Titan', 'Priest of Fell Rites', 'Alesha, Who Laughs at Fate'].map(card), more: 'Show all 7' },
+      { name: 'Filling the graveyard', count: '16 cards', cards: ['Buried Alive', 'Vile Entomber', 'Faithless Looting', "Stitcher's Supplier", 'Millikin'].map(card), more: 'Show all 16' },
+      { name: 'Legendary creatures', count: '16 cards', cards: ["Banon, the Returners' Leader", 'Gau, Feral Youth', 'Locke, Treasure Hunter', 'Celes, Rune Knight', 'Edgar, Master Machinist'].map(card), more: 'Show all 16' }
+    ];
+    const cc = (n, inDeck, first) => ({ name: n, aria: n + (inDeck ? ', in the deck' : ', not in the deck'), border: inDeck ? '0' : '2px dashed #2a2e33', plus: !first });
+    const combos = [
+      { rule: 'none', title: 'Aurelia, the Warleader + Helm of the Host', result: 'Infinite combat phases', cards: [cc('Aurelia, the Warleader', true, true), cc('Helm of the Host', false, false)] },
+      { rule: '1px solid #2a2e33', title: 'Aurelia, the Warleader + Sword of Hearth and Home', result: 'Infinite combat phases', cards: [cc('Aurelia, the Warleader', true, true), cc('Sword of Hearth and Home', false, false)] },
+      { rule: '1px solid #2a2e33', title: 'Terra + Aurelia + Karmic Guide + a sacrifice outlet', result: 'Infinite loop', cards: [cc('Terra, Herald of Hope', true, true), cc('Aurelia, the Warleader', true, false), cc('Karmic Guide', true, false), cc("Ashnod's Altar", false, false)] }
+    ];
+    const idea = (gap, tip, names) => ({ gap, tip, cards: names.map(card) });
+    const ideas = [
+      idea('One card from a loop with Terra, Aurelia and Karmic Guide', '', ["Ashnod's Altar", 'Phyrexian Altar', 'Thermopod']),
+      idea('One card from infinite combats with Aurelia', '', ['Helm of the Host', 'Sword of Hearth and Home', 'Gilraen, Dúnedain Protector'])
+    ];
+    const VERS = [
+      ['Prints in', 'Now, [date]', [['Yawgmoth, Thran Physician', 'Kefka, Dancing Mad'], ['The One Ring', "Night's Whisper"], ['Smothering Tithe', 'Solemn Simulacrum']]],
+      ['Bought cards in', '[date]', [['Alesha, Who Laughs at Fate', 'Combustible Gearhulk'], ['Godless Shrine', 'Sunlit Marsh'], ['Harmonic Prodigy', 'Archfiend of Depravity']]],
+      ['Stock', '[date]', []]
+    ];
+    const versions = VERS.map(([label, note], i) => ({ label, note, pressed: s.version === i ? 'true' : 'false', bg: s.version === i ? '#1e2125' : 'transparent', pick: () => this.setState({ version: i }) }));
+    const vSel = VERS[s.version] || VERS[0];
+    const vPairs = vSel[2].map(([x, y], i) => ({ inn: x, out: y, rule: i ? '1px solid #2a2e33' : 'none' }));
+    const tab = (id, label, count) => ({ label, count, current: s.tab === id ? 'page' : 'false', fg: s.tab === id ? '#f2efe8' : '#a9adb3', under: s.tab === id ? '#f2efe8' : 'transparent', pick: () => this.setState({ tab: id, menu: false, picker: false }) });
+    return {
+      pillText: isCur ? 'Ready to play' : 'Saved list',
+      pillFg: isCur ? '#8fd3a8' : '#a9adb3',
+      pillBg: isCur ? 'rgb(143 211 168 / 0.14)' : '#1e2125',
+      statusLine: isCur ? 'Commander-legal. 75 real, 25 proxies' : 'Not the list in your box',
+      declBig: s.decl ? String(s.decl) : '[n]', declWord: s.decl ? NAMES[s.decl] + ', measures [n]' : 'Measures [n]',
+      toCards: set({ tab: 'cards' }), toPrices: set({ tab: 'cards', view: 'table', sort: 'price' }), toHistory: set({ tab: 'history' }),
+      toggleMenu: set({ menu: !s.menu, picker: false, check: false }), closeMenu: set({ menu: false }), menuOpen: s.menu,
+      toggleCheck: set({ check: !s.check, menu: false, picker: false }), closeCheck: set({ check: false }), checkOpen: s.check,
+      moreItems: [['Play', 0], ['Sample hand', 0], ['Copy or export', 1], ['Send to Mythic Tools', 0], ['Add to collection', 1], ['History', 0], ['Deck settings', 0], ['Ask Claude', 0], ['Delete deck', 1]].map(([l, rule]) => ({ label: l, rule: !!rule, fg: l === 'Delete deck' ? '#f07a62' : '#f2efe8', pick: l === 'History' ? set({ menu: false, tab: 'history' }) : set({ menu: false }) })),
+      hWhy: s.hWhy, helpWhy: set({ hWhy: !s.hWhy }), hCurve: s.hCurve, helpCurve: set({ hCurve: !s.hCurve }), hColors: s.hColors, helpColors: set({ hColors: !s.hColors }), hThemes: s.hThemes, helpThemes: set({ hThemes: !s.hThemes }),
+      hasCmpLine: s.cmp === 'stock' && isCur,
+      vHasPairs: vSel[2].length > 0,
+      togglePicker: set({ picker: !s.picker, menu: false, check: false }), closePicker: set({ picker: false }), pickerOpen: s.picker,
+      pickerLabel: isCur ? 'Current, Bracket ' + s.bracket : 'Stock',
+      pickerItems,
+      tabs: [tab('cards', 'Cards', '100'), tab('stats', 'Stats', ''), tab('plan', 'Plan', '[n] of [n] in'), tab('history', 'History', '3 lists')],
+      tabCards: s.tab === 'cards', tabStats: s.tab === 'stats', tabPlan: s.tab === 'plan', tabHistory: s.tab === 'history',
+      showSwaps: isCur && b < 4 && (s.tab === 'cards' || s.tab === 'stats'),
+      swapHead: b === 3 ? 'For Bracket 3, swap 2 cards' : 'For Bracket 2, swap 5 cards', swaps, backTo4: set({ bracket: 4 }),
+      showOpts: (isCur ? [['all', 'Whole deck 100'], ['need', 'Still need 0'], ['proxy', 'Proxies 25']] : [['all', 'Whole deck 100'], ['need', 'Still need [n]'], ['proxy', 'Proxies [n]']]).map(([v, l]) => ({ label: l, ...seg(s.show === v), pick: set({ show: v }) })),
+      viewOpts: [['pictures', 'Pictures'], ['list', 'List'], ['table', 'Table']].map(([v, l]) => ({ label: l, ...seg(s.view === v), pick: set({ view: v }) })),
+      groupOpts: [['type', 'Type'], ['mv', 'Mana value'], ['none', 'None']].map(([v, l]) => ({ label: l, ...seg(s.group === v), pick: set({ group: v }) })),
+      sortOpts: [['mv', 'Mana value'], ['name', 'Name'], ['price', 'Price']].map(([v, l]) => ({ label: l, ...seg(s.sort === v), pick: set({ sort: v }) })),
+      declOpts: [1, 2, 3, 4, 5].map((n) => ({ label: String(n), aria: 'Bracket ' + n, ...seg(s.decl === n), pick: set({ decl: s.decl === n ? null : n }) })),
+      declLine: s.decl ? 'Bracket ' + s.decl + ', ' + NAMES[s.decl] + '. Saved as you tap it.' : 'Not declared yet.',
+      whyHead: isCur ? 'Why Bracket ' + b : 'Why this bracket',
+      gcCount: String(gcIn.length), gcChips,
+      gcRule: !isCur ? 'Stock has no Game Changers.' : b === 4 ? 'Bracket 4 has no limit on Game Changers.' : b === 3 ? 'Bracket 3 allows up to three. This list has 3.' : 'Bracket 2 allows none. This list has none.',
+      isPictures: s.view === 'pictures', isList: s.view === 'list', isTable: s.view === 'table',
+      showTypeBar: s.group === 'type' && s.show === 'all',
+      typeBar, groups,
+      priceSortNote: s.sort === 'price',
+      totalLine: 'Scryfall, [date]',
+      copy: set({ copied: true }), copyLabel: s.copied ? 'Copied' : 'Copy the list',
+      isEmpty: s.show === 'need' || (s.show === 'proxy' && !isCur),
+      emptyText: s.show === 'need' && isCur ? 'Nothing to get. Every card is a real copy or a proxy.' : 'Yama counts this from your collection: [n] in this mockup.',
+      cmpOpts: [['stock', 'Stock'], ['typical', 'Typical Bracket ' + b], ['none', 'Nothing']].map(([v, l]) => ({ label: l, ...seg(s.cmp === v), pick: set({ cmp: v }) })),
+      cmpNote: s.cmp === 'typical' ? 'a typical Bracket ' + b + ' curve needs data Yama doesn’t have yet: [n].' : s.cmp === 'stock' ? 'Stock, average 3.74, 17 cards at 5 or more.' : 'none.',
+      bars, curveAria: 'Mana curve: ' + cur.map((n, i) => (i === 6 ? '7 or more' : (i + 1)) + ', ' + n).join('; '),
+      curveVerdict: isCur ? 'Lower than the precon: ' + (17 - high) + ' fewer cards at 5 or more, and an average of ' + AVG[b] + ' against 3.74.' : 'The precon as it came: an average of 3.74, 17 cards at 5 or more.',
+      avg: isCur ? AVG[b] : '3.74', low, mid, high,
+      colors, colorVerdict: most + ' has the most symbols. The lands reach the three colors about evenly.',
+      themes, combos, ideas,
+      versions, vPairs,
+      vHead: s.version === 2 ? 'The first list' : 'Changes',
+      vMore: s.version === 0 ? 'Show all 25' : 'Show all 13',
+      vCanRestore: s.version !== 0
+    };
+  }
+}
+</script>
+</body>
+</html>

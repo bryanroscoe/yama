@@ -1,0 +1,38 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Atkinson+Hyperlegible+Next:wght@400&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--ground)}
+.cover{position:relative;width:960px;height:288px;background:var(--ground);overflow:hidden}
+.cover svg{position:absolute;left:480px;top:0}
+.ink{fill:var(--text)}.mid{fill:var(--dim)}.lift{fill:var(--line)}.cut{fill:var(--ground)}
+.pill{rx:22px}.panel{rx:20px}
+.txt{position:absolute;left:40px;bottom:32px;max-width:440px}
+.txt h1{margin:0;font-family:var(--font-display);font-weight:800;font-size:64px;line-height:.95;color:var(--text)}
+.txt p{margin:8px 0 0;font-family:var(--font-body);font-size:14px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="cover">
+<svg width="480" height="288" viewBox="0 0 480 288" aria-hidden="true">
+<!--
+blocks: text 176x288 (bleeds top, bottom, right), dim 128x192, line 160x96; the ground cut out of the text block.
+arrangement: one tall white slab on the right with two darker satellites stepping down to the left, like the night table under one lamp.
+pattern: pills (r-pill, 44 px target tall) cut from the slab: Yama is a system of pill buttons on a dark table, the most specific shape it has.
+scales: steps 8/16/24/32, target 44, radii r-pill (22 = half of 44) and r-panel 20.
+-->
+<rect class="lift panel" x="32" y="160" width="160" height="96"/>
+<rect class="mid panel" x="160" y="64" width="128" height="192"/>
+<rect class="ink" x="304" y="-24" width="200" height="336"/>
+<rect class="cut pill" x="328" y="32" width="128" height="44"/>
+<rect class="cut pill" x="328" y="92" width="96" height="44"/>
+<rect class="cut pill" x="328" y="152" width="144" height="44"/>
+<rect class="cut pill" x="328" y="212" width="64" height="44"/>
+</svg>
+<div class="txt"><h1>Yama<br>Night table</h1><p>A near-black table, so the commander art carries the color.</p></div>
+</div>
+</body>
+</html>

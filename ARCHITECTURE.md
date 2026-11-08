@@ -1837,3 +1837,29 @@ options and no clear current proposal. This replaces the "plan is a note" model 
 - **Publishing from commander-decks** needs no format change: a deck exported as `proposals_only`
   with its proposals and bags arrives as one plan waiting for your OK, not 496 separate Review items.
   `pull.py` lists the plan decisions with their answers.
+
+### Site design pass (2026-11-08)
+
+Bryan (8 Nov 2026): "the whole site needs another pass"; the pill buttons are too big on a laptop,
+inline expanders and stacked folds are hard to use, controls touch what's above them, and there is
+too much micro copy ("a rule for the whole design philosophy"). Design only so far; nothing here is
+built yet.
+
+- **Rules.** `design/tokens.md`, "Density, actions and page structure": two densities (36 px
+  controls on a laptop, 44 px on phones), one primary plus up to three secondaries and a floating
+  More menu, gaps instead of margins (16 px above any action row), sticky section tabs instead of
+  stacked folds, no micro copy (one "?" per section), both card pictures on every change, compact
+  laptop heroes, phone mirroring laptop. They apply to every page from now on, the built Plans pages
+  included.
+- **Canvas and system.** One canvas, "Yama redesign" (pages Design language, Plans, Deck page),
+  mirrored in `design/screens/redesign-2026-11/`; the "Yama Night table" design system, mirrored in
+  `design/system/`. `design/README.md` links both.
+- **Deck page (designed, not built).** Edit list as the primary action, then Check cards (scan,
+  check the box, or compare with the collection) and Share; Play, Sample hand and the rest in More.
+  Tabs Cards, Stats, Plan, History: Cards keeps every list control visible, a type bar and Why this
+  bracket; Stats holds the curve, color balance, themes, combos and the power analysis
+  (`GET /api/decks/{id}/analysis`, built the same day; not on the boards yet, the next deck pass adds it); Plan is the deck's plan hub (current plan,
+  up next, earlier, a link to its plan page); History lists earlier lists as card pairs. One list
+  picker replaces the list pills (and the bracket switch an earlier pass drew; none has shipped). Spec and audit: `docs/redesign/deck-page/`.
+- **The rest of the site** goes area by area (`docs/redesign/site-plan.md`), each starting with an
+  audit of its menus, dropdowns and tasks.

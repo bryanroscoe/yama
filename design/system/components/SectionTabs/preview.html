@@ -1,0 +1,26 @@
+<!-- @dsCard group="Navigation" height=140 subtitle="Sticky strip under a page header, in place of stacked disclosures" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body)}
+.wrap{padding:24px}
+nav{position:sticky;top:0;z-index:1;background:var(--ground);display:flex;gap:24px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav a{display:inline-flex;align-items:center;gap:6px;height:44px;color:var(--dim);text-decoration:none;font-weight:700;font-size:15px;border-bottom:2px solid transparent;white-space:nowrap}
+nav a[aria-current="page"]{color:var(--text);border-bottom-color:var(--text)}
+nav a span{font-weight:400;font-size:13px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav aria-label="Deck sections">
+<a href="#" aria-current="page">Cards <span>100</span></a>
+<a href="#">Stats</a>
+<a href="#">Plan <span>3 left</span></a>
+<a href="#">History</a>
+</nav>
+</div>
+</body>
+</html>

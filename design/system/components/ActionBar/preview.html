@@ -1,0 +1,44 @@
+<!-- @dsCard group="Actions" height=380 subtitle="Laptop: primary, three secondaries, More opens a floating menu" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body);font-size:15px}
+.wrap{padding:24px;display:flex;flex-direction:column;gap:16px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:relative}
+.b{font:inherit;font-size:14px;font-weight:700;height:36px;padding:0 14px;border-radius:10px;border:1px solid transparent;background:var(--raised);color:var(--text);display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.b.primary{height:40px;padding:0 20px;border-radius:999px;background:var(--text);color:var(--ground);font-size:15px}
+.b svg{flex:none}
+.menu{position:absolute;top:44px;left:300px;width:248px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px;box-shadow:0 12px 32px rgb(0 0 0 / .5);display:flex;flex-direction:column}
+.menu button{font:inherit;font-size:14px;height:36px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--text);text-align:left;display:flex;align-items:center;gap:10px;cursor:pointer}
+.menu button:hover{background:var(--raised)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:6px 0}
+.menu .bad{color:var(--bad)}
+.note{font-size:13px;color:var(--dim);margin-top:300px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="bar">
+<button class="b primary" type="button">Edit list</button>
+<button class="b" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>Check cards</button>
+<button class="b" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v14"/></svg>Share</button>
+<button class="b" type="button" aria-haspopup="menu" aria-expanded="true">More<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+<div class="menu" role="menu" aria-label="More">
+<button role="menuitem" type="button">Play</button>
+<button role="menuitem" type="button">Sample hand</button>
+<button role="menuitem" type="button">Add to collection</button>
+<hr>
+<button role="menuitem" type="button">Export</button>
+<button role="menuitem" type="button">Send to Mythic Tools</button>
+<button role="menuitem" type="button">History</button>
+<hr>
+<button role="menuitem" type="button" class="bad">Delete deck</button>
+</div>
+</div>
+<p class="note">On a phone the same More opens a bottom sheet with 48 px rows.</p>
+</div>
+</body>
+</html>

@@ -34,6 +34,27 @@ Each screen has a laptop artboard and a phone artboard.
 | Try a change | LabTry | LabTryPhone |
 | My runs | (phone layout scales up) | LabRuns |
 
+## Redesign (November 2026)
+
+Bryan asked for a better design for the whole site (8 Nov 2026). The work is on one canvas,
+**Yama redesign** (https://claude.ai/artifact/2ekfB9CSeU3VLLf9GwAM91), with three pages; its
+`.dc.html` sources are mirrored in [screens/redesign-2026-11](screens/redesign-2026-11/) (with the
+canvas index, `canvas.json`). The rules are in [tokens.md](tokens.md), "Density, actions and page
+structure". The reusable pieces are the design system **Yama Night table**
+(https://claude.ai/artifact/KATy3ZHwCt9ikAJnHMBSha), mirrored in [system/](system/) (README, tokens,
+component previews). Specs and the plan for the rest of the site are in
+[docs/redesign](../docs/redesign/). Where a mirror and `tokens.md` differ, `tokens.md` is the
+source of truth.
+
+| Page | Boards |
+|---|---|
+| Design language | Language: the nine rules, drawn |
+| Plans (built 6 Nov as "Plans: one plan per deck" in ARCHITECTURE.md; the boards now also carry the 8 Nov rules) | Main (Plans), ProposedPlan, InProgress, GetCards, NewVersion, Archived; phone: PhonePlans, PhoneProposed, PhoneInProgress, PhoneGetCards |
+| Deck page | Deck (tabs Cards, Stats, Plan, History), DeckControls (every menu and control, today against new), DeckEditList, DeckShare; phone: PhoneDeck, PhoneDeckMore |
+
+Card art and card pictures on these boards are labelled placeholders; the app loads them from
+Scryfall at runtime. Numbers marked [n] weren't available to the design agent.
+
 ## Game interactions
 
 The canvas page "Game interactions" designs every decision in an online game, in the same Night table style. The requirements are in [play-polish-requirements.md](../docs/play-polish-requirements.md); the PP column names the requirement each board answers. Most boards are clickable on the canvas.
