@@ -114,6 +114,18 @@ export function groupList(groups: string[]): string {
   return groups.length <= 1 ? groups.join("") : `${groups.slice(0, -1).join(", ")} and ${groups[groups.length - 1]}`;
 }
 
+/** Nothing in the total has a price because it is all basics left out of still need: say how
+ *  many cards, without a "No price" that isn't true. */
+export function onlyBasics(t: PriceTotal): boolean {
+  return t.usd == null && t.unpriced === 0 && t.basics > 0;
+}
+
+/** What a total leaves uncounted: " (1 without a price, 2 basic lands not counted)", or "". */
+export function totalNote(t: PriceTotal): string {
+  const notes = [t.unpriced ? `${t.unpriced} without a price` : "", t.basics ? `${t.basics} basic ${t.basics === 1 ? "land" : "lands"} not counted` : ""].filter(Boolean);
+  return notes.length ? ` (${notes.join(", ")})` : "";
+}
+
 /** "Plateau (3ED 283)". */
 export function printingLabel(p: { set_code: string; collector_number: string }): string {
   return `${p.set_code.toUpperCase()} ${p.collector_number}`;
@@ -137,11 +149,10 @@ export function priceText(rows: PriceRow[], show: PriceShow, date: string, left?
     return `${n} ${r.name}${kind}: ${price}${where}`;
   });
   const t = priceTotal(rows, show);
-  const missing = [t.unpriced ? `${t.unpriced} without a price` : "", t.basics ? `${t.basics} basic lands left out` : ""].filter(Boolean).join(", ");
-  lines.push("", `Total: ${usd(t.usd)} for ${t.copies} ${t.copies === 1 ? "card" : "cards"}${missing ? ` (${missing})` : ""}.`);
+  lines.push("", `Total: ${usd(t.usd)} for ${t.copies} ${t.copies === 1 ? "card" : "cards"}${totalNote(t)}.`);
   if (left && left.groups.length > 0) {
     const l = priceTotal(left.rows, show);
-    lines.push(`Left out: ${groupList(left.groups)}, ${usd(l.usd)} for ${l.copies} ${l.copies === 1 ? "card" : "cards"}${l.unpriced ? ` (${l.unpriced} without a price)` : ""}.`);
+    lines.push(`Left out: ${groupList(left.groups)}, ${onlyBasics(l) ? "" : `${usd(l.usd)} for `}${l.copies} ${l.copies === 1 ? "card" : "cards"}${totalNote(l)}.`);
   }
   lines.push(`Cheapest nonfoil paper printing of each card, ${date}. Market prices, not store quotes.`);
   return lines.join("\n");

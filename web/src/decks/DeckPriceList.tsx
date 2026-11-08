@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { priceSource, usd, type DeckView } from "../api";
 import { CardHover } from "../components/CardRef";
 import { CopyButton } from "../plan/parts";
-import { copiesIn, groupList, groupsIn, leaveOut, priceRows, priceText, priceTotal, printingLabel, shownRows, type PriceRow, type PriceShow, type PriceSort } from "./priceList";
+import { copiesIn, groupList, onlyBasics, totalNote, groupsIn, leaveOut, priceRows, priceText, priceTotal, printingLabel, shownRows, type PriceRow, type PriceShow, type PriceSort } from "./priceList";
 import "./price-list.css";
 
 const SHOWS: { show: PriceShow; label: string }[] = [
@@ -53,11 +53,12 @@ export function DeckPriceList({ deck, onOpen }: { deck: DeckView; onOpen: (oracl
   };
   const notes = [
     total.unpriced > 0 && `${cards(total.unpriced)} without a price, left out`,
-    total.basics > 0 && `basic lands left out`,
+    total.basics > 0 && `basic lands not counted`,
   ].filter(Boolean);
   return (
     <section className="price-view" aria-label="Card prices">
-      {groups.length > 1 && (
+      {/* Shown while anything is left out, so a deck that's all one left-out group can bring it back. */}
+      {(groups.length > 1 || leftGroups.length > 0) && (
         <div className="price-out" role="group" aria-label="Leave out">
           <span className="dim small">Leave out</span>
           {groups.map((g) => (
@@ -85,8 +86,8 @@ export function DeckPriceList({ deck, onOpen }: { deck: DeckView; onOpen: (oracl
           {notes.length > 0 && <span className="dim"> ({notes.join("; ")})</span>}.
           {leftGroups.length > 0 && (
             <span className="dim">
-              {" "}Left out: {groupList(leftGroups)}, <span className="num">{usd(leftTotal.usd)}</span> for {cards(leftTotal.copies)}
-              {leftTotal.unpriced > 0 ? ` (${leftTotal.unpriced} without a price)` : ""}.
+              {" "}Left out: {groupList(leftGroups)}, {!onlyBasics(leftTotal) && <><span className="num">{usd(leftTotal.usd)}</span> for </>}{cards(leftTotal.copies)}
+              {totalNote(leftTotal)}.
             </span>
           )}
         </p>

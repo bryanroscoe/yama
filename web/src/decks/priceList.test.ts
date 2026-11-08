@@ -76,5 +76,8 @@ describe("the deck's price list", () => {
       "Left out: Lands, $611.60 for 12 cards.",
       "Cheapest nonfoil paper printing of each card, TCGplayer market via Scryfall, Nov 7. Market prices, not store quotes.",
     ]);
+    // Under still need, a left-out basic is named as not counted, not shown as having no price.
+    const need = priceText(shownRows(kept, "need", "price"), "need", "x", { groups: ["Lands"], rows: left });
+    expect(need.split("\n").at(-2)).toBe("Left out: Lands, 2 cards (2 basic lands not counted).");
   });
 });
