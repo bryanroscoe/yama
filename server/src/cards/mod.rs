@@ -31,7 +31,7 @@ pub fn router() -> Router<AppState> {
 pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, cards.cmc, cards.type_line, \
     cards.oracle_text, cards.colors, cards.color_identity, cards.power, cards.toughness, cards.loyalty, \
     cards.rarity, cards.layout, cards.legalities, cards.image_small, cards.image_normal, cards.image_art_crop, \
-    cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank, cards.game_changer";
+    cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank, cards.game_changer, cards.reserved";
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct Card {
@@ -60,6 +60,9 @@ pub struct Card {
     /// On the Commander Game Changers list, per Scryfall. `None` until an oracle import that
     /// reads the flag has run (see `import::importer_version`); never read it as false.
     pub game_changer: Option<bool>,
+    /// On Wizards' Reserve List, per Scryfall. `None` until an oracle import that reads the
+    /// flag has run; never read it as false.
+    pub reserved: Option<bool>,
 }
 
 #[derive(Deserialize)]

@@ -1,7 +1,8 @@
 // An estimate on the older 1-10 power-level scale, for players who still talk in it. The
 // starting bracket suggestion sets a two-point band (2: 3-5, 3: 5-7, 4: 7-9) and the deck's
 // efficiency moves it inside the band: cheap mana, cheap card draw, cheap interaction, tutors,
-// a low curve, Game Changers, two-card combos, and mass land denial or extra turns. Every factor
+// a low curve, Game Changers, two-card combos, mass land denial or extra turns, and Reserve List
+// cards (old, never-reprinted staples such as dual lands and fast mana). Every factor
 // has a cap and a weight, and the weights add up to the band's width, so one kind of card can't
 // carry the whole score. It's Yama's own heuristic from the card list, not an official scale
 // or a measure of how the deck plays.
@@ -17,9 +18,12 @@ export interface PowerSignals {
   twoCardCombos: string[];
   massLandDenial: string[];
   extraTurns: string[];
+  /** Commander and main-deck cards on Wizards' Reserve List, from the card data; null while
+   *  the flags aren't loaded, which counts nothing rather than guessing. */
+  reservedList: string[] | null;
 }
 
-export type PowerFactorKey = "mana" | "draw" | "interaction" | "tutors" | "curve" | "gameChangers" | "combos" | "denial";
+export type PowerFactorKey = "mana" | "draw" | "interaction" | "tutors" | "curve" | "gameChangers" | "combos" | "denial" | "reserved";
 
 export interface PowerFactor {
   key: PowerFactorKey;
@@ -182,7 +186,7 @@ export function powerEstimate(all: StatCard[], signals: PowerSignals): PowerEsti
   const nonlandCopies = nonland.reduce((n, c) => n + c.qty, 0);
   const averageMv = nonlandCopies ? nonland.reduce((n, c) => n + c.cmc! * c.qty, 0) / nonlandCopies : null;
   const curveShare = averageMv == null ? 0 : Math.min(1, Math.max(0, (CURVE_FLAT - averageMv) / (CURVE_FLAT - CURVE_FULL)));
-  const curveWeight = 0.15;
+  const curveWeight = 0.1;
 
   const factors: PowerFactor[] = [
     factor("mana", "Cheap mana", "Rocks, dorks, rituals and land ramp at two mana or less", 8, 0.15, counted(isCheapMana)),
@@ -200,6 +204,13 @@ export function powerEstimate(all: StatCard[], signals: PowerSignals): PowerEsti
       count: signals.massLandDenial.length + signals.extraTurns.length,
       cards: [...signals.massLandDenial, ...signals.extraTurns],
     }),
+    // Being on the list says a card is scarce, not strong, so the weight is small: the playable
+    // ones (dual lands, Gaea's Cradle, Grim Monolith, Survival of the Fittest) mark a tuned list.
+    factor(
+      "reserved", "Reserve List cards",
+      signals.reservedList ? "Cards on Wizards' Reserve List, which is never reprinted" : "Reserve List flags aren't loaded yet, so nothing counts here",
+      4, 0.05, { count: signals.reservedList?.length ?? 0, cards: signals.reservedList ?? [] },
+    ),
   ];
   const score = band[0] + factors.reduce((n, f) => n + f.points, 0);
   return { score: round1(Math.min(band[1], score)), bracket: signals.bracket!, band, factors, unknownCards };

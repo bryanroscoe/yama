@@ -192,7 +192,8 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
     Ok(
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
-        "game_changers": crate::decks::game_changers(&list.cards,&info), "policy": policy,
+        "game_changers": crate::decks::game_changers(&list.cards,&info),
+        "reserved_list": crate::decks::reserved_list(&list.cards,&info), "policy": policy,
         "statistics": {"cards": total_cards,"lands": stats.lands,"nonlands": stats.nonlands,"curve_0_through_7_plus": stats.curve.map(|(c, o)| c + o),
             "average_mana_value": stats.average_mana_value().map(round),
             "average_nonland_mana_value": stats.average_nonland_mana_value().map(round), "colored_pips": stats.pips,

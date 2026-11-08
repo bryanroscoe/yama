@@ -177,6 +177,8 @@ export function toCard(c: OfflineCard, gameChangers: boolean): Card {
     default_printing: null,
     edhrec_rank: c.e,
     game_changer: gameChangers ? c.g === true : null,
+    // The offline copy doesn't carry Reserve List flags.
+    reserved: null,
   };
 }
 
