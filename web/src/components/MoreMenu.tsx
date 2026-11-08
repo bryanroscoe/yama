@@ -2,7 +2,7 @@
 // actions and page structure", rule 2; design/system/components/ActionBar). It floats: a popover
 // under the button with a mouse or trackpad on a laptop, a bottom sheet on a phone. It never
 // expands inline and never pushes the page down.
-import { useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Sheet } from "./ui";
 
@@ -56,7 +56,11 @@ export function MoreMenu({ children, label = "More", className = "" }: { childre
       const t = e.target as Node;
       if (!wrap.current?.contains(t) && !pop.current?.contains(t)) close(false);
     };
-    const onMove = () => close(false);
+    // A scroll inside the menu (a long one on a short screen) keeps it open.
+    const onMove = (e: Event) => {
+      if (e.target instanceof Node && pop.current?.contains(e.target)) return;
+      close(false);
+    };
     window.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onDown);
     window.addEventListener("scroll", onMove, true);
@@ -68,10 +72,30 @@ export function MoreMenu({ children, label = "More", className = "" }: { childre
       window.removeEventListener("resize", onMove);
     };
   }, [open, popover]);
+  // Keyboard users land on the first action (the popover sits at the end of the page).
+  useEffect(() => {
+    if (open && popover) pop.current?.querySelector<HTMLElement>("button, a")?.focus();
+  }, [open, popover]);
+  // Under the button, or above it when there's more room there; a menu taller than the room
+  // scrolls inside.
   const toggle = () => {
     const r = button.current?.getBoundingClientRect();
-    if (r) setPlace({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    if (r) {
+      const right = Math.max(8, window.innerWidth - r.right);
+      const below = window.innerHeight - r.bottom - 14;
+      const above = r.top - 14;
+      setPlace(
+        below >= 360 || below >= above
+          ? { top: r.bottom + 6, right, maxHeight: below }
+          : { bottom: window.innerHeight - r.top + 6, right, maxHeight: above },
+      );
+    }
     setOpen((o) => !o);
+  };
+  // Tabbing out of the popover closes it.
+  const onLeave = (e: FocusEvent<HTMLDivElement>) => {
+    const to = e.relatedTarget as Node | null;
+    if (to && !pop.current?.contains(to) && !wrap.current?.contains(to)) setOpen(false);
   };
 
   // Choosing an action closes the menu (the action may open its own sheet).
@@ -94,7 +118,7 @@ export function MoreMenu({ children, label = "More", className = "" }: { childre
       {open &&
         popover &&
         createPortal(
-          <div ref={pop} className="more-menu-pop" style={place}>
+          <div ref={pop} className="more-menu-pop" style={place} onBlur={onLeave}>
             {items}
           </div>,
           document.body,

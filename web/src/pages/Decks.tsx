@@ -230,6 +230,7 @@ export function DeckPage() {
     setMythic(false);
     setConfiguring(false);
     setDeleting(false);
+    setAsking(false);
     setOpen(null);
   }, [id]);
 
@@ -449,7 +450,7 @@ export function DeckPage() {
 
         {editing && <EditDeck deck={d} onClose={() => setEditing(false)} onDelete={() => { setEditing(false); setDeleting(true); }} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
-        {asking && <AskClaudeSheet context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} onClose={() => setAsking(false)} />}
+        {asking && askOffered && <AskClaudeSheet context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} onClose={() => setAsking(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}

@@ -2364,6 +2364,8 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .more-menu-items {
   display: flex;
