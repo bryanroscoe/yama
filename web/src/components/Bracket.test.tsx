@@ -28,7 +28,7 @@ describe("bracket suggestions", () => {
     };
     client.setQueryData(["deck-check", "deck", "v1"], check);
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} reservedList={[]} cards={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} cards={[]} onCard={() => {}} onDeclare={() => {}} />
     </QueryClientProvider>);
     const explanation = html.match(/<details class="details-fold"><summary>Why this suggestion\?<\/summary>(.*?)<\/details>/s)?.[1];
     expect(explanation).toContain("Start with Core (2)");
@@ -61,13 +61,10 @@ describe("bracket suggestions", () => {
       entry("Ulamog, the Ceaseless Hunger", "Legendary Creature — Eldrazi", 10, ""),
     ];
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={3} gameChangers={["Demonic Tutor"]} reservedList={["Grim Monolith"]} cards={cards} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={3} gameChangers={["Demonic Tutor"]} cards={cards} onCard={() => {}} onDeclare={() => {}} />
     </QueryClientProvider>);
-    // 5 + cheap mana 0.0375 + tutors 0.05 + Game Changers 0.075 + Reserve List 0.025; the 4.33
-    // average gives the curve nothing.
+    // 5 + cheap mana 0.0375 + tutors 0.05 + Game Changers 0.075; the 4.33 average gives the curve nothing.
     expect(html).toContain("About 5.2 / 10");
-    expect(html).toContain("Reserve List cards");
-    expect(html).toContain("+0.03");
     expect(html).toContain("Unofficial Yama estimate");
     expect(html).toContain("How the power estimate adds up");
     expect(html).toContain("suggestion sets a 5–7 range");
@@ -88,7 +85,7 @@ describe("bracket suggestions", () => {
     };
     client.setQueryData(["deck-check", "deck", "v1"], check);
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} reservedList={[]} cards={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} cards={[]} onCard={() => {}} onDeclare={() => {}} />
     </QueryClientProvider>);
     expect(html).not.toContain("/ 10");
     client.clear();
