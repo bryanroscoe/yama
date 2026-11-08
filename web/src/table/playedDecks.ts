@@ -77,7 +77,8 @@ export function playedDecks(games: GameRow[] | undefined, me?: string): PlayedDe
       const named = !!label && label !== commander && label !== commanders.join(" and ");
       const name = named ? label : commanders.join(" and ");
       if (!name) continue;
-      const person = s.member_id ? `m:${s.member_id}` : s.user_id ? `u:${s.user_id}` : `n:${fold(player)}`;
+      // An account is one person in every playgroup; a member row only in its own.
+      const person = s.user_id ? `u:${s.user_id}` : s.member_id ? `m:${s.member_id}` : `n:${fold(player)}`;
       const key = `${person}|${fold(name)}`;
       const had = out.get(key);
       if (had) {

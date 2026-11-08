@@ -69,6 +69,16 @@ describe("playedDecks", () => {
   });
 });
 
+describe("an account in two playgroups", () => {
+  it("has one row per deck, its games counted together", () => {
+    const games = [
+      game("x", "2026-10-20T19:00:00Z", [{ member_id: "m-a", user_id: "u-c", display_name: "Chelsey", deck_label: "Kaalia", commander_name: "Kaalia of the Vast" }]),
+      game("y", "2026-10-21T19:00:00Z", [{ member_id: "m-b", user_id: "u-c", display_name: "Chelsey", deck_label: "Kaalia", commander_name: "Kaalia of the Vast" }]),
+    ];
+    expect(playedDecks(games, "me").map((d) => `${d.player}:${d.name}:${d.games}`)).toEqual(["Chelsey:Kaalia:2"]);
+  });
+});
+
 describe("samePerson", () => {
   it("is one account across playgroups, whatever its member rows", () => {
     expect(samePerson({ name: "Chelsey", memberId: "m-a", userId: "u-c" }, { name: "Chelsey", memberId: "m-b", userId: "u-c" })).toBe(true);
