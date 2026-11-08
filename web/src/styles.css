@@ -66,7 +66,7 @@
   --t-2xl: 2.5rem;
   --t-big: 2.75rem; /* big numbers: prices, counts, win rates (28-56 px) */
   --t-title: 3rem; /* page titles: 48 px on phones, 64 px on laptops */
-  --t-hero: 3.5rem; /* hero deck title: 56 px on phones, 96 px on laptops */
+  --t-hero: 3.5rem; /* hero deck title: 56 px on phones, 64 px on laptops */
 
   /* Shape. --radius is the old single radius, now the input and nav-item size. */
   --radius: 12px;
@@ -88,8 +88,13 @@
   --gap: 16px;
   --page-pad: 16px;
   --content-w: 1120px;
+  /* Control sizes: 44 px targets on phones and touch screens; 36 px controls on a laptop (below). */
   --target: 44px;
   --target-primary: 52px;
+  --target-compact: 44px;
+  /* Secondary buttons: pills on touch screens, 10 px corners on a laptop. */
+  --r-button: 999px;
+  --t-button: 1rem;
   --nav-h: 76px;
   --rail-w: 232px;
   color-scheme: dark;
@@ -99,7 +104,22 @@
   :root {
     --page-pad: clamp(20px, 4vw, 56px);
     --t-title: 4rem;
-    --t-hero: 6rem;
+    --t-hero: 4rem;
+  }
+}
+
+/*
+ * Laptop density (Bryan, 8 Nov 2026; design/tokens.md, "Density, actions and page structure"):
+ * with a mouse or trackpad, controls are 36 px, the primary 40 px, row actions 32 px, and secondary
+ * buttons have 10 px corners. Phones and touch screens keep 44 px pills.
+ */
+@media (pointer: fine) {
+  :root {
+    --target: 36px;
+    --target-primary: 40px;
+    --target-compact: 32px;
+    --r-button: 10px;
+    --t-button: 0.9375rem;
   }
 }
 
@@ -207,8 +227,9 @@ button,
   border: 1px solid transparent;
   background: var(--raised);
   color: var(--text);
-  border-radius: var(--r-pill);
-  padding: 0.5rem 1.125rem;
+  border-radius: var(--r-button);
+  font-size: var(--t-button);
+  padding: 0.25rem 1rem;
   min-height: var(--target);
   cursor: pointer;
   text-decoration: none;
@@ -232,7 +253,9 @@ button.primary,
   color: var(--ground);
   border-color: var(--text);
   min-height: var(--target-primary);
-  padding: 0.5rem 1.5rem;
+  padding: 0.25rem 1.25rem;
+  /* The primary stays a pill at every density. */
+  border-radius: var(--r-pill);
 }
 button.primary:hover,
 .button.primary:hover {
@@ -252,6 +275,11 @@ button.outline:hover,
 button.quiet {
   background: transparent;
   border-color: transparent;
+}
+/* Row actions (Skip, Undo, Show all; buttons marked small): 32 px on a laptop, a full 44 px target
+   on touch screens. Other quiet buttons (Close, Cancel) keep the normal control height. */
+button.small {
+  min-height: var(--target-compact);
 }
 button.quiet:hover {
   background: var(--raised);
