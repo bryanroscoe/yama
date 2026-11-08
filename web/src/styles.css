@@ -2402,4 +2402,52 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .more-menu-sheet .more-menu-items > :is(button, a) {
   min-height: 48px;
   font-size: var(--t-base);
+/* ── Section tabs (components/SectionTabs.tsx; design/tokens.md, rule 4) ───────────────────── */
+/* Where sticky page parts start: below the phone's status bar (the Android shell) and below the
+   admin "View as" banner while it shows. */
+:root {
+  --sticky-top: env(safe-area-inset-top, 0px);
+}
+body:has(.view-banner) {
+  --sticky-top: calc(env(safe-area-inset-top, 0px) + var(--target) + 16px);
+}
+.section-tabs {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 20;
+  display: flex;
+  gap: 24px;
+  margin: 0 0 var(--s-4);
+  padding: 0 2px;
+  background: var(--ground);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.section-tabs::-webkit-scrollbar {
+  display: none;
+}
+.section-tabs > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target);
+  color: var(--dim);
+  font-weight: 700;
+  font-size: var(--t-button);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.section-tabs > a:hover {
+  color: var(--text);
+}
+.section-tabs > a[aria-current] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+.section-tabs > a > span {
+  font-weight: 400;
+  font-size: var(--t-sm);
+  color: var(--dim);
 }

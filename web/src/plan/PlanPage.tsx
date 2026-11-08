@@ -32,6 +32,7 @@ import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import { CopyButton, SwapPair } from "./parts";
+import { SectionTabs, type SectionTab } from "../components/SectionTabs";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { planHref, progressSteps } from "./Plans";
 import type { PlanView } from "./view";
@@ -415,6 +416,17 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
     { label: "The deck now", about: `${inDeck.length} changes in`, state: "now" },
     { label: "The finished deck", about: `all ${total}`, state: "after" },
   ];
+  const hasBags = !!(bags["3"]?.length || bags["2"]?.length);
+  // Sections, not folds (design/tokens.md, rule 4): a sticky strip of the page's sections.
+  const tabs: SectionTab[] = [
+    ...(plan.next && plan.state !== "archived" ? [{ id: "new-version", label: `Version ${plan.next.n}`, note: "waiting" }] : []),
+    ...(left.length ? [{ id: "left-to-do", label: "Left to do", note: left.length }] : []),
+    ...(inDeck.length ? [{ id: "in-the-deck", label: "In the deck", note: inDeck.length }] : []),
+    ...(hasBags ? [{ id: "brackets", label: "Brackets" }] : []),
+    { id: "lists", label: "Lists" },
+  ];
+  const [allIn, setAllIn] = useState(false);
+  const shownIn = allIn ? inDeck : inDeck.slice(0, 8);
   return (
     <>
       {plan.state !== "archived" && (
@@ -452,6 +464,8 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
         </section>
       )}
 
+      <SectionTabs tabs={tabs} label="Plan sections" />
+
       {plan.next && plan.state !== "archived" && <Approve key={`${deck.key}/${plan.next.n}`} deck={deck} plan={plan} view={view} userId={userId} />}
 
       <div className="plans-cols">
@@ -468,7 +482,7 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
             </section>
           )}
           {left.length > 0 && (
-            <section aria-labelledby="plans-left">
+            <section id="left-to-do" className="plans-section" aria-labelledby="plans-left">
               <h2 id="plans-left">Left to do ({left.length})</h2>
               <ul className="plans-rows">
                 {left.map(({ swap: s, step, out }) => (
@@ -497,21 +511,24 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
             </section>
           )}
           {inDeck.length > 0 && (
-            <details className="plans-details">
-              <summary>
-                <b>In the deck ({inDeck.length})</b> <span className="small dim">Each beside the card it replaced.</span>
-              </summary>
-              <ul className="plans-plain">
-                {inDeck.map(({ swap: s, out }) => (
+            <section id="in-the-deck" className="plans-section" aria-labelledby="plans-in">
+              <h2 id="plans-in">In the deck ({inDeck.length})</h2>
+              <ul className="plans-plain plans-in-list">
+                {shownIn.map(({ swap: s, out }) => (
                   <li key={s.key}>
                     <b>{s.in}</b> {out && <span className="dim">for {out}</span>}
                   </li>
                 ))}
               </ul>
-            </details>
+              {inDeck.length > shownIn.length && (
+                <button className="quiet small plans-show-all" onClick={() => setAllIn(true)}>
+                  Show all {inDeck.length}
+                </button>
+              )}
+            </section>
           )}
-          {(bags["3"]?.length || bags["2"]?.length) ? (
-            <section aria-labelledby="plans-box">
+          {hasBags ? (
+            <section id="brackets" className="plans-section" aria-labelledby="plans-box">
               <h2 id="plans-box">In the box: Bracket {box}</h2>
               <p className="small dim">The swap bags take it down.</p>
               <div className="plans-bag">
@@ -536,7 +553,7 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
           ) : null}
         </div>
 
-        <aside className="plans-side" aria-label="Lists and tools">
+        <aside id="lists" className="plans-side plans-section" aria-label="Lists and tools">
           <h2>Copy a list</h2>
           {lists.map((l) => {
             const cards = deck.states[l.state]?.cards;
