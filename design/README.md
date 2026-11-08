@@ -43,7 +43,8 @@ canvas index, `canvas.json`). The rules are in [tokens.md](tokens.md), "Density,
 structure". The reusable pieces are the design system **Yama Night table**
 (https://claude.ai/artifact/KATy3ZHwCt9ikAJnHMBSha), mirrored in [system/](system/) (README, tokens,
 component previews). Specs and the plan for the rest of the site are in
-[docs/redesign](../docs/redesign/).
+[docs/redesign](../docs/redesign/). Where a mirror and `tokens.md` differ, `tokens.md` is the
+source of truth.
 
 | Page | Boards |
 |---|---|

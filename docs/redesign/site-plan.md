@@ -19,7 +19,7 @@ Design only. No agent edits the app or Yama data in this pass; each area ends in
 ## Existing design files (read before designing)
 - "Yama app screens" canvas, https://claude.ai/artifact/A54Pqc1rPe5U8c4ipARc1q: page "Night table" (every screen, laptop and phone, 19-24 Oct) and page "Game interactions". Sources mirrored in yama design/screens/*.dc.html.
 - "Yama name and logo", https://claude.ai/artifact/RQsQsstMR1vQA6vrBtA11Y (design/logo/).
-- "Yama plans redesign", https://claude.ai/artifact/2ekfB9CSeU3VLLf9GwAM91 (this pass, area 1).
+- "Yama redesign" (first called "Yama plans redesign"; the deck page joined it), https://claude.ai/artifact/2ekfB9CSeU3VLLf9GwAM91 (this pass, areas 1 and 2).
 - "Yama Night table" design system, https://claude.ai/artifact/KATy3ZHwCt9ikAJnHMBSha.
 The live app has drifted from the Oct screens; design from the live app's code and features, using the screens for the visual language.
 

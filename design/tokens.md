@@ -52,7 +52,7 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Use | Phone | Laptop |
   |---|---|---|
   | Page title | 48 px / 0.9 | 64 px / 0.9 |
-  | Hero deck title | 56 px | 96 px |
+  | Hero deck title | 56 px | 56–64 px (rule 7 below) |
   | Section heading | 24–36 px | 24–36 px |
   | Big numbers | 28–56 px | 28–56 px |
   | Life total, 4-player panel | 132 px | |
@@ -72,7 +72,8 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Lists and small cards | 14–16 px |
   | Panels and art tiles | 18–24 px |
   | Sheets | 24–26 px, top corners only |
-  | Buttons, chips, segmented controls | 999 px (pills) |
+  | Primary button, chips, segmented controls, status pills | 999 px (pills) |
+  | Secondary buttons and menus | 10 px on a laptop; pills on phones |
   | Card images | 4.75% / 3.4% |
   | Battlefield tiles | 8–12 px |
 
@@ -89,21 +90,21 @@ Delete copy that repeats them. Empty states usually need one sentence. Skip feat
 rhetorical questions and reassurance after every action. Say what an action saves or shares
 where the person makes that decision; don't repeat it across the page.
 
-Cut unnecessary explanations before moving anything into help. Keep useful methods, definitions
-and shortcuts in one native, collapsed disclosure with a specific label. It must work on touch
-and keyboard; never rely on a hover-only tooltip for necessary information. Keep errors, active
+Cut unnecessary explanations before moving anything into help. Put useful definitions and
+shortcuts behind the section's one "?" button (rule 5 below); a long method may be one collapsed
+disclosure with a specific label (rule 4). Either must work on touch and keyboard; never rely on a hover-only tooltip for necessary information. Keep errors, active
 warnings, missing data, source dates, price sources and art credits visible beside their content.
 
 ## Buttons and controls
 
 - **Primary:** a `--text` pill with `--ground` text. One per view.
-- **Secondary:** a `--raised` button with 10 px corners, or transparent with a 1px `--line` border. At most three beside the primary; the rest go in a More menu.
+- **Secondary:** a `--raised` button with 10 px corners on a laptop (a pill on phones), or transparent with a 1px `--line` border. At most three beside the primary; the rest go in a More menu.
 - **Segmented control:** a `--surface` track with 3 px padding. The selected segment is a `--text` pill with dark text; the others are `--dim` text.
 - **Inputs:** `--surface` on ground, or `--ground` on surface, with a 1px `--line` border. Labels are 13–14 px bold, above the field.
 - **Navigation:**
   - Laptop: a left rail of 220–248 px. The active item is a `--raised` pill. At the bottom is your commander-art avatar with the sync status under it.
   - Phone: a bottom tab bar, 76 px, with six tabs. The active tab is `--text`, the others `--dim`.
-  - The Decks tab has a segmented control at the top: Decks | Plans | Lab.
+  - The Decks tab has a segmented control at the top: Decks | Sharing | Swap cards | Plans.
 
 ## Density, actions and page structure (8 Nov 2026)
 

@@ -1860,6 +1860,6 @@ built yet.
   bracket; Stats holds the curve, color balance, themes, combos and the power analysis
   (`GET /api/decks/{id}/analysis`, built the same day); Plan is the deck's plan hub (current plan,
   up next, earlier, a link to its plan page); History lists earlier lists as card pairs. One list
-  picker replaces the list pills and the bracket switch. Spec and audit: `docs/redesign/deck-page/`.
+  picker replaces the list pills (and the bracket switch an earlier pass drew; none has shipped). Spec and audit: `docs/redesign/deck-page/`.
 - **The rest of the site** goes area by area (`docs/redesign/site-plan.md`), each starting with an
   audit of its menus, dropdowns and tasks.

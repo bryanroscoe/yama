@@ -13,8 +13,8 @@ The boards now live on the merged canvas "Yama redesign" (https://claude.ai/arti
   - Ideas: gaps with card pictures, "Ask for it in the plan".
   - Earlier: one line to archived plans.
   - Data: the plan bundle's deck plan (`useDeckPlan`, `deckCounts`) plus **New**: the plans for one deck by state (`GET /api/research-plans` grouped by deck, as on Plans).
-- Revival Trance's counts are [n] until question 7 is answered.
-- **Power level** (from the builder's note, FROM-BUILDER-power-panel-2026-11-08.md): `GET /api/decks/{id}/analysis` now exists. Its score is the natural number for the Bracket tile ("measures …"), and its vectors, caps, themes and history belong on the Stats tab, replacing my text-read themes. This isn't on the canvas yet: next pass.
+- Revival Trance's counts are [n] until question 7 is answered (open questions: `deck-page/STATUS.md` in `~/Developer/.agent-tasks/yama-site-design/`, not in the repo).
+- **Power level** (from the builder's note `~/Developer/.agent-tasks/yama-site-design/deck-page/FROM-BUILDER-power-panel-2026-11-08.md`, not in the repo; PR #170): `GET /api/decks/{id}/analysis` now exists. Its score is the natural number for the Bracket tile ("measures …"), and its vectors, caps, themes and history belong on the Stats tab, replacing my text-read themes. This isn't on the canvas yet: next pass.
 
 ## 0b. Third pass (8 Nov): density and page structure
 Follows the design system's "Density, actions and page structure" and its ActionBar and SectionTabs components (system version 1794165776-8c8e). Where this differs from sections 1-6, this wins (and section 0 wins over this).
