@@ -221,6 +221,23 @@ than 30 minutes, don't wait for it. Run the checks locally, treat that as good e
   `main`, runs CI again; the gate's step summary says which. Rebase or merge `main`, then run
   the script again to skip once more. `--no-amend` runs the checks without recording anything.
   The trailer is a statement that the checks passed: never write it by hand.
+- **One shared Cargo target for local checks** (Bryan, 8 Nov 2026: the laptop can't take a
+  20-minute, 7–9 GiB engine compile per worktree). `local-ci.sh` builds into
+  `~/Library/Caches/yama/cargo-target` (override with `YAMA_CARGO_TARGET_DIR`; a
+  `CARGO_TARGET_DIR` you set wins), not the worktree's `target/`. Every T3 worktree reaches
+  the engine through the same `../yama-phase` path, so Cargo compiles the Phase crates and
+  every crates.io dependency once and reuses them; each worktree adds only its own
+  `yama-server`/`yama-play` build. Cargo's file lock queues two runs that start together.
+  Run ad hoc Rust commands with the same variable
+  (`CARGO_TARGET_DIR=~/Library/Caches/yama/cargo-target cargo test -p yama-server`) instead of
+  building a fresh `target/`. To reclaim space, preview and apply
+  `agent-clean <worktree> --target-dir ~/Library/Caches/yama/cargo-target` (workspace
+  artifacts only, keeping the shared dependency builds) when nothing is running there; add
+  `--all` only when the engine pin or toolchain changed and the old builds are useless.
+- **Web-only changes skip Rust locally too.** When every file the branch changes since its
+  merge base with `main` is web-only by the gate's rule above (`rust_needed`), `local-ci.sh`
+  runs the web checks and skips the Rust and Python suites, as PR CI would. `--full` runs
+  them anyway. Unknown changes (no fetch, no merge base) run everything.
 - **Web-only PRs skip Rust.** When every changed file is under `web/` or `packages/` (or is
   the root `package.json`/`package-lock.json`), the gate skips the Rust and Python job. Files
   the server compiles in (`web/public/`, any `.css` or `.html`) still run it, as does any

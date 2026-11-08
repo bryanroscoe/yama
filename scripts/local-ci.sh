@@ -9,19 +9,30 @@
 # that trailer for its own tree and already contains main. Any later commit
 # without its own trailer runs CI again. Push CI on main always runs in full.
 #
-# Usage: scripts/local-ci.sh [--no-amend]
+# Cargo builds into one shared target directory outside the worktree
+# ($YAMA_CARGO_TARGET_DIR, default ~/Library/Caches/yama/cargo-target), so the
+# Phase engine, the slowest and largest compile, is built once for every
+# worktree instead of once each. A CARGO_TARGET_DIR you set yourself wins.
+# When everything the branch changes since main is web-only (CI's own rule,
+# scripts/ci/gate.py rust_needed), the Rust and Python suites are skipped, as
+# PR CI skips them; --full runs them anyway.
+#
+# Usage: scripts/local-ci.sh [--no-amend] [--full]
 #   --no-amend  run the checks only; leave HEAD unchanged.
+#   --full      run the Rust and Python suites even for a web-only change.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
 amend=1
-[ "$#" -le 1 ] || { echo 'local-ci: at most one option' >&2; exit 2; }
-case "${1:-}" in
-  '') ;;
-  --no-amend) amend=0 ;;
-  -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *) echo "local-ci: unknown option $1" >&2; exit 2 ;;
-esac
+full=0
+for option in "$@"; do
+  case "$option" in
+    --no-amend) amend=0 ;;
+    --full) full=1 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "local-ci: unknown option $option" >&2; exit 2 ;;
+  esac
+done
 
 die() { echo "local-ci: $*" >&2; exit 1; }
 step() { printf '\n== %s\n' "$*"; }
@@ -48,12 +59,30 @@ YAMA_PHASE_DIR="$phase_dir" deploy/check-phase.sh >/dev/null \
   || die 'the engine pin must be published first (see deploy/check-phase.sh above).'
 
 # Local checks only stand in for CI when the branch already contains main.
+# Unknown changes (no fetch, no merge base, nothing changed) mean the full run.
+rust=1
 if git fetch --quiet origin main 2>/dev/null; then
   git merge-base --is-ancestor FETCH_HEAD HEAD \
     || echo 'local-ci: warning: HEAD does not contain origin/main; PR CI will still run until you rebase or merge and run this again.' >&2
+  if [ "$full" = 0 ] && base="$(git merge-base FETCH_HEAD HEAD 2>/dev/null)"; then
+    if git diff --name-only -z "$base" HEAD | python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from gate import rust_needed
+files = [f for f in sys.stdin.buffer.read().decode().split("\0") if f]
+sys.exit(1 if rust_needed(files) else 0)' "$root/scripts/ci"; then
+      rust=0
+    fi
+  fi
 else
   echo 'local-ci: warning: could not fetch origin/main; PR CI runs if the branch is behind main.' >&2
 fi
+
+# One Cargo target directory for every worktree: the engine builds once.
+if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+  export CARGO_TARGET_DIR="${YAMA_CARGO_TARGET_DIR:-$HOME/Library/Caches/yama/cargo-target}"
+fi
+mkdir -p "$CARGO_TARGET_DIR"
 
 # CI pins Rust 1.98.1 and Node 22. A different Node major only warns (and is recorded),
 # since the web checks rarely depend on it; push CI on main still runs Node 22.
@@ -71,22 +100,27 @@ npm test
 npm run typecheck
 npm run build
 
-step 'Rust tests'
-cargo test --locked
+if [ "$rust" = 0 ]; then
+  step 'Rust and Python tests: skipped, every change since main is web-only (--full runs them)'
+else
+  step 'Rust tests'
+  echo "Cargo target: $CARGO_TARGET_DIR"
+  cargo test --locked
 
-step 'Python tests'
-python3 deploy/test_release.py
-python3 deploy/test_host.py
-python3 -m unittest discover -s tools -p 'test_lab*.py'
-python3 forge-worker/test_worker.py
-python3 -m unittest discover -s scripts/research -p 'test_*.py'
-python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
-python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
-python3 -m unittest discover -s scripts/ci -p 'test_*.py'
-python3 -m unittest discover -s scripts/history -p 'test_*.py'
-python3 scripts/test_sync_main.py
-python3 scripts/test_dev_local.py
-python3 scripts/test_package_yama_plugin.py
+  step 'Python tests'
+  python3 deploy/test_release.py
+  python3 deploy/test_host.py
+  python3 -m unittest discover -s tools -p 'test_lab*.py'
+  python3 forge-worker/test_worker.py
+  python3 -m unittest discover -s scripts/research -p 'test_*.py'
+  python3 -m unittest discover -s scripts/datasets -p 'test_*.py'
+  python3 -O -m unittest discover -s scripts/research -p 'test_*.py'
+  python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+  python3 -m unittest discover -s scripts/history -p 'test_*.py'
+  python3 scripts/test_sync_main.py
+  python3 scripts/test_dev_local.py
+  python3 scripts/test_package_yama_plugin.py
+fi
 
 # The checks must not have changed tracked files or HEAD.
 [ "$(git rev-parse HEAD)" = "$head" ] || die 'HEAD moved while the checks ran; run again.'
