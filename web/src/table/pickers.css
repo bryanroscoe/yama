@@ -240,3 +240,22 @@ span.combo-toggle {
 .picker-option:active {
   background: var(--raised);
 }
+
+/* A deck search's filters (All, Matt's, Played, Yours, Precons): a track that scrolls sideways
+   on a narrow screen, kept in view at the top of the open list. */
+.combo-head {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  margin: -4px -4px 4px;
+  padding: 4px 4px 0;
+  background: var(--surface);
+}
+.deck-scopes {
+  flex: none;
+}
+.picker > .deck-scopes {
+  align-self: flex-start;
+  width: auto;
+  margin-inline: 0;
+}

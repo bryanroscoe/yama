@@ -149,7 +149,7 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
     if (!patch) return;
     // Your deck stays only on your own seat.
     const keepDeck = !!patch.memberId && !!patch.userId && patch.userId === seat.userId;
-    onChange(keepDeck ? { ...patch, deckId: seat.deckId, deckVersionId: seat.deckVersionId, deckLabel: seat.deckLabel, commanderChoices: seat.commanderChoices } : patch);
+    onChange(keepDeck ? { ...patch, deckId: seat.deckId, deckVersionId: seat.deckVersionId, deckLabel: seat.deckLabel, deckTyped: seat.deckTyped, commanderChoices: seat.commanderChoices } : patch);
   };
   const typeName = (t: string) => {
     // Typing over a playgroup member, or someone found by handle, makes the seat a guest of that name.
@@ -158,38 +158,65 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
   };
   const pickDeck = (p: DeckPick) => {
     setDeckText(null);
+    if (p.kind === "named") {
+      // A deck Yama doesn't know: its name now, its commander in the fields below.
+      onChange({ deckId: undefined, deckVersionId: undefined, deckLabel: p.name, deckTyped: true, commanderChoices: undefined });
+      return;
+    }
     const listed = p.kind === "precon" ? p.precon.commanders : p.deck.commanders;
     const d =
       p.kind === "mine"
         ? { commanders: p.deck.commanders, commander_image: p.deck.commander_image, commander_artist: p.deck.commander_artist }
         : p.kind === "theirs"
           ? { commanders: p.deck.commanders, commander_image: p.deck.art, commander_artist: p.deck.artist }
-          : { commanders: p.precon.commanders, commander_image: p.precon.art?.url ?? null, commander_artist: p.precon.art?.artist ?? null };
+          : p.kind === "played"
+            ? // Only the commanders' names were kept: their cards give the art and colors.
+              { commanders: p.deck.commanders, commander_image: null, commander_artist: null }
+            : { commanders: p.precon.commanders, commander_image: p.precon.art?.url ?? null, commander_artist: p.precon.art?.artist ?? null };
     const picked = {
       // Your deck by id (its version on the day is looked up on save); anyone else's by its list now.
       deckId: p.kind === "mine" ? p.deck.id : undefined,
       deckVersionId: p.kind === "mine" ? (p.deck.current_version_id ?? undefined) : p.kind === "theirs" ? (p.deck.version_id ?? undefined) : undefined,
       // A deck you lend keeps its name on the seat: the server keeps its list only on a guest's seat
       // (a seat with an account holds that account's own decks), and the name says what was played.
-      deckLabel: p.kind === "mine" ? (me && seat.userId === me.id ? undefined : p.deck.name) : p.kind === "theirs" ? p.deck.name : p.precon.name,
+      // A deck played before keeps its name, or is just its commanders when that's all it was.
+      deckLabel:
+        p.kind === "mine" ? (me && seat.userId === me.id ? undefined : p.deck.name) : p.kind === "theirs" ? p.deck.name : p.kind === "played" ? (p.deck.named ? p.deck.name : undefined) : p.precon.name,
+      // A deck saved by its name alone still needs its commander named.
+      deckTyped: p.kind === "played" && p.deck.named && !p.deck.commanders.length ? true : undefined,
       commanderName: d.commanders[0] ?? "",
       // Two or more are a choice until the cards say two can pair (deckCommanders), so a game
       // started before the lookup answers, or offline, never pairs alternatives.
-      partnerName: undefined,
-      commanderChoices: listed.length > 1 ? listed : undefined,
-      colorIdentity: p.kind === "mine" ? p.deck.color_identity : p.kind === "theirs" ? p.deck.color_identity : p.precon.color_identity,
+      partnerName: p.kind === "played" ? p.deck.commanders[1] : undefined,
+      // Nothing of a partner picked before carries over (its art, colors, what it pairs with).
+      partnerArt: undefined,
+      partnerArtist: undefined,
+      partnerIdentity: undefined,
+      ownIdentity: undefined,
+      pairs: undefined,
+      pairsWith: undefined,
+      pairScope: undefined,
+      commanderChoices: listed.length > 1 && p.kind !== "played" ? listed : undefined,
+      colorIdentity: p.kind === "precon" ? p.precon.color_identity : p.kind === "played" ? "" : p.deck.color_identity,
       art: d.commander_image ?? undefined,
       artist: d.commander_artist ?? undefined,
     };
     onChange(picked);
     // The cards' own art and colors land only if the seat still holds this deck by then.
-    void deckCommanders(d).then((c) => c && onChange((now) => (stillHolds(now, picked) ? c : null)));
+    // A deck played before was saved as a pair ("Tana and Tymna"), kept while offline. If its
+    // cards don't pair, the "partner" was part of its name ("Tymna the Weaver and Friends").
+    const savedPair = p.kind === "played" && !!picked.partnerName;
+    void deckCommanders(d).then((c) => {
+      if (!c) return;
+      const notAPair = savedPair && !c.partnerName && p.kind === "played" ? { commanderChoices: undefined, deckLabel: p.deck.label ?? p.deck.name } : {};
+      onChange((now) => (stillHolds(now, picked) ? { ...c, ...notAPair } : null));
+    });
   };
   const typeDeck = (t: string) => {
     setDeckText(t);
     // Typing over a deck puts the seat back on its commander alone.
     if (deckShown) {
-      onChange({ deckId: undefined, deckVersionId: undefined, deckLabel: undefined, commanderChoices: undefined });
+      onChange({ deckId: undefined, deckVersionId: undefined, deckLabel: undefined, deckTyped: undefined, commanderChoices: undefined });
     }
   };
   // The deck picked, then which of its lists: the main one or a configuration (stock, after prints).
@@ -245,6 +272,8 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
             onLeave={() => setDeckText(null)}
             decks={decks}
             handle={seat.handle}
+            who={seat}
+            playgroupId={group?.id}
             yours={isMe}
             trailing={deckShown && seat.colorIdentity ? <span className="combo-trailing"><Pips identity={seat.colorIdentity} label={false} /></span> : null}
           />
@@ -265,14 +294,16 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
             onChange={chooseCommander}
           />
         )}
-        {/* With a deck chosen, the deck names the commander. */}
-        {commander && !deckShown && (
+        {/* With a deck chosen, the deck names the commander, unless only its name was typed. */}
+        {commander && (!deckShown || seat.deckTyped) && (
           <CommanderFields
             value={seat as CommanderDraft}
             onChange={(d) => onChange(commandersPatch(seat, d))}
           />
         )}
-        {commander && <span className="seat-credit">{seatCredit(seat, deckShown ? (deckName ?? deckShown) : undefined)}</span>}
+        {/* A game keeps two commanders as their names, so a typed deck name gives way to them. */}
+        {commander && seat.deckTyped && seat.partnerName?.trim() && <span className="small dim">With two commanders the game is saved under their names.</span>}
+        {commander && <span className="seat-credit">{seatCredit(seat, deckShown && !seat.deckTyped ? (deckName ?? deckShown) : undefined)}</span>}
         {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
         {footer && <div className="seat-foot">{footer}</div>}
       </div>
@@ -295,6 +326,8 @@ function draftFromPlayer(p: TableState["players"][number], decks: DeckSummary[] 
     deckVersionId: p.deckVersionId,
     // A deck you lent keeps its name on the seat, as setup gave it.
     deckLabel: label,
+    // Any other named deck can have its commander changed under the same name.
+    deckTyped: !deck && !!label ? true : undefined,
     commanderName: p.commanderName ?? "",
     colorIdentity: p.colorIdentity,
     art: p.art,

@@ -71,6 +71,8 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
         deckVersionId: s.deck_version_id ?? undefined,
         // Your deck lent to someone keeps its name too.
         deckLabel: label,
+        // A named deck that isn't yours keeps its name while its commander is edited.
+        deckTyped: !mine && !!label ? true : undefined,
         commanderName: commander ?? "",
         partnerName: partner,
         colorIdentity: mine?.color_identity ?? "",
