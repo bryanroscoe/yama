@@ -1357,21 +1357,34 @@ pub async fn archive(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> 
 /// link stops working, and its versions stay so games already played keep their record (account deletion removes them). With `configurations`, its configurations go too;
 /// otherwise they become main decks of their own rather than hang off a deleted one.
 pub async fn delete(pool: &SqlitePool, owner: &str, id: &str, configurations: bool) -> AppResult<Deleted> {
+    delete_pinned(pool, owner, id, configurations, None).await
+}
+
+/// [`delete`], for a change staged earlier: with `pinned`, deleting configurations deletes exactly
+/// those. If the deck's live configurations are no longer that set, nothing changes and it's a
+/// conflict, so a configuration made since is never deleted unseen.
+pub async fn delete_pinned(pool: &SqlitePool, owner: &str, id: &str, configurations: bool, pinned: Option<&[String]>) -> AppResult<Deleted> {
     owned_deck(pool, owner, id).await?;
     let mut tx = pool.begin().await?;
     let at = now();
-    let children: Vec<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at")
+    // Read and written in one transaction: what's checked is what's deleted.
+    let children: Vec<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at, id")
         .bind(owner)
         .bind(id)
         .fetch_all(&mut *tx)
         .await?;
     if configurations {
-        sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE owner_id = ? AND parent_id = ? AND archived = 0")
-            .bind(&at)
-            .bind(owner)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        if let Some(pinned) = pinned {
+            let (mut now_set, mut then_set) = (children.clone(), pinned.to_vec());
+            now_set.sort();
+            then_set.sort();
+            if now_set != then_set {
+                return Err(AppError::Conflict("its configurations changed".into()));
+            }
+        }
+        for child in &children {
+            sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ? AND owner_id = ?").bind(&at).bind(child).bind(owner).execute(&mut *tx).await?;
+        }
     }
     sqlx::query("UPDATE decks SET archived = 1, updated_at = ? WHERE id = ? AND owner_id = ?").bind(&at).bind(id).bind(owner).execute(&mut *tx).await?;
     // Configurations left (and any archived before) no longer hang off a deleted deck.

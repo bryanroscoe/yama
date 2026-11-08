@@ -348,7 +348,13 @@ async fn configurations_group_one_level_deep() {
 
     // Deleting the main deck alone leaves its configurations as main decks.
     let (_, done) = send(&app, Method::DELETE, &format!("/api/decks/{main}"), Some(&bt), None).await;
-    assert_eq!(done["kept"], json!([stock]));
+    let mut kept: Vec<&str> = done["kept"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+    kept.sort();
+    let mut expected = [stock.as_str(), tech.as_str()];
+    expected.sort();
+    assert_eq!(kept, expected);
+    let tech_parent: Option<String> = sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ?").bind(&tech).fetch_one(&pool).await.unwrap();
+    assert_eq!(tech_parent, None);
     let parent: Option<String> = sqlx::query_scalar("SELECT parent_id FROM decks WHERE id = ?").bind(&stock).fetch_one(&pool).await.unwrap();
     assert_eq!(parent, None);
 }

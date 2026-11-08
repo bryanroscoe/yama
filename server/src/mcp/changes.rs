@@ -383,7 +383,7 @@ async fn apply_edit_deck(st: &AppState, user: &User, summary: &str, p: &Value) -
 /// A deck's live configurations: (id, label).
 async fn configurations_of(pool: &SqlitePool, owner: &str, deck: &str) -> AppResult<Vec<(String, String)>> {
     let rows: Vec<(String, String, Option<String>)> =
-        sqlx::query_as("SELECT id, name, configuration FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at")
+        sqlx::query_as("SELECT id, name, configuration FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at, id")
             .bind(owner)
             .bind(deck)
             .fetch_all(pool)
@@ -448,18 +448,13 @@ async fn apply_delete_deck(st: &AppState, user: &User, p: &Value) -> AppResult<V
     }
     let with_configurations = p["configurations"] == true;
     // Deleting configurations deletes the ones that were named when this was suggested, never one
-    // made since.
-    if with_configurations {
-        let pinned: Vec<&str> = p["configuration_ids"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-        let current: Vec<String> = configurations_of(pool, &user.id, deck_id).await?.into_iter().map(|(id, _)| id).collect();
-        if current.iter().map(String::as_str).ne(pinned.iter().copied()) {
-            return Err(AppError::Conflict(format!(
-                "{deck}'s configurations changed after this was suggested, so it wasn't applied. Discard it and ask again."
-            )));
-        }
-    }
+    // made since (checked in the delete's own transaction).
+    let pinned: Vec<String> = p["configuration_ids"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
     st.limits.deck_writes.check_user(user)?;
-    let done = crate::decks::delete(pool, &user.id, deck_id, with_configurations).await?;
+    let done = crate::decks::delete_pinned(pool, &user.id, deck_id, with_configurations, Some(&pinned)).await.map_err(|e| match e {
+        AppError::Conflict(_) => AppError::Conflict(format!("{deck}'s configurations changed after this was suggested, so it wasn't applied. Discard it and ask again.")),
+        other => other,
+    })?;
     let label = match (done.deleted.len(), done.kept.len()) {
         (1, 0) => format!("Deleted {deck}"),
         (1, 1) => format!("Deleted {deck}; its configuration is now a deck of its own"),

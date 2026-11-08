@@ -49,6 +49,9 @@ export function DeleteDeck({ deck, onClose }: { deck: DeckView; onClose: () => v
   const remove = useMutation({
     mutationFn: () => api(`/api/decks/${deck.id}${withConfigurations ? "?configurations=true" : ""}`, { method: "DELETE" }),
     onSuccess: () => {
+      // The main deck's switcher (often cached already) drops the deleted configuration at once.
+      if (deck.parent_id)
+        qc.setQueryData<DeckView>(["deck", deck.parent_id], (prev) => prev && { ...prev, configurations: prev.configurations.filter((c) => c.id !== deck.id) });
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck"] });
       onClose();
