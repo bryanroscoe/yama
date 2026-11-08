@@ -71,6 +71,15 @@ describe("playedDecks", () => {
   });
 });
 
+describe("a deck played under a typed name and a member row", () => {
+  it("is one row, unless two known people share the name", () => {
+    const g = (id: string, day: string, member: string | null) =>
+      game(id, day, [{ member_id: member, display_name: "Matt", guest_name: member ? null : "Matt", deck_label: "Jace", commander_name: "Jace" }]);
+    expect(playedDecks([g("a", "2026-10-01T00:00:00Z", "m-matt"), g("b", "2026-10-02T00:00:00Z", null)]).map((d) => `${d.player}:${d.games}:${d.last.slice(0, 10)}`)).toEqual(["Matt:2:2026-10-02"]);
+    expect(playedDecks([g("a", "2026-10-01T00:00:00Z", "m-matt"), g("c", "2026-10-03T00:00:00Z", "m-other"), g("b", "2026-10-02T00:00:00Z", null)])).toHaveLength(3);
+  });
+});
+
 describe("an account in two playgroups", () => {
   it("has one row per deck, its games counted together", () => {
     const games = [

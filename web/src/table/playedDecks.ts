@@ -93,7 +93,26 @@ export function playedDecks(games: GameRow[] | undefined, me?: string, mine: { n
       out.set(key, { key, name, named, label: label || undefined, commanders, player, memberId: s.member_id ?? undefined, userId: s.user_id ?? undefined, games: 1, last: g.started_at });
     }
   }
-  return [...out.values()];
+  // A deck someone played under a typed name ("matt") and under their member row or account is
+  // one row, when exactly one known person has that name and deck; otherwise it stays apart.
+  const all = [...out.values()];
+  const known = all.filter((d) => d.memberId || d.userId);
+  const merged: PlayedDeck[] = [];
+  for (const d of all) {
+    if (d.memberId || d.userId) {
+      merged.push(d);
+      continue;
+    }
+    const into = known.filter((k) => fold(k.name) === fold(d.name) && fold(k.player) === fold(d.player));
+    if (into.length !== 1) {
+      merged.push(d);
+      continue;
+    }
+    const k = into[0]!;
+    k.games += d.games;
+    if (d.last > k.last) k.last = d.last;
+  }
+  return merged;
 }
 
 /** Who played a deck, as a person to compare. */
