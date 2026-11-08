@@ -629,6 +629,29 @@ pub async fn view(pool: &SqlitePool, version_id: Option<&str>, enabled: bool) ->
     })
 }
 
+#[derive(sqlx::FromRow)]
+struct VersionRow {
+    version_id: String,
+    #[sqlx(flatten)]
+    row: Row,
+}
+
+/// The stored answers of many versions in one query, by version id: what each check found,
+/// without the polling state [`view`] works out for the deck page.
+pub async fn results(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<HashMap<String, CheckResult>> {
+    if version_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<VersionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT version_id, {ROW_COLUMNS} FROM deck_version_checks WHERE source = ? AND version_id IN (SELECT value FROM json_each(?))"
+    )))
+    .bind(SPELLBOOK)
+    .bind(serde_json::to_string(version_ids).unwrap_or_default())
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().filter_map(|r| Some((r.version_id, r.row.result()?))).collect())
+}
+
 /// The estimated bracket of each version that has an answer: version id → (tag, bracket).
 pub async fn estimates(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<HashMap<String, Estimated>> {
     if version_ids.is_empty() {

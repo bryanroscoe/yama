@@ -1,5 +1,6 @@
 mod admin;
 mod advisor;
+mod analysis;
 mod auth;
 mod bridges;
 mod calendar;
@@ -26,7 +27,6 @@ mod mpc;
 mod oauth;
 mod play;
 mod plan;
-mod power_level;
 mod people;
 mod perf;
 mod playgroups;

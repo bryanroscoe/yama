@@ -14,6 +14,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-08-deck-power-level",
+    date: "2026-11-08",
+    title: "A deck's power level, vector by vector",
+    items: [
+      "Every deck's page has a new Power level panel. It shows an unofficial 1 to 10 score with its margin, and five scores out of 100: Speed, Consistency, Interaction, Mana base and Threats. A typical stock precon is about 40 on each and a typical Bracket 4 build about 75.",
+      "How it adds up lists every card's points. It also names the deck's themes, and shows how the score moved across your saved versions and between a deck's configurations.",
+      "The score now counts your lands by what they do, and it no longer needs a Commander Spellbook check to appear (combos count once there is one).",
+      "Check it on ScryCheck copies the list and opens ScryCheck, so you can paste it there and compare.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
     id: "2026-11-08-shared-power-estimate",
     date: "2026-11-08",
     title: "Power estimate on shared decks",
