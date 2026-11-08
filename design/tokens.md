@@ -103,7 +103,7 @@ warnings, missing data, source dates, price sources and art credits visible besi
 - **Inputs:** `--surface` on ground, or `--ground` on surface, with a 1px `--line` border. Labels are 13–14 px bold, above the field.
 - **Navigation:**
   - Laptop: a left rail of 220–248 px. The active item is a `--raised` pill. At the bottom is your commander-art avatar with the sync status under it.
-  - Phone: a bottom tab bar, 76 px, with six tabs. The active tab is `--text`, the others `--dim`.
+  - Phone: a bottom tab bar, 76 px, with seven tabs (Table, Play, Cards, Collection, Decks, Lab, Group). The active tab is `--text`, the others `--dim`.
   - The Decks tab has a segmented control at the top: Decks | Sharing | Swap cards | Plans.
 
 ## Density, actions and page structure (8 Nov 2026)

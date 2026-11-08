@@ -59,7 +59,7 @@ Examples: "Waiting for your OK", "Approve plan", "38 changes", "6 to buy, $5.00"
 - **Segmented:** a `surface` track with 3 px padding; the selected segment is a `text` pill with dark text. 36 px tall on a laptop.
 - **Inputs:** `surface` on ground (or `ground` on surface), 1 px `line`; labels 14 px bold above.
 - **Checkboxes and radios:** a fixed 20 px box beside their words.
-- **Navigation:** laptop left rail 220-248 px (active item a `raised` pill); phone bottom tab bar 76 px with six tabs. Decks sections: Decks, Sharing, Swap cards, Plans.
+- **Navigation:** laptop left rail 220-248 px (active item a `raised` pill); phone bottom tab bar 76 px with seven tabs. Decks sections: Decks, Sharing, Swap cards, Plans.
 
 ### Density, actions and page structure (Bryan, 8 Nov 2026)
 
