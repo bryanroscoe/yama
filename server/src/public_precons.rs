@@ -224,6 +224,8 @@ pub struct Catalog {
     pub comparisons: Vec<Publication>,
     pub meta_cohort: usize,
     pub rating_v2: Option<v2::Info>,
+    /// Every enabled real-game source with its credit, ranked by v2 or not.
+    pub real_sources: Vec<v2::Source>,
     pub precons: Vec<Precon>,
 }
 
@@ -243,6 +245,7 @@ pub struct Detail {
     pub comparisons: Vec<Publication>,
     pub meta_cohort: usize,
     pub rating_v2: Option<v2::Info>,
+    pub real_sources: Vec<v2::Source>,
     pub precon: Precon,
     pub cards: Vec<Card>,
 }
@@ -490,13 +493,14 @@ pub async fn prewarm(pool: &SqlitePool) -> AppResult<()> {
 
 pub async fn catalog(pool: &SqlitePool) -> AppResult<Catalog> {
     let Built { publication, comparisons, meta_cohort, mut precons } = (*built(pool).await?).clone();
-    let rating_v2 = v2::assign(pool, &mut precons).await?;
+    let (rating_v2, real_sources) = v2::assign(pool, &mut precons).await?;
     Filters::default().apply(&mut precons)?;
     Ok(Catalog {
         publication,
         comparisons,
         meta_cohort,
         rating_v2,
+        real_sources,
         precons,
     })
 }
@@ -701,6 +705,7 @@ async fn detail_data(pool: &SqlitePool, slug: &str) -> AppResult<Detail> {
         comparisons: c.comparisons,
         meta_cohort: c.meta_cohort,
         rating_v2: c.rating_v2,
+        real_sources: c.real_sources,
         precon,
         cards,
     })

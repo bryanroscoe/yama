@@ -251,14 +251,16 @@ pub(crate) async fn ranks(pool: &SqlitePool) -> (HashMap<String, usize>, usize) 
     }
 }
 
-/// Attach rating v2 to every row it ranks. `None` when no real-game source is enabled, or when
-/// the rating can't be derived: the pages then keep meta rank v1 rather than fail.
-pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<Option<Info>> {
+/// Attach rating v2 to every row it ranks, and each source's commander figures to every row.
+/// The rating is `None` when no real-game source is enabled, when it ranks nothing, or when it can't
+/// be derived: the pages then keep meta rank v1 rather than fail. The enabled real-game sources come
+/// back either way, so their figures keep their credit and sort without a rating.
+pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<(Option<Info>, Vec<Source>)> {
     let table = match table(pool).await {
         Ok(t) => t,
         Err(e) => {
             tracing::warn!(error = ?e, "public rating v2 unavailable; showing meta rank v1");
-            return Ok(None);
+            return Ok((None, Vec::new()));
         }
     };
     let (info, by_id, lists) = &*table;
@@ -271,5 +273,5 @@ pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<
             row.meta = None;
         }
     }
-    Ok((info.ranked > 0).then(|| info.clone()))
+    Ok(((info.ranked > 0).then(|| info.clone()), info.sources.clone()))
 }

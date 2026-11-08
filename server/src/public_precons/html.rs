@@ -200,14 +200,14 @@ fn sources_line(info: &v2::Info) -> String {
 }
 
 /// The sources with figures for every list under a commander only, shown beside the rank.
-fn commander_sources(info: Option<&v2::Info>) -> Vec<&str> {
-    info.into_iter().flat_map(|i| &i.sources).filter(|s| !s.stock_lists).map(|s| s.name.as_str()).collect()
+fn commander_sources(sources: &[v2::Source]) -> Vec<&str> {
+    sources.iter().filter(|s| !s.stock_lists).map(|s| s.name.as_str()).collect()
 }
 
 /// Each real-game source with its attribution and licence, as its licence asks: inline spans that
 /// sit in a paragraph, one line each.
-fn source_credits(info: &v2::Info) -> String {
-    info.sources
+fn source_credits(sources: &[v2::Source]) -> String {
+    sources
         .iter()
         .map(|s| format!("<span class=\"source-credit\">{}: {} Licence: {}.</span>", e(&s.name), e(s.attribution.trim_end_matches('.')).to_string() + ".", e(s.license.trim_end_matches('.'))))
         .collect()
@@ -585,7 +585,20 @@ fn real(p: &Precon, detailed: bool) -> String {
     if detailed {
         out.push_str("<details><summary>About real-game results</summary><p>Stock-list results are normalised to four players; pilots and opponents differ from the simulation. This is observed evidence, not a personal win-rate forecast.</p>");
         if let Some(f) = p.commander_games.first() {
-            write!(out, "<p>“Any list” counts every game the source recorded under {}: stock and upgraded lists, every pod size and power level, so 25% isn’t the even share. It describes the commander, not this stock list, and isn’t part of the rank.</p>", e(&f.commander)).unwrap();
+            let counted = p.v2.as_ref().and_then(|v| v.commander_source.as_deref());
+            write!(
+                out,
+                "<p>“Any list” counts every game the source recorded under {}: stock and upgraded lists, every pod size and power level, so 25% isn’t the even share. It describes the commander, not this stock list. {}</p>",
+                e(&f.commander),
+                match counted {
+                    Some(source) => format!(
+                        "With no stock-list games yet, {}’s figure helps estimate this deck’s rank, mapped onto the stock-list results of the precons that have them.",
+                        e(source)
+                    ),
+                    None => "It isn’t part of this deck’s rank.".into(),
+                }
+            )
+            .unwrap();
         }
         out.push_str("<p><a href=\"/precons/methodology#real\">Real-game sources ↗</a></p></details>");
     }
@@ -727,13 +740,13 @@ pub(super) async fn index(
         )
         .unwrap();
     }
-    match &data.rating_v2 {
-        Some(info) if !info.sources.is_empty() => {
-            for s in &info.sources {
+    match data.real_sources.as_slice() {
+        [] => body.push_str("<span class=\"source-chip\">Playgroup.gg</span>"),
+        sources => {
+            for s in sources {
                 write!(body, "<span class=\"source-chip\">{}{}</span>", e(&s.name), if s.stock_lists { "" } else { ", by commander" }).unwrap();
             }
         }
-        _ => body.push_str("<span class=\"source-chip\">Playgroup.gg</span>"),
     }
     write!(body,"{}</div><div class=\"rank-intro\"><div><h2>The rankings</h2><span class=\"source-chip\">Experimental</span></div><details class=\"ranking-help\"><summary>About these results</summary><div class=\"details-body\">",run_line(data.publication.as_ref())).unwrap();
     if let Some(info) = &data.rating_v2 {
@@ -762,7 +775,7 @@ pub(super) async fn index(
     if let Some(family) = model {
         write!(body, "<p>{family} model is Yama’s published {family} benchmark, shown on its own and not part of the meta rank.</p>").unwrap();
     }
-    let by_commander = commander_sources(data.rating_v2.as_ref());
+    let by_commander = commander_sources(&data.real_sources);
     write!(
         body,
         "<p>Real games shows each stock list’s own results{}. Sort by any column.</p>",
@@ -780,8 +793,8 @@ pub(super) async fn index(
         }
     )
     .unwrap();
-    if let Some(info) = data.rating_v2.as_ref().filter(|i| !i.sources.is_empty()) {
-        write!(body, "<p>{}</p>", source_credits(info)).unwrap();
+    if !data.real_sources.is_empty() {
+        write!(body, "<p>{}</p>", source_credits(&data.real_sources)).unwrap();
     }
     body.push_str("<p>Ranks summarise evidence, not a forecast for your table. Decks missing evidence stay unranked. Win rates describe different fields; the dashed mark shows the 25% equal-deck baseline.</p><p>Upgradeability shows the highest supported in-box grade and the configurations assessed. Unassessed commanders may be stronger. Open a deck for its reasoning, source dates and the 1–5 rubric.</p><a href=\"/precons/methodology\">Sources and methodology ↗</a></div></details></div>");
     write!(body,"<form class=\"public-filters\" method=\"get\" action=\"/precons\" data-live aria-label=\"Filter precons\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search deck, commander or set\"></label><label><span class=\"sr-only\">Sort</span><select name=\"s\">",e(&filters.q)).unwrap();
@@ -1057,11 +1070,11 @@ pub(super) async fn methodology(
                 when(&info.as_of.format("%Y-%m-%d").to_string()),
                 sources_line(info),
                 info.simulation.as_deref().map(|n| format!("Simulation: {}. ", e(n))).unwrap_or_default() + simulation_test(info) + &commander_test(info),
-                match commander_sources(Some(info)).as_slice() {
+                match commander_sources(&info.sources).as_slice() {
                     [] => String::new(),
                     names => format!(" Shown beside the rank, not in it: {}, by commander.", e(&names.join(" and "))),
                 },
-                source_credits(info)
+                source_credits(&info.sources)
             ),
             None => "No real-game source is enabled, so the pages fall back to meta rank v1 below.".into(),
         }

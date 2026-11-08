@@ -805,5 +805,16 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
 
     // Stopping the source is seen on the next request, despite the cache.
     crate::precon_evidence::disable(&pool, &owner, "Playgroup.gg").await.unwrap();
-    assert!(catalog(&pool).await.unwrap().rating_v2.is_none());
+    let c = catalog(&pool).await.unwrap();
+    assert!(c.rating_v2.is_none());
+    // Mythic alone ranks nothing, but its figures keep their credit and their sort.
+    assert_eq!(c.real_sources.iter().map(|s| (s.name.as_str(), s.stock_lists)).collect::<Vec<_>>(), [("Mythic Tools", false)]);
+    assert!(c.precons.iter().all(|p| p.commander_games.len() == 1));
+    let (_, _, html) = request(&app, "/precons", &[]).await;
+    assert!(html.contains("<option value=\"commander\">Real games, any list (Mythic Tools)</option>"));
+    assert!(html.contains("<span class=\"source-chip\">Mythic Tools, by commander</span>"));
+    assert!(!html.contains("<span class=\"source-chip\">Playgroup.gg</span>"), "no fallback chip for a source that's off");
+    assert!(html.contains("Mythic Tools: Derived from Mythic Tools"));
+    let (_, _, html) = request(&app, "/precons/island-deck", &[]).await;
+    assert!(html.contains("It isn’t part of this deck’s rank."));
 }
