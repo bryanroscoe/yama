@@ -65,7 +65,7 @@ if git fetch --quiet origin main 2>/dev/null; then
   git merge-base --is-ancestor FETCH_HEAD HEAD \
     || echo 'local-ci: warning: HEAD does not contain origin/main; PR CI will still run until you rebase or merge and run this again.' >&2
   if [ "$full" = 0 ] && base="$(git merge-base FETCH_HEAD HEAD 2>/dev/null)"; then
-    if git diff --name-only -z "$base" HEAD | python3 -I -c '
+    if git diff --no-renames --name-only -z "$base" HEAD | python3 -I -c '
 import sys
 sys.path.insert(0, sys.argv[1])
 from gate import rust_needed
@@ -105,7 +105,21 @@ if [ "$rust" = 0 ]; then
 else
   step 'Rust tests'
   echo "Cargo target: $CARGO_TARGET_DIR"
-  cargo test --locked
+  # Cargo names the workspace's own crates by their path inside the worktree, so every
+  # worktree's yama-server and yama-play land on the same artifacts here, judged fresh by
+  # file times. Rebuild them from this worktree on every run (the engine and crates.io
+  # dependencies stay cached), and hold a lock so no other run swaps them in between.
+  python3 -I -c '
+import fcntl, subprocess, sys
+with open(sys.argv[1], "a") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("local-ci: waiting for another local-ci run using this Cargo target", file=sys.stderr, flush=True)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    sys.exit(subprocess.call(sys.argv[2:]))
+' "$CARGO_TARGET_DIR/.yama-local-ci.lock" \
+    bash -c 'cargo clean --quiet -p yama-server -p yama-play && cargo test --locked'
 
   step 'Python tests'
   python3 deploy/test_release.py

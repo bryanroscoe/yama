@@ -226,11 +226,16 @@ than 30 minutes, don't wait for it. Run the checks locally, treat that as good e
   `~/Library/Caches/yama/cargo-target` (override with `YAMA_CARGO_TARGET_DIR`; a
   `CARGO_TARGET_DIR` you set wins), not the worktree's `target/`. Every T3 worktree reaches
   the engine through the same `../yama-phase` path, so Cargo compiles the Phase crates and
-  every crates.io dependency once and reuses them; each worktree adds only its own
-  `yama-server`/`yama-play` build. Cargo's file lock queues two runs that start together.
-  Run ad hoc Rust commands with the same variable
-  (`CARGO_TARGET_DIR=~/Library/Caches/yama/cargo-target cargo test -p yama-server`) instead of
-  building a fresh `target/`. To reclaim space, preview and apply
+  every crates.io dependency once and reuses them. Cargo names the workspace's own crates by
+  their path inside the worktree, so every worktree's `yama-server` and `yama-play` share
+  artifact names there and are judged fresh by file times: `local-ci.sh` therefore cleans and
+  rebuilds just those two crates on every run, under a lock
+  (`.yama-local-ci.lock` in the target) that queues a second run until the first finishes.
+  For an ad hoc Rust test in a worktree, use `scripts/local-ci.sh --no-amend`, or keep the
+  worktree's own `target/` and clean it when done; pointing a bare `cargo test` at the shared
+  target can run another worktree's server build. The shared target is a machine cache owned
+  by Yama local CI, not by any one task, so retiring a worktree leaves it in place. To reclaim
+  space, preview and apply
   `agent-clean <worktree> --target-dir ~/Library/Caches/yama/cargo-target` (workspace
   artifacts only, keeping the shared dependency builds) when nothing is running there; add
   `--all` only when the engine pin or toolchain changed and the old builds are useless.
