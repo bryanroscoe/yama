@@ -189,7 +189,7 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
         .await?
         .into();
     }
-    // The deck page's older 1-10 scale estimate, from a saved version's stored bracket check;
+    // The deck page's analysis, with combos from a saved version's stored bracket check;
     // reading never starts a check.
     let reserved_list = crate::decks::reserved_list(&list.cards, &info);
     let check = match &list.version {
@@ -197,13 +197,19 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
         None => None,
     };
     let produced = crate::decks::produced_mana(&st.pool, &list.cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
-    let power = crate::power_level::for_deck(&list.cards, &info, &produced, check.as_ref());
+    let facts = crate::analysis::facts_for(&list.cards, &info, &produced);
+    let entries: Vec<crate::analysis::Entry> = list.cards.iter().map(|c| crate::analysis::Entry { card: c, facts: facts.get(&c.oracle_id) }).collect();
+    let mut power = list.cards.iter().any(|c| c.qty > 0).then(|| crate::analysis::analyze(&entries, check.as_ref(), &mut crate::analysis::Cache::default()));
+    // A pasted name that matched no card is a card the analysis couldn't score.
+    if let Some(a) = power.as_mut() {
+        crate::analysis::add_unresolved(a, &list.unknown);
+    }
     Ok(
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
         "game_changers": crate::decks::game_changers(&list.cards,&info),
         "reserved_list": reserved_list, "policy": policy,
-        "power_estimate": power, "power_note": "Yama's unofficial estimate on the older 1-10 power-level scale, as the deck page and shared deck page show it: the stored bracket suggestion sets a band and each factor's points move the score within it. Card-list signals, not played performance; other sites' numbers aren't comparable. Null without a stored Commander Spellbook check for this saved version, or when that check gives no 2-4 suggestion.",
+        "analysis": power, "analysis_note": "Yama's unofficial deck analysis, as the deck page and shared deck page show it: each card earns points for what its text does in categories under five vectors (Speed, Consistency, Interaction, Mana base, Threats; 0-100, about 40 a typical stock precon and 75 a typical Bracket 4 build), Commander Spellbook's combos from the stored check add to Threats (a saved version only; combos.checked says whether there was one), and the weighted vectors map to the older 1-10 power-level scale with a ± margin and caps. Card-text signals, not played performance; other sites' numbers aren't directly comparable.",
         "statistics": {"cards": total_cards,"lands": stats.lands,"nonlands": stats.nonlands,"curve_0_through_7_plus": stats.curve.map(|(c, o)| c + o),
             "average_mana_value": stats.average_mana_value().map(round),
             "average_nonland_mana_value": stats.average_nonland_mana_value().map(round), "colored_pips": stats.pips,

@@ -8,7 +8,7 @@ use crate::deck_prices::SinglesValue;
 use crate::deck_stats::DeckStats;
 use crate::decks::Validation;
 use crate::lab::RunListItem;
-use crate::power_level::PowerEstimate;
+use crate::analysis::DeckAnalysis;
 use axum::http::{HeaderValue, header};
 use axum::response::Response;
 use std::fmt::Write;
@@ -223,9 +223,9 @@ pub(crate) const RESERVED_NOTE: &str = "Cards Wizards has promised never to repr
 
 /// The bracket the owner declares beside Yama's starting suggestion, the reason for it, and the
 /// cards and combos behind it (components/Bracket.tsx, BracketPanel). `game_changers` is the
-/// count from our own card data, for when there's no check result. `power` is the older 1-10
-/// scale's estimate (power_level.rs), shown with how it adds up.
-pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>, game_changers: Option<&[String]>, power: Option<&PowerEstimate>) -> String {
+/// count from our own card data, for when there's no check result. `analysis` gives the power
+/// level shown beside the brackets (analysis/mod.rs); its breakdown is [`analysis_panel`].
+pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>, game_changers: Option<&[String]>, analysis: Option<&DeckAnalysis>) -> String {
     let mut s = "<section class=\"public-panel public-bracket\" aria-labelledby=\"bracket-head\"><h2 id=\"bracket-head\">Bracket</h2><div class=\"bracket-pair\">".to_string();
     match declared {
         Some(b) => write!(s, "<div><span class=\"label\">Declared by its owner</span><span class=\"result-value\">{b}</span><small>{}</small></div>", bracket_name(b)).unwrap(),
@@ -238,8 +238,8 @@ pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>,
         }
         None => s.push_str("<div class=\"estimate\"><span class=\"label\">Yama's starting suggestion</span><span class=\"result-value dim\">Not checked yet</span></div>"),
     }
-    if let Some(p) = power {
-        write!(s, "<div class=\"estimate\"><span class=\"label\">Older power-level scale</span><span class=\"result-value\">About {:.1} / 10</span><small>Unofficial Yama estimate</small></div>", p.score).unwrap();
+    if let Some(a) = analysis {
+        write!(s, "<div class=\"estimate\"><span class=\"label\">Power level</span><span class=\"result-value\">{:.1} <small>±{:.1}</small></span><small>{}, unofficial Yama estimate</small></div>", a.power, a.margin, e(a.label)).unwrap();
     }
     s.push_str("</div>");
     let Some(r) = result else {
@@ -252,9 +252,6 @@ pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>,
     };
     let (_, _, why) = suggestion(r);
     write!(s, "<h3>Why this suggestion?</h3><p class=\"dim\">{}</p>", e(why)).unwrap();
-    if let Some(p) = power {
-        s.push_str(&power_breakdown(p));
-    }
     write!(
         s,
         "<ul class=\"public-flags\"><li><b>Game Changers: {}</b>{}<p class=\"dim\">{}</p></li><li><b>Mass land denial:</b> {}</li><li><b>Extra turns:</b> {}</li>",
@@ -284,31 +281,59 @@ pub(crate) fn bracket_panel(declared: Option<i64>, result: Option<&CheckResult>,
     s
 }
 
-/// How the power estimate adds up (components/Bracket.tsx, PowerBreakdown): the band from the
-/// suggestion, then each factor with its rule, this deck's count and the cards behind it.
-pub(crate) fn power_breakdown(p: &PowerEstimate) -> String {
-    let [lo, hi] = p.band;
-    let mut s = format!(
-        "<details class=\"power-breakdown\"><summary>How the power estimate adds up</summary><p class=\"dim\">Yama's unofficial 1–10 estimate uses this list and its stored Spellbook check. Other sites use different formulas; their numbers aren't directly comparable. The bracket {} suggestion sets a {lo}–{hi} range, then the factors below move the score within it. This measures card-list signals, not played performance.</p><ul class=\"power-factors\">",
-        p.bracket
-    );
-    for f in &p.factors {
-        let this = match f.key {
-            "curve" if f.count > 0.0 => format!("This deck: {:.2}.", f.count),
-            "curve" => "No nonland cards to average.".into(),
-            _ => format!("This deck: {}, full credit at {}.", f.count, f.cap),
-        };
-        write!(s, "<li><span class=\"power-factor-head\"><b>{}</b><span class=\"num\">+{:.2}</span></span><small>{}. {this}</small>", e(f.label), f.points, e(&f.rule)).unwrap();
-        if !f.cards.is_empty() {
-            write!(s, "<small class=\"names\">{}</small>", e(&f.cards.join(", "))).unwrap();
+/// The power level and its five vectors, the themes, and every card's points in a fold
+/// (components/DeckAnalysis.tsx).
+pub(crate) fn analysis_panel(a: &DeckAnalysis) -> String {
+    let mut s = String::from("<section class=\"public-panel public-analysis\" aria-labelledby=\"analysis-head\"><h2 id=\"analysis-head\">Power level</h2>");
+    write!(
+        s,
+        "<p class=\"analysis-power\"><span class=\"result-value\">{:.1}</span> <span class=\"dim\">±{:.1}, {} confidence</span></p><p><b>{}</b>. {}</p>",
+        a.power, a.margin, a.confidence, e(a.label), e(a.description)
+    )
+    .unwrap();
+    s.push_str("<ul class=\"analysis-vectors\">");
+    for v in &a.vectors {
+        write!(
+            s,
+            // An SVG bar: public pages allow no inline styles (Content-Security-Policy).
+            "<li><span class=\"vector-label\">{}</span><svg class=\"vector-bar\" viewBox=\"0 0 100 8\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><rect class=\"track\" width=\"100\" height=\"8\"/><rect class=\"fill\" width=\"{:.0}\" height=\"8\"/></svg><span class=\"num\">{:.0}</span><small class=\"dim\">{}</small></li>",
+            e(v.label),
+            v.score.clamp(0.0, 100.0),
+            v.score,
+            e(v.band)
+        )
+        .unwrap();
+    }
+    s.push_str("</ul>");
+    for c in &a.caps {
+        write!(s, "<p class=\"dim\">{}</p>", e(c.note)).unwrap();
+    }
+    if !a.themes.is_empty() {
+        s.push_str("<h3>Themes</h3><ul class=\"analysis-themes\">");
+        for t in &a.themes {
+            write!(s, "<li><b>{}</b> <span class=\"dim\">{} cards</span><small>{}</small></li>", e(&t.label), t.count, e(&t.description)).unwrap();
         }
-        s.push_str("</li>");
+        s.push_str("</ul>");
     }
-    write!(s, "</ul><p class=\"dim\">{lo} plus these factors comes to {:.1}.</p>", p.score).unwrap();
-    if !p.unknown_cards.is_empty() {
-        write!(s, "<p class=\"dim\">Not in Yama's card data, so not counted: {}</p>", e(&p.unknown_cards.join(", "))).unwrap();
+    s.push_str("<details class=\"analysis-detail\"><summary>How it adds up</summary><p class=\"dim\">Each card earns points for what its text does, cheaper cards more. A vector adds its cards up and compares the total with Yama's reference lists: about 40 is a typical stock precon, 75 a typical Bracket 4 build. Commander Spellbook's combos add to Threats. This reads card text, not how the deck plays; other sites' numbers aren't directly comparable.</p>");
+    for v in &a.vectors {
+        write!(s, "<h3>{} {:.0}</h3>", e(v.label), v.score).unwrap();
+        if v.groups.is_empty() {
+            s.push_str("<p class=\"dim\">Nothing counted.</p>");
+        }
+        for g in &v.groups {
+            let cards: Vec<String> = g
+                .cards
+                .iter()
+                .map(|c| if c.copies > 1 { format!("{} {} {:.1}", c.copies, e(&c.name), c.points) } else { format!("{} {:.1}", e(&c.name), c.points) })
+                .collect();
+            write!(s, "<p><b>{}</b> <span class=\"dim\">{}</span><br><small class=\"names\">{}</small></p>", e(g.label), g.cards.len(), cards.join(", ")).unwrap();
+        }
     }
-    s.push_str("</details>");
+    if !a.unknown_cards.is_empty() {
+        write!(s, "<p class=\"dim\">Not in Yama's card data, so not counted: {}</p>", e(&a.unknown_cards.join(", "))).unwrap();
+    }
+    s.push_str("</details></section>");
     s
 }
 

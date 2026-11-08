@@ -680,6 +680,54 @@ export interface GameDetail extends GameRow {
   your_decks?: Record<number, string>;
 }
 
+export type VectorKey = "speed" | "consistency" | "interaction" | "mana" | "threats";
+
+/** One deck's analysis (server/src/analysis): an unofficial 1-10 power level, five 0-100
+ *  vectors with every card's points, themes and Spellbook combos. */
+export interface DeckAnalysis {
+  method: string;
+  power: number;
+  margin: number;
+  confidence: "high" | "medium" | "low";
+  label: string;
+  description: string;
+  /** The bracket whose usual power range holds the score (2 up to 5, 3 up to 7, 4 above). */
+  power_bracket: number;
+  vectors: {
+    key: VectorKey;
+    label: string;
+    score: number;
+    band: string;
+    /** Points are each copy's; copies all count. */
+    groups: { key: string; label: string; cards: { name: string; points: number; copies: number }[] }[];
+  }[];
+  caps: { at: number; reason: string; note: string }[];
+  combos: { checked: boolean; lines: { cards: string[]; results: string[]; weight: number }[]; score: number; families: number; compact: number; unrecognized: number };
+  themes: { key: string; label: string; strength: "core" | "major" | "minor"; count: number; description: string; cards: string[] }[];
+  average_mana_value: number | null;
+  lands: number;
+  unscored: number;
+  nonland: number;
+  unknown_cards: string[];
+}
+
+export interface AnalysisSummary {
+  power: number;
+  margin: number;
+  scores: Record<VectorKey, number>;
+  checked: boolean;
+}
+
+/** GET /api/decks/:id/analysis: the current list's analysis, saved versions (newest first,
+ *  the newest 60, scans kept only for History left out) and every configuration of the deck. */
+export interface DeckAnalysisView {
+  method: string;
+  current: DeckAnalysis | null;
+  versions: ({ id: string; number: number; note: string | null; created_at: string; current: boolean } & AnalysisSummary)[];
+  configurations: ({ id: string; name: string; configuration: string | null; this: boolean; version_id: string | null } & Partial<AnalysisSummary>)[];
+  computed_at: string;
+}
+
 /** GET /api/decks/:id/results: finished games per deck version, newest version first. */
 export interface DeckResults {
   versions: {
