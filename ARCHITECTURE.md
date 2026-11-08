@@ -1278,6 +1278,31 @@ pages rank with real games alone; the signed-in Lab falls back to the newest glo
 published benchmark still shows as its own simulation result. Rating v2 ranks by the low end of each
 precon's 90% interval (Bryan, same day), so a precon with a few lucky games can't top the list.
 
+**Every column sorts, and Mythic Tools shows by commander (Bryan, 2026-11-07: "not just have our meta rank but … sort it by real games and phase models … we're still missing the data from Mythic Tools even though we have it in the database").**
+The `/precons` table's Meta rank, Phase model and Real games headings sort the table (best first, decks
+without the figure last), as does the sort menu: Meta rank, Phase model, Real games for stock lists, and
+Real games for any list under the commander. The Real games cell shows the stock list's figure from the
+enabled dataset (the newest snapshot rating v2 reads), else the catalog's cached Playgroup.gg figure.
+Mythic Tools (enabled with `precon-evidence use "Mythic Tools"` since 5 Nov) records games by commander,
+not by stock list, so `precon_evidence::load` reads per-commander records (`kind = 'commander'`, through
+`public_commanders::precon_source_figures`) from each enabled source that rates no stock list and matches
+them to a precon by its exact commander set (sorted Oracle ids, a partner pair as a pair). The figure is
+wins over every reported game under that commander, stock and upgraded lists and every pod size mixed, so
+it is labelled "any list". It never changes a precon with stock games. For precons without them (87 of
+174 on 7 Nov), Bryan agreed the same day to let real data in where it helps ("If there's any real data we can
+put in there, that's fine"): rating v2 fits real stock rates on the simulation's log strength and the
+commander figure together (weighted least squares, like the simulation's own mapping, residual beyond
+sampling noise as its variance), on the precons with stock games, and uses that fit for precons without
+them only while it beats the simulation alone with each of those precons left out in turn
+(`calibration::fit`, `loo_error`; `RatingV2.commander` reports both errors). Mythic has one snapshot, so the
+time-split test can't judge it; leave-one-out is its test, re-run on every rebuild. On prod data Mythic's
+figure tracks the Playgroup.gg stock rates with rank correlation 0.44 over the 87 precons with both
+(0.59 on the 47 best sampled), against 0.30 for Forge in the earlier check. The time-split test and the
+precons with stock games are unchanged. A source that rates stock lists (Playgroup.gg) isn't repeated by commander. The
+public JSON carries it as `commander_games`; the Lab precon page, Ask Claude and MCP `precon` as the
+evidence's `all_lists`. The ranking's sources each say whether they rate stock lists, so only those are
+named as the rank's inputs; every source is still credited with its attribution and licence.
+
 ### Polish runs (2026-10-31)
 
 `npm run polish` (`web/scripts/polish/`, docs/polish.md) screenshots every page at laptop, tablet and phone sizes, scrolling down each one and opening its menus, sheets, tabs and disclosures, and checks layout and copy as it goes (overflow, clipped or overlapping text, small targets, the Night table rules, copy slips, off-scale spacing). It's for Claude's polish passes and for Bryan to page through. A run is read-only: writes are blocked at the browser, so it can run on production as Bryan with a short session minted on the server (`yama-server user session`).

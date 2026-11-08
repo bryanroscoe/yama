@@ -243,16 +243,31 @@ struct Enabled {
     metadata: Value,
 }
 
-async fn enabled(pool: &SqlitePool) -> AppResult<Vec<Enabled>> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT r.id, r.metadata FROM commander_evidence_sources s
+/// Which switch a source is enabled by: the commander ranking's, or the precon pages'.
+#[derive(Clone, Copy)]
+enum Switch {
+    Commanders,
+    Precons,
+}
+
+async fn enabled(pool: &SqlitePool, switch: Switch) -> AppResult<Vec<Enabled>> {
+    let sql = match switch {
+        Switch::Commanders => {
+            "SELECT r.id, r.metadata FROM commander_evidence_sources s
          JOIN evidence_datasets d ON d.owner_id = s.owner_id
          JOIN evidence_dataset_revisions r ON r.id = d.current_revision_id
          WHERE json_extract(r.metadata, '$.source.name') = s.source_name
-         ORDER BY r.imported_at DESC, r.id",
-    )
-    .fetch_all(pool)
-    .await?;
+         ORDER BY r.imported_at DESC, r.id"
+        }
+        Switch::Precons => {
+            "SELECT r.id, r.metadata FROM precon_evidence_sources s
+         JOIN evidence_datasets d ON d.owner_id = s.owner_id
+         JOIN evidence_dataset_revisions r ON r.id = d.current_revision_id
+         WHERE json_extract(r.metadata, '$.source.name') = s.source_name
+         ORDER BY r.imported_at DESC, r.id"
+        }
+    };
+    let rows: Vec<(String, String)> = sqlx::query_as(sql).fetch_all(pool).await?;
     rows.into_iter()
         .map(|(revision_id, meta)| {
             Ok(Enabled { revision_id, metadata: serde_json::from_str(&meta).map_err(anyhow::Error::from)? })
@@ -409,13 +424,12 @@ fn pearson(pairs: &[(f64, f64)]) -> Option<f64> {
     (sxx > 0.0 && syy > 0.0).then(|| sxy / (sxx * syy).sqrt())
 }
 
-/// The ranking from the enabled sources' active dataset revisions.
-pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
-    let as_of = Utc::now();
-    let revisions = enabled(pool).await?;
+/// Each source's commander records from its active revisions, by commander key, with the
+/// source's credit. Sources are grouped by name; a newer revision's figure for a commander wins.
+async fn collect(pool: &SqlitePool, revisions: &[Enabled]) -> AppResult<Vec<(Source, BTreeMap<String, (String, Shape)>)>> {
     // Source name → its revisions, newest import first.
     let mut groups: BTreeMap<String, Vec<&Enabled>> = BTreeMap::new();
-    for r in &revisions {
+    for r in revisions {
         if let Some(name) = r.metadata["source"]["name"].as_str() {
             groups.entry(name.to_string()).or_default().push(r);
         }
@@ -505,6 +519,49 @@ pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
         };
         per_source.push((source, chosen));
     }
+    Ok(per_source)
+}
+
+/// A source's observed win share for every list under one commander, as the precon pages show it.
+#[derive(Debug, Clone)]
+pub(crate) struct ObservedFigure {
+    pub name: String,
+    /// Wins over all reported games, 0–1.
+    pub win_rate: f64,
+    pub games: u64,
+    pub decks: Option<u64>,
+}
+
+/// The observed commander figures of the sources enabled for the precon pages
+/// (`precon-evidence use`), by source name, then commander key (sorted Oracle ids joined by `+`).
+/// Only reported wins over reported games: a score alone never becomes a win rate here.
+pub(crate) async fn precon_source_figures(pool: &SqlitePool) -> AppResult<BTreeMap<String, BTreeMap<String, ObservedFigure>>> {
+    let revisions = enabled(pool, Switch::Precons).await?;
+    let mut out = BTreeMap::new();
+    for (source, chosen) in collect(pool, &revisions).await? {
+        let figures: BTreeMap<String, ObservedFigure> = chosen
+            .into_iter()
+            .filter_map(|(key, (name, shape))| {
+                let (win_rate, games, decks) = match shape {
+                    Shape::Counts { wins, games, pilots } => (wins as f64 / games as f64, games, pilots),
+                    Shape::Score { win_rate: Some(rate), games, decks, .. } if games > 0 => (rate, games, decks),
+                    Shape::Score { .. } => return None,
+                };
+                Some((key, ObservedFigure { name, win_rate, games, decks }))
+            })
+            .collect();
+        if !figures.is_empty() {
+            out.insert(source.name, figures);
+        }
+    }
+    Ok(out)
+}
+
+/// The ranking from the enabled sources' active dataset revisions.
+pub async fn derive(pool: &SqlitePool) -> AppResult<Ranking> {
+    let as_of = Utc::now();
+    let revisions = enabled(pool, Switch::Commanders).await?;
+    let per_source = collect(pool, &revisions).await?;
 
     // Identity → each source's figure.
     let mut figures: BTreeMap<String, Vec<(String, Figure)>> = BTreeMap::new();
