@@ -276,9 +276,9 @@ button.quiet {
   background: transparent;
   border-color: transparent;
 }
-/* Row actions (Skip, Undo, Show all): 32 px on a laptop, a full 44 px target on touch screens. */
-button.small,
-button.quiet {
+/* Row actions (Skip, Undo, Show all; buttons marked small): 32 px on a laptop, a full 44 px target
+   on touch screens. Other quiet buttons (Close, Cancel) keep the normal control height. */
+button.small {
   min-height: var(--target-compact);
 }
 button.quiet:hover {
