@@ -186,15 +186,16 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
       commanderName: d.commanders[0] ?? "",
       // Two or more are a choice until the cards say two can pair (deckCommanders), so a game
       // started before the lookup answers, or offline, never pairs alternatives.
-      partnerName: undefined,
-      commanderChoices: listed.length > 1 ? listed : undefined,
+      partnerName: p.kind === "played" ? p.deck.commanders[1] : undefined,
+      commanderChoices: listed.length > 1 && p.kind !== "played" ? listed : undefined,
       colorIdentity: p.kind === "precon" ? p.precon.color_identity : p.kind === "played" ? "" : p.deck.color_identity,
       art: d.commander_image ?? undefined,
       artist: d.commander_artist ?? undefined,
     };
     onChange(picked);
     // The cards' own art and colors land only if the seat still holds this deck by then.
-    void deckCommanders(d).then((c) => c && onChange((now) => (stillHolds(now, picked) ? c : null)));
+    // A deck played before was saved with its pair already decided, so it isn't asked again.
+    void deckCommanders(d, { checkPair: p.kind !== "played" }).then((c) => c && onChange((now) => (stillHolds(now, picked) ? c : null)));
   };
   const typeDeck = (t: string) => {
     setDeckText(t);
@@ -284,6 +285,8 @@ export function SeatEditor({ index, seat, onChange, group, decks, deckName, wher
             onChange={(d) => onChange(commandersPatch(seat, d))}
           />
         )}
+        {/* A game keeps two commanders as their names, so a typed deck name gives way to them. */}
+        {commander && seat.deckTyped && seat.partnerName?.trim() && <span className="small dim">With two commanders the game is saved under their names.</span>}
         {commander && <span className="seat-credit">{seatCredit(seat, deckShown && !seat.deckTyped ? (deckName ?? deckShown) : undefined)}</span>}
         {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}
         {footer && <div className="seat-foot">{footer}</div>}
@@ -307,6 +310,8 @@ function draftFromPlayer(p: TableState["players"][number], decks: DeckSummary[] 
     deckVersionId: p.deckVersionId,
     // A deck you lent keeps its name on the seat, as setup gave it.
     deckLabel: label,
+    // Any other named deck can have its commander changed under the same name.
+    deckTyped: !deck && !!label ? true : undefined,
     commanderName: p.commanderName ?? "",
     colorIdentity: p.colorIdentity,
     art: p.art,

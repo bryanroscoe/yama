@@ -100,13 +100,13 @@ describe("deckPicks with decks played before", () => {
   const matt = { name: "Matt", memberId: "m-matt" };
 
   it("puts the player's own decks first, most played first, then everyone else's, then yours", () => {
-    expect(names(deckPicks("", { ...decks, played: history, who: matt, yours: false }))).toEqual([
+    expect(names(deckPicks("", { ...decks, played: history, who: matt, me: "me", yours: false }))).toEqual([
       // Matt's member row and an older game's typed "Matt" are one person.
       "played:Matt:Jace, Multiverse Architect",
       "played:Matt:Avengers Assemble",
       "played:Matt:Food and Fellowship",
       "played:Chris:Prismari Artistry",
-      // A played deck that's one of yours by name is listed as yours.
+      // A deck you played that's one of yours by name is listed as yours.
       "mine:Eternal Might",
       "mine:Rohan night",
     ]);
@@ -119,6 +119,11 @@ describe("deckPicks with decks played before", () => {
     // The precons browse with nothing typed, newest first, a reprint once.
     expect(names(deckPicks("", { ...decks, played: history, who: matt, yours: false, scope: "precons" }))).toEqual(["precon:Riders of Rohan", "precon:Food and Fellowship"]);
     expect(names(deckPicks("fellowship", { ...decks, played: history, who: matt, yours: false }))).toEqual(["played:Matt:Food and Fellowship", "precon:Food and Fellowship"]);
+  });
+
+  it("keeps a friend's own copy of a deck that shares a name with yours", () => {
+    const copy = played("Matt", "Eternal Might", ["Varina, Lich Queen"], 2, "2026-10-01", { memberId: "m-matt" });
+    expect(names(deckPicks("", { ...decks, played: [copy], who: matt, me: "me", yours: false, scope: "theirs" }))).toEqual(["played:Matt:Eternal Might"]);
   });
 
   it("keeps two people of the same name apart when both are known", () => {

@@ -10,6 +10,7 @@ import { api, type Card, type DeckSummary, type FoundPerson, type GameRow, type 
 import type { PreconItem, PreconList } from "../lab/api";
 import { artCredits } from "../components/ArtPanel";
 import { useCardArt } from "../components/useCardArt";
+import { useMe } from "../auth";
 import { decksOf, fold, playedBy, playedDecks, playedLine, possessive, samePerson, type DeckOwner, type PlayedDeck } from "./playedDecks";
 import { Pips } from "../components/ui";
 import { cardSearchPath, isGuest } from "../guest";
@@ -789,13 +790,15 @@ const PRECONS_BROWSED = 60;
  */
 export function deckPicks(
   text: string,
-  { mine = [], handle, theirs = [], played = [], who, precons = [], yours, scope = "all" }: {
+  { mine = [], handle, theirs = [], played = [], who, me, precons = [], yours, scope = "all" }: {
     mine?: DeckSummary[];
     handle?: string;
     theirs?: ProfileDeck[];
     played?: PlayedDeck[];
     /** Who sits at the seat. */
     who?: DeckOwner;
+    /** Your account. */
+    me?: string;
     precons?: PreconItem[];
     yours: boolean;
     scope?: DeckScope;
@@ -806,10 +809,13 @@ export function deckPicks(
   // A deck's other configurations (stock, after prints) are picked after the deck itself.
   const own: DeckPick[] = mine.filter((d) => !d.parent_id && hit(d.name, d.commanders)).map((deck) => ({ kind: "mine", deck }));
   const theirPublic: DeckPick[] = handle && !yours ? theirs.filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "theirs", handle, deck })) : [];
-  // A played deck that's one of yours, or one of their public decks, by name is listed as that.
-  const listed = new Set([...mine.map((d) => fold(d.name)), ...(handle && !yours ? theirs.map((d) => fold(d.name)) : [])]);
-  const known = played.filter((d) => !listed.has(fold(d.name)));
+  // A deck you played that's one of yours by name, or one the player played that's one of their
+  // public decks, is listed as that. Someone else's deck that shares a name with yours (their own
+  // copy of a precon you have) stays theirs.
   const isThem = (d: PlayedDeck) => !!who && samePerson(playedBy(d), who);
+  const yourNames = new Set(mine.map((d) => fold(d.name)));
+  const theirNames = new Set(handle && !yours ? theirs.map((d) => fold(d.name)) : []);
+  const known = played.filter((d) => !(me && d.userId === me && yourNames.has(fold(d.name))) && !(isThem(d) && theirNames.has(fold(d.name))));
   const theirPlayed: DeckPick[] = (who ? decksOf(known, who) : []).filter((d) => hit(d.name, d.commanders)).map((deck) => ({ kind: "played", deck, theirs: true }));
   const others: DeckPick[] = known
     .filter((d) => !isThem(d) && hit(d.name, [...d.commanders, d.player]))
@@ -887,12 +893,15 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, who, your
   const scopes = deckScopes({ who, yours, played: played.length > 0, mine: decks.length > 0 });
   // A filter that's gone (the seat became yours) falls back to all.
   const shownScope = scopes.some((s) => s.key === scope) ? scope : "all";
-  const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, played, who, precons: precons.data?.precons, yours, scope: shownScope });
+  const me = useMe().data;
+  const picks = deckPicks(query, { mine: decks, handle, theirs: theirs.data, played, who, me: me?.id, precons: precons.data?.precons, yours, scope: shownScope });
   // A name nothing matches can still be the deck's (a friend's brew): its commander comes after.
   const typedName = query.trim();
   const all = typedName && !picks.some((p) => fold(pickName(p)) === fold(typedName)) ? [...picks, { kind: "named", name: typedName } as DeckPick] : picks;
   // Played decks know only their commanders' names; their art comes from the cards.
-  const art = useCardArt(picks.flatMap((p) => (p.kind === "played" ? [p.deck.commanders[0]] : [])).slice(0, 40));
+  // Looked up only while the list is open, not for every seat as the page opens.
+  const listOpen = picking || browsing || !!text.trim();
+  const art = useCardArt(listOpen ? picks.flatMap((p) => (p.kind === "played" ? [p.deck.commanders[0]] : [])).slice(0, 40) : []);
   const whoName = who?.name.trim() || "This player";
   const toOption = (p: DeckPick): Option<DeckPick> => {
     const lead = (c: string[]) => c.join(" and ");
@@ -944,6 +953,8 @@ export function DeckSearch({ text, onText, onPick, decks = [], handle, who, your
         <button
           key={s.key}
           type="button"
+          // On a desktop the list closes when the field loses focus, so the filters are for the
+          // pointer; the keyboard narrows by typing (a player's name, a deck's or a precon's).
           tabIndex={touch ? undefined : -1}
           aria-pressed={s.key === shownScope}
           // Keep the deck field focused, so its list stays open.
