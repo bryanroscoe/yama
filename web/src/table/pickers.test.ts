@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSummary, ProfileDeck } from "../api";
 import type { PreconItem } from "../lab/api";
-import { canPair, deckPicks, handlePrefix, type DeckPick } from "./pickers";
+import { canPair, deckPicks, deckScopes, handlePrefix, type DeckPick } from "./pickers";
+import type { PlayedDeck } from "./playedDecks";
 
 const mine = (name: string, commanders: string[]) => ({ id: name, name, commanders, color_identity: "W", commander_image: null, commander_artist: null }) as unknown as DeckSummary;
 const theirs = (name: string, commanders: string[]): ProfileDeck => ({ name, commanders, color_identity: "G", art: null, artist: null, card_count: 100, version_id: `v-${name}` });
 const precon = (id: string, name: string, commanders: string[], same_list_as: string | null = null) => ({ id, name, commanders, color_identity: "WR", same_list_as, art: null, released: "2023-06-23" }) as unknown as PreconItem;
 
-const names = (p: DeckPick[]) => p.map((x) => (x.kind === "mine" || x.kind === "theirs" ? `${x.kind}:${x.deck.name}` : `precon:${x.precon.name}`));
+const names = (p: DeckPick[]) =>
+  p.map((x) => (x.kind === "precon" ? `precon:${x.precon.name}` : x.kind === "named" ? `named:${x.name}` : x.kind === "played" ? `played:${x.deck.player}:${x.deck.name}` : `${x.kind}:${x.deck.name}`));
 
 const decks = {
   mine: [mine("Eternal Might", ["Varina, Lich Queen"]), mine("Rohan night", ["Éomer, King of Rohan"])],
@@ -74,5 +76,58 @@ describe("handlePrefix", () => {
     expect(handlePrefix(" @SaG")).toBe("sag");
     expect(handlePrefix("s")).toBeNull();
     expect(handlePrefix("Sam Smith")).toBeNull();
+  });
+});
+
+describe("deckPicks with decks played before", () => {
+  const played = (player: string, name: string, commanders: string[], games: number, last: string, ids: Partial<PlayedDeck> = {}): PlayedDeck => ({
+    key: `${player}|${name}`,
+    name,
+    named: name !== commanders.join(" and "),
+    commanders,
+    player,
+    games,
+    last,
+    ...ids,
+  });
+  const history = [
+    played("Matt", "Avengers Assemble", ["Captain America, Team Leader"], 3, "2026-10-20", { memberId: "m-matt" }),
+    played("Matt", "Food and Fellowship", ["Frodo, Adventurous Hobbit"], 1, "2026-10-25", { memberId: "m-matt" }),
+    played("Matt", "Jace, Multiverse Architect", ["Jace, Multiverse Architect"], 4, "2026-09-01"),
+    played("Chris", "Prismari Artistry", ["Rootha, Mastering the Moment"], 2, "2026-10-26", { memberId: "m-chris" }),
+    played("Bryan", "Eternal Might", ["Varina, Lich Queen"], 5, "2026-10-26", { userId: "me" }),
+  ];
+  const matt = { name: "Matt", memberId: "m-matt" };
+
+  it("puts the player's own decks first, most played first, then everyone else's, then yours", () => {
+    expect(names(deckPicks("", { ...decks, played: history, who: matt, yours: false }))).toEqual([
+      // Matt's member row and an older game's typed "Matt" are one person.
+      "played:Matt:Jace, Multiverse Architect",
+      "played:Matt:Avengers Assemble",
+      "played:Matt:Food and Fellowship",
+      "played:Chris:Prismari Artistry",
+      // A played deck that's one of yours by name is listed as yours.
+      "mine:Eternal Might",
+      "mine:Rohan night",
+    ]);
+  });
+
+  it("finds a player's decks by their name, and filters to theirs, played, yours or precons", () => {
+    expect(names(deckPicks("chris", { ...decks, played: history, who: matt, yours: false }))).toEqual(["played:Chris:Prismari Artistry"]);
+    expect(names(deckPicks("", { ...decks, played: history, who: matt, yours: false, scope: "theirs" }))).toHaveLength(3);
+    expect(names(deckPicks("", { ...decks, played: history, who: matt, yours: false, scope: "yours" }))).toEqual(["mine:Eternal Might", "mine:Rohan night"]);
+    // The precons browse with nothing typed, newest first, a reprint once.
+    expect(names(deckPicks("", { ...decks, played: history, who: matt, yours: false, scope: "precons" }))).toEqual(["precon:Riders of Rohan", "precon:Food and Fellowship"]);
+    expect(names(deckPicks("fellowship", { ...decks, played: history, who: matt, yours: false }))).toEqual(["played:Matt:Food and Fellowship", "precon:Food and Fellowship"]);
+  });
+
+  it("keeps two people of the same name apart when both are known", () => {
+    const other = { name: "Matt", memberId: "m-other-matt" };
+    expect(names(deckPicks("", { played: history, who: other, yours: false, scope: "theirs" }))).toEqual(["played:Matt:Jace, Multiverse Architect"]);
+  });
+
+  it("offers the player's filter only on someone else's seat", () => {
+    expect(deckScopes({ who: matt, yours: false, played: true, mine: true }).map((s) => s.label)).toEqual(["All", "Matt's", "Played", "Yours", "Precons"]);
+    expect(deckScopes({ who: { name: "Bryan Roscoe", userId: "me" }, yours: true, played: false, mine: true }).map((s) => s.label)).toEqual(["All", "Yours", "Precons"]);
   });
 });
