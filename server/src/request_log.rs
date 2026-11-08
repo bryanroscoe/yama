@@ -178,9 +178,10 @@ impl<V: VisitFmt> VisitFmt for HideEmails<V> {
     }
 }
 
-/// `text` with every run that looks like an email address (`x@y.z`) replaced by `[email]`.
+/// `text` with every run that looks like an email address (`x@y.z`, or `x%40y.z` as a path
+/// encodes it: removing an invite is `DELETE /api/invites/friend%40example.com`) replaced by `[email]`.
 pub fn hide_emails(text: &str) -> Cow<'_, str> {
-    if !text.contains('@') {
+    if !text.contains('@') && !text.contains("%40") {
         return Cow::Borrowed(text);
     }
     let part = |c: char| c.is_alphanumeric() || "._%+-@".contains(c);
@@ -192,7 +193,7 @@ pub fn hide_emails(text: &str) -> Cow<'_, str> {
         rest = &rest[start..];
         let end = rest.find(|c: char| !part(c)).unwrap_or(rest.len());
         let word = &rest[..end];
-        let is_email = word.split_once('@').is_some_and(|(local, domain)| !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.'));
+        let is_email = word.replace("%40", "@").split_once('@').is_some_and(|(local, domain)| !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.'));
         if is_email {
             out.push_str("[email]");
             changed = true;
@@ -256,6 +257,7 @@ mod tests {
         assert_eq!(hide_emails("account deleted account=a.b+c@example.com games=3"), "account deleted account=[email] games=3");
         assert_eq!(hide_emails("path=/api/invites/x%40y@mail.example.org"), "path=/api/invites/[email]");
         assert_eq!(hide_emails("\"bob@example.com\""), "\"[email]\"");
+        assert_eq!(hide_emails("method=DELETE path=/api/invites/friend%40example.com status=200"), "method=DELETE path=/api/invites/[email] status=200");
         assert!(matches!(hide_emails("no address @ here, nor @handle or user@localhost"), Cow::Borrowed(_)));
     }
 
