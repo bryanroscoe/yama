@@ -10,6 +10,7 @@ import {
   lossesOf,
   record,
   replay,
+  settledThrough,
   toServerEvents,
   toServerFinish,
   turnPosition,
@@ -156,6 +157,17 @@ describe("table", () => {
     // An event the server already has is never rewritten.
     const synced = record(log, { type: "life", seat: 0, delta: -1 }, later(10_100), 2);
     expect(synced).toHaveLength(3);
+  });
+
+  it("a counter still being tapped isn't ready to upload until the burst settles", () => {
+    let log = record([], { type: "monarch", seat: 1 }, t0);
+    log = record(log, { type: "life", seat: 0, delta: -1 }, later(1000));
+    expect(settledThrough(log, later(2000))).toBe(1);
+    expect(settledThrough(log, later(1000 + 2500))).toBe(2);
+    // Events that never merge go straight away.
+    log = record(log, { type: "pass_turn" }, later(4000));
+    expect(settledThrough(log, later(4001))).toBe(3);
+    expect(settledThrough([], t0)).toBe(0);
   });
 
   it("taps that cancel out leave no event", () => {
