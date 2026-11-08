@@ -354,6 +354,19 @@ export function record(log: LoggedEvent[], event: TableEvent, at: Date, syncedTh
   return [...log, { seq: (last?.seq ?? 0) + 1, at: at.toISOString(), event }];
 }
 
+/**
+ * The highest seq that is safe to hand to an upload at `now`. Uploading freezes events (later
+ * taps can't merge into them), so a counter still being tapped (the last event, coalescable and
+ * tapped within COALESCE_MS) is held back until the burst settles. Otherwise a sync landing
+ * mid-burst splits it, and the running "−N" beside the life total starts over at 1.
+ */
+export function settledThrough(log: LoggedEvent[], now: Date): number {
+  const last = log[log.length - 1];
+  if (!last) return 0;
+  const hot = coalesceKey(last.event) !== null && now.getTime() - Date.parse(last.at) < COALESCE_MS;
+  return hot ? (log[log.length - 2]?.seq ?? 0) : last.seq;
+}
+
 /** Combat damage from one commander that knocks a player out (CR 704.6c). */
 export const COMMANDER_LETHAL = 21;
 /** Poison counters that knock a player out (CR 704.5c). */

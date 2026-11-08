@@ -593,6 +593,45 @@ describe("whose games upload", () => {
   });
 });
 
+describe("a sync while life is being tapped", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    store.discardGame();
+  });
+
+  it("leaves the burst open, so the taps stay one event and go up once they settle", async () => {
+    guest = false;
+    failWith = null;
+    goneOnPost = false;
+    postStatus = null;
+    holdPost = null;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-07T19:00:00Z"));
+    store.startGame(setup("g-burst"));
+    await store.sync();
+    uploads.length = 0;
+    const tap = () => {
+      vi.setSystemTime(Date.now() + 200);
+      store.dispatch({ type: "life", seat: 0, delta: -1 });
+    };
+    for (let i = 0; i < 9; i++) tap();
+    // The 20-second sync lands mid-burst.
+    await store.sync();
+    for (let i = 0; i < 3; i++) tap();
+    const lifeEvents = () => store.getGame()!.log.filter((l) => l.event.type === "life");
+    expect(lifeEvents()).toHaveLength(1);
+    expect(lifeEvents()[0]!.event).toMatchObject({ delta: -12 });
+    expect(JSON.stringify(uploads.at(-1)?.events ?? [])).not.toContain("life");
+    // Once the taps settle it goes up whole.
+    vi.setSystemTime(Date.now() + 3000);
+    await store.sync();
+    expect(JSON.stringify(uploads.at(-1)!.events)).toContain("-12");
+    expect(store.canUndo()).toBe(false);
+  });
+});
+
 describe("each account's game", () => {
   it("is its own: another account signing in on the phone doesn't see it", async () => {
     guest = false;

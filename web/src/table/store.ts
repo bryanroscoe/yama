@@ -4,6 +4,7 @@
 import {
   record,
   replay,
+  settledThrough,
   toServerEvents,
   toServerFinish,
   type FinishDetails,
@@ -594,7 +595,8 @@ export function sync(): Promise<void> {
       await pushDeletes();
       if (current && mayEditCurrent() && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
-        const through = current.log[current.log.length - 1]?.seq ?? 0;
+        // A counter still being tapped waits for the next sync, so its burst stays one event.
+        const through = Math.max(settledThrough(current.log, new Date()), fixedThrough(current));
         current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, through) };
         emit();
         if (!current) return;
