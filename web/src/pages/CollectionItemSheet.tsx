@@ -4,7 +4,7 @@ import { api, ApiError, shortDate, usd, type CollectionItem, type Container, typ
 import { CardRef } from "../components/CardRef";
 import { CardImage, ErrorText, Sheet } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
-import { finishFor, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
+import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
 
@@ -47,13 +47,14 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   const adjust = (delta: number) => save([{ op_id: crypto.randomUUID(), kind: "adjust", item_id: item.id, delta }]);
   const name = item.name ?? "The card";
   const nowIs = (p: Printing) => `${scope === "one" && item.qty > 1 ? `One ${name}` : name} is now ${printingLabel(p)}.`;
-  // Every printing of this card, newest first: the picker's list, and the check on a rescan.
+  // Every printing of this card, newest first: the picker's list, the check on a rescan, and the
+  // finishes this row's printing comes in.
   const printings = useQuery({
     queryKey: ["printings-of", item.scryfall_id],
     queryFn: ({ signal }) => api<{ printings: Printing[] }>(`/api/scan/printings?id=${encodeURIComponent(item.scryfall_id)}`, { signal }).then((r) => r.printings),
-    enabled: picking || rescanning,
     staleTime: 60 * 60 * 1000,
   });
+  const finishes = finishChoices(item.finish, printings.data?.find((p) => p.scryfall_id === item.scryfall_id)?.finishes);
   const reprint = (p: Printing) => {
     const ops = reprintOps(item, p, scope, () => crypto.randomUUID());
     if (ops.length === 0) onClose();
@@ -136,7 +137,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           <CardImage src={item.image_normal} name={item.name ?? ""} />
         </div>
         <p className="dim">
-          {item.set_name} #{item.collector_number}, {item.finish}, {item.condition}, {item.lang}
+          {item.set_name} #{item.collector_number}, {finishWord(item.finish)}, {item.condition}, {item.lang}
           {item.purchase_price != null ? `. Paid ${usd(item.purchase_price)}` : ""}
         </p>
         <div className="row">
@@ -222,6 +223,12 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           Condition
           <select value={item.condition} disabled={busy} onChange={(e) => one({ condition: e.target.value })}>
             {["NM", "LP", "MP", "HP", "DMG"].map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </label>
+        <label>
+          Finish
+          <select value={item.finish} disabled={busy} onChange={(e) => one({ finish: e.target.value })}>
+            {finishes.map((f) => <option key={f} value={f}>{finishWord(f).replace(/^./, (c) => c.toUpperCase())}</option>)}
           </select>
         </label>
         <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
