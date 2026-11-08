@@ -693,8 +693,17 @@ pub async fn apply(conn: &mut SqliteConnection, owner: &str, deck_key: &str, op:
             let found = priors(&mut *conn, owner, &next.keys).await?;
             for k in &next.keys {
                 let p = found.get(k).cloned();
-                let (note, cut) = p.as_ref().map(|p| (p.note.clone(), p.cut.clone())).unwrap_or_default();
+                let (note, mut cut) = p.as_ref().map(|p| (p.note.clone(), p.cut.clone())).unwrap_or_default();
                 let decision = if op.action == "approve" && op.keys.contains(k) { "want" } else { "no" };
+                // A change kept on the plan's fallback cut keeps it as its cut, as a cut you chose
+                // is kept: the plan in force, the shopping list and prints then read the card it
+                // really takes out. Undo puts back the answer from before.
+                if decision == "want"
+                    && cut.is_none()
+                    && let Some(c) = next.cuts.iter().find(|c| &c.key == k && c.instead_of.is_some())
+                {
+                    cut = c.out.clone();
+                }
                 before.insert(k.clone(), serde_json::to_value(&p).unwrap_or(Value::Null));
                 writes.push(Write { key: k.clone(), decision: Some(decision.into()), note, cut });
             }

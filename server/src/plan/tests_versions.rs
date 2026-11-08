@@ -267,7 +267,7 @@ async fn an_approval_made_before_a_newer_answer_is_refused() {
 
 #[tokio::test]
 async fn approving_waits_until_every_cut_is_settled() {
-    let (app, _pool, _owner, token) = setup().await;
+    let (app, pool, owner, token) = setup().await;
     let mut d = doc();
     let swaps = d["plan"]["swaps"].as_array_mut().unwrap();
     // A cut the plan in force already takes out (Print Card replaces Old Card), and two more
@@ -311,6 +311,13 @@ async fn approving_waits_until_every_cut_is_settled() {
     assert!(r["results"][0]["error"].as_str().unwrap().contains("Proposal Card and Rival Card both cut Sol Ring"), "{r}");
     let r = try_approve("c5", &["alpha-owned", "alpha-gone", "alpha-same"]).await;
     assert_eq!(r["results"][0]["status"], "applied", "two Island cuts are fine: {r}");
+    // The change kept on its fallback cut keeps that cut, so the plan in force reads it.
+    let cut: Option<String> = sqlx::query_scalar("SELECT cut FROM plan_reviews WHERE owner_id = ? AND swap_key = 'alpha-later'")
+        .bind(&owner)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(cut.as_deref(), Some("Fallback Card"));
 }
 
 #[test]
