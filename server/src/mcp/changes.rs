@@ -929,7 +929,8 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
         swaps.iter().find(|s| s.0 == k).map(|(_, i, o)| o.as_ref().map(|o| format!("{i} for {o}")).unwrap_or_else(|| i.clone())).unwrap_or_else(|| k.to_string())
     };
     // Skips name a change by its key or by the card it puts in.
-    let mut skip: Vec<String> = next.skipped.clone();
+    // The page's starting skips: answered no, and cuts the plan in force already makes.
+    let mut skip: Vec<String> = crate::plan::versions::start_skipped(&next);
     for w in args.get("skip").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
         let w = w.trim();
         // A key names one change; a card name names every change that puts it in (each copy of a

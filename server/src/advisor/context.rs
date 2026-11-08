@@ -462,7 +462,17 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
                 n.n,
                 if p.state == "waiting" { "nothing in it is bought or printed" } else { "the version before keeps going" }
             );
-            let problems = crate::plan::versions::problems(n, &n.skipped);
+            let start = crate::plan::versions::start_skipped(n);
+            let gone: Vec<String> = n
+                .cuts
+                .iter()
+                .filter(|c| c.gone_for.is_some() && !n.skipped.contains(&c.key))
+                .map(|c| format!("{} ({} already goes out for {})", c.card_in, c.out.as_deref().unwrap_or_default(), c.gone_for.as_deref().unwrap_or_default()))
+                .collect();
+            if !gone.is_empty() {
+                let _ = writeln!(out, "Skipped unless they say otherwise, because the plan in force already makes the cut: {}.", gone.join("; "));
+            }
+            let problems = crate::plan::versions::problems(n, &start);
             if !problems.is_empty() {
                 let _ = writeln!(out, "It can't be approved until each of these is settled, by skipping a change or proposing a fixed one:");
                 for p in problems {

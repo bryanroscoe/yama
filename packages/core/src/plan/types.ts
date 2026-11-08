@@ -162,6 +162,8 @@ export interface PlanCut {
   key: string;
   in: string;
   out: string | null;
+  /** The plan's own cut, when its fallback (`later_out`) is used because that one already goes out. */
+  instead_of?: string | null;
   gone_for: string | null;
 }
 

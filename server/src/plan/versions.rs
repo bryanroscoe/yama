@@ -61,8 +61,23 @@ pub struct Cut {
     #[serde(rename = "in")]
     pub card_in: String,
     pub out: Option<String>,
+    /// The plan's own cut when its fallback (`later_out`) is used because the plan in force
+    /// already takes this one out.
+    pub instead_of: Option<String>,
     /// The card going in for the change in force that already cuts `out`.
     pub gone_for: Option<String>,
+}
+
+/// Changes that start skipped: the ones you said no to, and cuts the plan in force already makes
+/// (core `startSkipped`; the page and `approve_plan` start from the same set).
+pub fn start_skipped(next: &Next) -> Vec<String> {
+    let mut out = next.skipped.clone();
+    for c in next.cuts.iter().filter(|c| c.gone_for.is_some()) {
+        if !out.contains(&c.key) {
+            out.push(c.key.clone());
+        }
+    }
+    out
 }
 
 /// Basic lands: a deck holds several, so two changes can each take one out.
@@ -111,9 +126,12 @@ pub fn problems(next: &Next, skip: &[String]) -> Vec<String> {
                     names.push(d.card_in.as_str());
                 }
             }
-            let (last, rest) = names.split_last().expect("at least two names");
-            let both = if rest.len() == 1 { "both" } else { "all" };
-            out.push(format!("{} and {last} {both} cut {o}. Keep one of them.", rest.join(", ")));
+            if let Some((last, rest)) = names.split_last().filter(|(_, rest)| !rest.is_empty()) {
+                let both = if rest.len() == 1 { "both" } else { "all" };
+                out.push(format!("{} and {last} {both} cut {o}. Keep one of them.", rest.join(", ")));
+            } else {
+                out.push(format!("Two changes put in {} for {o}. Keep one of them.", c.card_in));
+            }
         }
     }
     out
@@ -184,6 +202,7 @@ struct SwapRow {
     role: String,
     in_name: String,
     out_name: Option<String>,
+    later_out: Option<String>,
     upgrade: Option<String>,
     import_id: Option<String>,
     content_hash: Option<String>,
@@ -266,7 +285,7 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
     .fetch_all(&mut *conn)
     .await?;
     let swaps: Vec<SwapRow> = sqlx::query_as(
-        "SELECT ext_key AS key, plan_deck_id, stage, role, in_name, out_name, upgrade, import_id, content_hash, created_at, updated_at
+        "SELECT ext_key AS key, plan_deck_id, stage, role, in_name, out_name, later_out, upgrade, import_id, content_hash, created_at, updated_at
          FROM plan_swaps WHERE owner_id = ? AND retired_at IS NULL ORDER BY sort, ext_key",
     )
     .bind(owner)
@@ -378,9 +397,19 @@ pub async fn load(conn: &mut SqliteConnection, owner: &str, installs: Option<&In
                 .iter()
                 .filter(|s| s.role == "swap")
                 .map(|s| {
-                    let out = cut_of(s);
-                    let gone_for = out.as_deref().and_then(|o| in_force_cuts.get(&name_key(o)).cloned());
-                    Cut { key: s.key.clone(), card_in: s.in_name.clone(), out, gone_for }
+                    let gone = |o: &str| in_force_cuts.get(&name_key(o)).cloned();
+                    let chosen = answers.get(&s.key).and_then(|a| a.2.clone());
+                    // The plan file's fallback (`later_out`, "the cut to use if `out` has already
+                    // left") takes over when the plan in force already takes `out` out, as the
+                    // proposal's list does (core `proposalBuild`). A cut you chose stays yours.
+                    let fallback = s.later_out.clone().filter(|l| !l.trim().is_empty() && gone(l).is_none());
+                    let (out, instead_of) = match (chosen, s.out_name.clone()) {
+                        (Some(c), _) => (Some(c), None),
+                        (None, Some(o)) if gone(&o).is_some() && fallback.is_some() => (fallback, Some(o)),
+                        (None, o) => (o, None),
+                    };
+                    let gone_for = out.as_deref().and_then(gone);
+                    Cut { key: s.key.clone(), card_in: s.in_name.clone(), out, instead_of, gone_for }
                 })
                 .collect();
             Next { n: top + 1, keys: keys.clone(), skipped, proposed_at, source, hash, cuts }

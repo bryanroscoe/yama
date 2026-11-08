@@ -326,7 +326,7 @@ export function planProblems(cuts: PlanCut[] | undefined, skipped: Set<string>):
     const same = kept.filter((d) => baseKey(d.key) !== baseKey(c.key) && !d.gone_for && d.out && nameKey(d.out) === nameKey(out));
     if (!same.length) continue;
     const others = [...new Set(same.map((d) => d.in).filter((n) => n !== c.in))];
-    byKey.set(c.key, `Same cut as ${others.length ? others.join(" and ") : "another copy"}. Keep one of them.`);
+    byKey.set(c.key, others.length ? `Same cut as ${others.join(" and ")}. Keep one of them.` : `Another change also puts in ${c.in} for ${out}. Keep one of them.`);
     if (!groups.has(nameKey(out))) {
       groups.add(nameKey(out));
       count++;

@@ -17,6 +17,7 @@ import {
   waitingSwaps,
   type DeckPlanState,
   type PlanChange,
+  type PlanCut,
   type PlanDeck,
   type PlanDecisionOp,
 } from "@yama/core/plan";
@@ -142,6 +143,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
   const counts = countChanges(live);
   const open = plan.questions.filter((q) => !answers[q]?.trim());
   const problems = planProblems(next.cuts, skipped);
+  const cutBy = useMemo(() => new Map((next.cuts ?? []).map((c) => [c.key, c])), [next.cuts]);
   const toggle = (k: string) =>
     setSkipped((s) => {
       const n = new Set(s);
@@ -239,7 +241,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
                       </div>
                       <ul className="plans-rows">
                         {rows.map((c) => (
-                          <ChangeRow key={c.swap.key} change={c} view={view} skipped={skipped.has(c.swap.key)} problem={problems.byKey.get(c.swap.key)} onToggle={() => toggle(c.swap.key)} />
+                          <ChangeRow key={c.swap.key} change={c} view={view} skipped={skipped.has(c.swap.key)} problem={problems.byKey.get(c.swap.key)} cut={cutBy.get(c.swap.key)} onToggle={() => toggle(c.swap.key)} />
                         ))}
                       </ul>
                     </div>
@@ -336,9 +338,10 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
   );
 }
 
-function ChangeRow({ change, view, skipped, problem, onToggle }: { change: PlanChange; view: PlanView; skipped: boolean; problem: string | undefined; onToggle: () => void }) {
+function ChangeRow({ change, view, skipped, problem, cut, onToggle }: { change: PlanChange; view: PlanView; skipped: boolean; problem: string | undefined; cut: PlanCut | undefined; onToggle: () => void }) {
   const s = change.swap;
-  const out = view.answers.get(s.key)?.cut || s.out;
+  // The server's cut when it sent one (your chosen cut, the plan's, or its fallback).
+  const out = cut ? cut.out : view.answers.get(s.key)?.cut || s.out;
   const meta =
     change.kind === "buy"
       ? change.price
@@ -358,7 +361,9 @@ function ChangeRow({ change, view, skipped, problem, onToggle }: { change: PlanC
           {skipped && <span className="tag small plain plans-skip-pill">Skipped</span>}
         </span>
         {s.why && <span className="small plans-why">{s.why}</span>}
+        {cut?.instead_of && <span className="small dim">{cut.instead_of} already goes out, so it takes {out} instead.</span>}
         {problem && <span className="small plans-problem">{problem}</span>}
+        {skipped && cut?.gone_for && <span className="small dim">Skipped to start with: {out} already goes out for {cut.gone_for}.</span>}
       </span>
       <span className="small dim plans-row-meta">{meta}</span>
       <button type="button" className="outline small plans-skip" onClick={onToggle} aria-label={`${skipped ? "Undo skipping" : "Skip"} ${s.in}`}>

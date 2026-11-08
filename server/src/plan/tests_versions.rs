@@ -274,6 +274,9 @@ async fn approving_waits_until_every_cut_is_settled() {
     // changes that both cut Sol Ring with alpha-idea. alpha-owned names no cut at all.
     swaps.push(json!({"key": "alpha-gone", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Old Card", "in": "Late Card"}));
     swaps.push(json!({"key": "alpha-same", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Sol Ring", "in": "Rival Card"}));
+    // A cut already made, with the plan file's fallback cut: the fallback is used, no problem.
+    swaps.push(json!({"key": "alpha-later", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Old Card",
+                      "later_out": "Fallback Card", "in": "Patient Card"}));
     // Basic lands: two changes may each take one out.
     swaps.push(json!({"key": "alpha-land-1", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land One"}));
     swaps.push(json!({"key": "alpha-land-2", "deck": "alpha", "stage": "proposed", "role": "swap", "src": "buy", "out": "Island", "in": "Land Two"}));
@@ -282,8 +285,10 @@ async fn approving_waits_until_every_cut_is_settled() {
     let next = &deck(&b, "alpha")["plan"]["next"];
     let gone = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-gone").unwrap();
     assert_eq!((gone["out"].as_str(), gone["gone_for"].as_str()), (Some("Old Card"), Some("Print Card")), "{next}");
+    let later = next["cuts"].as_array().unwrap().iter().find(|c| c["key"] == "alpha-later").unwrap();
+    assert_eq!((later["out"].as_str(), later["instead_of"].as_str(), later["gone_for"].as_str()), (Some("Fallback Card"), Some("Old Card"), None), "{next}");
 
-    let all = ["alpha-idea", "alpha-owned", "alpha-gone", "alpha-same", "alpha-land-1", "alpha-land-2"];
+    let all = ["alpha-idea", "alpha-owned", "alpha-gone", "alpha-same", "alpha-later", "alpha-land-1", "alpha-land-2"];
     let answers = json!([{"question": "Where did this come from?", "answer": "A booster"}]);
     let keep = |skip: &[&str]| all.iter().filter(|k| !skip.contains(k)).copied().collect::<Vec<_>>();
     let try_approve = |id: &'static str, skip: &'static [&'static str]| {
@@ -307,7 +312,7 @@ async fn approving_waits_until_every_cut_is_settled() {
 #[test]
 fn problems_name_each_clash_once_and_ignore_copies() {
     use super::super::versions::{Cut, Next, problems};
-    let cut = |key: &str, card_in: &str, out: Option<&str>| Cut { key: key.into(), card_in: card_in.into(), out: out.map(str::to_string), gone_for: None };
+    let cut = |key: &str, card_in: &str, out: Option<&str>| Cut { key: key.into(), card_in: card_in.into(), out: out.map(str::to_string), instead_of: None, gone_for: None };
     let next = Next {
         n: 1,
         keys: vec![],
@@ -328,4 +333,7 @@ fn problems_name_each_clash_once_and_ignore_copies() {
     assert_eq!(problems(&next, &[]), vec!["One, Two and Three all cut Thing. Keep one of them."]);
     assert_eq!(problems(&next, &["c".into()]), vec!["One and Two both cut Thing. Keep one of them."]);
     assert!(problems(&next, &["b".into(), "c".into()]).is_empty());
+    // Two changes (not copies of one) putting in the same card for the same cut.
+    let twice = Next { cuts: vec![cut("p", "Port Town", Some("Restless Anchorage")), cut("q", "Port Town", Some("Restless Anchorage"))], ..next };
+    assert_eq!(problems(&twice, &[]), vec!["Two changes put in Port Town for Restless Anchorage. Keep one of them."]);
 }

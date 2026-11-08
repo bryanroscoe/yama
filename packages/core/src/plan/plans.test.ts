@@ -129,6 +129,13 @@ describe("approval checks", () => {
     skipped.add("devotion");
     expect(planProblems(cuts, skipped)).toEqual({ byKey: new Map(), count: 0 });
   });
+  it("say when two changes put in the same card for the same cut", () => {
+    const twice = [
+      { key: "p", in: "Port Town", out: "Restless Anchorage", gone_for: null },
+      { key: "q", in: "Port Town", out: "Restless Anchorage", gone_for: null },
+    ];
+    expect(planProblems(twice, new Set()).byKey.get("p")).toBe("Another change also puts in Port Town for Restless Anchorage. Keep one of them.");
+  });
   it("pass a bundle from before the checks", () => {
     expect(planProblems(undefined, new Set()).count).toBe(0);
   });
