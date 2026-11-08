@@ -3,6 +3,7 @@
 // between them instead of scrolling through stacked disclosures. These are jump links to sections
 // that all stay open; the one in view is marked current.
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 export interface SectionTab {
   /** The section element's id. */
@@ -45,6 +46,23 @@ export function SectionTabs({ tabs, label = "Sections" }: { tabs: SectionTab[]; 
           {t.label}
           {t.note != null && t.note !== "" && <span>{t.note}</span>}
         </a>
+      ))}
+    </nav>
+  );
+}
+
+/**
+ * Page tabs: the same strip for a page whose sections are real subpages (a deck: Cards, Stats,
+ * History). Each tab is a link, so the back button and a shared link land on the same tab.
+ */
+export function PageTabs({ tabs, current, hrefFor, label = "Sections" }: { tabs: SectionTab[]; current: string; hrefFor: (id: string) => string; label?: string }) {
+  return (
+    <nav className="section-tabs" aria-label={label}>
+      {tabs.map((t) => (
+        <Link key={t.id} to={hrefFor(t.id)} replace aria-current={current === t.id ? "page" : undefined}>
+          {t.label}
+          {t.note != null && t.note !== "" && <span>{t.note}</span>}
+        </Link>
       ))}
     </nav>
   );

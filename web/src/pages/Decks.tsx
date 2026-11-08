@@ -25,7 +25,8 @@ import { DeckAnalysisPanel } from "../decks/DeckAnalysis";
 import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
-import { DeckHistory } from "../components/DeckHistory";
+import { DeckHistoryBody } from "../components/DeckHistory";
+import { PageTabs } from "../components/SectionTabs";
 import { DeckResults } from "../components/DeckResults";
 import { AskClaudeButton, AskClaudeSheet, useAskClaudeOffered } from "../advisor/AskClaude";
 import { MenuSeparator, MoreMenu } from "../components/MoreMenu";
@@ -196,7 +197,6 @@ export function DeckPage() {
   const [editing, setEditing] = useState(false);
   const [goldfish, setGoldfish] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [history, setHistory] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [mythic, setMythic] = useState(false);
   const [configuring, setConfiguring] = useState(false);
@@ -205,6 +205,15 @@ export function DeckPage() {
   const askOffered = useAskClaudeOffered();
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
+  // The deck's sections are tabs (design/tokens.md, rule 4): Cards, Stats, History, in the address.
+  const tab = (["stats", "history"] as const).find((t) => t === search.get("tab")) ?? "cards";
+  const tabHref = (t: string) => {
+    const q = new URLSearchParams(search);
+    if (t === "cards") q.delete("tab");
+    else q.set("tab", t);
+    const qs = q.toString();
+    return `/decks/${id}${qs ? `?${qs}` : ""}`;
+  };
   const offer = search.get("collect") === "1";
   const [collecting, setCollecting] = useState(offer);
   const closeCollect = () => {
@@ -225,7 +234,6 @@ export function DeckPage() {
     setEditing(false);
     setGoldfish(false);
     setExporting(false);
-    setHistory(false);
     setSharing(false);
     setMythic(false);
     setConfiguring(false);
@@ -297,7 +305,6 @@ export function DeckPage() {
     <Link className="button" to={`/decks/${d.id}/check`}>Check cards</Link>
     <button onClick={() => setCollecting(true)}>Add to collection</button>
     <MenuSeparator />
-    <button onClick={() => setHistory(true)}>History</button>
     <button onClick={() => setConfiguring(true)}>New configuration</button>
     <button onClick={() => setExporting(true)}>Export</button>
     <MythicSendButton className="" onClick={() => setMythic(true)} />
@@ -456,9 +463,20 @@ export function DeckPage() {
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
         {mythic && <MythicSend deck={d} onClose={() => setMythic(false)} />}
         {configuring && <NewConfiguration deck={d} onClose={() => setConfiguring(false)} />}
-        {history && <DeckHistory deckId={d.id} currentVersionId={d.version_id} onClose={() => setHistory(false)} />}
         {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
 
+        <PageTabs
+          tabs={[
+            { id: "cards", label: "Cards", note: o.cards },
+            { id: "stats", label: "Stats" },
+            { id: "history", label: "History" },
+          ]}
+          current={tab}
+          hrefFor={tabHref}
+          label="Deck sections"
+        />
+
+        {tab === "cards" && (<>
         <div className="deck-toolbar">
           {layout !== "text" && layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
             <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
@@ -570,8 +588,11 @@ export function DeckPage() {
           </>
         )}
 
-        {/* Everything else about the deck, under the cards. */}
-        <section className="deck-more" aria-label="More about this deck">
+        </>)}
+
+        {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
+        {tab === "stats" && (
+        <section className="deck-more" aria-label="Stats">
           <details className="deck-value-details"><summary>Market value and card inventory</summary><DeckPrices singles={d.singles_value} ownership={o} /></details>
           <div className="deck-legal">
             <p className="dim small">
@@ -630,7 +651,9 @@ export function DeckPage() {
           <DeckResults deckId={d.id} versionId={d.version_id} />
           <DeckStatsPanel cards={d.cards} />
         </section>
-        <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>
+        )}
+        {tab === "history" && <section className="deck-history-tab" aria-label="History"><DeckHistoryBody deckId={d.id} currentVersionId={d.version_id} /></section>}
+        {tab === "cards" && <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>}
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
       </div>
 
