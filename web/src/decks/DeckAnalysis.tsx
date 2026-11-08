@@ -32,17 +32,20 @@ export function powerBracketText(a: Pick<DeckAnalysis, "power" | "power_bracket"
   return `${a.power.toFixed(1)} is in Bracket ${a.power_bracket}'s usual range (${range}). Your declared bracket is still yours to choose: intent and the table matter more than a score.`;
 }
 
+/** Room either side of the pentagon for the side labels ("Consistency"). */
+const SIDE = 56;
+
 /** The five vectors on a pentagon, the reference precon (40) dashed behind. */
 export function Radar({ scores, size = 200 }: { scores: Record<VectorKey, number>; size?: number }) {
   const c = size / 2;
-  const r = size / 2 - 34;
+  const r = size / 2 - 26;
   const at = (i: number, v: number) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / VECTORS.length;
     return [c + Math.cos(a) * r * (v / 100), c + Math.sin(a) * r * (v / 100)] as const;
   };
   const poly = (vals: number[]) => vals.map((v, i) => at(i, v).join(",")).join(" ");
   return (
-    <svg className="analysis-radar" viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label={VECTORS.map((v) => `${v.label} ${Math.round(scores[v.key])}`).join(", ")}>
+    <svg className="analysis-radar" viewBox={`${-SIDE} 0 ${size + 2 * SIDE} ${size}`} width={size + 2 * SIDE} height={size} role="img" aria-label={VECTORS.map((v) => `${v.label} ${Math.round(scores[v.key])}`).join(", ")}>
       {[25, 50, 75, 100].map((g) => (
         <polygon key={g} className="grid" points={poly(VECTORS.map(() => g))} />
       ))}
