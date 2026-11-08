@@ -30,6 +30,7 @@ import { AskClaude } from "../advisor/AskClaude";
 import { ChangesBanner } from "../advisor/Changes";
 import { CardSheet } from "./Cards";
 import { CollectSheet } from "../decks/CollectSheet";
+import { DeleteDeck, deleteWording } from "../decks/DeleteDeck";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
@@ -197,6 +198,7 @@ export function DeckPage() {
   const [sharing, setSharing] = useState(false);
   const [mythic, setMythic] = useState(false);
   const [configuring, setConfiguring] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   // "?collect=1": the end of a deck import offers to add its cards to the collection.
   const [search, setSearch] = useSearchParams();
   const offer = search.get("collect") === "1";
@@ -223,6 +225,7 @@ export function DeckPage() {
     setSharing(false);
     setMythic(false);
     setConfiguring(false);
+    setDeleting(false);
     setOpen(null);
   }, [id]);
 
@@ -293,6 +296,7 @@ export function DeckPage() {
     <button className={className} onClick={() => setHistory(true)}>History</button>
     <button className={className} onClick={() => setConfiguring(true)}>New configuration</button>
     <AskClaude className={className} context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} />
+    <button className={`${className} deck-delete`} onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
   </>;
   const actions = <>
     <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
@@ -436,7 +440,8 @@ export function DeckPage() {
         <DeckLists deck={d} />
         <PlaygroupBuilds deckId={d.id} />
 
-        {editing && <EditDeck deck={d} onClose={() => setEditing(false)} />}
+        {editing && <EditDeck deck={d} onClose={() => setEditing(false)} onDelete={() => { setEditing(false); setDeleting(true); }} />}
+        {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
         {exporting && <DeckExport deck={d} onClose={() => setExporting(false)} />}
         {sharing && <ShareDeck deck={d} onClose={() => setSharing(false)} />}
@@ -701,9 +706,8 @@ function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean;
   );
 }
 
-function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
+function EditDeck({ deck, onClose, onDelete }: { deck: DeckView; onClose: () => void; onDelete: () => void }) {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
   // The bracket panel has already asked whether this server sends lists to Spellbook.
   const checksOn = qc.getQueryData<DeckCheck>(["deck-check", deck.id, deck.version_id])?.enabled === true;
@@ -752,13 +756,6 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions", deck.id] });
       onClose();
-    },
-  });
-  const archive = useMutation({
-    mutationFn: () => api(`/api/decks/${deck.id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["decks"] });
-      navigate("/decks");
     },
   });
 
@@ -822,11 +819,11 @@ function EditDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swapped Cultivate for Three Visits" />
         </label>
         {unknown.length > 0 && <p className="error small">Not found: {unknown.join(", ")}</p>}
-        <ErrorText error={save.error ?? archive.error} />
+        <ErrorText error={save.error} />
         <div className="row">
           <button className="primary" disabled={save.isPending}>Save changes</button>
-          <button type="button" className="quiet" onClick={() => confirm("Archive this deck? Its game history stays.") && archive.mutate()}>
-            Archive deck
+          <button type="button" className="outline deck-delete" onClick={onDelete}>
+            {deleteWording(deck).action}
           </button>
         </div>
       </form>
