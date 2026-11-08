@@ -65,12 +65,14 @@ if git fetch --quiet origin main 2>/dev/null; then
   git merge-base --is-ancestor FETCH_HEAD HEAD \
     || echo 'local-ci: warning: HEAD does not contain origin/main; PR CI will still run until you rebase or merge and run this again.' >&2
   if [ "$full" = 0 ] && base="$(git merge-base FETCH_HEAD HEAD 2>/dev/null)"; then
-    if git diff --no-renames --name-only -z "$base" HEAD | python3 -I -c '
+    # Skip only on a positive answer: a failing or missing interpreter means the full run.
+    verdict="$(git diff --no-renames --name-only -z "$base" HEAD | python3 -I -B -c '
 import sys
 sys.path.insert(0, sys.argv[1])
 from gate import rust_needed
 files = [f for f in sys.stdin.buffer.read().decode().split("\0") if f]
-sys.exit(1 if rust_needed(files) else 0)' "$root/scripts/ci"; then
+print("rust" if rust_needed(files) else "web-only")' "$root/scripts/ci" 2>/dev/null || true)"
+    if [ "$verdict" = web-only ]; then
       rust=0
     fi
   fi
@@ -109,16 +111,16 @@ else
   # worktree's yama-server and yama-play land on the same artifacts here, judged fresh by
   # file times. Rebuild them from this worktree on every run (the engine and crates.io
   # dependencies stay cached), and hold a lock so no other run swaps them in between.
-  python3 -I -c '
-import fcntl, subprocess, sys
-with open(sys.argv[1], "a") as lock:
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("local-ci: waiting for another local-ci run using this Cargo target", file=sys.stderr, flush=True)
-        fcntl.flock(lock, fcntl.LOCK_EX)
-    sys.exit(subprocess.call(sys.argv[2:]))
-' "$CARGO_TARGET_DIR/.yama-local-ci.lock" \
+  # perl holds the lock and runs Cargo as its child, so the lock lasts the whole step.
+  perl -MFcntl=:flock -e '
+    open(my $lock, ">>", shift) or die "local-ci: cannot open the Cargo target lock: $!\n";
+    unless (flock($lock, LOCK_EX | LOCK_NB)) {
+      print STDERR "local-ci: waiting for another local-ci run using this Cargo target\n";
+      flock($lock, LOCK_EX) or die "local-ci: cannot lock the Cargo target: $!\n";
+    }
+    my $status = system(@ARGV);
+    exit($status == -1 ? 127 : ($status & 127) ? 128 + ($status & 127) : $status >> 8);
+  ' "$CARGO_TARGET_DIR/.yama-local-ci.lock" \
     bash -c 'cargo clean --quiet -p yama-server -p yama-play && cargo test --locked'
 
   step 'Python tests'
