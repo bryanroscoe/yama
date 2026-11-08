@@ -476,7 +476,7 @@ async fn a_shared_deck_page_shows_how_the_power_estimate_adds_up() {
     assert!(body.contains("<b>Cheap mana</b>") && body.contains("<small class=\"names\">Sol Ring</small>"), "{body}");
     assert!(body.contains("<b>Cheap interaction</b>") && body.contains("<small class=\"names\">Lightning Bolt</small>"), "{body}");
     assert!(body.contains("This deck: 1.00."), "the curve's average: {body}");
-    assert!(body.contains("Cards on Wizards' Reserve List"), "flags loaded, none in the list");
+    assert!(body.contains("Cards on Wizards&#39; Reserve List"), "flags loaded, none in the list");
 }
 
 #[test]
