@@ -97,7 +97,7 @@
 }
 .lab details > summary {
   cursor: pointer;
-  min-height: 44px;
+  min-height: var(--target);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -114,7 +114,7 @@
 .lab-back {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  min-height: var(--target);
   font-size: var(--t-sm);
 }
 
@@ -234,7 +234,7 @@
 .ichart-bar {
   display: grid;
   gap: 0.15rem;
-  min-height: 44px;
+  min-height: var(--target);
   align-content: center;
 }
 .ichart-bar .ibar {
@@ -322,7 +322,7 @@
 .lab .lab-colors button {
   width: 44px;
   height: 40px;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
@@ -398,7 +398,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  min-height: 44px;
+  min-height: var(--target);
 }
 .lab .lab-table thead th button:focus-visible {
   outline: 3px solid var(--text);
@@ -649,7 +649,7 @@
   grid-template-columns: 1fr minmax(5rem, 32%) 3rem;
   gap: 0.6rem;
   align-items: center;
-  min-height: 44px;
+  min-height: var(--target);
   border-bottom: 1px solid var(--line);
   padding: 0.2rem 0;
 }
@@ -686,7 +686,7 @@
   gap: 0.5rem;
   align-items: center;
   width: 100%;
-  min-height: 44px;
+  min-height: var(--target);
   /* At 2px, names and card thumbnails sat on the dividers. */
   padding: 8px 4px;
   background: none;
@@ -805,7 +805,7 @@
 }
 .lab .lab-base-change {
   flex: none;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 14px;
   background: var(--raised);
   font-size: var(--t-label);
@@ -896,7 +896,7 @@
 .lab .lab-diff-undo {
   width: 40px;
   height: 40px;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0;
   border-radius: 50%;
   background: transparent;
@@ -1122,7 +1122,7 @@
   margin-top: auto;
 }
 .lab .lab-runcard-actions > :is(a, button) {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 14px;
   font-size: var(--t-label);
 }
@@ -1223,7 +1223,7 @@
 .lab .lab-mine-head th button {
   font-family: var(--body);
   font-size: var(--t-sm);
-  min-height: 44px;
+  min-height: var(--target);
 }
 
 /* ── simulation confidence (lab/confidence.tsx) ─────────────────────────── */
@@ -1511,7 +1511,7 @@ button.conf-mark:focus-visible {
   gap: 6px;
 }
 .lab .lab-row-actions button {
-  min-height: 44px;
+  min-height: var(--target);
   min-width: 64px;
   padding: 0 14px;
 }
@@ -1549,7 +1549,7 @@ button.conf-mark:focus-visible {
   gap: 0.6rem;
   align-items: center;
   font-weight: 400;
-  min-height: 44px;
+  min-height: var(--target);
 }
 .lab-run-why {
   padding: 10px 12px;

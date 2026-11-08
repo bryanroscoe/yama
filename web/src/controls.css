@@ -17,7 +17,7 @@ select:not([multiple])[size="1"] {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 44px;
+  min-height: var(--target);
   padding-block: 8px;
   list-style: none;
   cursor: pointer;

@@ -54,7 +54,7 @@
   .area-top > .deck-sections > a {
     flex: 1;
     justify-content: center;
-    min-height: 44px;
+    min-height: var(--target);
   }
   .is-index .area-wide {
     display: none;
@@ -122,7 +122,7 @@
 .area-subnav a {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0;
   color: var(--dim);
   text-decoration: none;

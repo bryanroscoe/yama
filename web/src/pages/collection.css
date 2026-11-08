@@ -79,7 +79,7 @@
   font-size: 1.75rem;
 }
 .coll-page .coll-new {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 14px;
   background: var(--surface);
   font-size: var(--t-label);
@@ -119,7 +119,7 @@
 }
 .coll-page .coll-sort > button,
 .coll-page .coll-kind > button {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 0.9rem;
   font-size: var(--t-sm);
 }

@@ -42,7 +42,7 @@
   gap: 8px;
 }
 .import-source {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 16px;
   border-radius: 999px;
   background: var(--raised);
@@ -96,7 +96,7 @@
   gap: 8px;
 }
 .import-actions button {
-  min-height: 44px;
+  min-height: var(--target);
 }
 
 .import-good {
@@ -163,7 +163,7 @@
   background: none;
   border: 0;
   padding: 0;
-  min-height: 44px;
+  min-height: var(--target);
   color: var(--text);
   text-decoration: underline;
   font: inherit;
@@ -225,7 +225,7 @@
   gap: 8px;
 }
 .import-suggest button {
-  min-height: 44px;
+  min-height: var(--target);
 }
 .import-problems {
   display: grid;

@@ -12,7 +12,7 @@
 }
 .deck-check-target select {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--target);
 }
 .deck-check-target p {
   margin: 0;

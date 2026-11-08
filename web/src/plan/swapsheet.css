@@ -324,7 +324,7 @@
 /* On a touch screen the whole label stays a 44 px target. */
 @media (pointer: coarse) {
   .ss-print-options label {
-    min-height: 44px;
+    min-height: var(--target);
   }
 }
 @media print {

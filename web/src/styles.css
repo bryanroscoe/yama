@@ -584,7 +584,7 @@ a.choice-chip {
   align-items: center;
   gap: 12px;
   width: fit-content;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 8px 8px 8px 0;
   list-style: none;
   cursor: pointer;
@@ -628,7 +628,7 @@ a.choice-chip {
 
 .site-footer { max-width: calc(var(--content-w) + 2 * var(--page-pad)); padding: 20px var(--page-pad) 32px; margin: 0 auto; border-top: 1px solid var(--line); }
 .site-links { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; max-width: calc(var(--content-w) + 2 * var(--page-pad)); margin: 0 auto; padding: 8px var(--page-pad); border-bottom: 1px solid var(--line); }
-.site-links a { display: inline-flex; align-items: center; min-height: 44px; font-size: var(--t-sm); color: var(--dim); text-decoration: none; }
+.site-links a { display: inline-flex; align-items: center; min-height: var(--target); font-size: var(--t-sm); color: var(--dim); text-decoration: none; }
 .site-links a:hover, .site-links a.active { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
 .site-notice { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
 .site-notice p { margin: 12px 0 0; }
@@ -2033,13 +2033,13 @@ fieldset.seat > legend:not(.visually-hidden) + * {
     background: rgb(11 12 14 / 0.4);
     border-color: rgb(255 255 255 / 0.3);
     color: var(--on-art);
-    min-height: 48px;
+    min-height: var(--target);
   }
   .hero-actions .on-art:hover {
     background: rgb(11 12 14 / 0.6);
   }
   .hero-actions .primary {
-    min-height: 48px;
+    min-height: var(--target-primary);
   }
   .deck-stats-tiles,
   .deck-actions-phone {
@@ -2298,7 +2298,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .hero-configs-legacy summary {
   width: fit-content;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 8px 12px;
   border: 1px solid rgb(255 255 255 / 0.3);
   border-radius: var(--r-pill);
@@ -2315,7 +2315,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 @media (pointer: coarse) {
   .hero-configs a {
-    min-height: 44px;
+    min-height: var(--target);
   }
 }
 .hero-configs-label {
@@ -2334,4 +2334,4 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   color: var(--ground);
 }
 .app-update { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px var(--page-pad); border-bottom: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
-.app-update button { min-height: 44px; }
+.app-update button { min-height: var(--target); }

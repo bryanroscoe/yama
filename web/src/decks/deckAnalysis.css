@@ -110,7 +110,7 @@
 }
 .analysis-themes summary {
   cursor: pointer;
-  min-height: 44px;
+  min-height: var(--target);
   display: flex;
   align-items: center;
   gap: 0.4rem;

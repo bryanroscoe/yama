@@ -20,6 +20,6 @@
 .dataset-facts dd { margin: 0; }
 .dataset-monthly, .lab section.dataset-monthly { margin-block: 1.8rem; }
 @media (max-width: 700px) { .dataset-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dataset-facts { grid-template-columns: 1fr; gap: .3rem; } }
-.dataset-toggle { display: flex; gap: .5rem; align-items: center; min-height: 44px; margin-block: .6rem; }
+.dataset-toggle { display: flex; gap: .5rem; align-items: center; min-height: var(--target); margin-block: .6rem; }
 /* The global input rule is width 100%: a checkbox took the row and pushed its words to the edge. */
 .dataset-toggle input { flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; }
