@@ -717,12 +717,12 @@ export interface AnalysisSummary {
   checked: boolean;
 }
 
-/** GET /api/decks/:id/analysis: the current list's analysis, every saved version (newest
- *  first) and every configuration of the deck. */
+/** GET /api/decks/:id/analysis: the current list's analysis, saved versions (newest first,
+ *  the newest 60, scans kept only for History left out) and every configuration of the deck. */
 export interface DeckAnalysisView {
   method: string;
   current: DeckAnalysis | null;
-  versions: ({ id: string; number: number; note: string | null; created_at: string; current: boolean; history_only: boolean } & AnalysisSummary)[];
+  versions: ({ id: string; number: number; note: string | null; created_at: string; current: boolean } & AnalysisSummary)[];
   configurations: ({ id: string; name: string; configuration: string | null; this: boolean; version_id: string | null } & Partial<AnalysisSummary>)[];
   computed_at: string;
 }

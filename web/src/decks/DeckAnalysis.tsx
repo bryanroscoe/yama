@@ -68,12 +68,12 @@ function scoresOf(a: DeckAnalysis): Record<VectorKey, number> {
 }
 
 /**
- * Copies the list, then opens Scrycheck in a new tab to paste it into: Scrycheck takes a
+ * Copies the list, then opens ScryCheck in a new tab to paste it into: ScryCheck takes a
  * pasted list or a Moxfield or Archidekt link, and nothing can fill its box from here. Nothing
- * goes to Scrycheck until you paste and press Analyze there.
+ * goes to ScryCheck until you paste and press Analyze there.
  */
-export function ScrycheckButton({ cards }: { cards: DeckEntry[] }) {
-  const [state, setState] = useState<"idle" | "copied" | "blocked" | "manual">("idle");
+export function ScryCheckButton({ cards }: { cards: DeckEntry[] }) {
+  const [state, setState] = useState<"idle" | "opened" | "blocked" | "manual">("idle");
   const text = exportDeck(cards.map((c) => ({ name: c.name, qty: c.qty, board: c.board })), "names");
   const go = async () => {
     try {
@@ -82,21 +82,23 @@ export function ScrycheckButton({ cards }: { cards: DeckEntry[] }) {
       setState("manual");
       return;
     }
-    const tab = window.open(SCRYCHECK, "_blank", "noopener");
-    // A blocked pop-up returns null; noopener can also return null after opening, so the link
-    // below stays either way.
-    setState(tab ? "copied" : "blocked");
+    // Without "noopener" so a blocked pop-up shows as null; the new tab gets no handle back.
+    const tab = window.open(SCRYCHECK, "_blank");
+    if (tab) tab.opener = null;
+    setState(tab ? "opened" : "blocked");
   };
+  const open = <a href={SCRYCHECK} target="_blank" rel="noopener noreferrer">Open ScryCheck<span className="visually-hidden"> (opens in a new tab)</span></a>;
   return (
     <div className="scrycheck-open">
-      <button type="button" className="quiet small" onClick={() => void go()}>Check it on Scrycheck <span aria-hidden="true">↗</span></button>
-      {state !== "idle" && (
-        <p className="small dim" role="status">
-          {state === "manual" ? "Copy this list, then " : "List copied. "}
-          <a href={SCRYCHECK} target="_blank" rel="noopener noreferrer">Open Scrycheck</a>, choose Paste list and paste it. Scrycheck is a separate site with its own formula, so its numbers won't match these exactly.
-        </p>
-      )}
-      {state === "manual" && <textarea className="scrycheck-list" readOnly rows={8} value={text} aria-label="Deck list to paste into Scrycheck" />}
+      <button type="button" className="quiet small" onClick={() => void go()}>
+        Check it on ScryCheck <span aria-hidden="true">↗</span><span className="visually-hidden"> (copies the list and opens a new tab)</span>
+      </button>
+      <p className="small dim" role="status">
+        {state === "opened" && <>List copied. In the ScryCheck tab, choose Paste list and paste it. Its formula is its own, so its numbers won't match these exactly.</>}
+        {state === "blocked" && <>List copied. {open}, choose Paste list and paste it.</>}
+        {state === "manual" && <>Copy this list, then {open}, choose Paste list and paste it.</>}
+      </p>
+      {state === "manual" && <textarea className="scrycheck-list" readOnly rows={8} value={text} aria-label="Deck list to paste into ScryCheck" />}
     </div>
   );
 }
@@ -110,7 +112,7 @@ export function DeckAnalysisPanel({ deckId, versionId, cards, onCard }: { deckId
     <section className="deck-panel deck-analysis" aria-labelledby="analysis-head">
       <div className="deck-panel-head">
         <h2 id="analysis-head">Power level</h2>
-        <ScrycheckButton cards={cards} />
+        <ScryCheckButton cards={cards} />
       </div>
       <ErrorText error={q.error} />
       {q.isPending && versionId != null && <p className="dim small">Working it out…</p>}
@@ -144,7 +146,7 @@ export function DeckAnalysisPanel({ deckId, versionId, cards, onCard }: { deckId
           {a.caps.map((c) => <p key={c.reason} className="small">{c.note}</p>)}
           {a.themes.length > 0 && <Themes analysis={a} onCard={onCard} />}
           <Breakdown analysis={a} onCard={onCard} />
-          <AnalysisHistory view={q.data!} deckId={deckId} />
+          <AnalysisHistory view={q.data!} />
         </>
       )}
     </section>
@@ -201,12 +203,17 @@ function Breakdown({ analysis, onCard }: { analysis: DeckAnalysis; onCard: (name
               <b>{g.label}</b> <span className="dim">{g.cards.length}</span>
               <br />
               <span className="names">
-                {g.cards.map((c, i) => (
-                  <span key={c.name + i}>
-                    {i > 0 && ", "}
-                    <NameList names={[c.name.replace(/^\d+ /, "")]} onCard={onCard} /> <span className="dim">{c.points.toFixed(1)}</span>
-                  </span>
-                ))}
+                {g.cards.map((c, i) => {
+                  // Lands come as "11 Plains": the count stays as text, the name opens the card.
+                  const [, copies, name] = c.name.match(/^(\d+) (.+)$/) ?? [null, null, c.name];
+                  return (
+                    <span key={c.name + i}>
+                      {i > 0 && ", "}
+                      {copies && `${copies} `}
+                      <NameList names={[name!]} onCard={onCard} /> <span className="dim">{c.points.toFixed(1)}</span>
+                    </span>
+                  );
+                })}
               </span>
             </p>
           ))}
@@ -230,8 +237,8 @@ function Breakdown({ analysis, onCard }: { analysis: DeckAnalysis; onCard: (name
 }
 
 /** Power across saved versions (oldest left), and each configuration side by side. */
-export function AnalysisHistory({ view, deckId }: { view: DeckAnalysisView; deckId: string }) {
-  const versions = view.versions.filter((v) => !v.history_only);
+export function AnalysisHistory({ view }: { view: DeckAnalysisView }) {
+  const versions = view.versions;
   const configs = view.configurations.filter((c) => c.power != null);
   if (versions.length < 2 && configs.length < 2) return null;
   return (
@@ -259,7 +266,7 @@ export function AnalysisHistory({ view, deckId }: { view: DeckAnalysisView; deck
           />
         </>
       )}
-      <p className="small dim">Worked out from each saved list{deckId ? "" : ""}; combos count where Commander Spellbook checked that list.</p>
+      <p className="small dim">Worked out from each saved list; combos count where Commander Spellbook checked that list.</p>
     </div>
   );
 }

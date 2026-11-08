@@ -480,6 +480,8 @@ async fn a_shared_deck_page_shows_the_power_level_and_how_it_adds_up() {
     // Sol Ring is fast mana, half again as the commander; Lightning Bolt is instant removal.
     assert!(body.contains("How it adds up") && body.contains("<b>Fast mana</b>") && body.contains("Sol Ring 13.5"), "{body}");
     assert!(body.contains("<b>Spot removal</b>") && body.contains("Lightning Bolt 6.8"), "{body}");
+    // The page's Content-Security-Policy allows no inline styles, so nothing may rely on one.
+    assert!(!body.contains("style="), "an inline style the page can't use: {body}");
 }
 
 #[test]

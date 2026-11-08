@@ -62,6 +62,27 @@ describe("bracket suggestions", () => {
     client.clear();
   });
 
+  it("shows the power level even when the bracket tag gives no suggestion", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+    const check: DeckCheck = {
+      enabled: false, version_id: "v1", source: "Commander Spellbook", source_url: "https://commanderspellbook.com/",
+      pending: false, retrying: false, next_try_at: null, error: null, gave_up: false, archived: false,
+      requested_at: cached.checked_at,
+      result: {
+        checked_at: cached.checked_at, bracket_tag: "B", bracket_label: "Banned", bracket: null,
+        game_changers: [], mld: [], extra_turns: [], combos: [], unrecognized: [],
+      },
+    };
+    client.setQueryData(["deck-check", "deck", "v1"], check);
+    client.setQueryData(["deck-analysis", "deck", "v1"], analysisView(4.1));
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}>
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
+    </QueryClientProvider>);
+    expect(html).toContain("Power level, 1 to 10");
+    expect(html).toContain("4.1");
+    client.clear();
+  });
+
   it("shows no power estimate for a tag Yama can't turn into a bracket", () => {
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
     const check: DeckCheck = {

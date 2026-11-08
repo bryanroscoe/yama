@@ -15,7 +15,7 @@ model to its numbers. What Yama takes is the shape of the method its public docs
 describes (scrycheck.com/docs, read 2026-11-08): cards earn points in categories, categories add
 up to five vectors (Speed, Consistency, Interaction, Mana base, Threats), Commander Spellbook's
 combos add to Threats, and a weak mana base or a strategy without compact wins caps the score.
-Every rule, point and threshold is Yama's own. The deck page has "Check it on Scrycheck": it
+Every rule, point and threshold is Yama's own. The deck page has "Check it on ScryCheck": it
 copies the list and opens Scrycheck in a new tab to paste it into. Nothing goes to ScryCheck
 until the person pastes it and presses Analyze there.
 

@@ -33,8 +33,9 @@ describe("DeckAnalysisPanel", () => {
     expect(html).not.toContain("·");
   });
 
-  it("names the themes and how every card adds up", () => {
+  it("names the themes and how every card adds up, keeping a land's count", () => {
     const html = render();
+    expect(html).toMatch(/11 <button[^>]*><span[^>]*>Plains<\/span><\/button> <span class="dim">6\.0<\/span>/);
     expect(html).toContain("Graveyard");
     expect(html).toContain("Core, 27 cards");
     expect(html).toContain("How it adds up");
@@ -58,8 +59,8 @@ describe("DeckAnalysisPanel", () => {
     expect(html).not.toContain("Configurations");
   });
 
-  it("offers to check the deck on Scrycheck", () => {
-    expect(render()).toContain("Check it on Scrycheck");
+  it("offers to check the deck on ScryCheck", () => {
+    expect(render()).toContain("Check it on ScryCheck");
   });
 
   it("says why confidence is lower", () => {

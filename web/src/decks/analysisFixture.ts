@@ -36,8 +36,8 @@ export function analysisView(power: number): DeckAnalysisView {
     method: "2026-11-08",
     current: analysis(power),
     versions: [
-      { id: "v2", number: 2, note: "Bracket 3 upgrades", created_at: "2026-11-07T12:00:00Z", current: true, history_only: false, power, margin: 0.4, scores, checked: true },
-      { id: "v1", number: 1, note: null, created_at: "2026-10-20T12:00:00Z", current: false, history_only: false, power: 3.6, margin: 0.4, scores, checked: true },
+      { id: "v2", number: 2, note: "Bracket 3 upgrades", created_at: "2026-11-07T12:00:00Z", current: true, power, margin: 0.4, scores, checked: true },
+      { id: "v1", number: 1, note: null, created_at: "2026-10-20T12:00:00Z", current: false, power: 3.6, margin: 0.4, scores, checked: true },
     ],
     configurations: [
       { id: "deck", name: "Lorehold Spirit", configuration: null, this: true, version_id: "v2", power, margin: 0.4, scores, checked: true },

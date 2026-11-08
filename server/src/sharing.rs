@@ -299,8 +299,8 @@ pub(crate) struct SharedDetails {
     pub(crate) game_changers: Option<Vec<String>>,
     pub(crate) reserved_list: Option<Vec<String>>,
     pub(crate) check: Option<crate::deck_checks::CheckResult>,
-    /// The older 1-10 scale's estimate from the list and its stored check, as the deck page
-    /// works it out; None without a check or a 2-4 suggestion.
+    /// The deck analysis (power level, vectors, themes) from the list and its stored check, as
+    /// the deck page shows it; None only for an empty list.
     pub(crate) analysis: Option<crate::analysis::DeckAnalysis>,
     pub(crate) stats: crate::deck_stats::DeckStats,
     pub(crate) singles: crate::deck_prices::SinglesValue,

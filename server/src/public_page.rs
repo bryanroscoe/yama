@@ -295,7 +295,8 @@ pub(crate) fn analysis_panel(a: &DeckAnalysis) -> String {
     for v in &a.vectors {
         write!(
             s,
-            "<li><span class=\"vector-label\">{}</span><span class=\"vector-bar\" aria-hidden=\"true\"><span style=\"width:{:.0}%\"></span></span><span class=\"num\">{:.0}</span><small class=\"dim\">{}</small></li>",
+            // An SVG bar: public pages allow no inline styles (Content-Security-Policy).
+            "<li><span class=\"vector-label\">{}</span><svg class=\"vector-bar\" viewBox=\"0 0 100 8\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><rect class=\"track\" width=\"100\" height=\"8\"/><rect class=\"fill\" width=\"{:.0}\" height=\"8\"/></svg><span class=\"num\">{:.0}</span><small class=\"dim\">{}</small></li>",
             e(v.label),
             v.score.clamp(0.0, 100.0),
             v.score,

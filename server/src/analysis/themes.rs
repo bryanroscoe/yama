@@ -59,7 +59,8 @@ const THEMES: &[(&str, &str, Test, &str)] = &[
 /// The deck's themes, biggest first, at most five. `cards`: (facts, copies) of the commander
 /// and main deck.
 pub fn themes(cards: &[(&Facts, i64)]) -> Vec<Theme> {
-    let mut found: Vec<(String, String, String, Vec<String>, bool)> = vec![];
+    // (key, label, description, (card, copies), a creature type)
+    let mut found: Vec<(String, String, String, Vec<(String, i64)>, bool)> = vec![];
     let texts: Vec<String> = cards.iter().map(|(c, _)| clean(c, &spell_text(c)).to_lowercase()).collect();
     for (key, label, test, desc) in THEMES {
         let hits = cards
@@ -67,15 +68,14 @@ pub fn themes(cards: &[(&Facts, i64)]) -> Vec<Theme> {
             .zip(&texts)
             .filter(|((c, _), _)| !super::text::is_land(c) || matches!(*key, "lands" | "graveyard"))
             .filter(|((c, _), t)| test(t, &c.type_line))
-            .map(|((c, _), _)| c.name.clone())
+            .map(|((c, qty), _)| (c.name.clone(), *qty))
             .collect();
         found.push((key.to_string(), label.to_string(), desc.to_string(), hits, false));
     }
     // Creature types, in the order first seen; a changeling counts for every type.
     let changeling: Vec<bool> = cards.iter().map(|(c, _)| keyword_lines(c).iter().any(|k| k == "changeling")).collect();
     let mut types: Vec<(String, i64)> = vec![];
-    let mut any = 0;
-    for ((c, qty), ch) in cards.iter().zip(&changeling) {
+    for (c, qty) in cards {
         let tl = front(&c.type_line);
         if tl.contains("Creature")
             && let Some((_, subs)) = tl.split_once('—')
@@ -87,27 +87,26 @@ pub fn themes(cards: &[(&Facts, i64)]) -> Vec<Theme> {
                 }
             }
         }
-        if *ch {
-            any += qty;
-        }
     }
     let mut ranked: Vec<(usize, &(String, i64))> = types.iter().enumerate().collect();
     ranked.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(&b.0)));
     let top: Vec<(String, i64)> = ranked.iter().map(|(_, t)| (*t).clone()).collect();
-    for (sub, n) in top.into_iter().take(2) {
-        let n_all = n + any;
-        let names = cards
+    for (sub, _) in top.into_iter().take(2) {
+        let names: Vec<(String, i64)> = cards
             .iter()
             .zip(&changeling)
             .filter(|((c, _), ch)| front(&c.type_line).contains(sub.as_str()) || **ch)
-            .map(|((c, _), _)| c.name.clone())
+            .map(|((c, qty), _)| (c.name.clone(), *qty))
             .collect();
-        found.push((format!("tribe:{sub}"), format!("{sub} tribal"), format!("{n_all} {sub} creatures."), names, true));
+        let copies: i64 = names.iter().map(|(_, q)| q).sum();
+        found.push((format!("tribe:{sub}"), format!("{sub} tribal"), format!("{copies} {sub} cards."), names, true));
     }
     let mut out: Vec<Theme> = found
         .into_iter()
         .filter_map(|(key, label, description, cards, tribe)| {
-            let n = cards.len();
+            // Copies, so 30 Relentless Rats count as 30.
+            let n = cards.iter().map(|(_, q)| q.max(&0)).sum::<i64>() as usize;
+            let cards: Vec<String> = cards.into_iter().map(|(c, _)| c).collect();
             let strength = if n >= 15 {
                 "core"
             } else if n >= 10 {

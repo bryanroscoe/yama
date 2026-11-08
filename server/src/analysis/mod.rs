@@ -247,16 +247,19 @@ pub fn combos(check: Option<&CheckResult>) -> Combos {
             None => fams.push((root, vec![l.weight])),
         }
     }
+    let mut compact = 0;
     let mut scores: Vec<f64> = fams
         .into_iter()
         .map(|(_, mut ws)| {
             ws.sort_by(|a, b| b.total_cmp(a));
+            if ws[0] >= 0.8 {
+                compact += 1;
+            }
             (ws[0] + 0.25 * ws[1..].iter().sum::<f64>()).min(1.5 * ws[0])
         })
         .collect();
     scores.sort_by(|a, b| b.total_cmp(a));
     let families = scores.len();
-    let compact = scores.iter().filter(|s| **s >= 0.8).count();
     Combos { checked: true, lines, score: scores.iter().take(4).sum(), families, compact }
 }
 
@@ -265,6 +268,8 @@ pub fn combos(check: Option<&CheckResult>) -> Combos {
 pub struct Cache {
     points: HashMap<(String, bool), Points>,
     lands: HashMap<(String, usize), (&'static str, f64)>,
+    /// Leave themes out (the history's summaries don't show them).
+    pub skip_themes: bool,
 }
 
 /// One deck entry with its card facts (None when the card data lacks it).
@@ -451,7 +456,7 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
         vectors,
         caps,
         combos,
-        themes: themes::themes(&facts),
+        themes: if cache.skip_themes { vec![] } else { themes::themes(&facts) },
         average_mana_value: average_mana_value.map(|a| (a * 100.0).round() / 100.0),
         lands: nl,
         unscored,
