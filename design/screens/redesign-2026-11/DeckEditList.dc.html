@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edit the list</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground);">
+
+<header style="position: relative; min-height: 160px; display: flex; align-items: flex-end; background: var(--raised);">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 14px;">Terra, Herald of Hope art_crop (Scryfall, at runtime)</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 30%, #0b0c0e 100%);"></span>
+<span style="position: absolute; top: 16px; right: 16px; font-size: 11px; padding: 2px 10px; border-radius: 999px; background: rgb(11 12 14 / 0.82); color: #d5d7db;">Art: Marta Nael, © Wizards of the Coast</span>
+<div style="position: relative; width: 100%; max-width: 1232px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 56px); display: flex; flex-direction: column; gap: 8px;">
+<nav aria-label="Breadcrumb" style="display: flex; gap: 8px; font-size: 14px; color: #d5d7db;"><a href="#" style="color: #d5d7db;">Decks</a><span aria-hidden="true">/</span><a href="Deck.dc.html" style="color: #d5d7db;">Revival Trance</a></nav>
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 56px; line-height: 0.9;">Edit the list</h1>
+</div>
+</header>
+
+<div style="max-width: 1232px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 56px) 96px; display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+
+<main style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 16px;">
+<section aria-labelledby="h-start" style="display: flex; flex-direction: column; gap: 10px;">
+<h2 id="h-start" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">Start from</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;">
+<sc-for list="{{starts}}" as="o" hint-placeholder-count="4">
+<button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; min-height: 36px; padding: 6px 14px; border-radius: 10px; border: 1px solid {{o.border}}; background: var(--surface); color: var(--text); text-align: left;"><b>{{o.label}}</b></button>
+</sc-for>
+</div>
+<button type="button" style="align-self: flex-start; height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">Another list</button>
+</section>
+
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700;">The list
+<textarea value="{{text}}" readOnly="{{true}}" spellcheck="false" style="min-height: 560px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-family: ui-monospace, monospace; font-size: 14px; font-weight: 400; line-height: 1.6;"></textarea>
+</label>
+<div role="toolbar" aria-label="Get a list" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-size: 14px; font-weight: 700;">Paste</button>
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-size: 14px; font-weight: 700;">Choose a file</button>
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-size: 14px; font-weight: 700;">From another site</button>
+<button type="button" style="height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">Reset to the start list</button>
+</div>
+</main>
+
+<aside aria-label="Review and save" style="flex: 1 1 360px; max-width: 460px; display: flex; flex-direction: column; gap: 16px;">
+<section aria-labelledby="h-changes" style="padding: 20px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-changes" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">{{changesHead}}</h2>
+<sc-if value="{{noChanges}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; padding: 20px; border-radius: 16px; border: 2px dashed var(--line); color: var(--dim);">No changes yet.</p>
+</sc-if>
+<sc-for list="{{pairs}}" as="p" hint-placeholder-count="2">
+<div style="display: flex; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line);">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><button type="button" aria-label="{{p.inLabel}}" style="width: 44px; height: 61px; border-radius: 3px; border: 0; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 3px; font-size: 10px; color: var(--dim);">In</button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><button type="button" aria-label="{{p.outLabel}}" style="width: 44px; height: 61px; border-radius: 3px; border: 0; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 3px; font-size: 10px; color: var(--dim);">Out</button></span>
+<span style="display: flex; flex-direction: column; min-width: 0;"><b>{{p.inn}}</b><span style="font-size: 14px; color: var(--dim);">replaces {{p.out}}</span></span>
+</div>
+</sc-for>
+<sc-if value="{{moreLine}}" hint-placeholder-val="{{false}}">
+<button type="button" style="align-self: flex-start; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; font-weight: 700; text-decoration: underline;">{{moreLine}}</button>
+</sc-if>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line);">
+<span style="display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.4;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8fd3a8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px;"><path d="M20 6 9 17l-5-5"></path></svg><span><b style="color: var(--good);">Ready</b> {{checkLine}}</span></span>
+</div>
+</section>
+
+<section aria-labelledby="h-save" style="padding: 20px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px;">
+<h2 id="h-save" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">Save it</h2>
+<div role="group" aria-label="Save as" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 3px; gap: 2px; background: var(--ground); border-radius: 999px;">
+<sc-for list="{{saveOpts}}" as="o" hint-placeholder-count="2">
+<button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="height: 30px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button>
+</sc-for>
+</div>
+<sc-if value="{{asNew}}" hint-placeholder-val="{{false}}">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700;">Name of the new list<input value="{{newName}}" readOnly="{{true}}" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font: inherit; font-weight: 400;"></label>
+</sc-if>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700;">Note<input style="height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font: inherit; font-weight: 400;"></label>
+<button type="button" style="align-self: flex-start; height: 40px; padding: 0 22px; border-radius: 999px; border: 0; background: var(--text); color: var(--ground); font-weight: 700; font-size: 15px;">{{saveLabel}}</button>
+<sc-if value="{{saveNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 14px; color: var(--dim);">{{saveNote}}</span></sc-if>
+</section>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { start: 'b3', save: 'new' };
+  }
+  renderVals() {
+    const s = this.state;
+    const seg = (on) => on ? { bg: '#f2efe8', fg: '#0b0c0e', pressed: 'true' } : { bg: 'transparent', fg: '#a9adb3', pressed: 'false' };
+    const BOX = ["Alesha, Who Laughs at Fate", "Anger", "Arcane Signet", "Arid Mesa", "Ash Barrens", "Aurelia, the Warleader", "Badlands", "Banon, the Returners' Leader", "Battlefield Forge", "Blackcleave Cliffs", "Blood Crypt", "Bloodstained Mire", "Braids, Arisen Nightmare", "Brotherhood Regalia", "Buried Alive", "Celes, Rune Knight", "Clifftop Retreat", "Command Tower", "Concealed Courtyard", "Crackling Doom", "Cyan, Vengeful Samurai", "Deflecting Swat", "Demolition Field", "Demonic Tutor", "Dragonskull Summit", "Edgar, Master Machinist", "Espers to Magicite", "Exotic Orchard", "Faithless Looting", "Fear of Missing Out", "Fetid Heath", "Gau, Feral Youth", "General Leo Cristophe", "Godless Shrine", "Gogo, Mysterious Mime", "Graven Cairns", "Harmonic Prodigy", "Haunted Ridge", "High Market", "Imperial Recruiter", "Isolated Chapel", "Karmic Guide", "Key to the City", "Legions to Ashes", "Locke, Treasure Hunter", "Loran of the Third Path", "Luminous Broodmoth", "Marsh Flats", "Millikin", "Mind Stone", "Mog, Moogle Warrior", "Morbid Opportunist", "Palace Jailer", "Pitiless Plunderer", "Plateau", "Priest of Fell Rites", "Reanimate", "Ripples of Undeath", "Rogue's Passage", "Rugged Prairie", "Ruinous Ultimatum", "Sacred Foundry", "Scrubland", "Selfless Spirit", "Shadow, Mysterious Assassin", "Siegfried, Famed Swordsman", "Smothering Tithe", "Sol Ring", "Stitcher's Supplier", "Sulfurous Springs", "Summon: Esper Valigarmanda", "Sun Titan", "Sundown Pass", "Swiftfoot Boots", "Sword of Feast and Famine", "Swords to Plowshares", "Talisman of Conviction", "Talisman of Hierarchy", "Talisman of Indulgence", "Teferi's Protection", "The Falcon, Airship Restored", "The One Ring", "The Reaver Cleaver", "The Warring Triad", "Tragic Arrogance", "Vampiric Tutor", "Vile Entomber", "Wayfarer's Bauble", "Yawgmoth, Thran Physician"];
+    const STOCK = ["Angel of the Ruins", "Anger", "Arcane Signet", "Archfiend of Depravity", "Ash Barrens", "Banon, the Returners' Leader", "Battlefield Forge", "Bedevil", "Big Score", "Celes, Rune Knight", "Clifftop Retreat", "Coin of Fate", "Combustible Gearhulk", "Command Tower", "Commander's Sphere", "Crackling Doom", "Cyan, Vengeful Samurai", "Demolition Field", "Desolate Mire", "Dragonskull Summit", "Edgar, Master Machinist", "Espers to Magicite", "Evolving Wilds", "Exotic Orchard", "Fetid Heath", "Flayer of the Hatebound", "Foreboding Ruins", "Furycalm Snarl", "Gau, Feral Youth", "General Leo Cristophe", "Geothermal Bog", "Gogo, Mysterious Mime", "Graven Cairns", "High Market", "Interceptor, Shadow's Hound", "Isolated Chapel", "Kefka, Dancing Mad", "Key to the City", "Laughing Mad", "Legions to Ashes", "Locke, Treasure Hunter", "Meteor Golem", "Millikin", "Mind Stone", "Mog, Moogle Warrior", "Morbid Opportunist", "Mortify", "Night's Whisper", "Nomad Outpost", "Palace Jailer", "Path of Ancestry", "Phoenix Down", "Pitiless Plunderer", "Priest of Fell Rites", "Reanimate", "Rejoin the Fight", "Rise of the Dark Realms", "Rogue's Passage", "Ruin Grinder", "Ruinous Ultimatum", "Rugged Prairie", "Sabin, Master Monk", "Sacred Peaks", "Sepulchral Primordial", "Setzer, Wandering Gambler", "Shadow, Mysterious Assassin", "Shadowblood Ridge", "Shineshadow Snarl", "Siegfried, Famed Swordsman", "Smoldering Marsh", "Snort", "Sol Ring", "Solemn Simulacrum", "Stitch Together", "Stitcher's Supplier", "Strago and Relm", "Sulfurous Springs", "Summon: Esper Valigarmanda", "Sun Titan", "Sunlit Marsh", "Sunscorched Divide", "Swiftfoot Boots", "Talisman of Conviction", "Talisman of Indulgence", "The Falcon, Airship Restored", "The Warring Triad", "Tragic Arrogance", "Umaro, Raging Yeti", "Wayfarer's Bauble"];
+    const BASICS = ['3 Mountain', '4 Plains', '3 Swamp'];
+    const B3 = [['Stitch Together', 'Demonic Tutor'], ['Laughing Mad', 'Vampiric Tutor']];
+    const B2 = B3.concat([["Night's Whisper", 'The One Ring'], ['Solemn Simulacrum', 'Smothering Tithe'], ['Rejoin the Fight', "Teferi's Protection"]]);
+    const swapped = (pairs) => {
+      const m = new Map(pairs.map(([i, o]) => [o, i]));
+      return BOX.map((n) => m.get(n) ?? n).sort((a, b) => a.localeCompare(b));
+    };
+    const names = s.start === 'stock' ? STOCK : s.start === 'b3' ? swapped(B3) : s.start === 'b2' ? swapped(B2) : BOX;
+    const text = 'Commander\n1 Terra, Herald of Hope\n\nDeck\n' + names.map((n) => '1 ' + n).join('\n') + '\n' + BASICS.join('\n');
+    const STOCK_PAIRS = [['Kefka, Dancing Mad', 'Yawgmoth, Thran Physician'], ["Night's Whisper", 'The One Ring'], ['Solemn Simulacrum', 'Smothering Tithe']];
+    const raw = s.start === 'b3' ? B3 : s.start === 'b2' ? B2 : s.start === 'stock' ? STOCK_PAIRS : [];
+    const pairs = raw.map(([i, o]) => ({ inn: i, out: o, inLabel: i + ', full card', outLabel: o + ', full card' }));
+    const starts = [
+      ['box', 'The list in the box', 'Current, saved in Yama'],
+      ['stock', 'Stock', 'The precon as it came'],
+      ['b3', 'Bracket 3', 'The box with the plan’s swap bag'],
+      ['b2', 'Bracket 2', 'The box with the plan’s swap bag']
+    ].map(([v, l, src]) => ({ label: l, src, pressed: s.start === v ? 'true' : 'false', border: s.start === v ? '#f2efe8' : '#2a2e33', pick: () => this.setState({ start: v }) }));
+    const saveOpts = [['box', 'The list in the box'], ['new', 'A new list']].map(([v, l]) => ({ label: l, ...seg(s.save === v), pick: () => this.setState({ save: v }) }));
+    const n = s.start === 'stock' ? '[n]' : String(raw.length);
+    const newName = s.start === 'b3' ? 'Bracket 3' : s.start === 'b2' ? 'Bracket 2' : s.start === 'stock' ? 'Stock copy' : 'New list';
+    return {
+      starts, text, pairs, saveOpts,
+      noChanges: raw.length === 0,
+      changesHead: raw.length === 0 ? 'Changes' : n + (raw.length === 1 ? ' change' : ' changes'),
+      moreLine: s.start === 'stock' ? 'Show all [n]' : '',
+      checkLine: s.start === 'b2' ? '100 cards, Commander-legal, no Game Changers.' : s.start === 'b3' ? '100 cards, Commander-legal, 3 Game Changers.' : '100 cards, Commander-legal.',
+      asNew: s.save === 'new', newName,
+      saveLabel: s.save === 'new' ? 'Save as a new list' : 'Save the list in the box',
+      saveNote: s.save === 'new' ? '' : 'The current list stays in History.'
+    };
+  }
+}
+</script>
+</body>
+</html>

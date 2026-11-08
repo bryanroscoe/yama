@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>At the store</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+input[type="checkbox"]{width:20px;height:20px;accent-color:#f2efe8;margin:0;flex:none}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="width: 390px; height: 1960px; position: relative; background: var(--ground); overflow: hidden;">
+<div style="padding: 16px 16px 100px; display: flex; flex-direction: column; gap: 22px;">
+
+<a href="PhonePlans.dc.html" style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--dim); text-decoration: none; font-size: 14px; align-self: flex-start;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Plans</a>
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.9;">Get the cards</h1>
+
+<div role="group" aria-label="Step" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;">
+<sc-for list="{{steps}}" as="t" hint-placeholder-count="4">
+<button type="button" aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="min-height: 44px; border: 0; border-radius: 999px; font-weight: 700; font-size: 14px; background: {{t.bg}}; color: {{t.fg}};">{{t.label}}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{isBuy}}" hint-placeholder-val="{{true}}">
+<section aria-labelledby="h-store" style="display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; flex-direction: column;">
+<h2 id="h-store" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">Mothership Books and Games</h2>
+<span style="font-size: 14px; color: var(--dim);">{{storeLine}}</span>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<sc-for list="{{buys}}" as="b" hint-placeholder-count="6">
+<label style="display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); font-weight: 400; min-height: 72px; cursor: pointer;">
+<input type="checkbox" checked="{{b.got}}" onChange="{{b.toggle}}">
+<span style="width: 36px; height: 50px; border-radius: 3px; background: var(--raised); flex: none;"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3;"><b style="text-decoration: {{b.strike}};">{{b.card}}</b><span style="font-size: 13px; color: var(--dim);">{{b.printing}}, {{b.cond}}</span><span style="font-size: 13px; color: var(--dim);">for {{b.deck}}</span></span>
+<b>{{b.price}}</b>
+</label>
+</sc-for>
+</div>
+<span style="font-size: 13px; color: var(--dim);">Prices from the store's site on 28 Oct, before tax. A card that's gone: leave it unticked and it stays on the list.</span>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+<span style="display: flex; flex-direction: column; line-height: 1.3;"><b>Pat's Games</b><span style="font-size: 13px; color: var(--dim);">[n] cards, $[n]</span></span>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--raised); color: var(--text); font-weight: 700;">Show</button>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{isPrint}}" hint-placeholder-val="{{false}}">
+<section style="display: flex; flex-direction: column; gap: 12px;">
+<span style="font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1;">[n] cards</span>
+<span>Blight Curse 28, Revival Trance 2, other plans [n]</span>
+<span style="font-size: 14px; color: var(--dim);">Ordering works best on a laptop: the print helper fills in MakePlayingCards for you.</span>
+<a href="GetCards.dc.html" style="display: flex; justify-content: center; align-items: center; min-height: 52px; border-radius: 999px; background: var(--raised); color: var(--text); font-weight: 700; text-decoration: none;">See the print list</a>
+</section>
+</sc-if>
+
+<sc-if value="{{isMove}}" hint-placeholder-val="{{false}}">
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<div style="padding: 12px 14px; display: flex; flex-direction: column; line-height: 1.35;"><b>Cultivate</b><span style="font-size: 14px;">Fantastic Four to Blight Curse</span></div>
+<div style="padding: 12px 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; line-height: 1.35;"><b>Yawgmoth, Thran Physician</b><span style="font-size: 14px;">Revival Trance to Blight Curse</span><span style="font-size: 13px; color: var(--warn);">If you take it</span></div>
+<div style="padding: 12px 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; line-height: 1.35;"><b>Karmic Guide</b><span style="font-size: 14px;">Lorehold Spirit to Revival Trance</span><span style="font-size: 13px; color: var(--dim);">After the Ark of Hunger print</span></div>
+</section>
+</sc-if>
+
+<sc-if value="{{isPut}}" hint-placeholder-val="{{false}}">
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+<b style="font-family: var(--display); font-size: 24px; line-height: 1;">Blight Curse</b>
+<span>{{putLine}}</span>
+<a href="#" style="display: flex; justify-content: center; align-items: center; min-height: 48px; border-radius: 999px; background: var(--raised); color: var(--text); font-weight: 700; text-decoration: none;">Takeout sheet</a>
+</section>
+</sc-if>
+</div>
+
+<nav aria-label="Yama" style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; background: var(--surface); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));">
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Table</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Play</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Cards</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Collection</a>
+<a href="#" aria-current="page" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--text); text-decoration: none;">Decks</a>
+<a href="#" style="display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--dim); text-decoration: none;">Lab</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { got: {}, step: 'buy' };
+  }
+  renderVals() {
+    const s = this.state;
+    const buys = [
+      ['Cankerbloom', 'ONE #294', 'Near Mint', 0.5],
+      ['Farseek', 'MSC #173', 'Near Mint', 0.75],
+      ['Poison-Tip Archer', 'PLST #KHC-90', 'Near Mint', 0.75],
+      ['Rampant Growth', '6ED #246', 'Lightly Played', 0.5],
+      ['Zulaport Cutthroat', 'SOC #233', 'Near Mint', 1.5],
+      ['Scuzzback Scrounger', 'ECL #153', 'Near Mint', 1.0]
+    ];
+    const money = (n) => '$' + n.toFixed(2);
+    const rows = buys.map(([card, printing, cond, p]) => {
+      const got = !!s.got[card];
+      return { card, printing, cond, deck: 'Blight Curse', price: money(p), got, strike: got ? 'line-through' : 'none',
+        toggle: () => this.setState({ got: { ...this.state.got, [card]: !got } }) };
+    });
+    const left = buys.filter((b) => !s.got[b[0]]);
+    const nGot = buys.length - left.length;
+    const steps = [['buy', 'Buy'], ['print', 'Print'], ['move', 'Move'], ['put', 'Put in']].map(([id, label]) => {
+      const on = s.step === id;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#f2efe8' : 'transparent', fg: on ? '#0b0c0e' : '#a9adb3', pick: () => this.setState({ step: id }) };
+    });
+    return {
+      steps, buys: rows,
+      isBuy: s.step === 'buy', isPrint: s.step === 'print', isMove: s.step === 'move', isPut: s.step === 'put',
+      storeLine: nGot ? nGot + ' of 6 bought, ' + money(left.reduce((a, b) => a + b[3], 0)) + ' left' : '6 cards, $5.00 before tax',
+      putLine: nGot ? 'Elvish Mystic and the ' + nGot + ' you just bought' : 'Elvish Mystic, from your collection'
+    };
+  }
+}
+</script>
+</body>
+</html>

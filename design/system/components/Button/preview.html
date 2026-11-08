@@ -1,0 +1,30 @@
+<!-- @dsCard group="Actions" height=200 subtitle="Laptop (36/40 px) and phone (44/52 px) sizes" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body)}
+.wrap{padding:24px;display:flex;flex-direction:column;gap:20px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lab{font-size:13px;color:var(--dim);width:72px}
+.b{font:inherit;font-weight:700;border:1px solid transparent;background:var(--raised);color:var(--text);cursor:pointer}
+.d{height:36px;padding:0 14px;border-radius:10px;font-size:14px}
+.d.primary{height:40px;padding:0 20px;border-radius:999px;font-size:15px}
+.d.sm{height:32px;padding:0 10px;font-size:13px}
+.t{height:44px;padding:0 18px;border-radius:999px;font-size:16px}
+.t.primary{height:52px;padding:0 24px}
+.primary{background:var(--text);color:var(--ground)}
+.outline{background:transparent;border-color:var(--line)}
+.quiet{background:transparent}
+.wait{background:var(--raised);color:var(--dim);cursor:default}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="row"><span class="lab">Laptop</span><button class="b d primary" type="button">Approve plan</button><button class="b d" type="button">Print swap card</button><button class="b d outline" type="button">Copy list</button><button class="b d sm quiet" type="button">Skip</button><button class="b d primary wait" type="button" disabled>Answer 2 questions first</button></div>
+<div class="row"><span class="lab">Phone</span><button class="b t primary" type="button">Approve plan</button><button class="b t" type="button">Print swap card</button><button class="b t quiet" type="button">Skip</button></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!-- @dsCard group="Status" height=100 subtitle="Good, warn, bad, neutral" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body)}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:24px}
+.p{display:inline-block;font-size:13px;font-weight:700;line-height:1.4;padding:2px 10px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.p.good{color:var(--good);background:var(--good-tint);border-color:transparent}
+.p.warn{color:var(--warn);background:var(--warn-tint);border-color:transparent}
+.p.bad{color:var(--bad);background:var(--bad-tint);border-color:transparent}
+</style>
+</head>
+<body>
+<div class="row">
+<span class="p warn">Waiting for your OK</span>
+<span class="p good">In the deck</span>
+<span class="p">Archived</span>
+<span class="p bad">Banned</span>
+</div>
+</body>
+</html>

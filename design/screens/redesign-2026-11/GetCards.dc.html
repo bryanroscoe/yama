@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Get the cards</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+input[type="checkbox"]{width:20px;height:20px;accent-color:#f2efe8;margin:0;flex:none}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+summary{cursor:pointer}
+summary::-webkit-details-marker{display:none}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground);">
+<div style="max-width: 1232px; margin: 0 auto; padding: 32px clamp(16px, 4vw, 56px) 96px; display: flex; flex-direction: column; gap: 40px;">
+
+<header style="display: flex; flex-direction: column; gap: 12px;">
+<nav aria-label="Breadcrumb" style="display: flex; gap: 8px; font-size: 14px; color: var(--dim);"><a href="#" style="color: var(--dim);">Decks</a><span aria-hidden="true">/</span><a href="Main.dc.html" style="color: var(--dim);">Plans</a></nav>
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.9;">Get the cards</h1>
+<p style="margin: 0; color: var(--dim);">Everything your approved plans still need, in the order you'd do it.</p>
+<div role="group" aria-label="Show plans" style="display: flex; gap: 8px; flex-wrap: wrap;">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="5">
+<button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="min-height: 36px; padding: 0 14px; border-radius: 999px; font-weight: 700; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.fg}}; font-size: 14px;">{{c.label}}</button>
+</sc-for>
+</div>
+</header>
+
+<nav aria-label="Steps" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+<a href="#buy" style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 13px; color: var(--dim);">1</span><span style="font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1;">Buy {{buyLeft}}</span><span style="font-size: 14px; color: var(--dim);">{{buyLine}}</span></a>
+<a href="#print" style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 13px; color: var(--dim);">2</span><span style="font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1;">Print {{printN}}</span><span style="font-size: 14px; color: var(--dim);">On the next order</span></a>
+<a href="#move" style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 13px; color: var(--dim);">3</span><span style="font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1;">Move {{moveN}}</span><span style="font-size: 14px; color: var(--dim);">From one deck to another</span></a>
+<a href="#putin" style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; text-decoration: none; color: var(--text); display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 13px; color: var(--dim);">4</span><span style="font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1;">Put in {{putN}}</span><span style="font-size: 14px; color: var(--dim);">In hand, ready to sleeve</span></a>
+</nav>
+
+<section id="buy" aria-labelledby="h-buy" style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-buy" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px;">1. Buy</h2>
+<span style="color: var(--dim);">At the store with the cheapest copy, from its newest stock check. Tick each one as you buy it.</span>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; overflow: hidden;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; flex-wrap: wrap;">
+<span style="display: flex; flex-direction: column;"><b style="font-size: 18px;">Mothership Books and Games</b><span style="font-size: 14px; color: var(--dim);">{{storeLine}}</span></span>
+<a href="PhoneGetCards.dc.html" style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-weight: 700; font-size: 14px;">Open on your phone</a>
+</div>
+<sc-for list="{{buys}}" as="b" hint-placeholder-count="6">
+<label style="display: flex; gap: 14px; align-items: center; padding: 12px 20px; border-top: 1px solid var(--line); flex-wrap: wrap; font-weight: 400; cursor: pointer;">
+<input type="checkbox" checked="{{b.got}}" onChange="{{b.toggle}}">
+<span style="width: 40px; height: 56px; border-radius: 3px; background: var(--raised); flex: none;"></span>
+<span style="flex: 1 1 240px; display: flex; flex-direction: column;"><b style="text-decoration: {{b.strike}};">{{b.card}}</b><span style="font-size: 14px; color: var(--dim);">{{b.printing}}, {{b.cond}}</span></span>
+<span style="flex: 0 1 160px; font-size: 14px;">for {{b.deck}}</span>
+<span style="flex: 0 0 72px; text-align: right; font-weight: 700;">{{b.price}}</span>
+</label>
+</sc-for>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px 20px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+<span style="display: flex; flex-direction: column;"><b style="font-size: 18px;">Pat's Games</b><span style="font-size: 14px; color: var(--dim);">[n] cards for [n] decks, $[n], checked [date]</span></span>
+<button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-weight: 700; font-size: 14px;">Show</button>
+</div>
+<details style="padding: 0 4px;">
+<summary style="min-height: 44px; display: flex; align-items: center; gap: 8px; color: var(--dim);">Not at your stores ([n]) and without a listed price ([n])</summary>
+<p style="margin: 0 0 8px; font-size: 14px; color: var(--dim);">These count toward no total. Print them, or check another store.</p>
+</details>
+</section>
+
+<section id="print" aria-labelledby="h-print" style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-print" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px;">2. Print</h2>
+<span style="color: var(--dim);">One order for every plan.</span>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center;">
+<div style="flex: 1 1 360px; display: flex; flex-direction: column; gap: 8px;">
+<span style="font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1;">{{printN}} cards</span>
+<span>Blight Curse 28, Revival Trance 2 (Demonic and Vampiric Tutor), other plans [n]</span>
+<span style="font-size: 14px; color: var(--dim);">MakePlayingCards' next project size is [n]: [n] free slots. Your print rule fills them with dual lands.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 20px; border-radius: 999px; background: var(--text); color: var(--ground); text-decoration: none; font-weight: 700; font-size: 15px;">Print with MakePlayingCards</a>
+<a href="#" style="font-size: 14px; color: var(--dim);">Download order.xml instead</a>
+</div>
+</div>
+<details style="padding: 0 4px;">
+<summary style="min-height: 44px; display: flex; align-items: center; color: var(--dim);">Ordered and on the way ([n])</summary>
+<p style="margin: 0 0 8px; font-size: 14px; color: var(--dim);">Mark an order arrived and its cards move to Put in.</p>
+</details>
+</section>
+
+<section id="move" aria-labelledby="h-move" style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-move" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px;">3. Move between decks</h2>
+<span style="color: var(--dim);">Cards one plan takes from another deck. Do these when you rebuild both.</span>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; overflow: hidden;">
+<div style="display: flex; gap: 14px; align-items: center; padding: 12px 20px; flex-wrap: wrap;">
+<span style="width: 40px; height: 56px; border-radius: 3px; background: var(--raised); flex: none;"></span>
+<b style="flex: 1 1 220px;">Cultivate</b>
+<span style="flex: 1 1 320px;">Fantastic Four <span style="color: var(--dim);">to</span> Blight Curse</span>
+<span style="font-size: 14px; color: var(--dim);">Ready</span>
+</div>
+<div style="display: flex; gap: 14px; align-items: center; padding: 12px 20px; border-top: 1px solid var(--line); flex-wrap: wrap;">
+<span style="width: 40px; height: 56px; border-radius: 3px; background: var(--raised); flex: none;"></span>
+<b style="flex: 1 1 220px;">Yawgmoth, Thran Physician</b>
+<span style="flex: 1 1 320px;">Revival Trance <span style="color: var(--dim);">to</span> Blight Curse</span>
+<span style="font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">If you take it</span>
+</div>
+<div style="display: flex; gap: 14px; align-items: center; padding: 12px 20px; border-top: 1px solid var(--line); flex-wrap: wrap;">
+<span style="width: 40px; height: 56px; border-radius: 3px; background: var(--raised); flex: none;"></span>
+<b style="flex: 1 1 220px;">Karmic Guide</b>
+<span style="flex: 1 1 320px;">Lorehold Spirit <span style="color: var(--dim);">to</span> Revival Trance</span>
+<span style="font-size: 14px; color: var(--dim);">After the Ark of Hunger print</span>
+</div>
+</div>
+<details style="padding: 0 4px;">
+<summary style="min-height: 44px; display: flex; align-items: center; color: var(--dim);">Spares: out of a deck, in no plan ([n])</summary>
+<p style="margin: 0 0 8px; font-size: 14px; color: var(--dim);">Cards a plan took out that no other plan wants. Keep them for later plans, or sell them.</p>
+</details>
+</section>
+
+<section id="putin" aria-labelledby="h-putin" style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-putin" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px;">4. Put in</h2>
+<span style="color: var(--dim);">Cards you have now, by deck. The takeout sheet says what comes out for each.</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+<b style="font-family: var(--display); font-size: 26px; line-height: 1;">Blight Curse</b>
+<span>{{putLine}}</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+<a href="#" style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 700; font-size: 14px;">Takeout sheet</a>
+<a href="#" style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-weight: 700; font-size: 14px;">Scan when done</a>
+</div>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+<b style="font-family: var(--display); font-size: 26px; line-height: 1;">Other decks</b>
+<span style="color: var(--dim);">[n] cards for [n] decks</span>
+</div>
+</div>
+</section>
+
+<p style="margin: 0; font-size: 14px; color: var(--dim);"><a href="#" style="color: var(--dim);">Your stores and shopping rule</a></p>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2280}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { got: {}, deck: 'all' };
+  }
+  renderVals() {
+    const s = this.state;
+    const buys = [
+      ['Cankerbloom', 'ONE #294', 'Near Mint', 0.5],
+      ['Farseek', 'MSC #173', 'Near Mint', 0.75],
+      ['Poison-Tip Archer', 'PLST #KHC-90', 'Near Mint', 0.75],
+      ['Rampant Growth', '6ED #246', 'Lightly Played', 0.5],
+      ['Zulaport Cutthroat', 'SOC #233', 'Near Mint', 1.5],
+      ['Scuzzback Scrounger', 'ECL #153', 'Near Mint', 1.0]
+    ];
+    const money = (n) => '$' + n.toFixed(2);
+    const rows = buys.map(([card, printing, cond, p]) => {
+      const got = !!s.got[card];
+      return { card, printing, cond, deck: 'Blight Curse', price: money(p), got, strike: got ? 'line-through' : 'none',
+        toggle: () => this.setState({ got: { ...this.state.got, [card]: !got } }) };
+    });
+    const left = buys.filter((b) => !s.got[b[0]]);
+    const leftCost = left.reduce((a, b) => a + b[3], 0);
+    const nGot = buys.length - left.length;
+    const decks = [['all', 'All approved plans'], ['bc', 'Blight Curse'], ['rt', 'Revival Trance'], ['rr', 'Riders of Rohan'], ['more', '4 more']];
+    const chips = decks.map(([id, label]) => {
+      const on = s.deck === id;
+      return { label, pressed: on ? 'true' : 'false', bg: on ? '#f2efe8' : 'transparent', fg: on ? '#0b0c0e' : '#f2efe8', border: on ? '#f2efe8' : '#2a2e33',
+        pick: () => this.setState({ deck: id }) };
+    });
+    return {
+      chips,
+      buys: rows,
+      buyLeft: String(left.length) + (s.deck === 'all' ? ' + [n]' : ''),
+      buyLine: money(leftCost) + ' at Mothership' + (s.deck === 'all' ? ', plus Pat’s' : ''),
+      storeLine: (nGot ? nGot + ' of 6 bought, ' : '6 cards for Blight Curse, ') + money(leftCost) + ' left before tax, checked 28 Oct',
+      printN: s.deck === 'bc' ? '28' : s.deck === 'rt' ? '2' : '[n]',
+      moveN: s.deck === 'all' ? '3' : '[n]',
+      putN: String(1 + nGot),
+      putLine: nGot ? 'Elvish Mystic from your collection, and the ' + nGot + ' you just bought' : 'Elvish Mystic, from your collection'
+    };
+  }
+}
+</script>
+</body>
+</html>

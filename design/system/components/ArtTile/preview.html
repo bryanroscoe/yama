@@ -1,0 +1,34 @@
+<!-- @dsCard group="Decks" height=300 subtitle="Deck tile on commander art, with wash, chip and credit" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--font-body)}
+.wrap{padding:24px;display:flex;gap:16px;flex-wrap:wrap}
+.tile{width:300px;border-radius:20px;overflow:hidden;background:var(--surface);border:1px solid var(--line);text-decoration:none;color:var(--text);display:flex;flex-direction:column}
+.art{position:relative;height:150px;background:var(--raised);display:flex;align-items:flex-end;padding:16px;box-sizing:border-box}
+.ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);font-size:13px}
+.wash{position:absolute;inset:0;background:linear-gradient(180deg,rgb(11 12 14 / .15) 30%,#15171a 100%)}
+.credit{position:absolute;top:10px;right:10px;font-size:10px;padding:2px 8px;border-radius:999px;background:var(--art-chip);color:var(--on-art-dim)}
+.name{position:relative;display:flex;flex-direction:column;gap:2px}
+.name b{font-family:var(--font-display);font-weight:800;font-size:30px;line-height:1}
+.name span{font-size:13px;color:var(--on-art-dim)}
+.body{padding:12px 16px 16px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.p{align-self:flex-start;font-size:13px;font-weight:700;padding:2px 10px;border-radius:999px;color:var(--warn);background:var(--warn-tint)}
+.dim{color:var(--dim)}
+.empty{width:300px;height:226px;border-radius:20px;border:2px dashed var(--line);display:grid;place-items:center;color:var(--dim);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="tile" href="#">
+<div class="art"><span class="ph">Commander art_crop (Scryfall, at runtime)</span><span class="wash"></span><span class="credit">Art: Artist name, © Wizards</span>
+<span class="name"><b>Blight Curse</b><span>Auntie Ool, Cursewretch</span></span></div>
+<div class="body"><span class="p">Waiting for your OK</span><span>38 changes: 6 to buy ($5.00), 28 to print</span><span class="dim">Proposed 28 Oct</span></div>
+</a>
+<div class="empty">No commander yet</div>
+</div>
+</body>
+</html>

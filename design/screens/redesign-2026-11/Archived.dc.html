@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Archived plans</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground);">
+<div style="max-width: 1232px; margin: 0 auto; padding: 32px clamp(16px, 4vw, 56px) 96px; display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start;">
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px;">
+<nav aria-label="Breadcrumb" style="display: flex; gap: 8px; font-size: 14px; color: var(--dim);"><a href="#" style="color: var(--dim);">Decks</a><span aria-hidden="true">/</span><a href="Main.dc.html" style="color: var(--dim);">Plans</a></nav>
+<header style="display: flex; flex-direction: column; gap: 8px;">
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.9;">Archived plans</h1>
+<p style="margin: 0; color: var(--dim);">Kept for reference. They're never a current plan, and nothing in them is on your shopping list.</p>
+</header>
+
+<section aria-labelledby="h-notes" style="display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-notes" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">Research notes (7)</h2>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<sc-for list="{{notes}}" as="n" hint-placeholder-count="7">
+<a href="#" style="display: flex; gap: 16px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--line); text-decoration: none; color: var(--text); flex-wrap: wrap; min-height: 64px;">
+<span style="flex: 1 1 300px; display: flex; flex-direction: column;"><b>{{n.title}}</b><span style="font-size: 14px; color: var(--dim);">{{n.date}}</span></span>
+<span style="flex: 1 1 240px; font-size: 14px;">{{n.what}}</span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+</a>
+</sc-for>
+</div>
+</section>
+
+<section aria-labelledby="h-old" style="display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-old" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">Earlier versions</h2>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<a href="#" style="display: flex; gap: 16px; align-items: center; padding: 14px 16px; text-decoration: none; color: var(--text); flex-wrap: wrap; min-height: 64px;">
+<span style="flex: 1 1 300px; display: flex; flex-direction: column;"><b>Riders of Rohan, version 32</b><span style="font-size: 14px; color: var(--dim);">From commander-decks, 5 Nov</span></span>
+<span style="flex: 1 1 240px; font-size: 14px;">Replaced by version 33 when you approve it</span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+</a>
+<div style="padding: 14px 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px;">Older versions of every plan ([n]), newest first, one line each</div>
+</div>
+</section>
+</main>
+
+<aside aria-label="An archived plan, opened" style="flex: 1 1 360px; max-width: 460px; display: flex; flex-direction: column; gap: 12px;">
+<span style="font-size: 14px; color: var(--dim);">Opening one shows its page as it was, under this banner:</span>
+<div style="border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: var(--surface);">
+<div style="padding: 20px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid var(--line);">
+<span style="align-self: flex-start; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);">Archived</span>
+<b style="font-size: 18px;">Buildable now, 30 Oct</b>
+<span>Archived on [date]: its decks have current plans. Nothing here is on your shopping list.</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 700; font-size: 14px;">Go to Plans</a>
+<button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700; font-size: 14px;">Use a deck from it</button>
+</div>
+<span style="font-size: 13px; color: var(--dim);">Use a deck from it makes that deck's build a new version of its plan, waiting for your OK.</span>
+</div>
+<div style="height: 220px; background: var(--raised); display: grid; place-items: center; color: var(--dim); font-size: 14px;">The note's page, unchanged</div>
+</div>
+</aside>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      notes: [
+        { title: 'Commander deck review', date: '27 Oct, updated 28 Oct', what: 'Folded into the plans for 6 new decks' },
+        { title: 'Playgroup options: lower friction and optimized', date: '28 Oct', what: 'Alternative builds, kept for reference' },
+        { title: 'Pending deck purchases', date: '28 Oct', what: 'Shopping list for decks you were buying' },
+        { title: 'Buildable now', date: '30 Oct', what: 'Replaced by the current plans' },
+        { title: "Upgrades: Forgotten Realms, Baldur's Gate, Final Fantasy", date: '31 Oct', what: "Decks you don't own" },
+        { title: "Upgrades: Forgotten Realms, Baldur's Gate, Final Fantasy (copy)", date: '[date]', what: 'A copy of the one above' },
+        { title: 'Alternatives to shared staples', date: '5 Nov', what: 'Optional swaps, kept for reference' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plans</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+summary::-webkit-details-marker{display:none}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground); display: flex; flex-wrap: wrap;">
+
+<nav aria-label="Yama" style="flex: 1 1 232px; max-width: 232px; min-width: 200px; padding: 24px 16px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--line);">
+<span style="font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: 0.04em; padding: 0 12px 20px;">YAMA</span>
+<a href="#" style="padding: 10px 12px; border-radius: 12px; color: var(--dim); text-decoration: none; font-weight: 700;">Table</a>
+<a href="#" style="padding: 10px 12px; border-radius: 12px; color: var(--dim); text-decoration: none; font-weight: 700;">Play</a>
+<a href="#" style="padding: 10px 12px; border-radius: 12px; color: var(--dim); text-decoration: none; font-weight: 700;">Cards</a>
+<a href="#" style="padding: 10px 12px; border-radius: 12px; color: var(--dim); text-decoration: none; font-weight: 700;">Collection</a>
+<a href="#" aria-current="page" style="padding: 10px 12px; border-radius: 12px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 700;">Decks</a>
+<a href="#" style="padding: 10px 12px; border-radius: 12px; color: var(--dim); text-decoration: none; font-weight: 700;">Lab</a>
+<a href="#" style="padding: 10px 12px; border-radius: 12px; color: var(--dim); text-decoration: none; font-weight: 700;">Group</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0;">
+<div style="max-width: 1120px; margin: 0 auto; padding: 32px clamp(16px, 4vw, 56px) 80px; display: flex; flex-direction: column; gap: 40px;">
+
+<nav aria-label="Decks sections" style="display: flex; gap: 2px; padding: 3px; background: var(--surface); border-radius: 999px; align-self: flex-start; flex-wrap: wrap;">
+<a href="#" style="padding: 10px 18px; border-radius: 999px; color: var(--dim); text-decoration: none; font-weight: 700;">Decks</a>
+<a href="#" style="padding: 10px 18px; border-radius: 999px; color: var(--dim); text-decoration: none; font-weight: 700;">Sharing</a>
+<a href="#" style="padding: 10px 18px; border-radius: 999px; color: var(--dim); text-decoration: none; font-weight: 700;">Swap cards</a>
+<a href="#" aria-current="page" style="padding: 10px 18px; border-radius: 999px; background: var(--text); color: var(--ground); text-decoration: none; font-weight: 700;">Plans</a>
+</nav>
+
+<header style="display: flex; flex-direction: column; gap: 8px;">
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.9;">Plans</h1>
+<p style="margin: 0; color: var(--dim);">One plan per deck: a Bracket 4 build and the swaps back to Bracket 3 and 2.</p>
+</header>
+
+<section aria-labelledby="h-start" style="display: flex; flex-wrap: wrap; gap: 16px;">
+<div style="flex: 2 1 420px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+<div style="width: 112px; height: 80px; border-radius: 12px; background: var(--raised); display: grid; place-items: center; font-size: 11px; color: var(--dim); text-align: center; flex: none;">Auntie Ool art</div>
+<div style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px;">
+<h2 id="h-start" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px; line-height: 1;">Start with Blight Curse</h2>
+<span>Its plan is waiting for your OK: 38 changes, $5.00 to buy, 28 to print.</span>
+</div>
+<a href="ProposedPlan.dc.html" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 20px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; text-decoration: none; font-size: 15px;">Review the plan</a>
+</div>
+<a href="GetCards.dc.html" style="flex: 1 1 260px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: var(--text);">
+<span style="font-family: var(--display); font-weight: 700; font-size: 28px; line-height: 1;">Get the cards</span>
+<span>[n] to buy at 2 stores, [n] to print, [n] to move between decks</span>
+<span style="font-size: 14px; color: var(--dim);">For every plan you've approved</span>
+</a>
+</section>
+
+<section aria-labelledby="h-wait" style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-wait" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 32px;">Waiting for your OK</h2>
+<span style="color: var(--dim);">7 new plans, 3 new versions. Nothing is bought or printed until you approve.</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+<sc-for list="{{waiting}}" as="d" hint-placeholder-count="7">
+<a href="ProposedPlan.dc.html" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; text-decoration: none; color: var(--text);">
+<div style="height: 128px; background: var(--raised); position: relative; display: flex; align-items: flex-end; padding: 16px;">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--dim);">{{d.cmd}} art</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0) 35%, rgb(21 23 26 / 0.95) 100%);"></span>
+<span style="position: absolute; top: 10px; right: 10px; font-size: 10px; padding: 2px 8px; border-radius: 999px; background: rgb(11 12 14 / 0.82); color: #d5d7db;">Art: [artist], © Wizards</span>
+<span style="position: relative; display: flex; flex-direction: column; gap: 2px;">
+<span style="font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1;">{{d.name}}</span>
+<span style="font-size: 13px; color: #d5d7db;">{{d.cmd}}</span>
+</span>
+</div>
+<div style="padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px;">
+<span style="font-weight: 700;">{{d.line}}</span>
+<span style="font-size: 14px;">{{d.get}}</span>
+<span style="font-size: 13px; color: var(--dim);">{{d.from}}</span>
+</div>
+</a>
+</sc-for>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<sc-for list="{{versions}}" as="v" hint-placeholder-count="3">
+<a href="NewVersion.dc.html" style="display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-top: 1px solid var(--line); text-decoration: none; color: var(--text); flex-wrap: wrap; min-height: 64px;">
+<span style="width: 56px; height: 40px; border-radius: 8px; background: var(--raised); flex: none;"></span>
+<span style="flex: 1 1 260px; display: flex; flex-direction: column;"><b>{{v.name}}: a new version</b><span style="font-size: 14px; color: var(--dim);">{{v.line}}</span></span>
+<span style="font-size: 14px; color: var(--dim);">In progress meanwhile</span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+</a>
+</sc-for>
+</div>
+</section>
+
+<section aria-labelledby="h-prog" style="display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-prog" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 32px;">In progress</h2>
+<span style="color: var(--dim);">Approved. Buying, printing and putting cards in.</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+<sc-for list="{{progress}}" as="d" hint-placeholder-count="6">
+<a href="InProgress.dc.html" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; text-decoration: none; color: var(--text);">
+<div style="height: 96px; background: var(--raised); position: relative; display: flex; align-items: flex-end; padding: 14px 16px;">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--dim);">{{d.cmd}} art</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0) 30%, rgb(21 23 26 / 0.95) 100%);"></span>
+<span style="position: relative; font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1;">{{d.name}}</span>
+</div>
+<div style="padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; justify-content: space-between; gap: 12px; font-size: 14px;"><b>{{d.done}}</b><span style="color: var(--dim);">{{d.box}}</span></div>
+<div role="img" aria-label="{{d.done}}" style="height: 6px; border-radius: 999px; background: var(--line); overflow: hidden;"><div style="height: 6px; border-radius: 999px; background: var(--good); width: {{d.pct}};"></div></div>
+<span style="font-size: 14px;">Next: {{d.next}}</span>
+<sc-if value="{{d.newVersion}}" hint-placeholder-val="{{false}}"><span style="align-self: flex-start; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">New version waiting for your OK</span></sc-if>
+</div>
+</a>
+</sc-for>
+</div>
+</section>
+
+<section aria-labelledby="h-done" style="display: flex; flex-direction: column; gap: 12px;">
+<h2 id="h-done" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 32px;">Done</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 12px;">
+<a href="InProgress.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 8px 18px 8px 8px; min-height: 40px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); text-decoration: none; color: var(--text);"><span style="width: 36px; height: 36px; border-radius: 999px; background: var(--raised);"></span><b>Tricky Terrain</b><span style="color: var(--good); font-size: 14px;">All 37 in</span></a>
+</div>
+</section>
+
+<section aria-labelledby="h-later" style="display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
+<h2 id="h-later" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 32px;">No plan yet</h2>
+<span style="color: var(--dim);">Decks you don't have yet. Ask for a plan once one arrives.</span>
+</div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<sc-for list="{{later}}" as="d" hint-placeholder-count="6">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; min-height: 40px;">
+<b>{{d.name}}</b>
+<span style="color: var(--dim); font-size: 14px;">{{d.why}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="Archived plans" style="border-top: 1px solid var(--line); padding-top: 16px;">
+<a href="Archived.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; text-decoration: none; color: var(--text); flex-wrap: wrap;"><b>Archived plans (7)</b><span style="color: var(--dim);">Older notes and alternatives, kept for reference. None of them is a current plan.</span></a>
+</section>
+
+<p style="margin: 0; font-size: 14px; color: var(--dim);"><a href="#" style="color: var(--dim);">Shopping rules and stores</a> <span aria-hidden="true">  </span> <a href="#" style="color: var(--dim);">Connect your assistant</a> <span aria-hidden="true">  </span> <a href="#" style="color: var(--dim);">Import a plan file</a></p>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const review = 'Proposed 28 Oct from the commander review';
+    return {
+      waiting: [
+        { name: 'Blight Curse', cmd: 'Auntie Ool, Cursewretch', line: '38 changes', get: 'Have 1, from other decks 3, buy 6 ($5.00), print 28', from: review },
+        { name: 'Living Energy', cmd: 'Saheeli, Radiant Creator', line: '41 changes', get: 'Have 2, from other decks 1, buy 6 ($6.50), print 32', from: review },
+        { name: 'Ahoy Mateys', cmd: 'Admiral Brass, Unsinkable', line: '40 changes', get: 'From other decks 1, buy 3 ($2.50), print 36', from: review },
+        { name: 'Eternal Might', cmd: "Temmet, Naktamun's Will", line: '41 changes', get: 'From other decks 1, buy 1 ($1.25), print 39', from: review },
+        { name: 'Scions & Spellcraft', cmd: "Y'shtola, Night's Blessed", line: '45 changes', get: 'From other decks 1, buy 8 ($10.50), print 35', from: review },
+        { name: 'Token Triumph', cmd: 'Emmara, Soul of the Accord', line: '47 changes', get: 'Have 1, from other decks 2, buy 8 ($6.50), print 36', from: review },
+        { name: 'Multiverse Reforged', cmd: 'Jace, Multiverse Architect', line: '30 changes', get: 'Have 9, buy 11 ([n]), print 10', from: 'Proposed 18 Oct in your plan file' }
+      ],
+      versions: [
+        { name: 'Riders of Rohan', line: 'Adds 10 changes: flyer defence and three of your ideas' },
+        { name: 'World Shaper', line: 'Adds 1 change: Casualties of War for Scouring Swarm' },
+        { name: 'Prismari Artistry', line: 'Adds 1 change: Propaganda for Volcanic Salvo' }
+      ],
+      progress: [
+        { name: 'Revival Trance', cmd: 'Terra', done: '39 of 42 in', box: 'Bracket 4 in the box', pct: '93%', next: 'settle Karmic Guide', newVersion: false },
+        { name: 'Riders of Rohan', cmd: 'Éowyn', done: '39 of 46 in', box: 'Bracket 4 in the box', pct: '85%', next: 'OK the new version', newVersion: true },
+        { name: 'Prismari Artistry', cmd: 'Rootha', done: '33 of 41 in', box: 'Bracket 4 in the box', pct: '80%', next: 'OK the new version', newVersion: true },
+        { name: 'World Shaper', cmd: 'Hearthhull', done: '31 of 36 in', box: 'Bracket 4 in the box', pct: '86%', next: 'OK the new version', newVersion: true },
+        { name: 'Lorehold Spirit', cmd: 'Quintorius', done: '33 of 35 in', box: 'Bracket 2 in the box', pct: '94%', next: 'the Ark of Hunger print', newVersion: false },
+        { name: 'Fantastic Four', cmd: 'Mister Fantastic', done: '[n] of 38 in', box: 'Bracket 3 at most', pct: '0%', next: '[next step]', newVersion: false }
+      ],
+      later: [
+        { name: 'Counter Blitz', why: 'Not bought yet' },
+        { name: 'Limit Break', why: 'Not bought yet' },
+        { name: 'Federation Fleet', why: 'Pre-ordered, out about 13 Nov' },
+        { name: 'Klingon Fury', why: 'Pre-ordered, out about 13 Nov' },
+        { name: 'We Are the Borg', why: 'Pre-ordered, out about 13 Nov' },
+        { name: 'Landing Party', why: 'Pre-ordered, out about 13 Nov' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Menus and controls</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground);">
+<div style="max-width: 1232px; margin: 0 auto; padding: 48px clamp(16px, 4vw, 56px) 96px; display: flex; flex-direction: column; gap: 24px;">
+<header style="display: flex; flex-direction: column; gap: 8px;">
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.9;">Menus and controls</h1>
+<p style="margin: 0; color: var(--dim); max-width: 760px;">Every menu, select, sheet and switch on the deck page and its pages, as it is today and as it should be. House rules: a menu holds at most about 7 actions of one kind; destructive actions last and apart; 2 to 5 choices are a segmented control or buttons; long pickers search; items sit on one 44 px grid with 12 to 16 px padding. Line numbers are in AUDIT.md.</p>
+</header>
+
+<h2 style="margin: 16px 0 0; font-family: var(--display); font-weight: 700; font-size: 36px;">Third pass: density and page structure (Bryan, 8 Nov)</h2>
+<p style="margin: 0; color: var(--dim); max-width: 760px;">On a laptop: controls 36 px, the primary 40 px, row actions 32 px, secondaries with 10 px corners. Phones keep 44 px. Rows A to F supersede rows 1 to 5 below where they differ.</p>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">A. Button size on a laptop</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">48 to 56 px pills everywhere, at phone size. A few in a row fill the hero and wrap.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">The primary is a 40 px pill. Secondaries are 36 px with 10 px corners and a 16 px icon. Row actions (Show all, collapse, Skip) are 32 px. Segmented controls are 36 px tracks.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today</span>
+<span style="display: flex; gap: 8px; flex-wrap: wrap;"><span style="display: inline-flex; align-items: center; height: 52px; padding: 0 28px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Play</span><span style="display: inline-flex; align-items: center; height: 48px; padding: 0 20px; border-radius: 999px; border: 1px solid rgb(255 255 255 / 0.3); font-weight: 700;">Sample hand</span><span style="display: inline-flex; align-items: center; height: 48px; padding: 0 20px; border-radius: 999px; border: 1px solid rgb(255 255 255 / 0.3); font-weight: 700;">Update from a list</span></span>
+<span style="font-size: 13px; color: var(--dim);">New</span>
+<span style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;"><span style="display: inline-flex; align-items: center; height: 40px; padding: 0 22px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Play</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">Sample hand</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">Edit list</span><span style="display: inline-flex; align-items: center; height: 32px; padding: 0 10px; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: underline;">Show all 33</span></span>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">B. The deck's actions: an ActionBar</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Play, Sample hand, Update from a list and Share as big pills, then a full-width More bar that opens inline into two more rows of 10 pills and pushes the page down.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;"><b>Fourth pass (Bryan: what people use most).</b> Edit list is the primary; Check cards opens a choice (check the box, scan it as the list, compare with my collection); Share; More floats with Play, Sample hand, Copy or export, Send to Mythic Tools, Add to collection, History, Deck settings, Ask Claude, then Delete in red. Both menus are shown open here.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today</span>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 12px; border: 1px dashed var(--line);">
+<span style="display: flex; gap: 6px;"><span style="height: 26px; width: 60px; border-radius: 999px; background: var(--text);"></span><span style="height: 26px; width: 90px; border-radius: 999px; border: 1px solid var(--dim);"></span><span style="height: 26px; width: 120px; border-radius: 999px; border: 1px solid var(--dim);"></span><span style="height: 26px; width: 60px; border-radius: 999px; border: 1px solid var(--dim);"></span></span>
+<span style="display: flex; justify-content: center; align-items: center; height: 26px; border-radius: 999px; border: 1px solid var(--dim); font-size: 12px;">More</span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="height: 22px; width: 90px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 80px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 80px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 110px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 60px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 130px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 60px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 120px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 80px; border-radius: 999px; border: 1px solid var(--line);"></span><span style="height: 22px; width: 90px; border-radius: 999px; border: 1px solid var(--bad);"></span></span>
+</div>
+<span style="font-size: 13px; color: var(--dim);">New</span>
+<div style="position: relative; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-height: 380px; align-content: flex-start;">
+<span style="display: inline-flex; align-items: center; height: 40px; padding: 0 22px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Edit list</span>
+<span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">Check cards</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">Share</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">More</span>
+<div style="position: absolute; top: 48px; right: 0; width: 220px; padding: 6px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 32px rgb(0 0 0 / 0.5); display: flex; flex-direction: column; font-size: 14px;"><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Play</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Sample hand</span><span style="margin: 4px 0; border-top: 1px solid var(--line);"></span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Copy or export</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Send to Mythic Tools</span><span style="margin: 4px 0; border-top: 1px solid var(--line);"></span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Add to collection</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">History</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Deck settings</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Ask Claude</span><span style="margin: 4px 0; border-top: 1px solid var(--line);"></span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px; color: var(--bad);">Delete deck</span></div>
+<div style="position: absolute; top: 48px; left: 70px; width: 250px; padding: 6px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 32px rgb(0 0 0 / 0.5); display: flex; flex-direction: column; font-size: 14px;"><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Check the box against the list</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Scan the box as the list</span><span style="height: 32px; display: flex; align-items: center; padding: 0 10px;">Compare with my collection</span></div>
+</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">C. Which list, and at which bracket: one picker</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">A row of pills on the art (Current, Stock, Bracket 2, Bracket 3, Bracket 4), plus an Older snapshots fold. My first passes added a second switch, Play it at.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">One 36 px picker, "List: Current, Bracket 4". Its menu groups the list in the box, the same list at Bracket 3 or 2 with the swap bag, saved lists and older snapshots (six or more choices, so a picker, not a segmented control). It searches once there are more than eight.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today</span>
+<span style="display: flex; gap: 6px; flex-wrap: wrap;"><span style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Current</span><span style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--dim); font-weight: 700;">Stock</span><span style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--dim); font-weight: 700;">Bracket 2</span><span style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--dim); font-weight: 700;">Bracket 3</span><span style="display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--dim); font-weight: 700;">Bracket 4</span></span>
+<span style="font-size: 13px; color: var(--dim);">New</span>
+<span style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 14px; font-weight: 700;">List</span><span style="display: inline-flex; align-items: center; justify-content: space-between; width: 230px; height: 36px; padding: 0 12px 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; font-weight: 700;">Current, Bracket 4<span aria-hidden="true">&#8964;</span></span></span>
+<div style="width: 300px; margin-left: 40px; padding: 6px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 32px rgb(0 0 0 / 0.5); display: flex; flex-direction: column; font-size: 14px;">
+<span style="padding: 4px 10px 2px; font-size: 12px; color: var(--dim);">In the box</span>
+<span style="display: flex; justify-content: space-between; align-items: center; height: 32px; padding: 0 10px; border-radius: 6px; background: var(--raised);"><span>Current, Bracket 4</span><span style="font-size: 12px; color: var(--dim);">The list in your box</span></span>
+<span style="padding: 6px 10px 2px; font-size: 12px; color: var(--dim); border-top: 1px solid var(--line);">Play it at, with the swap bag</span>
+<span style="display: flex; justify-content: space-between; align-items: center; height: 32px; padding: 0 10px;"><span>Current, Bracket 3</span><span style="font-size: 12px; color: var(--dim);">2 swaps</span></span>
+<span style="display: flex; justify-content: space-between; align-items: center; height: 32px; padding: 0 10px;"><span>Current, Bracket 2</span><span style="font-size: 12px; color: var(--dim);">5 swaps</span></span>
+<span style="padding: 6px 10px 2px; font-size: 12px; color: var(--dim); border-top: 1px solid var(--line);">Saved lists</span>
+<span style="display: flex; align-items: center; height: 32px; padding: 0 10px;">Stock</span>
+</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">D. Sections, not disclosures</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Under the cards, a long column of folds and panels: Market value and card inventory, legality, Game Changers, Reserve List, Online support, Bracket (with three more folds inside), Results, Deck stats (two more folds), Art credits.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Section tabs under the header, sticky as you scroll: Cards, Stats, Plan, History, each a real subpage with its content open. Bracket facts sit beside the cards; curve, colors, themes, combos and online play on Stats; the plan and ideas on Plan; earlier lists and games on History.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today</span>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<span style="display: flex; justify-content: space-between; height: 36px; align-items: center; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;">Market value and card inventory<span>&#8964;</span></span>
+<span style="display: flex; justify-content: space-between; height: 36px; align-items: center; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;">Why this suggestion?<span>&#8964;</span></span>
+<span style="display: flex; justify-content: space-between; height: 36px; align-items: center; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;">How the power estimate adds up<span>&#8964;</span></span>
+<span style="display: flex; justify-content: space-between; height: 36px; align-items: center; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;">How Commander brackets work<span>&#8964;</span></span>
+<span style="display: flex; justify-content: space-between; height: 36px; align-items: center; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;">How these stats are counted<span>&#8964;</span></span>
+<span style="display: flex; justify-content: space-between; height: 36px; align-items: center; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;">Art credits and price source<span>&#8964;</span></span>
+</div>
+<span style="font-size: 13px; color: var(--dim);">New</span>
+<span style="display: flex; gap: 28px; border-bottom: 1px solid var(--line);"><span style="display: inline-flex; align-items: center; gap: 6px; height: 44px; border-bottom: 2px solid var(--text); font-weight: 700;">Cards <span style="font-weight: 400; font-size: 13px; color: var(--dim);">100</span></span><span style="display: inline-flex; align-items: center; height: 44px; color: var(--dim); font-weight: 700;">Stats</span><span style="display: inline-flex; align-items: center; gap: 6px; height: 44px; color: var(--dim); font-weight: 700;">Plan <span style="font-weight: 400; font-size: 13px;">[n] of 42 in</span></span><span style="display: inline-flex; align-items: center; gap: 6px; height: 44px; color: var(--dim); font-weight: 700;">History <span style="font-weight: 400; font-size: 13px;">3 lists</span></span></span>
+<span style="font-size: 13px; color: var(--dim);">One method fold at most per section (for example "How brackets work" as a link to a help sheet).</span>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">E. A compact hero</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">A 96 px title, the stats and every action stacked over the art: the cards start below the first screen.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">About 220 px: the title at 60 px with the commander and one status line on the left, the three stat tiles on the right, a left-to-right wash. Actions and the list picker sit in one row under it, then the tabs.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today (scaled)</span>
+<div style="height: 180px; border-radius: 10px; background: var(--raised); display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; padding: 12px;"><span style="font-family: var(--display); font-weight: 800; font-size: 48px; line-height: 0.85;">Revival Trance</span><span style="display: flex; gap: 6px;"><span style="height: 18px; width: 50px; border-radius: 999px; background: var(--text);"></span><span style="height: 18px; width: 70px; border-radius: 999px; border: 1px solid var(--dim);"></span><span style="height: 18px; width: 90px; border-radius: 999px; border: 1px solid var(--dim);"></span></span><span style="height: 18px; border-radius: 999px; border: 1px solid var(--dim);"></span></div>
+<span style="font-size: 13px; color: var(--dim);">New (scaled)</span>
+<div style="height: 90px; border-radius: 10px; background: var(--raised); display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; padding: 10px;"><span style="font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 0.9;">Revival Trance</span><span style="display: flex; gap: 4px;"><span style="width: 56px; height: 40px; border-radius: 8px; background: rgb(11 12 14 / 0.82);"></span><span style="width: 56px; height: 40px; border-radius: 8px; background: rgb(11 12 14 / 0.82);"></span><span style="width: 56px; height: 40px; border-radius: 8px; background: rgb(11 12 14 / 0.82);"></span></span></div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">F. Nothing touches</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Review changes, Copy list and Reset sit flush against the bottom of the list box on the edit page.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Every action row sits at least 16 px (stack-gap) below what's above it, laid out with gap, never margins that can collapse; sections are 32 px apart. On Edit the list, Paste, Choose a file, From another site and Reset sit 16 px under the box; review and save live in their own panel.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today</span>
+<div style="display: flex; flex-direction: column;"><span style="height: 70px; border-radius: 10px 10px 0 0; border: 1px solid var(--line); background: var(--surface);"></span><span style="display: flex; gap: 6px;"><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 999px; background: var(--text); color: var(--ground); font-size: 14px; font-weight: 700;">Review changes</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--dim); font-size: 14px; font-weight: 700;">Copy list</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; font-size: 14px; font-weight: 700;">Reset</span></span></div>
+<span style="font-size: 13px; color: var(--dim);">New</span>
+<div style="display: flex; flex-direction: column; gap: 16px;"><span style="height: 70px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface);"></span><span style="display: flex; gap: 8px;"><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">Paste</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-size: 14px; font-weight: 700;">Choose a file</span><span style="display: inline-flex; align-items: center; height: 32px; padding: 0 10px; font-size: 14px; font-weight: 700;">Reset to the start list</span></span></div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">G. No micro copy</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today and my earlier passes</span>
+<p style="margin: 0; color: var(--dim);">Hint lines under options, fields, headings and buttons; verdict sentences over charts; footnotes under every panel.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Labels, headings and buttons only. Sources stay as a short date beside what they qualify. Anything more sits behind one "?" per section (Why this bracket, Mana curve, Color balance, Themes). A destructive or overwriting action keeps one short consequence line.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 13px; color: var(--dim);">Today</span>
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line);"><b>Anyone with the link</b><span style="font-size: 13px; color: var(--dim);">Friends you send the link to can see the list and download it. It isn't listed anywhere.</span></div>
+<span style="font-size: 13px; color: var(--dim);">New</span>
+<div style="display: flex; align-items: center; gap: 8px;"><b style="font-size: 14px;">Who can see it</b><span style="width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); display: inline-grid; place-items: center; color: var(--dim); font-size: 14px; font-weight: 700;">?</span></div>
+<div style="display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--text);"><b>Anyone with the link</b></div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">H. The Plan tab is the deck's plan hub</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">A "Plan:" link in the status row, only for a tracked plan.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Current plan (state, n of N in, next step, what's left as card pairs, Open the plan), Up next (plans waiting for OK for this deck, each with Review), Ideas, then one Earlier line to archived plans.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 16px; background: var(--ground); font-size: 14px;">
+<span style="display: flex; justify-content: space-between; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 10px; background: var(--surface);"><b>Current plan</b><span style="color: var(--good);">In progress, [n] of [n] in</span></span>
+<span style="display: flex; justify-content: space-between; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 10px; background: var(--surface);"><b>Up next</b><span style="color: var(--warn);">[n] waiting for your OK</span></span>
+<span style="display: flex; align-items: center; min-height: 32px; padding: 0 12px; text-decoration: underline;">Earlier: [n] archived plans</span>
+</div>
+</section>
+
+<h2 style="margin: 16px 0 0; font-family: var(--display); font-weight: 700; font-size: 36px;">First and second pass</h2>
+
+<!-- 1 More -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">1. More, on the deck page</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">A fold in the hero with 10 pills in a wrapping row: Deck settings, Scan cards, Check cards, Add to collection, Export, Send to Mythic Tools, History, New configuration, Ask Claude, Delete deck. Opening it widens to the full row and pushes the hero down. Delete is a red pill among the others.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;"><b>Superseded by row B.</b> A floating menu, no group labels, hairlines between groups, Delete last.</p>
+</div>
+<div style="display: flex; justify-content: center; align-items: flex-start; padding: 16px; border-radius: 16px; background: var(--ground);">
+<div role="menu" aria-label="More, new" style="width: 260px; padding: 6px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 32px rgb(0 0 0 / 0.5); display: flex; flex-direction: column;">
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Play</span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Sample hand</span>
+<span style="margin: 6px 12px; border-top: 1px solid var(--line);"></span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Copy or export</span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Send to Mythic Tools</span>
+<span style="margin: 6px 12px; border-top: 1px solid var(--line);"></span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Add to collection</span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">History</span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Deck settings</span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Ask Claude</span>
+<span style="margin: 6px 12px; border-top: 1px solid var(--line);"></span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; color: var(--bad);">Delete deck</span>
+</div>
+</div>
+</section>
+
+<!-- 2 Phone action areas -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">2. Actions on a phone</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Three places: a row with Update from a list, Share and More (the same 10 items, stretched under the row with negative margins); a sticky bar with Sample hand and "Play this deck"; and the plan link between them.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Edit list across the width, then Check cards, Share and More (a bottom sheet), then the List picker. The same tabs as the laptop follow: Cards, Stats, Plan, History.</p>
+</div>
+<div style="display: flex; justify-content: center; align-items: center; padding: 16px; border-radius: 16px; background: var(--ground);">
+<div style="width: 358px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;"><span style="grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; min-height: 52px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Edit list</span><span style="display: flex; justify-content: center; align-items: center; min-height: 44px; border-radius: 10px; background: var(--raised); font-weight: 700;">Check cards</span><span style="display: flex; justify-content: center; align-items: center; min-height: 44px; border-radius: 10px; background: var(--raised); font-weight: 700;">Share</span><span style="display: flex; justify-content: center; align-items: center; min-height: 44px; border-radius: 10px; background: var(--raised); font-weight: 700;">More</span><span style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 700;">Current, Bracket 4<span aria-hidden="true">&#8964;</span></span></div>
+</div>
+</section>
+
+<!-- 3 List switch -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">3. Which list (configurations)</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Links styled as pills inside the hero, plus an "Older snapshots" fold that opens inside the art. Putting another list in the box is a different panel on the other list's page ("Use this as the current list", then "Put it in").</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;"><b>Superseded by row C.</b> A segmented control for the main lists (Current, Stock, and up to three named builds), and an Older lists menu for snapshots. On any other list the bar says "A saved list, not the one in your box" with "Put this list in the box". The word "configuration" goes; people see "list".</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="font-size: 14px; font-weight: 700;">List</span>
+<span style="display: inline-flex; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 18px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Current</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 18px; border-radius: 999px; color: var(--dim); font-weight: 700;">Stock</span></span>
+<span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; color: var(--dim); font-weight: 700;">Older lists</span>
+</div>
+<div style="width: 300px; margin-left: 150px; padding: 8px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 48px rgb(0 0 0 / 0.6); display: flex; flex-direction: column;">
+<span style="display: flex; flex-direction: column; justify-content: center; min-height: 40px; padding: 4px 12px;"><span>Now</span><span style="font-size: 13px; color: var(--dim);">Snapshot before the prints, saved [date]</span></span>
+<span style="display: flex; flex-direction: column; justify-content: center; min-height: 40px; padding: 4px 12px;"><span>After prints</span><span style="font-size: 13px; color: var(--dim);">Snapshot, saved [date]</span></span>
+<span style="margin: 6px 12px; border-top: 1px solid var(--line);"></span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px;">Save a copy as a new list</span>
+</div>
+</div>
+</section>
+
+<!-- 4 Bracket -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">4. Bracket</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">No way to play a deck at a lower bracket from its page: the swap bag lives on the plan or on Swap cards. Declaring a bracket opens the whole Edit deck sheet to change a 6-option select.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;"><b>The bracket half is now in row C's picker.</b> Two controls, two meanings. "Play it at" shows the list at Bracket 4, 3 or 2 using the plan's swap bag, with each swap as two card pictures and Print swap cards; it changes nothing saved. "You tell the table" (side column) declares the bracket in one tap.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="font-size: 14px; font-weight: 700;">Play it at</span>
+<span style="display: inline-flex; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; color: var(--dim); font-weight: 700;">Bracket 4</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Bracket 3</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; color: var(--dim); font-weight: 700;">Bracket 2</span></span>
+</div>
+<div style="display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line);">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><span style="width: 52px; height: 72px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 10px; color: var(--dim);">In</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 52px; height: 72px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 10px; color: var(--dim);">Out</span></span>
+<span style="display: flex; flex-direction: column;"><b>Stitch Together</b><span style="font-size: 14px; color: var(--dim);">replaces Demonic Tutor</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 14px; font-weight: 700;">You tell the table</span>
+<span style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 300px; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: flex; justify-content: center; align-items: center; min-height: 36px; color: var(--dim); font-weight: 700;">1</span><span style="display: flex; justify-content: center; align-items: center; min-height: 36px; color: var(--dim); font-weight: 700;">2</span><span style="display: flex; justify-content: center; align-items: center; min-height: 36px; color: var(--dim); font-weight: 700;">3</span><span style="display: flex; justify-content: center; align-items: center; min-height: 36px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">4</span><span style="display: flex; justify-content: center; align-items: center; min-height: 36px; color: var(--dim); font-weight: 700;">5</span></span>
+</div>
+</div>
+</section>
+
+<!-- 5 and 6 Show and view -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">5. Show and view as</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">"Whole deck / Still need N" (tabs markup, hidden in two views) beside "Stacks / List / Prices / Text". Prices then adds its own "Whole deck / Proxies / Real cards / Still need" tabs. Text is an editor.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">One filter for every view, with counts: Whole deck, Still need, Proxies. Three views: Pictures (today's Stacks), List, Table (prices and printings). Group by (Type, Mana value, None) and Sort (Mana value, Name, Price) sit beside them, all visible, with the total and Copy. Text moves to Edit the list. All are pressed-button groups, not tabs.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Whole deck 100</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Still need 0</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Proxies 25</span></span>
+<span style="display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Pictures</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">List</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Table</span></span>
+<span style="display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Mana value</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Name</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Price</span></span>
+</div>
+</section>
+
+<!-- 7 Prices tools -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">6. The Prices view's tools (Leave out moves to Table)</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Three rows before the first card: Leave out (a chip per group), the four price tabs (each hides when empty, so the row changes shape), then Sort and Copy as text.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">One summary line and one row of three buttons. Leave out opens a short checklist of the deck's groups; the button says what's left out. The deck page's filter replaces the four tabs.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="display: flex; gap: 8px; flex-wrap: wrap;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--text); font-weight: 700;">Leave out: Lands</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 700;">Priciest first</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 700;">Copy as text</span></span>
+<div style="width: 260px; padding: 8px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 16px 48px rgb(0 0 0 / 0.6); display: flex; flex-direction: column;">
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 12px;"><input type="checkbox" style="width: 20px; height: 20px; margin: 0;">Creatures</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 12px;"><input type="checkbox" style="width: 20px; height: 20px; margin: 0;">Instants and sorceries</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 12px;"><input type="checkbox" style="width: 20px; height: 20px; margin: 0;">Artifacts and enchantments</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 12px;"><input type="checkbox" checked="{{true}}" style="width: 20px; height: 20px; margin: 0;">Lands</label>
+</div>
+</div>
+</section>
+
+<!-- 8 Settings sheet -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">7. Deck settings becomes "Name, box and ownership"</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">The "Edit deck" sheet: name, an ownership select (3), a bracket select (6), "Configuration of" (every main deck), configuration name, "Collection box" (every container, "Name (kind)"), the whole list in a textarea, "What changed", then Save beside Delete.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Facts about the deck only. Ownership is three buttons. The box and "a list of" are pickers that search. The bracket moves to the side column; the list moves to Edit the list; Delete stays in More only.</p>
+</div>
+<div style="display: flex; justify-content: center; padding: 16px; border-radius: 16px; background: var(--ground);">
+<form style="width: 440px; padding: 24px; border-radius: 24px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; justify-content: space-between; align-items: center;"><h3 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">Name, box and ownership</h3><button type="button" style="min-height: 36px; padding: 8px 12px; border: 0; background: transparent; color: var(--text); font-weight: 700;">Close</button></div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700;">Name<input value="Revival Trance" style="min-height: 36px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font: inherit; font-weight: 400;"></label>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<span style="font-size: 14px; font-weight: 700;">This deck is</span>
+<div role="group" aria-label="Ownership" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 3px; gap: 2px; background: var(--ground); border-radius: 999px;">
+<sc-for list="{{own}}" as="o" hint-placeholder-count="3">
+<button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="min-height: 36px; border: 0; border-radius: 999px; font-weight: 700; background: {{o.bg}}; color: {{o.fg}};">{{o.label}}</button>
+</sc-for>
+</div>
+<span style="font-size: 13px; color: var(--dim);">{{ownLine}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<span style="font-size: 14px; font-weight: 700;">Deck box in your collection</span>
+<button type="button" style="display: flex; justify-content: space-between; align-items: center; min-height: 36px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--ground); color: var(--text); text-align: left;"><span>Revival Trance</span><span style="font-size: 14px; color: var(--dim);">Change</span></button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<span style="font-size: 14px; font-weight: 700;">Show it</span>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px;"><input type="radio" name="kind" checked="{{true}}" style="width: 20px; height: 20px; margin: 0;">As its own deck</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px;"><input type="radio" name="kind" style="width: 20px; height: 20px; margin: 0;">As a list of another deck</label>
+</div>
+<div style="display: flex; gap: 8px;"><button type="button" style="min-height: 40px; padding: 0 22px; border-radius: 999px; border: 0; background: var(--text); color: var(--ground); font-weight: 700;">Save</button><button type="button" style="min-height: 40px; padding: 8px 20px; border-radius: 999px; border: 0; background: transparent; color: var(--text); font-weight: 700;">Cancel</button></div>
+</form>
+</div>
+</section>
+
+<!-- 9 Start from -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">8. Update from a list: Start from</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">A native select holding every build: Current, Stock, every snapshot, every plan bracket build and every research build, each written "label — source sentence".</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Four choices as buttons, the source on its own line under each. Everything else is behind "Another list", a sheet that searches snapshots, earlier versions and research builds.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 14px; font-weight: 700;">Start from</span>
+<sc-for list="{{starts}}" as="o" hint-placeholder-count="4">
+<button type="button" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}" style="display: flex; flex-direction: column; align-items: flex-start; min-height: 48px; padding: 6px 14px; border-radius: 10px; border: 1px solid {{o.border}}; background: var(--surface); color: var(--text); text-align: left;"><b>{{o.label}}</b><span style="font-size: 13px; color: var(--dim);">{{o.src}}</span></button>
+</sc-for>
+<button type="button" style="align-self: flex-start; min-height: 36px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700;">Another list</button>
+</div>
+</section>
+
+<!-- 10 Check against -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">9. Check the box: Check against</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">A select with groups: This deck, Earlier versions (every saved version), Plan, and "Plan: title" for each research note.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">The three checks people make, as a segmented control: the list in the box, or the box at Bracket 3 or 2. "Another list" opens the same search sheet as row 8.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 14px; font-weight: 700;">Check against</span>
+<span style="display: inline-flex; align-self: flex-start; flex-wrap: wrap; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">The list in the box</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Bracket 3</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">Bracket 2</span></span>
+<span style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 700;">Another list</span>
+</div>
+</section>
+
+<!-- 11 History -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">10. History becomes "Earlier lists"</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">Two unlabeled radio columns (from, to) on every version, with Restore this list on the same row and the diff below as names.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">Pick one version; it's compared with the list now, each change as a pair of card pictures. "Put this list back" under the changes. Comparing two old versions is a link at the end.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 6px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--text);"><span style="display: flex; flex-direction: column;"><b>[note], [date]</b><span style="font-size: 13px; color: var(--dim);">[n] changes from now</span></span><span style="font-size: 14px; font-weight: 700;">Selected</span></span>
+<span style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 6px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line);"><span style="display: flex; flex-direction: column;"><b>Scan saved in History, [date]</b><span style="font-size: 13px; color: var(--dim);">[n] changes from now</span></span></span>
+<span style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 6px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line);"><span style="display: flex; flex-direction: column;"><b>First version, [date]</b><span style="font-size: 13px; color: var(--dim);">[n] changes from now</span></span></span>
+<span style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-weight: 700;">Put this list back</span>
+</div>
+</section>
+
+<!-- 12 Collection -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">11. Add the cards to my collection</h2>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim);">Today</span>
+<p style="margin: 0; color: var(--dim);">"Which cards are printed proxies?" with one checkbox per missing card: up to 99 rows in a sheet, then three same-printing radios.</p>
+<span style="font-size: 13px; font-weight: 700; color: var(--dim); padding-top: 8px;">What changed</span>
+<p style="margin: 0;">One question first, as two buttons. Only "Some are proxies" opens the checklist, with a search box and, for a deck with a plan, "Mark the plan's prints" (new: needs the plan's print list on this sheet).</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 14px; font-weight: 700;">Are any of these printed proxies?</span>
+<span style="display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; background: var(--surface); border-radius: 999px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; color: var(--dim); font-weight: 700;">All real copies</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Some are proxies</span></span>
+<span style="display: flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); color: var(--dim);">Find a card</span>
+<span style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 700;">Mark the plan's prints</span>
+</div>
+</section>
+
+<!-- 13 small ones -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line);">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 28px;">12. The small ones</h2>
+<p style="margin: 0;"><b>Send to Mythic Tools:</b> <span style="color: var(--dim);">its 4-option privacy select becomes 4 radios.</span></p>
+<p style="margin: 0;"><b>Share, Make a new link:</b> <span style="color: var(--dim);">the browser's confirm box becomes an inline "The old link stops working. Make a new one?" with two buttons.</span></p>
+<p style="margin: 0;"><b>Sample hand:</b> <span style="color: var(--dim);">two primaries (Done and Draw). Draw stays primary; Done becomes a quiet button.</span></p>
+<p style="margin: 0;"><b>Scan the box:</b> <span style="color: var(--dim);">"Scan with the camera" and "Check the changes" are both primary. Only one is, by step: the camera until cards are in, then Check the changes. Start over asks inline, not with confirm().</span></p>
+<p style="margin: 0;"><b>Delete deck:</b> <span style="color: var(--dim);">the sheet stays as it is (keep or delete the other lists). It opens only from More.</span></p>
+<p style="margin: 0;"><b>Import guides:</b> <span style="color: var(--dim);">the 11 source tabs inside a fold become one "From another site" button opening a sheet with a searchable list of sources.</span></p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: var(--ground);">
+<span style="font-size: 14px; font-weight: 700;">Who sees it on Mythic Tools</span>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px;"><input type="radio" name="mythic" checked="{{true}}" style="width: 20px; height: 20px; margin: 0;">Only you</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px;"><input type="radio" name="mythic" style="width: 20px; height: 20px; margin: 0;">Your Mythic friends</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px;"><input type="radio" name="mythic" style="width: 20px; height: 20px; margin: 0;">Anyone with the link</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 36px;"><input type="radio" name="mythic" style="width: 20px; height: 20px; margin: 0;">Public</label>
+<div style="margin-top: 8px; padding: 12px 16px; border-radius: 16px; background: rgb(240 180 90 / 0.08); box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4); display: flex; flex-direction: column; gap: 8px;">
+<span>The old link stops working. Make a new one?</span>
+<span style="display: flex; gap: 8px;"><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; border-radius: 999px; background: var(--raised); font-weight: 700;">Make a new link</span><span style="display: inline-flex; align-items: center; min-height: 36px; padding: 0 16px; font-weight: 700;">Keep this one</span></span>
+</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":5400}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { own: 'owned', start: 'box' };
+  }
+  renderVals() {
+    const s = this.state;
+    const seg = (on) => on ? { bg: '#f2efe8', fg: '#0b0c0e', pressed: 'true' } : { bg: 'transparent', fg: '#a9adb3', pressed: 'false' };
+    const own = [['owned', 'Owned'], ['planned', 'Planned'], ['unknown', 'Not recorded']].map(([v, l]) => ({ label: l, ...seg(s.own === v), pick: () => this.setState({ own: v }) }));
+    const starts = [
+      ['box', 'The list in the box', 'Current, saved in Yama'],
+      ['stock', 'Stock', 'The precon as it came'],
+      ['b3', 'Bracket 3', 'The list in the box with the plan’s swap bag'],
+      ['b2', 'Bracket 2', 'The list in the box with the plan’s swap bag']
+    ].map(([v, l, src]) => ({ label: l, src, pressed: s.start === v ? 'true' : 'false', border: s.start === v ? '#f2efe8' : '#2a2e33', pick: () => this.setState({ start: v }) }));
+    return {
+      own, starts,
+      ownLine: s.own === 'planned' ? 'Labelled as planned; no cards are removed.' : s.own === 'owned' ? 'Marking it owned adds no cards to your collection.' : 'Yama doesn’t say whether you have it.'
+    };
+  }
+}
+</script>
+</body>
+</html>

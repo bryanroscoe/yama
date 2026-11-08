@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Riders of Rohan: new version</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground);">
+
+<header style="position: relative; min-height: 210px; display: flex; align-items: flex-end; background: var(--raised);">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 14px;">Éowyn, Shieldmaiden art_crop (Scryfall, at runtime)</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0.15) 30%, #0b0c0e 100%);"></span>
+<span style="position: absolute; top: 16px; right: 16px; font-size: 11px; padding: 2px 10px; border-radius: 999px; background: rgb(11 12 14 / 0.82); color: #d5d7db;">Art: [artist], © Wizards of the Coast</span>
+<div style="position: relative; width: 100%; max-width: 1232px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 56px); display: flex; flex-direction: column; gap: 10px;">
+<nav aria-label="Breadcrumb" style="display: flex; gap: 8px; font-size: 14px; color: #d5d7db;"><a href="#" style="color: #d5d7db;">Decks</a><span aria-hidden="true">/</span><a href="Main.dc.html" style="color: #d5d7db;">Plans</a></nav>
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 60px; line-height: 0.9;">Riders of Rohan</h1>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="font-size: 14px; font-weight: 700; padding: 3px 12px; border-radius: 999px; color: var(--good); background: rgb(143 211 168 / 0.14);">In progress</span>
+<span style="color: #d5d7db; font-size: 14px;">39 of 46 in. You're on version 32, from commander-decks on 5 Nov.</span>
+</div>
+</div>
+</header>
+
+<div style="max-width: 1232px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 56px) 96px; display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px;">
+
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+<section aria-labelledby="h-v" style="display: flex; flex-direction: column; gap: 8px;">
+<span style="align-self: flex-start; font-size: 14px; font-weight: 700; padding: 3px 12px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">Waiting for your OK</span>
+<h2 id="h-v" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1;">Version 33 adds 10 changes</h2>
+<p style="margin: 0;">Proposed by Claude on [date]. The other 46 changes stay as they are, and the 39 already in stay in. Until you approve, you keep working on version 32.</p>
+</section>
+
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+<section style="display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;"><h3 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">{{g.title}}</h3><span style="font-size: 14px; color: var(--dim);">{{g.note}}</span></div>
+<div style="background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;">
+<sc-for list="{{g.rows}}" as="r" hint-placeholder-count="4">
+<div style="display: flex; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap;">
+<span style="display: flex; align-items: center; gap: 4px; flex: none;"><span style="width: 52px; height: 72px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 10px; color: var(--dim);">In</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 52px; height: 72px; border-radius: 3px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 10px; color: var(--dim); background: {{r.outBg}}; border: {{r.outBorder}};">{{r.outLabel}}</span></span>
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 2px;">
+<span style="display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline;"><b style="text-decoration: {{r.strike}};">{{r.inn}}</b><span style="font-size: 14px; color: var(--dim);">{{r.outLine}}</span></span>
+<span style="font-size: 14px;">{{r.why}}</span>
+<sc-if value="{{r.issue}}" hint-placeholder-val="{{false}}"><span style="font-size: 14px; font-weight: 700; color: var(--warn);">{{r.issue}}</span></sc-if>
+</div>
+<span style="font-size: 14px; color: var(--dim); min-width: 120px; text-align: right;">{{r.src}}</span>
+<button type="button" onClick="{{r.toggle}}" aria-label="{{r.aria}}" style="min-height: 32px; min-width: 56px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text); font-weight: 700; font-size: 14px;">{{r.label}}</button>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{isApproved}}" hint-placeholder-val="{{false}}">
+<section style="padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px;">
+<span style="align-self: flex-start; font-size: 14px; font-weight: 700; padding: 3px 12px; border-radius: 999px; color: var(--good); background: rgb(143 211 168 / 0.14);">Version 33 approved</span>
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px;">Now 39 of {{newTotal}} in</h2>
+<p style="margin: 0;">{{approvedLine}} Version 32 is archived.</p>
+<div style="display: flex; gap: 8px; flex-wrap: wrap;"><a href="GetCards.dc.html" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 20px; border-radius: 999px; background: var(--text); color: var(--ground); text-decoration: none; font-weight: 700; font-size: 15px;">Get the cards</a><button type="button" onClick="{{reopen}}" style="min-height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: transparent; color: var(--text); font-weight: 700; font-size: 14px;">Undo</button></div>
+</section>
+</sc-if>
+
+<sc-if value="{{isKept}}" hint-placeholder-val="{{false}}">
+<section style="padding: 24px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px;">You kept version 32</h2>
+<p style="margin: 0;">Version 33 is archived. Claude reads why from your note.</p>
+<button type="button" onClick="{{reopen}}" style="align-self: flex-start; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-weight: 700; font-size: 14px;">Undo</button>
+</section>
+</sc-if>
+</main>
+
+<aside aria-label="Approve version 33" style="flex: 1 1 300px; max-width: 380px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">Version 32 against 33</h2>
+<div style="display: flex; flex-direction: column; border-top: 1px solid var(--line);">
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line);"><span>Changes</span><b>46 to {{newTotal}}</b></div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line);"><span>Added</span><b>{{nAdd}}</b></div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line);"><span>You have it</span><b>{{nHave}}</b></div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line);"><span>From other decks</span><b>{{nMove}}</b></div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line);"><span>To buy</span><b>{{nBuy}}, $[n]</b></div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line);"><span>Removed</span><b>0</b></div>
+</div>
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{true}}">
+<sc-if value="{{canApprove}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{approve}}" style="min-height: 40px; padding: 0 20px; border-radius: 999px; border: 0; background: var(--text); color: var(--ground); font-weight: 700; font-size: 15px;">Approve version 33</button></sc-if>
+<sc-if value="{{blocked}}" hint-placeholder-val="{{true}}"><button type="button" disabled="{{true}}" style="min-height: 40px; padding: 0 20px; border-radius: 999px; border: 0; background: var(--raised); color: var(--dim); font-weight: 700; font-size: 15px; cursor: default;">{{blockedLabel}}</button></sc-if>
+<button type="button" onClick="{{keep}}" style="min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-weight: 700; font-size: 14px;">Keep version 32</button>
+</sc-if>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { skipped: { 'Banishing Light': true }, stage: 'open' };
+  }
+  renderVals() {
+    const s = this.state;
+    const all = [
+      ['flyers', 'Banishing Light', 'Earthquake', 'Three-mana answer to any flyer or nonland permanent.', 'owned', 'Spare from this precon'],
+      ['flyers', 'Levitation', 'Thought Vessel', 'Your whole army flies, Éowyn’s Knights included.', 'buy', 'Buy'],
+      ['flyers', 'Archangel of Tithes', 'Frontier Warmonger', 'A 3/5 flyer that taxes every attack at you.', 'buy', 'Buy'],
+      ['flyers', 'Settle the Wreckage', 'Talisman of Progress', 'Exiles everything one player attacks with.', 'buy', 'Buy'],
+      ['flyers', 'Aetherize', null, 'Every attacker goes back to its owner’s hand.', 'buy', 'Buy'],
+      ['flyers', 'Brazen Borrower', "Wayfarer's Bauble", 'Flash flyer that blocks flyers; Petty Theft bounces one.', 'move', 'From Prismari Artistry'],
+      ['flyers', 'Ao, the Dawn Sky', 'Erkenbrand, Lord of Westfold', 'A 5/4 vigilant flyer that attacks and still blocks.', 'move', 'From Lorehold Spirit'],
+      ['ideas', 'Éomer, King of Rohan', "Wayfarer's Bauble", 'Your note: “so was Éomer.” A big double striker with Humans out.', 'owned', 'In your collection'],
+      ['ideas', 'Increasing Devotion', 'Frontier Warmonger', 'Your note: “seemed useful, especially with +damage.”', 'owned', 'In your collection'],
+      ['ideas', 'Door of Destinies', 'Izzet Signet', 'Your note said swapping Door out was a terrible swap. Agreed.', 'owned', 'In your collection']
+    ];
+    const on = (name) => !s.skipped[name];
+    const issueFor = (r) => {
+      if (r[1] === 'Banishing Light') return 'Out of date: Earthquake already left for Raise the Palisade.';
+      if (!on(r[1])) return '';
+      if (!r[2]) return 'No card named to cut. Skip it, or ask Claude for one.';
+      const clash = all.find((o) => o !== r && o[2] === r[2] && on(o[1]));
+      return clash ? 'Same cut as ' + clash[1] + '. Keep one of them.' : '';
+    };
+    const issues = all.filter((r) => on(r[1]) && issueFor(r) && r[1] !== 'Banishing Light');
+    const clashes = new Set(issues.map((r) => r[2] || r[1])).size;
+    const toRow = (r) => {
+      const sk = !on(r[1]);
+      return { inn: r[1], outLine: r[2] ? 'replaces ' + r[2] : 'no cut named', outLabel: r[2] ? 'Out' : '?', outBg: r[2] ? '#1e2125' : 'transparent', outBorder: r[2] ? '0' : '2px dashed #2a2e33', why: r[3], src: r[5], issue: issueFor(r),
+        strike: sk ? 'line-through' : 'none', label: sk ? 'Undo' : 'Skip', aria: (sk ? 'Undo skipping ' : 'Skip ') + r[1],
+        toggle: () => this.setState({ skipped: { ...this.state.skipped, [r[1]]: !sk } }) };
+    };
+    const act = all.filter((r) => on(r[1]));
+    const n = (k) => act.filter((r) => r[4] === k).length;
+    return {
+      groups: [
+        { title: 'Flyer defence (7)', note: 'Blockers and answers for flyers', rows: all.filter((r) => r[0] === 'flyers').map(toRow) },
+        { title: 'Your ideas (3)', note: 'Optional, answering your review notes', rows: all.filter((r) => r[0] === 'ideas').map(toRow) }
+      ],
+      isOpen: s.stage === 'open', isApproved: s.stage === 'approved', isKept: s.stage === 'kept',
+      nAdd: act.length, nHave: n('owned'), nMove: n('move'), nBuy: n('buy'), newTotal: 46 + act.length,
+      canApprove: clashes === 0, blocked: clashes > 0,
+      blockedLabel: clashes === 1 ? 'Settle 1 clash first' : 'Settle ' + clashes + ' clashes first',
+      approve: () => this.setState({ stage: 'approved' }), keep: () => this.setState({ stage: 'kept' }), reopen: () => this.setState({ stage: 'open' }),
+      approvedLine: n('buy') + ' to buy went on your shopping list and ' + n('move') + ' moves on the move list.'
+    };
+  }
+}
+</script>
+</body>
+</html>

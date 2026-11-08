@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Yama design language</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--ground);">
+<div style="max-width: 1232px; margin: 0 auto; padding: 48px clamp(16px, 4vw, 56px) 96px; display: flex; flex-direction: column; gap: 32px;">
+
+<header style="display: flex; flex-direction: column; gap: 8px;">
+<h1 style="margin: 0; font-family: var(--display); font-weight: 800; font-size: 64px; line-height: 0.9;">Yama design language</h1>
+<p style="margin: 0; color: var(--dim);">Night table: a near-black table, so commander art and card pictures carry the color. Nine rules for every page.</p>
+</header>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px;">
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">1. Art first</h2>
+<div style="position: relative; height: 140px; border-radius: 14px; overflow: hidden; background: var(--raised); display: flex; align-items: flex-end; padding: 14px;">
+<span style="position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--dim);">Commander art_crop, from Scryfall</span>
+<span aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgb(11 12 14 / 0) 35%, rgb(21 23 26 / 0.95) 100%);"></span>
+<span style="position: absolute; top: 8px; right: 8px; font-size: 10px; padding: 2px 8px; border-radius: 999px; background: rgb(11 12 14 / 0.82); color: #d5d7db;">Art: [artist], © Wizards</span>
+<b style="position: relative; font-family: var(--display); font-size: 30px; line-height: 1;">Revival Trance</b>
+</div>
+<span style="color: var(--dim);">Every deck, plan and card shows its picture. Darken with a wash, never a filter. Credit the artist.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">2. One primary, three more, then More</h2>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+<span style="display: inline-flex; align-items: center; height: 40px; padding: 0 20px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">Edit list</span>
+<span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-weight: 700; font-size: 14px;">Check cards</span>
+<span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-weight: 700; font-size: 14px;">Share</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-weight: 700; font-size: 14px;">More<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>
+</div>
+<span style="color: var(--dim);">More floats over the page. It never opens inline or pushes things down.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">3. Two densities</h2>
+<div style="display: grid; grid-template-columns: 72px 1fr; gap: 12px 16px; align-items: center;">
+<span style="color: var(--dim); font-size: 14px;">Laptop</span>
+<span style="display: flex; gap: 8px; align-items: center;"><span style="display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700; font-size: 14px;">40</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-weight: 700; font-size: 14px;">36</span><span style="display: inline-flex; align-items: center; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); font-weight: 700; font-size: 13px;">32</span></span>
+<span style="color: var(--dim); font-size: 14px;">Phone</span>
+<span style="display: flex; gap: 8px; align-items: center;"><span style="display: inline-flex; align-items: center; height: 52px; padding: 0 22px; border-radius: 999px; background: var(--text); color: var(--ground); font-weight: 700;">52</span><span style="display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 999px; background: var(--raised); font-weight: 700;">44</span></span>
+</div>
+<span style="color: var(--dim);">Same controls, same order. Only the size changes.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">4. Tabs, not folds</h2>
+<div style="display: flex; gap: 24px; border-bottom: 1px solid var(--line);">
+<span style="height: 40px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; border-bottom: 2px solid var(--text);">Cards <span style="font-weight: 400; font-size: 13px; color: var(--dim);">100</span></span>
+<span style="height: 40px; display: inline-flex; align-items: center; font-weight: 700; color: var(--dim);">Stats</span>
+<span style="height: 40px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--dim);">Plan <span style="font-weight: 400; font-size: 13px;">3 left</span></span>
+<span style="height: 40px; display: inline-flex; align-items: center; font-weight: 700; color: var(--dim);">History</span>
+</div>
+<span style="color: var(--dim);">3-5 sticky tabs. What's under a tab is open. At most one fold per section.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">5. Both cards on every change</h2>
+<div style="display: flex; gap: 14px; align-items: center;">
+<span style="display: flex; align-items: center; gap: 4px;"><span style="width: 52px; height: 72px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 10px; color: var(--dim);">In</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a9adb3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg><span style="width: 52px; height: 72px; border-radius: 3px; background: var(--raised); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; font-size: 10px; color: var(--dim);">Out</span></span>
+<span style="display: flex; flex-direction: column;"><b>Demonic Tutor</b><span style="font-size: 14px; color: var(--dim);">replaces Stitch Together</span></span>
+</div>
+<span style="color: var(--dim);">The card going in, then the one it replaces. Tap either for the full card.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">6. Nothing touches</h2>
+<div style="display: flex; flex-direction: column;">
+<span style="height: 56px; border-radius: 10px; border: 1px solid var(--line); background: var(--ground); display: flex; align-items: center; padding: 0 12px; color: var(--dim); font-size: 14px;">A text box</span>
+<span style="height: 16px; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--warn);"><span style="width: 2px; height: 16px; background: var(--warn);"></span>16</span>
+<span style="display: flex; gap: 8px;"><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border-radius: 10px; background: var(--raised); font-weight: 700; font-size: 14px;">Review changes</span><span style="display: inline-flex; align-items: center; height: 36px; padding: 0 14px; font-weight: 700; font-size: 14px;">Reset</span></span>
+</div>
+<span style="color: var(--dim);">Gaps, never margins: 16 above any row of buttons, 32 between sections.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">7. No micro copy</h2>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; background: var(--ground); opacity: 0.9;">
+<span style="font-size: 12px; color: var(--bad); font-weight: 700;">No</span>
+<b style="font-size: 14px;">Anyone with the link</b>
+<span style="font-size: 12px; color: var(--dim);">Friends you send it to can see and copy the list. It isn't listed anywhere.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; background: var(--ground);">
+<span style="font-size: 12px; color: var(--good); font-weight: 700;">Yes</span>
+<span style="display: flex; align-items: center; gap: 8px;"><b style="font-size: 14px;">Anyone with the link</b><span style="width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); display: inline-grid; place-items: center; font-size: 12px; color: var(--dim); font-weight: 700;">?</span></span>
+</div>
+</div>
+<span style="color: var(--dim);">Headings, labels and buttons do the work. Anything more goes behind one "?" per section.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">8. State in one word</h2>
+<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+<span style="font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: var(--warn); background: rgb(240 180 90 / 0.14);">Waiting for your OK</span>
+<span style="font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: var(--good); background: rgb(143 211 168 / 0.14);">In progress</span>
+<span style="font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);">Archived</span>
+</div>
+<span style="font-size: 14px;">Version 32, from commander-decks on 5 Nov</span>
+<span style="color: var(--dim);">One pill per thing. Version, date and source are a plain line, never a chip.</span>
+</section>
+
+<section style="background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px;">9. Phone mirrors laptop</h2>
+<div style="display: flex; gap: 16px; align-items: flex-end;">
+<span style="width: 160px; height: 100px; border-radius: 8px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; padding: 8px;"><span style="height: 28px; border-radius: 4px; background: var(--raised);"></span><span style="height: 6px; width: 70%; background: var(--line);"></span><span style="flex: 1; border-radius: 4px; background: var(--raised); opacity: 0.6;"></span></span>
+<span style="width: 52px; height: 100px; border-radius: 8px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; padding: 5px;"><span style="height: 22px; border-radius: 3px; background: var(--raised);"></span><span style="height: 5px; width: 80%; background: var(--line);"></span><span style="flex: 1; border-radius: 3px; background: var(--raised); opacity: 0.6;"></span></span>
+</div>
+<span style="color: var(--dim);">The same tabs, sections and order. The side column drops below; More becomes a sheet.</span>
+</section>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

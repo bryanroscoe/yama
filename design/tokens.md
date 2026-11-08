@@ -77,7 +77,7 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Battlefield tiles | 8–12 px |
 
 - **Spacing:** gaps of 8 / 12 / 16 / 24 / 32 px. Page padding is 16 px on phones and clamp(20px, 4vw, 56px) on laptops. Content max-width is 1120 px.
-- **Touch targets:** at least 44 px. Primary buttons are 48–56 px.
+- **Touch targets:** at least 44 px on phones and touch screens; primary buttons 48–56 px there. On a laptop controls are 36 px, the primary 40 px (see Density, actions and page structure).
 - **Chevrons:** single-select controls reserve 44 px at the end, with a 16 px arrow inset
   14 px from the edge. Disclosures leave 12 px between their chevron and label. Keep their
   full target in the layout; negative margins must not overlap adjacent controls.
@@ -97,13 +97,52 @@ warnings, missing data, source dates, price sources and art credits visible besi
 ## Buttons and controls
 
 - **Primary:** a `--text` pill with `--ground` text. One per view.
-- **Secondary:** a `--raised` pill, or a transparent pill with a 1px `--line` border.
+- **Secondary:** a `--raised` button with 10 px corners, or transparent with a 1px `--line` border. At most three beside the primary; the rest go in a More menu.
 - **Segmented control:** a `--surface` track with 3 px padding. The selected segment is a `--text` pill with dark text; the others are `--dim` text.
 - **Inputs:** `--surface` on ground, or `--ground` on surface, with a 1px `--line` border. Labels are 13–14 px bold, above the field.
 - **Navigation:**
   - Laptop: a left rail of 220–248 px. The active item is a `--raised` pill. At the bottom is your commander-art avatar with the sync status under it.
   - Phone: a bottom tab bar, 76 px, with six tabs. The active tab is `--text`, the others `--dim`.
   - The Decks tab has a segmented control at the top: Decks | Plans | Lab.
+
+## Density, actions and page structure (8 Nov 2026)
+
+Bryan, 8 Nov 2026: the bubble buttons are "too big and too hard to use. Once you get a few of them,
+they start being terrible"; the expandable sections are "too hard to use" and the site "performs
+very poorly on desktop"; buttons with "no padding" touch the thing before them; "so many expandable
+areas" you scroll all around; and "stop putting so much micro copy everywhere... that's a rule for
+the whole design philosophy." The rules below answer those. They are drawn on the "Design language"
+page of the redesign canvas (`design/screens/redesign-2026-11/Language.dc.html`).
+
+1. **Two densities.** Phones and touch screens (`pointer: coarse`) keep 44 px targets. On a laptop
+   (`pointer: fine`) controls are 36 px, the primary 40 px, row actions (Skip, Undo) 32 px, labels
+   14–15 px. Never a row of 44–56 px pills on a laptop.
+2. **One primary, up to three secondaries, then More.** A page's actions are one row. More opens a
+   floating menu (a popover on a laptop, a bottom sheet on a phone): at most about seven items,
+   grouped with hairlines, destructive last in `--bad`. A menu never expands inline or pushes the page
+   down.
+3. **Nothing touches.** Lay out with flex or grid `gap`, never margins that can collapse to 0. A row
+   of actions sits at least 16 px below what's above it; sections are 32 px apart.
+4. **Section tabs, not folds.** A page with more than three sections gets a sticky strip of 3–5
+   tabs under its header (a deck: Cards, Stats, Plan, History; a plan: Changes, Questions, How it
+   plays). Content under a tab is open. A disclosure is only for a method or a long list nobody needs
+   by default, at most one per section, never nested.
+5. **No micro copy.** No hint lines under options, fields, headings or buttons, and no explanatory
+   paragraphs. Headings, labels and buttons do the work; anything more goes behind one small "?"
+   button per section that opens a popover. A destructive action still says its consequence, in one
+   short line, where it happens.
+6. **Both cards on every change.** Wherever one card replaces another (a plan's changes, a swap bag,
+   a list edit, history), show the card going in, an arrow, then the card it replaces, with the word
+   "replaces". Tap either for the full card.
+7. **Compact headers on a laptop.** The art hero is about 220 px tall with a 56–64 px title, stat
+   tiles on its right.
+8. **Selects.** Two to five visible choices are a 36 px segmented control; six or more, or anything
+   searched, is a picker menu with a search field.
+9. **Phone mirrors laptop.** The same tabs, sections and order; only density and layout change (the
+   side column drops below, More becomes a sheet).
+
+Tokens for these (in `design/system/tokens.json`): `control-desktop` 36px, `control-desktop-primary`
+40px, `control-compact` 32px, `stack-gap` 16px, `section-gap` 32px, `r-control` 10px.
 
 ## The art panel (commander art behind players and decks)
 

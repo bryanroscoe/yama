@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Share Revival Trance</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+:root{--ground:#0b0c0e;--surface:#15171a;--raised:#1e2125;--line:#2a2e33;--text:#f2efe8;--dim:#a9adb3;--good:#8fd3a8;--warn:#f0b45a;--bad:#f07a62;--display:"Big Shoulders Display","Arial Narrow",sans-serif;--body:"Atkinson Hyperlegible Next",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0c0e;color:#f2efe8;font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#f2efe8}a:hover{color:#ffffff}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid #f2efe8;outline-offset:2px}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: var(--ground);">
+
+<div aria-hidden="true" style="position: absolute; inset: 0; display: flex; flex-direction: column;">
+<div style="height: 360px; background: var(--raised); display: grid; place-items: center; color: var(--dim); font-size: 14px;">The deck page, behind the sheet</div>
+<div style="flex: 1; background: var(--ground);"></div>
+</div>
+<div aria-hidden="true" style="position: absolute; inset: 0; background: rgb(0 0 0 / 0.6);"></div>
+
+<div style="position: relative; display: flex; justify-content: center; padding: 64px 16px 96px;">
+<section role="dialog" aria-modal="true" aria-labelledby="h-share" style="width: 100%; max-width: 600px; padding: 28px; border-radius: 24px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 24px 64px rgb(0 0 0 / 0.6); display: flex; flex-direction: column; gap: 20px;">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+<h2 id="h-share" style="margin: 0; font-family: var(--display); font-weight: 700; font-size: 36px; line-height: 1;">Share Revival Trance</h2>
+<a href="Deck.dc.html" style="display: inline-flex; align-items: center; height: 36px; padding: 0 12px; color: var(--text); text-decoration: none; font-weight: 700;">Close</a>
+</div>
+
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px;">
+<legend style="padding: 0 0 8px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px;">Who can see it <button type="button" aria-label="Help: what sharing shows" onClick="{{toggleHelp}}" style="width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--dim); font-size: 14px; font-weight: 700; display: inline-grid; place-items: center;">?</button></legend>
+<sc-if value="{{help}}" hint-placeholder-val="{{false}}"><div role="note" style="padding: 12px 14px; border-radius: 10px; background: var(--raised); font-size: 14px; display: flex; flex-direction: column; gap: 6px;"><span><b>Shown:</b> the cards and printings, commander art, declared bracket, legality, stats, market value.</span><span><b>Never shown:</b> your collection, proxies, prices paid, notes, plans, games, account.</span></div></sc-if>
+<sc-for list="{{choices}}" as="c" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{c.checked}}" onClick="{{c.pick}}" style="display: flex; gap: 14px; align-items: center; min-height: 44px; padding: 8px 14px; border-radius: 10px; border: 1px solid {{c.border}}; background: var(--ground); color: var(--text); text-align: left;">
+<span aria-hidden="true" style="flex: none; width: 20px; height: 20px; border-radius: 50%; box-shadow: inset 0 0 0 2px {{c.dot}}; display: grid; place-items: center;"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{c.fill}};"></span></span>
+<b>{{c.label}}</b>
+</button>
+</sc-for>
+</fieldset>
+
+<sc-if value="{{hasLink}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700;">Link<input value="yama.ing/d/[link]" readOnly="{{true}}" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--ground); color: var(--text); font: inherit; font-weight: 400;"></label>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+<button type="button" onClick="{{copy}}" style="height: 40px; padding: 0 22px; border-radius: 999px; border: 0; background: var(--text); color: var(--ground); font-weight: 700;">Copy link</button>
+<button type="button" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); font-size: 14px; color: var(--text); font-weight: 700;">Open it</button>
+<button type="button" onClick="{{askReset}}" style="height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">Make a new link</button>
+<sc-if value="{{copied}}" hint-placeholder-val="{{false}}"><span role="status" style="font-size: 14px; color: var(--good);">Copied.</span></sc-if>
+</div>
+<sc-if value="{{resetAsk}}" hint-placeholder-val="{{false}}">
+<div style="padding: 12px 16px; border-radius: 16px; background: rgb(240 180 90 / 0.08); box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4); display: flex; flex-direction: column; gap: 8px;">
+<span>The old link will stop working.</span>
+<span style="display: flex; gap: 8px; flex-wrap: wrap;"><button type="button" onClick="{{cancelReset}}" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--raised); color: var(--text); font-size: 14px; font-weight: 700;">Make a new link</button><button type="button" onClick="{{cancelReset}}" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 700;">Keep this one</button></span>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{isPublic}}" hint-placeholder-val="{{false}}">
+<p style="margin: 0; font-size: 14px;">Listed on <a href="#">your profile, @saget</a>.</p>
+</sc-if>
+
+
+<div style="display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--line);">
+<span style="padding: 12px 0 4px; font-size: 14px; font-weight: 700;">Its other lists</span>
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--line);"><span>Stock</span><span style="display: flex; align-items: center; gap: 12px;"><span style="font-size: 14px; color: var(--dim);">[setting]</span><a href="#" style="font-size: 14px;">Change</a></span></div>
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-top: 1px solid var(--line);">
+<span>Simulated win rates <span style="color: var(--dim);">[setting]</span></span>
+<a href="#" style="font-size: 14px;">Change in Sharing</a>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { vis: 'link', resetAsk: false, copied: false, help: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const choices = [
+      ['private', 'Private', 'Only you.'],
+      ['link', 'Anyone with the link', 'Friends you send it to can see and copy the list. It isn’t listed anywhere.'],
+      ['public', 'Public on your profile', 'Anyone with the link, and listed on your profile.']
+    ].map(([v, l, h]) => {
+      const on = s.vis === v;
+      return { label: l, hint: h, checked: on ? 'true' : 'false', border: on ? '#f2efe8' : '#2a2e33', dot: on ? '#f2efe8' : '#a9adb3', fill: on ? '#f2efe8' : 'transparent', pick: () => this.setState({ vis: v, copied: false, resetAsk: false }) };
+    });
+    return {
+      choices,
+      help: s.help, toggleHelp: () => this.setState({ help: !this.state.help }),
+      hasLink: s.vis !== 'private',
+      isPublic: s.vis === 'public',
+      copied: s.copied,
+      resetAsk: s.resetAsk,
+      copy: () => this.setState({ copied: true }),
+      askReset: () => this.setState({ resetAsk: true }),
+      cancelReset: () => this.setState({ resetAsk: false })
+    };
+  }
+}
+</script>
+</body>
+</html>
