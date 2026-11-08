@@ -422,6 +422,26 @@ class LocalScript(unittest.TestCase):
         self.assertEqual(self.run_script('--no-amend').returncode, 0)
         self.assertIn('cargo test --locked', self.log.read_text())
 
+    def test_a_failing_cargo_test_fails_the_run(self):
+        # Only `cargo test` fails; `cargo clean` succeeds.
+        stub = self.bin / 'cargo'
+        stub.write_text('#!/bin/sh\necho "cargo $*" >> "$CALL_LOG"\n[ "$1" = test ] && exit 1\nexit 0\n')
+        head = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
+        self.assertNotIn('Local-CI', self.message())
+
+    def test_renaming_a_server_file_into_web_runs_rust(self):
+        # The server file is on main; the branch moves it under web/.
+        (self.repo / 'server').mkdir()
+        (self.repo / 'server/notes.txt').write_text('server side\n')
+        self.web_only_branch('web/src/App.tsx')
+        self.git(self.repo, 'mv', 'server/notes.txt', 'web/notes.txt')
+        self.git(self.repo, 'commit', '-q', '-m', 'Move it into web')
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+
     def test_a_silent_detector_means_the_full_run(self):
         self.web_only_branch('web/src/App.tsx')
         self.stub('python3', 0)

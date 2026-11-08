@@ -65,16 +65,21 @@ if git fetch --quiet origin main 2>/dev/null; then
   git merge-base --is-ancestor FETCH_HEAD HEAD \
     || echo 'local-ci: warning: HEAD does not contain origin/main; PR CI will still run until you rebase or merge and run this again.' >&2
   if [ "$full" = 0 ] && base="$(git merge-base FETCH_HEAD HEAD 2>/dev/null)"; then
-    # Skip only on a positive answer: a failing or missing interpreter means the full run.
-    verdict="$(git diff --no-renames --name-only -z "$base" HEAD | python3 -I -B -c '
+    # Skip only on a positive answer: a failed diff or a failing or missing interpreter
+    # means the full run.
+    changed="$(mktemp)"
+    if git diff --no-renames --name-only -z "$base" HEAD > "$changed"; then
+      verdict="$(python3 -I -B -c '
 import sys
 sys.path.insert(0, sys.argv[1])
 from gate import rust_needed
 files = [f for f in sys.stdin.buffer.read().decode().split("\0") if f]
-print("rust" if rust_needed(files) else "web-only")' "$root/scripts/ci" 2>/dev/null || true)"
-    if [ "$verdict" = web-only ]; then
-      rust=0
+print("rust" if rust_needed(files) else "web-only")' "$root/scripts/ci" < "$changed" 2>/dev/null || true)"
+      if [ "$verdict" = web-only ]; then
+        rust=0
+      fi
     fi
+    rm -f "$changed"
   fi
 else
   echo 'local-ci: warning: could not fetch origin/main; PR CI runs if the branch is behind main.' >&2
