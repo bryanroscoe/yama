@@ -299,6 +299,9 @@ pub(crate) struct SharedDetails {
     pub(crate) game_changers: Option<Vec<String>>,
     pub(crate) reserved_list: Option<Vec<String>>,
     pub(crate) check: Option<crate::deck_checks::CheckResult>,
+    /// The older 1-10 scale's estimate from the list and its stored check, as the deck page
+    /// works it out; None without a check or a 2-4 suggestion.
+    pub(crate) power: Option<crate::power_level::PowerEstimate>,
     pub(crate) stats: crate::deck_stats::DeckStats,
     pub(crate) singles: crate::deck_prices::SinglesValue,
     /// The run and the plan's key, when the plan has a paired run with a list this deck or a
@@ -440,11 +443,15 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
             .then_some((run, key)),
         _ => None,
     };
+    let reserved_list = crate::decks::reserved_list(&d.list, &info);
+    let produced = crate::decks::produced_mana(pool, &d.list.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let power = crate::power_level::for_deck(&d.list, &info, &produced, check.as_ref(), reserved_list.clone());
     Ok(SharedDetails {
         validation: crate::decks::validate(&d.list, &info),
         game_changers: crate::decks::game_changers(&d.list, &info),
-        reserved_list: crate::decks::reserved_list(&d.list, &info),
+        reserved_list,
         check,
+        power,
         stats: crate::deck_stats::stats(pool, &d.list, &info).await?,
         singles: crate::deck_prices::singles(&serde_json::to_value(&d.list).map_err(anyhow::Error::from)?, &prices),
         sim,

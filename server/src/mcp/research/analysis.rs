@@ -189,11 +189,21 @@ pub async fn analyze(st: &AppState, user: &User, args: &Value) -> AppResult<Valu
         .await?
         .into();
     }
+    // The deck page's older 1-10 scale estimate, from a saved version's stored bracket check;
+    // reading never starts a check.
+    let reserved_list = crate::decks::reserved_list(&list.cards, &info);
+    let check = match &list.version {
+        Some(v) => crate::deck_checks::view(&st.pool, Some(v), false).await?.result,
+        None => None,
+    };
+    let produced = crate::decks::produced_mana(&st.pool, &list.cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let power = crate::power_level::for_deck(&list.cards, &info, &produced, check.as_ref(), reserved_list.clone());
     Ok(
         json!({"computed_at": crate::util::now(), "deck_id": list.deck_id, "version": list.version,
         "validation": crate::decks::validate(&list.cards,&info), "unknown_names": list.unknown,
         "game_changers": crate::decks::game_changers(&list.cards,&info),
-        "reserved_list": crate::decks::reserved_list(&list.cards,&info), "policy": policy,
+        "reserved_list": reserved_list, "policy": policy,
+        "power_estimate": power, "power_note": "Yama's unofficial estimate on the older 1-10 power-level scale, as the deck page and shared deck page show it: the stored bracket suggestion sets a band and each factor's points move the score within it. Card-list signals, not played performance; other sites' numbers aren't comparable. Null without a stored Commander Spellbook check for this saved version, or when that check gives no 2-4 suggestion.",
         "statistics": {"cards": total_cards,"lands": stats.lands,"nonlands": stats.nonlands,"curve_0_through_7_plus": stats.curve.map(|(c, o)| c + o),
             "average_mana_value": stats.average_mana_value().map(round),
             "average_nonland_mana_value": stats.average_nonland_mana_value().map(round), "colored_pips": stats.pips,

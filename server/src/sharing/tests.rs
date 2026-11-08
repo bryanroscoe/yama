@@ -442,6 +442,43 @@ async fn a_shared_deck_page_says_what_the_deck_page_says() {
     assert!(body.contains("Game Changers: 1") && body.contains("within bracket 3"));
 }
 
+#[tokio::test]
+async fn a_shared_deck_page_shows_how_the_power_estimate_adds_up() {
+    let (app, pool) = app().await;
+    let (_, bt) = user(&pool, "bryan@example.com").await;
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    sqlx::query("UPDATE cards SET cmc = 1, oracle_text = '{T}: Add {C}{C}.', produced_mana = 'C' WHERE oracle_id = 'o-sol'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE cards SET cmc = 1, oracle_text = 'Lightning Bolt deals 3 damage to any target.', produced_mana = '' WHERE oracle_id = 'o-bolt'").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE cards SET reserved = 0").execute(&pool).await.unwrap();
+    let (_, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Shared", "text": "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt" }))).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    send(&app, Method::PATCH, &format!("/api/decks/{id}"), Some(&bt), Some(json!({ "visibility": "link" }))).await;
+    let token = token_of(&pool, &id).await;
+
+    // Without a stored check there's no suggestion, so no band to score within.
+    let (_, _, body) = page(&app, &format!("/d/{token}")).await;
+    assert!(!body.contains("Older power-level scale"), "{body}");
+
+    let version: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE deck_version_checks SET checked_at = '2026-10-27T00:00:00Z', bracket_tag = 'P', game_changers = '[\"Sol Ring\"]', mld = '[]', extra_turns = '[]', combos = '[]', unrecognized = '[]' WHERE version_id = ?",
+    )
+    .bind(&version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (_, _, body) = page(&app, &format!("/d/{token}")).await;
+    // Bracket 3's band starts at 5; Sol Ring is cheap mana, Lightning Bolt cheap interaction,
+    // the curve is low and Sol Ring is the Game Changer.
+    assert!(body.contains("Older power-level scale") && body.contains("Unofficial Yama estimate"), "{body}");
+    assert!(body.contains("How the power estimate adds up") && body.contains("sets a 5–7 range"), "{body}");
+    assert!(body.contains("<b>Cheap mana</b>") && body.contains("<small class=\"names\">Sol Ring</small>"), "{body}");
+    assert!(body.contains("<b>Cheap interaction</b>") && body.contains("<small class=\"names\">Lightning Bolt</small>"), "{body}");
+    assert!(body.contains("This deck: 1.00."), "the curve's average: {body}");
+    assert!(body.contains("Cards on Wizards' Reserve List"), "flags loaded, none in the list");
+}
+
 #[test]
 fn configurations_stand_for_plan_states() {
     assert_eq!(super::plan_state(None), "now");

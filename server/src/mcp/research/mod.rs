@@ -140,7 +140,7 @@ pub fn catalog() -> Vec<Value> {
         tool(
             "deck_analysis",
             "Deck health, ownership and budget",
-            "Analyze your saved deck or a proposed list without saving: Commander validation, curve, land access, role hints, Game Changers, Reserve List cards, quantities owned and needed, and cheapest eligible dated nonfoil market references. Missing names/prices stay unknown. No deck or inventory leaves Yama. Role and mana-access counts are descriptive, not a power or castability score.",
+            "Analyze your saved deck or a proposed list without saving: Commander validation, curve, land access, role hints, Game Changers, Reserve List cards, the deck page's unofficial 1-10 power estimate with each factor (saved decks with a stored bracket check), quantities owned and needed, and cheapest eligible dated nonfoil market references. Missing names/prices stay unknown. No deck or inventory leaves Yama. Role and mana-access counts are descriptive, not a power or castability score.",
             schema(analyze, &[]),
             false,
             false,

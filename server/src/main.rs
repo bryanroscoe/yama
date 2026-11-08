@@ -26,6 +26,7 @@ mod mpc;
 mod oauth;
 mod play;
 mod plan;
+mod power_level;
 mod people;
 mod perf;
 mod playgroups;
