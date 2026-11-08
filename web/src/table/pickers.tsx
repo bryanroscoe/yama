@@ -883,6 +883,8 @@ export function DeckSearch({ text, onText, onPick, decks = NO_DECKS, handle, who
 }) {
   // Opened without typing (focus, the arrow): the whole list, even with a deck's name in the field.
   const [browsing, setBrowsing] = useState(false);
+  // Typing in the field (on a desktop): the list is open on what's typed.
+  const [typingHere, setTypingHere] = useState(false);
   const [scope, setScope] = useState<DeckScope>("all");
   // On a touch screen the list opens as its own page, searched by its own box (`find`).
   const touch = useTouch();
@@ -912,7 +914,8 @@ export function DeckSearch({ text, onText, onPick, decks = NO_DECKS, handle, who
   const all = typedName && !picks.some((p) => fold(pickName(p)) === fold(typedName)) ? [...picks, { kind: "named", name: typedName } as DeckPick] : picks;
   // Played decks know only their commanders' names; their art comes from the cards.
   // Looked up only while the list is open, not for every seat as the page opens.
-  const listOpen = picking || browsing || !!text.trim();
+  // (A deck already picked fills the field without opening anything.)
+  const listOpen = picking || browsing || typingHere;
   const art = useCardArt(listOpen ? picks.flatMap((p) => (p.kind === "played" ? [p.deck.commanders[0]] : [])).slice(0, 40) : []);
   const whoName = who?.name.trim() || "This player";
   const toOption = (p: DeckPick): Option<DeckPick> => {
@@ -1042,15 +1045,18 @@ export function DeckSearch({ text, onText, onPick, decks = NO_DECKS, handle, who
       text={text}
       onText={(t) => {
         setBrowsing(false);
+        setTypingHere(true);
         onText(t);
       }}
       options={options}
       onPick={(p) => {
         setBrowsing(false);
+        setTypingHere(false);
         onPick(p);
       }}
       onLeave={() => {
         setBrowsing(false);
+        setTypingHere(false);
         onLeave?.();
       }}
       onOpen={() => setBrowsing(true)}
