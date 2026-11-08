@@ -33,6 +33,25 @@ pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, ca
     cards.rarity, cards.layout, cards.legalities, cards.image_small, cards.image_normal, cards.image_art_crop, \
     cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank, cards.game_changer, cards.reserved";
 
+/// `Card::releases_on`, to select after [`CARD_COLUMNS`] from `cards`: the card's first release
+/// date when every printing is dated on or after the date of the Scryfall data its legality came
+/// from, so Scryfall's "not legal" may only mean "not out yet". That date is the source date of
+/// the last successful oracle import (the card's own import time when none is recorded), not
+/// today: the legalities stay as imported after release day, until the next oracle import.
+/// An undated printing counts as out. Only cards whose every printing is known to be paper and
+/// outside joke ("funny") sets qualify: digital-only cards and acorn cards stay not legal after
+/// release, and a printing without that metadata (older imports) doesn't count as either.
+/// Without a source date the run's start stands in, which is when it stamps `cards.updated_at`.
+pub const RELEASES_ON: &str = "(SELECT CASE WHEN COUNT(*) = COUNT(p.released_at) \
+        AND SUM(CASE WHEN p.digital = 0 AND p.set_type <> 'funny' THEN 0 ELSE 1 END) = 0 \
+        AND MIN(p.released_at) >= COALESCE( \
+            (SELECT substr(COALESCE(r.source_updated_at, r.started_at), 1, 10) FROM import_runs r \
+             WHERE r.kind = 'oracle_cards' AND r.error IS NULL AND r.finished_at IS NOT NULL \
+             ORDER BY r.finished_at DESC LIMIT 1), \
+            date(cards.updated_at)) \
+        THEN MIN(p.released_at) END \
+    FROM printings p WHERE p.oracle_id = cards.oracle_id) AS releases_on";
+
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct Card {
     pub oracle_id: String,
@@ -63,6 +82,12 @@ pub struct Card {
     /// On Wizards' Reserve List, per Scryfall. `None` until an oracle import that reads the
     /// flag has run; never read it as false.
     pub reserved: Option<bool>,
+    /// The first release date of a card none of whose printings was out when its legality data
+    /// was imported (a card from a set in prerelease); see [`RELEASES_ON`]. Loaded by the deck
+    /// check's card queries; `None` where a query doesn't select it, and for any card out before.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub releases_on: Option<String>,
 }
 
 #[derive(Deserialize)]

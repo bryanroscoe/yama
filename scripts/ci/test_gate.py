@@ -265,7 +265,8 @@ class LocalScript(unittest.TestCase):
         self.env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
                     'GIT_AUTHOR_NAME': 'T', 'GIT_AUTHOR_EMAIL': 't@example.invalid',
                     'GIT_COMMITTER_NAME': 'T', 'GIT_COMMITTER_EMAIL': 't@example.invalid',
-                    'PATH': f'{self.bin}{os.pathsep}{os.environ["PATH"]}', 'CALL_LOG': str(self.log)}
+                    'PATH': f'{self.bin}{os.pathsep}{os.environ["PATH"]}', 'CALL_LOG': str(self.log),
+                    'CARGO_TARGET_DIR': str(base / 'cargo-target')}
         self.bin.mkdir()
         for name in ('npm', 'cargo', 'python3'):
             self.stub(name, 0)
@@ -364,6 +365,88 @@ class LocalScript(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertEqual(self.run_script(*args).returncode, 2)
         self.assertFalse(self.log.exists())
+
+    def test_rust_step_rebuilds_this_worktrees_crates_under_the_lock(self):
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        calls = self.log.read_text().splitlines()
+        clean = calls.index('cargo clean --quiet -p yama-server -p yama-play')
+        self.assertEqual(calls[clean + 1], 'cargo test --locked')
+        self.assertTrue((self.repo.parent / 'cargo-target/.yama-local-ci.lock').exists())
+
+    def test_shared_target_is_the_default(self):
+        target = self.repo.parent / 'shared-target'
+        del self.env['CARGO_TARGET_DIR']
+        self.env['YAMA_CARGO_TARGET_DIR'] = str(target)
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertTrue((target / '.yama-local-ci.lock').exists())
+
+    def web_only_branch(self, path):
+        # A published main, then one commit on top that changes `path`.
+        (self.repo / 'scripts/ci').mkdir()
+        shutil.copy(ROOT / 'scripts/ci/gate.py', self.repo / 'scripts/ci/gate.py')
+        self.git(self.repo, 'add', '.')
+        self.git(self.repo, 'commit', '-q', '-m', 'Gate')
+        origin = self.repo.parent / 'origin.git'
+        self.git(self.repo.parent, 'clone', '-q', '--bare', str(self.repo), str(origin))
+        self.git(self.repo, 'remote', 'add', 'origin', str(origin))
+        self.git(self.repo, 'branch', '-M', 'main')
+        self.git(self.repo, 'push', '-q', 'origin', 'main')
+        (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / path).write_text('change\n')
+        self.git(self.repo, 'add', '.')
+        self.git(self.repo, 'commit', '-q', '-m', f'Change {path}')
+        # The detector runs as `python3 -I -c`; let that one reach the real interpreter.
+        stub = self.bin / 'python3'
+        stub.write_text(f'#!/bin/sh\necho "python3 $*" >> "$CALL_LOG"\n'
+                        f'[ "$1" = -I ] && exec "{sys.executable}" "$@"\nexit 0\n')
+
+    def test_web_only_change_skips_rust_and_python(self):
+        self.web_only_branch('web/src/App.tsx')
+        result = self.run_script('--no-amend')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('skipped, every change since main is web-only', result.stdout)
+        calls = self.log.read_text()
+        self.assertIn('npm test', calls)
+        self.assertNotIn('cargo', calls)
+        self.assertNotIn('python3 deploy/test_release.py', calls)
+
+    def test_full_or_a_server_change_runs_rust(self):
+        self.web_only_branch('web/src/App.tsx')
+        self.assertEqual(self.run_script('--no-amend', '--full').returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+        self.log.unlink()
+        (self.repo / 'server').mkdir()
+        (self.repo / 'server/main.rs').write_text('fn main() {}\n')
+        self.git(self.repo, 'add', '.')
+        self.git(self.repo, 'commit', '-q', '-m', 'Server change')
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+
+    def test_a_failing_cargo_test_fails_the_run(self):
+        # Only `cargo test` fails; `cargo clean` succeeds.
+        stub = self.bin / 'cargo'
+        stub.write_text('#!/bin/sh\necho "cargo $*" >> "$CALL_LOG"\n[ "$1" = test ] && exit 1\nexit 0\n')
+        head = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.assertNotEqual(self.run_script().returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), head)
+        self.assertNotIn('Local-CI', self.message())
+
+    def test_renaming_a_server_file_into_web_runs_rust(self):
+        # The server file is on main; the branch moves it under web/.
+        (self.repo / 'server').mkdir()
+        (self.repo / 'server/notes.txt').write_text('server side\n')
+        self.web_only_branch('web/src/App.tsx')
+        self.git(self.repo, 'mv', 'server/notes.txt', 'web/notes.txt')
+        self.git(self.repo, 'commit', '-q', '-m', 'Move it into web')
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
+
+    def test_a_silent_detector_means_the_full_run(self):
+        self.web_only_branch('web/src/App.tsx')
+        self.stub('python3', 0)
+        self.assertEqual(self.run_script('--no-amend').returncode, 0)
+        self.assertIn('cargo test --locked', self.log.read_text())
 
     def test_no_amend_leaves_head(self):
         head = self.git(self.repo, 'rev-parse', 'HEAD')

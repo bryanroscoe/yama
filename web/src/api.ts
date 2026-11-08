@@ -422,7 +422,7 @@ export interface DeckView {
   /** The main deck and every configuration of it, this one included, main deck first. */
   configurations: ConfigurationRef[];
   cards: DeckEntry[];
-  validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[] };
+  validation: { ok: boolean; total: number; color_identity: string; errors: string[]; warnings: string[]; prerelease?: string[] };
   ownership: {
     cards: number;
     /** Real copies. */

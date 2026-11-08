@@ -569,6 +569,7 @@ export function DeckPage() {
               {v.ok ? "Commander-legal" : "Not legal yet"} by size, singleton, color identity and the ban list in our card data.
             </p>
             {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+            {!!v.prerelease?.length && <ul className="small dim">{v.prerelease.map((p) => <li key={p}>{p}</li>)}</ul>}
           </div>
 
           <div className="deck-facts">
