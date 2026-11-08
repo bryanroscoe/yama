@@ -57,7 +57,10 @@ impl Facts {
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct CardPoints {
     pub name: String,
+    /// Each copy's points: every copy counts toward the vector.
     pub points: f64,
+    /// Copies in the deck (basics, Relentless Rats).
+    pub copies: i64,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -96,6 +99,8 @@ pub struct Combos {
     pub families: usize,
     /// Families whose best line is compact and ends the game or nearly (weight 0.8 or more).
     pub compact: usize,
+    /// Deck cards Spellbook didn't know, whose combos it couldn't find.
+    pub unrecognized: usize,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -198,7 +203,7 @@ fn outcome_weight(results: &[String]) -> f64 {
 
 pub fn combos(check: Option<&CheckResult>) -> Combos {
     let Some(r) = check else {
-        return Combos { checked: false, lines: vec![], score: 0.0, families: 0, compact: 0 };
+        return Combos { checked: false, lines: vec![], score: 0.0, families: 0, compact: 0, unrecognized: 0 };
     };
     let lines: Vec<ComboLine> = r
         .combos
@@ -260,7 +265,7 @@ pub fn combos(check: Option<&CheckResult>) -> Combos {
         .collect();
     scores.sort_by(|a, b| b.total_cmp(a));
     let families = scores.len();
-    Combos { checked: true, lines, score: scores.iter().take(4).sum(), families, compact }
+    Combos { checked: true, lines, score: scores.iter().take(4).sum(), families, compact, unrecognized: r.unrecognized.len() }
 }
 
 /// Reuses card scores across the versions and configurations one request reads.
@@ -312,7 +317,7 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
             unscored += e.card.qty;
         }
         for (cat, p) in &pts {
-            cat_cards.entry(*cat).or_default().push(CardPoints { name: f.name.clone(), points: (p * 10.0).round() / 10.0 });
+            cat_cards.entry(*cat).or_default().push(CardPoints { name: f.name.clone(), points: (p * 10.0).round() / 10.0, copies: e.card.qty });
         }
         for (v, _) in WEIGHTS {
             let mut ps: Vec<f64> = pts.iter().filter(|(c, _)| c.vector() == v).map(|(_, p)| *p).collect();
@@ -347,7 +352,7 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
         let (label, q) = *cache.lands.entry((e.card.oracle_id.clone(), ncol)).or_insert_with(|| lands::quality(f, ncol));
         nl += e.card.qty;
         qsum += q * e.card.qty as f64;
-        let entry = CardPoints { name: if e.card.qty > 1 { format!("{} {}", e.card.qty, f.name) } else { f.name.clone() }, points: (q * 100.0).round() / 10.0 };
+        let entry = CardPoints { name: f.name.clone(), points: (q * 100.0).round() / 10.0, copies: e.card.qty };
         match land_groups.iter_mut().find(|g| g.label == label) {
             Some(g) => g.cards.push(entry),
             None => land_groups.push(Group { key: label, label, cards: vec![entry] }),
@@ -405,6 +410,8 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
     if !combos.checked {
         margin += 0.2;
     }
+    // Cards Spellbook didn't know may be in combos it couldn't find.
+    margin += (0.1 * combos.unrecognized as f64).min(0.3);
     let share = if nonland > 0 { unscored as f64 / nonland as f64 } else { 0.0 };
     if share > 0.35 {
         margin += (share - 0.35).min(0.3);

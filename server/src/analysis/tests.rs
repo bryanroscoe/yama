@@ -151,3 +151,26 @@ fn an_empty_list_scores_the_bottom_with_a_wide_margin() {
     assert!(a.margin >= 0.5, "no combo check widens it: {}", a.margin);
     assert_eq!(a.power_bracket, 2);
 }
+
+#[test]
+fn every_copy_shows_and_counts() {
+    let rock = card("Test Rock", 2.0, "Artifact", "{T}: Add {C}.");
+    let deck = |qty| DeckCard { oracle_id: "o-rock".into(), name: "Test Rock".into(), qty, board: Board::Main };
+    let speed = |a: &DeckAnalysis| a.vectors.iter().find(|v| v.key == classify::Vector::Speed).unwrap().clone();
+    let (one, three) = (deck(1), deck(3));
+    let a1 = analyze(&[Entry { card: &one, facts: Some(&rock) }], None, &mut Cache::default());
+    let a3 = analyze(&[Entry { card: &three, facts: Some(&rock) }], None, &mut Cache::default());
+    let rocks = &speed(&a3).groups[0].cards[0];
+    assert_eq!((rocks.name.as_str(), rocks.copies, rocks.points), ("Test Rock", 3, 5.0));
+    assert!(speed(&a3).score > speed(&a1).score, "three copies count three times");
+}
+
+#[test]
+fn cards_spellbook_did_not_know_widen_the_margin() {
+    let mut r = check(&serde_json::json!([])).unwrap();
+    let known = analyze(&[], Some(&r), &mut Cache::default());
+    r.unrecognized = vec!["Homebrew One".into(), "Homebrew Two".into()];
+    let partial = analyze(&[], Some(&r), &mut Cache::default());
+    assert_eq!(partial.combos.unrecognized, 2);
+    assert!((partial.margin - known.margin - 0.2).abs() < 1e-9, "{} vs {}", partial.margin, known.margin);
+}

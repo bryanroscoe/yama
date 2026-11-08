@@ -322,7 +322,11 @@ pub(crate) fn analysis_panel(a: &DeckAnalysis) -> String {
             s.push_str("<p class=\"dim\">Nothing counted.</p>");
         }
         for g in &v.groups {
-            let cards: Vec<String> = g.cards.iter().map(|c| format!("{} {:.1}", e(&c.name), c.points)).collect();
+            let cards: Vec<String> = g
+                .cards
+                .iter()
+                .map(|c| if c.copies > 1 { format!("{} {} {:.1}", c.copies, e(&c.name), c.points) } else { format!("{} {:.1}", e(&c.name), c.points) })
+                .collect();
             write!(s, "<p><b>{}</b> <span class=\"dim\">{}</span><br><small class=\"names\">{}</small></p>", e(g.label), g.cards.len(), cards.join(", ")).unwrap();
         }
     }

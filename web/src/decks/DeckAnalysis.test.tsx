@@ -63,9 +63,15 @@ describe("DeckAnalysisPanel", () => {
     expect(render()).toContain("Check it on ScryCheck");
   });
 
+  it("widens the margin's explanation for cards Spellbook didn't know", () => {
+    const v = analysisView(5.4);
+    v.current = analysis(5.4, { confidence: "medium", margin: 0.5, combos: { checked: true, lines: [], score: 0, families: 0, compact: 0, unrecognized: 2 } });
+    expect(render(v)).toContain("Commander Spellbook didn&#x27;t know 2 cards, so combos with them may be missing");
+  });
+
   it("says why confidence is lower", () => {
     const v = analysisView(5.4);
-    v.current = analysis(5.4, { confidence: "medium", margin: 0.5, combos: { checked: false, lines: [], score: 0, families: 0, compact: 0 } });
+    v.current = analysis(5.4, { confidence: "medium", margin: 0.5, combos: { checked: false, lines: [], score: 0, families: 0, compact: 0, unrecognized: 0 } });
     expect(render(v)).toContain("Medium confidence: Commander Spellbook hasn&#x27;t checked this list for combos yet");
   });
 });

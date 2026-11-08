@@ -698,10 +698,11 @@ export interface DeckAnalysis {
     label: string;
     score: number;
     band: string;
-    groups: { key: string; label: string; cards: { name: string; points: number }[] }[];
+    /** Points are each copy's; copies all count. */
+    groups: { key: string; label: string; cards: { name: string; points: number; copies: number }[] }[];
   }[];
   caps: { at: number; reason: string; note: string }[];
-  combos: { checked: boolean; lines: { cards: string[]; results: string[]; weight: number }[]; score: number; families: number; compact: number };
+  combos: { checked: boolean; lines: { cards: string[]; results: string[]; weight: number }[]; score: number; families: number; compact: number; unrecognized: number };
   themes: { key: string; label: string; strength: "core" | "major" | "minor"; count: number; description: string; cards: string[] }[];
   average_mana_value: number | null;
   lands: number;

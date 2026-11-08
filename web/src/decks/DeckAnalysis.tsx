@@ -156,6 +156,7 @@ export function DeckAnalysisPanel({ deckId, versionId, cards, onCard }: { deckId
 function confidenceText(a: DeckAnalysis): string {
   const why: string[] = [];
   if (!a.combos.checked) why.push("Commander Spellbook hasn't checked this list for combos yet");
+  else if (a.combos.unrecognized) why.push(`Commander Spellbook didn't know ${a.combos.unrecognized} ${a.combos.unrecognized === 1 ? "card" : "cards"}, so combos with ${a.combos.unrecognized === 1 ? "it" : "them"} may be missing`);
   if (a.unknown_cards.length) why.push(`${a.unknown_cards.length} ${a.unknown_cards.length === 1 ? "card isn't" : "cards aren't"} in Yama's card data`);
   if (a.nonland > 0 && a.unscored / a.nonland > 0.35) why.push("many cards do things the text rules don't score");
   const level = a.confidence === "high" ? "High" : a.confidence === "medium" ? "Medium" : "Low";
@@ -203,21 +204,18 @@ function Breakdown({ analysis, onCard }: { analysis: DeckAnalysis; onCard: (name
               <b>{g.label}</b> <span className="dim">{g.cards.length}</span>
               <br />
               <span className="names">
-                {g.cards.map((c, i) => {
-                  // Lands come as "11 Plains": the count stays as text, the name opens the card.
-                  const [, copies, name] = c.name.match(/^(\d+) (.+)$/) ?? [null, null, c.name];
-                  return (
-                    <span key={c.name + i}>
-                      {i > 0 && ", "}
-                      {copies && `${copies} `}
-                      <NameList names={[name!]} onCard={onCard} /> <span className="dim">{c.points.toFixed(1)}</span>
-                    </span>
-                  );
-                })}
+                {g.cards.map((c, i) => (
+                  <span key={c.name + i}>
+                    {i > 0 && ", "}
+                    {c.copies > 1 && `${c.copies} `}
+                    <NameList names={[c.name]} onCard={onCard} /> <span className="dim">{c.points.toFixed(1)}</span>
+                  </span>
+                ))}
               </span>
             </p>
           ))}
           {v.key === "mana" && <p className="small dim">A land's points are its quality for this deck's colors, out of 10.</p>}
+          {v.groups.some((g) => g.cards.some((c) => c.copies > 1)) && v.key !== "mana" && <p className="small dim">Points are per copy; every copy counts.</p>}
           {v.key === "threats" && (
             <p className="small dim">
               {a.combos.checked
