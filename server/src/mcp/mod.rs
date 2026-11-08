@@ -247,7 +247,7 @@ async fn mcp_route(State(st): State<AppState>, headers: HeaderMap, body: axum::b
                 let started = Instant::now();
                 let out = tools::call(&st, &user, &via, &name, &args).await;
                 let ok = out.is_ok();
-                tracing::info!(tool = %name, via = via.as_str(), ok, ms = started.elapsed().as_millis() as u64, "mcp tool call");
+                tracing::info!(target: crate::request_log::TARGET, tool = %name, via = via.as_str(), ok, ms = started.elapsed().as_millis() as u64, user = %user.id, "mcp tool call");
                 let (text, is_error) = match out {
                     Ok(text) => (text, false),
                     Err(e) => (tool_error(e), true),

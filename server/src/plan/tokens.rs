@@ -74,6 +74,7 @@ impl FromRequestParts<AppState> for SyncUser {
                 .await?
                 .filter(|o| state.cfg.open_signup || !o.limited)
                 .ok_or(AppError::Unauthorized)?;
+            crate::request_log::note_user(&parts.extensions, &owner.id);
             return Ok(SyncUser { user_id: owner.id, via: Via::Token, limited: owner.limited, is_admin: owner.is_admin });
         }
         let CurrentUser(user) = CurrentUser::from_request_parts(parts, state).await?;
