@@ -195,13 +195,15 @@ async fn prerelease_cards_save_with_a_note_and_other_illegal_cards_do_not() {
     // Spock: out only in a set that hasn't released. Worf: released after the data was made,
     // which says "not legal" until a newer import. Clown: not legal for good (out long before).
     // Acorn and Alchemy: new, but from a joke set or digital only, so not legal after release
-    // either. Sol Ring: reprinted in the new set beside an undated printing.
+    // either; Mystery: new, but its printing doesn't say which. Sol Ring: reprinted in the new
+    // set beside an undated printing.
     for (id, name, released, set_type, digital) in [
-        ("spock", "Spock", "2999-01-01", "expansion", 0),
-        ("worf", "Worf", "2026-11-05", "commander", 0),
-        ("clown", "Clown", "2017-12-08", "funny", 0),
-        ("acorn", "Acorn", "2999-01-01", "funny", 0),
-        ("alchemy", "Alchemy", "2999-01-01", "alchemy", 1),
+        ("spock", "Spock", "2999-01-01", Some("expansion"), Some(0)),
+        ("worf", "Worf", "2026-11-05", Some("commander"), Some(0)),
+        ("clown", "Clown", "2017-12-08", Some("funny"), Some(0)),
+        ("acorn", "Acorn", "2999-01-01", Some("funny"), Some(0)),
+        ("alchemy", "Alchemy", "2999-01-01", Some("alchemy"), Some(1)),
+        ("mystery", "Mystery", "2999-01-01", None, None),
     ] {
         sqlx::query("INSERT INTO cards (oracle_id,name,type_line,cmc,oracle_text,color_identity,legalities,game_changer,updated_at) VALUES (?,?,'Creature','1','','U','{\"commander\":\"not_legal\"}',0,'2026-11-20T00:01:00Z')")
             .bind(id).bind(name).execute(&st.pool).await.unwrap();
@@ -213,7 +215,7 @@ async fn prerelease_cards_save_with_a_note_and_other_illegal_cards_do_not() {
         .execute(&st.pool).await.unwrap();
     let info = crate::decks::card_info(
         &st.pool,
-        &["spock", "worf", "clown", "acorn", "alchemy", "ring"].map(|id| DeckCard { oracle_id: id.into(), name: id.into(), qty: 1, board: Board::Main }),
+        &["spock", "worf", "clown", "acorn", "alchemy", "mystery", "ring"].map(|id| DeckCard { oracle_id: id.into(), name: id.into(), qty: 1, board: Board::Main }),
     )
     .await
     .unwrap();
@@ -222,6 +224,7 @@ async fn prerelease_cards_save_with_a_note_and_other_illegal_cards_do_not() {
     assert_eq!(info["clown"].releases_on, None);
     assert_eq!(info["acorn"].releases_on, None);
     assert_eq!(info["alchemy"].releases_on, None);
+    assert_eq!(info["mystery"].releases_on, None);
     assert_eq!(info["ring"].releases_on, None); // the 'tst' printing has no date; a dated one is out or none is
     let via = Via::Question(Question::default());
     let list = "Commander\n1 Test Commander\nDeck\n1 Spock\n1 Worf\n97 Island";
@@ -237,6 +240,16 @@ async fn prerelease_cards_save_with_a_note_and_other_illegal_cards_do_not() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("Clown is not legal in Commander"), "{err}");
+
+    // A newer run without a source date stands for the day it started (when it stamps the
+    // cards), not the day it finished: Worf, out on the 21st, still counts on a run that started
+    // on the 21st and finished on the 22nd.
+    sqlx::query("INSERT INTO import_runs (id,kind,started_at,finished_at) VALUES ('r2','oracle_cards','2026-11-21T23:59:00Z','2026-11-22T00:01:00Z')")
+        .execute(&st.pool).await.unwrap();
+    sqlx::query("UPDATE printings SET released_at = '2026-11-21' WHERE oracle_id = 'worf'").execute(&st.pool).await.unwrap();
+    let ids = ["worf"].map(|id| DeckCard { oracle_id: id.into(), name: id.into(), qty: 1, board: Board::Main });
+    let info = crate::decks::card_info(&st.pool, &ids).await.unwrap();
+    assert_eq!(info["worf"].releases_on.as_deref(), Some("2026-11-21"));
 }
 
 #[tokio::test]

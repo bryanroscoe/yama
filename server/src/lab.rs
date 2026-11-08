@@ -1796,7 +1796,7 @@ mod tests {
         // Ghave as a card from a set not out yet: Scryfall says "not legal" until release.
         sqlx::query("UPDATE cards SET legalities = '{\"commander\":\"not_legal\"}', updated_at = '2026-11-01T00:00:00Z' WHERE oracle_id = 'o-ghave'").execute(&pool).await.unwrap();
         sqlx::query("DELETE FROM printings WHERE oracle_id = 'o-ghave'").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,updated_at) VALUES ('ghave-new','o-ghave','Ghave, Guru of Spores','new','New','1','en','[\"nonfoil\"]',0,'2026-11-13','now')")
+        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,set_type,released_at,updated_at) VALUES ('ghave-new','o-ghave','Ghave, Guru of Spores','new','New','1','en','[\"nonfoil\"]',0,'commander','2026-11-13','now')")
             .execute(&pool).await.unwrap();
         let made = create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, None).await.unwrap();
         let errors = made.validation["errors"].as_array().unwrap();
