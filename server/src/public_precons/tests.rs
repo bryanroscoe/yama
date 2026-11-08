@@ -737,7 +737,7 @@ async fn rating_v2_ranks_the_public_pages_once_a_real_game_source_is_enabled() {
     assert!(info.sources[0].stock_lists);
     assert!(c.precons.iter().all(|p| p.commander_games.is_empty()), "a stock-list source isn't repeated by commander");
 
-    // Mythic Tools rates commanders, not stock lists: its figure shows beside the rank, never in it.
+    // Mythic Tools rates commanders, not stock lists: it never changes a precon with stock games.
     let mythic = json!({"schema":"yama-dataset/1","id":"mythic-commander-scores","title":"Mythic Tools commander scores","generated_at":"2026-11-02T00:00:00Z",
         "source":{"name":"Mythic Tools","url":"https://mythic.tools","attribution":"Derived from Mythic Tools' aggregate per-commander game records.","license":"No published terms; derived rates and scores only"},
         "method":"Clean-room derivation","coverage":{},

@@ -212,7 +212,9 @@ pub fn loo_error(points: &[(Vec<f64>, Real)]) -> Option<f64> {
 /// residual would let a never-played precon look surer than one with hundreds of stock games.
 pub fn loo_variance(points: &[(Vec<f64>, Real)]) -> Option<f64> {
     let error = loo_error(points)?;
-    let noise = points.iter().map(|(_, r)| r.variance()).sum::<f64>() / points.len() as f64;
+    // Weighted like the error, so thinly played precons can't swamp the noise they barely add to it.
+    let weights: f64 = points.iter().map(|(_, r)| weight(r)).sum();
+    let noise = points.iter().map(|(_, r)| weight(r) * r.variance()).sum::<f64>() / weights;
     Some((error - noise).max(MIN_SIM_VARIANCE))
 }
 
@@ -451,6 +453,22 @@ mod tests {
         assert!(fit(&pts[..5]).is_none(), "too few points");
         let flat: Vec<(Vec<f64>, Real)> = (0..10).map(|i| (vec![1.0], real(20.0 + i as f64))).collect();
         assert!(fit(&flat).is_none(), "a constant predictor can't be fitted beside the intercept");
+    }
+
+    #[test]
+    fn leave_one_out_variance_weighs_noise_like_the_error() {
+        // A few thinly played precons with large sampling noise beside many well-played ones.
+        let pts: Vec<(Vec<f64>, Real)> = (0..20)
+            .map(|i| {
+                let x = i as f64;
+                let games = if i % 5 == 0 { 15.0 } else { 3000.0 };
+                (vec![x], Real { rate: 15.0 + x + [2.0, -2.0][i % 2], effective_games: games })
+            })
+            .collect();
+        let error = loo_error(&pts).unwrap();
+        let plain_noise = pts.iter().map(|(_, r)| r.variance()).sum::<f64>() / 20.0;
+        assert!(plain_noise > error, "the unweighted noise would wipe the error out: {plain_noise} vs {error}");
+        assert!(loo_variance(&pts).unwrap() > 2.0, "the weighted noise leaves the real spread: {:?}", loo_variance(&pts));
     }
 
     #[test]

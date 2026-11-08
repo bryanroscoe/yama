@@ -37,7 +37,7 @@ pub struct Source {
     pub attribution: String,
     pub license: String,
     /// Whether it rates stock lists, and so feeds the rating. A source that only has per-commander
-    /// figures (Mythic Tools) is shown beside the rank, never in it.
+    /// figures (Mythic Tools) never rates a stock list; v2 reads it only for precons without stock games.
     pub stock_lists: bool,
 }
 

@@ -148,7 +148,7 @@ pub struct Precon {
     /// Rating v2: real games from the enabled datasets with the published simulation.
     pub v2: Option<v2::Row>,
     /// Every list under the commander, from each enabled source that doesn't rate the stock list
-    /// (Mythic Tools). Beside the rank, never in it.
+    /// (Mythic Tools). Rating v2 reads it only for precons without stock games, once it passes its test.
     pub commander_games: Vec<v2::CommanderGames>,
     pub rating_status: &'static str,
     pub catalog_updated_at: Option<String>,

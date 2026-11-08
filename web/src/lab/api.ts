@@ -104,7 +104,7 @@ export interface RealHistory {
 export interface CommanderObservation {
   source: RealHistory["source"]; entity: string; name: string; url: string | null; window_days: number; rate: number; games: number; as_of: string; note: string;
 }
-/** A source's wins over every list under the precon's commanders (Mythic Tools), beside but never in the rating. */
+/** A source's wins over every list under the precon's commanders (Mythic Tools); rating v2 reads it only for precons without stock games, once it passes its test. */
 export interface CommanderLists { source: RealHistory["source"]; name: string; rate: number; games: number; decks: number | null; note: string }
 export interface PreconEvidence { real: RealHistory | null; also?: RealHistory[]; commander: CommanderObservation | null; all_lists?: CommanderLists[] }
 export interface CalibrationScore { predictor: string; spearman: number | null; spearman_ci: [number, number] | null; mse: number | null }

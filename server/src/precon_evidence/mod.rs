@@ -37,7 +37,8 @@ than raw wins, so these are approximations without binomial intervals.";
 pub const COMMANDER_NOTE: &str = "Every list recorded under this commander: stock and upgraded lists, pod sizes and power levels mixed. \
 Not a rating of this precon's list and never part of its real-game rate.";
 pub const ALL_LISTS_NOTE: &str = "Wins over every game the source recorded under this commander: stock and upgraded lists, every pod size \
-and power level. Not a rating of this precon's list and never part of its rank.";
+and power level. Not a rating of this precon's list. It counts toward rating v2 only for a precon without stock games, and only while \
+it passes the leave-one-out test (the estimate's commander_source names it then).";
 const PRECON_PREFIX: &str = "playgroup:precon:";
 const COMMANDER_PREFIX: &str = "playgroup:commander:";
 /// Commander windows to show, in order of preference.
@@ -106,7 +107,8 @@ pub struct CommanderObservation {
 
 /// A source's figure for every list under the precon's commanders, from its per-commander records
 /// (Mythic Tools' are the reason it exists). Shown for each source that doesn't rate the stock list
-/// itself; it never enters the precon's real-game rate or rating.
+/// itself. It never enters the precon's real-game rate; rating v2 reads it only for precons without
+/// stock games, once it passes the leave-one-out test (`commander_model`).
 #[derive(Debug, Clone, Serialize)]
 pub struct CommanderLists {
     pub source: SourceLabel,
