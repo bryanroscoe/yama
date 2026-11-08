@@ -35,7 +35,7 @@ use super::stats::{BASE_ID, BuildGames, Summary, VARIANT_ID};
 use super::worker::Simulator;
 use super::{Art, PreconCard, RunLabel, latest_global_ratings_run, ratings_for};
 use crate::auth::{CurrentUser, User};
-use crate::cards::{CARD_COLUMNS, Card};
+use crate::cards::{CARD_COLUMNS, Card, RELEASES_ON};
 use crate::config::LabQuota;
 use crate::decks::{self, Board, DeckCard};
 use crate::error::{AppError, AppResult};
@@ -408,7 +408,7 @@ pub fn apply_change(base: &[LabCard], add: &[(String, String)], cut: &[(String, 
 /// Card details for every oracle id in the lists (for checks, commanders and art).
 async fn card_info(pool: &SqlitePool, lists: &[&[LabCard]]) -> AppResult<HashMap<String, Card>> {
     let ids: Vec<&str> = lists.iter().flat_map(|l| l.iter().filter_map(|c| c.oracle_id.as_deref())).collect::<HashSet<_>>().into_iter().collect();
-    Ok(sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")))
+    Ok(sqlx::query_as::<_, Card>(AssertSqlSafe(format!("SELECT {CARD_COLUMNS}, {RELEASES_ON} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")))
         .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
         .fetch_all(pool)
         .await?

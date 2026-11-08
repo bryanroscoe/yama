@@ -33,6 +33,15 @@ pub const CARD_COLUMNS: &str = "cards.oracle_id, cards.name, cards.mana_cost, ca
     cards.rarity, cards.layout, cards.legalities, cards.image_small, cards.image_normal, cards.image_art_crop, \
     cards.back_image_normal, cards.artist, cards.default_printing, cards.edhrec_rank, cards.game_changer, cards.reserved";
 
+/// `Card::releases_on`, to select after [`CARD_COLUMNS`] from `cards`: the card's first release
+/// date when every printing is dated on or after the day its legality data was imported, so
+/// Scryfall's "not legal" may only mean "not out yet". An undated printing counts as out. It is
+/// compared with the import date, not today, because the legalities stay as imported (until the
+/// next oracle import) after release day.
+pub const RELEASES_ON: &str = "(SELECT CASE WHEN COUNT(*) = COUNT(p.released_at) \
+        AND MIN(p.released_at) >= date(cards.updated_at) THEN MIN(p.released_at) END \
+    FROM printings p WHERE p.oracle_id = cards.oracle_id) AS releases_on";
+
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct Card {
     pub oracle_id: String,
@@ -63,9 +72,9 @@ pub struct Card {
     /// On Wizards' Reserve List, per Scryfall. `None` until an oracle import that reads the
     /// flag has run; never read it as false.
     pub reserved: Option<bool>,
-    /// The release date of a card whose every printing is dated after today (a card from a set
-    /// still in prerelease). Only `decks::card_info` loads it; `None` everywhere else, and for
-    /// any card already out.
+    /// The first release date of a card none of whose printings was out when its legality data
+    /// was imported (a card from a set in prerelease); see [`RELEASES_ON`]. Loaded by the deck
+    /// check's card queries; `None` where a query doesn't select it, and for any card out before.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub releases_on: Option<String>,

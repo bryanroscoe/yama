@@ -1,7 +1,7 @@
 //! Decks: text import, immutable versions, Commander validation, and owned/needed against the collection.
 
 use crate::auth::CurrentUser;
-use crate::cards::{CARD_COLUMNS, Card};
+use crate::cards::{CARD_COLUMNS, Card, RELEASES_ON};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{new_id, now};
@@ -1615,14 +1615,8 @@ pub(crate) async fn card_info(pool: &SqlitePool, cards: &[DeckCard]) -> AppResul
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    // `releases_on`: the first release date when every printing is dated after today (a
-    // prerelease card). An undated printing counts as out.
     let rows = sqlx::query_as::<_, Card>(AssertSqlSafe(format!(
-        "SELECT {CARD_COLUMNS}, \
-            (SELECT CASE WHEN COUNT(*) = COUNT(p.released_at) AND MIN(p.released_at) > date('now') \
-                         THEN MIN(p.released_at) END \
-             FROM printings p WHERE p.oracle_id = cards.oracle_id) AS releases_on \
-         FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))"
+        "SELECT {CARD_COLUMNS}, {RELEASES_ON} FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))"
     )))
         .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
         .fetch_all(pool)
@@ -1741,7 +1735,7 @@ pub fn validate(cards: &[DeckCard], info: &HashMap<String, Card>) -> Validation 
             Some("legal") => {}
             Some("banned") => v.errors.push(format!("{} is banned in Commander", c.name)),
             Some("not_legal") if card.releases_on.is_some() => v.prerelease.push(format!(
-                "{} is from a set releasing {}; Scryfall lists it as Commander-legal from then",
+                "{} is new in a set dated {}; Yama's card data predates that and doesn't list it as Commander-legal yet",
                 c.name,
                 card.releases_on.as_deref().unwrap_or_default()
             )),
@@ -2007,7 +2001,7 @@ mod tests {
         let v = validate(&deck, &info);
         assert!(v.ok, "{:?}", v.errors);
         assert!(v.warnings.is_empty());
-        assert_eq!(v.prerelease, ["Picard is from a set releasing 2026-11-13; Scryfall lists it as Commander-legal from then"]);
+        assert_eq!(v.prerelease, ["Picard is new in a set dated 2026-11-13; Yama's card data predates that and doesn't list it as Commander-legal yet"]);
         // A card that is not legal for any other reason (no future release date) still fails.
         let deck = vec![dc("Cmdr", 1, Board::Commander), dc("Un-Card", 1, Board::Main), dc("Plains", 98, Board::Main)];
         let v = validate(&deck, &info);

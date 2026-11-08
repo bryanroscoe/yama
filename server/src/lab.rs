@@ -23,7 +23,7 @@ pub mod remote;
 mod experiment_tests;
 
 use crate::auth::CurrentUser;
-use crate::cards::{CARD_COLUMNS, Card};
+use crate::cards::{CARD_COLUMNS, Card, RELEASES_ON};
 use crate::decks::{Board, DeckCard, Validation};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -1375,7 +1375,7 @@ struct PreconDeckCards {
 async fn precon_deck_cards(pool: &SqlitePool, precon_name: &str, cards_json: &str, name: Option<&str>) -> AppResult<PreconDeckCards> {
     let lines: Vec<PreconCard> = serde_json::from_str(cards_json).map_err(anyhow::Error::from)?;
     let info: HashMap<String, Card> = sqlx::query_as::<_, Card>(AssertSqlSafe(format!(
-        "SELECT {CARD_COLUMNS} FROM cards WHERE oracle_id IN (SELECT json_extract(value, '$.oracle_id') FROM json_each(?))"
+        "SELECT {CARD_COLUMNS}, {RELEASES_ON} FROM cards WHERE oracle_id IN (SELECT json_extract(value, '$.oracle_id') FROM json_each(?))"
     )))
     .bind(cards_json)
     .fetch_all(pool)
@@ -1786,6 +1786,22 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, Some("op-3")).await, Err(AppError::Conflict(_))));
+    }
+
+    #[tokio::test]
+    async fn a_precon_with_prerelease_cards_checks_them_as_prerelease() {
+        let pool = crate::db::test_pool().await;
+        let dir = fixture(&pool).await;
+        import_precons(&pool, &dir.path().join("decks/index.json"), None).await.unwrap();
+        // Ghave as a card from a set not out yet: Scryfall says "not legal" until release.
+        sqlx::query("UPDATE cards SET legalities = '{\"commander\":\"not_legal\"}', updated_at = '2026-11-01T00:00:00Z' WHERE oracle_id = 'o-ghave'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM printings WHERE oracle_id = 'o-ghave'").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id,oracle_id,name,set_code,set_name,collector_number,lang,finishes,digital,released_at,updated_at) VALUES ('ghave-new','o-ghave','Ghave, Guru of Spores','new','New','1','en','[\"nonfoil\"]',0,'2026-11-13','now')")
+            .execute(&pool).await.unwrap();
+        let made = create_deck_from_precon(&pool, "bryan", "fixture-counterpunch", None, None).await.unwrap();
+        let errors = made.validation["errors"].as_array().unwrap();
+        assert!(!errors.iter().any(|e| e.as_str().unwrap().contains("not legal")), "{errors:?}");
+        assert_eq!(made.validation["prerelease"].as_array().unwrap().len(), 1, "{}", made.validation);
     }
 
     #[tokio::test]
