@@ -628,6 +628,8 @@ struct DeckEntry {
     needed: i64,
     /// Cheapest current USD market price across printings. `None` = no price data.
     cheapest_usd: Option<f64>,
+    /// The printing that price is for, so the page can say which version to buy.
+    cheapest_printing: Option<CheapestPrinting>,
     /// The printing to name in exports: your own copy (real before proxy, the one in this deck's
     /// container first), else a paper printing (see [`paper_printing`]). `None` if neither is
     /// known, so the export names the card alone.
@@ -635,6 +637,15 @@ struct DeckEntry {
     /// Colors of mana the card makes (Scryfall's produced_mana, "WUBRGC" order); "" for none,
     /// `None` until the card data import that reads it has run.
     produced_mana: Option<String>,
+}
+
+/// The printing behind a card's cheapest price.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+struct CheapestPrinting {
+    scryfall_id: String,
+    set_code: String,
+    set_name: String,
+    collector_number: String,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -826,8 +837,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     };
     let card_info = self::card_info(&st.pool, &cards).await?;
     // One price per card for the whole page: the deck value, what you own, proxies and what's left.
-    let market_prices =
-        crate::deck_prices::prices_for(&st.pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let cheapest = crate::deck_prices::cheapest_for(&st.pool, &cards.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
+    let market_prices = crate::deck_prices::as_prices(&cheapest);
     let singles_value = crate::deck_prices::singles(&serde_json::to_value(&cards).map_err(anyhow::Error::from)?, &market_prices);
     let validation = validate(&cards, &card_info);
     let game_changers = game_changers(&cards, &card_info);
@@ -885,9 +896,18 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         }
         // A proxy covers a card for play: needed is what neither real copies nor proxies cover.
         let needed = (c.qty - owned - proxies).max(0);
-        let (cheapest_usd, price_date) = match market_prices.get(&c.oracle_id) {
-            Some((usd, date)) if c.board != Board::Side => (Some(*usd), Some(date.clone())),
-            _ => (None, None),
+        let (cheapest_usd, price_date, cheapest_printing) = match cheapest.get(&c.oracle_id) {
+            Some(p) if c.board != Board::Side => (
+                Some(p.usd),
+                Some(p.date.clone()),
+                Some(CheapestPrinting {
+                    scryfall_id: p.scryfall_id.clone(),
+                    set_code: p.set_code.clone(),
+                    set_name: p.set_name.clone(),
+                    collector_number: p.collector_number.clone(),
+                }),
+            ),
+            _ => (None, None, None),
         };
         if price_date > totals.price_date {
             totals.price_date = price_date;
@@ -933,7 +953,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
             None => paper_printing(choices.get(&c.oracle_id).map(Vec::as_slice).unwrap_or_default()),
         };
         let produced_mana = mana.get(&c.oracle_id).cloned().flatten();
-        entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, printing, produced_mana });
+        entries.push(DeckEntry { entry: c, card, owned, in_deck_container, proxies, locations, needed, cheapest_usd, cheapest_printing, printing, produced_mana });
     }
     totals.needed_cost_usd = (totals.needed_cost_usd * 100.0).round() / 100.0;
     for v in [&mut totals.owned_value_usd, &mut totals.proxy_value_usd].into_iter().flatten() {

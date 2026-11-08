@@ -37,6 +37,7 @@ import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
 import { DeckTextList, type TextDrafts } from "../decks/DeckTextList";
+import { DeckPriceList } from "../decks/DeckPriceList";
 import { PlaygroupBuilds } from "../decks/PlaygroupBuilds";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
@@ -149,6 +150,8 @@ function DeckTile({ d }: { d: DeckSummary }) {
 /** How many cards a collapsed stack shows before "Show all". */
 const STACK_PEEK = 6;
 
+type Layout = "stacks" | "list" | "prices" | "text";
+
 export function DeckPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -165,14 +168,23 @@ export function DeckPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [view, setView] = useState<"all" | "needed">("all");
   const textDrafts = useRef<TextDrafts>(new Map());
-  const [layout, setLayoutState] = useState<"stacks" | "list" | "text">(() => {
-    const saved = localStorage.getItem("yama.deck.layout");
-    if (saved === "stacks" || saved === "list" || saved === "text") return saved;
+  const [layout, setLayoutState] = useState<Layout>(() => {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem("yama.deck.layout");
+    } catch {
+      // Storage blocked: start from the default.
+    }
+    if (saved === "stacks" || saved === "list" || saved === "text" || saved === "prices") return saved;
     return window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list";
   });
-  const setLayout = (l: "stacks" | "list" | "text") => {
-    if (l === "text") setView("all");
-    localStorage.setItem("yama.deck.layout", l);
+  const setLayout = (l: Layout) => {
+    if (l === "text" || l === "prices") setView("all");
+    try {
+      localStorage.setItem("yama.deck.layout", l);
+    } catch {
+      // Storage blocked: the choice lasts for this page.
+    }
     setLayoutState(l);
   };
   const [open, setOpen] = useState<string | null>(null);
@@ -434,21 +446,23 @@ export function DeckPage() {
         {collecting && <CollectSheet deckId={d.id} offer={offer} onClose={closeCollect} />}
 
         <div className="deck-toolbar">
-          {layout !== "text" && <div className="deck-show" role="tablist" aria-label="Show">
+          {layout !== "text" && layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
             <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
             <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Still need {o.needed}</button>
           </div>}
           <div className="deck-layout" role="group" aria-label="View">
             <button aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
             <button aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
+            <button aria-pressed={layout === "prices"} onClick={() => setLayout("prices")}>Prices</button>
             <button aria-pressed={layout === "text"} onClick={() => setLayout("text")}>Text</button>
           </div>
         </div>
 
-        {groups.length === 0 && <p className="empty">Nothing left to get for this deck.</p>}
+        {groups.length === 0 && layout !== "prices" && <p className="empty">Nothing left to get for this deck.</p>}
 
         <div hidden={layout !== "text"}><DeckTextList key={d.id} deck={d} drafts={textDrafts.current} /></div>
-        {layout === "text" ? null : layout === "stacks" ? (
+        {layout === "prices" && <DeckPriceList deck={d} onOpen={setOpen} />}
+        {layout === "text" || layout === "prices" ? null : layout === "stacks" ? (
           <div className="deck-stacks-wrap">
             <div className="deck-stacks">
               {groups.map(([group, entries]) => {

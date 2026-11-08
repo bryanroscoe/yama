@@ -592,6 +592,37 @@ async fn a_decks_buylist_references_count_each_copy_once_without_a_saleable_tota
     assert!(view["singles_value"].is_object());
 }
 
+#[tokio::test]
+async fn a_decks_cards_name_the_cheapest_printing_behind_each_price() {
+    use crate::testutil::{app, send, user};
+    let (app, pool) = app().await;
+    let (owner, token) = user(&pool, "me@example.com").await;
+    for (oracle, name) in [("tomb", "Ancient Tomb"), ("free", "Command Tower")] {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, updated_at) VALUES (?, ?, 'Land', 'now')").bind(oracle).bind(name).execute(&pool).await.unwrap();
+    }
+    for (id, oracle, set, set_name, number) in [("t-uma", "tomb", "uma", "Ultimate Masters", "236"), ("t-tmp", "tomb", "tmp", "Tempest", "315"), ("c-cmm", "free", "cmm", "Commander Masters", "1")] {
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, updated_at) VALUES (?, ?, 'x', ?, ?, ?, 'en', '[\"nonfoil\"]', 'now')")
+            .bind(id).bind(oracle).bind(set).bind(set_name).bind(number).execute(&pool).await.unwrap();
+    }
+    // Command Tower has no price at all: it stays unknown, with no printing named.
+    file(&pool, "2026-10-31", &[("t-uma", usd(6500)), ("t-tmp", usd(5900))]).await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "tomb".into(), name: "Ancient Tomb".into(), qty: 1, board: crate::decks::Board::Main },
+        crate::decks::DeckCard { oracle_id: "free".into(), name: "Command Tower".into(), qty: 1, board: crate::decks::Board::Main },
+    ];
+    let deck = crate::decks::create_deck_with_cards(&pool, &owner, "Test", None, cards).await.unwrap();
+    sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, proxy, created_at, updated_at) VALUES ('i', ?, 't-uma', 1, 'NM', 1, 'now', 'now')")
+        .bind(&owner).execute(&pool).await.unwrap();
+    let (_, view) = send(&app, axum::http::Method::GET, &format!("/api/decks/{deck}"), Some(&token), None).await;
+    let entry = |name: &str| view["cards"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap().clone();
+    let tomb = entry("Ancient Tomb");
+    assert_eq!(tomb["proxies"], 1);
+    assert_eq!(tomb["cheapest_usd"], 59.0);
+    assert_eq!(tomb["cheapest_printing"], serde_json::json!({"scryfall_id": "t-tmp", "set_code": "tmp", "set_name": "Tempest", "collector_number": "315"}));
+    let tower = entry("Command Tower");
+    assert!(tower["cheapest_usd"].is_null() && tower["cheapest_printing"].is_null(), "a missing price stays missing");
+    assert_eq!(view["ownership"]["proxy_value_usd"], 59.0);
+}
 
 #[tokio::test]
 async fn a_printing_that_lost_its_price_shows_none_where_prices_are_read() {
@@ -610,6 +641,10 @@ async fn a_printing_that_lost_its_price_shows_none_where_prices_are_read() {
     file(&pool, "2026-10-31", &[("kept", usd(500)), ("lost", NONE)]).await;
     let prices = crate::deck_prices::prices_for(&pool, &["o"]).await.unwrap();
     assert_eq!(prices.get("o"), Some(&(5.0, "2026-10-31".to_string())), "the cheapest price still listed, not the dropped one");
+    // The deck page names that printing beside its price.
+    let cheapest = crate::deck_prices::cheapest_for(&pool, &["o"]).await.unwrap();
+    let c = cheapest.get("o").unwrap();
+    assert_eq!((c.usd, c.scryfall_id.as_str(), c.set_code.as_str(), c.collector_number.as_str()), (5.0, "kept", "cmm", "kept"));
     let row: (Option<f64>, Option<String>) = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT x.usd, x.price_date FROM ({}) x WHERE x.scryfall_id = 'lost'", crate::cards::PRINTING_SELECT)))
         .fetch_one(&pool)
         .await
