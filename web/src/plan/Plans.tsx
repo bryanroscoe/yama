@@ -8,6 +8,7 @@ import {
   nextStep,
   planChange,
   sourceText,
+  startSkipped,
   waitingSwaps,
   type DeckPlanState,
   type PlanDeck,
@@ -32,7 +33,8 @@ interface Row {
 
 /** The changes of a plan's waiting version that aren't skipped yet, counted by where they come from. */
 export function waitingCounts(view: PlanView, deck: PlanDeck, plan: DeckPlanState) {
-  const skipped = new Set(plan.next?.skipped ?? []);
+  // The same changes the plan's page starts skipped.
+  const skipped = plan.next ? startSkipped(plan.next) : new Set<string>();
   const swaps = waitingSwaps(plan, view.swapsOf(deck.key)).filter((s) => !skipped.has(s.key));
   return countChanges(swaps.map((s) => planChange(s, view.b, view.deckName)));
 }

@@ -925,8 +925,15 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
             .bind(&id)
             .fetch_all(pool)
             .await?;
+    // Each change as it will be approved: the cut the page shows (a chosen cut, or the plan's
+    // fallback when its cut is already going), else the plan's.
     let label = |k: &str| {
-        swaps.iter().find(|s| s.0 == k).map(|(_, i, o)| o.as_ref().map(|o| format!("{i} for {o}")).unwrap_or_else(|| i.clone())).unwrap_or_else(|| k.to_string())
+        let cut = next.cuts.iter().find(|c| c.key == k).map(|c| c.out.clone());
+        swaps
+            .iter()
+            .find(|s| s.0 == k)
+            .map(|(_, i, o)| cut.clone().unwrap_or_else(|| o.clone()).map(|o| format!("{i} for {o}")).unwrap_or_else(|| i.clone()))
+            .unwrap_or_else(|| k.to_string())
     };
     // Skips name a change by its key or by the card it puts in.
     // The page's starting skips: answered no, and cuts the plan in force already makes.

@@ -502,9 +502,9 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
                 <b>In the deck ({inDeck.length})</b> <span className="small dim">Each beside the card it replaced.</span>
               </summary>
               <ul className="plans-plain">
-                {inDeck.map(({ swap: s }) => (
+                {inDeck.map(({ swap: s, out }) => (
                   <li key={s.key}>
-                    <b>{s.in}</b> {s.out && <span className="dim">for {s.out}</span>}
+                    <b>{s.in}</b> {out && <span className="dim">for {out}</span>}
                   </li>
                 ))}
               </ul>
