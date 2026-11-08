@@ -36,3 +36,21 @@ export function reprintOps(
 export function printingLabel(p: Pick<Printing, "set_name" | "set_code" | "collector_number" | "lang">): string {
   return `${p.set_name} (${p.set_code.toUpperCase()}) #${p.collector_number}${p.lang !== "en" ? `, ${p.lang}` : ""}`;
 }
+
+/** A finish in words: "regular", "foil", "etched foil". */
+export function finishWord(finish: string): string {
+  return finish === "nonfoil" ? "regular" : finish === "etched" ? "etched foil" : finish;
+}
+
+/** The finishes of the copies you own, in words: "regular", "foil", "regular and foil". */
+export function ownedFinishes(finishes: Iterable<string>): string {
+  const order = ["nonfoil", "foil", "etched"];
+  const words = [...new Set(finishes)].sort((a, b) => (order.indexOf(a) + 1 || 9) - (order.indexOf(b) + 1 || 9)).map(finishWord);
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** The finishes a row can be set to: its printing's (when known), always including the row's own. */
+export function finishChoices(current: string, printingFinishes: string[] | undefined): string[] {
+  const list = printingFinishes && printingFinishes.length > 0 ? printingFinishes : ["nonfoil", "foil", "etched"];
+  return list.includes(current) ? list : [current, ...list];
+}

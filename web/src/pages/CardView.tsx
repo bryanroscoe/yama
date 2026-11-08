@@ -13,6 +13,7 @@ import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
 import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
+import { ownedFinishes } from "./collectionEdit";
 import "./cards.css";
 
 type Finish = "nonfoil" | "foil" | "etched";
@@ -141,7 +142,9 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
   const low = cheapest(printings);
   const mine = owned.data ?? [];
   const copies = mine.reduce((a, i) => a + i.qty, 0);
-  const myPrintings = new Set(mine.map((i) => i.scryfall_id));
+  // Your copies' finishes by printing, so a printing's line says whether yours is foil.
+  const myPrintings = new Map<string, string[]>();
+  for (const i of mine) myPrintings.set(i.scryfall_id, [...(myPrintings.get(i.scryfall_id) ?? []), i.finish]);
   const places = [...new Set(mine.map((i) => i.container_name ?? "Not filed"))];
   const ownedLong =
     mine.length === 1
@@ -269,19 +272,20 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                       const foil = p.finishes.includes("foil") ? p.usd_foil : p.finishes.includes("etched") ? p.usd_etched : undefined;
                       const hasFoil = p.finishes.includes("foil") || p.finishes.includes("etched");
                       const finish: Finish = p.finishes.includes("nonfoil") ? "nonfoil" : (p.finishes[0] as Finish);
-                      const yours = myPrintings.has(p.scryfall_id);
+                      const yourFinishes = myPrintings.get(p.scryfall_id);
+                      const yours = yourFinishes ? ownedFinishes(yourFinishes) : null;
                       return (
                         <tr key={p.scryfall_id}>
                           <td>
                             <button className="cp-set" onClick={() => setChart({ id: p.scryfall_id, finish, set: p.set_name })} aria-label={`${p.set_name} #${p.collector_number}: show its price history`}>
                               <span className="cp-set-name">{p.set_name}</span> <span className="cp-set-num">#{p.collector_number}</span>
                             </button>
-                            {yours && <span className="tag good cp-yours">Yours</span>}
-                            {/* Phones: one line under the set for the number, your copy and the foil price. */}
-                            <span className={`cp-set-sub${yours ? " good" : ""}`}>
+                            {yours != null && <span className="tag good cp-yours">Yours, {yours}</span>}
+                            {/* Phones: one line under the set for the number, your copies' finish, then the foil market price. */}
+                            <span className="cp-set-sub">
                               #{p.collector_number}
-                              {yours ? ", yours" : ""}
-                              {hasFoil && p.finishes.includes("nonfoil") ? `, foil ${usd(foil)}` : ""}
+                              {yours != null && <span className="good">, yours ({yours})</span>}
+                              {hasFoil && p.finishes.includes("nonfoil") ? `. Foil market ${usd(foil)}` : ""}
                             </span>
                           </td>
                           <td className={`r num${p.finishes.includes("nonfoil") && p.usd == null ? " dim" : ""}`}>
