@@ -358,6 +358,17 @@ describe("saving after commander changes", () => {
     await store.deleteGame("late-local-edit");
   });
 
+  it("keeps a tap still settling when the server says the game finished elsewhere", async () => {
+    store.startGame(setup("finished-mid-burst"));
+    await store.sync();
+    serverFinished = true;
+    store.dispatch({ type: "life", seat: 0, delta: -2 });
+    await store.sync();
+    expect(store.getGame()?.log.at(-1)?.event).toMatchObject({ type: "life", delta: -2 });
+    serverFinished = false;
+    await store.deleteGame("finished-mid-burst");
+  });
+
   it.each(["discard", "adopt"])("does not resurrect a legacy guest result after %s", async (operation) => {
     const legacy = { setup: setup(`retired-guest-${operation}`), guest: true, log: [{ seq: 1, at: "2026-11-02T20:00:00Z", event: { type: "finish", winnerSeat: 0, endedAt: "2026-11-02T20:00:00Z" } }], redo: [], syncedThrough: 0 };
     items.set("yama.table.guestGames", JSON.stringify([legacy]));
@@ -590,6 +601,45 @@ describe("whose games upload", () => {
     await store.sync();
     expect(uploads.at(-1)).toMatchObject({ id: "theirs-1", finish: { winner_seat: 0 } });
     items.set("yama.me", JSON.stringify({ id: "me" }));
+  });
+});
+
+describe("a sync while life is being tapped", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    store.discardGame();
+  });
+
+  it("leaves the burst open, so the taps stay one event and go up once they settle", async () => {
+    guest = false;
+    failWith = null;
+    goneOnPost = false;
+    postStatus = null;
+    holdPost = null;
+    items.set("yama.me", JSON.stringify({ id: "me" }));
+    store.selectSlot(false, "me");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-07T19:00:00Z"));
+    store.startGame(setup("g-burst"));
+    await store.sync();
+    uploads.length = 0;
+    const tap = () => {
+      vi.setSystemTime(Date.now() + 200);
+      store.dispatch({ type: "life", seat: 0, delta: -1 });
+    };
+    for (let i = 0; i < 9; i++) tap();
+    // The 20-second sync lands mid-burst.
+    await store.sync();
+    for (let i = 0; i < 3; i++) tap();
+    const lifeEvents = () => store.getGame()!.log.filter((l) => l.event.type === "life");
+    expect(lifeEvents()).toHaveLength(1);
+    expect(lifeEvents()[0]!.event).toMatchObject({ delta: -12 });
+    expect(JSON.stringify(uploads.at(-1)?.events ?? [])).not.toContain("life");
+    // Once the taps settle it goes up whole.
+    vi.setSystemTime(Date.now() + 3000);
+    await store.sync();
+    expect(JSON.stringify(uploads.at(-1)!.events)).toContain("-12");
+    expect(store.canUndo()).toBe(false);
   });
 });
 

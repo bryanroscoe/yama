@@ -223,6 +223,8 @@
 }
 
 .tap {
+  /* The table never scrolls, so a finger that drifts mid-tap must not cancel (and lose) the tap. */
+  touch-action: none;
   position: absolute;
   top: 0;
   bottom: 0;

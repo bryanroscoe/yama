@@ -179,24 +179,25 @@
   color: var(--dk-text-dim);
 }
 
-.combo-list {
+/* Deck-page names: the table picker owns .combo and .combo-list (an absolute dropdown). */
+.deck-combo-list {
   display: grid;
   gap: 0.5rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.combo {
+.deck-combo {
   border-top: 1px solid var(--dk-line);
   padding-top: 0.5rem;
   display: grid;
   gap: 0.15rem;
 }
-.combo .cards {
+.deck-combo .cards {
   font-weight: 700;
 }
-.combo .results,
-.combo .meta {
+.deck-combo .results,
+.deck-combo .meta {
   font-size: var(--t-sm);
   color: var(--dk-text-dim);
 }
