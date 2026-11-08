@@ -92,7 +92,7 @@
   gap: 4px;
 }
 .deck-toolbar .deck-show > button {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 16px;
   border: none;
   background: transparent;
@@ -106,7 +106,7 @@
   color: var(--ground);
 }
 .deck-toolbar .deck-layout > button {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 14px;
   border: 1px solid var(--line);
   background: transparent;
@@ -237,7 +237,7 @@
   .deck-page .deck-actions-phone button,
   .deck-page .deck-actions-phone .button,
   .deck-actions-more > summary {
-    min-height: 44px;
+    min-height: var(--target);
     padding: 8px 12px;
     font-size: var(--t-label);
   }
@@ -313,7 +313,7 @@
   text-shadow: none;
 }
 .hand-view .hand-head button.hand-done {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 16px;
 }
 .hand-body {
@@ -409,7 +409,7 @@
 .deck-delete-sheet p { margin: 0; }
 .deck-delete-choice { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .deck-delete-choice legend { padding: 0 4px; font-weight: 700; overflow-wrap: anywhere; }
-.deck-delete-choice label { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 400; }
+.deck-delete-choice label { display: flex; align-items: center; gap: 8px; min-height: var(--target); font-weight: 400; }
 .deck-delete-sheet button.deck-danger { background: var(--bad); border-color: var(--bad); color: var(--ground); }
 .deck-delete-sheet button.deck-danger:disabled { background: var(--raised); border-color: var(--raised); color: var(--dim); opacity: 1; }
 .deck-text-list textarea { min-height: 28rem; font-family: monospace; font-size: var(--t-sm); }
@@ -425,7 +425,7 @@
   .deck-actions-more[open] .deck-extra-actions { width: calc(300% + 16px); margin-left: calc(-200% - 16px); }
   .deck-toolbar { flex-wrap: wrap; }
 }
-.deck-lists > a, .deck-playgroup-builds li > a { display: inline-flex; align-items: center; min-height: 44px; }
+.deck-lists > a, .deck-playgroup-builds li > a { display: inline-flex; align-items: center; min-height: var(--target); }
 .deck-playgroup-builds { margin-bottom: 16px; }
 .deck-playgroup-builds ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 8px; padding-left: 20px; }
 .deck-page .deck-more > details { margin-bottom: 20px; }

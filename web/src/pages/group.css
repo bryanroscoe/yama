@@ -371,7 +371,7 @@
 }
 .grp-you button {
   flex: none;
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 14px;
   font-size: var(--t-label);
 }
@@ -642,7 +642,7 @@
   overflow-wrap: anywhere;
 }
 .grp-delete-confirm input {
-  min-height: 44px;
+  min-height: var(--target);
 }
 .grp-delete-actions {
   display: flex;
@@ -650,7 +650,7 @@
   gap: 8px;
 }
 .grp-delete-actions button {
-  min-height: 44px;
+  min-height: var(--target);
   padding: 0 16px;
   font-size: var(--t-label);
 }

@@ -2,10 +2,10 @@
 .sharing-page .grp-section h2 { margin: 0; }
 .sharing-page .row { flex-wrap: wrap; }
 .sharing-jumps { display: flex; gap: 8px 24px; flex-wrap: wrap; }
-.sharing-jumps a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
+.sharing-jumps a { display: inline-flex; align-items: center; min-width: 44px; min-height: var(--target); }
 .sharing-page .share-fallback { width: 100%; min-width: 0; max-width: 100%; }
 .sharing-item input { max-width: 100%; min-width: 0; }
-.sharing-item > div:first-child > a, .sharing-browse, .sharing-page .share-profile-link > a { display: inline-flex; align-items: center; min-height: 44px; }
+.sharing-item > div:first-child > a, .sharing-browse, .sharing-page .share-profile-link > a { display: inline-flex; align-items: center; min-height: var(--target); }
 .sharing-browse { align-self: flex-start; }
 .sharing-page .share-profile-link > a { overflow-wrap: anywhere; min-width: 0; }
 .sharing-list { list-style: none; padding: 0; margin: 0 0 16px; }
