@@ -2,6 +2,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Pips } from "./ui";
+import { pickerPlacement } from "./pickerPlacement";
 import "./gamePicker.css";
 
 /** One selectable item, with optional commander art, colors and supporting text. */
@@ -90,13 +91,25 @@ export function Combobox<T>({
     const place = () => {
       if (!input.current) return;
       const r = input.current.getBoundingClientRect();
-      const width = Math.min(Math.max(r.width, 400), window.innerWidth - 32);
-      const left = Math.max(16, Math.min(r.left, window.innerWidth - width - 16));
-      setListStyle({ width, left: left - r.left, right: "auto" });
+      if (r.bottom < 0 || r.top > window.innerHeight) { setOpen(false); return; }
+      // A Table editor can live inside a scrolling sheet. Its clipping edges count too.
+      const clip = { top: 0, bottom: window.innerHeight };
+      for (let parent = input.current.parentElement; parent; parent = parent.parentElement) {
+        if (!/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowY)) continue;
+        const box = parent.getBoundingClientRect();
+        clip.top = Math.max(clip.top, box.top + parent.clientTop);
+        clip.bottom = Math.min(clip.bottom, box.top + parent.clientTop + parent.clientHeight);
+      }
+      if (r.bottom <= clip.top || r.top >= clip.bottom) { setOpen(false); return; }
+      const p = pickerPlacement(r, { width: window.innerWidth, height: window.innerHeight }, clip);
+      const next: CSSProperties = { width: p.width, left: p.left, right: "auto", maxHeight: p.maxHeight,
+        top: p.opensAbove ? "auto" : "calc(100% + 4px)", bottom: p.opensAbove ? "calc(100% + 4px)" : "auto" };
+      setListStyle((prev) => prev && prev.width === next.width && prev.left === next.left && prev.top === next.top && prev.bottom === next.bottom && prev.maxHeight === next.maxHeight ? prev : next);
     };
     place();
     window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
   }, [showList]);
   const openList = () => {
     onOpen?.();
