@@ -116,10 +116,15 @@ export function SharingSettings() {
         <input type="checkbox" checked={s.wants_public} disabled={save.isPending} onChange={(e) => save.mutate({ wants_public: e.target.checked })} />
         Show what I'm looking for on my profile
         <span className="hint">
-          The cards on your shopping list (planned buys, proposals you said yes to, cards you added and your real-card wishlist), with how
-          many and their market price, so friends can see what you need. Not which deck they're for, your notes, stores or price limits.
+          Missing real cards for your decks and approved upgrades, plus your wish list. Card names, quantities and market prices;
+          not deck names, notes, stores or price limits.
           {!s.handle && " Needs a handle."}
         </span>
+      </label>
+      <label className="share-collection-toggle">
+        <input type="checkbox" checked={s.wants_include_pending ?? false} disabled={save.isPending} onChange={(e) => save.mutate({ wants_include_pending: e.target.checked })} />
+        Include pending upgrades on my public want list
+        <span className="hint">Show friends cards from plans still waiting for your OK. This doesn't approve the plans or buy anything.</span>
       </label>
       <label className="share-collection-toggle">
         <input type="checkbox" checked={s.share_lab_results} disabled={save.isPending} onChange={(e) => save.mutate({ share_lab_results: e.target.checked })} />

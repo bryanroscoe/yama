@@ -335,7 +335,7 @@ fn resolve<'a>(key: &'a str, live: &HashSet<&str>, aliases: Option<&'a Map<Strin
 }
 
 /// Each live swap's answer (`text.ts` `answerIndex`): the latest by time, an import losing a tie.
-fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String, &'a Value> {
+pub(crate) fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String, &'a Value> {
     let mut latest: HashMap<String, &Value> = HashMap::new();
     for (key, r) in obj(b, "reviews").into_iter().flatten() {
         let Some(to) = resolve(key, live, obj(b, "aliases")) else { continue };
