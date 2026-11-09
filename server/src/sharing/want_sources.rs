@@ -1,5 +1,5 @@
 //! Real-card needs across saved main decks and approved upgrades, separate from store trips.
-//! Pending proposals are read only for the owner's private overlay. Nothing here approves a plan.
+//! Pending proposals are included only for the owner or when the owner opts to publish them. Nothing here approves a plan.
 use crate::error::AppResult;
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -211,6 +211,6 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
     }
     Ok(missing
         .into_iter()
-        .filter_map(|(id, (now, later))| (now + later > 0).then(|| (cards[&id].clone(), now + later, now == 0)))
+        .filter_map(|(id, (now, later))| (now + later > 0).then(|| (cards[&id].clone(), now + later, later > 0)))
         .collect())
 }

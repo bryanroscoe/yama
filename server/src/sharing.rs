@@ -43,6 +43,7 @@ pub fn router() -> Router<AppState> {
         .route("/u/{handle}/wants", get(wants::page))
         .route("/u/{handle}/wants.txt", get(wants::download))
         .route("/api/sharing/wants/{handle}/owned", get(wants::owned_route))
+        .route("/api/sharing/wants/{handle}/pending", axum::routing::put(wants::pending_route))
         .route("/api/sharing/compare/{handle}", get(wants::compare_route))
         .route("/d/{token}", get(html::deck))
         .route("/d/{token}/{file}", get(download))
@@ -115,6 +116,7 @@ struct Sharing {
     collection_public: bool,
     /// The shopping list's cards on the profile, as "looking for" (`/u/<handle>/wants`).
     wants_public: bool,
+    wants_include_pending: bool,
     /// Shared decks show their plan's simulated win rates.
     share_lab_results: bool,
     /// Live decks by visibility.
@@ -122,8 +124,8 @@ struct Sharing {
 }
 
 async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
-    let (handle, new_deck_visibility, collection_public, wants_public, share_lab_results): (Option<String>, String, bool, bool, bool) =
-        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public, wants_public, share_lab_results FROM users WHERE id = ?")
+    let (handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results): (Option<String>, String, bool, bool, bool, bool) =
+        sqlx::query_as("SELECT handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results FROM users WHERE id = ?")
             .bind(user)
             .fetch_one(pool)
             .await?;
@@ -140,7 +142,7 @@ async fn sharing(pool: &SqlitePool, user: &str) -> AppResult<Sharing> {
             _ => decks.private = n,
         }
     }
-    Ok(Sharing { handle, new_deck_visibility, collection_public, wants_public, share_lab_results, decks })
+    Ok(Sharing { handle, new_deck_visibility, collection_public, wants_public, wants_include_pending, share_lab_results, decks })
 }
 
 async fn get_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Sharing>> {
@@ -155,6 +157,7 @@ struct SharingUpdate {
     new_deck_visibility: Option<String>,
     collection_public: Option<bool>,
     wants_public: Option<bool>,
+    wants_include_pending: Option<bool>,
     share_lab_results: Option<bool>,
 }
 
@@ -193,6 +196,9 @@ async fn put_sharing(State(st): State<AppState>, CurrentUser(user): CurrentUser,
     }
     if let Some(c) = body.wants_public {
         sqlx::query("UPDATE users SET wants_public = ? WHERE id = ?").bind(c).bind(&user.id).execute(&st.pool).await?;
+    }
+    if let Some(c) = body.wants_include_pending {
+        sqlx::query("UPDATE users SET wants_include_pending = ? WHERE id = ?").bind(c).bind(&user.id).execute(&st.pool).await?;
     }
     Ok(Json(sharing(&st.pool, &user.id).await?))
 }
@@ -254,11 +260,12 @@ pub(crate) struct Sharer {
     pub(crate) handle: Option<String>,
     collection_public: bool,
     wants_public: bool,
+    wants_include_pending: bool,
 }
 
 async fn sharer_by_handle(pool: &SqlitePool, handle: &str) -> AppResult<Sharer> {
     let Ok(handle) = parse_handle(handle) else { return Err(AppError::NotFound("profile")) };
-    sqlx::query_as("SELECT id, handle, collection_public, wants_public FROM users WHERE handle = ? AND disabled_at IS NULL")
+    sqlx::query_as("SELECT id, handle, collection_public, wants_public, wants_include_pending FROM users WHERE handle = ? AND disabled_at IS NULL")
         .bind(handle)
         .fetch_optional(pool)
         .await?
@@ -510,7 +517,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     .await?
     .ok_or(AppError::NotFound("deck"))?;
     let sharer: Sharer =
-        sqlx::query_as("SELECT id, handle, collection_public, wants_public FROM users WHERE id = ?").bind(&row.owner_id).fetch_one(pool).await?;
+        sqlx::query_as("SELECT id, handle, collection_public, wants_public, wants_include_pending FROM users WHERE id = ?").bind(&row.owner_id).fetch_one(pool).await?;
     let list: Vec<DeckCard> = match &row.current_version_id {
         Some(v) => crate::decks::load_version_cards(pool, v).await?,
         None => vec![],

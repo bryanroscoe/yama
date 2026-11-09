@@ -9,6 +9,9 @@
   const select = filter.querySelector('select');
   const account = root.querySelector('.want-account');
   const initialAccount = account.cloneNode(true);
+  const preference = root.querySelector('.want-pending-option');
+  const checkbox = preference.querySelector('input');
+  const saveError = root.querySelector('.want-save-error');
   const pending = root.querySelector('.want-pending');
   const pendingList = pending.querySelector('ul');
   const allRows = () => [...root.querySelectorAll('.want-row')];
@@ -21,6 +24,7 @@
       row.hidden = !terms.every(t => row.dataset.search.includes(t)) ||
         (mode === 'needed' && row.dataset.kind !== 'needed') ||
         (mode === 'wishlist' && row.dataset.kind !== 'wishlist') ||
+        (mode === 'pending' && row.dataset.kind !== 'pending') ||
         (mode === 'spare' && !(Number(row.dataset.spare) > 0)) ||
         (mode === 'owned' && !(Number(row.dataset.owned) > 0));
       if (!row.hidden) shown++;
@@ -31,6 +35,7 @@
   };
   const clear = () => {
     pendingList.replaceChildren();
+    preference.hidden = true; checkbox.disabled = true; saveError.textContent = "";
     account.replaceChildren(...[...initialAccount.childNodes].map(n => n.cloneNode(true)));
     for (const row of allRows()) {
       row.querySelector('.want-owned').hidden = true;
@@ -69,6 +74,7 @@
       if (!response.ok) throw new Error('Collection unavailable');
       const data = await response.json();
       if (current !== generation) return;
+      preference.hidden = !data.owner; checkbox.disabled = !data.owner; checkbox.checked = !!data.include_pending;
       for (const card of data.pending) pendingList.append(newRow(card));
       const cards = new Map(data.cards.map(c => [c.name,c]));
       for (const row of allRows()) {
@@ -78,7 +84,7 @@
         const detail = row.querySelector('.want-owned'); detail.hidden = false;
         const count = document.createElement('b'), where = document.createElement('span');
         count.textContent = `You own ${c.copies}`;
-        where.textContent = `${spare} outside decks, ${c.in_decks} in decks${c.proxies ? `, ${c.proxies} proxies` : ''}`;
+        where.textContent = `${spare} outside decks, ${c.in_decks} in deck boxes${c.proxies ? `, ${c.proxies} proxies` : ''}`;
         detail.replaceChildren(count,where);
       }
       for (const o of select.options) o.disabled = false;
@@ -88,7 +94,15 @@
       if (current === generation && e.name !== 'AbortError') account.textContent = 'Your collection could not be loaded. Reload to try again.';
     }
   };
-  form.addEventListener('submit', e => {e.preventDefault();apply();});
+  checkbox.addEventListener('change', async () => {
+    const enabled = checkbox.checked; checkbox.disabled = true; saveError.textContent = '';
+    try {
+      const response = await fetch(`/api/sharing/wants/${encodeURIComponent(root.dataset.wantHandle)}/pending`, {method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+      if (!response.ok) throw new Error('Could not save. Reload and try again.');
+      location.reload();
+    } catch (e) {checkbox.checked = !enabled;checkbox.disabled = false;saveError.textContent = e.message;}
+  });
+  form.addEventListener('submit' , e => {e.preventDefault();apply();});
   input.addEventListener('input', apply); select.addEventListener('change',apply);
   filter.hidden = false;
   // A restored page or an account change must never retain another session's private overlay.

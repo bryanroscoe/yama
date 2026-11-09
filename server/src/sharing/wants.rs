@@ -4,7 +4,7 @@
 //! in their shared collection.
 //!
 //! Public wants merge explicit wishes with real-card gaps across saved main decks and approved
-//! buy/print upgrades. Unapproved upgrades stay in a private owner-only response. Public HTML
+//! buy/print upgrades. Unapproved upgrades stay private unless their owner opts to include them publicly. Public HTML
 //! carries card names, quantities and dated market prices; each viewer's inventory is fetched
 //! separately with no-store. No deck names, containers, acquisition notes or prices paid leave
 //! their account.
@@ -46,7 +46,12 @@ const CACHE_OWNERS: usize = 256;
 
 /// Someone's shopping list as cards (needed first, then by name).
 pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<WantLine>> {
+    let include_pending: bool = sqlx::query_scalar("SELECT wants_include_pending FROM users WHERE id = ?")
+        .bind(owner)
+        .fetch_one(pool)
+        .await?;
     let mut rev = crate::plan::bundle::rev(pool, owner).await?;
+    rev.push_str(if include_pending { "/pending" } else { "/approved" });
     // Deck gaps change when copies are added, edited or removed, independently of plan revisions.
     let collection: Vec<String> = sqlx::query_scalar(
         "SELECT i.id || '/' || i.scryfall_id || '/' || i.qty || '/' || i.proxy || '/' || COALESCE(i.container_id, '') || '/' || COALESCE(c.kind, '')
@@ -67,7 +72,7 @@ pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<
     {
         return Ok(lines.clone());
     }
-    let lines = load_lines(pool, owner, false).await?;
+    let lines = load_lines(pool, owner, include_pending).await?;
     let mut c = cache.lock().expect("want list cache");
     if c.len() >= CACHE_OWNERS && !c.contains_key(owner) {
         c.clear();
@@ -114,6 +119,7 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
             // entry, by contrast, can describe the same missing real copy as a deck gap.
             named[i].1 = if manual.contains(&key) { named[i].1 + qty } else { named[i].1.max(qty) };
             named[i].2 |= !pending;
+            named[i].3 |= pending;
         } else {
             at.insert(key, named.len());
             named.push((name, qty, !pending, pending));
@@ -137,7 +143,7 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
         if let Some(&i) = by_card.get(&key) {
             out[i].qty += qty;
             out[i].needed |= needed;
-            out[i].pending &= pending;
+            out[i].pending |= pending;
             continue;
         }
         by_card.insert(key, out.len());
@@ -207,7 +213,11 @@ fn card_row(l: &WantLine) -> String {
         e(l.image.as_deref().unwrap_or_default()),
         e(&html::scryfall(&l.name)),
         e(&l.name),
-        e(l.type_line.as_deref().unwrap_or_default()),
+        e(&format!(
+            "{}{}",
+            l.type_line.as_deref().unwrap_or_default(),
+            if l.pending { " — includes pending upgrades" } else { "" }
+        )),
         l.qty,
         e(&price)
     )
@@ -233,8 +243,13 @@ pub(super) async fn page(
         e(&h),
         lines.len()
     );
-    body.push_str("<p class=\"want-explainer\">Missing real cards for decks and approved upgrades, plus the wish list.</p>");
-    write!(body, "<form class=\"want-toolbar\" method=\"get\"><label class=\"want-search\"><span class=\"sr-only\">Search this want list</span><input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"Search cards or types\" maxlength=\"200\" autocomplete=\"off\"></label><button type=\"submit\">Search</button><label class=\"want-filter\" hidden><span class=\"sr-only\">Show cards</span><select><option value=\"all\">All cards</option><option value=\"needed\">Decks and upgrades</option><option value=\"wishlist\">Wish list</option><option value=\"spare\" disabled>Your spare copies</option><option value=\"owned\" disabled>Cards you own</option></select></label></form>", e(&query.q.chars().take(200).collect::<String>())).unwrap();
+    body.push_str(if sharer.wants_include_pending {
+        "<p class=\"want-explainer\">Cards for decks and upgrades, including pending ideas, plus the wish list.</p>"
+    } else {
+        "<p class=\"want-explainer\">Missing real cards for decks and approved upgrades, plus the wish list.</p>"
+    });
+    body.push_str("<label class=\"want-pending-option\" hidden><input type=\"checkbox\"> Include pending upgrades on my public want list</label><p class=\"want-save-error\" role=\"status\"></p>");
+    write!(body, "<form class=\"want-toolbar\" method=\"get\"><label class=\"want-search\"><span class=\"sr-only\">Search this want list</span><input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"Search cards or types\" maxlength=\"200\" autocomplete=\"off\"></label><button type=\"submit\">Search</button><label class=\"want-filter\" hidden><span class=\"sr-only\">Show cards</span><select><option value=\"all\">All cards</option><option value=\"needed\">Decks and upgrades</option><option value=\"wishlist\">Wish list</option><option value=\"pending\">Pending upgrades</option><option value=\"spare\" disabled>Your spare copies</option><option value=\"owned\" disabled>Cards you own</option></select></label></form>", e(&query.q.chars().take(200).collect::<String>())).unwrap();
     write!(body, "<p class=\"want-account dim\"><a href=\"/signin?next=%2Fu%2F{}%2Fwants\">Sign in</a> to see your copies and whether they're in decks. <a href=\"/sharing/compare/{}\">Compare collections</a></p><p class=\"want-result dim\" role=\"status\"></p><ul class=\"want-list\">", e(&h), e(&h)).unwrap();
     // All rows stay in the document for instant searching. The ordinary GET form also works
     // without JavaScript; the initial query is applied progressively by the same filter.
@@ -248,7 +263,7 @@ pub(super) async fn page(
             row.replacen("<li ", "<li hidden ", 1)
         });
     }
-    body.push_str("</ul><p class=\"want-no-results\" hidden>No cards match your search.</p><p class=\"want-prices dim\">TCGplayer market prices via Scryfall, dated per card. These are reference prices, not offers.</p><section class=\"want-pending\" hidden><h2>Upgrades awaiting your approval</h2><p class=\"dim\">Only you can see these. Approving a plan adds its cards to the public list.</p><ul class=\"want-list\"></ul></section></div><script defer src=\"/want-list-v1.js\"></script>");
+    body.push_str("</ul><p class=\"want-no-results\" hidden>No cards match your search.</p><p class=\"want-prices dim\">TCGplayer market prices via Scryfall, dated per card. These are reference prices, not offers.</p><section class=\"want-pending\" hidden><h2>Upgrades awaiting your approval</h2><p class=\"dim\">Only you can see these. Turn on pending upgrades above to share these cards without approving the plans.</p><ul class=\"want-list\"></ul></section></div><script defer src=\"/want-list-v1.js\"></script>");
     let description = format!("The Magic cards @{h} is looking for, shared on Yama.");
     Ok(html::response(
         &headers,
@@ -266,6 +281,7 @@ struct OwnedLine {
 #[derive(Serialize)]
 struct OwnedView {
     owner: bool,
+    include_pending: bool,
     cards: Vec<OwnedLine>,
     pending: Vec<WantLine>,
 }
@@ -308,9 +324,39 @@ pub(super) async fn owned_route(State(st): State<AppState>, CurrentUser(user): C
         .into_iter()
         .map(|(name, copies, in_decks, proxies)| OwnedLine { name, copies, in_decks, proxies })
         .collect();
-    let mut response = Json(OwnedView { owner, cards, pending }).into_response();
+    let mut response = Json(OwnedView {
+        owner,
+        include_pending: sharer.wants_include_pending,
+        cards,
+        pending,
+    })
+    .into_response();
     response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
     Ok(response)
+}
+
+#[derive(Deserialize)]
+pub(super) struct PendingPreference {
+    enabled: bool,
+}
+
+/// The handle fences a page left open while the browser signs into a different account.
+pub(super) async fn pending_route(
+    State(st): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path(handle): Path<String>,
+    Json(pref): Json<PendingPreference>,
+) -> AppResult<Json<serde_json::Value>> {
+    let sharer = sharer_by_handle(&st.pool, &handle).await?;
+    if sharer.id != user.id {
+        return Err(AppError::Forbidden("Only the owner can change this list.".into()));
+    }
+    sqlx::query("UPDATE users SET wants_include_pending = ? WHERE id = ?")
+        .bind(pref.enabled)
+        .bind(&user.id)
+        .execute(&st.pool)
+        .await?;
+    Ok(Json(serde_json::json!({"wants_include_pending": pref.enabled})))
 }
 
 /// "1 Name" lines, needed first: Moxfield, TCGplayer Mass Entry and most stores read them.
