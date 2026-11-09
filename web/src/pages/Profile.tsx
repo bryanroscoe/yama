@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router";
 import { api, publicOrigin, type Sharing } from "../api";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
@@ -17,6 +18,10 @@ export function ProfilePage() {
     enabled,
   });
   const [copied, copy] = useCopy();
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash === "#grp-you") document.getElementById("grp-you")?.scrollIntoView();
+  }, [hash, sharing.data, me?.id]);
   if (!me) return null;
   const s = enabled ? sharing.data : undefined;
   const profile = s?.handle ? `${publicOrigin()}/u/${encodeURIComponent(s.handle)}` : null;

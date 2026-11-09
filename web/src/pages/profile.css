@@ -12,6 +12,8 @@
 .profile-library > a { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-list); text-decoration: none; color: var(--text); }
 .profile-library > a:hover { background: var(--surface); }
 .profile-library span { color: var(--dim); }
+.profile-page .grp-new { display: inline-flex; align-items: center; min-height: var(--target); }
+.profile-page #grp-you { scroll-margin-top: 24px; }
 .profile-page .grp-section { display: flex; flex-direction: column; gap: 16px; }
 @media (max-width: 599px) {
   .profile-library { grid-template-columns: minmax(0, 1fr); }
