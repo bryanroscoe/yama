@@ -39,6 +39,23 @@ struct Target {
     container: Option<String>,
 }
 
+/// Resolve every distinct written name in one statement, preserving the normal card-name
+/// priority (real cards, exact full name, then popularity). No per-deck/per-name SQL awaits.
+pub(super) async fn resolve_names(pool: &SqlitePool, names: &[String]) -> AppResult<HashMap<String, String>> {
+    let names: std::collections::BTreeSet<&str> = names.iter().map(String::as_str).collect();
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT j.value, (SELECT n.oracle_id FROM card_names n JOIN cards c ON c.oracle_id=n.oracle_id
+          WHERE n.name=trim(j.value)
+          ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token','art_series'), c.name=n.name COLLATE NOCASE DESC,
+                   IFNULL(c.edhrec_rank,1000000000) LIMIT 1)
+         FROM json_each(?) j",
+    )
+    .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().filter_map(|(name, id)| id.map(|id| (name, id))).collect())
+}
+
 /// Canonical name, missing copies, pending-only. Main decks count once, configurations never
 /// add physical demand. Boxed copies satisfy only their own deck; spare copies are allocated
 /// once. Recorded acquisitions cover their target, without counting the same entered copy twice.
@@ -56,6 +73,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             (
                 id,
                 Target {
+                    preexisting: list(&serde_json::from_str::<Value>(&cards).unwrap_or_default()),
                     cards: list(&serde_json::from_str::<Value>(&cards).unwrap_or_default()),
                     container,
                     ..Default::default()
@@ -157,7 +175,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         .flat_map(|t| t.cards.values().chain(t.pending.values()).chain(t.acquired.values()).chain(t.preexisting.values()))
         .map(|r| r.0.clone())
         .collect();
-    let resolved = crate::cards::resolve_names(pool, &names).await?;
+    let resolved = resolve_names(pool, &names).await?;
     let cards: HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT oracle_id,name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?)) AND type_line NOT LIKE 'Basic%'")
             .bind(serde_json::to_string(&resolved.values().collect::<Vec<_>>()).map_err(anyhow::Error::from)?)
@@ -193,7 +211,9 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             *free.entry(id).or_default() += q;
         }
     }
-    let mut gaps = Vec::new();
+    // Reserve real boxed copies first, then allocate loose copies to pre-plan needs across
+    // every target before absorbing any acquisitions already entered in loose inventory.
+    let mut allocation = Vec::new();
     for (root, t) in &targets {
         let acquired = canonical(&t.acquired);
         let preexisting = canonical(&t.preexisting);
@@ -203,16 +223,30 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
                 *n -= used;
                 used
             });
-            // Boxed stock and a later acquisition are distinct. Boxed copies beyond stock
-            // may already be that purchase, so only the pre-plan portion is additive.
-            let old_in_box = in_box.min(preexisting.get(&id).copied().unwrap_or(0));
-            let credit = (old_in_box + acquired.get(&id).copied().unwrap_or(0)).max(in_box).min(q);
-            // A recorded purchase might already be among loose collection copies. Consume
-            // those first; physically distinct copies in another target's box are untouched.
-            let spare = free.entry(id.clone()).or_default();
-            *spare = (*spare - (credit - in_box)).max(0);
-            gaps.push((root.clone(), id, q - credit, false));
+            allocation.push((
+                root.clone(),
+                id.clone(),
+                q,
+                in_box,
+                preexisting.get(&id).copied().unwrap_or(0).min(q),
+                acquired.get(&id).copied().unwrap_or(0),
+            ));
         }
+    }
+    let mut gaps = Vec::new();
+    let mut entered_purchases = Vec::new();
+    for (root, id, q, in_box, stock, acquired) in allocation {
+        let old_in_box = in_box.min(stock);
+        let spare = free.entry(id.clone()).or_default();
+        let old_loose = (stock - old_in_box).min(*spare);
+        *spare -= old_loose;
+        let credit = (old_in_box + old_loose + acquired).max(in_box + old_loose).min(q);
+        entered_purchases.push((id.clone(), credit - in_box - old_loose));
+        gaps.push((root, id, q - credit, false));
+    }
+    for (id, may_be_entered) in entered_purchases {
+        let spare = free.entry(id).or_default();
+        *spare = (*spare - may_be_entered).max(0);
     }
     // A donor's confirmed target keeps its copies first. Only a real copy left over after
     // that allocation can fulfill an explicitly approved transfer to another target.

@@ -1481,3 +1481,37 @@ async fn boxed_stock_and_new_acquisitions_cover_distinct_repeated_copies() {
     b["swaps"].as_array_mut().unwrap().push(json!({"key":"third","deck":"d","stage":"planned","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}));
     assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
 }
+
+#[tokio::test]
+async fn loose_stock_survives_acquisition_deduplication_and_is_allocated_once() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"loose-stock@example.com").await;
+    card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
+    let (root,version)=deck(&pool,&owner,"Loose rats").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"rat","name":"Rat Colony","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    copies(&app,&auth,"loose-stock","p-rat",1,false,None).await;
+    let mut b=json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Rat Colony"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"second","deck":"d","stage":"planned","role":"swap","src":"buy","in":"Rat Colony","out":"Plains","order_item":{"order":"bought","line":1}}]});
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    copies(&app,&auth,"entered-loose-purchase","p-rat",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    b["swaps"].as_array_mut().unwrap().push(json!({"key":"third","deck":"d","stage":"planned","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}));
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
+}
+
+#[tokio::test]
+async fn batched_want_name_resolution_preserves_card_priority_and_faces() {
+    let (_,pool)=app().await;
+    card(&pool,"split","Fire // Ice","Instant","p-split","tst","1").await;
+    card(&pool,"exact","Fire","Instant","p-exact","tst","2").await;
+    card(&pool,"token","Fire token","Token","p-token","tst","3").await;
+    sqlx::query("UPDATE cards SET layout='token' WHERE oracle_id='token'").execute(&pool).await.unwrap();
+    for (name,id) in [("Fire","split"),("Ice","split"),("Fire","token")] {
+        sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES (?,?)").bind(name).bind(id).execute(&pool).await.unwrap();
+    }
+    let mut names=vec!["Fire".to_string();200]; names.extend(["fire".into(),"Ice".into(),"Fire // Ice".into(),"Unknown".into()]);
+    let resolved=super::want_sources::resolve_names(&pool,&names).await.unwrap();
+    assert_eq!(resolved["Fire"],"exact"); assert_eq!(resolved["fire"],"exact");
+    assert_eq!(resolved["Ice"],"split"); assert_eq!(resolved["Fire // Ice"],"split");
+    assert!(!resolved.contains_key("Unknown")); assert_eq!(resolved.len(),4);
+}

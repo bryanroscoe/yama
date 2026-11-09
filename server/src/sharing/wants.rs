@@ -101,29 +101,34 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
             .into_iter()
             .map(|(name, qty, pending)| (name, qty, !pending, pending, 2)),
     );
-    let found = super::research::lookup(pool, named.iter().map(|l| l.0.as_str())).await?;
-    let ids: Vec<&str> = named.iter().filter_map(|l| super::research::found(&found, &l.0).map(|f| f.5.as_str())).collect();
-    let canonical: HashMap<String, String> = sqlx::query_as("SELECT oracle_id, name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
-        .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .collect();
+    let written: Vec<String> = named.iter().map(|l| l.0.clone()).collect();
+    let resolved = super::want_sources::resolve_names(pool, &written).await?;
+    let ids: Vec<&String> = resolved.values().collect();
+    let details: HashMap<String, (String, Option<String>, Option<String>)> = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+        "SELECT oracle_id,name,type_line,image_normal FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(id, name, typ, image)| (id, (name, typ, image)))
+    .collect();
     let mut merged: HashMap<String, (WantLine, i64, i64, i64, i64)> = HashMap::new();
     for (name, qty, needed, pending, source) in named {
-        let f = super::research::found(&found, &name);
-        let key = f.map_or_else(|| format!("name:{}", name.to_lowercase()), |f| f.5.clone());
+        let oid = resolved.get(&name);
+        let detail = oid.and_then(|id| details.get(id));
+        let key = oid.cloned().unwrap_or_else(|| format!("name:{}", name.to_lowercase()));
         let entry = merged.entry(key).or_insert_with(|| {
             (
                 WantLine {
-                    name: f.and_then(|f| canonical.get(&f.5).cloned()).unwrap_or(name),
-                    oracle_id: f.map(|f| f.5.clone()),
+                    name: detail.map(|d| d.0.clone()).unwrap_or(name),
+                    oracle_id: oid.cloned(),
                     qty: 0,
                     needed: false,
                     pending: false,
                     pending_qty: 0,
-                    image: f.and_then(|f| f.4.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
-                    type_line: f.and_then(|f| f.1.clone()),
+                    image: detail.and_then(|d| d.2.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
+                    type_line: detail.and_then(|d| d.1.clone()),
                     market: None,
                     market_date: None,
                 },
