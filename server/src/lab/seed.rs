@@ -58,6 +58,8 @@ mod tests {
         for (_, text, release, real) in &rows {
             let cards: Vec<PreconCard> = serde_json::from_str(text).unwrap();
             assert_eq!(cards.iter().map(|c| c.qty).sum::<u32>(), 100);
+            let unique: std::collections::BTreeSet<_> = cards.iter().map(|c| (&c.name, format!("{:?}", c.board))).collect();
+            assert_eq!(unique.len(), cards.len(), "one row per name and board, including basics");
             assert_eq!(cards.iter().filter(|c| c.board == Board::Commander).map(|c| c.qty).sum::<u32>(), 1);
             assert!(cards.iter().all(|c| c.qty > 0 && c.oracle_id.as_ref().is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())));
             assert_eq!(release, "2026-11-13");

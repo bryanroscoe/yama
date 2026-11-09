@@ -98,12 +98,9 @@
     {"name": "Perilous Landscape", "oracle_id": "e2b472dd-047d-47eb-9ebb-df6aa4b52dd4", "qty": 1, "board": "main"},
     {"name": "Reliquary Tower", "oracle_id": "c23e5b80-08d2-4e24-9908-fe2aa4f30f6f", "qty": 1, "board": "main"},
     {"name": "Terramorphic Expanse", "oracle_id": "1bd3e453-aa21-4ee6-95c2-d6d920ee8e7a", "qty": 1, "board": "main"},
-    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 3, "board": "main"},
-    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 2, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 2, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 2, "board": "main"},
-    {"name": "Mountain", "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685", "qty": 2, "board": "main"},
-    {"name": "Mountain", "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685", "qty": 2, "board": "main"}
+    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 5, "board": "main"},
+    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 4, "board": "main"},
+    {"name": "Mountain", "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685", "qty": 4, "board": "main"}
   ]
 },
 {
@@ -210,12 +207,9 @@
     {"name": "Temple of the False God", "oracle_id": "cfdd5dc6-593e-495a-8cfe-3a56b3c4c7df", "qty": 1, "board": "main"},
     {"name": "Terramorphic Expanse", "oracle_id": "1bd3e453-aa21-4ee6-95c2-d6d920ee8e7a", "qty": 1, "board": "main"},
     {"name": "Tranquil Landscape", "oracle_id": "d4eb65d5-99fd-4daf-b7d3-8ebf99ee9c61", "qty": 1, "board": "main"},
-    {"name": "Forest", "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6", "qty": 2, "board": "main"},
-    {"name": "Forest", "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6", "qty": 2, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 1, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 1, "board": "main"},
-    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 1, "board": "main"},
-    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 1, "board": "main"}
+    {"name": "Forest", "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6", "qty": 4, "board": "main"},
+    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 2, "board": "main"},
+    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 2, "board": "main"}
   ]
 },
 {
@@ -315,12 +309,9 @@
     {"name": "Rogue's Passage", "oracle_id": "f29dc596-2121-4421-8463-15f6c2e8b9b3", "qty": 1, "board": "main"},
     {"name": "Shattered Landscape", "oracle_id": "7fbad3f2-66f6-4e3a-b9e0-1ddbcd94d42a", "qty": 1, "board": "main"},
     {"name": "Terramorphic Expanse", "oracle_id": "1bd3e453-aa21-4ee6-95c2-d6d920ee8e7a", "qty": 1, "board": "main"},
-    {"name": "Mountain", "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685", "qty": 3, "board": "main"},
-    {"name": "Mountain", "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685", "qty": 2, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 3, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 2, "board": "main"},
-    {"name": "Swamp", "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68", "qty": 3, "board": "main"},
-    {"name": "Swamp", "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68", "qty": 2, "board": "main"}
+    {"name": "Mountain", "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685", "qty": 5, "board": "main"},
+    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 5, "board": "main"},
+    {"name": "Swamp", "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68", "qty": 5, "board": "main"}
   ]
 },
 {
@@ -423,12 +414,9 @@
     {"name": "Path of Ancestry", "oracle_id": "b473e293-59e3-4e04-acf2-622604aeb25f", "qty": 1, "board": "main"},
     {"name": "Rogue's Passage", "oracle_id": "f29dc596-2121-4421-8463-15f6c2e8b9b3", "qty": 1, "board": "main"},
     {"name": "Terramorphic Expanse", "oracle_id": "1bd3e453-aa21-4ee6-95c2-d6d920ee8e7a", "qty": 1, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 2, "board": "main"},
-    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 2, "board": "main"},
-    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 2, "board": "main"},
-    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 2, "board": "main"},
-    {"name": "Swamp", "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68", "qty": 2, "board": "main"},
-    {"name": "Swamp", "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68", "qty": 2, "board": "main"}
+    {"name": "Plains", "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99", "qty": 4, "board": "main"},
+    {"name": "Island", "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373", "qty": 4, "board": "main"},
+    {"name": "Swamp", "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68", "qty": 4, "board": "main"}
   ]
 }
 ]
