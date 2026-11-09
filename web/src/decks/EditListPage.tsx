@@ -6,7 +6,7 @@ import { listText } from "@yama/core";
 import type { PlanCard } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
+import { api, ApiError, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { SearchPicker } from "../components/SearchPicker";
@@ -85,12 +85,13 @@ function EditList({ id }: { id: string }) {
     setHints(s.choice?.pairs ?? []);
     void list.loadList(async () => {
       const c = s.choice;
-      const text = c?.list
+      return c?.list
         ?? (c?.savedDeck ? listText((await api<DeckView>(`/api/decks/${encodeURIComponent(c.savedDeck)}`)).cards)
         : s.version ? listText((await api<DeckVersion>(`/api/decks/${encodeURIComponent(id)}/versions/${encodeURIComponent(s.version)}`)).cards)
         : null);
-      if (text !== null) setStartText(text);
-      return text;
+    }).then((loaded) => {
+      // Only the load that's still current sets the baseline; a superseded one is dropped.
+      if (loaded !== null) setStartText(loaded);
     });
   };
   // Picking another list over edits asks first, in place (never the browser's confirm()).
@@ -120,14 +121,16 @@ function EditList({ id }: { id: string }) {
   const save = useMutation({
     mutationFn: async () => {
       if (!body) throw new Error("Nothing to save yet.");
-      const fresh = await api<DeckView>(`/api/decks/${encodeURIComponent(id)}`);
-      if (mode === "box" && fresh.version_id !== base.current) {
-        setStale(true);
-        throw new Error("This list changed somewhere else since you opened it.");
-      }
       const json = { cards: body.cards, prints: body.prints, note: note.trim() || null };
       if (mode === "box") {
-        await api(`/api/decks/${encodeURIComponent(id)}`, { method: "PUT", json });
+        // The server refuses (409) if the list changed since this edit started, in the same
+        // transaction as the save, so two editors never silently replace each other's list.
+        try {
+          await api(`/api/decks/${encodeURIComponent(id)}`, { method: "PUT", json: { ...json, base_version: base.current ?? null } });
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 409) setStale(true);
+          throw err;
+        }
         return id;
       }
       // A retry reuses the op id, so it makes one new list.

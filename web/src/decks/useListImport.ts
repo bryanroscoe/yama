@@ -86,8 +86,9 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
     setText((t) => t || next);
   }, []);
 
-  /** Load a list into the box (a start list); a newer load or the person's typing wins. */
-  const loadList = useCallback(async (load: () => Promise<string | null>) => {
+  /** Load a list into the box (a start list); a newer load or the person's typing wins. Resolves
+   *  to the text put in the box, or null when nothing was (superseded, failed or empty). */
+  const loadList = useCallback(async (load: () => Promise<string | null>): Promise<string | null> => {
     touched.current = true;
     const request = ++sourceRequest.current;
     previewRequest.current++;
@@ -104,11 +105,12 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
         setText(next);
         // Different lists can hold identical text: check explicitly even when React keeps `text`.
         runCheck([{ text: next }]);
+        return next;
       }
-      return request === sourceRequest.current;
+      return null;
     } catch (err) {
       if (request === sourceRequest.current) setNotice(err instanceof Error ? err.message : "Couldn't load that list.");
-      return false;
+      return null;
     } finally {
       if (request === sourceRequest.current) setSourceLoading(false);
     }
