@@ -14,6 +14,7 @@ import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
 import { useMe, usePower } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
+import { SavedDeckPicker } from "../components/DeckPicker";
 import "./play.css";
 
 const SKILLS = ["Easy", "Medium", "Hard"] as const;
@@ -219,6 +220,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
           </label>
         )}
       </div>
+      <p className="small dim">Rules engine: Phase. Choose Easy, Medium or Hard for each computer below before starting.</p>
       <ol className="ph-seats">
         {seats.map((s, i) => {
           const deck = shown[i];
@@ -250,15 +252,10 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                   </div>
                 )}
                 {s.kind !== "friend" && (
-                  <label>
-                    Deck
-                    <select value={deckOf(s)} onChange={(e) => update(i, { deckId: e.target.value })}>
-                      {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
-                  </label>
+                  <SavedDeckPicker decks={decks} value={deckOf(s)} onChange={(deckId) => update(i, { deckId })} />
                 )}
                 {s.kind === "ai" && (
-                  <div className="ph-skills" role="group" aria-label={`Skill for seat ${i + 1}`}>
+                  <div className="ph-skills" role="group" aria-label={`Difficulty for seat ${i + 1}`}>
                     {SKILLS.map((k) => (
                       <button key={k} type="button" aria-pressed={s.difficulty === k} onClick={() => update(i, { difficulty: k })}>{k}</button>
                     ))}
@@ -312,12 +309,9 @@ function JoinGame({ decks }: { decks: DeckSummary[] }) {
           <span className="ph-code-label">Code</span>
           <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} required autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder="Code" />
         </label>
-        <label className="ph-join-deck">
-          Your deck
-          <select value={deckId || decks[0]?.id} onChange={(e) => setDeckId(e.target.value)}>
-            {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </label>
+        <div className="ph-join-deck">
+          <SavedDeckPicker label="Your deck" decks={decks} value={deckId || decks[0]!.id} onChange={setDeckId} />
+        </div>
         <button type="submit" className="ph-join-go" disabled={join.isPending}>Join</button>
       </form>
       {chosen && (chosen.bracket != null || chosen.estimate) && <BracketChips declared={chosen.bracket} estimate={chosen.estimate} />}

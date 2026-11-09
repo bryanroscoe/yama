@@ -7847,3 +7847,105 @@ button.dw-pile2:disabled {
 .dw-room-row.picked .dw-room-tag {
   color: var(--text);
 }
+
+/* Gameplay pass: give the table the screen; details are optional. */
+.pb.wide {
+  --rail-width: 0px;
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) var(--rail-width);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+.pb.wide.rail-open { --rail-width: 280px; }
+.pb-toolbar {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 12px;
+}
+.pb-toolbar > * { flex: none; white-space: nowrap; }
+.pb-toolbar .rail-log { padding-inline: 12px; }
+.pb.wide .pb-table { grid-column: 1; }
+.pb.wide .pb-rail { background: var(--ground); }
+.pb.wide.rail-collapsed .pb-rail {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  width: 280px;
+  max-height: min(48dvh, 460px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 10px 32px rgb(0 0 0 / .5);
+}
+.rail-collapsed .rail-stack,
+.rail-collapsed .rail-recent,
+.rail-collapsed .stops-chip,
+.rail-collapsed .rail-foot > .pb-credit,
+.rail-collapsed .rail-decision:not(.has-choice) .rail-body { display: none; }
+.pb.wide .rail-decision.prompt-local { display: none; }
+.rail-open .pb-rail:has(.prompt-local) .rail-stack { max-height: 100%; }
+.rail-stack summary, .rail-recent summary { cursor: pointer; font-weight: 700; }
+.pb.wide .pb-row.creatures { --tile: 112px; }
+.pb.wide .opp-pane { --tile: 84px; }
+.pb.wide.duel .opp-pane { --tile: 112px; }
+.pb.wide .pb-row.lands, .pb.wide .pb-row.others { --tile: 76px; }
+.pb.wide.duel .opp-row.back { --tile: 76px; }
+.ft-bar { padding: 3px 5px; align-items: flex-start; font-size: 12px; }
+.ft-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.15; }
+.ft-under, .pb.wide .pb-row.creatures .ft-under {
+  top: calc(100% + 4px);
+  bottom: auto;
+  max-width: 100%;
+  width: max-content;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 2px 5px;
+  border-radius: 6px;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.pb-row:has(.ft-under), .opp-row:has(.ft-under) { padding-bottom: 56px; row-gap: 34px; }
+.pb-preview { z-index: 200; width: min(360px, 68dvh, calc(100dvw - 16px)); }
+.pb-preview img { max-height: calc(100dvh - 16px); object-fit: contain; }
+.dw-overlay, .dw-strip-wrap, .gs-overlay { right: var(--rail-width, 0px); }
+.dw-strip-wrap { flex-direction: column; align-items: center; max-height: calc(100dvh - 80px); overflow-y: auto; top: 50%; transform: translateY(-50%); padding-block: 20px; }
+.pb-prompt { width: min(780px, 100%); max-height: calc(100dvh - 120px); overflow-y: auto; padding: 16px; border-radius: 20px; background: var(--surface); box-shadow: 0 20px 60px rgb(0 0 0 / .6); }
+.pb-prompt-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.pb-prompt-actions > button { flex: 1; min-width: 140px; }
+.dw-dialog > .chooser { margin-top: 16px; }
+.pb-prompt-actions { position: sticky; bottom: 0; background: var(--surface); padding-block: 8px; z-index: 1; }
+.gs-dialog .pb-prompt-actions { grid-column: 1 / -1; padding: 16px; margin: 0; }
+.combat-cue { position: fixed; inset: 0; pointer-events: none; z-index: 23; color: var(--text); }
+.combat-cue.attack { color: var(--bad); }
+.combat-cue-arrows { width: 100%; height: 100%; overflow: visible; }
+.combat-cue-path { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 1; animation: combat-draw 350ms ease-out both; }
+.combat-cue-notice {
+  position: absolute; top: 15%; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 6px;
+  padding: 16px 20px; border: 2px solid currentColor; border-radius: 16px;
+  background: var(--ground); box-shadow: 0 12px 40px rgb(0 0 0 / .6);
+}
+.combat-cue-notice b { font-size: 22px; }
+.combat-cue-notice span { color: var(--text); font-size: 15px; }
+@keyframes combat-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.combat-cue.reduced .combat-cue-path { animation: none; }
+@media (prefers-reduced-motion: reduce) { .combat-cue-path { animation: none; } }
+@media (max-height: 740px) and (min-width: 1000px) {
+  .pb.wide .pb-row.creatures, .pb.wide.duel .opp-pane { --tile: 96px; }
+}
+.dw-card-art { grid-column: 1 / -1; font-size: 13px; }
+.dw-card-art summary { cursor: pointer; color: var(--dim); padding-block: 4px; }
+.dw-card-art img { display: block; width: auto; max-width: 240px; max-height: 220px; border-radius: 12px; }
+.dw-strip > .dw-card-art { flex: none; max-width: 240px; }
+.dw-strip:has(> .dw-card-art:not([open])) { grid-template-columns: minmax(0, 1fr); }
+.gs:has(> .pb-prompt-actions) { grid-template-rows: minmax(0, 1fr) auto; }
+/* Keep life and cards beside the compact action dock, including on short laptops. */
+.rail-collapsed .pb-handrow { padding-right: 292px; }
+.pb.wide .opp-body { overflow: auto; scrollbar-width: thin; }
+.opp-row { flex-shrink: 0; }
+.opp-row:has(.ft-under) { min-height: calc(var(--tile) + 76px); }
+.pb.phone .pb-row:has(.ft-under) { min-height: calc(var(--tile) + 72px); padding-bottom: 56px; flex-shrink: 0; }
+.pb-engine { color: var(--dim); font-size: 13px; margin-right: auto; }

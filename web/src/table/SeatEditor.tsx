@@ -1,54 +1,22 @@
 // A seat's player and deck, for New game, Log a game and a game in progress (Edit player).
 
 import { useQuery } from "@tanstack/react-query";
-import { useId, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { CommanderPick, TableState } from "@yama/core";
 import { api, type DeckSummary, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { Pips } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
-import { commandersPatch, fitsSegmented, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
+import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
 import { dispatch } from "./store";
 import { isGuest } from "../guest";
 import { suggestedPeople } from "./playerNames";
+import { DeckChoice as SeatChoice } from "../components/DeckPicker";
 import "./seats.css";
 
 const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
-
-/**
- * A choice under a seat's deck field (its lists, its commanders): a short row of pills when the
- * options fit on a phone's line, otherwise a dropdown, so long names or many lists never wrap
- * into a ragged block (Bryan, 4 Nov 2026).
- */
-function SeatChoice({ label, options, value, onChange }: { label: string; options: { key: string; label: string }[]; value: string; onChange: (key: string) => void }) {
-  const id = useId();
-  if (!fitsSegmented(options)) {
-    return (
-      <label className="seat-choice">
-        {label}
-        <select value={value} onChange={(e) => onChange(e.target.value)}>
-          {/* A value none of the options names (a card's full name against the deck's spelling) shows as unpicked. */}
-          {!options.some((o) => o.key === value) && <option value={value} disabled>Choose one</option>}
-          {options.map((o) => (
-            <option key={o.key} value={o.key}>{o.label}</option>
-          ))}
-        </select>
-      </label>
-    );
-  }
-  return (
-    <div className="seat-choice">
-      <span id={id} className="field-label">{label}</span>
-      <div className="segmented seat-choice-row" role="group" aria-labelledby={id}>
-        {options.map((o) => (
-          <button key={o.key} type="button" aria-pressed={o.key === value} onClick={() => onChange(o.key)}>{o.label}</button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** "Riders of Rohan" or the commander, and the art credit line under a seat's fields. */
 function seatCredit(seat: SeatDraft, deckName?: string): string {

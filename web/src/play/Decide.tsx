@@ -3,9 +3,8 @@
 // GModes, GDamage and GChoices), driven by a decision's `pending` (play/src/act.rs). The logic is
 // in answer.ts; Board.tsx places these and sends the answer.
 //
-// The rules every widget keeps: the main button in the rail (laptop) or dock (phone) confirms, so
-// nothing here has a confirm of its own; Esc puts the draft back (Board); right-click or a
-// long-press reads a card; every art crop names its artist; and the words are the engine's and the
+// Board.tsx places confirmation buttons inside each desktop prompt or the phone dock.
+// Esc puts the draft back (Board); right-click or a long-press reads a card; every art crop names its artist; and the words are the engine's and the
 // card's own, never invented.
 
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
@@ -186,7 +185,7 @@ function Head({ p, ctx, count, compact, image = false, extra }: { p: Pending; ct
   const { handlers } = useRead(() => s && ctx.onRead(s.name, s.id));
   return (
     <div className={`dw-head${image ? " image" : ""}`}>
-      {art ? <img className="dw-head-art" src={art} alt="" {...handlers} /> : s ? <span className="dw-head-art blank" /> : null}
+      {art && <details className="dw-card-art"><summary>Card art</summary><img className="dw-head-art" src={art} alt={s?.name ?? ""} {...handlers} />{!image && s?.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}</details>}
       <span className="dw-head-text">
         {s && (
           <span className="dw-source-line">
@@ -222,10 +221,11 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
   return (
     <section className={`dw-strip${compact ? " compact" : ""}`} role="alertdialog" aria-label={p.prompt}>
       {s?.art && (
-        <span className="dw-strip-art">
-          <img src={s.art} alt="" {...handlers} />
-          {!compact && s.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
-        </span>
+        <details className="dw-card-art">
+          <summary>Card art</summary>
+          <img src={s.art} alt={s.name} {...handlers} />
+          {s.artist && <span className="dw-credit">Art: {s.artist}, {COPYRIGHT}</span>}
+        </details>
       )}
       <span className="dw-strip-body">
         {s && (

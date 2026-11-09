@@ -1,6 +1,6 @@
 // The online board, to the Night table artboards (design/screens/PlayBoard, PlayBoardPhone).
 // Laptop: opponents across the top on their commander art, a turn strip with the stop ladder,
-// your rows, then piles, commander, hand fan and portrait; a 340 px right rail holds the stack,
+// your rows, then piles, commander, hand fan and portrait; a collapsible rail holds the stack,
 // the decision and the big button. Phone: opponent tabs, one focused opponent board, phase and
 // stack chips, your board and a dock with the hand peek and the buttons.
 //
@@ -98,6 +98,7 @@ import { GameOver, GameOverBar, KnockoutNote, OutStrips, YouAreOut } from "./End
 import { RevealPanel } from "./Reveal";
 import { openPhaseBoard } from "./phaseBoard";
 import { collapseNinjutsu, ninjutsuPick, specialAct } from "./rare";
+import { CombatCues } from "./CombatCues";
 import "./board.css";
 
 type ViewMessage = Extract<ServerMessage, { type: "view" }>;
@@ -230,15 +231,17 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const [pov, setPov] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
   const [selected, setSelected] = useState<number[] | null>(null);
   const [inspect, setInspect] = useState<CardView | null>(null);
-  const [hover, setHover] = useState<{ card: CardView; left: number; top: number } | null>(null);
+  const [hover, setHover] = useState<{ card: CardView; image: string | null; left: number; top: number } | null>(null);
   const [sheet, setSheet] = useState<SheetKind>(null);
   // This game's settings (GSettings), open at a section, and the ways to pass (GPriority's menu).
   const [settings, setSettings] = useState<SettingsSection | null>(null);
   // Whether phase's own board is served here, to open this game on it.
   const playStatus = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null; board?: boolean }>("/api/play/status") });
   const [passMenu, setPassMenu] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
   // A stack item being read, so a trigger can be yielded to from the card reader.
   const [inspectStack, setInspectStack] = useState<StackItem | null>(null);
   // What happened (feed.ts): the newest reveal already shown (null until the first board, so a
@@ -286,9 +289,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const previewTimer = useRef<number | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const hoverTimer = useRef<number | null>(null);
+  const previewSurface = useRef<Element | null>(null);
   // Space presses the big button (PP-32); kept in a ref so the listener sees the latest one.
   const primaryRef = useRef<(() => void) | null>(null);
   const lastRevision = useRef<number | null>(null);
+  useEffect(() => () => { if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current); }, []);
   const gameOver = useRef(false);
   const canHover = useMedia("(hover: hover) and (pointer: fine)");
   const wide = useMedia("(min-width: 1000px)");
@@ -318,6 +323,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
+      let firstView = true;
       const ws = new WebSocket(playSocketUrl(id, watch));
       socket.current = ws;
       ws.onopen = () => {
@@ -350,6 +356,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           return;
         }
         if (data.type === "view") {
+          // Reset cue history on this socket's first fresh board, never on its stale cached view.
+          if (firstView) {
+            firstView = false;
+            setConnectionGeneration((n) => n + 1);
+          }
           setMsg(data);
           // The server re-sends the board after refusing a move; keep the reason up until the
           // game actually moves on.
@@ -475,7 +486,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       const t = e.target as HTMLElement | null;
       // On a focused card, Space still means the big button (Enter selects the card).
       const onCard = !!t?.closest(".ft, .hc");
-      if (t && !onCard && (t.closest("input, textarea, select, [contenteditable], button, a, [role=button]") || t.closest(".sheet"))) return;
+      if (t && !onCard && (t.closest("input, textarea, select, [contenteditable], button, a, summary, [role=button]") || t.closest(".sheet"))) return;
       if (!primaryRef.current) return;
       e.preventDefault();
       primaryRef.current();
@@ -490,8 +501,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.defaultPrevented || !passKeysRef.current) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest("input, textarea, select, [contenteditable], .sheet, [role=dialog]")) return;
-      if (e.key === "Enter" && t?.closest("button, a, [role=button], .ft, .hc")) return;
+      if (t?.closest("summary, input, textarea, select, [contenteditable], .sheet, [role=dialog]")) return;
+      if (e.key === "Enter" && t?.closest("button, a, summary, [role=button], .ft, .hc")) return;
       if (passKeysRef.current(e)) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
@@ -935,8 +946,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       if (!dragRef.current?.started) askPreview(c && el?.closest(".hc") ? c.id : null);
       if (!c || !canHover || !el || dragRef.current?.started) return setHover(null);
       // Right beside the card: above it in the hand, to its side on the battlefield.
-      const at = previewPlace(el.getBoundingClientRect(), window.innerWidth, window.innerHeight);
-      hoverTimer.current = window.setTimeout(() => setHover({ card: c, ...at }), 150);
+      const w = Math.min(360, window.innerHeight * 0.68, window.innerWidth - 16);
+      const at = previewPlace(el.getBoundingClientRect(), window.innerWidth, window.innerHeight, w, w * 1.4);
+      const name = c.face_down && c.under ? c.under : c.name;
+      const image = c.transformed && meta[name]?.back_image ? meta[name]!.back_image : meta[name]?.image ?? null;
+      hoverTimer.current = window.setTimeout(() => setHover({ card: c, image, ...at }), 150);
     },
     onPress: (p, where, e) => onPress(p, where, e),
   };
@@ -1756,16 +1770,19 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         }
       : null;
   const chooserBody = widget && stage && wide ? <DecisionRail {...widget} stage={stage} onReset={() => setDraft(initialDraft(widget.p))} /> : null;
-  const stageOverlay =
+  const stageOverlay = () =>
     widget && wide ? (
       stage === "strip" ? (
         <div className="dw-strip-wrap">
-          <DecisionStage {...widget} compact={false} />
+          <section className="pb-prompt"><DecisionStage {...widget} compact={false} />{status}<div className="pb-prompt-actions">{buttons}</div></section>
         </div>
       ) : stage === "dialog" ? (
         <div className="dw-overlay">
           <section className={`dw-dialog ${dialogSize(widget.p, widget.draft)}`} role="dialog" aria-label={widget.p.prompt}>
             <DecisionStage {...widget} compact={false} />
+            {chooserBody}
+            {status}
+            <div className="pb-prompt-actions">{buttons}</div>
           </section>
         </div>
       ) : stage === "steppers" ? (
@@ -2101,12 +2118,31 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       )
     ) : null;
 
+  // All card images share the same preview, including choice dialogs and reveals.
+  const previewImage = (e: React.MouseEvent) => {
+    const el = e.target;
+    if (!(el instanceof HTMLImageElement) || el.closest(".ft, .hc, .stack-list, .zone-card, .pb-preview")) return;
+    const src = el.getAttribute("src");
+    const name = Object.keys(meta).find((n) => [meta[n]?.image, meta[n]?.art, meta[n]?.back_image].includes(src));
+    if (name) {
+      previewSurface.current = el.closest("button, figure") ?? el;
+      h.onHover({ ...emptyCard, name, transformed: !!meta[name]?.back_image && src === meta[name]?.back_image }, el);
+    }
+  };
+  const leavePreviewImage = (e: React.MouseEvent) => {
+    const surface = previewSurface.current;
+    if (surface && e.target instanceof Node && surface.contains(e.target) && !(e.relatedTarget instanceof Node && surface.contains(e.relatedTarget))) {
+      previewSurface.current = null;
+      h.onHover(null);
+    }
+  };
   const sheets = (
     <>
-      {/* A dialog over the table covers what the pointer was resting on. */}
-      {hover && stage !== "dialog" && meta[hover.card.name]?.image && (
+      <CombatCues key={connectionGeneration} events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} />
+      {/* One preview layer stays above both the board and its dialogs. */}
+      {hover?.image && (
         <div className="pb-preview" style={{ left: hover.left, top: hover.top }} aria-hidden="true">
-          <img src={meta[hover.card.name]!.image!} alt="" />
+          <img src={hover.image} alt="" />
         </div>
       )}
       {sheet === "log" && (
@@ -2247,7 +2283,16 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   if (wide) {
     return (
       <MotionContext.Provider value={scale}>
-      <div className={`pb wide${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress}>
+      <div className={`pb wide${railOpen ? " rail-open" : " rail-collapsed"}${inPanes.length === 1 ? " duel" : ""}${aiming ? " aiming" : ""}${scale === 0 ? " motion-off" : ""}`} ref={boardRoot} onPointerDown={onBoardPress} onMouseOverCapture={previewImage} onMouseOutCapture={leavePreviewImage}>
+          <div className="rail-top pb-toolbar">
+            <Link to={leaveTo} className="rail-leave">Leave</Link>
+            <AlphaTag />
+            <span className="pb-engine">Phase engine{seats.some((s) => s.ai) ? `, AI ${[...new Set(seats.flatMap((s) => s.ai ? [s.ai.toLowerCase()] : []))].join(" / ")}` : ""}</span>
+            {settingsButton}
+            {phaseButton}
+            <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
+            <button type="button" className="rail-log" aria-expanded={railOpen} onClick={() => setRailOpen((v) => !v)}>{railOpen ? "Hide details" : `Details${view.stack.length ? ` (${view.stack.length} on stack)` : ""}`}</button>
+          </div>
         <div className="pb-table">
           <div className="pb-top">
           {/* Players knocked out shrink to one line each across the top, in the order they went
@@ -2376,18 +2421,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         </div>
 
         <aside className="pb-rail" aria-label="Stack and your options">
-          <div className="rail-top">
-            <Link to={leaveTo} className="rail-leave">Leave</Link>
-            <AlphaTag />
-            {settingsButton}
-            {phaseButton}
-            <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
-          </div>
-          <section className="rail-stack" aria-labelledby="pb-stack-h">
-            <h2 id="pb-stack-h">Stack</h2>
+          <details className="rail-stack" open={view.stack.length > 0 || undefined}>
+            <summary>Stack ({view.stack.length})</summary>
             {stackList}
-          </section>
-          <section className="rail-decision" aria-live="polite" aria-labelledby="pb-dec-h">
+          </details>
+          <section className={`rail-decision${watch || selected || attack || block || paying || pend || (decision && !yourPriority) ? " has-choice" : ""}${settingsOpen || (widget && (stage === "strip" || stage === "dialog")) ? " prompt-local" : ""}`} aria-live="polite" aria-labelledby="pb-dec-h">
             <h2 id="pb-dec-h">{settingsOpen ? settingsButtons(settings!).title : title}</h2>
             {/* The choices scroll; the big button below them never leaves the screen. */}
             <div className="rail-body">
@@ -2417,12 +2455,12 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             </div>
             <div className="rail-foot">
               {recent.length > 0 && (
-                <section className="rail-recent" aria-label="Recent">
-                  <h3>Recent</h3>
+                <details className="rail-recent">
+                  <summary>Recent events</summary>
                   {recent.map((l, i) => (
                     <p key={i}><span className="dim num">T{l.turn}</span> {l.text}</p>
                   ))}
-                </section>
+                </details>
               )}
               {status}
               {modeChipEl}
@@ -2445,14 +2483,14 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           </section>
         </aside>
         <PlanArrows arrows={planArrows} root={boardRoot} />
-        {stageOverlay}
+        {stageOverlay()}
         {manaMenu && paying && (
           <ManaMenu source={manaMenu.source} meta={meta} at={manaMenu.at} onPick={(a) => (sendAct(a), setManaMenu(null))} onClose={() => setManaMenu(null)} disabled={pending} />
         )}
         {settingsOpen && (
           <div className="gs-overlay">
             <section className="gs-dialog" role="dialog" aria-label="Game settings">
-              {settingsBody(false)}
+              {settingsBody(false, <div className="pb-prompt-actions">{status}{buttons}</div>)}
             </section>
           </div>
         )}
@@ -2564,7 +2602,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       : [];
   return (
     <MotionContext.Provider value={scale}>
-    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : paying ? " pay-open" : ""}`} ref={boardRoot}>
+    <div className={`pb phone${scale === 0 ? " motion-off" : ""}${stage === "sheet" ? " sheet-open" : stage === "strip" ? " strip-open" : paying ? " pay-open" : ""}`} ref={boardRoot} onMouseOverCapture={previewImage} onMouseOutCapture={leavePreviewImage}>
       {banner && <div className="phone-banner">{banner}</div>}
       <nav className="opp-tabs" aria-label="Opponents">
         {opponents.map((p) => {
@@ -2576,6 +2614,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             <button
               key={p.seat}
               type="button"
+              data-seat={p.seat}
               className={`opp-tab${on ? " on" : ""}${attacked ? " attacked" : ""}${seatTarget(p.seat) ? " aimed" : ""}${p.eliminated ? " out" : ""}${view.active === p.seat ? " active" : ""}`}
               style={seatStyle(tones.get(p.seat))}
               aria-pressed={on}
