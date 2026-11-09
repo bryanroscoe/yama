@@ -357,3 +357,7 @@
 .why-bracket {
   scroll-margin-top: calc(var(--sticky-top) + 64px);
 }
+.why-bracket-source {
+  margin: 0;
+  font-size: var(--t-xs);
+}

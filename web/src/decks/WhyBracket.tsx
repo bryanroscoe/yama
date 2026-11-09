@@ -7,7 +7,7 @@ import { useLocation } from "react-router";
 import type { DeckView } from "../api";
 import { useDeckCheck } from "../components/Bracket";
 import { DeclareBracket } from "../components/DeclareBracket";
-import { gameChangerFloor, localDay } from "../components/deckCheck";
+import { gameChangerFloor, localDay, SENDS_LIST } from "../components/deckCheck";
 import { HelpPopover } from "../components/HelpPopover";
 import { day } from "../components/Rulings";
 
@@ -84,6 +84,16 @@ export function WhyBracket({ deck, at, outAt, onCard }: { deck: DeckView; at: nu
         </div>
       </dl>
       <DeclareBracket deckId={deck.id} declared={deck.bracket} />
+      {/* The list goes to an outside service: always say so where its answers show (ARCHITECTURE.md). */}
+      {check.data?.enabled && (
+        <p className="why-bracket-source dim">
+          {SENDS_LIST} Combos and flags from{" "}
+          <a href={check.data.source_url || "https://commanderspellbook.com/"} target="_blank" rel="noreferrer">
+            Commander Spellbook
+          </a>
+          .
+        </p>
+      )}
     </section>
   );
 }
