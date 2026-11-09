@@ -18,6 +18,8 @@ describe("the deck's status pill", () => {
   it("says how many cards are still needed", () => {
     const s = deckStatus({ ...base, ownership: { ...base.ownership, owned: 90, proxies: 0, needed: 10 } });
     expect(s).toEqual({ tone: "warn", pill: "Need 10 cards", line: "Commander-legal. 90 of 100 real" });
+    const priced = deckStatus({ ...base, ownership: { ...base.ownership, owned: 90, proxies: 0, needed: 10, needed_cost_usd: 42.5, needed_without_price: 1, price_date: "2026-11-07" } });
+    expect(priced.line).toMatch(/^Commander-legal\. 90 of 100 real\. \$42\.50 to finish, 1 without a price, Nov 7/);
   });
   it("puts the first legality error in the line", () => {
     const s = deckStatus({ ...base, validation: { ...base.validation, ok: false, errors: ["99 cards, needs 100", "Two commanders"] } });

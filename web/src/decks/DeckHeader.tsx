@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shortDate, usd, type ConfigurationRef, type DeckSummary, type DeckView } from "../api";
 import { bracketName } from "../components/Bracket";
+import { neededCost } from "../components/DeckPrices";
 import { MenuSeparator, MoreMenu } from "../components/MoreMenu";
 import { ErrorText } from "../components/ui";
 import { configurationLabel, legacyConfiguration } from "./buildCatalog";
@@ -24,7 +25,13 @@ export function deckStatus(d: Pick<DeckView, "id" | "parent_id" | "configuration
   if (lists?.here === "other") return { tone: "dim", pill: "Saved list", line: "Not the list in your box" };
   if (d.acquisition_status === "planned") return { tone: "dim", pill: "Planned deck", line: v.ok ? "Commander-legal" : legal };
   if (!v.ok) return { tone: "bad", pill: "Not legal yet", line: legal };
-  if (o.needed > 0) return { tone: "warn", pill: `Need ${o.needed} ${o.needed === 1 ? "card" : "cards"}`, line: `Commander-legal. ${real}` };
+  if (o.needed > 0) {
+    // What's left costs, with its date; unknown stays unknown (never $0).
+    const cost = neededCost(o);
+    const day = shortDate(o.price_date);
+    const left = cost != null ? `. ${usd(cost)} to finish${o.needed_without_price ? `, ${o.needed_without_price} without a price` : ""}${day ? `, ${day}` : ""}` : "";
+    return { tone: "warn", pill: `Need ${o.needed} ${o.needed === 1 ? "card" : "cards"}`, line: `Commander-legal. ${real}${left}` };
+  }
   return { tone: "good", pill: "Ready to play", line: `Commander-legal. ${real}` };
 }
 
