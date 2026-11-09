@@ -1081,6 +1081,17 @@ async fn a_want_list_is_private_until_shared_and_shows_only_cards() {
     let (_, headers, txt) = page(&app, "/u/saget/wants.txt").await;
     assert_eq!(txt, "2 Sol Ring\n1 Arcane Signet\n");
     assert!(headers[header::CONTENT_DISPOSITION].to_str().unwrap().contains("saget-wants.txt"));
+    // The same card written another way is one line under its own name, and a changed list is
+    // read again rather than served from the cache.
+    sqlx::query("INSERT INTO shopping_wants (id, owner_id, kind, name, qty, priority, source, added_at) VALUES ('w-lower', ?, 'card', 'sol ring', 1, 'need', 'page', 'now')")
+        .bind(&bryan)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(page(&app, "/u/saget/wants.txt").await.2, "3 Sol Ring\n1 Arcane Signet\n");
+    let (_, _, html) = page(&app, "/u/saget/wants").await;
+    assert!(html.contains("2 cards, 4 copies"), "{html}");
+    sqlx::query("DELETE FROM shopping_wants WHERE id = 'w-lower'").execute(&pool).await.unwrap();
     let (_, _, profile) = page(&app, "/u/saget").await;
     assert!(profile.contains("href=\"/u/saget/wants\""));
     for body in [&html, &txt, &profile] {

@@ -3,8 +3,9 @@
 //! (`/api/sharing/compare/<handle>`): the cards on their list you have, and the cards on your list
 //! in their shared collection.
 //!
-//! The list is the store trip's (`plan::trip::trip_wants`): planned buys with no order, proposals,
-//! cards added by hand and the real-card wishlist. The public sees only each card's name, how many
+//! The list is the store trip's (`plan::trip::trip_wants`): planned buys with no order, proposals
+//! they said they want, cards added by hand and the real-card wishlist (never a proposal they
+//! haven't decided on), one line a card. The public sees only each card's name, how many
 //! copies, whether it's a reason to go to a store, and the card's dated market price. Never which
 //! deck it's for, what it replaces, why, the store, rule or price limits, or anything else from
 //! the plan.
@@ -33,12 +34,44 @@ pub(crate) struct WantLine {
 /// The most cards a list reads: a public page mustn't do work in proportion to a huge wishlist.
 const MAX_CARDS: usize = 1000;
 
+/// The most distinct names read from a list before they're matched to cards.
+const MAX_NAMES: usize = 5000;
+
+/// Each owner's list with the plan bundle's cache key it was made from (`bundle::rev`, which
+/// changes with their plan, decks, wants, research and every card or price import). Reading a
+/// list loads the whole bundle, so a public page mustn't do it on every visit.
+type Cached = HashMap<String, (String, Vec<WantLine>)>;
+static CACHE: std::sync::OnceLock<std::sync::Mutex<Cached>> = std::sync::OnceLock::new();
+const CACHE_OWNERS: usize = 256;
+
 /// Someone's shopping list as cards (needed first, then by name).
 pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<WantLine>> {
+    let rev = crate::plan::bundle::rev(pool, owner).await?;
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((r, lines)) = cache.lock().expect("want list cache").get(owner)
+        && *r == rev
+    {
+        return Ok(lines.clone());
+    }
+    let lines = load_lines(pool, owner).await?;
+    let mut c = cache.lock().expect("want list cache");
+    if c.len() >= CACHE_OWNERS && !c.contains_key(owner) {
+        c.clear();
+    }
+    c.insert(owner.to_string(), (rev, lines.clone()));
+    Ok(lines)
+}
+
+async fn load_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<WantLine>> {
     let bundle = crate::plan::bundle::load_bundle(pool, owner).await?;
-    let mut lines: Vec<(String, i64, bool)> = Vec::new();
+    // By name as written first: (name, copies, needed).
+    let mut named: Vec<(String, i64, bool)> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
     for w in crate::plan::trip::trip_wants(&bundle) {
+        // A proposal they haven't said they want isn't something they're looking for.
+        if w.source == "proposal" && !w.needed {
+            continue;
+        }
         let name = w.card.trim();
         if name.is_empty() {
             continue;
@@ -46,37 +79,58 @@ pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<
         let key = name.to_lowercase();
         match at.get(&key) {
             Some(&i) => {
-                lines[i].1 += 1;
-                lines[i].2 |= w.needed;
+                named[i].1 += 1;
+                named[i].2 |= w.needed;
             }
-            None if lines.len() < MAX_CARDS => {
-                at.insert(key, lines.len());
-                lines.push((name.to_string(), 1, w.needed));
+            None if named.len() < MAX_NAMES => {
+                at.insert(key, named.len());
+                named.push((name.to_string(), 1, w.needed));
             }
             None => {}
         }
     }
-    let found = super::research::lookup(pool, lines.iter().map(|l| l.0.as_str())).await?;
-    let ids: Vec<&str> = lines.iter().filter_map(|l| super::research::found(&found, &l.0).map(|f| f.5.as_str())).collect();
-    let prices = crate::deck_prices::cheapest_for(pool, &ids).await?;
-    let mut out: Vec<WantLine> = lines
+    // Then by card: one card written two ways ("Delver of Secrets" and its full double-faced
+    // name, or "sol ring") is one line under the card's own name.
+    let found = super::research::lookup(pool, named.iter().map(|l| l.0.as_str())).await?;
+    let ids: Vec<&str> = named.iter().filter_map(|l| super::research::found(&found, &l.0).map(|f| f.5.as_str())).collect();
+    let canonical: HashMap<String, String> = sqlx::query_as("SELECT oracle_id, name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?
         .into_iter()
-        .map(|(name, qty, needed)| {
-            let f = super::research::found(&found, &name);
-            let price = f.and_then(|f| prices.get(&f.5));
-            WantLine {
-                oracle_id: f.map(|f| f.5.clone()),
-                image: f.and_then(|f| f.4.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
-                type_line: f.and_then(|f| f.1.clone()),
-                market: price.map(|p| p.usd),
-                market_date: price.map(|p| p.date.clone()),
-                name,
-                qty,
-                needed,
-            }
-        })
         .collect();
+    let mut out: Vec<WantLine> = Vec::new();
+    let mut by_card: HashMap<String, usize> = HashMap::new();
+    for (name, qty, needed) in named {
+        let f = super::research::found(&found, &name);
+        let key = f.map_or_else(|| format!("name:{}", name.to_lowercase()), |f| f.5.clone());
+        if let Some(&i) = by_card.get(&key) {
+            out[i].qty += qty;
+            out[i].needed |= needed;
+            continue;
+        }
+        by_card.insert(key, out.len());
+        out.push(WantLine {
+            name: f.and_then(|f| canonical.get(&f.5).cloned()).unwrap_or(name),
+            oracle_id: f.map(|f| f.5.clone()),
+            qty,
+            needed,
+            image: f.and_then(|f| f.4.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
+            type_line: f.and_then(|f| f.1.clone()),
+            market: None,
+            market_date: None,
+        });
+    }
     out.sort_by(|a, b| b.needed.cmp(&a.needed).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    out.truncate(MAX_CARDS);
+    let ids: Vec<&str> = out.iter().filter_map(|l| l.oracle_id.as_deref()).collect();
+    let prices = crate::deck_prices::cheapest_for(pool, &ids).await?;
+    for l in &mut out {
+        if let Some(p) = l.oracle_id.as_ref().and_then(|id| prices.get(id)) {
+            l.market = Some(p.usd);
+            l.market_date = Some(p.date.clone());
+        }
+    }
     Ok(out)
 }
 
@@ -116,6 +170,7 @@ pub(super) async fn page(State(st): State<AppState>, address: ClientAddress, hea
         match (lines.len(), copies) {
             (0, _) => "Nothing on the list right now".to_string(),
             (1, 1) => "1 card".to_string(),
+            (1, c) => format!("1 card, {c} copies"),
             (n, c) if c as usize == n => format!("{n} cards"),
             (n, c) => format!("{n} cards, {c} copies"),
         }
@@ -292,6 +347,8 @@ pub(crate) async fn compare(pool: &SqlitePool, viewer: &str, handle: &str) -> Ap
 }
 
 pub(super) async fn compare_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(handle): Path<String>) -> AppResult<Json<Compare>> {
+    // Each comparison reads two lists: counted with the other lookups by handle.
+    st.limits.people.check_user(&user)?;
     Ok(Json(compare(&st.pool, &user.id, &handle).await?))
 }
 
