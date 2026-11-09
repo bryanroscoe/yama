@@ -36,6 +36,7 @@ import { groupConfigurations } from "../decks/configurations";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
+import { WhyBracket } from "../decks/WhyBracket";
 import { boxBracket, bracketSwaps, SwapPanel } from "../decks/BracketSwaps";
 import { usePlaygroupVariants } from "../decks/PlaygroupBuilds";
 
@@ -339,14 +340,17 @@ export function DeckPage() {
           <SwapPanel at={atSwaps.bracket} swaps={atSwaps.swaps} view={plan.view} printHref={`/decks/builds?savedDeck=${d.id}&from=${encodeURIComponent(`saved:${d.id}`)}&to=${encodeURIComponent(`plan:${plan.deck.key}:b${atSwaps.bracket}`)}`} backHref={atHref(null)} />
         )}
         {tab === "cards" && (
-          <DeckCardsTab
-            deck={d}
-            controls={cards}
-            outAt={outAt}
-            atBracket={atSwaps?.bracket ?? null}
-            status={(e) => <CardStatus e={e} small plan={plan} />}
-            onOpen={setOpen}
-          />
+          <div className="cards-layout">
+            <DeckCardsTab
+              deck={d}
+              controls={cards}
+              outAt={outAt}
+              atBracket={atSwaps?.bracket ?? null}
+              status={(e) => <CardStatus e={e} small plan={plan} />}
+              onOpen={setOpen}
+            />
+            <WhyBracket deck={d} at={atSwaps?.bracket ?? null} outAt={outAt} onCard={openByName} />
+          </div>
         )}
 
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
