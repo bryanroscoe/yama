@@ -300,6 +300,7 @@ export function App() {
           <Route path="decks/:id" element={<Paged page={DeckPage} kind="detail" />} />
           {/* The deck page's Stats and History tabs (docs/redesign/deck-page/SPEC.md). */}
           <Route path="decks/:id/stats" element={<Paged page={DeckPage} kind="detail" />} />
+          <Route path="decks/:id/plan" element={<Paged page={DeckPage} kind="detail" />} />
           <Route path="decks/:id/history" element={<Paged page={DeckPage} kind="detail" />} />
           <Route path="decks/:id/edit" element={<Paged page={EditListPage} kind="detail" />} />
           <Route path="decks/:id/scan" element={<Paged page={DeckScanPage} kind="detail" />} />
