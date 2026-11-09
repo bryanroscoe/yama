@@ -35,6 +35,7 @@ struct Target {
     cards: Counts,
     pending: Counts,
     acquired: Counts,
+    preexisting: Counts,
     container: Option<String>,
 }
 
@@ -102,6 +103,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             cards: stock.clone(),
             ..Default::default()
         });
+        t.preexisting = stock.clone();
         let has_stock = d["states"]["stock"]["cards"].is_array();
         let waiting: HashSet<&str> = d["plan"]["next"]["keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
         let skipped: HashSet<&str> = d["plan"]["next"]["skipped"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
@@ -152,7 +154,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
     }
     let names: Vec<String> = targets
         .values()
-        .flat_map(|t| t.cards.values().chain(t.pending.values()).chain(t.acquired.values()))
+        .flat_map(|t| t.cards.values().chain(t.pending.values()).chain(t.acquired.values()).chain(t.preexisting.values()))
         .map(|r| r.0.clone())
         .collect();
     let resolved = crate::cards::resolve_names(pool, &names).await?;
@@ -194,13 +196,17 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
     let mut gaps = Vec::new();
     for (root, t) in &targets {
         let acquired = canonical(&t.acquired);
+        let preexisting = canonical(&t.preexisting);
         for (id, q) in canonical(&t.cards) {
             let in_box = t.container.as_ref().and_then(|c| boxed.get_mut(&(c.clone(), id.clone()))).map_or(0, |n| {
                 let used = (*n).min(q);
                 *n -= used;
                 used
             });
-            let credit = acquired.get(&id).copied().unwrap_or(0).min(q).max(in_box);
+            // Boxed stock and a later acquisition are distinct. Boxed copies beyond stock
+            // may already be that purchase, so only the pre-plan portion is additive.
+            let old_in_box = in_box.min(preexisting.get(&id).copied().unwrap_or(0));
+            let credit = (old_in_box + acquired.get(&id).copied().unwrap_or(0)).max(in_box).min(q);
             // A recorded purchase might already be among loose collection copies. Consume
             // those first; physically distinct copies in another target's box are untouched.
             let spare = free.entry(id.clone()).or_default();

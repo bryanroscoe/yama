@@ -1460,3 +1460,24 @@ async fn plan_only_targets_apply_owner_changes_but_saved_lists_stay_authoritativ
     b["decks"][0]["yama_deck"]=json!({"id":root}); b["swaps"]=json!([]);
     assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Actual list".into(),1,false)]);
 }
+
+#[tokio::test]
+async fn boxed_stock_and_new_acquisitions_cover_distinct_repeated_copies() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"stock-and-bought@example.com").await;
+    card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
+    let (root,version)=deck(&pool,&owner,"Rats").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"rat","name":"Rat Colony","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    let (_,box_)=send(&app,Method::POST,"/api/containers",Some(&auth),Some(json!({"kind":"deck","name":"Rats"}))).await;
+    sqlx::query("UPDATE decks SET container_id=? WHERE id=?").bind(box_["id"].as_str().unwrap()).bind(&root).execute(&pool).await.unwrap();
+    copies(&app,&auth,"stock-rat","p-rat",1,false,Some(&box_["id"])).await;
+    let mut b=json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Rat Colony"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"second","deck":"d","stage":"planned","role":"swap","src":"buy","in":"Rat Colony","out":"Plains","order_item":{"order":"bought","line":1}}]});
+    // One original boxed copy plus one newly acquired copy covers both target copies.
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    copies(&app,&auth,"entered-purchase","p-rat",1,false,Some(&box_["id"])).await;
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    // Entering that purchase cannot also cover a third, unacquired copy.
+    b["swaps"].as_array_mut().unwrap().push(json!({"key":"third","deck":"d","stage":"planned","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}));
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
+}
