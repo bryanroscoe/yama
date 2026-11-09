@@ -981,6 +981,15 @@ blank slots. Long changes continue on numbered inserts at 3–6 swaps per insert
 blocks printing. Source revisions and saved version identifiers travel on the inserts. Labels
 remain assessments from their source, not a fresh legality, combo or physical-install assertion.
 
+#### UI and MCP parity (2026-11-09)
+
+Bryan: anything a person can do in the UI they should be able to do through the MCP, and the
+reverse, for the most part. `docs/ui-mcp-parity.md` is the map of record: each capability, which
+side has it, the backlog of gaps and the capabilities that need a design before they get a UI.
+Read tools share the page's function (refactored to take the pool and owner id); MCP writes stay
+staged for review. Some things stay one-sided on purpose (camera, live table, files, credentials,
+sharing settings, admin).
+
 #### Commander research and workflow parity (2026-10-27)
 
 Bryan asked to bring the useful capabilities of other Magic MCPs into Yama, using independently

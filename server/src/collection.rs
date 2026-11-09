@@ -672,7 +672,7 @@ pub async fn items_for_owner(pool: &SqlitePool, owner: &str) -> AppResult<Vec<It
 }
 
 #[derive(Serialize)]
-struct Summary {
+pub(crate) struct Summary {
     copies: i64,
     /// Proxies among `copies`. They have no market value and aren't counted in it.
     proxies: i64,
@@ -685,7 +685,12 @@ struct Summary {
 }
 
 async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Summary>> {
-    let items = items_for_owner(&st.pool, &user.id).await?;
+    Ok(Json(summary_for(&st.pool, &user.id).await?))
+}
+
+/// The Collection page's totals, shared with the MCP's `collection_summary`.
+pub(crate) async fn summary_for(pool: &SqlitePool, owner: &str) -> AppResult<Summary> {
+    let items = items_for_owner(pool, owner).await?;
     let mut s = Summary {
         copies: 0,
         proxies: 0,
@@ -717,13 +722,13 @@ async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> 
     s.distinct_printings = printings.len() as i64;
     s.market_value_usd = (s.market_value_usd * 100.0).round() / 100.0;
     s.purchase_total_usd = (s.purchase_total_usd * 100.0).round() / 100.0;
-    Ok(Json(s))
+    Ok(s)
 }
 
 // ── containers ─────────────────────────────────────────────────────────────
 
 #[derive(Serialize, sqlx::FromRow)]
-struct Container {
+pub(crate) struct Container {
     id: String,
     kind: String,
     name: String,
@@ -741,18 +746,23 @@ struct Container {
 }
 
 async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<Container>>> {
+    Ok(Json(containers_for(&st.pool, &user.id).await?))
+}
+
+/// The owner's binders, deck boxes and lists with copies and market value, shared with the MCP.
+pub(crate) async fn containers_for(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Container>> {
     let mut containers: Vec<Container> = sqlx::query_as(
         "SELECT ct.id, ct.kind, ct.name, IFNULL(SUM(i.qty), 0) AS copies FROM containers ct
          LEFT JOIN collection_items i ON i.container_id = ct.id
          WHERE ct.owner_id = ? GROUP BY ct.id ORDER BY ct.kind, ct.name",
     )
-    .bind(&user.id)
-    .fetch_all(&st.pool)
+    .bind(owner)
+    .fetch_all(pool)
     .await?;
     // Every filed item once, with its printing's art, grouped by box.
     let items: Vec<ListedItem> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ITEM_SELECT} WHERE i.owner_id = ? AND i.container_id IS NOT NULL")))
-        .bind(&user.id)
-        .fetch_all(&st.pool)
+        .bind(owner)
+        .fetch_all(pool)
         .await?;
     let mut by_container: std::collections::HashMap<&str, Vec<&ListedItem>> = std::collections::HashMap::new();
     for i in &items {
@@ -776,7 +786,7 @@ async fn list_containers(State(st): State<AppState>, CurrentUser(user): CurrentU
             (ct.art, ct.artist) = (top.image_art_crop.clone(), top.artist.clone());
         }
     }
-    Ok(Json(containers))
+    Ok(containers)
 }
 
 #[derive(Deserialize)]

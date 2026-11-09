@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-09-assistant-games-collection",
+    date: "2026-11-09",
+    title: "Your assistant can read your games and playgroups",
+    items: [
+      "A connected assistant can now search your game history as the Game history page does, read one game, list your playgroups and read a group's stats.",
+      "It can also read your collection's totals and each binder, deck box and list with its dated market value, as the Collection page shows them.",
+    ],
+    link: { to: "/docs/mcp/", label: "See every tool" },
+  },
+  {
     id: "2026-11-08-deck-power-level",
     date: "2026-11-08",
     title: "A deck's power level, vector by vector",

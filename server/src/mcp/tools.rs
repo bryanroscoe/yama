@@ -391,6 +391,55 @@ const TOOLS: &[Tool] = &[
         does: Does::Read,
     },
     Tool {
+        name: "games",
+        title: "Your game history",
+        description: "Games they played in person with Yama's life counter or online, newest first, as the Game history page lists \
+                      them: 50 a page, each with its seats (player, commander, final life, knockout turn), winner seat, turns, \
+                      status and note. search matches a player's or commander's name; filter unfinished or unnamed finds games \
+                      to tidy up. These are real games, unlike lab results. Use `game` for one game's events.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "search": {"type": "string", "description": "A player's or commander's name, or part of one."},
+                    "filter": {"type": "string", "enum": ["all", "unfinished", "unnamed"], "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all)."},
+                    "order": {"type": "string", "enum": ["newest", "oldest"]},
+                    "offset": {"type": "integer", "minimum": 0, "description": "Games to skip, 50 a page."}
+                },
+                "additionalProperties": false
+            })
+        },
+        does: Does::Read,
+    },
+    Tool {
+        name: "game",
+        title: "One game",
+        description: "One game from their history by id (from `games`): its seats, winner, turns and note, and with events=true its \
+                      event log (life changes, knockouts and the like, up to 500 events). Someone else's game is not found.",
+        schema: || obj(&[("id", "string", "The game's id."), ("events", "boolean", "Include the event log (default false).")], &["id"]),
+        does: Does::Read,
+    },
+    Tool {
+        name: "collection_summary",
+        title: "Collection totals and containers",
+        description: "Their collection as the Collection page totals it: copies, proxies, distinct printings, market value of the \
+                      copies with a price (with the newest price date), how many have none, and what they paid; then each binder, \
+                      deck box and list with its copies and market value. Proxies have no market value. A missing price is \
+                      unknown, never zero, and a market value isn't what a store would pay. Use collection_cards for the cards.",
+        schema: no_args,
+        does: Does::Read,
+    },
+    Tool {
+        name: "playgroups",
+        title: "Your playgroups and their stats",
+        description: "The playgroups they own or are in, with each one's members, as the Playgroup page lists them. With id, that \
+                      group's stats from its finished games: games played, each player's and commander's record, average turns and \
+                      minutes, wins by seat, win conditions and head-to-head. Small samples are marked provisional; these are real \
+                      games, not simulations.",
+        schema: || obj(&[("id", "string", "A playgroup's id, for its stats; omit to list playgroups.")], &[]),
+        does: Does::Read,
+    },
+    Tool {
         name: "lab_runs",
         title: "Your lab experiments",
         description: "Their simulation experiments (\"Try a change\"), newest first, with ids for `lab_run`.",
@@ -1067,6 +1116,10 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             price_history(pool, args).await
         }
         "check_list" => check_list(pool, args).await,
+        "collection_summary" => collection_summary(pool, user).await,
+        "playgroups" => playgroups(pool, user, args).await,
+        "games" => games(pool, user, args).await,
+        "game" => game(pool, user, args).await,
         "lab_runs" => lab_runs(pool, user).await,
         "lab_run" => context::build(pool, user, "experiment", Some(text_arg(args, "id")?)).await,
         "lab_games" => lab_games(pool, user, args).await,
@@ -1534,6 +1587,143 @@ async fn lab_runs(pool: &SqlitePool, user: &User) -> AppResult<String> {
         let _ = writeln!(out, "- {name} ({status}, {done} of {total} games, made {}) id {id}", created.get(..10).unwrap_or(&created));
     }
     Ok(out)
+}
+
+/// The Collection page's totals and container tiles, without the tiles' art.
+async fn collection_summary(pool: &SqlitePool, user: &User) -> AppResult<String> {
+    let summary = crate::collection::summary_for(pool, &user.id).await?;
+    let mut containers = serde_json::to_value(crate::collection::containers_for(pool, &user.id).await?).map_err(anyhow::Error::from)?;
+    for c in containers.as_array_mut().into_iter().flatten() {
+        if let Some(o) = c.as_object_mut() {
+            o.remove("art");
+            o.remove("artist");
+        }
+    }
+    let out = json!({
+        "totals": summary,
+        "containers": containers,
+        "note": "Market values are dated market references, not store or buylist offers. Loose copies are in no container.",
+    });
+    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+}
+
+/// Takes account and member ids out of a games or stats answer before it goes to an assistant: it
+/// gets names, never the ids behind other people. Stats keys (`u:<account>`, `m:<member>`) become
+/// `you` or `player-N`, the same alias everywhere in one answer, so head-to-head still lines up.
+fn without_people_ids(v: &mut Value, me: &str) {
+    fn walk(v: &mut Value, me: &str, aliases: &mut HashMap<String, String>) {
+        match v {
+            Value::Object(o) => {
+                for k in ["user_id", "member_id", "owner_id", "created_by", "deck_version_id"] {
+                    o.remove(k);
+                }
+                for (k, x) in o.iter_mut() {
+                    if let ("key" | "a" | "b", Value::String(id)) = (k.as_str(), &*x) {
+                        if id.starts_with("u:") || id.starts_with("m:") {
+                            let alias = if id.strip_prefix("u:") == Some(me) {
+                                "you".to_string()
+                            } else {
+                                let n = aliases.len() + 1;
+                                aliases.entry(id.clone()).or_insert_with(|| format!("player-{n}")).clone()
+                            };
+                            *x = Value::String(alias);
+                            continue;
+                        }
+                    }
+                    walk(x, me, aliases);
+                }
+            }
+            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, me, aliases)),
+            _ => {}
+        }
+    }
+    walk(v, me, &mut HashMap::new());
+}
+
+/// The Playgroup page: the groups, or one group's stats. Join codes and account ids stay out: an
+/// assistant has no use for them, and a join code lets anyone in.
+async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    let id = args.get("id").and_then(Value::as_str).map(str::trim).filter(|i| !i.is_empty());
+    let out = match id {
+        Some(id) => {
+            let mut stats = serde_json::to_value(crate::playgroups::stats_for(pool, &user.id, id).await?).map_err(anyhow::Error::from)?;
+            without_people_ids(&mut stats, &user.id);
+            stats
+        }
+        None => {
+            let mut groups = serde_json::to_value(crate::playgroups::groups_for(pool, &user.id).await?).map_err(anyhow::Error::from)?;
+            for g in groups.as_array_mut().into_iter().flatten() {
+                let Some(o) = g.as_object_mut() else { continue };
+                o.remove("join_code");
+                let owner = o.remove("owner_id");
+                o.insert("yours".into(), json!(owner.as_ref().and_then(Value::as_str) == Some(user.id.as_str())));
+                for m in o.get_mut("members").and_then(Value::as_array_mut).into_iter().flatten() {
+                    if let Some(m) = m.as_object_mut() {
+                        let is_you = m.get("user_id").and_then(Value::as_str) == Some(user.id.as_str());
+                        let guest = m.get("user_id").is_none_or(Value::is_null);
+                        m.remove("id");
+                        m.remove("user_id");
+                        m.remove("guest_name");
+                        m.insert("guest".into(), json!(guest));
+                        if is_you {
+                            m.insert("you".into(), json!(true));
+                        }
+                    }
+                }
+            }
+            groups
+        }
+    };
+    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+}
+
+/// The Game history page's list (`games::history_page`), same search, filter and paging.
+async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    use crate::games::{HistoryFilter, HistoryOrder, HistoryParams};
+    let word = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty());
+    let filter = match word("filter") {
+        None | Some("all") => HistoryFilter::All,
+        Some("unfinished") => HistoryFilter::Unfinished,
+        Some("unnamed") => HistoryFilter::Unnamed,
+        Some(_) => return Err(AppError::bad("filter is all, unfinished or unnamed")),
+    };
+    let order = match word("order") {
+        None | Some("newest") => HistoryOrder::Newest,
+        Some("oldest") => HistoryOrder::Oldest,
+        Some(_) => return Err(AppError::bad("order is newest or oldest")),
+    };
+    let offset = match args.get("offset") {
+        None | Some(Value::Null) => 0,
+        Some(v) => v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| AppError::bad("offset is a whole number"))?,
+    };
+    let q = word("search").unwrap_or("").to_string();
+    let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset }).await?;
+    let mut out = serde_json::to_value(&page).map_err(anyhow::Error::from)?;
+    without_people_ids(&mut out, &user.id);
+    if page.games.is_empty() {
+        out["note"] = json!("No games match. Games logged on a phone that hasn't synced yet aren't here.");
+    }
+    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+}
+
+/// One game as its page shows it (`games::game_detail`); the event log only when asked.
+async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    const MAX_EVENTS: usize = 500;
+    let id = text_arg(args, "id")?;
+    let detail = crate::games::game_detail(pool, &user.id, id).await?;
+    let mut out = serde_json::to_value(&detail).map_err(anyhow::Error::from)?;
+    without_people_ids(&mut out, &user.id);
+    if let Some(o) = out.as_object_mut() {
+        let events = o.remove("events").and_then(|e| if let Value::Array(a) = e { Some(a) } else { None }).unwrap_or_default();
+        o.insert("event_count".into(), json!(events.len()));
+        if args.get("events").and_then(Value::as_bool).unwrap_or(false) {
+            if events.len() > MAX_EVENTS {
+                o.insert("events_note".into(), json!(format!("Only the first {MAX_EVENTS} of {} events.", events.len())));
+            }
+            o.insert("events".into(), Value::Array(events.into_iter().take(MAX_EVENTS).collect()));
+        }
+    }
+    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
 }
 
 /// An experiment's games pod by pod on one engine, or one game in full (`game`).

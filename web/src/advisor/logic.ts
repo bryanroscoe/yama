@@ -242,6 +242,13 @@ export function toolActivity(name: string): string {
     case "lab_run":
     case "lab_games":
       return "Reading lab results…";
+    case "games":
+    case "game":
+      return "Reading your game history…";
+    case "playgroups":
+      return "Reading your playgroups…";
+    case "collection_summary":
+      return "Reading your collection's totals…";
     case "precon":
       return "Reading a precon…";
     case "changes":
