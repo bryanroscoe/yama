@@ -30,7 +30,22 @@ export function MenuSeparator() {
  * The More button and its floating menu. Children are the actions (buttons and links); choosing one
  * closes the menu. Separate groups with `MenuSeparator`; the destructive action goes last.
  */
-export function MoreMenu({ children, label = "More", className = "" }: { children: ReactNode; label?: string; className?: string }) {
+export function MoreMenu({
+  children,
+  label = "More",
+  className = "",
+  title,
+  align = "end",
+}: {
+  children: ReactNode;
+  /** The button's content. */
+  label?: ReactNode;
+  className?: string;
+  /** The sheet's heading on a phone (defaults to the label when it's text). */
+  title?: string;
+  /** Which edge of the button the popover lines up with. */
+  align?: "start" | "end";
+}) {
   const [open, setOpen] = useState(false);
   const popover = useMatches(POPOVER);
   const wrap = useRef<HTMLDivElement>(null);
@@ -81,13 +96,13 @@ export function MoreMenu({ children, label = "More", className = "" }: { childre
   const toggle = () => {
     const r = button.current?.getBoundingClientRect();
     if (r) {
-      const right = Math.max(8, window.innerWidth - r.right);
+      const side: CSSProperties = align === "start" ? { left: Math.max(8, r.left) } : { right: Math.max(8, window.innerWidth - r.right) };
       const below = window.innerHeight - r.bottom - 14;
       const above = r.top - 14;
       setPlace(
         below >= 360 || below >= above
-          ? { top: r.bottom + 6, right, maxHeight: below }
-          : { bottom: window.innerHeight - r.top + 6, right, maxHeight: above },
+          ? { ...side, top: r.bottom + 6, maxHeight: below }
+          : { ...side, bottom: window.innerHeight - r.top + 6, maxHeight: above },
       );
     }
     setOpen((o) => !o);
@@ -124,7 +139,7 @@ export function MoreMenu({ children, label = "More", className = "" }: { childre
           document.body,
         )}
       {open && !popover && (
-        <Sheet label={label} onClose={() => close(true)}>
+        <Sheet label={title ?? (typeof label === "string" ? label : "More")} onClose={() => close(true)}>
           <div className="more-menu-sheet">{items}</div>
         </Sheet>
       )}
