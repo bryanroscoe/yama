@@ -363,7 +363,7 @@ pub async fn create_deck_in(
     }
     let id = new_id();
     let stamp = now();
-    // A new deck starts as its owner's chosen default (Sharing, under Group, You).
+    // A new deck starts as its owner's chosen default (Sharing).
     sqlx::query(
         "INSERT INTO decks (id, owner_id, name, folder, created_at, updated_at, visibility, share_token)
          SELECT ?,?,?,?,?,?, new_deck_visibility, ? FROM users WHERE id = ?",

@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-09-your-profile",
+    date: "2026-11-09",
+    title: "Your profile, easier to find",
+    items: [
+      "Click your name or Your profile to find your collection, wish list, decks, plans and account settings.",
+      "Open your public profile or copy its link from the same page, with links to your collection and wish list when you share them.",
+    ],
+    link: { to: "/profile", label: "Your profile" },
+    },
+    {
     id: "2026-11-09-want-list-needs",
     date: "2026-11-09",
     title: "A fuller want list for friends",
@@ -177,9 +187,9 @@ export const NEWS: NewsEntry[] = [
     date: "2026-11-01",
     title: "Delete your account yourself",
     items: [
-      "Group, You now has Delete account. It deletes your account and everything in it once you type your email to confirm. Games you played with other people stay in their history without your name.",
+      "Your profile has Delete account under Account settings. It deletes your account and everything in it once you type your email to confirm. Games you played with other people stay in their history without your name.",
     ],
-    link: { to: "/group#delete-account", label: "Open Group, You" },
+    link: { to: "/profile#delete-account", label: "Open account settings" },
   },
   {
     id: "2026-11-01-table-first-spin",
@@ -425,7 +435,7 @@ export const NEWS: NewsEntry[] = [
     title: "Shared decks show what your deck page shows",
     items: [
       "A shared deck now has the deck page's legality check, your declared bracket beside Yama's suggestion and why, the Game Changers and combos behind it, deck stats, market value, and stacks of card images.",
-      "Under Group, You, Sharing you can also show simulated win rates: a shared deck then shows its own lab win rate and those of its public configurations.",
+      "Under Sharing you can also show simulated win rates: a shared deck then shows its own lab win rate and those of its public configurations.",
       "Configurations sit in a row under each deck, and switching between them keeps the page on screen instead of going blank.",
       "Your deck page splits its value: the real cards you own, what the proxies would cost as real cards, and what's left to get.",
     ],
@@ -463,7 +473,7 @@ export const NEWS: NewsEntry[] = [
     title: "Share your decks, and keep a deck's builds together",
     items: [
       "Share a deck from its page: send a link, or list it on your profile. Friends can open it without an account, download it for Moxfield, MTG Arena or as names only, or save a copy in their own Yama.",
-      "Pick a handle under Group, You for your profile at /u/handle. New decks can start shared, one button shares them all, and you can show your collection too. Everything stays private until you share it.",
+      "Pick a handle under Your profile, Account settings for your profile at /u/handle. New decks can start shared, one button shares them all, and you can show your collection too. Everything stays private until you share it.",
       "Configurations: other builds of one deck (stock, after prints, high power) now sit under its main deck, with a switcher on the deck page and New configuration to start another.",
     ],
     link: { to: "/sharing", label: "Set up sharing" },
@@ -700,7 +710,7 @@ export const NEWS: NewsEntry[] = [
       "With sign-up open, accounts that join without an invite get a smaller share of the server: 100-game lab runs, one at a time, a few a day, and two online games at once. An invite lifts it.",
       "Nobody can see anyone else's decks, collection, prices paid, plans, games or lab runs. A playgroup still needs its join code.",
       "Too many sign-in attempts, searches or join codes in a row now get a short wait, to stop guessing and floods.",
-      "Admins can see every account under Group, You, and disable one: it's signed out at once and can't sign in until it's enabled.",
+      "Admins can see every account under Your profile, Account settings, and disable one: it's signed out at once and can't sign in until it's enabled.",
     ],
     link: { to: "/group", label: "Open Group" },
   },

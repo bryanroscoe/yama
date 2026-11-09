@@ -374,7 +374,7 @@ pub(crate) async fn shared_details(pool: &SqlitePool, d: &SharedDeck) -> AppResu
         None => None,
     };
     let prices = crate::deck_prices::prices_for(pool, &d.list.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
-    // Only when the owner chose to show them (Group, You, Sharing).
+    // Only when the owner chose to show them (Sharing).
     let shares_lab: bool = sqlx::query_scalar("SELECT share_lab_results FROM users WHERE id = ?").bind(&d.sharer.id).fetch_one(pool).await?;
     // A deck's own plan comes first: a configuration linked to its own plan is that plan's "now"
     // list, and its siblings (lists of the main deck's plan) have no part in it. Otherwise the

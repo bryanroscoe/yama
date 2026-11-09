@@ -23,10 +23,12 @@ describe("deleting your own account", () => {
 
   it("has a public page that works without the app, linked from the privacy policy", () => {
     const html = page("delete-account/index.html");
-    expect(html).toContain('href="/group#delete-account"');
+    expect(html).toContain('href="/profile#delete-account"');
     expect(html).toContain("mailto:bryanroscoe@gmail.com");
     expect(html).toContain("What is deleted");
     expect(html).toContain("not affiliated with, endorsed by, or sponsored by Wizards of the Coast");
     expect(page("privacy/index.html")).toContain('href="/delete-account/"');
+    expect(page("privacy/index.html")).toContain('href="/profile#delete-account"');
+    expect(page("privacy/index.html")).not.toContain("Group, You");
   });
 });

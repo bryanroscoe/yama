@@ -5,6 +5,7 @@ import { ALPHA_NOTE } from "./AlphaTag";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
+  profile: { title: "Your profile", lede: "Sign in to see your cards, wish list and public profile." },
   sharing: { title: "Sharing", lede: "Sign in to manage your public profile, shared decks and build notes." },
   "sharing/compare": { title: "Compare collections", lede: "Sign in to see which of a friend's wanted cards you have, and which of yours they have." },
   decks: { title: "Decks", lede: "Sign in to save your decks." },

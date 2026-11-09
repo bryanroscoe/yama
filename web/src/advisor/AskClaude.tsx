@@ -212,7 +212,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
           <p>{unavailableText(s.reason, s.can_save_key)}</p>
           {s.reason === "needs_key" && s.can_save_key && (
             <p>
-              <Link to="/group#grp-you" onClick={onClose}>Open settings</Link>
+              <Link to="/profile#grp-you" onClick={onClose}>Open settings</Link>
             </p>
           )}
         </div>
@@ -226,7 +226,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
           <p>{paused}</p>
           {s?.can_save_key && (
             <p>
-              <Link to="/group#grp-you" onClick={onClose}>Open settings</Link>
+              <Link to="/profile#grp-you" onClick={onClose}>Open settings</Link>
             </p>
           )}
         </div>
