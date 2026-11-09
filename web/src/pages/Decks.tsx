@@ -1,6 +1,6 @@
 import { planHref } from "../plan/href";
 import { CardHover, CardRef } from "../components/CardRef";
-import { BuylistReferences, DeckPrices, SinglesPrice } from "../components/DeckPrices";
+import { SinglesPrice } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
@@ -18,17 +18,14 @@ import { usePlan } from "../plan/store";
 import { planView, type PlanView } from "../plan/view";
 import "./decks.css";
 import { ArtPanel, ArtCredits, artCredit, artCredits } from "../components/ArtPanel";
-import { NameList, OnlineSupport } from "../components/OnlineSupport";
-import { day } from "../components/Rulings";
-import { BracketChips, BracketPanel } from "../components/Bracket";
-import { DeckAnalysisPanel, useDeckAnalysis } from "../decks/DeckAnalysis";
-import { DeckStatsPanel } from "../components/DeckStats";
+import { BracketChips } from "../components/Bracket";
+import { useDeckAnalysis } from "../decks/DeckAnalysis";
+import { DeckStatsTab } from "../decks/DeckStatsTab";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistoryBody, HistoryTabNote } from "../components/DeckHistory";
 import { DeckPlanTab } from "../decks/DeckPlanTab";
 import { planTabNote } from "../decks/deckPlanHub";
 import { PageTabs } from "../components/SectionTabs";
-import { DeckResults } from "../components/DeckResults";
 import { AskClaudeButton, AskClaudeSheet, useAskClaudeOffered } from "../advisor/AskClaude";
 import { MenuSeparator, MoreMenu } from "../components/MoreMenu";
 import { ChangesBanner } from "../advisor/Changes";
@@ -485,68 +482,8 @@ export function DeckPage() {
 
         </>)}
 
-        {tab === "stats" && d.buylist && <BuylistReferences b={d.buylist} />}
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
-        {tab === "stats" && (
-        <section className="deck-more" aria-label="Stats">
-          <details className="deck-value-details"><summary>Market value and card inventory</summary><DeckPrices singles={d.singles_value} ownership={o} /></details>
-          <div className="deck-legal">
-            <p className="dim small">
-              {v.ok ? "Commander-legal" : "Not legal yet"} by size, singleton, color identity and the ban list in our card data.
-            </p>
-            {v.warnings.length > 0 && <ul className="small dim">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
-            {!!v.prerelease?.length && <ul className="small dim">{v.prerelease.map((p) => <li key={p}>{p}</li>)}</ul>}
-          </div>
-
-          <div className="deck-facts">
-            {d.game_changers ? (
-              <div>
-                <p>
-                  <b>Game Changers: {d.game_changers.length}</b>
-                  {d.game_changers_as_of && <span className="as-of"> Scryfall's list as of {day(d.game_changers_as_of)}</span>}
-                </p>
-                {d.game_changers.length > 0 && (
-                  <p className="names"><NameList names={d.game_changers} onCard={openByName} /></p>
-                )}
-              </div>
-            ) : (
-              <div>
-                <p><b>Game Changers: not checked yet</b></p>
-                <p className="card-note">The Game Changer list isn't loaded on this server yet. It comes with the next card data import.</p>
-              </div>
-            )}
-            {d.reserved_list ? (
-              <div>
-                <p>
-                  <b>Reserve List: {d.reserved_list.length} {d.reserved_list.length === 1 ? "card" : "cards"}</b>
-                  {d.reserved_list_as_of && <span className="as-of"> Scryfall's data as of {day(d.reserved_list_as_of)}</span>}
-                </p>
-                {d.reserved_list.length > 0 && (
-                  <p className="names"><NameList names={d.reserved_list} onCard={openByName} /></p>
-                )}
-                <p className="card-note">Cards Wizards has promised never to reprint. Being on the list says a card is scarce, not that it's strong, so the power level leaves it out.</p>
-              </div>
-            ) : (
-              <div>
-                <p><b>Reserve List: not checked yet</b></p>
-                <p className="card-note">The Reserve List flags aren't loaded on this server yet. They come with the next card data import.</p>
-              </div>
-            )}
-            <OnlineSupport deckId={d.id} versionId={d.version_id} onCard={openByName} />
-          </div>
-
-          <DeckAnalysisPanel deckId={d.id} versionId={d.version_id} cards={d.cards} onCard={openByName} />
-          <BracketPanel
-            deckId={d.id}
-            versionId={d.version_id}
-            declared={d.bracket}
-            gameChangers={d.game_changers}
-            onCard={openByName}
-          />
-          <DeckResults deckId={d.id} versionId={d.version_id} />
-          <DeckStatsPanel cards={d.cards} />
-        </section>
-        )}
+        {tab === "stats" && <DeckStatsTab deck={d} onCard={openByName} />}
         {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} /></section>}
         {tab === "history" && <section className="deck-history-tab" aria-label="History"><DeckHistoryBody deckId={d.id} currentVersionId={d.version_id} /></section>}
         {tab === "cards" && <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>}

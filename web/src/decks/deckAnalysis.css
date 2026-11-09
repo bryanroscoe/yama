@@ -1,136 +1,6 @@
-/* The deck page's power level panel (DeckAnalysis.tsx). Night table: white is the only accent;
-   the reference precon line is dashed and dim so the deck's own shape reads first. */
+/* Power over time and the lists side by side (DeckAnalysis.tsx, on the Stats tab), and the
+   ScryCheck hand-off. */
 
-.deck-analysis .deck-panel-head {
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.analysis-top {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 1.5rem;
-  align-items: center;
-}
-.analysis-score {
-  flex: 1 1 16rem;
-  display: grid;
-  gap: 0.25rem;
-}
-.analysis-score p {
-  margin: 0;
-}
-.analysis-power {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-.analysis-power .value {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: var(--t-big);
-  line-height: 1;
-}
-.analysis-power .margin {
-  color: var(--dk-text-dim);
-  font-size: var(--t-md);
-}
-.analysis-label {
-  font-size: var(--t-md);
-}
-
-.analysis-radar {
-  flex: 0 0 auto;
-  max-width: 100%;
-  height: auto;
-}
-.analysis-radar .grid {
-  fill: none;
-  stroke: var(--dk-line);
-}
-.analysis-radar .reference {
-  fill: none;
-  stroke: var(--dk-text-dim);
-  stroke-dasharray: 3 3;
-}
-.analysis-radar .deck {
-  fill: rgb(242 239 232 / 0.16);
-  stroke: var(--dk-text);
-  stroke-width: 2;
-}
-.analysis-radar text {
-  fill: var(--dk-text-dim);
-  font-size: 11px;
-}
-
-.analysis-vectors {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.4rem;
-  max-width: 36rem;
-}
-.analysis-vectors li {
-  display: grid;
-  grid-template-columns: 7.5rem minmax(4rem, 1fr) 2.2rem 6rem;
-  align-items: center;
-  gap: 0.6rem;
-}
-.vector-bar {
-  height: 0.5rem;
-  border-radius: 999px;
-  background: var(--dk-raised);
-  overflow: hidden;
-}
-.vector-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--dk-text);
-}
-.analysis-vectors .num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-@media (max-width: 30rem) {
-  .analysis-vectors li {
-    grid-template-columns: 6.5rem minmax(3rem, 1fr) 2rem;
-  }
-  .analysis-vectors li > .small {
-    display: none;
-  }
-}
-
-.analysis-themes ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.25rem;
-}
-.analysis-themes summary {
-  cursor: pointer;
-  min-height: var(--target);
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.analysis-themes p {
-  margin: 0 0 0.4rem;
-}
-
-.analysis-group h4 {
-  margin: 0.8rem 0 0.2rem;
-  font-size: var(--t-base);
-}
-.analysis-group p {
-  margin: 0 0 0.35rem;
-}
-
-.analysis-history {
-  display: grid;
-  gap: 0.5rem;
-}
 .analysis-line {
   margin: 0;
   max-width: 28rem;
@@ -140,18 +10,18 @@
   height: auto;
 }
 .analysis-line .axis {
-  stroke: var(--dk-line);
+  stroke: var(--line);
 }
 .analysis-line polyline {
   fill: none;
-  stroke: var(--dk-text);
+  stroke: var(--text);
   stroke-width: 2;
 }
 .analysis-line circle {
-  fill: var(--dk-text);
+  fill: var(--text);
 }
 .analysis-line .tick {
-  fill: var(--dk-text-dim);
+  fill: var(--dim);
   font-size: 10px;
 }
 
@@ -167,11 +37,11 @@
 .analysis-table th,
 .analysis-table td {
   padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid var(--dk-line);
+  border-bottom: 1px solid var(--line);
   text-align: left;
 }
 .analysis-table thead th {
-  color: var(--dk-text-dim);
+  color: var(--dim);
   font-weight: 400;
 }
 .analysis-table .num {
