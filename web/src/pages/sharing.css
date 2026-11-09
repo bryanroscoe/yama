@@ -15,3 +15,10 @@
 .sharing-item p { margin: 4px 0 0; }
 .sharing-item .row { flex-wrap: wrap; }
 .sharing-page #sharing { scroll-margin-top: 24px; }
+.sharing-compare { margin-top: 16px; }
+.sharing-compare label { display: flex; flex-direction: column; gap: 4px; }
+.sharing-compare input { flex: 1 1 12rem; min-width: 0; }
+.trade-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.trade-row > div { min-width: 0; }
+.trade-row p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.trade-row .thumb { flex: none; }

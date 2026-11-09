@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SiteLinks } from "../components/SiteLinks";
 import { RequireAccount } from "../components/RequireAccount";
-import { SharingPage } from "./Sharing";
+import { ComparePage, SharingPage } from "./Sharing";
 
 // The Plans count reads the plan store and the offline outbox; neither matters to these pages.
 vi.mock("../plan/store", () => ({ usePlan: () => ({ bundle: null }) }));
@@ -12,12 +12,12 @@ vi.mock("../plan/outbox", () => ({ outbox: { localOps: () => [] }, useOutbox: ()
 
 afterEach(() => vi.unstubAllGlobals());
 
-function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty = false, handle: string | null = "saget") {
+function page(me: { id: string; viewing?: object } | null = { id: "u1" }, empty = false, handle: string | null = "saget", wantsPublic = false) {
   vi.stubGlobal("location", { origin: "https://yama.ing" });
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(["me"], me);
   client.setQueryData(["auth-config"], {});
-  client.setQueryData(["sharing", "u1"], { handle, new_deck_visibility: "private", collection_public: true, share_lab_results: false, decks: { private: 1, link: 1, public: 1 } });
+  client.setQueryData(["sharing", "u1"], { handle, new_deck_visibility: "private", collection_public: true, wants_public: wantsPublic, share_lab_results: false, decks: { private: 1, link: 1, public: 1 } });
   client.setQueryData(["decks", "u1"], empty ? [] : [
     { id: "main", name: "Rohan", visibility: "public", share_token: "main-token" },
     { id: "alt", name: "Rohan", configuration: "Bracket 3", parent_id: "main", visibility: "link", share_token: "alt-token" },
@@ -93,5 +93,64 @@ describe("returning to shared content", () => {
       expect(html).not.toContain("/u/saget");
     }
     expect(page(null)).toContain("Sign in to Yama");
+  });
+});
+
+describe("trading with friends", () => {
+  it("links the want list once it's on the profile, and says how to turn it on before", () => {
+    const on = page({ id: "u1" }, false, "saget", true);
+    expect(on).toContain('href="https://yama.ing/u/saget/wants"');
+    expect(on).toContain("Copy want list link");
+    expect(on).toContain("Public decks, public plans, what you&#x27;re looking for and your collection appear here.");
+    const off = page();
+    expect(off).not.toContain("/u/saget/wants");
+    expect(off).toContain("Show what I&#x27;m looking for on my profile");
+    expect(off).toContain("Compare with a friend");
+    expect(page({ id: "u1" }, false, null)).toContain("choose a handle and turn on");
+  });
+
+  function compare(data: object) {
+    vi.stubGlobal("location", { origin: "https://yama.ing" });
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    client.setQueryData(["me"], { id: "u1" });
+    client.setQueryData(["auth-config"], {});
+    client.setQueryData(["sharing-compare", "u1", "pal"], data);
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/sharing/compare/pal"]}><Routes><Route path="sharing/compare/:handle" element={<ComparePage />} /></Routes></MemoryRouter></QueryClientProvider>);
+    client.clear();
+    return html;
+  }
+
+  it("shows both directions, with copies, printings and dated market prices", () => {
+    const html = compare({
+      handle: "pal", yourself: false, wants_public: true, collection_public: true, their_wants: 4, your_wants: 3,
+      you_have: [{ name: "Sol Ring", qty: 2, needed: true, image: null, type_line: "Artifact", market: 1.5, market_date: "2026-11-07", copies: 3, in_decks: 1 }],
+      they_have: [{ name: "Command Tower", qty: 1, needed: false, image: null, type_line: "Land", market: null, market_date: null, copies: 1, printings: [{ set_code: "cmm", set_name: "Commander Masters", collector_number: "1000", finish: "foil", lang: "en", condition: "NM", qty: 1 }] }],
+    });
+    expect(html).toContain("@pal is looking for, you have");
+    expect(html).toContain("You have 3, 1 in deck boxes");
+    expect(html).toContain("$1.50 market, 7 Nov 2026");
+    expect(html).toContain("About $3.00 at market.");
+    expect(html).toContain("They have 1: 1 CMM 1000 foil, NM");
+    expect(html).toContain("No market price");
+    expect(html).not.toContain("$0.00");
+    expect(html).toContain('href="https://yama.ing/u/pal/wants"');
+  });
+
+  it("asks a signed-out friend to sign in to compare", () => {
+    vi.stubGlobal("location", { origin: "https://yama.ing" });
+    const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    client.setQueryData(["me"], null);
+    client.setQueryData(["auth-config"], {});
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/sharing/compare/pal"]}><Routes><Route element={<RequireAccount />}><Route path="sharing/compare/:handle" element={<ComparePage />} /></Route></Routes></MemoryRouter></QueryClientProvider>);
+    client.clear();
+    expect(html).toContain("Compare collections");
+    expect(html).toContain("Sign in to see which of a friend");
+  });
+
+  it("says what a friend doesn't share", () => {
+    const html = compare({ handle: "pal", yourself: false, wants_public: false, collection_public: false, their_wants: 0, your_wants: 3, you_have: [], they_have: [] });
+    expect(html).toContain("@pal doesn&#x27;t share a want list.");
+    expect(html).toContain("@pal doesn&#x27;t share a collection");
+    expect(html).not.toContain("/u/pal/wants");
   });
 });

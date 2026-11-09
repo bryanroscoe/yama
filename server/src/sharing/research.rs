@@ -67,7 +67,7 @@ async fn commander_art(pool: &SqlitePool, name: &str) -> AppResult<(Option<(Stri
 const MAX_LINES: usize = 300;
 
 /// A looked-up card: (name asked for, type line, mana value, layout, image, oracle id).
-type Found = (String, Option<String>, f64, Option<String>, Option<String>, String);
+pub(super) type Found = (String, Option<String>, f64, Option<String>, Option<String>, String);
 
 fn front(name: &str) -> &str {
     name.split(" // ").next().unwrap_or(name)
@@ -75,7 +75,7 @@ fn front(name: &str) -> &str {
 
 /// Each name's card (and its front face's, for double-faced names) in one query, keyed by the
 /// name asked for. Real cards before tokens of the same name, Commander-legal ones first.
-async fn lookup<'a>(pool: &SqlitePool, names: impl Iterator<Item = &'a str>) -> AppResult<HashMap<String, Found>> {
+pub(super) async fn lookup<'a>(pool: &SqlitePool, names: impl Iterator<Item = &'a str>) -> AppResult<HashMap<String, Found>> {
     // Names as written: SQLite's lower() and NOCASE fold ASCII only, so Rust's Unicode
     // lowercasing ("Éowyn" → "éowyn") would never match. card_names' NOCASE covers ASCII case.
     let mut names: Vec<&str> = names.flat_map(|n| [n, front(n)]).collect();
@@ -96,7 +96,7 @@ async fn lookup<'a>(pool: &SqlitePool, names: impl Iterator<Item = &'a str>) -> 
     Ok(found)
 }
 
-fn found<'a>(found: &'a HashMap<String, Found>, name: &str) -> Option<&'a Found> {
+pub(super) fn found<'a>(found: &'a HashMap<String, Found>, name: &str) -> Option<&'a Found> {
     found.get(name).or_else(|| found.get(front(name)))
 }
 

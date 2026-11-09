@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { Link, useLocation } from "react-router";
-import { api, publicOrigin, shareUrl, type DeckSummary, type Sharing, type Visibility } from "../api";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { api, publicOrigin, shareUrl, type DeckSummary, type Sharing, type TradeCompare, type TradeMatch, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
-import { ErrorText } from "../components/ui";
+import { CardImage, ErrorText } from "../components/ui";
 import { SharingSettings } from "../decks/SharingSettings";
 import { useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, reports } from "../research/api";
@@ -22,6 +22,115 @@ function SharedLink({ name, manage, url, visibility }: { name: string; manage: s
       {url && copied?.startsWith("Couldn't") && <input aria-label={`Shared link: ${name}`} readOnly value={url} onFocus={(e) => e.currentTarget.select()} />}
     </div>
   </li>;
+}
+
+/** "Public decks, public plans, what you're looking for and your collection". */
+function profileHolds(s: Sharing): string {
+  const parts = ["Public decks", "public plans", ...(s.wants_public ? ["what you're looking for"] : []), ...(s.collection_public ? ["your collection"] : [])];
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** Your want list's link, and comparing with a friend's profile by handle. */
+function TradeSection({ sharing }: { sharing: Sharing | undefined }) {
+  const navigate = useNavigate();
+  const [friend, setFriend] = useState("");
+  const [copied, copy] = useCopy();
+  const wants = sharing?.handle && sharing.wants_public ? `${publicOrigin()}/u/${sharing.handle}/wants` : null;
+  const handle = friend.trim().replace(/^@/, "").toLowerCase();
+  return <section className="grp-section" aria-labelledby="sharing-trade">
+    <h2 id="sharing-trade">Trade with friends</h2>
+    {wants
+      ? <><p>Your want list shows the cards on your shopping list, so friends can see what you're looking for.</p><div className="row"><a className="button outline" href={wants} target="_blank" rel="noreferrer">Open my want list</a><button className="outline" onClick={() => void copy(wants)}>Copy want list link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Want list link" readOnly value={wants} onFocus={(e) => e.currentTarget.select()} />}</div></>
+      : sharing && <p className="dim">To send friends what you're looking for, {sharing.handle ? "" : "choose a handle and "}turn on "Show what I'm looking for on my profile" in <a href="#sharing">Sharing settings</a>.</p>}
+    <form className="sharing-compare" onSubmit={(e) => { e.preventDefault(); if (handle) void navigate(`/sharing/compare/${encodeURIComponent(handle)}`); }}>
+      <label>
+        Compare with a friend
+        <span className="hint">Their handle: the cards on their want list you have, and the cards on your list in their collection.</span>
+        <span className="row">
+          <input value={friend} onChange={(e) => setFriend(e.target.value)} placeholder="@handle" maxLength={31} autoCapitalize="none" spellCheck={false} />
+          <button disabled={!handle}>Compare</button>
+        </span>
+      </label>
+    </form>
+  </section>;
+}
+
+function money(n: number | null, date: string | null): string {
+  if (n == null) return "No market price";
+  const day = date ? new Date(`${date.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null;
+  return `$${n.toFixed(2)} market${day ? `, ${day}` : ""}`;
+}
+
+function finishName(f: string): string {
+  return f === "foil" ? " foil" : f === "etched" ? " etched" : "";
+}
+
+function MatchRow({ m, mine }: { m: TradeMatch; mine: boolean }) {
+  const wanted = `${m.qty} wanted${m.needed ? "" : ", along the way"}`;
+  const has = mine ? `You have ${m.copies}${m.in_decks ? `, ${m.in_decks} in deck boxes` : ""}` : `They have ${m.copies}`;
+  const prints = m.printings?.map((p) => `${p.qty} ${p.set_code.toUpperCase()} ${p.collector_number}${finishName(p.finish)}, ${p.condition}${p.lang === "en" ? "" : `, ${p.lang}`}`);
+  return <li className="trade-row">
+    <CardImage src={m.image} name={m.name} className="thumb" />
+    <div>
+      <b>{m.name}</b>
+      <p className="small dim">{wanted}. {money(m.market, m.market_date)}.</p>
+      <p className="small">{has}{prints?.length ? `: ${prints.join("; ")}` : ""}</p>
+    </div>
+  </li>;
+}
+
+/** The matched copies at market: at most as many as are wanted and as are owned. */
+function total(list: TradeMatch[]): string {
+  const priced = list.filter((m) => m.market != null);
+  if (!priced.length) return "";
+  const sum = priced.reduce((t, m) => t + m.market! * Math.min(m.qty, m.copies), 0);
+  return ` About $${sum.toFixed(2)} at market${priced.length < list.length ? `, ${list.length - priced.length} without a price` : ""}.`;
+}
+
+/** What you and a friend could trade, through what their profile shares. */
+export function ComparePage() {
+  const me = useMe().data;
+  const { handle = "" } = useParams();
+  const enabled = !!me;
+  const q = useQuery({
+    queryKey: ["sharing-compare", me?.id, handle],
+    queryFn: ({ signal }) => api<TradeCompare>(`/api/sharing/compare/${encodeURIComponent(handle)}`, { signal }),
+    enabled,
+    retry: false,
+  });
+  const c = q.data;
+  const at = `@${c?.handle ?? handle}`;
+  const profile = `${publicOrigin()}/u/${encodeURIComponent(c?.handle ?? handle)}`;
+  return <main className="page sharing-page">
+    <Link className="sharing-browse" to="/sharing">← Sharing</Link>
+    <AreaHead title={`You and ${at}`} />
+    <p className="dim">Cards you could trade, from what {at} shares. Market prices are dated TCGplayer market prices from Scryfall, not offers. Copies are real cards; proxies aren't counted.</p>
+    {q.isPending && enabled && <p>Comparing…</p>}
+    <ErrorText error={q.error} />
+    {c && <>
+      {c.yourself && <p className="small">This is your own profile, so both lists are yours.</p>}
+      <section className="grp-section" aria-labelledby="trade-you-have">
+        <h2 id="trade-you-have">{at} is looking for, you have</h2>
+        {!c.wants_public
+          ? <p>{at} doesn't share a want list.</p>
+          : c.you_have.length === 0
+            ? <p>None of the {c.their_wants} cards on their list are in your collection.</p>
+            : <><p className="small dim">{c.you_have.length} of the {c.their_wants} cards on their list.{total(c.you_have)}</p><ul className="sharing-list">{c.you_have.map((m) => <MatchRow key={m.name} m={m} mine />)}</ul></>}
+        {c.wants_public && <a className="sharing-browse" href={`${profile}/wants`}>{at}'s whole want list</a>}
+      </section>
+      <section className="grp-section" aria-labelledby="trade-they-have">
+        <h2 id="trade-they-have">You're looking for, {at} has</h2>
+        {!c.collection_public
+          ? <p>{at} doesn't share a collection, so there's nothing to check your list against.</p>
+          : c.your_wants === 0
+            ? <p>Your shopping list is empty. Cards from your plans and the store trip go there.</p>
+            : c.they_have.length === 0
+              ? <p>None of the {c.your_wants} cards on your shopping list are in their collection.</p>
+              : <><p className="small dim">{c.they_have.length} of the {c.your_wants} cards on your shopping list.{total(c.they_have)}</p><ul className="sharing-list">{c.they_have.map((m) => <MatchRow key={m.name} m={m} mine={false} />)}</ul></>}
+        {c.collection_public && <a className="sharing-browse" href={`${profile}/collection`}>{at}'s collection</a>}
+      </section>
+    </>}
+  </main>;
 }
 
 /** A way back to everything this account has already shared, without publishing anything. */
@@ -44,13 +153,14 @@ export function SharingPage() {
   return <main className="page sharing-page">
     <AreaHead title="Sharing" index />
     <p className="dim">Open your public pages, copy their links or manage what you share.</p>
-    <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-notes">Plans</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
+    <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-trade">Trade</a><a href="#sharing-notes">Plans</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
     <section className="grp-section" aria-labelledby="sharing-profile">
       <h2 id="sharing-profile">Your public profile</h2>
       {sharing.isPending && <p>Loading profile…</p>}
       <ErrorText error={sharing.error} />
-      {profile ? <><p>Public decks, public plans{sharing.data?.collection_public ? " and your collection" : ""} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
+      {profile ? <><p>{profileHolds(sharing.data!)} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
     </section>
+    <TradeSection sharing={sharing.data} />
     <section className="grp-section" aria-labelledby="sharing-decks">
       <h2 id="sharing-decks">Shared decks</h2>
       <ErrorText error={decks.error} />
