@@ -1551,3 +1551,44 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .power-charts figure { margin:16px 0; min-width:0; }
 .power-charts svg { width:100%; height:auto; }
 .power-charts text { fill:currentColor; font-size:12px; }
+
+/* Want lists use one aligned row per card, with the viewer's private inventory alongside it. */
+.want-page { max-width:1100px; margin:0 auto; }
+.want-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:24px 0 16px; }
+.want-heading h1 { margin:0 0 8px; }
+.want-heading p,.want-explainer { margin:0; }
+.want-heading .button { flex:none; }
+.want-toolbar { display:flex; gap:12px; align-items:center; margin-top:24px; }
+.want-search { flex:1; min-width:0; }
+.want-search input { width:100%; }
+.want-toolbar input,.want-toolbar select { min-height:44px; border:1px solid var(--line); background:var(--surface); color:var(--text); border-radius:8px; padding:8px 12px; font:inherit; }
+.want-account { font-size:13px; margin:16px 0; }
+.want-account a { display:inline-flex; min-height:36px; align-items:center; }
+.want-result { font-size:13px; margin:16px 0 8px; }
+.want-list { list-style:none; padding:0; margin:0; }
+.want-row { display:grid; grid-template-columns:minmax(0,1fr) 64px minmax(120px,180px) 156px; align-items:center; gap:16px; padding:12px 0; border-bottom:1px solid var(--line); }
+.want-row[hidden],.want-page [hidden] { display:none !important; }
+.want-card { display:flex; align-items:center; gap:16px; min-width:0; text-decoration:none; }
+.want-card img { width:64px; height:auto; flex:none; border-radius:3px; }
+.want-card > span { min-width:0; }
+.want-card b { font-size:16px; overflow-wrap:anywhere; }
+.want-card small { display:block; margin-top:8px; font-size:12px; color:var(--dim); }
+.want-qty,.want-owned { display:flex; flex-direction:column; gap:4px; }
+.want-qty span,.want-owned span,.want-price { font-size:12px; color:var(--dim); }
+.want-qty b { font-size:18px; }
+.want-owned b { font-size:14px; }
+.want-price { grid-column:4; }
+.want-prices { margin:24px 0; font-size:12px; }
+.want-pending { border-top:1px solid var(--line); margin-top:32px; padding-top:24px; }
+@media(max-width:750px) {
+ .want-heading { align-items:flex-start; flex-direction:column; gap:16px; }
+ .want-toolbar { flex-wrap:wrap; }
+ .want-filter { flex:1 1 100%; }
+ .want-filter select { width:100%; }
+ .want-row { grid-template-columns:minmax(0,1fr) 60px; gap:8px 12px; }
+ .want-card { grid-row:span 2; align-self:start; gap:12px; }
+ .want-card img { width:58px; }
+ .want-owned { grid-column:1 / -1; padding-left:70px; }
+ .want-price { grid-column:2; font-size:11px; }
+ .want-qty { align-items:flex-end; }
+}

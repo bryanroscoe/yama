@@ -1073,9 +1073,8 @@ async fn a_want_list_is_private_until_shared_and_shows_only_cards() {
     assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
     assert!(html.contains("noindex"));
     // Needed cards first, then the ones along the way; a missing price is said, never $0.
-    let (needed, along) = html.split_once("Also on the list").unwrap();
-    assert!(needed.contains("Sol Ring") && !needed.contains("Arcane Signet"));
-    assert!(along.contains("Arcane Signet"));
+    assert!(html.find("data-name=\"Sol Ring\"").unwrap() < html.find("data-name=\"Arcane Signet\"").unwrap());
+    assert!(html.contains("data-kind=\"needed\"") && html.contains("data-kind=\"wishlist\""));
     assert!(html.contains("No market price") && !html.contains("$0.00"));
     assert!(html.contains("href=\"/sharing/compare/saget\""));
     let (_, headers, txt) = page(&app, "/u/saget/wants.txt").await;
@@ -1171,4 +1170,77 @@ async fn comparing_with_a_friend_reads_only_what_they_share() {
     let text = crate::sharing::wants::text(&crate::sharing::wants::compare(&pool, &friend, "saget").await.unwrap());
     assert!(text.contains("- Sol Ring (2 wanted; no market price): owns 3, 1 in deck boxes"), "{text}");
     assert!(text.contains("- Command Tower (1 wanted; no market price): @saget has 1 (1 CMM 1000 NM)"), "{text}");
+}
+
+#[tokio::test]
+async fn want_list_derives_deck_gaps_once_and_invalidates_on_collection_changes() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "list-owner@example.com").await;
+    let (other, _) = user(&pool, "other-list-owner@example.com").await;
+    card(&pool, "o-ring", "Sol Ring", "Artifact", "p-ring", "cmm", "410").await;
+    card(&pool, "o-basic", "Plains", "Basic Land — Plains", "p-basic", "cmm", "1").await;
+    for (who, title) in [(&owner,"First"),(&owner,"Second"),(&owner,"Alternate"),(&other,"Not yours")] {
+        let (id,v) = deck(&pool, who, title).await;
+        let cards = json!([{"oracle_id":"o-ring","name":"Sol Ring","qty":1,"board":"main"},
+                           {"oracle_id":"o-basic","name":"Plains","qty":20,"board":"main"}]);
+        sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?").bind(cards.to_string()).bind(v).execute(&pool).await.unwrap();
+        if title == "Alternate" {
+            let parent: String = sqlx::query_scalar("SELECT id FROM decks WHERE name = 'First' AND owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+            sqlx::query("UPDATE decks SET parent_id = ? WHERE id = ?").bind(parent).bind(id).execute(&pool).await.unwrap();
+        }
+    }
+    send(&app, Method::PUT, "/api/me/sharing", Some(&auth), Some(json!({"handle":"list-owner","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"2 Sol Ring\n");
+    copies(&app,&auth,"one-real","p-ring",1,false,None).await;
+    copies(&app,&auth,"many-proxies","p-ring",3,true,None).await;
+    assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"1 Sol Ring\n");
+    copies(&app,&auth,"second-real","p-ring",1,false,None).await;
+    assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"");
+}
+
+#[tokio::test]
+async fn want_list_includes_print_upgrades_and_keeps_pending_and_rejected_private() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool,"upgrade-list@example.com").await;
+    for (oid,n,pid) in [("print","Print upgrade","p-print"),("pending","Pending upgrade","p-pending"),("no","Rejected upgrade","p-no"),("old","Old card","p-old")] {
+        card(&pool,oid,n,"Artifact",pid,"tst",oid).await;
+    }
+    let b = json!({"decks":[{"key":"d","states":{"now":{"cards":[{"name":"Old card","qty":1}]}},
+        "plan":{"state":"in_progress","next":{"keys":["later","rejected"],"skipped":["rejected"]}}}],
+        "swaps":[{"key":"print","deck":"d","role":"swap","stage":"planned","src":"print","in":"Print upgrade","out":"Old card"},
+                  {"key":"later","deck":"d","role":"swap","stage":"proposed","src":"buy","in":"Pending upgrade"},
+                  {"key":"rejected","deck":"d","role":"swap","stage":"proposed","src":"buy","in":"Rejected upgrade"}],
+        "reviews":{"rejected":{"decision":"no"}}});
+    let public = super::want_sources::needs(&pool,&owner,&b,false).await.unwrap();
+    assert_eq!(public,vec![("Print upgrade".into(),1,false)]);
+    let owner_view = super::want_sources::needs(&pool,&owner,&b,true).await.unwrap();
+    assert!(owner_view.contains(&("Pending upgrade".into(),1,true)));
+    assert!(!owner_view.iter().any(|r|r.0 == "Rejected upgrade" || r.0 == "Old card"));
+}
+
+#[tokio::test]
+async fn want_list_inventory_overlay_is_private_and_owner_scoped() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"overlay-owner@example.com").await;
+    let (_,friend) = user(&pool,"overlay-viewer@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    send(&app,Method::POST,"/api/plan/wants",Some(&auth),Some(json!({"name":"Sol Ring","qty":2}))).await;
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"overlay-owner","wants_public":true}))).await;
+    let (_,box_) = send(&app,Method::POST,"/api/containers",Some(&friend),Some(json!({"kind":"deck","name":"Secret deck"}))).await;
+    copies(&app,&friend,"deck-copy","p-ring",1,false,Some(&box_["id"])).await;
+    copies(&app,&friend,"spare-copy","p-ring",2,false,None).await;
+    copies(&app,&friend,"proxy-copy","p-ring",4,true,None).await;
+    let path = "/api/sharing/wants/overlay-owner/owned";
+    assert_eq!(send(&app,Method::GET,path,None,None).await.0,StatusCode::UNAUTHORIZED);
+    let (_,mine) = send(&app,Method::GET,path,Some(&auth),None).await;
+    assert_eq!(mine["cards"],json!([]));
+    let (_,theirs) = send(&app,Method::GET,path,Some(&friend),None).await;
+    assert_eq!(theirs["owner"],false);
+    assert_eq!(theirs["cards"][0],json!({"name":"Sol Ring","copies":3,"in_decks":1,"proxies":4}));
+    let req = Request::builder().uri(path).header(header::AUTHORIZATION,format!("Bearer {friend}")).body(Body::empty()).unwrap();
+    let res = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.headers()[header::CACHE_CONTROL],"private, no-store");
+    let public = page(&app,"/u/overlay-owner/wants?q=missing").await.2;
+    assert!(public.contains("<li hidden class=\"want-row\""));
+    for secret in ["Secret deck","You own 3","proxy-copy",&owner] { assert!(!public.contains(secret)); }
 }

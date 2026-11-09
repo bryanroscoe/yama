@@ -9,6 +9,7 @@
 //! market value) and, when the owner turns it on, its plan's simulated win rates for the lists
 //! it and its listed configurations stand for, nothing else from the plan.
 mod html;
+mod want_sources;
 mod research;
 pub(crate) mod wants;
 #[cfg(test)]
@@ -41,6 +42,7 @@ pub fn router() -> Router<AppState> {
         .route("/u/{handle}/collection.csv", get(collection_csv))
         .route("/u/{handle}/wants", get(wants::page))
         .route("/u/{handle}/wants.txt", get(wants::download))
+        .route("/api/sharing/wants/{handle}/owned", get(wants::owned_route))
         .route("/api/sharing/compare/{handle}", get(wants::compare_route))
         .route("/d/{token}", get(html::deck))
         .route("/d/{token}/{file}", get(download))
