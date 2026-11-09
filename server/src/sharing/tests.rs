@@ -1302,3 +1302,40 @@ async fn owner_overlay_keeps_pending_copies_when_card_also_has_confirmed_demand(
     let (_,view) = send(&app,Method::GET,"/api/sharing/wants/pending-copies/owned",Some(&friend),None).await;
     assert_eq!(view["pending"],json!([]));
 }
+
+#[tokio::test]
+async fn want_upgrade_chains_are_order_independent_and_owned_moves_apply_cuts() {
+    let (_,pool) = app().await;
+    let (owner,_) = user(&pool,"chains@example.com").await;
+    for n in ["A","B","C"] {card(&pool,n,n,"Artifact",&format!("p-{n}"),"tst",n).await;}
+    let b = json!({"decks":[{"key":"d","states":{"stock":{"cards":[{"name":"A"}]},"now":{"cards":[{"name":"A"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"bc","deck":"d","stage":"proposed","role":"swap","src":"print","in":"C","out":"B"},
+                  {"key":"ab","deck":"d","stage":"planned","role":"swap","src":"print","in":"B","out":"A"}],
+        "reviews":{"bc":{"decision":"want","at":"2030"}}});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("C".into(),1,false)]);
+    let mut owned = b.clone(); owned["swaps"][0]["src"]=json!("owned");
+    assert!(super::want_sources::needs(&pool,&owner,&owned,false).await.unwrap().is_empty());
+    let mut changed = b.clone(); changed["swaps"][0]["updated_at"]=json!("2031");
+    changed["reviews"]["bc"]["decision"]=json!("no");
+    changed["decks"][0]["plan"]["next"]=json!({"keys":["bc"],"skipped":[]});
+    assert!(super::want_sources::needs(&pool,&owner,&changed,true).await.unwrap().contains(&("C".into(),1,true)));
+}
+
+#[tokio::test]
+async fn real_copy_in_one_target_and_order_for_another_are_distinct_coverage() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"acquired-targets@example.com").await;
+    card(&pool,"old","Old","Artifact","p-old","tst","1").await;
+    card(&pool,"new","New","Artifact","p-new","tst","2").await;
+    let (a,av) = deck(&pool,&owner,"First target").await;
+    let (b,bv) = deck(&pool,&owner,"Second target").await;
+    for (v,id,n) in [(av,"old","Old"),(bv,"new","New")] {
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":id,"name":n,"qty":1,"board":"main"}]).to_string()).bind(v).execute(&pool).await.unwrap();
+    }
+    let (_,box_) = send(&app,Method::POST,"/api/containers",Some(&auth),Some(json!({"kind":"deck","name":"Second target"}))).await;
+    sqlx::query("UPDATE decks SET container_id=? WHERE id=?").bind(box_["id"].as_str().unwrap()).bind(b).execute(&pool).await.unwrap();
+    copies(&app,&auth,"already-in-second","p-new",1,false,Some(&box_["id"])).await;
+    let plan = json!({"decks":[{"key":"a","yama_deck":{"id":a},"states":{"stock":{"cards":[{"name":"Old"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"ordered","deck":"a","stage":"planned","role":"swap","src":"buy","out":"Old","in":"New","order_item":{"order":"o","line":1}}]});
+    assert!(super::want_sources::needs(&pool,&owner,&plan,false).await.unwrap().is_empty());
+}
