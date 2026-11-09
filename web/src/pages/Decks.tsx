@@ -265,7 +265,9 @@ export function DeckPage() {
 
   const status = deckStatus(d);
   // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
-  const brackets = plan ? bracketSwaps(plan.deck.bracket) : [];
+  // Only an approved plan's bags are instructions for the box (as on Print swap cards).
+  const planInForce = !!plan && ["in_progress", "done"].includes(plan.view.planOf(plan.deck).state);
+  const brackets = planInForce ? bracketSwaps(plan!.deck.bracket) : [];
   const atSwaps = brackets.find((b) => String(b.bracket) === search.get("at")) ?? null;
   const outAt = new Set(atSwaps?.swaps.map((s) => s.out) ?? []);
   const atHref = (b: number | null) => {
@@ -340,9 +342,9 @@ export function DeckPage() {
               onNewList={() => setConfiguring(true)}
               variants={variants}
               brackets={brackets.map((b) => ({ bracket: b.bracket, count: b.swaps.length }))}
-              boxBracket={plan ? boxBracket(plan.deck.bracket) : null}
+              boxBracket={planInForce ? boxBracket(plan!.deck.bracket) : null}
               at={atSwaps?.bracket ?? null}
-              atHref={plan ? atHref : undefined}
+              atHref={planInForce ? atHref : undefined}
             />
           ) : (
             <button className="quiet deck-new-list" onClick={() => setConfiguring(true)}>Save a copy as a new list</button>
@@ -374,7 +376,7 @@ export function DeckPage() {
         />
 
         {atSwaps && plan && (tab === "cards" || tab === "stats") && (
-          <SwapPanel at={atSwaps.bracket} swaps={atSwaps.swaps} view={plan.view} printHref={`/decks/builds?savedDeck=${d.id}`} backHref={atHref(null)} />
+          <SwapPanel at={atSwaps.bracket} swaps={atSwaps.swaps} view={plan.view} printHref={`/decks/builds?savedDeck=${d.id}&from=${encodeURIComponent(`saved:${d.id}`)}&to=${encodeURIComponent(`plan:${plan.deck.key}:b${atSwaps.bracket}`)}`} backHref={atHref(null)} />
         )}
         {tab === "cards" && (<>
         <div className="deck-toolbar">

@@ -14,6 +14,7 @@ describe("playing the box at a lower bracket", () => {
   it("skips bags at or above the box's bracket, and empty ones", () => {
     expect(bracketSwaps({ target: 3, bags: { "3": [bag("a", "b")], "2": [] } })).toEqual([]);
     expect(bracketSwaps(null)).toEqual([]);
+    expect(bracketSwaps({ target: 4, bags: { "3": [bag("a", "b")], "2": [] } }).map((x) => x.bracket)).toEqual([3]);
   });
   it("reads the box's bracket from box, then target", () => {
     expect(boxBracket({ target: 4, box: 3 })).toBe(3);

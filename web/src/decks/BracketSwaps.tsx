@@ -16,8 +16,10 @@ export function bracketSwaps(bracket: Bracket | null | undefined): { bracket: nu
   const out: { bracket: number; swaps: Bag[] }[] = [];
   let so: Bag[] = [];
   for (const k of keys) {
-    so = [...so, ...(bracket!.bags![String(k)] ?? [])];
-    if (so.length) out.push({ bracket: k, swaps: so });
+    const own = bracket!.bags![String(k)] ?? [];
+    so = [...so, ...own];
+    // An empty bag adds no step: that bracket would be the one above under another name.
+    if (own.length) out.push({ bracket: k, swaps: so });
   }
   return out;
 }

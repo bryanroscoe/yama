@@ -2500,3 +2500,13 @@ body:has(.view-banner) {
   font-size: var(--t-sm);
   color: var(--dim);
 }
+/* Phones: three secondaries share one row, so their menu chevrons go (the canvas draws none). */
+@media (max-width: 899px) {
+  .deck-actions .more-menu > button > svg {
+    display: none;
+  }
+  .deck-head-tile b {
+    font-size: 1.5rem;
+    overflow-wrap: anywhere;
+  }
+}
