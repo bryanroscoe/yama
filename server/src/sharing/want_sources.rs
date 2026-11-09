@@ -210,8 +210,8 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         if *available <= 0 {
             continue;
         }
-        if let Some((_, _, need, _)) = gaps.iter_mut().find(|(root, id, q, pending)| root == &destination && id == card && *q > 0 && !pending) {
-            *need -= 1;
+        if let Some(index) = gaps.iter().position(|(root, id, q, pending)| root == &destination && id == card && *q > 0 && !*pending) {
+            gaps[index].2 -= 1;
             *available -= 1;
         }
     }

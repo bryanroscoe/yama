@@ -352,6 +352,8 @@ export interface Sharing {
 /** One card two people could trade (`/api/sharing/compare/<handle>`). */
 export interface TradeMatch {
   name: string;
+  /** Included pending upgrade copies, when the owner opted to share them. */
+  pending_qty?: number;
   /** Copies wanted. */
   qty: number;
   /** A reason to go to a store, not just along the way or the wishlist. */
