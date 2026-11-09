@@ -293,8 +293,8 @@ pub(super) async fn owned_route(State(st): State<AppState>, CurrentUser(user): C
             .await?
             .into_iter()
             .filter_map(|mut l| {
-                let already = public.iter().find(|p| p.name == l.name).map_or(0, |p| p.qty);
-                l.qty -= already;
+                let already_public = public.iter().find(|p| p.name == l.name).map_or(0, |p| p.pending_qty);
+                l.qty = l.pending_qty - already_public;
                 l.pending = true;
                 l.pending_qty = l.qty;
                 (l.qty > 0).then_some(l)

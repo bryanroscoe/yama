@@ -1421,3 +1421,24 @@ async fn wishlist_and_derived_gaps_merge_canonical_faces_but_manual_wishes_stay_
     assert_eq!(send(&app,Method::POST,"/api/plan/wants",Some(&auth),Some(json!({"name":"Delver of Secrets"}))).await.0,StatusCode::OK);
     assert_eq!(page(&app,"/u/canonical-wants/wants.txt").await.2,format!("2 {full}\n"));
 }
+
+#[tokio::test]
+async fn pending_overlay_keeps_intent_when_the_watchlist_already_covers_its_quantity() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"pending-watchlist@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    let document = json!({"scenarios":[{"id":"wish","purpose":"permanent_real_wishlist","buys":[{"card":"Sol Ring"}]}]});
+    sqlx::query("INSERT INTO research_reports (owner_id,id,title,content_hash,document,updated_at) VALUES (?,'wish','Wish','h',?,'2026-11-09')").bind(&owner).bind(document.to_string()).execute(&pool).await.unwrap();
+    let doc = json!({"format":"yama-plan/1","plan":{"decks":[{"key":"d","name":"Future","status":"proposals_only","commander":["Test Commander"]}],
+        "swaps":[{"key":"p","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Sol Ring","out":"Plains"}]}});
+    assert_eq!(send(&app,Method::POST,"/api/plan/import",Some(&auth),Some(doc)).await.0,StatusCode::OK);
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"pending-watchlist","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/pending-watchlist/wants.txt").await.2,"1 Sol Ring\n");
+    let path="/api/sharing/wants/pending-watchlist/owned";
+    let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
+    assert_eq!(view["pending"][0]["qty"],1);
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"wants_include_pending":true}))).await;
+    assert_eq!(page(&app,"/u/pending-watchlist/wants.txt").await.2,"1 Sol Ring\n");
+    let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
+    assert_eq!(view["pending"],json!([]));
+}
