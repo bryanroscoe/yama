@@ -1,3 +1,4 @@
+import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
 import { SellSheet } from "./SellSheet";
@@ -275,14 +276,16 @@ export function CollectionPage() {
           </button>
         )}
         {!!items.data?.length && (
-          <p className="small dim coll-note">
-            TCGplayer market via Scryfall, {day}.
-            {thumbArtists.length > 0 ? ` ${artCredits(thumbArtists)}` : ""}
-          </p>
+          <div className="small dim coll-note help-heading">
+            <span>
+              TCGplayer market via Scryfall, {day}.
+            </span>
+            <HelpPopover label="About collection prices">
+              <p>Prices are per copy in its finish. Market values are not store quotes or resale offers. Proxies are excluded from collection value; missing prices stay unpriced.</p>
+            </HelpPopover>
+            {thumbArtists.length > 0 ? <span>{artCredits(thumbArtists)}</span> : null}
+          </div>
         )}
-        {!!items.data?.length && <Details label="About collection prices">
-          <p>Prices are per copy in its finish. Market values are not store quotes or resale offers. Proxies are excluded from collection value; missing prices stay unpriced.</p>
-        </Details>}
         <a className="button outline coll-export-narrow" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</a>
       </section>
 

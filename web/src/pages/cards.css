@@ -8,7 +8,8 @@
   flex-direction: column;
   gap: 16px;
 }
-.cards-page > h1 {
+.cards-page > h1,
+.cards-page > .help-heading > h1 {
   margin: 0;
 }
 .cards-search {
