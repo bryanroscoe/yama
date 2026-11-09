@@ -50,6 +50,11 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 
 ## Tools
 
+**UI and MCP parity (2026-11-09).** Bryan: anything the UI can do the MCP should do, and the
+reverse, for the most part. The capability map, the backlog and the list of things with no good
+UI design yet are in [ui-mcp-parity.md](ui-mcp-parity.md). New read tools reuse the page's own
+function (`games`, `game`, `playgroups`, `collection_summary`); new writes are staged.
+
 Commander research and workflow extensions (2026-10-27) are implemented in
 `server/src/mcp/research/`; see [the capability map, provenance and limits](mcp-parity.md).
 They use this same endpoint and review flow. The protocol also exposes workflow prompts and

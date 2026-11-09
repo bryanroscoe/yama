@@ -154,6 +154,93 @@ async fn tools_read_only_the_callers_own_data() {
     assert!(text.contains("deck is missing"), "{text}");
 }
 
+#[tokio::test]
+async fn game_history_reads_only_the_callers_games() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at,turns,winner_seat) VALUES ('g-1','in_person',?,'finished','2026-11-01',9,0)")
+        .bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name,commander_name) VALUES ('g-1',0,'Kelly','Atraxa, Praetors'' Voice'),('g-1',1,'Sam','Krenko, Mob Boss')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO game_events(game_id,seq,actor_seat,kind,payload,created_at) VALUES ('g-1',1,0,'life','{\"seat\":1,\"delta\":-7}','2026-11-01T20:00:00Z')")
+        .execute(&pool).await.unwrap();
+    let a_key = key(&app, &a_session, Some("mcp")).await;
+    let b_key = key(&app, &b_session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &a_key, "games", json!({"search": "krenko"})).await;
+    assert!(!err, "{text}");
+    let page: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(page["games"][0]["id"], "g-1", "{text}");
+    assert_eq!(page["games"][0]["seats"].as_array().unwrap().len(), 2);
+    let (err, text) = call(&app, &a_key, "games", json!({"filter": "sideways"})).await;
+    assert!(err, "{text}");
+
+    let (err, text) = call(&app, &a_key, "game", json!({"id": "g-1"})).await;
+    assert!(!err, "{text}");
+    let game: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(game["event_count"], 1);
+    assert!(game.get("events").is_none(), "events only when asked");
+    let (_, text) = call(&app, &a_key, "game", json!({"id": "g-1", "events": true})).await;
+    let game: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(game["events"][0]["kind"], "life");
+
+    let (_, text) = call(&app, &b_key, "games", json!({})).await;
+    assert!(!text.contains("g-1"), "{text}");
+    let (err, text) = call(&app, &b_key, "game", json!({"id": "g-1"})).await;
+    assert!(err);
+    assert_eq!(text, "game not found");
+}
+
+#[tokio::test]
+async fn collection_summary_counts_only_the_callers_containers() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (b, b_session) = user(&pool, "someone@example.com").await;
+    for (id, owner, name) in [("c-a", &a, "Trade binder"), ("c-b", &b, "Secret box")] {
+        sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?,?,'binder',?,'t')")
+            .bind(id).bind(owner).bind(name).execute(&pool).await.unwrap();
+    }
+    let a_key = key(&app, &a_session, Some("mcp")).await;
+    let b_key = key(&app, &b_session, Some("mcp")).await;
+    let (err, text) = call(&app, &a_key, "collection_summary", json!({})).await;
+    assert!(!err, "{text}");
+    let out: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(out["totals"]["copies"], 0);
+    assert_eq!(out["containers"][0]["name"], "Trade binder");
+    assert!(out["containers"][0].get("art").is_none());
+    assert!(!text.contains("Secret box"), "{text}");
+    let (_, text) = call(&app, &b_key, "collection_summary", json!({})).await;
+    assert!(text.contains("Secret box") && !text.contains("Trade binder"), "{text}");
+}
+
+#[tokio::test]
+async fn playgroups_show_only_groups_the_caller_is_in() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    sqlx::query("INSERT INTO playgroups(id,name,owner_id,join_code,created_at) VALUES ('pg-1','Friday night',?,'SECRET','t')")
+        .bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO playgroup_members(id,playgroup_id,user_id,guest_name,created_at) VALUES ('m-1','pg-1',?,NULL,'t'),('m-2','pg-1',NULL,'Kelly','t')")
+        .bind(&a).execute(&pool).await.unwrap();
+    let a_key = key(&app, &a_session, Some("mcp")).await;
+    let b_key = key(&app, &b_session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &a_key, "playgroups", json!({})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("Friday night") && text.contains("Kelly"), "{text}");
+    assert!(!text.contains("SECRET") && !text.contains(&a), "no join code or account ids: {text}");
+    let (err, text) = call(&app, &a_key, "playgroups", json!({"id": "pg-1"})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("\"games\": 0"), "{text}");
+
+    let (_, text) = call(&app, &b_key, "playgroups", json!({})).await;
+    assert!(!text.contains("Friday night"), "{text}");
+    let (err, text) = call(&app, &b_key, "playgroups", json!({"id": "pg-1"})).await;
+    assert!(err);
+    assert_eq!(text, "playgroup not found");
+}
+
 // ── staged changes (slice 2) ────────────────────────────────────────────────
 
 async fn seed_cards(pool: &sqlx::SqlitePool) {

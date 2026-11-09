@@ -31,7 +31,7 @@ pub struct Member {
 }
 
 #[derive(Serialize, sqlx::FromRow)]
-struct Group {
+pub(crate) struct Group {
     id: String,
     name: String,
     owner_id: String,
@@ -66,19 +66,24 @@ pub async fn members(pool: &SqlitePool, group: &str) -> AppResult<Vec<Member>> {
 }
 
 async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<Group>>> {
+    Ok(Json(groups_for(&st.pool, &user.id).await?))
+}
+
+/// The playgroups this account owns or is in, with members, shared with the MCP's `playgroups`.
+pub(crate) async fn groups_for(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Group>> {
     let mut groups: Vec<Group> = sqlx::query_as(
         "SELECT DISTINCT g.id, g.name, g.owner_id, g.join_code FROM playgroups g
          LEFT JOIN playgroup_members m ON m.playgroup_id = g.id
          WHERE g.owner_id = ? OR m.user_id = ? ORDER BY g.name",
     )
-    .bind(&user.id)
-    .bind(&user.id)
-    .fetch_all(&st.pool)
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_all(pool)
     .await?;
     for g in &mut groups {
-        g.members = members(&st.pool, &g.id).await?;
+        g.members = members(pool, &g.id).await?;
     }
-    Ok(Json(groups))
+    Ok(groups)
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Group>> {
@@ -208,7 +213,7 @@ async fn remove_member(
 
 /// Everything the Group page shows, computed from the playgroup's finished games on request.
 #[derive(Serialize)]
-struct Stats {
+pub(crate) struct Stats {
     games: i64,
     players: Vec<crate::stats::PlayerStat>,
     commanders: Vec<crate::stats::CommanderStat>,
@@ -225,12 +230,17 @@ struct Stats {
 }
 
 async fn stats(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Stats>> {
+    Ok(Json(stats_for(&st.pool, &user.id, &id).await?))
+}
+
+/// The Group page's stats for one playgroup this account is in, shared with the MCP.
+pub(crate) async fn stats_for(pool: &SqlitePool, user_id: &str, id: &str) -> AppResult<Stats> {
     use crate::stats as s;
-    if !is_member(&st.pool, &id, &user.id).await? {
+    if !is_member(pool, id, user_id).await? {
         return Err(AppError::NotFound("playgroup"));
     }
-    let games = s::finished_games(&st.pool, s::Scope::Playgroup(&id)).await?;
-    Ok(Json(Stats {
+    let games = s::finished_games(pool, s::Scope::Playgroup(id)).await?;
+    Ok(Stats {
         games: games.len() as i64,
         players: s::players(&games),
         commanders: s::commanders(&games),
@@ -244,5 +254,5 @@ async fn stats(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(
         knockout_games: s::knockout_games(&games),
         provisional_under: s::PROVISIONAL_UNDER,
         computed_at: now(),
-    }))
+    })
 }

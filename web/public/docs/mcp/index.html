@@ -113,16 +113,17 @@
 
     <section id="catalog">
       <h2>The complete tool catalog</h2>
-      <p>45 tools, checked 27 October 2026. Availability depends on the caller: Ask Claude omits apply and discard. Expand a group for the tool names your client may display.</p>
-      <details><summary>Cards, rules and sources (6)</summary><dl>
+      <p>64 tools, checked 9 November 2026. Availability depends on the caller: Ask Claude omits apply and discard. Expand a group for the tool names your client may display.</p>
+      <details><summary>Cards, rules and sources (7)</summary><dl>
         <dt><code>find_cards</code></dt><dd>Search Yama's local card catalog with its supported Scryfall-style grammar.</dd>
         <dt><code>card</code></dt><dd>Read Oracle text, legality, rulings, dated prices and your owned copies.</dd>
         <dt><code>search_scryfall</code></dt><dd>Search online with full Scryfall syntax and paginated results.</dd>
         <dt><code>card_printings</code></dt><dd>Find paper printings, market observations and original image links.</dd>
+        <dt><code>price_history</code></dt><dd>Read one printing's dated price over time from TCGplayer market, Card Kingdom retail or buylist, or Mana Pool.</dd>
         <dt><code>rules_lookup</code></dt><dd>Look up current numbered rules, subrules, glossary terms or keywords.</dd>
         <dt><code>research_sources</code></dt><dd>Inspect attribution, local data freshness and research limits.</dd>
       </dl></details>
-      <details><summary>Decks, construction and history (9)</summary><dl>
+      <details><summary>Decks, construction and history (10)</summary><dl>
         <dt><code>overview</code></dt><dd>List your saved decks and upgrade plans.</dd>
         <dt><code>deck</code></dt><dd>Read a saved list, Commander checks, declared bracket and recorded results.</dd>
         <dt><code>check_list</code></dt><dd>Validate a proposed list without saving it.</dd>
@@ -132,6 +133,7 @@
         <dt><code>public_deck</code></dt><dd>Read a public Moxfield or Archidekt list without saving it.</dd>
         <dt><code>edit_deck</code></dt><dd>Stage additions and removals to a saved deck.</dd>
         <dt><code>save_deck</code></dt><dd>Stage a complete, validated 100-card Commander deck as a new deck or replacement.</dd>
+        <dt><code>delete_deck</code></dt><dd>Stage deleting a deck or one of its configurations; recorded games keep their record.</dd>
       </dl></details>
       <details><summary>Commander recommendations and combos (2)</summary><dl>
         <dt><code>commander_recommendations</code></dt><dd>Read EDHREC suggestions with sample sizes, theme/budget options and local ownership filtering.</dd>
@@ -142,19 +144,31 @@
         <dt><code>mana_probability</code></dt><dd>Calculate exact draw probabilities for sources you define.</dd>
         <dt><code>mana_test</code></dt><dd>Sample early land sequencing and payment under an explicit lands-only model.</dd>
       </dl></details>
-      <details><summary>Collection (4)</summary><dl>
+      <details><summary>Games you played (3)</summary><dl>
+        <dt><code>games</code></dt><dd>Search your game history by player or commander, or find unfinished and unnamed games, as the Game history page does.</dd>
+        <dt><code>game</code></dt><dd>Read one game's seats, winner, turns and note, and optionally its event log.</dd>
+        <dt><code>playgroups</code></dt><dd>List your playgroups and members, or read one group's stats: records, commanders, seats, win conditions and head-to-head.</dd>
+      </dl></details>
+      <details><summary>Collection (5)</summary><dl>
+        <dt><code>collection_summary</code></dt><dd>Read collection totals, dated market value, what you paid and each binder, deck box and list.</dd>
         <dt><code>collection_cards</code></dt><dd>Read quantities, proxies and containers, with optional filters.</dd>
         <dt><code>add_to_collection</code></dt><dd>Stage adding copies to a container.</dd>
         <dt><code>move_cards</code></dt><dd>Stage moving copies between your containers.</dd>
         <dt><code>set_condition</code></dt><dd>Stage condition updates.</dd>
       </dl></details>
-      <details><summary>Upgrade plans (11)</summary><dl>
+      <details><summary>Upgrade plans and shopping (18)</summary><dl>
         <dt><code>plan_deck</code></dt><dd>Read stock, current and after-prints lists, swaps, review answers, orders and prints.</dd>
         <dt><code>review_queue</code></dt><dd>Find swaps still waiting for your answer.</dd>
+        <dt><code>track_build</code></dt><dd>Stage making one build from a saved note the deck's plan.</dd>
+        <dt><code>approve_plan</code></dt><dd>Stage approving a plan version whole, skipping the changes you name, once open questions are answered.</dd>
+        <dt><code>shopping_list</code></dt><dd>Read your one shopping list and where the store trip puts each card, or why it isn't on the trip.</dd>
+        <dt><code>add_wish</code></dt><dd>Stage adding a card or sealed product to your shopping list.</dd>
         <dt><code>shopping_trip</code></dt><dd>Plan which of your stores to visit: the fewest stores that have your planned and wanted buys under your shopping rule, each store's cart or search links, and what to print instead.</dd>
         <dt><code>compare_with_friend</code></dt><dd>Compare with a friend's profile: the cards on their shared want list you own, and the cards on your shopping list in their shared collection.</dd>
         <dt><code>shopping_settings</code></dt><dd>Read your buy rule, its dated rule sets, the sealed precon limit and how you feel about each store.</dd>
         <dt><code>set_shopping_rules</code></dt><dd>Stage a new buy rule and sealed precon limit, applying from the day you apply it.</dd>
+        <dt><code>store_stock</code></dt><dd>Read one store's newest dated stock answers for your cards.</dd>
+        <dt><code>check_stores</code></dt><dd>Stage reading your stores' stock now, when you apply it.</dd>
         <dt><code>set_store_preference</code></dt><dd>Stage a store's level (favourite, fine, maybe, won't go), its place in your order and a favourite's premium.</dd>
         <dt><code>propose_swap</code></dt><dd>Stage an upgrade idea with a proposed addition, optional cut and reason.</dd>
         <dt><code>answer_review</code></dt><dd>Stage your stated review answer and optional alternative cut.</dd>
@@ -162,10 +176,12 @@
         <dt><code>mark_installed</code></dt><dd>Stage marking a swap installed or clearing that mark.</dd>
         <dt><code>swap_in_prints</code></dt><dd>Stage the plan's print installation, updating the linked list, proxies, cut-card destinations and installed marks.</dd>
       </dl></details>
-      <details><summary>Simulation lab and precons (8)</summary><dl>
+      <details><summary>Simulation lab, precons and datasets (10)</summary><dl>
         <dt><code>lab_runs</code></dt><dd>List your simulation experiments.</dd>
         <dt><code>lab_run</code></dt><dd>Inspect progress, engine results, uncertainty and unscored-game reasons.</dd>
         <dt><code>lab_games</code></dt><dd>Read pod results or the schedule and lists needed to replay a game. For head-to-head and tournament runs, read one deck's tables or one table game by game.</dd>
+        <dt><code>datasets</code></dt><dd>List your imported evidence datasets, revisions, sources and record counts.</dd>
+        <dt><code>dataset</code></dt><dd>Read one dataset's dated records or source provenance, with bounded pages.</dd>
         <dt><code>precon</code></dt><dd>Read a stock precon, its dated editorial upgradeability assessment, sourced real-game results and available simulation evidence.</dd>
         <dt><code>start_lab_run</code></dt><dd>Stage a new simulation experiment.</dd>
         <dt><code>more_lab_games</code></dt><dd>Stage more games on an eligible finished run.</dd>
