@@ -533,7 +533,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
         )}
         <p className="small dim note-hint">
           Pick a build: its case, the changes, the shopping list and the decklist below follow it.{" "}
-          {yours ? <>Load it into <Link to={`/decks/import?deck=${encodeURIComponent(yours.id)}`}>your {yours.name} deck</Link> (Update from a list, then pick this build)</> : "Load it into one of your decks with Update from a list on the deck's page"}, or print <Link to={`/decks/builds${yours ? `?savedDeck=${encodeURIComponent(yours.id)}` : ""}`}>swap cards</Link> for the deck box.
+          {yours ? <>Load it into <Link to={`/decks/${encodeURIComponent(yours.id)}/edit`}>your {yours.name} deck</Link> (Edit the list, then Another list)</> : "Load it into one of your decks with Edit list on the deck's page"}, or print <Link to={`/decks/builds${yours ? `?savedDeck=${encodeURIComponent(yours.id)}` : ""}`}>swap cards</Link> for the deck box.
         </p>
         <div className="note-pills">
           {bracketLabel(build) && <span className="pill">{bracketLabel(build)}</span>}

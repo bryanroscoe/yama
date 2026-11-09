@@ -1,53 +1,41 @@
-import { CardHover, CardRef } from "../components/CardRef";
+import { CardRef } from "../components/CardRef";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GROUP_ORDER, groupOf, listText } from "@yama/core";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { GROUP_ORDER, groupOf } from "@yama/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
 import { CardImage, ErrorText, Pips } from "../components/ui";
-import { GUIDES, guideFor } from "./guides";
 import {
   checks,
   commanderChoices,
   commanders,
   diff,
   draftFrom,
-  dropUnknown,
-  fixUnknown,
   printLine,
   setCommanders,
   sharedText,
   toSave,
   type Draft,
   type ImportCard,
-  type ImportPreview,
 } from "./importLogic";
+import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
+import { ACCEPT, useListImport } from "./useListImport";
 import "./import.css";
-import { useMe } from "../auth";
-import { usePlan } from "../plan/store";
-import { buildNotes, buildNotesKey } from "../research/api";
-import { buildFamilies, resolveBuildFamily } from "./buildCatalog";
-
-/** The most one file may weigh (a deck list is a few KB; a big CSV export about 1 MB). */
-const MAX_FILE = 2 << 20;
-const ACCEPT = ".txt,.dek,.dec,.csv,.json,.cod,.mwdeck,text/plain,text/csv,application/json";
-
-interface Source {
-  text: string;
-  fileName?: string;
-}
 
 /**
- * Add a deck (or a new version of one) from a pasted list, a file or a link: `/decks/import`.
- * `?deck=<id>` updates that deck; `?precon=<file>` starts from a precon's stock list;
- * `?shared=<token>` copies a deck someone shared (`/d/<token>`); `?text=`,
+ * Add a deck from a pasted list, a file or a link: `/decks/import`. `?precon=<file>` starts from a
+ * precon's stock list; `?shared=<token>` copies a deck someone shared (`/d/<token>`); `?text=`,
  * `?url=` and `?title=` come from the phone's share sheet (the manifest's share_target).
+ * `?deck=<id>` (Update from a list, before 8 Nov 2026) now opens that deck's Edit the list.
  */
 export function ImportPage() {
   const location = useLocation();
-  // A new navigation may target another deck or carry new text, even on this same route.
+  const [params] = useSearchParams();
+  const deck = params.get("deck");
+  if (deck) return <Navigate to={`/decks/${encodeURIComponent(deck)}/edit`} replace state={location.state} />;
+  // A new navigation may carry new text, even on this same route.
   return <ImportEditor key={location.key} />;
 }
 
@@ -55,63 +43,9 @@ function ImportEditor() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const updating = params.get("deck");
   const precon = params.get("precon");
   const shared = params.get("shared");
-  const location = useLocation();
-  const incoming = location.state as { deckId?: string; text?: string } | null;
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
-  const [text, setText] = useState(() => incoming?.deckId === updating && typeof incoming?.text === "string" ? incoming.text : sharedText(params));
-  const current = useQuery({ queryKey: ["deck", updating], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${encodeURIComponent(updating!)}`, { signal }), enabled: !!updating });
-  const userId = useMe().data?.id;
-  const notes = useQuery({ queryKey: buildNotesKey(userId), queryFn: buildNotes, enabled: !!updating && !!userId });
-  const plan = usePlan(userId);
-  const families = useMemo(() => buildFamilies(notes.data ?? [], plan.bundle, decks.data ?? []), [notes.data, plan.bundle, decks.data]);
-  const family = resolveBuildFamily(families, null, updating);
-  const [source, setSource] = useState(updating ? `saved:${updating}` : "");
-  const [sourceLoading, setSourceLoading] = useState(false);
-  const sourceRequest = useRef(0);
-  const preloaded = useRef(incoming?.deckId === updating && typeof incoming?.text === "string");
-  const previewRequest = useRef(0);
-  useEffect(() => {
-    if (!current.data || preloaded.current) return;
-    preloaded.current = true;
-    // A late response must never replace text already pasted or typed.
-    setText((t) => t || listText(current.data.cards));
-  }, [current.data]);
-  const loadSource = async (id: string) => {
-    const choice = family?.choices.find((c) => c.id === id);
-    if (!choice) return;
-    if (text.trim() && text !== (current.data ? listText(current.data.cards) : "") && !window.confirm("Replace the text in the editor with this list?")) return;
-    preloaded.current = true;
-    const request = ++sourceRequest.current;
-    previewRequest.current++;
-    setDrafts([]); setPreview(null); setSourceLoading(true);
-    setSource(id);
-    try {
-      const next = choice.list ?? (choice.savedDeck ? listText((await api<DeckView>(`/api/decks/${encodeURIComponent(choice.savedDeck)}`)).cards) : null);
-      if (request === sourceRequest.current && next !== null) {
-        previewRequest.current++; setDrafts([]); setPreview(null); setText(next);
-        // Different configurations can contain identical text. Check explicitly even when
-        // React keeps `text` unchanged, and reset the last-checked marker through runCheck.
-        runCheck([{ text: next }]);
-      }
-    } catch (err) {
-      if (request === sourceRequest.current) setNotice(err instanceof Error ? err.message : "Couldn't load that list.");
-    } finally {
-      if (request === sourceRequest.current) setSourceLoading(false);
-    }
-  };
-  const [guideKey, setGuideKey] = useState<string | null>(null);
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [active, setActive] = useState(0);
-  const [note, setNote] = useState("");
-  const [target, setTarget] = useState<string>(updating ?? "");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const lastChecked = useRef<string>("");
 
   // The precon's stock list, as "Start a deck" on the Cards page and release calendar asks.
   const stock = useQuery({
@@ -121,10 +55,6 @@ function ImportEditor() {
     retry: false,
     staleTime: Infinity,
   });
-  useEffect(() => {
-    if (stock.data) setText((t) => t || stock.data.text);
-  }, [stock.data]);
-
   // A friend's shared deck, as its page's "Save a copy in Yama" asks.
   const friend = useQuery({
     queryKey: ["shared-deck", shared],
@@ -133,122 +63,27 @@ function ImportEditor() {
     retry: false,
     staleTime: Infinity,
   });
-  useEffect(() => {
-    if (friend.data) setText((t) => t || friend.data.text);
-  }, [friend.data]);
-
-  const check = useMutation({
-    mutationFn: async ({ sources }: { sources: Source[]; request: number }) => {
-      const out: { source: Source; preview: ImportPreview }[] = [];
-      for (const s of sources) {
-        out.push({ source: s, preview: await api<ImportPreview>("/api/decks/import/preview", { method: "POST", json: { text: s.text, file_name: s.fileName ?? null } }) });
-      }
-      return out;
-    },
-    onSuccess: (results, { request }) => {
-      if (request !== previewRequest.current) return;
-      const first = results[0]?.preview ?? null;
-      setPreview(first);
-      if (first?.link && !first.link.fetched) setGuideKey(guideFor(first.link.site)?.key ?? "text");
-      const next: Draft[] = [];
-      // Updating a deck keeps its name (a new version doesn't rename it).
-      const keepName = updating ? decks.data?.find((x) => x.id === updating)?.name : undefined;
-      for (const { source, preview } of results) {
-        for (const d of preview.decks) {
-          const fallback = stock.data?.name ?? friend.data?.name ?? (source.fileName ? source.fileName.replace(/\.[^.]+$/, "").replace(/_/g, " ") : "");
-          const draft = draftFrom(d, fallback);
-          next.push(updating ? { ...draft, name: keepName ?? (draft.name || "This deck") } : draft);
-        }
-      }
-      setDrafts(next);
-      setActive(0);
-    },
+  const list = useListImport({
+    initialText: () => sharedText(params),
+    makeDraft: (d, source) => draftFrom(d, stock.data?.name ?? friend.data?.name ?? (source.fileName ? source.fileName.replace(/\.[^.]+$/, "").replace(/_/g, " ") : "")),
   });
-
-  const runCheck = useCallback(
-    (sources: Source[]) => {
-      lastChecked.current = sources.map((s) => s.text).join("\u0000");
-      setNotice(null);
-      check.mutate({ sources, request: ++previewRequest.current });
-    },
-    // check.mutate is stable
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  const setUserText = (next: string) => {
-    preloaded.current = true;
-    sourceRequest.current++;
-    setSourceLoading(false);
-    previewRequest.current++;
-    setDrafts([]);
-    setPreview(null);
-    setText(next);
-    lastChecked.current = "";
-  };
-
-  // Check the box a moment after typing stops (and straight away after a paste, a file or a share).
+  const { prefill } = list;
   useEffect(() => {
-    if (sourceLoading || !text.trim() || text === lastChecked.current) return;
-    const request = sourceRequest.current;
-    const t = setTimeout(() => {
-      if (request === sourceRequest.current) runCheck([{ text }]);
-    }, 700);
-    return () => clearTimeout(t);
-  }, [text, runCheck, sourceLoading]);
+    if (stock.data) prefill(stock.data.text);
+  }, [stock.data, prefill]);
+  useEffect(() => {
+    if (friend.data) prefill(friend.data.text);
+  }, [friend.data, prefill]);
 
-  async function readFiles(files: FileList | File[]) {
-    const list = [...files];
-    if (!list.length) return;
-    const big = list.find((f) => f.size > MAX_FILE);
-    if (big) {
-      setNotice(`${big.name} is too big for a deck list (2 MB at most).`);
-      return;
-    }
-    const request = ++sourceRequest.current;
-    const sources = await Promise.all(list.map(async (f) => ({ text: await f.text(), fileName: f.name })));
-    if (request !== sourceRequest.current) return;
-    if (sources.length === 1) setUserText(sources[0]!.text);
-    else setUserText("");
-    lastChecked.current = sources.length === 1 ? sources[0]!.text : "";
-    runCheck(sources);
-  }
-
-  async function pasteFromClipboard() {
-    const request = ++sourceRequest.current;
-    try {
-      const t = await navigator.clipboard.readText();
-      if (request !== sourceRequest.current) return;
-      if (!t.trim()) {
-        setNotice("The clipboard is empty. Copy the list first, then tap Paste.");
-        return;
-      }
-      setUserText(t);
-      runCheck([{ text: t }]);
-    } catch {
-      setNotice("This browser didn't let Yama read the clipboard. Press and hold in the box and choose Paste instead.");
-    }
-  }
-
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    setDragging(false);
-    if (e.dataTransfer.files.length) void readFiles(e.dataTransfer.files);
-    else {
-      const t = e.dataTransfer.getData("text/plain");
-      if (t) setUserText(t);
-    }
-  }
-
-  const draft = drafts[active];
-  const setDraft = (d: Draft) => setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
-  const guide = guideFor(guideKey);
+  const [note, setNote] = useState("");
+  const [target, setTarget] = useState<string>("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const { text, preview, drafts, draft, setDraft, active, setActive, check, notice } = list;
   const deckNames = decks.data?.map((d) => d.name) ?? [];
-  const backTo = updating ? `/decks/${updating}` : "/decks";
 
   return (
     <main className="page import-page">
-      <AreaHead title={updating ? "Update a deck" : precon ? "Start from a precon" : shared ? "Save a copy" : "Add a deck"} back={{ to: backTo, label: "Back" }} />
+      <AreaHead title={precon ? "Start from a precon" : shared ? "Save a copy" : "Add a deck"} back={{ to: "/decks", label: "Back" }} />
       {shared && friend.data && (
         <p className="dim">
           A copy of {friend.data.name}{friend.data.handle ? `, shared by @${friend.data.handle}` : ""}. It becomes your own deck; theirs doesn't change.
@@ -257,41 +92,9 @@ function ImportEditor() {
       {shared && friend.error && <p className="error">That shared deck isn't available. It may be private now, or its link was reset.</p>}
       <div className="import-grid">
         <section className="import-get" aria-labelledby="imp-get">
-          <h2 id="imp-get">{updating ? "Edit the list" : "Get your list"}</h2>
-          {updating && <>
-            <label>Start from<select value={source} onChange={(e) => void loadSource(e.target.value)}>
-              {(family?.choices ?? []).map((c) => <option key={c.id} value={c.id}>{c.label} — {c.source}</option>)}
-              {!family && <option value={`saved:${updating}`}>Current list</option>}
-            </select></label>
-            <p className="small dim">Saving updates {current.data?.name ?? "this deck"}. Other configurations stay saved.</p>
-            <ErrorText error={current.error || notes.error} />
-            {sourceLoading && <p className="small" role="status">Loading starting list…</p>}
-          </>}
+          <h2 id="imp-get">Get your list</h2>
           <details className="import-source-help"><summary>Import from a file or another site</summary>
-          <div className="import-sources" role="tablist" aria-label="Where your deck is">
-            {GUIDES.map((g) => (
-              <button
-                key={g.key}
-                type="button"
-                role="tab"
-                aria-selected={guideKey === g.key}
-                className={`import-source${guideKey === g.key ? " active" : ""}`}
-                onClick={() => setGuideKey(guideKey === g.key ? null : g.key)}
-              >
-                {g.name}
-              </button>
-            ))}
-          </div>
-          {guide && (
-            <div className="import-guide" role="tabpanel" aria-label={`From ${guide.name}`}>
-              <ol>
-                {guide.steps.map((s) => (
-                  <li key={s}>{s}</li>
-                ))}
-              </ol>
-              {guide.note && <p className="small dim">{guide.note}</p>}
-            </div>
-          )}
+            <GuideTabs guideKey={list.guideKey} setGuideKey={list.setGuideKey} />
           </details>
           {stock.data && (
             <p className="small dim">
@@ -300,27 +103,10 @@ function ImportEditor() {
             </p>
           )}
           <ErrorText error={stock.error} />
-          <label
-            className={`import-drop${dragging ? " dragging" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-          >
+          <label className={`import-drop${list.dragging ? " dragging" : ""}`} {...list.dropProps}>
             <span className="import-drop-label">Your list, a file or a link</span>
             <textarea
-              value={text}
-              onChange={(e) => setUserText(e.target.value)}
-              onPaste={(e) => {
-                const t = e.clipboardData.getData("text/plain");
-                if (t) {
-                  e.preventDefault();
-                  setUserText(t);
-                  runCheck([{ text: t }]);
-                }
-              }}
+              {...list.boxProps}
               placeholder={"Commander\n1 Atraxa, Praetors' Voice\n\nDeck\n1 Sol Ring\n1 Arcane Signet\n…"}
               spellCheck={false}
               autoCapitalize="off"
@@ -329,7 +115,7 @@ function ImportEditor() {
             <span className="import-drop-hint small dim wide-only">Or drop a file here.</span>
           </label>
           <div className="import-actions">
-            <button type="button" onClick={() => void pasteFromClipboard()}>Paste</button>
+            <button type="button" onClick={() => void list.pasteFromClipboard()}>Paste</button>
             <button type="button" onClick={() => fileInput.current?.click()}>Choose a file</button>
             <input
               ref={fileInput}
@@ -338,21 +124,12 @@ function ImportEditor() {
               multiple
               hidden
               onChange={(e) => {
-                if (e.target.files) void readFiles(e.target.files);
+                if (e.target.files) void list.readFiles(e.target.files);
                 e.target.value = "";
               }}
             />
             {text && (
-              <button
-                type="button"
-                className="quiet"
-                onClick={() => {
-                  setUserText("");
-                  setPreview(null);
-                  setDrafts([]);
-                  lastChecked.current = "";
-                }}
-              >
+              <button type="button" className="quiet" onClick={() => list.setUserText("")}>
                 Clear
               </button>
             )}
@@ -364,43 +141,22 @@ function ImportEditor() {
           )}
         </section>
 
-        <section className="import-check" aria-labelledby="imp-check" aria-busy={sourceLoading || check.isPending}>
+        <section className="import-check" aria-labelledby="imp-check" aria-busy={check.isPending}>
           <h2 id="imp-check">Check it</h2>
           {check.isPending && <p className="dim">Reading the list…</p>}
           <ErrorText error={check.error} />
           {!check.isPending && !preview && !check.error && <p className="dim">Your deck shows here once there's a list to read.</p>}
-          {preview?.link && !preview.link.fetched && (
-            <div className="import-link-note" role="status">
-              <p>
-                <b>That's a {preview.link.site_name} link.</b> {preview.link.message}
-              </p>
-              {guideFor(preview.link.site) && <p className="small dim">The steps for {preview.link.site_name} are open on the left.</p>}
-            </div>
-          )}
-          {preview && !preview.link?.fetched && preview.decks.length === 0 && !preview.link && (
-            <p className="import-warn">No cards found in that. {preview.skipped[0] ?? "Paste a list with one card per line."}</p>
-          )}
-          {preview?.link?.fetched && <p className="small dim">Read from {preview.link.site_name}.</p>}
+          <LinkNote preview={preview} stepsWhere="under Import from a file or another site" />
           {drafts.length > 1 && <Batch drafts={drafts} active={active} setActive={setActive} />}
-          {draft && <DraftView draft={draft} setDraft={setDraft} formatLabel={preview?.format_label ?? null} deckNames={updating ? [] : deckNames} naming={!updating} />}
-          {preview && preview.skipped.length > 0 && preview.decks.length > 0 && (
-            <details className="details-fold">
-              <summary>{preview.skipped.length === 1 ? "1 line Yama skipped" : `${preview.skipped.length} lines Yama skipped`}</summary>
-              <ul className="small dim">
-                {preview.skipped.slice(0, 30).map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </details>
-          )}
+          {draft && <DraftView draft={draft} setDraft={setDraft} formatLabel={preview?.format_label ?? null} deckNames={deckNames} />}
+          <Skipped preview={preview} />
         </section>
       </div>
 
-      {draft && !sourceLoading && (
+      {draft && (
         <SaveBar
           drafts={drafts}
           draft={draft}
-          updating={updating}
           target={target}
           setTarget={setTarget}
           note={note}
@@ -447,7 +203,7 @@ function Batch({ drafts, active, setActive }: { drafts: Draft[]; active: number;
   );
 }
 
-function DraftView({ draft, setDraft, formatLabel, deckNames, naming }: { draft: Draft; setDraft: (d: Draft) => void; formatLabel: string | null; deckNames: string[]; naming: boolean }) {
+function DraftView({ draft, setDraft, formatLabel, deckNames }: { draft: Draft; setDraft: (d: Draft) => void; formatLabel: string | null; deckNames: string[] }) {
   const c = useMemo(() => checks(draft), [draft]);
   const cmdrs = commanders(draft);
   const choices = commanderChoices(draft);
@@ -474,12 +230,10 @@ function DraftView({ draft, setDraft, formatLabel, deckNames, naming }: { draft:
         {c.identity && <Pips identity={c.identity} />}
       </div>
 
-      {naming && (
-        <label>
-          Name
-          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Atraxa superfriends" />
-        </label>
-      )}
+      <label>
+        Name
+        <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Atraxa superfriends" />
+      </label>
       {draft.name.trim() && hasDeckNamed(deckNames, draft.name) && (
         <p className="small import-warn" role="note">
           You already have a deck called {draft.name.trim()}. Adding this makes a second; to change that one, choose Update one of your decks below.
@@ -519,31 +273,7 @@ function DraftView({ draft, setDraft, formatLabel, deckNames, naming }: { draft:
         )}
       </div>
 
-      {draft.unknown.length > 0 && (
-        <div className="import-unknown" role="group" aria-label="Lines that didn't match a card">
-          <h3>Didn't match a card</h3>
-          <ul>
-            {draft.unknown.map((u, i) => (
-              <li key={`${u.name}-${i}`}>
-                <p>
-                  <b>{u.qty > 1 ? `${u.qty} ` : ""}{u.name}</b>
-                  {u.suggestions.length ? " Did you mean:" : " No close match. Check the spelling on Scryfall, or leave it out (brand-new cards arrive with the weekly card update)."}
-                </p>
-                <div className="import-suggest">
-                  {u.suggestions.map((s) => (
-                    <button key={s.oracle_id} type="button" onClick={() => setDraft(fixUnknown(draft, i, s))}>
-                      {s.name}
-                    </button>
-                  ))}
-                  <button type="button" className="quiet" onClick={() => setDraft(dropUnknown(draft, i))}>
-                    Leave it out
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <UnknownLines draft={draft} setDraft={setDraft} />
 
       {c.problems.length > 0 && (
         <ul className="import-problems" aria-label="Before you save">
@@ -594,34 +324,9 @@ function CardRow({ card, off }: { card: ImportCard; off: boolean }) {
   );
 }
 
-function CommanderPicker({ choices, current, onPick }: { choices: ImportCard[]; current: string[]; onPick: (ids: string[]) => void }) {
-  const [picked, setPicked] = useState<string[]>(current);
-  if (!choices.length) {
-    return <p className="small import-warn">No card in this list can lead a deck. Add your commander to the list (a line like "Commander" then "1 Name") and Yama reads it again.</p>;
-  }
-  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 2 ? [p[1]!, id] : [...p, id]));
-  return (
-    <div className="import-picker">
-      <p className="small dim">Who leads this deck? Pick one, or two partners.</p>
-      <div className="import-picker-grid">
-        {choices.map((k) => (
-          <button key={k.oracle_id} type="button" className={`import-pick${picked.includes(k.oracle_id) ? " active" : ""}`} aria-pressed={picked.includes(k.oracle_id)} onClick={() => toggle(k.oracle_id)}>
-            <CardImage src={k.print_image ?? k.image_small} name={k.name} />
-            <span><CardHover name={k.name}/></span>
-          </button>
-        ))}
-      </div>
-      <button type="button" className="primary" disabled={!picked.length} onClick={() => onPick(picked)}>
-        {picked.length === 2 ? "Use these two" : "Use this commander"}
-      </button>
-    </div>
-  );
-}
-
 function SaveBar({
   drafts,
   draft,
-  updating,
   target,
   setTarget,
   note,
@@ -633,7 +338,6 @@ function SaveBar({
 }: {
   drafts: Draft[];
   draft: Draft;
-  updating: string | null;
   target: string;
   setTarget: (id: string) => void;
   note: string;
@@ -644,7 +348,7 @@ function SaveBar({
   onSavedMany: () => void;
 }) {
   const c = checks(draft);
-  const [mode, setMode] = useState<"new" | "update">(updating ? "update" : "new");
+  const [mode, setMode] = useState<"new" | "update">("new");
   const current = useQuery({
     queryKey: ["deck", target],
     queryFn: ({ signal }) => api<DeckView>(`/api/decks/${target}`, { signal }),
@@ -679,7 +383,7 @@ function SaveBar({
       <h2 id="imp-save" className="visually-hidden">
         Save
       </h2>
-      {!updating && decks.length > 0 && (
+      {decks.length > 0 && (
         <div className="segmented import-mode" role="tablist" aria-label="New deck or new version">
           <button type="button" role="tab" aria-selected={mode === "new"} onClick={() => setMode("new")}>
             New deck
@@ -691,19 +395,17 @@ function SaveBar({
       )}
       {mode === "update" && (
         <div className="stack">
-          {!updating && (
-            <label>
-              Which deck
-              <select value={target} onChange={(e) => setTarget(e.target.value)}>
-                <option value="">Choose a deck</option>
-                {decks.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          <label>
+            Which deck
+            <select value={target} onChange={(e) => setTarget(e.target.value)}>
+              <option value="">Choose a deck</option>
+              {decks.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <ErrorText error={current.error} />
           {changes && (
             <div className="import-diff">
@@ -742,9 +444,9 @@ function SaveBar({
         {!c.ready && <span className="small dim">{c.problems[0]}</span>}
         {c.ready && c.problems.length > 0 && <span className="small dim">You can save now and fix the rest later.</span>}
       </div>
-      {mode === "update" && updating && (
+      {mode === "update" && target && (
         <p className="small dim">
-          The deck keeps every earlier version. <Link to={`/decks/${updating}`}>Back to the deck</Link>
+          The deck keeps every earlier version.
         </p>
       )}
     </section>

@@ -1,16 +1,16 @@
 import { planHref } from "../plan/href";
 import { CardHover, CardRef } from "../components/CardRef";
 import { BuylistReferences, DeckPrices, neededCost, SinglesPrice } from "../components/DeckPrices";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, listText, newHand, rng, type Goldfish } from "@yama/core";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, priceSource, shortDate, usd, type Container, type DeckCard, type DeckCheck, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, priceSource, shortDate, usd, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { Crop } from "../components/Crop";
-import { CardImage, ErrorText, Pips, Sheet } from "../components/ui";
+import { CardImage, ErrorText, Pips } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -20,9 +20,8 @@ import "./decks.css";
 import { ArtPanel, ArtCredits, artCredit, artCredits } from "../components/ArtPanel";
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
-import { BRACKETS, BracketChips, BracketPanel } from "../components/Bracket";
+import { BracketChips, BracketPanel } from "../components/Bracket";
 import { DeckAnalysisPanel } from "../decks/DeckAnalysis";
-import { SENDS_LIST } from "../components/deckCheck";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistoryBody } from "../components/DeckHistory";
@@ -40,7 +39,7 @@ import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckLists } from "../decks/DeckLists";
-import { DeckTextList, type TextDrafts } from "../decks/DeckTextList";
+import { DeckSettings } from "../decks/DeckSettings";
 import { DeckPriceList } from "../decks/DeckPriceList";
 import { PlaygroupBuilds } from "../decks/PlaygroupBuilds";
 
@@ -154,7 +153,7 @@ function DeckTile({ d }: { d: DeckSummary }) {
 /** How many cards a collapsed stack shows before "Show all". */
 const STACK_PEEK = 6;
 
-type Layout = "stacks" | "list" | "prices" | "text";
+type Layout = "stacks" | "list" | "prices";
 
 export function DeckPage() {
   const { id } = useParams();
@@ -171,7 +170,6 @@ export function DeckPage() {
   const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${other}`, { signal }), staleTime: 30_000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   const [view, setView] = useState<"all" | "needed">("all");
-  const textDrafts = useRef<TextDrafts>(new Map());
   const [layout, setLayoutState] = useState<Layout>(() => {
     let saved: string | null = null;
     try {
@@ -179,11 +177,11 @@ export function DeckPage() {
     } catch {
       // Storage blocked: start from the default.
     }
-    if (saved === "stacks" || saved === "list" || saved === "text" || saved === "prices") return saved;
+    if (saved === "stacks" || saved === "list" || saved === "prices") return saved;
     return window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list";
   });
   const setLayout = (l: Layout) => {
-    if (l === "text" || l === "prices") setView("all");
+    if (l === "prices") setView("all");
     try {
       localStorage.setItem("yama.deck.layout", l);
     } catch {
@@ -312,7 +310,7 @@ export function DeckPage() {
   const actions = <>
     <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
     <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
-    <Link className="button on-art" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+    <Link className="button on-art" to={`/decks/${d.id}/edit`}>Update from a list</Link>
     <button className="on-art" onClick={() => setSharing(true)}>Share</button>
     <MoreMenu className="on-art">{moreActions}</MoreMenu>
   </>;
@@ -436,7 +434,7 @@ export function DeckPage() {
         )}
         {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
         <div className="row deck-actions-phone">
-          <Link className="button outline" to={`/decks/import?deck=${d.id}`}>Update from a list</Link>
+          <Link className="button outline" to={`/decks/${d.id}/edit`}>Update from a list</Link>
           <button className="outline" onClick={() => setSharing(true)}>Share</button>
           <MoreMenu className="outline">{moreActions}</MoreMenu>
         </div>
@@ -451,7 +449,7 @@ export function DeckPage() {
         <DeckLists deck={d} />
         <PlaygroupBuilds deckId={d.id} />
 
-        {editing && <EditDeck deck={d} onClose={() => setEditing(false)} onDelete={() => { setEditing(false); setDeleting(true); }} />}
+        {editing && <DeckSettings deck={d} onClose={() => setEditing(false)} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
         {asking && askOffered && <AskClaudeSheet context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} onClose={() => setAsking(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}
@@ -474,7 +472,7 @@ export function DeckPage() {
 
         {tab === "cards" && (<>
         <div className="deck-toolbar">
-          {layout !== "text" && layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
+          {layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
             <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
             <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Still need {o.needed}</button>
           </div>}
@@ -482,15 +480,13 @@ export function DeckPage() {
             <button aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
             <button aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
             <button aria-pressed={layout === "prices"} onClick={() => setLayout("prices")}>Prices</button>
-            <button aria-pressed={layout === "text"} onClick={() => setLayout("text")}>Text</button>
           </div>
         </div>
 
         {groups.length === 0 && layout !== "prices" && <p className="empty">Nothing left to get for this deck.</p>}
 
-        <div hidden={layout !== "text"}><DeckTextList key={d.id} deck={d} drafts={textDrafts.current} /></div>
         {layout === "prices" && <DeckPriceList key={d.id} deck={d} onOpen={setOpen} />}
-        {layout === "text" || layout === "prices" ? null : layout === "stacks" ? (
+        {layout === "prices" ? null : layout === "stacks" ? (
           <div className="deck-stacks-wrap">
             <div className="deck-stacks">
               {groups.map(([group, entries]) => {
@@ -642,7 +638,6 @@ export function DeckPage() {
             declared={d.bracket}
             gameChangers={d.game_changers}
             onCard={openByName}
-            onDeclare={() => setEditing(true)}
           />
           <DeckResults deckId={d.id} versionId={d.version_id} />
           <DeckStatsPanel cards={d.cards} />
@@ -732,131 +727,6 @@ function CardStatus({ e, small = false, plan }: { e: DeckEntry; small?: boolean;
     <span className={`${cls} not-owned`}>
       Not owned{status ? <span className="dim">. Plan: {status.label.charAt(0).toLowerCase()}{status.label.slice(1)}</span> : null}
     </span>
-  );
-}
-
-function EditDeck({ deck, onClose, onDelete }: { deck: DeckView; onClose: () => void; onDelete: () => void }) {
-  const qc = useQueryClient();
-  const containers = useQuery({ queryKey: ["containers"], queryFn: ({ signal }) => api<Container[]>("/api/containers", { signal }) });
-  // The bracket panel has already asked whether this server sends lists to Spellbook.
-  const checksOn = qc.getQueryData<DeckCheck>(["deck-check", deck.id, deck.version_id])?.enabled === true;
-  const [name, setName] = useState(deck.name);
-  const [acquired, setAcquired] = useState(deck.acquisition_status ?? "");
-  const [container, setContainer] = useState(deck.container_id ?? "");
-  const [bracket, setBracket] = useState(deck.bracket == null ? "" : String(deck.bracket));
-  const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
-  const [parent, setParent] = useState(deck.parent_id ?? "");
-  const [configuration, setConfiguration] = useState(deck.configuration ?? "");
-  // A deck with configurations of its own stays a main deck; the others can go under a main deck.
-  const hasConfigs = deck.configurations.length > 1 && !deck.parent_id;
-  const mains = (decks.data ?? []).filter((x) => !x.parent_id && x.id !== deck.id);
-  const [text, setText] = useState(() => listText(deck.cards));
-  const [note, setNote] = useState("");
-  const [unknown, setUnknown] = useState<string[]>([]);
-
-  const save = useMutation({
-    mutationFn: async () => {
-      const parsed = await api<{ cards: DeckCard[]; unknown: string[] }>("/api/decks/parse", {
-        method: "POST",
-        json: { text, first_is_commander: false },
-      });
-      if (parsed.unknown.length) {
-        setUnknown(parsed.unknown);
-        throw new Error("Some lines didn't match a card. Fix them, then save again.");
-      }
-      await api(`/api/decks/${deck.id}`, {
-        method: "PATCH",
-        json: {
-          name,
-          ...(!deck.parent_id && !parent ? { acquisition_status: acquired || null } : {}),
-          container_id: container || null,
-          bracket: bracket ? Number(bracket) : null,
-          configuration: configuration.trim() || null,
-          ...(hasConfigs ? {} : { parent_id: parent || null }),
-        },
-      });
-      if (listText(parsed.cards) !== listText(deck.cards)) {
-        await api(`/api/decks/${deck.id}`, { method: "PUT", json: { cards: parsed.cards, note: note || null } });
-      }
-    },
-    onSuccess: () => {
-      // Every deck in its configuration group lists the group.
-      void qc.invalidateQueries({ queryKey: ["deck"] });
-      void qc.invalidateQueries({ queryKey: ["decks"] });
-      void qc.invalidateQueries({ queryKey: ["deck-versions", deck.id] });
-      onClose();
-    },
-  });
-
-  return (
-    <Sheet label="Edit deck" onClose={onClose}>
-      <form className="stack" onSubmit={(e) => { e.preventDefault(); setUnknown([]); save.mutate(); }}>
-        <div className="sheet-head">
-          <h2>Edit deck</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
-        </label>
-        {!deck.parent_id && <label>Deck ownership
-          <select value={acquired} onChange={(e) => setAcquired(e.target.value as typeof acquired)}>
-            <option value="">Not recorded</option><option value="owned">Owned</option><option value="planned">Planned, not acquired</option>
-          </select>
-          <span className="hint">Card inventory is tracked separately in Collection.</span>
-        </label>}
-        <label>
-          Bracket
-          {checksOn && <span className="hint">{SENDS_LIST}</span>}
-          <select value={bracket} onChange={(e) => setBracket(e.target.value)}>
-            <option value="">Not declared</option>
-            {BRACKETS.map((b) => <option key={b.value} value={b.value}>{b.value}, {b.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Configuration of
-          <span className="hint">
-            {hasConfigs
-              ? "This deck has configurations of its own."
-              : "Keeps its own versions, games and sharing."}
-          </span>
-          <select value={parent} onChange={(e) => setParent(e.target.value)} disabled={hasConfigs}>
-            <option value="">None, it's a main deck</option>
-            {mains.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Configuration name
-          <input value={configuration} onChange={(e) => setConfiguration(e.target.value)} maxLength={60} placeholder={parent ? "Stock, Bracket 2…" : "Current"} />
-        </label>
-        <label>
-          Collection box
-          <select value={container} onChange={(e) => setContainer(e.target.value)}>
-            <option value="">None</option>
-            {containers.data?.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
-          </select>
-        </label>
-        <label>
-          Deck list
-          <span className="hint">
-            Keep the Commander and Deck headings. Saving keeps earlier versions in History. <Link to={`/decks/import?deck=${deck.id}`}>Import an updated list</Link>
-          </span>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: "18rem" }} />
-        </label>
-        <label>
-          What changed
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Swapped Cultivate for Three Visits" />
-        </label>
-        {unknown.length > 0 && <p className="error small">Not found: {unknown.join(", ")}</p>}
-        <ErrorText error={save.error} />
-        <div className="row">
-          <button className="primary" disabled={save.isPending}>Save changes</button>
-          <button type="button" className="outline deck-delete" onClick={onDelete}>
-            {deleteWording(deck).action}
-          </button>
-        </div>
-      </form>
-    </Sheet>
   );
 }
 

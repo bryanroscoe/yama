@@ -1,0 +1,225 @@
+/* Edit the list (/decks/:id/edit; board DeckEditList): the list on the left, review and save on
+   the right; on a phone the same sections in one column. Gap-based: 16 px stacks, 32 px sections. */
+.edit-list-hero {
+  min-height: 160px;
+  display: flex;
+  align-items: flex-end;
+}
+.edit-list-hero > .art-body {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 48px var(--page-pad) 24px;
+}
+.edit-list-hero-inner {
+  width: 100%;
+  max-width: var(--content-w);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edit-list-hero h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: var(--t-hero);
+  line-height: 0.9;
+  text-shadow: var(--art-shadow);
+}
+.edit-list-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--t-sm, 0.875rem);
+}
+.edit-list-crumbs a {
+  color: inherit;
+}
+.edit-list-hero.art-has .edit-list-crumbs,
+.edit-list-hero.art-has h1 {
+  color: var(--on-art);
+}
+
+.edit-list-body {
+  max-width: calc(var(--content-w) + 2 * var(--page-pad));
+  margin: 0 auto;
+  padding: 24px var(--page-pad) 96px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: flex-start;
+}
+.edit-list-main {
+  flex: 999 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.edit-list-side {
+  flex: 1 1 360px;
+  max-width: 460px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .edit-list-side {
+    max-width: none;
+  }
+}
+.edit-list h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.75rem;
+}
+.edit-list h3 {
+  font-size: 0.95rem;
+  margin: 0 0 6px;
+}
+
+.edit-list-start {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.edit-list-starts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 8px;
+}
+.edit-list-starts > button {
+  justify-content: flex-start;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.edit-list-starts > button[aria-pressed="true"] {
+  border-color: var(--text);
+}
+.edit-list-another {
+  align-self: flex-start;
+}
+.edit-list-another[aria-pressed="true"] {
+  border-color: var(--text);
+}
+.edit-list-confirm {
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: rgb(240 180 90 / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.edit-list-confirm .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.edit-list-box {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.edit-list-box textarea {
+  min-height: min(560px, 70vh);
+  line-height: 1.6;
+}
+.edit-list-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.edit-list-panel {
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.edit-list-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.edit-list-panel input {
+  font-weight: 400;
+}
+.edit-list-empty {
+  margin: 0;
+  padding: 20px;
+  border-radius: 16px;
+  border: 2px dashed var(--line);
+  color: var(--dim);
+}
+.edit-list-pairs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.edit-list-pairs > li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.edit-list-pair-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.edit-list .plan-thumb-wrap {
+  padding: 0;
+  border: none;
+  background: none;
+  min-height: 0;
+  display: inline-block;
+  line-height: 0;
+  border-radius: var(--radius);
+}
+.edit-list-all {
+  align-self: flex-start;
+}
+.edit-list-ready {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.edit-list-ready b {
+  color: var(--good);
+}
+.edit-list-save-as {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--ground);
+}
+.edit-list-save-as > button {
+  justify-content: center;
+  padding: 0 0.6rem;
+  white-space: normal;
+}
+.edit-list-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 4px;
+}

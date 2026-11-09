@@ -384,7 +384,6 @@
 .deck-delete-choice label { display: flex; align-items: center; gap: 8px; min-height: var(--target); font-weight: 400; }
 .deck-delete-sheet button.deck-danger { background: var(--bad); border-color: var(--bad); color: var(--ground); }
 .deck-delete-sheet button.deck-danger:disabled { background: var(--raised); border-color: var(--raised); color: var(--dim); opacity: 1; }
-.deck-text-list textarea { min-height: 28rem; font-family: monospace; font-size: var(--t-sm); }
 .deck-sources { margin-top: 24px; }
 .deck-page .hero-title { overflow-wrap: anywhere; font-size: clamp(3rem, 7vw, 7rem); line-height: .98; }
 @media (min-width: 900px) {

@@ -1,0 +1,70 @@
+/* Deck settings, "Name, box and ownership": a short form in a sheet; gap-based. */
+.deck-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.deck-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.deck-settings label > input:not([type="radio"]) {
+  font-weight: 400;
+}
+.deck-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.deck-settings-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  padding: 0;
+}
+.deck-settings-own {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  background: var(--ground);
+}
+.deck-settings-own > button {
+  justify-content: center;
+  padding: 0 0.5rem;
+}
+.deck-settings-pick {
+  justify-content: space-between;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ground);
+  font-weight: 400;
+  text-align: left;
+}
+.deck-settings-pick .dim {
+  font-size: 0.875rem;
+}
+.deck-settings .deck-settings-kind label {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--target);
+  font-size: inherit;
+  font-weight: 400;
+}
+.deck-settings-kind input[type="radio"] {
+  min-height: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+.deck-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

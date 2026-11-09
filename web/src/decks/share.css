@@ -57,3 +57,150 @@
 .share-collection-toggle .hint {
   grid-column: 2;
 }
+
+/* The deck's Share sheet (board DeckShare): three radio cards, one "?" for what's shown, the link
+   and its actions, the other lists, the win-rate setting. Gap-based; 16 px between groups. */
+.share-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.share-sheet .share-choices {
+  gap: 8px;
+}
+.share-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.share-help {
+  min-height: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  font-size: 0.875rem;
+}
+/* The whole "?" stays reachable on a touch screen: an invisible 44 px target around the circle. */
+@media (pointer: coarse) {
+  .share-help {
+    position: relative;
+  }
+  .share-help::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+.share-help-note {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--raised);
+  font-size: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.share-sheet .share-choices label.share-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: var(--target);
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  cursor: pointer;
+}
+.share-sheet .share-choices label.share-card:has(input:checked) {
+  border-color: var(--text);
+}
+.share-card input {
+  min-height: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: none;
+}
+.share-sheet .share-link {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.share-sheet .share-link label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.share-sheet .share-link input {
+  font-weight: 400;
+}
+.share-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.share-reset {
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: rgb(240 180 90 / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(240 180 90 / 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.share-line {
+  margin: 0;
+}
+.share-rows {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+.share-rows h3 {
+  margin: 0;
+  padding: 12px 0 4px;
+  font-size: 0.875rem;
+}
+.share-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.share-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--target);
+}
+.share-row-value {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.875rem;
+}
+.share-row-choice {
+  align-self: flex-start;
+  background: var(--ground);
+}
+.share-lab {
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  padding: 0;
+  flex-direction: row;
+}
+.share-lab a {
+  font-size: 0.875rem;
+}

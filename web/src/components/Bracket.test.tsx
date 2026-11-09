@@ -29,12 +29,12 @@ describe("bracket suggestions", () => {
     };
     client.setQueryData(["deck-check", "deck", "v1"], check);
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} />
     </QueryClientProvider>);
     const explanation = html.match(/<details class="details-fold"><summary>Why this suggestion\?<\/summary>(.*?)<\/details>/s)?.[1];
     expect(explanation).toContain("Start with Core (2)");
     expect(explanation).toContain("never assigns it automatically");
-    expect(html).toContain("Choose or change your bracket");
+    expect(html).toContain("Your bracket");
     expect(html).toContain("How Yama suggests a bracket");
     client.clear();
   });
@@ -43,7 +43,7 @@ describe("bracket suggestions", () => {
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
     client.setQueryData(["deck-analysis", "deck", "v1"], analysisView(5.4));
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={3} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={3} gameChangers={[]} onCard={() => {}} />
     </QueryClientProvider>);
     expect(html).toContain("Power level, 1 to 10");
     expect(html).toContain("5.4");
@@ -56,7 +56,7 @@ describe("bracket suggestions", () => {
   it("shows no power level before the analysis arrives", () => {
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, enabled: false } } });
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} />
     </QueryClientProvider>);
     expect(html).not.toContain("Power level, 1 to 10");
     client.clear();
@@ -76,7 +76,7 @@ describe("bracket suggestions", () => {
     client.setQueryData(["deck-check", "deck", "v1"], check);
     client.setQueryData(["deck-analysis", "deck", "v1"], analysisView(4.1));
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} />
     </QueryClientProvider>);
     expect(html).toContain("Power level, 1 to 10");
     expect(html).toContain("4.1");
@@ -96,7 +96,7 @@ describe("bracket suggestions", () => {
     };
     client.setQueryData(["deck-check", "deck", "v1"], check);
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} onDeclare={() => {}} />
+      <BracketPanel deckId="deck" versionId="v1" declared={null} gameChangers={[]} onCard={() => {}} />
     </QueryClientProvider>);
     expect(html).not.toContain("/ 10");
     client.clear();

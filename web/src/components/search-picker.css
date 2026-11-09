@@ -1,0 +1,40 @@
+/* SearchPicker: a search field over a list of choices, in a sheet or in place of a form. */
+.search-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.search-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+.search-picker-list li + li {
+  border-top: 1px solid var(--line);
+}
+.search-picker-item {
+  width: 100%;
+  min-height: var(--target);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+}
+.search-picker-item[aria-current="true"] {
+  background: var(--raised);
+}
+.search-picker-none {
+  margin: 0;
+}

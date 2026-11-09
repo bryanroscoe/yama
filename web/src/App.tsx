@@ -78,6 +78,7 @@ const LabRunsPage = admin.page("LabRunsPage");
 const DecksPage = decks.page("DecksPage");
 const DeckPage = decks.page("DeckPage");
 const ImportPage = decks.page("ImportPage");
+const EditListPage = decks.page("EditListPage");
 const BuildChoicesPage = decks.page("BuildChoicesPage");
 const MythicImportPage = mythic.page("MythicImportPage");
 const MythicSentPage = mythic.page("MythicSentPage");
@@ -300,6 +301,7 @@ export function App() {
           {/* The deck page's Stats and History tabs (docs/redesign/deck-page/SPEC.md). */}
           <Route path="decks/:id/stats" element={<Paged page={DeckPage} kind="detail" />} />
           <Route path="decks/:id/history" element={<Paged page={DeckPage} kind="detail" />} />
+          <Route path="decks/:id/edit" element={<Paged page={EditListPage} kind="detail" />} />
           <Route path="decks/:id/scan" element={<Paged page={DeckScanPage} kind="detail" />} />
           <Route path="decks/:id/check" element={<Paged page={DeckCheckPage} kind="detail" />} />
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing" />} />
