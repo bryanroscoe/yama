@@ -658,7 +658,7 @@ async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish) -> Ap
 }
 
 #[derive(Serialize, sqlx::FromRow)]
-struct GameRow {
+pub(crate) struct GameRow {
     id: String,
     mode: String,
     playgroup_id: Option<String>,
@@ -728,7 +728,7 @@ struct ListParams {
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum HistoryFilter {
+pub(crate) enum HistoryFilter {
     #[default]
     All,
     Unfinished,
@@ -737,28 +737,28 @@ enum HistoryFilter {
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum HistoryOrder {
+pub(crate) enum HistoryOrder {
     #[default]
     Newest,
     Oldest,
 }
 
 #[derive(Default, Deserialize)]
-struct HistoryParams {
+pub(crate) struct HistoryParams {
     #[serde(default)]
-    filter: HistoryFilter,
+    pub filter: HistoryFilter,
     #[serde(default)]
-    order: HistoryOrder,
+    pub order: HistoryOrder,
     #[serde(default)]
-    q: String,
+    pub q: String,
     #[serde(default)]
-    offset: u32,
+    pub offset: u32,
 }
 
 #[derive(Serialize)]
-struct HistoryPage {
-    games: Vec<GameRow>,
-    has_more: bool,
+pub(crate) struct HistoryPage {
+    pub games: Vec<GameRow>,
+    pub has_more: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -779,6 +779,11 @@ async fn game_history(
     CurrentUser(user): CurrentUser,
     Query(p): Query<HistoryParams>,
 ) -> AppResult<Json<HistoryPage>> {
+    Ok(Json(history_page(&st.pool, &user.id, p).await?))
+}
+
+/// The Game history page's search, shared with the MCP's `games` tool.
+pub(crate) async fn history_page(pool: &SqlitePool, user_id: &str, p: HistoryParams) -> AppResult<HistoryPage> {
     let filter = match p.filter {
         HistoryFilter::All => "1",
         HistoryFilter::Unfinished => "g.status != 'finished'",
@@ -814,14 +819,14 @@ async fn game_history(
            AND ({filter})
          ORDER BY {order} LIMIT ? OFFSET ?"
     )))
-    .bind(&user.id)
-    .bind(&user.id)
+    .bind(user_id)
+    .bind(user_id)
     .bind(if q.is_empty() { 51_i64 } else { -1 })
     .bind(if q.is_empty() { i64::from(p.offset) } else { 0 });
     // SQLite lower() only folds ASCII (so it misses éowyn against Éowyn). Stream personal
     // candidates and normalize/fold current names in Rust, stopping after this matching page.
     // Searches still paginate after matching, and never collect the entire history in memory.
-    let mut candidates = query.fetch(&st.pool);
+    let mut candidates = query.fetch(pool);
     let mut skip = if q.is_empty() { 0 } else { u64::from(p.offset) };
     let mut games = Vec::new();
     while let Some(candidate) = candidates.try_next().await? {
@@ -838,11 +843,11 @@ async fn game_history(
     drop(candidates);
     let has_more = games.len() > 50;
     games.truncate(50);
-    let mut seats = seats_for(&st.pool, &games.iter().map(|g| g.id.as_str()).collect::<Vec<_>>()).await?;
+    let mut seats = seats_for(pool, &games.iter().map(|g| g.id.as_str()).collect::<Vec<_>>()).await?;
     for g in &mut games {
         g.seats = seats.remove(&g.id).unwrap_or_default();
     }
-    Ok(Json(HistoryPage { games, has_more }))
+    Ok(HistoryPage { games, has_more })
 }
 
 async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(p): Query<ListParams>) -> AppResult<Json<Vec<GameRow>>> {
@@ -878,7 +883,7 @@ async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser, Query(
 }
 
 #[derive(Serialize)]
-struct GameDetail {
+pub(crate) struct GameDetail {
     #[serde(flatten)]
     game: GameRow,
     events: Vec<Event>,
@@ -895,18 +900,24 @@ struct GameDetail {
 }
 
 async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<GameDetail>> {
-    if !can_see(&st.pool, &id, &user.id).await? {
+    Ok(Json(game_detail(&st.pool, &user.id, &id).await?))
+}
+
+/// One game as its page shows it, shared with the MCP's `game` tool. Someone else's game is
+/// "not found".
+pub(crate) async fn game_detail(pool: &SqlitePool, user_id: &str, id: &str) -> AppResult<GameDetail> {
+    if !can_see(pool, id, user_id).await? {
         return Err(AppError::NotFound("game"));
     }
     let mut game: GameRow = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {GAME_COLUMNS} FROM games g WHERE g.id = ?")))
-        .bind(&id)
-        .fetch_one(&st.pool)
+        .bind(id)
+        .fetch_one(pool)
         .await?;
-    game.seats = seats(&st.pool, &id).await?;
+    game.seats = seats(pool, &id).await?;
     let rows: Vec<(i64, Option<i64>, String, String, String)> =
         sqlx::query_as("SELECT seq, actor_seat, kind, payload, created_at FROM game_events WHERE game_id = ? ORDER BY seq")
-            .bind(&id)
-            .fetch_all(&st.pool)
+            .bind(id)
+            .fetch_all(pool)
             .await?;
     let events: Vec<Event> = rows
         .into_iter()
@@ -918,10 +929,10 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
             created_at: Some(created_at),
         })
         .collect();
-    let mine = can_write(&st.pool, &id, &user.id).await?;
+    let mine = can_write(pool, id, user_id).await?;
     let corrected: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM history_correction_targets WHERE game_id = ?)")
-        .bind(&id)
-        .fetch_one(&st.pool)
+        .bind(id)
+        .fetch_one(pool)
         .await?;
     let can_continue = game.status == "in_progress" && mine && !corrected;
     let can_edit = mine && !corrected && is_logged(&game, &events);
@@ -930,15 +941,15 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
         if let Some(v) = &s.deck_version_id {
             let deck: Option<String> = sqlx::query_scalar("SELECT d.id FROM deck_versions v JOIN decks d ON d.id = v.deck_id WHERE v.id = ? AND d.owner_id = ?")
                 .bind(v)
-                .bind(&user.id)
-                .fetch_optional(&st.pool)
+                .bind(user_id)
+                .fetch_optional(pool)
                 .await?;
             if let Some(d) = deck {
                 your_decks.insert(s.seat, d);
             }
         }
     }
-    Ok(Json(GameDetail { game, events, can_continue, can_delete: mine, can_edit, your_decks }))
+    Ok(GameDetail { game, events, can_continue, can_delete: mine, can_edit, your_decks })
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
