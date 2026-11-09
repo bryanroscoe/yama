@@ -2,13 +2,13 @@
 // (Show, View, Group by, Sort, the total and Copy the list), the type bar that jumps to a group,
 // and collapsible groups with their count and price.
 import { useMemo, useState, type ReactNode } from "react";
-import { usd, type DeckEntry, type DeckView } from "../api";
+import { shortDate, usd, type DeckEntry, type DeckView } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { CardHover } from "../components/CardRef";
 import { Crop } from "../components/Crop";
 import { CardImage } from "../components/ui";
 import { CopyButton } from "../plan/parts";
-import { cardGroups, cardRows, copiesShown, priceOf, showCounts, shownText, type CardGroupBy, type CardRow, type CardShow, type CardSort } from "./cardList";
+import { cardGroups, cardRows, copiesShown, copyChip, copyKinds, priceOf, rowPriceDates, showCounts, shownText, type CardGroupBy, type CardRow, type CardShow, type CardSort } from "./cardList";
 import { printingLabel } from "./priceList";
 import "./cards-tab.css";
 
@@ -67,7 +67,6 @@ export function DeckCardsTab({
   controls,
   outAt,
   atBracket,
-  priceLine,
   status,
   onOpen,
 }: {
@@ -76,8 +75,6 @@ export function DeckCardsTab({
   /** Cards going out at the bracket being previewed. */
   outAt: ReadonlySet<string>;
   atBracket: number | null;
-  /** "TCGplayer market via Scryfall, Nov 8". */
-  priceLine: string;
   /** Where your copies are, or that you need it (the list view's second line). */
   status: (e: DeckEntry) => ReactNode;
   onOpen: (oracleId: string) => void;
@@ -110,8 +107,20 @@ export function DeckCardsTab({
   const empty =
     show === "need" ? "Nothing to get. Every card is a real copy or a proxy." : show === "proxy" ? "No proxies in this list." : "No cards in this list yet.";
 
-  const chip = (r: CardRow) =>
-    outAt.has(r.entry.name) ? <span className="card-chip out">Out at Bracket {atBracket}</span> : r.need > 0 ? <span className="card-chip need">Need{r.need > 1 ? ` ${r.need}` : ""}</span> : r.proxy > 0 && r.real === 0 ? <span className="card-chip proxy">Proxy</span> : null;
+  const chip = (r: CardRow) => {
+    if (outAt.has(r.entry.name)) return <span className="card-chip out">Out at Bracket {atBracket}</span>;
+    const c = copyChip(r, show);
+    return c ? <span className={`card-chip ${c.tone}`}>{c.text}</span> : null;
+  };
+  // Each card's price has its own date: the line names the range, and an older one its own day.
+  const { oldest, newest } = rowPriceDates(rows);
+  const priceLine = newest
+    ? `TCGplayer market via Scryfall, ${oldest && oldest !== newest ? `${shortDate(oldest)} to ` : ""}${shortDate(newest)}`
+    : `TCGplayer market via Scryfall, ${shortDate(deck.ownership.price_date) || "date unknown"}`;
+  const older = (r: CardRow) => {
+    const d = r.entry.cheapest_printing?.date;
+    return d && newest && d < newest ? shortDate(d) : null;
+  };
   const label = (r: CardRow) => {
     const n = copiesShown(r, show);
     return `${n > 1 ? `${n} ` : ""}${r.entry.name}${r.need ? `, need ${r.need}` : ""}${r.proxy && !r.real ? ", proxy" : ""}${outAt.has(r.entry.name) ? `, out at Bracket ${atBracket}` : ""}`;
@@ -243,7 +252,7 @@ export function DeckCardsTab({
                             </button>
                           </td>
                           <td className="num">{r.type === "Lands" ? "" : r.mv}</td>
-                          <td>{chip(r) ?? <span className="dim">Real</span>}</td>
+                          <td>{outAt.has(r.entry.name) ? chip(r) : copyKinds(r, show)}</td>
                           <td className="dim">
                             {p ? (
                               <a href={`https://scryfall.com/card/${encodeURIComponent(p.set_code)}/${encodeURIComponent(p.collector_number)}`} target="_blank" rel="noreferrer">
@@ -251,7 +260,10 @@ export function DeckCardsTab({
                               </a>
                             ) : null}
                           </td>
-                          <td className="num">{r.entry.cheapest_usd != null ? usd(r.entry.cheapest_usd * n) : <span className="dim">No price</span>}</td>
+                          <td className="num">
+                            {r.entry.cheapest_usd != null ? usd(r.entry.cheapest_usd * n) : <span className="dim">No price</span>}
+                            {older(r) && <span className="dim cards-older"> {older(r)}</span>}
+                          </td>
                         </tr>
                       );
                     })}

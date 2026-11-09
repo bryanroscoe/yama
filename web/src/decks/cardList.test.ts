@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardGroups, cardRows, priceOf, showCounts, shownText } from "./cardList";
+import { cardGroups, cardRows, copyChip, copyKinds, priceOf, showCounts, shownText } from "./cardList";
 import type { DeckEntry } from "../api";
 
 const entry = (name: string, o: Partial<DeckEntry> & { type?: string; cmc?: number } = {}): DeckEntry =>
@@ -60,5 +60,17 @@ describe("the Cards tab's list", () => {
   it("copies what's shown as a list", () => {
     expect(shownText(rows, "need")).toBe("Deck\n1 Vampiric Tutor\n1 Emrakul, the Aeons Torn");
     expect(shownText(rows, "all").startsWith("Commander\n1 Terra, Herald of Hope\n\nDeck\n1 Sol Ring")).toBe(true);
+  });
+
+  it("labels the copies the filter shows", () => {
+    const split = cardRows([entry("Lightning Bolt", { qty: 3, owned: 1, proxies: 1 })])[0]!;
+    expect(copyChip(split, "all")).toEqual({ tone: "need", text: "Need 1" });
+    expect(copyChip(split, "proxy")).toEqual({ tone: "proxy", text: "Proxy" });
+    expect(copyChip(split, "need")).toEqual({ tone: "need", text: "Need" });
+    expect(copyKinds(split, "all")).toBe("1 real, 1 proxy, 1 not owned");
+    expect(copyKinds(split, "proxy")).toBe("Proxy");
+    const realAndProxy = cardRows([entry("Counterspell", { qty: 2, owned: 1, proxies: 1 })])[0]!;
+    expect(copyChip(realAndProxy, "all")).toEqual({ tone: "proxy", text: "1 proxy" });
+    expect(copyKinds(realAndProxy, "proxy")).toBe("Proxy");
   });
 });

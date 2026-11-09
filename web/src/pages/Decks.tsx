@@ -344,7 +344,6 @@ export function DeckPage() {
             controls={cards}
             outAt={outAt}
             atBracket={atSwaps?.bracket ?? null}
-            priceLine={priced}
             status={(e) => <CardStatus e={e} small plan={plan} />}
             onOpen={setOpen}
           />
