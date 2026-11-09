@@ -1442,3 +1442,21 @@ async fn pending_overlay_keeps_intent_when_the_watchlist_already_covers_its_quan
     let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
     assert_eq!(view["pending"],json!([]));
 }
+
+#[tokio::test]
+async fn plan_only_targets_apply_owner_changes_but_saved_lists_stay_authoritative() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"owner-baseline@example.com").await;
+    for (id,n) in [("stock","Stock"),("mine","My change"),("upgrade","Upgrade"),("current","Actual list")] {
+        card(&pool,id,n,"Artifact",&format!("p-{id}"),"tst",id).await;
+    }
+    let mut b=json!({"decks":[{"key":"d","owner_changes":[{"out":"Stock","in":"My change"}],
+        "states":{"stock":{"cards":[{"name":"Stock"}]}},"plan":{"state":"in_progress"}}]});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("My change".into(),1,false)]);
+    b["swaps"]=json!([{"key":"u","deck":"d","stage":"planned","role":"swap","src":"print","out":"My change","in":"Upgrade"}]);
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Upgrade".into(),1,false)]);
+    let (root,version)=deck(&pool,&owner,"Real list").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"current","name":"Actual list","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    b["decks"][0]["yama_deck"]=json!({"id":root}); b["swaps"]=json!([]);
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Actual list".into(),1,false)]);
+}

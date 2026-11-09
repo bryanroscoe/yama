@@ -88,11 +88,20 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             continue;
         }
         let id = d["yama_deck"]["id"].as_str().map(String::from).unwrap_or_else(|| format!("plan:{}", text(d, "key")));
+        let mut stock = list(&d["states"]["stock"]["cards"]);
+        // The physical pre-plan baseline includes the owner's substitutions, as spares does.
+        // These are distinct from the generated now list, which may include pending proposals.
+        for change in d["owner_changes"].as_array().into_iter().flatten() {
+            let out = text(change, "out");
+            if qty(&stock, out) > 0 {
+                add(&mut stock, out, -1);
+                add(&mut stock, text(change, "in"), 1);
+            }
+        }
         let t = targets.entry(id.clone()).or_insert_with(|| Target {
-            cards: list(&d["states"]["stock"]["cards"]),
+            cards: stock.clone(),
             ..Default::default()
         });
-        let stock = list(&d["states"]["stock"]["cards"]);
         let has_stock = d["states"]["stock"]["cards"].is_array();
         let waiting: HashSet<&str> = d["plan"]["next"]["keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
         let skipped: HashSet<&str> = d["plan"]["next"]["skipped"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
