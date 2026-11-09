@@ -38,6 +38,7 @@ import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
+import { boxBracket, bracketSwaps, SwapPanel } from "../decks/BracketSwaps";
 import { DeckPriceList } from "../decks/DeckPriceList";
 import { usePlaygroupVariants } from "../decks/PlaygroupBuilds";
 
@@ -264,6 +265,16 @@ export function DeckPage() {
   const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
   const status = deckStatus(d);
+  // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
+  const brackets = plan ? bracketSwaps(plan.deck.bracket) : [];
+  const atSwaps = brackets.find((b) => String(b.bracket) === search.get("at")) ?? null;
+  const outAt = new Set(atSwaps?.swaps.map((s) => s.out) ?? []);
+  const atHref = (b: number | null) => {
+    const next = new URLSearchParams(search);
+    if (b == null) next.delete("at");
+    else next.set("at", String(b));
+    return `${pathname}${next.size ? `?${next}` : ""}`;
+  };
   // The ActionBar (design/tokens.md, rule 2; SPEC section 0): Edit list, Check cards, Share, More.
   const checkActions = <>
     <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
@@ -333,8 +344,18 @@ export function DeckPage() {
             <button onClick={() => setSharing(true)}>Share</button>
             <MoreMenu title={d.name}>{moreActions}</MoreMenu>
           </div>
-          {d.configurations.length > 1 || variants.length > 0 ? (
-            <ListPicker deck={d} shownId={id ?? d.id} onPrefetch={prefetch} onNewList={() => setConfiguring(true)} variants={variants} />
+          {d.configurations.length > 1 || variants.length > 0 || brackets.length > 0 ? (
+            <ListPicker
+              deck={d}
+              shownId={id ?? d.id}
+              onPrefetch={prefetch}
+              onNewList={() => setConfiguring(true)}
+              variants={variants}
+              brackets={brackets.map((b) => ({ bracket: b.bracket, count: b.swaps.length }))}
+              boxBracket={plan ? boxBracket(plan.deck.bracket) : null}
+              at={atSwaps?.bracket ?? null}
+              atHref={plan ? atHref : undefined}
+            />
           ) : (
             <button className="quiet deck-new-list" onClick={() => setConfiguring(true)}>Save a copy as a new list</button>
           )}
@@ -370,6 +391,9 @@ export function DeckPage() {
           label="Deck sections"
         />
 
+        {atSwaps && plan && (tab === "cards" || tab === "stats") && (
+          <SwapPanel at={atSwaps.bracket} swaps={atSwaps.swaps} view={plan.view} printHref={`/decks/builds?savedDeck=${d.id}`} backHref={atHref(null)} />
+        )}
         {tab === "cards" && (<>
         <div className="deck-toolbar">
           {layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
@@ -407,12 +431,13 @@ export function DeckPage() {
                           onClick={() => setOpen(e.oracle_id)}
                           onMouseEnter={() => setPreview(e)}
                           onFocus={() => setPreview(e)}
-                          aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}`}
+                          aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}${outAt.has(e.name) ? `, out at Bracket ${atSwaps!.bracket}` : ""}`}
                         >
                           <CardHover name={e.name} oracleId={e.oracle_id} image={e.card?.image_normal}><CardImage src={e.card?.image_normal} name={e.name}/></CardHover>
                           {/* Still needed: an amber dot just off the card's left edge, so the mana cost stays clear. */}
                           {e.needed > 0 && <span className="need-dot" aria-hidden="true" title={`Need ${e.needed}`} />}
                           {e.qty > 1 && <span className="qty-badge num">×{e.qty}</span>}
+                          {outAt.has(e.name) && <span className="out-badge">Out at Bracket {atSwaps!.bracket}</span>}
                         </button>
                       ))}
                     </div>
@@ -469,6 +494,7 @@ export function DeckPage() {
                         <CardStatus e={e} small plan={plan} />
                       </span>
                       <span className="deck-row-state num">
+                        {outAt.has(e.name) && <span className="out-note">Out at Bracket {atSwaps!.bracket}</span>}
                         {e.needed > 0 ? <span className="need">Need{e.needed > 1 ? ` ${e.needed}` : ""}</span> : <span className="have">Have</span>}
                         {e.needed > 0 && <span className="dim">{usd(e.cheapest_usd)}</span>}
                       </span>

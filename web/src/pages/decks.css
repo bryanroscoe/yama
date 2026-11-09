@@ -358,3 +358,71 @@
 .deck-page .deck-more > details { margin-bottom: 20px; }
 @media (max-width: 899px) {
 }
+
+/* ── play it at a lower bracket: the swap panel and the cards going out ─────── */
+.deck-swap-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0 0 24px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.deck-swap-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.deck-swap-head h2 {
+  margin: 0;
+}
+.deck-swap-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.deck-swap-pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.deck-swap-pairs li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+}
+.deck-swap-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.deck-swap-text span {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.deck-page .out-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--art-chip);
+  color: var(--warn);
+}
+.deck-page .out-note {
+  font-size: var(--t-xs);
+  color: var(--warn);
+}

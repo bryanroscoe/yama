@@ -91,6 +91,10 @@ export function ListPicker({
   onPrefetch,
   onNewList,
   variants,
+  brackets = [],
+  boxBracket = null,
+  at = null,
+  atHref,
 }: {
   deck: DeckView;
   /** The list the page is opening (differs from `deck.id` while the next one loads). */
@@ -98,10 +102,20 @@ export function ListPicker({
   onPrefetch: (id: string) => void;
   onNewList: () => void;
   variants: { id: string; label: string; href: string }[];
+  /** The brackets the plan's swap bags reach from the box, with how many swaps each takes. */
+  brackets?: { bracket: number; count: number }[];
+  /** The bracket the box is kept at, from the plan. */
+  boxBracket?: number | null;
+  /** The bracket being previewed with the swap bag, if any. */
+  at?: number | null;
+  atHref?: (bracket: number | null) => string;
 }) {
   const { box, saved, older } = pickerGroups(deck);
   const current = deck.configurations.find((c) => c.id === shownId);
-  const label = current && current.id !== box.id ? listLabel(current, false) : configurationLabel(box.configuration, box.name, true);
+  const onBox = !current || current.id === box.id;
+  const boxName = configurationLabel(box.configuration, box.name, true);
+  const atBracket = (b: number | null) => (b != null ? `${boxName}, Bracket ${b}` : boxName);
+  const label = !onBox ? listLabel(current!, false) : atBracket(at ?? boxBracket);
   const item = (c: ConfigurationRef, main: boolean, note?: string) => (
     <Link
       key={c.id}
@@ -119,7 +133,19 @@ export function ListPicker({
       <span className="deck-list-picker-label" aria-hidden="true">List</span>
       <MoreMenu className="deck-list-picker-button" label={<span><span className="phone-only dim">List </span>{label}</span>} title="Which list">
         <span className="more-menu-head">In the box</span>
-        {item(box, true)}
+        {onBox && atHref ? (
+          <Link to={atHref(null)} aria-current={at == null ? "page" : undefined}><span>{atBracket(boxBracket)}</span></Link>
+        ) : (
+          item(box, true)
+        )}
+        {onBox && atHref && brackets.length > 0 && <MenuSeparator />}
+        {onBox && atHref && brackets.length > 0 && <span className="more-menu-head">With the swap bag</span>}
+        {onBox && atHref && brackets.map((b) => (
+          <Link key={b.bracket} to={atHref(b.bracket)} aria-current={at === b.bracket ? "page" : undefined}>
+            <span>{atBracket(b.bracket)}</span>
+            <span className="more-menu-note">{b.count} {b.count === 1 ? "swap" : "swaps"}</span>
+          </Link>
+        ))}
         {saved.length > 0 && <MenuSeparator />}
         {saved.length > 0 && <span className="more-menu-head">Saved lists</span>}
         {saved.map((c) => item(c, false))}
