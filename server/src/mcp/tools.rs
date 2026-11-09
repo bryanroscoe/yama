@@ -1661,6 +1661,7 @@ async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
                     if let Some(m) = m.as_object_mut() {
                         let is_you = m.get("user_id").and_then(Value::as_str) == Some(user.id.as_str());
                         let guest = m.get("user_id").is_none_or(Value::is_null);
+                        m.remove("id");
                         m.remove("user_id");
                         m.remove("guest_name");
                         m.insert("guest".into(), json!(guest));

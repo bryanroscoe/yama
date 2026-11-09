@@ -232,7 +232,7 @@ async fn playgroups_show_only_groups_the_caller_is_in() {
     let (err, text) = call(&app, &a_key, "playgroups", json!({})).await;
     assert!(!err, "{text}");
     assert!(text.contains("Friday night") && text.contains("Kelly"), "{text}");
-    assert!(!text.contains("SECRET") && !text.contains(&a), "no join code or account ids: {text}");
+    assert!(!text.contains("SECRET") && !text.contains(&a) && !text.contains("m-1"), "no join code, account or member ids: {text}");
     sqlx::query("INSERT INTO games(id,mode,playgroup_id,created_by,status,started_at,ended_at,turns,winner_seat) VALUES ('g-pg','in_person','pg-1',?,'finished','2026-11-01T19:00:00Z','2026-11-01T20:00:00Z',8,0)")
         .bind(&a).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO game_seats(game_id,seat,user_id,member_id,guest_name,commander_name) VALUES ('g-pg',0,?,'m-1',NULL,'Atraxa'),('g-pg',1,NULL,'m-2','Kelly','Krenko')")
