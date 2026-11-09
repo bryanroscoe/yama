@@ -376,8 +376,6 @@ export interface TradeCompare {
   handle: string;
   yourself: boolean;
   wants_public: boolean;
-  /** Publish upgrade ideas without approving the plans. Off by default. */
-  wants_include_pending: boolean;
   collection_public: boolean;
   their_wants: number;
   /** Cards on their want list you own. */
