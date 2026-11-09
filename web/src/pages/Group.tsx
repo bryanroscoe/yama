@@ -2,18 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
-import { useAuthConfig, useLogout, useMe } from "../auth";
+import { useMe } from "../auth";
 import { Details, ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats, pct } from "../components/GroupStats";
 import { streakText } from "../components/statsText";
 import { useCardArt } from "../components/useCardArt";
 import "./group.css";
-import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
-import { keepStorage } from "../storage";
-import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
-import { DeleteAccount } from "./DeleteAccount";
 import { exportLink } from "../download";
 
 export function GroupPage() {
@@ -45,7 +41,7 @@ export function GroupPage() {
       )}
       <div className="grp-pair">
         {group && <Members group={group} />}
-        <Account />
+        <section className="grp-section" id="sharing"><h2>You</h2><Link className="button outline" to="/profile">Your profile and account</Link></section>
       </div>
       <ExportGames group={group} />
       <MythicImportEntry />
@@ -401,75 +397,5 @@ function GroupActions() {
       </form>
       <ErrorText error={create.error ?? join.error} />
     </section>
-  );
-}
-
-function Account() {
-  const me = useMe();
-  const logout = useLogout();
-  const authConfig = useAuthConfig();
-  const [signOutError, setSignOutError] = useState<unknown>(null);
-  return (
-    <section className="grp-section" aria-labelledby="grp-you">
-      <h2 id="grp-you">You</h2>
-      <div className="grp-you">
-        <div className="grp-you-row">
-          <span className="grp-you-text">
-            <b>{me.data?.display_name}</b>
-            <span>Signed in as {me.data?.email}</span>
-          </span>
-        </div>
-        <OfflineCardsSetting />
-        {!me.data?.viewing && <div className="grp-you-row" id="sharing"><span className="grp-you-text"><b>Sharing</b><span>Your public profile, shared decks, builds and privacy settings.</span></span><Link className="button outline" to="/sharing">Open Sharing</Link></div>}
-        {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
-        {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
-        {me.data?.is_admin && (
-          <div className="grp-you-row">
-            <span className="grp-you-text">
-              <b>Admin</b>
-              <span>Who can sign in, accounts, usage and the server.</span>
-            </span>
-            <Link className="button" to="/admin">Open</Link>
-          </div>
-        )}
-        <div className="grp-you-row grp-you-actions">
-          <button className="outline" onClick={() => logout().catch(setSignOutError)}>Sign out</button>
-          <Link className="grp-new" to="/new">What's new in Yama</Link>
-        </div>
-        <ErrorText error={signOutError} />
-        {/* Not while an admin views as you (read only), nor for an admin or behind Cloudflare Access, which would make the account again. */}
-        {me.data && !me.data.viewing && !me.data.is_admin && !authConfig.data?.cf_access && <DeleteAccount email={me.data.email} />}
-      </div>
-      <p className="small dim" style={{ margin: 0 }}>Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
-    </section>
-  );
-}
-
-function OfflineCardsSetting() {
-  const s = useOfflineCards();
-  const saved = s.savedAt ? new Date(s.savedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-  return (
-    <div className="grp-you-row grp-you-stack">
-      <div className="grp-you-line">
-        <span className="grp-you-text">
-          <b>Cards on this phone</b>
-          <span>
-            {s.count
-              ? `${s.count.toLocaleString()} cards saved ${saved}, so search works offline`
-              : "Save every card's rules text (a 5 MB download) so card search works without signal."}
-          </span>
-        </span>
-        <button
-          onClick={() => {
-            keepStorage();
-            void downloadOfflineCards();
-          }}
-          disabled={s.downloading}
-        >
-          {s.downloading ? "Saving…" : s.count ? "Update" : "Save"}
-        </button>
-      </div>
-      {s.error && <p className="error small">{s.error}</p>}
-    </div>
   );
 }

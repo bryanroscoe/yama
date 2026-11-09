@@ -36,6 +36,7 @@ const decks = area(() => import("./decks/pages"));
 const mythic = area(() => import("./bridges/mythic/pages"));
 const collection = area(() => import("./pages/Collection"));
 const group = area(() => import("./pages/Group"));
+const profile = area(() => import("./pages/Profile"));
 const sharing = area(() => import("./pages/Sharing"));
 const changes = area(() => import("./advisor/Changes"));
 const research = area(() => import("./research/Research"));
@@ -84,6 +85,7 @@ const MythicImportPage = mythic.page("MythicImportPage");
 const MythicSentPage = mythic.page("MythicSentPage");
 const CollectionPage = collection.page("CollectionPage");
 const GroupPage = group.page("GroupPage");
+const ProfilePage = profile.page("ProfilePage");
 const SharingPage = sharing.page("SharingPage");
 const ComparePage = sharing.page("ComparePage");
 const ChangesPage = changes.page("ChangesPage");
@@ -306,6 +308,7 @@ export function App() {
           <Route path="decks/:id/edit" element={<Paged page={EditListPage} kind="detail" />} />
           <Route path="decks/:id/scan" element={<Paged page={DeckScanPage} kind="detail" />} />
           <Route path="decks/:id/check" element={<Paged page={DeckCheckPage} kind="detail" />} />
+          <Route path="profile" element={<Paged page={ProfilePage} title="Your profile" />} />
           <Route path="sharing" element={<Paged page={SharingPage} title="Sharing" />} />
           <Route path="sharing/compare/:handle" element={<Paged page={ComparePage} kind="detail" />} />
           <Route path="group" element={<Paged page={GroupPage} title="Playgroup" />} />

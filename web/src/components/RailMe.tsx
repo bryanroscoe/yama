@@ -53,7 +53,7 @@ export function RailMe() {
   const deck = decks.data?.find((d) => d.commander_image);
   return (
     <div className="rail-foot">
-      <Link to="/group" className="rail-me" title="Your account and playgroup">
+      <Link to="/profile" className="rail-me" title="Your profile and account">
         <span className="avatar">{deck ? <img src={deck.commander_image!} alt="" /> : initials}</span>
         <span className="rail-me-text">
           <span className="rail-me-name">{name}</span>

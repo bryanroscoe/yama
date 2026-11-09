@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-09-your-profile",
+    date: "2026-11-09",
+    title: "Your profile, easier to find",
+    items: [
+      "Click your name or Your profile to find your collection, wish list, decks, plans and account settings.",
+      "Open your public profile or copy its link from the same page, with links to your collection and wish list when you share them.",
+    ],
+    link: { to: "/profile", label: "Your profile" },
+  },
+  {
     id: "2026-11-09-assistant-games-collection",
     date: "2026-11-09",
     title: "Your assistant can read your games and playgroups",
