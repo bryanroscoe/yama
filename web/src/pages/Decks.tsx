@@ -269,7 +269,7 @@ export function DeckPage() {
   const checkActions = <>
     <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
     <Link to={`/decks/${d.id}/scan`}><span>Scan the box as the list</span><span className="more-menu-note">Saves a version</span></Link>
-    <button onClick={() => { if (layout === "text" || layout === "prices") setLayout(window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list"); setView("needed"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></button>
+    <button onClick={() => { if (layout === "prices") setLayout(window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list"); setView("needed"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></button>
   </>;
   const moreActions = <>
     <button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
