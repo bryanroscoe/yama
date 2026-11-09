@@ -318,8 +318,26 @@ export function App() {
             <Route path="lab" element={<LabRunsPage />} />
           </Route>
         </Route>
+        {/* The Table tab lives at /; /table is the address people guess for it. */}
+        <Route path="table" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
     </>
+  );
+}
+
+/** An address Yama doesn't have (an old or mistyped link): say so inside the app's frame, not a blank page. */
+function NotFound() {
+  return (
+    <main className="page">
+      <h1>Not found</h1>
+      <p className="dim">There's no page here. It may have moved, or the link has a typo.</p>
+      <p>
+        <Link className="button" to="/">
+          Go to the Table
+        </Link>
+      </p>
+    </main>
   );
 }

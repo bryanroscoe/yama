@@ -749,8 +749,9 @@ a.rg-row:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 0 2rem;
-  padding: 14px 16px;
+  /* Clear of the Start game row above; Recent games keeps its own 32px below. */
+  margin: 24px 0 0;
+  padding: 16px;
   border-radius: 18px;
   background: var(--raised);
 }
@@ -977,8 +978,7 @@ a.rg-row:focus-visible {
 .table-home .has-toggle > .combo-trailing {
   right: 48px;
 }
-.table-home .rg-more a,
-.shell:has(.table-home) .site-notice > p:first-child > a {
+.table-home .rg-more a {
   display: inline-flex;
   align-items: center;
   min-height: 44px;

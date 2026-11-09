@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { priceSource, shortDate, usd } from "./api";
+import { errorMessage, priceSource, shortDate, unanswered, usd } from "./api";
 
 describe("prices", () => {
   it("never shows a missing price as $0", () => {
@@ -14,6 +14,21 @@ describe("prices", () => {
   it("names the source and date", () => {
     expect(priceSource("2026-10-18")).toBe("TCGplayer market via Scryfall, Oct 18");
     expect(priceSource(undefined)).toBe("TCGplayer market via Scryfall, date unknown");
+  });
+});
+
+describe("error messages", () => {
+  it("says Yama didn't answer instead of the browser's fetch error", () => {
+    for (const raw of ["Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."]) {
+      expect(unanswered(new TypeError(raw))).toBe(true);
+      expect(errorMessage(new TypeError(raw))).toBe("Yama didn't answer. Check the connection and try again.");
+    }
+  });
+  it("keeps every other error's own words, code bugs included", () => {
+    expect(unanswered(new TypeError("Cannot read properties of undefined (reading 'x')"))).toBe(false);
+    expect(errorMessage(new TypeError("Cannot read properties of undefined (reading 'x')"))).toBe("Cannot read properties of undefined (reading 'x')");
+    expect(errorMessage(new Error("A seat's deck isn't yours"))).toBe("A seat's deck isn't yours");
+    expect(errorMessage("plain")).toBe("plain");
   });
 });
 

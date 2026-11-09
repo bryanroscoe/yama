@@ -14,7 +14,7 @@ import {
 } from "@yama/core/plan";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { api } from "../api";
+import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
@@ -207,7 +207,7 @@ export function MpcPrint() {
           {images.isPending && <p className="small dim">Finding images on MPC Autofill.</p>}
           {images.isError && (
             <p className="small">
-              <span className="pill warn">Check</span> {images.error instanceof Error ? images.error.message : "Couldn't reach MPC Autofill."}{" "}
+              <span className="pill warn">Check</span> {images.error instanceof Error ? errorMessage(images.error) : "Couldn't reach MPC Autofill."}{" "}
               <button type="button" className="quiet small" onClick={() => void images.refetch()}>
                 Try again
               </button>
