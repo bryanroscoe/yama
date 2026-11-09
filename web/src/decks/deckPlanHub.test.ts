@@ -84,8 +84,11 @@ describe("the deck page's Plan tab", () => {
     expect(deckPlanHub(view, "d1").earlier).toBe(2);
   });
 
-  it("keeps only this deck's ideas that are still open", () => {
+  it("keeps only this deck's ideas that are still open, with the ones still on this device", () => {
     expect(deckPlanHub(view, "d1").ideas.map((i) => i.op_id)).toEqual(["i1"]);
+    const op = (op_id: string, deck_key: string) => ({ kind: "idea" as const, op_id, device_id: "dev", at: "2026-11-08T00:00:00Z", deck_key, in: "Queued", out: null, why: null });
+    const hub = deckPlanHub(view, "d1", [], "", [op("i1", "terra"), op("q1", "terra"), op("q2", "other")]);
+    expect(hub.ideas.map((i) => [i.op_id, i.seq])).toEqual([["i1", 1], ["q1", Number.POSITIVE_INFINITY]]);
   });
 
   it("names a deck's only waiting plan a new plan, and says there's nothing for a deck with no plan", () => {

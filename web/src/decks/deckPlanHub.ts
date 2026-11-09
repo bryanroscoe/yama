@@ -2,7 +2,7 @@
 // deck's plan in progress, the plans for it waiting for your OK, the ideas you sent for it that are still open, and how many earlier plans there are.
 // Everything comes from the plan bundle (one plan per deck, by state) and the research notes list.
 
-import { inForce, nextStep, type DeckPlanState, type Idea, type PlanDeck } from "@yama/core/plan";
+import { inForce, nextStep, type DeckPlanState, type Idea, type IdeaOp, type PlanDeck } from "@yama/core/plan";
 import { progressSteps, waitingCounts } from "../plan/Plans";
 import type { PlanView } from "../plan/view";
 import type { PlanSummary } from "../research/view";
@@ -39,7 +39,11 @@ export function nextLine(plan: DeckPlanState, steps: { step: Parameters<typeof n
   return nextStep(steps.map((s) => s.step));
 }
 
-export function deckPlanHub(view: PlanView, deckId: string, notes: PlanSummary[] = [], deckName = ""): DeckPlanHub {
+/**
+ * `local`: idea ops still in this device's outbox (waiting to sync, or sent but not yet in a
+ * refreshed bundle), so an idea sent from the deck page shows at once.
+ */
+export function deckPlanHub(view: PlanView, deckId: string, notes: PlanSummary[] = [], deckName = "", local: IdeaOp[] = []): DeckPlanHub {
   const mine = decksFor(view, deckId).map((deck) => ({ deck, plan: view.planOf(deck) }));
   const live = mine.filter((r) => r.deck.status !== "archived" && r.plan.state !== "archived");
   const held = live.find((r) => inForce(r.plan));
@@ -70,7 +74,13 @@ export function deckPlanHub(view: PlanView, deckId: string, notes: PlanSummary[]
   const names = new Set([deckName, ...mine.map((r) => r.deck.name)].map((n) => n.trim().toLowerCase()).filter(Boolean));
   const noteCount = notes.filter((n) => (n.deck_plans ?? []).some((p) => tracked.has(`${n.id}\0${p.key}`) || names.has(p.name.trim().toLowerCase()))).length;
   const liveKeys = new Set(live.map((r) => r.deck.key));
-  const ideas = (view.b.inputs?.ideas ?? []).filter((i) => i.deck_key != null && liveKeys.has(i.deck_key) && !i.outcome);
+  const stored = view.b.inputs?.ideas ?? [];
+  const seen = new Set(stored.map((i) => i.op_id));
+  // A local idea hasn't reached the planner: no seq yet, so it reads as waiting.
+  const queued: Idea[] = local
+    .filter((op) => !seen.has(op.op_id))
+    .map((op) => ({ op_id: op.op_id, seq: Number.POSITIVE_INFINITY, deck_key: op.deck_key, in: op.in, out: op.out, why: op.why, at: op.at, outcome: null, outcome_at: null }));
+  const ideas = [...stored, ...queued].filter((i) => i.deck_key != null && liveKeys.has(i.deck_key) && !i.outcome);
   return { current, upNext, ideas, earlier: archivedDecks + versions + noteCount };
 }
 

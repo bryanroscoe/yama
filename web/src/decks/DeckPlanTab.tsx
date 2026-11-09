@@ -3,7 +3,7 @@
 // OK, the ideas you sent for it that are still open (only when there are some: Yama doesn't find
 // gaps by itself yet), then one line to the earlier ones.
 
-import { PLAN_STATE_LABEL, STEP_LABEL } from "@yama/core/plan";
+import { PLAN_STATE_LABEL, STEP_LABEL, type IdeaOp } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link } from "react-router";
@@ -34,7 +34,8 @@ export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: st
     // `box` moves when a tap lands in the outbox, so the counts follow answers made on this device.
     [data.bundle, box, userId],
   );
-  const hub = useMemo(() => (view ? deckPlanHub(view, deckId, notes.data, deckName) : null), [view, deckId, notes.data, deckName]);
+  const local = useMemo(() => [...box.sent.map((x) => x.op), ...box.pending].filter((op): op is IdeaOp => op.kind === "idea"), [box]);
+  const hub = useMemo(() => (view ? deckPlanHub(view, deckId, notes.data, deckName, local) : null), [view, deckId, notes.data, deckName, local]);
 
   if (!hub) {
     if (data.error) return <ErrorText error={data.error} />;
