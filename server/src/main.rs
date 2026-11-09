@@ -230,7 +230,11 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::connect(&cfg.database_url, std::time::Duration::from_millis(cfg.slow_query_ms)).await?;
 
     match args.first().map(String::as_str) {
-        Some("serve") | None => routes::serve(cfg, pool).await,
+        Some("serve") | None => {
+            let added = lab::seed::missing_stock(&pool).await?;
+            if added > 0 { tracing::info!(added, "added reviewed stock precons"); }
+            routes::serve(cfg, pool).await
+        },
         Some("import-cards") => {
             let oracle = flag_value(&args, "--oracle").map(PathBuf::from);
             let default = flag_value(&args, "--default").map(PathBuf::from);
