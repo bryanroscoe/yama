@@ -1375,7 +1375,9 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .pill.dashed { border-style:dashed; font-weight:400; }
 .public-deck-errors { width:100%; margin:4px 0 0; padding-left:20px; color:var(--dim); font-size:14px; }
 
-.layout-pick { position:absolute; opacity:0; pointer-events:none; }
+/* Hidden radios behind the Stacks/List labels. Sized to nothing: inputs are full width, and a
+   full-width box at the label's left edge widened the shared deck page past the screen. */
+.layout-pick { position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; margin:0; }
 .layout-toggle { display:inline-flex; gap:4px; margin:0 0 16px; padding:3px; border:1px solid var(--line); border-radius:999px; }
 .layout-toggle label { min-height:36px; display:inline-flex; align-items:center; padding:4px 14px; border-radius:999px; cursor:pointer; font-size:14px; }
 #layout-stacks:checked ~ .layout-toggle label[for="layout-stacks"],

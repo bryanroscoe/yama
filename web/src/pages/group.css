@@ -602,6 +602,12 @@
   .grp-pair > .grp-rivals {
     order: -1;
   }
+  /* The commander takes what the win rate leaves, so a long name ends in … instead of
+     widening the table (and the page) past the screen. */
+  .grp-table td:first-child {
+    width: 100%;
+    max-width: 0;
+  }
 }
 
 

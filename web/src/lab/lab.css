@@ -970,6 +970,9 @@
 }
 .lab-pick {
   display: grid;
+  /* Each row as tall as its text. A row's min-height (the touch target) replaces the grid's
+     content minimum, so in this scrolling box two-line names were squeezed onto the next row. */
+  grid-auto-rows: max-content;
   border-top: 1px solid var(--line);
   max-height: 22rem;
   overflow: auto;
@@ -1081,7 +1084,8 @@
   grid-row: 1;
 }
 .lab-runcard-title > span {
-  grid-column: -3 / -1;
+  /* Not under the verdict pill: with a one-line title it would sit right against it. */
+  grid-column: -3 / -2;
   grid-row: 2;
 }
 .lab-runcard-head > .pill {

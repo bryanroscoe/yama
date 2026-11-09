@@ -68,6 +68,17 @@ export function TableHome() {
     const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1500));
     idle(() => tablePlay.prefetch());
   }, []);
+  // Why games are still on this device: beside Recent games' upload status, not under its links.
+  const notes = (
+    <>
+      {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
+      {!guest && rejected.length > 0 && (
+        <p className="small error">
+          {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). {rejected.length === 1 ? "It's" : "They're"} kept on this device.
+        </p>
+      )}
+    </>
+  );
 
   return (
     <main className="page table-home">
@@ -76,7 +87,7 @@ export function TableHome() {
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
           <div className="page-head">
-            <h1>Saved game on this phone</h1>
+            <h1>Saved game on this device</h1>
             <p className="small dim">Started {new Date(game.setup.startedAt).toLocaleString()}. Resume it only if this is the game you’re playing.</p>
             <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
           </div>
@@ -116,7 +127,8 @@ export function TableHome() {
       )}
 
       <InstallCard />
-      {!guest && <RecentGames
+      {guest ? notes : <RecentGames
+        notes={notes}
         waiting={
           outbox.length > 0 ? (
             <span className="rg-waiting" role="status">
@@ -129,12 +141,6 @@ export function TableHome() {
           ) : null
         }
       />}
-      {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
-      {!guest && rejected.length > 0 && (
-        <p className="small error">
-          {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). They're kept on this phone.
-        </p>
-      )}
     </main>
   );
 }
@@ -147,7 +153,7 @@ function GuestBanner() {
       <p>
         <b>No account needed.</b>
         <span className="dim">
-          {" "}Games stay on this phone{games.length ? ` (${games.length} so far)` : ""}. Sign in to share the table and keep your games and decks.
+          {" "}Games stay on this device{games.length ? ` (${games.length} so far)` : ""}. Sign in to share the table and keep your games and decks.
         </span>
       </p>
       <Link className="button primary" to="/signin">Sign in</Link>
@@ -164,17 +170,18 @@ function SaveGuestGames() {
   // The game going without an account comes along only if this device has no other game going.
   const canBring = !!waiting && !game;
   const what = [games.length ? `${games.length} finished ${games.length === 1 ? "game" : "games"}` : null, canBring ? "the game going" : null].filter(Boolean).join(" and ");
+  const one = games.length + (canBring ? 1 : 0) === 1;
   return (
     <aside className="guest-banner" aria-label="Games counted without an account">
       <p>
         <b>{what ? `Save ${what} to your account?` : "A game from before you signed in is waiting."}</b>
         <span className="dim">
-          {" "}They were counted on this phone without an account. Nothing goes to Yama unless you say so.
+          {" "}{one ? "It was" : "They were"} counted on this device without an account. Nothing goes to Yama unless you say so.
           {waiting && !canBring ? " The one still going comes over once you finish or discard the game going now." : ""}
         </span>
       </p>
       <div className="row">
-        {what && <button className="primary" onClick={saveGuestGames}>Save them</button>}
+        {what && <button className="primary" onClick={saveGuestGames}>{one ? "Save it" : "Save them"}</button>}
         <button className="quiet" onClick={() => confirm("Throw away the games counted without an account? They were never saved to Yama.") && dropGuestGames()}>
           Throw away
         </button>
@@ -206,7 +213,8 @@ function InstallCard() {
       </p>
       <div className="row">
         {install.canPrompt && <button className="primary" onClick={() => void install.install()}>Install</button>}
-        <button className="quiet" onClick={dismiss}>Not now</button>
+        {/* Safari has no Install button: Not now is the only control, so it keeps its outline. */}
+        <button className={install.canPrompt ? "quiet" : "outline"} onClick={dismiss}>Not now</button>
       </div>
     </aside>
   );
@@ -586,7 +594,7 @@ export function shuffled<T>(items: T[]): T[] {
 const RECENT_WIDE = 4;
 const RECENT_PHONE = 3;
 
-function RecentGames({ waiting }: { waiting: ReactNode }) {
+function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode }) {
   const games = useQuery({ queryKey: ["games"], queryFn: ({ signal }) => api<(GameRow & { note?: string | null })[]>("/api/games", { signal }) });
   const [logging, setLogging] = useState(false);
   const wide = useWide();
@@ -612,6 +620,7 @@ function RecentGames({ waiting }: { waiting: ReactNode }) {
           </button>
         </span>
       </div>
+      {notes}
       {logging && <LogGame onClose={() => setLogging(false)} />}
       {games.data && !games.data.length && <p className="dim">No games yet.</p>}
       <ol className="rg-list">

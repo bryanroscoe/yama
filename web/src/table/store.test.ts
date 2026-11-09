@@ -24,7 +24,10 @@ let failWith: number | "offline" | null = null;
 let goneOnPost = false;
 let postStatus: number | null = null;
 let serverFinished = false;
-vi.mock("../api", () => ({
+vi.mock("../api", async () => ({
+  // The real wording for errors, so a dropped connection reads as it does in the app.
+  errorMessage: (await vi.importActual<typeof import("../api")>("../api")).errorMessage,
+  unanswered: (await vi.importActual<typeof import("../api")>("../api")).unanswered,
   ApiError,
   api: vi.fn(async (path: string, init?: { method?: string; json?: Record<string, unknown> }) => {
     const method = init?.method ?? "GET";

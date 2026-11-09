@@ -601,6 +601,8 @@ button.link-button:hover {
 .plans-filter {
   flex-wrap: wrap;
   margin: 0 0 16px;
+  /* Wrapped onto several lines, a pill's round ends would clip the first and last labels. */
+  border-radius: 24px;
 }
 .plans-steps {
   display: grid;
@@ -647,6 +649,10 @@ button.link-button:hover {
 }
 .plans-store .plans-rows {
   background: var(--ground);
+}
+/* .plans-list-main's 240px basis is a width in a row; in this column it would be a 240px height. */
+.plans-store > .plans-list-main {
+  flex: none;
 }
 .plans-store-head {
   display: flex;

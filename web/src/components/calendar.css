@@ -184,6 +184,8 @@ a.upcoming-name {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  /* The text stops at its reading measure; the actions keep to the right edge, like other banners. */
+  justify-content: space-between;
   gap: 0.25rem 0.75rem;
   margin: 0.75rem var(--page-pad) 0;
   padding: 0.5rem 0.5rem 0.5rem 1rem;
