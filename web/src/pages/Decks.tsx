@@ -294,17 +294,6 @@ export function DeckPage() {
     <MenuSeparator />
     <button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
   </>;
-  const planLink = plan && (
-    <Link to={planHref(plan.deck.key)} className="deck-plan-link">
-      <span className="deck-plan-text">
-        <b>
-          Plan: {plan.line}
-          {plan.more && <span className="wide-only">, {plan.more}</span>}
-        </b>
-      </span>
-      <span className="deck-plan-open">Open plan</span>
-    </Link>
-  );
 
   return (
     <main className="deck-page">
@@ -362,12 +351,6 @@ export function DeckPage() {
         </div>
         <SavedListBar deck={d} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-        {(planLink || plan?.sim) && (
-          <div className={`deck-status${plan ? " has-plan" : ""}`}>
-            {planLink}
-            {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
-          </div>
-        )}
 
         {editing && <DeckSettings deck={d} onClose={() => setEditing(false)} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
@@ -510,7 +493,7 @@ export function DeckPage() {
 
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
         {tab === "stats" && <DeckStatsTab deck={d} onCard={openByName} />}
-        {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} /></section>}
+        {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} />{plan?.sim && <p className="deck-sim">{plan.sim}</p>}</section>}
         {tab === "history" && <section className="deck-history-tab" aria-label="History"><DeckHistoryBody deckId={d.id} currentVersionId={d.version_id} /></section>}
         {tab === "cards" && <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>}
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
