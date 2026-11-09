@@ -593,7 +593,9 @@ async fn html_pagination_preserves_encoded_filters_and_clamps_large_pages() {
     assert!(first.contains("action=\"/precons\" data-live"));
     let results = first.split("<div id=\"results\" data-matched=\"26\">").nth(1).expect("results container");
     assert!(results.starts_with("<p class=\"table-note\">26 of "));
-    assert!(results.contains("</div></nav></div></main>"));
+    assert!(results.contains("</div></nav></div><section class=\"public-panel\"><h2>Power and win rates</h2>"));
+    assert!(first.contains("Computed power"));
+    assert!(first.contains("Estimated bracket"));
     assert!(results.split("</main>").next().unwrap().contains("rel=\"next\""));
     let (_, _, none) = request(&app, "/precons?q=nothing-matches", &[]).await;
     assert!(none.contains("<div id=\"results\" data-matched=\"0\"><p class=\"table-note\">"));
