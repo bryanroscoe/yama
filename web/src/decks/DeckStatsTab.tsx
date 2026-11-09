@@ -17,7 +17,7 @@ import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
 import { CardImage, ErrorText } from "../components/ui";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
-import { colorShares, curveColumns, curveSpread, DIAL, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
+import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
 
 type OnCard = (name: string) => void;
@@ -242,7 +242,7 @@ function PowerHelp({ analysis: a }: { analysis: DeckAnalysis }) {
 
 function CurveSection({ deck: d }: { deck: DeckView }) {
   const s = useMemo(() => deckStats(statCards(d.cards)), [d.cards]);
-  const stockRef = d.configurations.find((c) => c.configuration === "stock" && c.id !== d.id) ?? null;
+  const stockRef = d.configurations.find((c) => isStockConfiguration(c.configuration) && c.id !== d.id) ?? null;
   const [cmp, setCmp] = useState<"none" | "stock">("none");
   const stock = useQuery({
     queryKey: ["deck", stockRef?.id],
@@ -300,16 +300,18 @@ function CurveSection({ deck: d }: { deck: DeckView }) {
 }
 
 function ColorSection({ cards }: { cards: DeckEntry[] }) {
-  const s = useMemo(() => deckStats(statCards(cards)), [cards]);
+  const stat = useMemo(() => statCards(cards), [cards]);
+  const s = useMemo(() => deckStats(stat), [stat]);
+  const lands = useMemo(() => landFaceCopies(stat), [stat]);
   if (!s.colors.length) return null;
-  const shares = colorShares(s.colors, s.lands);
+  const shares = colorShares(s.colors, lands);
   const uncounted = s.landsWithoutManaData.length > 0;
   return (
     <section className="stats-panel stats-colors" aria-labelledby="stats-colors-h">
       <span className="stats-title">
         <h2 id="stats-colors-h" className="stats-h">Color balance</h2>
         <HelpPopover label="color balance">
-          <p>Shares of the colored symbols in spell costs, and of the {s.lands} lands that can make each color. Fetch lands count for the lands they find, land back faces count, and a land making two colors counts in both. Mana rocks, creatures and spells aren't included.</p>
+          <p>Shares of the colored symbols in spell costs, and of the {lands} lands (and land faces) that can make each color. Fetch lands count for the lands they find, land back faces count, and a land making two colors counts in both. Mana rocks, creatures and spells aren't included.</p>
           <p>No target ratio is implied: symbol shares alone can't show a shortage. Casting odds need a target turn, draws and mulligans; see <a href="https://www.tcgplayer.com/content/article/How-Many-Sources-Do-You-Need-to-Consistently-Cast-Your-Spells-A-2022-Update/dc23a7d2-0a16-4c0b-ad36-586fcca03ad8/" target="_blank" rel="noreferrer">Frank Karsten's source counts</a>.</p>
           {uncounted && <p>Lands aren't counted until the card data brings the mana of {s.landsWithoutManaData.join(", ")}.</p>}
         </HelpPopover>
@@ -329,7 +331,7 @@ function ColorSection({ cards }: { cards: DeckEntry[] }) {
             <span className="color-val">{c.pipShare}%<span className="visually-hidden"> of symbols, {c.pips}</span></span>
             <span className="color-track" aria-hidden="true"><span className="land" style={{ width: pctWidth(c.sourceShare ?? 0) }} /></span>
             <span className="color-val">
-              {c.sourceShare == null ? <span className="dim">Not counted</span> : <>{c.sourceShare}%<span className="visually-hidden"> of lands, {c.sources} of {s.lands}</span></>}
+              {c.sourceShare == null ? <span className="dim">Not counted</span> : <>{c.sourceShare}%<span className="visually-hidden"> of lands, {c.sources} of {lands}</span></>}
             </span>
           </div>
         ))}

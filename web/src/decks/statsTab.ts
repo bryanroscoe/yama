@@ -1,7 +1,7 @@
 // Pure helpers for the deck page's Stats tab (DeckStatsTab.tsx): the power dial's geometry and
 // bracket bands, the reference marks on the five scores, and the curve and color summaries.
 
-import type { ColorStat, CurveBucket } from "@yama/core";
+import type { ColorStat, CurveBucket, StatCard } from "@yama/core";
 
 /** The dial: a half circle from 1 (left) to 10 (right) around (CX, CY). */
 export const DIAL = { cx: 160, cy: 160, r: 130, needle: 108 } as const;
@@ -103,3 +103,16 @@ export function colorShares(colors: ColorStat[], lands: number): { color: ColorS
     sourceShare: c.sources == null || !lands ? null : Math.round((c.sources / lands) * 100),
   }));
 }
+
+/** Copies that can count as a land source: the commander and main deck's known cards with a land
+ *  on either face, as packages/core's deckStats counts sources (a spell with a land back face
+ *  included), so shares of lands never pass 100%. */
+export function landFaceCopies(cards: StatCard[]): number {
+  return cards
+    .filter((c) => c.board !== "side" && c.qty > 0 && c.typeLine != null && c.cmc != null)
+    .filter((c) => c.typeLine!.split(" // ").some((t) => t.includes("Land")))
+    .reduce((n, c) => n + c.qty, 0);
+}
+
+/** A list of the deck that holds its stock cards: "stock" or "original", in any case. */
+export const isStockConfiguration = (name: string | null | undefined) => /^(stock|original)$/i.test(name ?? "");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandOf, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, referenceOf } from "./statsTab";
+import { bandOf, isStockConfiguration, landFaceCopies, colorShares, curveColumns, curveSpread, DIAL, dialAngle, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, referenceOf } from "./statsTab";
 
 const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-9);
 
@@ -85,5 +85,25 @@ describe("the curve and colors", () => {
       { color: "R", pips: 10, pipShare: 25, sources: 18, sourceShare: 50 },
     ]);
     expect(colorShares([{ color: "W", pips: 4, sources: null }], 36)[0]!.sourceShare).toBeNull();
+  });
+});
+
+describe("land faces and stock lists", () => {
+  const card = (name: string, typeLine: string | null, qty = 1, board: "main" | "side" | "commander" = "main") =>
+    ({ name, qty, board, cmc: typeLine == null ? null : 0, typeLine, manaCost: null, producedMana: "U" });
+
+  it("counts every copy with a land on either face, as sources are counted", () => {
+    expect(landFaceCopies([
+      card("Island", "Basic Land — Island", 12),
+      card("Sea Gate Restoration // Sea Gate, Reborn", "Sorcery // Land"),
+      card("Sol Ring", "Artifact"),
+      card("Spare Island", "Basic Land — Island", 2, "side"),
+      card("Unknown", null),
+    ])).toBe(13);
+  });
+
+  it("knows a stock list by either name, in any case", () => {
+    for (const n of ["stock", "Stock", "ORIGINAL", "original"]) expect(isStockConfiguration(n)).toBe(true);
+    for (const n of ["Bracket 3", "stocky", null, undefined]) expect(isStockConfiguration(n)).toBe(false);
   });
 });
