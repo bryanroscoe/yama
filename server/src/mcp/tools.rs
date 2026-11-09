@@ -1607,12 +1607,49 @@ async fn collection_summary(pool: &SqlitePool, user: &User) -> AppResult<String>
     Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
 }
 
+/// Takes account and member ids out of a games or stats answer before it goes to an assistant: it
+/// gets names, never the ids behind other people. Stats keys (`u:<account>`, `m:<member>`) become
+/// `you` or `player-N`, the same alias everywhere in one answer, so head-to-head still lines up.
+fn without_people_ids(v: &mut Value, me: &str) {
+    fn walk(v: &mut Value, me: &str, aliases: &mut HashMap<String, String>) {
+        match v {
+            Value::Object(o) => {
+                for k in ["user_id", "member_id", "owner_id", "created_by", "deck_version_id"] {
+                    o.remove(k);
+                }
+                for (k, x) in o.iter_mut() {
+                    if let ("key" | "a" | "b", Value::String(id)) = (k.as_str(), &*x) {
+                        if id.starts_with("u:") || id.starts_with("m:") {
+                            let alias = if id.strip_prefix("u:") == Some(me) {
+                                "you".to_string()
+                            } else {
+                                let n = aliases.len() + 1;
+                                aliases.entry(id.clone()).or_insert_with(|| format!("player-{n}")).clone()
+                            };
+                            *x = Value::String(alias);
+                            continue;
+                        }
+                    }
+                    walk(x, me, aliases);
+                }
+            }
+            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, me, aliases)),
+            _ => {}
+        }
+    }
+    walk(v, me, &mut HashMap::new());
+}
+
 /// The Playgroup page: the groups, or one group's stats. Join codes and account ids stay out: an
 /// assistant has no use for them, and a join code lets anyone in.
 async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     let id = args.get("id").and_then(Value::as_str).map(str::trim).filter(|i| !i.is_empty());
     let out = match id {
-        Some(id) => serde_json::to_value(crate::playgroups::stats_for(pool, &user.id, id).await?).map_err(anyhow::Error::from)?,
+        Some(id) => {
+            let mut stats = serde_json::to_value(crate::playgroups::stats_for(pool, &user.id, id).await?).map_err(anyhow::Error::from)?;
+            without_people_ids(&mut stats, &user.id);
+            stats
+        }
         None => {
             let mut groups = serde_json::to_value(crate::playgroups::groups_for(pool, &user.id).await?).map_err(anyhow::Error::from)?;
             for g in groups.as_array_mut().into_iter().flatten() {
@@ -1661,6 +1698,7 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
     let q = word("search").unwrap_or("").to_string();
     let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset }).await?;
     let mut out = serde_json::to_value(&page).map_err(anyhow::Error::from)?;
+    without_people_ids(&mut out, &user.id);
     if page.games.is_empty() {
         out["note"] = json!("No games match. Games logged on a phone that hasn't synced yet aren't here.");
     }
@@ -1673,6 +1711,7 @@ async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
     let id = text_arg(args, "id")?;
     let detail = crate::games::game_detail(pool, &user.id, id).await?;
     let mut out = serde_json::to_value(&detail).map_err(anyhow::Error::from)?;
+    without_people_ids(&mut out, &user.id);
     if let Some(o) = out.as_object_mut() {
         let events = o.remove("events").and_then(|e| if let Value::Array(a) = e { Some(a) } else { None }).unwrap_or_default();
         o.insert("event_count".into(), json!(events.len()));

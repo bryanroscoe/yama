@@ -149,9 +149,10 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Life counter, share the table live | Table | — | UI only (live) |
 | Log a past game, edit a logged game | Table setup, game detail | — | **Gap (MCP).** Stage `log_game` |
 | Delete a game | Game detail | — | Gap (MCP), staged |
-| Playgroups: list, stats (commanders, players, rivalries), games | Playgroup | `playgroups`, `games` | Both (added 2026-11-09) |
+| Playgroups: list, stats (commanders, players, rivalries) | Playgroup | `playgroups` | Both (added 2026-11-09). Assistants get names, never account or member ids |
+| A playgroup's games, including ones you weren't in | Playgroup | `games` covers only games you recorded or sat in | Partial: **Gap (MCP)**, a `playgroup` argument on `games` |
 | Playgroups: start, join, add a guest | Playgroup | — | Gap (MCP), staged; low priority |
-| Export games as CSV or JSON | Playgroup | `games` reads them | UI only for the file |
+| Export games as CSV or JSON | Playgroup | — | UI only (a file) |
 | Mythic Tools: import games, send a deck | Mythic pages | — | UI only for now (file and outside service) |
 | Play online against people or AIs; watch AIs | Play, Watch | — | UI only (interactive) |
 

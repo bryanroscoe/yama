@@ -161,8 +161,9 @@ async fn game_history_reads_only_the_callers_games() {
     let (_, b_session) = user(&pool, "someone@example.com").await;
     sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at,turns,winner_seat) VALUES ('g-1','in_person',?,'finished','2026-11-01',9,0)")
         .bind(&a).execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name,commander_name) VALUES ('g-1',0,'Kelly','Atraxa, Praetors'' Voice'),('g-1',1,'Sam','Krenko, Mob Boss')")
-        .execute(&pool).await.unwrap();
+    let (friend, _) = user(&pool, "friend@example.com").await;
+    sqlx::query("INSERT INTO game_seats(game_id,seat,guest_name,commander_name,user_id) VALUES ('g-1',0,'Kelly','Atraxa, Praetors'' Voice',NULL),('g-1',1,NULL,'Krenko, Mob Boss',?)")
+        .bind(&friend).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO game_events(game_id,seq,actor_seat,kind,payload,created_at) VALUES ('g-1',1,0,'life','{\"seat\":1,\"delta\":-7}','2026-11-01T20:00:00Z')")
         .execute(&pool).await.unwrap();
     let a_key = key(&app, &a_session, Some("mcp")).await;
@@ -173,6 +174,7 @@ async fn game_history_reads_only_the_callers_games() {
     let page: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(page["games"][0]["id"], "g-1", "{text}");
     assert_eq!(page["games"][0]["seats"].as_array().unwrap().len(), 2);
+    assert!(!text.contains(&friend) && !text.contains(&a), "no account ids: {text}");
     let (err, text) = call(&app, &a_key, "games", json!({"filter": "sideways"})).await;
     assert!(err, "{text}");
 
@@ -180,6 +182,7 @@ async fn game_history_reads_only_the_callers_games() {
     assert!(!err, "{text}");
     let game: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(game["event_count"], 1);
+    assert!(!text.contains(&friend), "no account ids: {text}");
     assert!(game.get("events").is_none(), "events only when asked");
     let (_, text) = call(&app, &a_key, "game", json!({"id": "g-1", "events": true})).await;
     let game: Value = serde_json::from_str(&text).unwrap();
@@ -230,9 +233,14 @@ async fn playgroups_show_only_groups_the_caller_is_in() {
     assert!(!err, "{text}");
     assert!(text.contains("Friday night") && text.contains("Kelly"), "{text}");
     assert!(!text.contains("SECRET") && !text.contains(&a), "no join code or account ids: {text}");
+    sqlx::query("INSERT INTO games(id,mode,playgroup_id,created_by,status,started_at,ended_at,turns,winner_seat) VALUES ('g-pg','in_person','pg-1',?,'finished','2026-11-01T19:00:00Z','2026-11-01T20:00:00Z',8,0)")
+        .bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO game_seats(game_id,seat,user_id,member_id,guest_name,commander_name) VALUES ('g-pg',0,?,'m-1',NULL,'Atraxa'),('g-pg',1,NULL,'m-2','Kelly','Krenko')")
+        .bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &a_key, "playgroups", json!({"id": "pg-1"})).await;
     assert!(!err, "{text}");
-    assert!(text.contains("\"games\": 0"), "{text}");
+    assert!(text.contains("\"games\": 1") && text.contains("Kelly"), "{text}");
+    assert!(!text.contains(&a) && !text.contains("m-2"), "no account or member ids in stats: {text}");
 
     let (_, text) = call(&app, &b_key, "playgroups", json!({})).await;
     assert!(!text.contains("Friday night"), "{text}");
