@@ -127,3 +127,23 @@ because its 0-100 is a ceiling only optimized decks approach, not anchored on pr
   rules miss. That's a possible next step, not done yet.
 - Not yet built: a win-turn estimate (ScryCheck anchors it on Playgroup.gg), "popular in
   similar decks" suggestions, and an upgrade path tied to the weakest vector.
+
+## Precon comparison (2026-11-09)
+
+The public `/precons` table and stock detail pages show computed power (1–10), its
+margin and the estimated bracket from the same Rust analysis. The public API's `power`
+object includes the method date, level, margin, bracket and unknown-card count. This
+is card-text scoring, not game simulation or an official bracket assignment. It does
+not replace a bracket legality check. Public stock lists have no stored Spellbook
+check; the estimate uses no combo bonus and widens its margin accordingly. No private
+checks or saved versions are read. Completely missing card data stays unassessed.
+
+The page compares power with each published engine's model win rate and with stock-list
+real games separately. Charts use the full catalog before filtering/pagination,
+exclude incomplete card data, and require at least 20 appearances/games per source.
+Each point opens its precon. Spearman rank correlation averages ties and is unavailable
+with fewer than four pairs or no variation. Commander-only aggregates are excluded.
+This is descriptive evidence: the stock cohort already helped set the power scale,
+engine results have model limitations, and real games involve different opponents and
+pilots. Neither chart nor score changes meta rankings. Changing vector weights needs
+held-out validation; more simulation games alone do not establish real-world accuracy.

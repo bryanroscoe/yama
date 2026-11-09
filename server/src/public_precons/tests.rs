@@ -593,7 +593,9 @@ async fn html_pagination_preserves_encoded_filters_and_clamps_large_pages() {
     assert!(first.contains("action=\"/precons\" data-live"));
     let results = first.split("<div id=\"results\" data-matched=\"26\">").nth(1).expect("results container");
     assert!(results.starts_with("<p class=\"table-note\">26 of "));
-    assert!(results.contains("</div></nav></div></main>"));
+    assert!(results.contains("</div></nav></div><section class=\"public-panel\"><h2>Power and win rates</h2>"));
+    assert!(first.contains("Computed power"));
+    assert!(first.contains("Estimated bracket"));
     assert!(results.split("</main>").next().unwrap().contains("rel=\"next\""));
     let (_, _, none) = request(&app, "/precons?q=nothing-matches", &[]).await;
     assert!(none.contains("<div id=\"results\" data-matched=\"0\"><p class=\"table-note\">"));
@@ -829,4 +831,25 @@ async fn a_card_data_import_refreshes_rating_v2() {
         .await
         .unwrap();
     assert_ne!(v2::key(&pool).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn stock_power_is_public_and_uses_the_same_analysis_as_decks() {
+    let (st, _dir, _) = fixture().await;
+    let data = catalog(&st.pool).await.unwrap();
+    let p = &data.precons[0];
+    let a = p.power.as_ref().unwrap();
+    assert_eq!(a.method, crate::analysis::METHOD);
+    assert_eq!(a.unknown_cards, 0);
+    assert!((1.0..=10.0).contains(&a.level));
+    assert!((2..=4).contains(&a.bracket));
+    assert!(a.margin >= 0.5); // No public stock Spellbook check.
+    let json = serde_json::to_string(&data).unwrap();
+    assert!(!json.contains(PRIVATE));
+    assert!(json.contains("\"power\""));
+    let chart = power::comparison(&data);
+    assert!(chart.contains("Spearman"));
+    assert!(chart.contains("not estimable")); // Only two fixture decks.
+    assert!(!chart.contains(PRIVATE));
+    assert!(power::cell(p).contains("Estimated bracket"));
 }

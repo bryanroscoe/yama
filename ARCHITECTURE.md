@@ -1890,3 +1890,14 @@ built yet.
   picker replaces the list pills (and the bracket switch an earlier pass drew; none has shipped). Spec and audit: `docs/redesign/deck-page/`.
 - **The rest of the site** goes area by area (`docs/redesign/site-plan.md`), each starting with an
   audit of its menus, dropdowns and tasks.
+
+### Precon power comparison (2026-11-09)
+
+Public stock precons show the existing card-text power estimate, margin and estimated
+bracket alongside simulation and real-game evidence (`public_precons/power.rs`). The
+estimate reuses `analysis::METHOD`, reads only catalog/card data, and has no stock combo
+check or private account input. It is cached with the catalog's import fingerprint.
+Power and bracket can sort the table but do not change published ranks. Full-catalog
+scatterplots compare it with each engine model and stock real games separately using
+Spearman correlation (complete card data, at least 20 games). This is descriptive,
+not validation on unseen decks or an official bracket assignment.

@@ -1,6 +1,7 @@
 //! Anonymous, read-only stock reference. Public DTOs never serialize Lab summaries or owners.
 //! Publication copies reviewed results; importing or deleting a run cannot change that copy.
 mod consensus;
+mod power;
 pub(crate) mod v2;
 pub(crate) mod html;
 #[cfg(test)]
@@ -129,6 +130,7 @@ pub struct RealGames {
 
 #[derive(Clone, Serialize)]
 pub struct Precon {
+    pub power: Option<power::Power>,
     pub upgradeability: crate::upgradeability::Assessment,
     pub id: String,
     pub name: String,
@@ -354,6 +356,8 @@ impl Filters {
                     .partial_cmp(&a.stock_real().map(|r| r.rate))
                     .unwrap_or(std::cmp::Ordering::Equal),
                 "commander" => b.commander_rate().partial_cmp(&a.commander_rate()).unwrap_or(std::cmp::Ordering::Equal),
+                "power" => b.power.as_ref().map(|p| p.level).partial_cmp(&a.power.as_ref().map(|p| p.level)).unwrap_or(std::cmp::Ordering::Equal),
+                "bracket" => b.power.as_ref().map(|p| p.bracket).cmp(&a.power.as_ref().map(|p| p.bracket)),
                 "sealed" => a
                     .sealed_price
                     .as_ref()
@@ -615,6 +619,7 @@ async fn build(pool: &SqlitePool) -> AppResult<Built> {
             p
         });
         rows.push(Precon {
+            power: None,
             upgradeability: crate::upgradeability::assess(&p.id, &stock),
             id: p.id,
             name: p.name,
@@ -665,6 +670,7 @@ async fn build(pool: &SqlitePool) -> AppResult<Built> {
         .as_ref()
         .map(|s| 1 + s.comparisons.len())
         .unwrap_or(0);
+    power::assign(pool, &mut rows).await?;
     let meta_cohort = consensus::assign(&mut rows, source_count);
     Ok(Built {
         publication: snapshot.map(|s| s.publication),
