@@ -260,8 +260,15 @@ pub(super) async fn profile(State(st): State<AppState>, address: ClientAddress, 
             n => format!("{n} public decks."),
         }
     );
-    if sharer.collection_public {
-        write!(body, "<div class=\"public-actions\"><a class=\"button\" href=\"/u/{}/collection\">Browse @{}'s collection</a></div>", e(&h), e(&h)).unwrap();
+    if sharer.collection_public || sharer.wants_public {
+        body.push_str("<div class=\"public-actions\">");
+        if sharer.wants_public {
+            write!(body, "<a class=\"button\" href=\"/u/{0}/wants\">What @{0} is looking for</a>", e(&h)).unwrap();
+        }
+        if sharer.collection_public {
+            write!(body, "<a class=\"button\" href=\"/u/{0}/collection\">Browse @{0}'s collection</a>", e(&h)).unwrap();
+        }
+        write!(body, "<a class=\"text-action\" href=\"/sharing/compare/{}\">Compare with your collection ↗</a></div>", e(&h)).unwrap();
     }
     if !decks.is_empty() {
         body.push_str("<ul class=\"share-decks\">");

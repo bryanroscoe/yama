@@ -6,6 +6,7 @@ import { ALPHA_NOTE } from "./AlphaTag";
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
   sharing: { title: "Sharing", lede: "Sign in to manage your public profile, shared decks and build notes." },
+  "sharing/compare": { title: "Compare collections", lede: "Sign in to see which of a friend's wanted cards you have, and which of yours they have." },
   decks: { title: "Decks", lede: "Sign in to save your decks." },
   collection: { title: "Collection", lede: "Sign in to track your cards." },
   play: { title: "Play online", lede: `Sign in to play Commander online. ${ALPHA_NOTE}` },
@@ -33,7 +34,8 @@ export function RequireAccount({ children }: { children?: ReactNode }) {
   const me = useMe();
   const { pathname } = useLocation();
   if (me.data) return children ?? <Outlet />;
-  const section = SECTIONS[pathname.split("/")[1] ?? ""] ?? { title: "Sign in", lede: "Sign in to continue." };
+  const [, first = "", second = ""] = pathname.split("/");
+  const section = SECTIONS[`${first}/${second}`] ?? SECTIONS[first] ?? { title: "Sign in", lede: "Sign in to continue." };
   return (
     <main className="page account-gate">
       <div className="page-head">

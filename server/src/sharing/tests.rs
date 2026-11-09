@@ -1036,3 +1036,139 @@ fn builds_are_named_by_bracket_one_way() {
     assert_eq!(build_title("B52 bomber"), "B52 bomber");
     assert_eq!(build_title("Current"), "Current");
 }
+
+/// Adds copies through the collection's own ops: (scryfall id, qty, proxy, container).
+async fn copies(app: &Router, auth: &str, op: &str, printing: &str, qty: i64, proxy: bool, container: Option<&serde_json::Value>) {
+    let ops = json!([{ "op_id": op, "kind": "add", "scryfall_id": printing, "qty": qty, "proxy": proxy, "container_id": container, "finish": "nonfoil" }]);
+    assert_eq!(send(app, Method::POST, "/api/collection/ops", Some(auth), Some(ops)).await.0, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_want_list_is_private_until_shared_and_shows_only_cards() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan.secret@example.com").await;
+    sqlx::query("UPDATE users SET display_name = 'Bryan Fullname', handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-signet", "Arcane Signet", "Artifact", "p-signet", "cmm", "395").await;
+    let want = |body: serde_json::Value| send(&app, Method::POST, "/api/plan/wants", Some(&bt), Some(body));
+    assert_eq!(want(json!({"name": "sol ring", "qty": 2, "deck_name": "Secret Deck", "why": "a private reason"})).await.0, StatusCode::OK);
+    assert_eq!(want(json!({"name": "Arcane Signet", "priority": "along"})).await.0, StatusCode::OK);
+
+    // Off by default: the page and its download are the same "not found" as an unknown profile.
+    let (status, headers, body) = page(&app, "/u/saget/wants").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!body.contains("Sol Ring"));
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(page(&app, "/u/saget/wants.txt").await.0, StatusCode::NOT_FOUND);
+    assert_eq!(page(&app, "/u/nobody/wants").await.0, StatusCode::NOT_FOUND);
+    assert!(!page(&app, "/u/saget").await.2.contains("/u/saget/wants"));
+
+    let (_, sharing) = send(&app, Method::GET, "/api/me/sharing", Some(&bt), None).await;
+    assert_eq!(sharing["wants_public"], false);
+    let (_, sharing) = send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "wants_public": true }))).await;
+    assert_eq!(sharing["wants_public"], true);
+
+    let (status, headers, html) = page(&app, "/u/saget/wants").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
+    assert!(html.contains("noindex"));
+    // Needed cards first, then the ones along the way; a missing price is said, never $0.
+    let (needed, along) = html.split_once("Also on the list").unwrap();
+    assert!(needed.contains("Sol Ring") && !needed.contains("Arcane Signet"));
+    assert!(along.contains("Arcane Signet"));
+    assert!(html.contains("No market price") && !html.contains("$0.00"));
+    assert!(html.contains("href=\"/sharing/compare/saget\""));
+    let (_, headers, txt) = page(&app, "/u/saget/wants.txt").await;
+    assert_eq!(txt, "2 Sol Ring\n1 Arcane Signet\n");
+    assert!(headers[header::CONTENT_DISPOSITION].to_str().unwrap().contains("saget-wants.txt"));
+    // The same card written another way is one line under its own name, and a changed list is
+    // read again rather than served from the cache.
+    sqlx::query("INSERT INTO shopping_wants (id, owner_id, kind, name, qty, priority, source, added_at) VALUES ('w-lower', ?, 'card', 'sol ring', 1, 'need', 'page', 'now')")
+        .bind(&bryan)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(page(&app, "/u/saget/wants.txt").await.2, "3 Sol Ring\n1 Arcane Signet\n");
+    let (_, _, html) = page(&app, "/u/saget/wants").await;
+    assert!(html.contains("2 cards, 4 copies"), "{html}");
+    sqlx::query("DELETE FROM shopping_wants WHERE id = 'w-lower'").execute(&pool).await.unwrap();
+    let (_, _, profile) = page(&app, "/u/saget").await;
+    assert!(profile.contains("href=\"/u/saget/wants\""));
+    for body in [&html, &txt, &profile] {
+        for secret in ["bryan.secret", "Fullname", "Secret Deck", "a private reason", &bryan] {
+            assert!(!body.contains(secret), "{secret} leaked");
+        }
+    }
+
+    // A retired want leaves the list.
+    let id: String = sqlx::query_scalar("SELECT id FROM shopping_wants WHERE name = 'Arcane Signet'").fetch_one(&pool).await.unwrap();
+    assert_eq!(send(&app, Method::DELETE, &format!("/api/plan/wants/{id}"), Some(&bt), None).await.0, StatusCode::OK);
+    assert_eq!(page(&app, "/u/saget/wants.txt").await.2, "2 Sol Ring\n");
+
+    // A disabled account shares nothing.
+    sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    assert_eq!(page(&app, "/u/saget/wants").await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn comparing_with_a_friend_reads_only_what_they_share() {
+    let (app, pool) = app().await;
+    let (bryan, bt) = user(&pool, "bryan@example.com").await;
+    let (friend, ft) = user(&pool, "friend@example.com").await;
+    sqlx::query("UPDATE users SET handle = 'saget' WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE users SET handle = 'pal' WHERE id = ?").bind(&friend).execute(&pool).await.unwrap();
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-tower", "Command Tower", "Land", "p-tower", "cmm", "1000").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    // Bryan wants two Sol Rings and owns a Command Tower in a private binder.
+    send(&app, Method::POST, "/api/plan/wants", Some(&bt), Some(json!({"name": "Sol Ring", "qty": 2}))).await;
+    let (_, binder) = send(&app, Method::POST, "/api/containers", Some(&bt), Some(json!({ "kind": "binder", "name": "Secret binder" }))).await;
+    copies(&app, &bt, "b1", "p-tower", 1, false, Some(&binder["id"])).await;
+    // The friend wants a Command Tower and a Lightning Bolt, and owns three real Sol Rings (one in a
+    // deck box) and a proxy, which doesn't count.
+    send(&app, Method::POST, "/api/plan/wants", Some(&ft), Some(json!({"name": "Command Tower"}))).await;
+    send(&app, Method::POST, "/api/plan/wants", Some(&ft), Some(json!({"name": "Lightning Bolt", "priority": "along"}))).await;
+    let (_, deck_box) = send(&app, Method::POST, "/api/containers", Some(&ft), Some(json!({ "kind": "deck", "name": "Their deck" }))).await;
+    copies(&app, &ft, "f1", "p-sol", 2, false, None).await;
+    copies(&app, &ft, "f2", "p-sol", 1, false, Some(&deck_box["id"])).await;
+    copies(&app, &ft, "f3", "p-sol", 1, true, None).await;
+
+    // Signed in only; an unknown handle is not found.
+    assert_eq!(send(&app, Method::GET, "/api/sharing/compare/saget", None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send(&app, Method::GET, "/api/sharing/compare/nobody", Some(&ft), None).await.0, StatusCode::NOT_FOUND);
+
+    // Nothing shared yet: the friend learns nothing of Bryan's list or collection.
+    let (status, c) = send(&app, Method::GET, "/api/sharing/compare/@saget", Some(&ft), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!((c["wants_public"].clone(), c["collection_public"].clone()), (json!(false), json!(false)));
+    assert_eq!((c["their_wants"].clone(), c["you_have"].clone(), c["they_have"].clone()), (json!(0), json!([]), json!([])));
+    assert_eq!(c["your_wants"], 2);
+
+    // His list shared: the friend has 3 real Sol Rings for it, 1 in a deck box.
+    send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "wants_public": true }))).await;
+    let (_, c) = send(&app, Method::GET, "/api/sharing/compare/saget", Some(&ft), None).await;
+    assert_eq!(c["their_wants"], 1);
+    let have = &c["you_have"][0];
+    assert_eq!((have["name"].as_str(), have["qty"].as_i64(), have["copies"].as_i64(), have["in_decks"].as_i64()), (Some("Sol Ring"), Some(2), Some(3), Some(1)));
+    assert!(have["market"].is_null());
+    assert_eq!(c["they_have"], json!([]), "his collection isn't shared");
+
+    // His collection shared too: his Command Tower matches the friend's list, by printing, never
+    // by where he keeps it.
+    send(&app, Method::PUT, "/api/me/sharing", Some(&bt), Some(json!({ "collection_public": true }))).await;
+    let (_, c) = send(&app, Method::GET, "/api/sharing/compare/saget", Some(&ft), None).await;
+    assert_eq!(c["they_have"].as_array().unwrap().len(), 1);
+    let has = &c["they_have"][0];
+    assert_eq!((has["name"].as_str(), has["copies"].as_i64()), (Some("Command Tower"), Some(1)));
+    assert!(has.get("in_decks").is_none());
+    assert_eq!(has["printings"], json!([{"set_code": "cmm", "set_name": "Test Set", "collector_number": "1000", "finish": "nonfoil", "lang": "en", "condition": "NM", "qty": 1}]));
+    let body = c.to_string();
+    for secret in ["Secret binder", "bryan@example.com", &bryan, &binder["id"].as_str().unwrap().to_string()] {
+        assert!(!body.contains(secret), "{secret} leaked");
+    }
+
+    // Claude's tool says the same.
+    let text = crate::sharing::wants::text(&crate::sharing::wants::compare(&pool, &friend, "saget").await.unwrap());
+    assert!(text.contains("- Sol Ring (2 wanted; no market price): owns 3, 1 in deck boxes"), "{text}");
+    assert!(text.contains("- Command Tower (1 wanted; no market price): @saget has 1 (1 CMM 1000 NM)"), "{text}");
+}

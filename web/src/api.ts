@@ -325,10 +325,46 @@ export interface Sharing {
   handle: string | null;
   new_deck_visibility: Visibility;
   collection_public: boolean;
+  /** Your shopping list's cards on your profile, as "looking for" (`/u/<handle>/wants`). */
+  wants_public: boolean;
   /** Shared decks show their plan's simulated win rates. */
   share_lab_results: boolean;
   /** Live decks by visibility. */
   decks: Record<Visibility, number>;
+}
+
+/** One card two people could trade (`/api/sharing/compare/<handle>`). */
+export interface TradeMatch {
+  name: string;
+  /** Copies wanted. */
+  qty: number;
+  /** A reason to go to a store, not just along the way or the wishlist. */
+  needed: boolean;
+  image: string | null;
+  type_line: string | null;
+  /** The cheapest non-foil market price, dated; null is unknown, never $0. */
+  market: number | null;
+  market_date: string | null;
+  /** Real copies the one who has it owns. */
+  copies: number;
+  /** Of your copies, those in a deck box (only on yours). */
+  in_decks?: number;
+  /** Their printings, as their collection page lists them (only on theirs). */
+  printings?: { set_code: string; set_name: string | null; collector_number: string; finish: string; lang: string; condition: string; qty: number }[];
+}
+
+/** What you and a friend's profile could trade, through what they share. */
+export interface TradeCompare {
+  handle: string;
+  yourself: boolean;
+  wants_public: boolean;
+  collection_public: boolean;
+  their_wants: number;
+  /** Cards on their want list you own. */
+  you_have: TradeMatch[];
+  your_wants: number;
+  /** Cards on your shopping list in their shared collection. */
+  they_have: TradeMatch[];
 }
 
 /** A deck someone shared, as "Save a copy in Yama" reads it (`/api/public/decks/<token>`). */

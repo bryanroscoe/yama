@@ -113,6 +113,15 @@ export function SharingSettings() {
         </span>
       </label>
       <label className="share-collection-toggle">
+        <input type="checkbox" checked={s.wants_public} disabled={save.isPending} onChange={(e) => save.mutate({ wants_public: e.target.checked })} />
+        Show what I'm looking for on my profile
+        <span className="hint">
+          The cards on your shopping list (planned buys, proposals you said yes to, cards you added and your real-card wishlist), with how
+          many and their market price, so friends can see what you need. Not which deck they're for, your notes, stores or price limits.
+          {!s.handle && " Needs a handle."}
+        </span>
+      </label>
+      <label className="share-collection-toggle">
         <input type="checkbox" checked={s.share_lab_results} disabled={save.isPending} onChange={(e) => save.mutate({ share_lab_results: e.target.checked })} />
         Show simulated win rates on shared decks
         <span className="hint">

@@ -263,6 +263,17 @@ const TOOLS: &[Tool] = &[
         does: Does::Read,
     },
     Tool {
+        name: "compare_with_friend",
+        title: "Compare with a friend's profile",
+        description: "What they could trade with a friend on Yama, by the friend's profile handle: the cards on the friend's \
+                      shared want list (\"looking for\") they own real copies of, with how many are in deck boxes, and the \
+                      cards on their own shopping list in the friend's shared collection, with its printings and conditions. \
+                      Only what the friend shares is read: a list or collection they haven't shared is reported as not \
+                      shared. Market prices are dated, not offers.",
+        schema: || obj(&[("handle", "string", "The friend's profile handle, with or without @ (yama.ing/u/<handle>).")], &["handle"]),
+        does: Does::Read,
+    },
+    Tool {
         name: "add_wish",
         title: "Add to their shopping list",
         description: staged!(
@@ -1018,6 +1029,10 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             let scope = crate::plan::sealed::Scope { going: None, trip: Some(on_trip) };
             text.push_str(&crate::plan::sealed::text(&crate::plan::sealed::view(pool, &user.id, &today, &scope).await?));
             Ok(text)
+        }
+        "compare_with_friend" => {
+            let handle = text_arg(args, "handle")?;
+            Ok(crate::sharing::wants::text(&crate::sharing::wants::compare(pool, &user.id, &handle).await?))
         }
         "store_stock" => {
             let wanted = text_arg(args, "store")?;
