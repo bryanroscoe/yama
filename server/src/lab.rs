@@ -16,6 +16,7 @@ pub mod forge;
 pub mod pairing;
 pub(crate) mod process;
 pub mod stats;
+pub mod seed;
 pub mod strength;
 pub mod worker;
 pub mod remote;
