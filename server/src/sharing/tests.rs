@@ -1410,6 +1410,8 @@ async fn wishlist_and_derived_gaps_merge_canonical_faces_but_manual_wishes_stay_
     let (owner,auth) = user(&pool,"canonical-wants@example.com").await;
     let full = "Delver of Secrets // Insectile Aberration";
     card(&pool,"delver",full,"Creature — Human Wizard","p-delver","isd","51").await;
+    // The production card import indexes each face as well as the full card name.
+    sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES ('Delver of Secrets','delver')").execute(&pool).await.unwrap();
     let (_,version) = deck(&pool,&owner,"Needs Delver").await;
     sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"delver","name":full,"qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
     let document = json!({"scenarios":[{"id":"wish","purpose":"permanent_real_wishlist","buys":[{"card":"Delver of Secrets"}]}]});
