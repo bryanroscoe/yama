@@ -4,6 +4,8 @@
 .combo-wrap {
   position: relative;
   display: block;
+  /* Grid fields must shrink even when the selected deck name is one unbroken line. */
+  min-width: 0;
 }
 .combo-wrap > input {
   padding-right: 72px;
