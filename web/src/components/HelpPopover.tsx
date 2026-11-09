@@ -18,7 +18,7 @@ export function HelpPopover({ label, children }: { label: string; children: Reac
       setShift(0);
       return;
     }
-    const over = body.current.getBoundingClientRect().right - (window.innerWidth - 16);
+    const over = body.current.getBoundingClientRect().right - (document.documentElement.clientWidth - 16);
     setShift(over > 0 ? over : 0);
   }, [open]);
   useEffect(() => {
