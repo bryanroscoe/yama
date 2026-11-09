@@ -273,3 +273,87 @@
   margin: 0;
   font-size: var(--t-xs);
 }
+/* The Cards tab beside Why this bracket: the list, then the side column (under it on a phone). */
+.cards-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: flex-start;
+}
+.cards-layout > .cards-tab {
+  flex: 999 1 560px;
+}
+.cards-layout > .why-bracket {
+  flex: 1 1 300px;
+  max-width: 360px;
+}
+@media (max-width: 899px) {
+  .cards-layout > .why-bracket {
+    max-width: none;
+  }
+}
+.why-bracket {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.why-bracket-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.why-bracket-title h2 {
+  margin: 0;
+  font-size: 1.375rem;
+}
+.why-bracket-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.why-bracket-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.why-bracket-rows dt {
+  font-weight: 400;
+}
+.why-bracket-rows dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+}
+.why-bracket-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.why-bracket .why-bracket-chips button {
+  min-height: var(--target-compact);
+  padding: 1px 8px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--t-xs);
+  font-weight: 400;
+}
+.why-bracket .why-bracket-chips button.out {
+  background: transparent;
+  color: var(--dim);
+  text-decoration: line-through;
+}
+.why-bracket {
+  scroll-margin-top: calc(var(--sticky-top) + 64px);
+}

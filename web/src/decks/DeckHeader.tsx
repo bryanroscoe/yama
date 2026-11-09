@@ -50,7 +50,7 @@ export function DeckTiles({ deck, summary, measures, hrefFor }: { deck: DeckView
   const measured = measures != null ? `measures ${measures}` : null;
   return (
     <div className="deck-head-tiles">
-      <Link className="deck-head-tile" to={hrefFor("stats")}>
+      <Link className="deck-head-tile" to={`${hrefFor("cards")}#why-bracket-head`}>
         <span className="deck-head-tile-label">Bracket</span>
         <b className="num">{declared ?? "None"}</b>
         <span className="deck-head-tile-note">
