@@ -208,40 +208,6 @@
   border-top: 1px solid var(--line);
 }
 
-/* ── phone action bar ───────────────────────────────────────────────────── */
-
-.deck-actbar {
-  display: none;
-}
-@media (max-width: 899px) {
-  .deck-actbar {
-    position: sticky;
-    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
-    z-index: 15;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    padding: 12px 16px;
-    background: var(--ground);
-    border-top: 1px solid var(--line);
-  }
-  .deck-page .deck-actbar > button {
-    min-height: 52px;
-  }
-  .deck-page .deck-actions-phone {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
-    gap: 8px;
-  }
-  .deck-page .deck-actions-phone button,
-  .deck-page .deck-actions-phone .button {
-    width: 100%;
-    padding: 8px 12px;
-    font-size: var(--t-label);
-  }
-}
-
 /* ── sample hand ────────────────────────────────────────────────────────── */
 
 .hand-view {
@@ -385,19 +351,10 @@
 .deck-delete-sheet button.deck-danger { background: var(--bad); border-color: var(--bad); color: var(--ground); }
 .deck-delete-sheet button.deck-danger:disabled { background: var(--raised); border-color: var(--raised); color: var(--dim); opacity: 1; }
 .deck-sources { margin-top: 24px; }
-.deck-page .hero-title { overflow-wrap: anywhere; font-size: clamp(3rem, 7vw, 7rem); line-height: .98; }
-@media (min-width: 900px) {
-  .deck-page .hero-actions { margin-left: 0; width: 100%; }
-  .deck-page .hero-stats .deck-stat b { font-size: 2rem; }
-  .deck-page .hero-stats .deck-stat span { max-width: 25ch; }
-}
+.deck-page .hero-title { overflow-wrap: anywhere; line-height: .9; }
 @media (max-width: 899px) {
-  .deck-page .deck-actions-phone { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .deck-toolbar { flex-wrap: wrap; }
 }
-.deck-lists > a, .deck-playgroup-builds li > a { display: inline-flex; align-items: center; min-height: var(--target); }
-.deck-playgroup-builds { margin-bottom: 16px; }
-.deck-playgroup-builds ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 8px; padding-left: 20px; }
 .deck-page .deck-more > details { margin-bottom: 20px; }
 @media (max-width: 899px) {
 }

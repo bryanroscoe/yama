@@ -1,6 +1,6 @@
 import { planHref } from "../plan/href";
 import { CardHover, CardRef } from "../components/CardRef";
-import { BuylistReferences, DeckPrices, neededCost, SinglesPrice } from "../components/DeckPrices";
+import { BuylistReferences, DeckPrices, SinglesPrice } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
@@ -21,7 +21,7 @@ import { ArtPanel, ArtCredits, artCredit, artCredits } from "../components/ArtPa
 import { NameList, OnlineSupport } from "../components/OnlineSupport";
 import { day } from "../components/Rulings";
 import { BracketChips, BracketPanel } from "../components/Bracket";
-import { DeckAnalysisPanel } from "../decks/DeckAnalysis";
+import { DeckAnalysisPanel, useDeckAnalysis } from "../decks/DeckAnalysis";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
 import { DeckHistoryBody } from "../components/DeckHistory";
@@ -35,13 +35,12 @@ import { CollectSheet } from "../decks/CollectSheet";
 import { DeleteDeck, deleteWording } from "../decks/DeleteDeck";
 import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
-import { legacyConfiguration, configurationLabel } from "../decks/buildCatalog";
 import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
-import { DeckLists } from "../decks/DeckLists";
 import { DeckSettings } from "../decks/DeckSettings";
+import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckPriceList } from "../decks/DeckPriceList";
-import { PlaygroupBuilds } from "../decks/PlaygroupBuilds";
+import { usePlaygroupVariants } from "../decks/PlaygroupBuilds";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
@@ -219,6 +218,9 @@ export function DeckPage() {
     }, { replace: true });
   };
   const plan = useDeckPlan(deck.data?.id);
+  const variants = usePlaygroupVariants(deck.data?.id ?? id ?? "");
+  const analysis = useDeckAnalysis(deck.data?.id ?? "", deck.data?.version_id ?? null);
+  const measures = analysis.data?.current?.power_bracket ?? null;
   // Another configuration: close any sheet opened on the one just left, so nothing saves to it.
   const shownId = useRef(id);
   useEffect(() => {
@@ -254,67 +256,34 @@ export function DeckPage() {
   const commanderEntries = d.cards.filter((e) => e.board === "commander");
   const commander = commanderEntries.find((e) => e.card?.image_art_crop)?.card;
   const summary = decks.data?.find((x) => x.id === d.id);
-  const played = summary ? record(summary) : null;
   const priced = priceSource(o.price_date);
-  const priceDay = shortDate(o.price_date);
   const shown = preview ?? commanderEntries[0] ?? d.cards[0] ?? null;
   const openByName = (name: string) => {
     const hit = d.cards.find((c) => c.name === name);
     if (hit) setOpen(hit.oracle_id);
   };
-  const losses = summary?.games ? summary.games - (summary.wins ?? 0) - (summary.draws ?? 0) : 0;
   const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
-  const proxies = o.proxies ?? 0;
-  const stats = d.acquisition_status === "planned" ? <span className="deck-stat"><b>Planned</b><span>Deck not acquired</span></span> : (
-    <>
-      <span className="deck-stat">
-        <b className="num">{o.owned}/{o.cards}</b>
-        <span>real cards</span>
-      </span>
-      {proxies > 0 && (
-        <span className="deck-stat">
-          <b className="num">{proxies}</b>
-          <span>{proxies === 1 ? "proxy" : "proxies"} standing in</span>
-        </span>
-      )}
-      <span className="deck-stat">
-        <b className="num">{o.needed ? usd(neededCost(o)) : "Complete"}</b>
-        <span>
-          {o.needed ? `${o.needed} missing, basics excluded` : "Cards accounted for"}
-          {o.needed_without_price > 0 ? `; ${o.needed_without_price} unpriced` : ""}{o.needed > 0 ? `. ${priced}` : ""}
-        </span>
-      </span>
-      {played && summary?.games ? (
-        <span className="deck-stat">
-          <b className="num">{summary.wins ?? 0}–{losses}</b>
-          <span>{played} in Yama games</span>
-        </span>
-      ) : null}
-    </>
-  );
-  // More, a floating menu (design/tokens.md, rule 2): the cards, the list and sending it, then delete.
+  const status = deckStatus(d);
+  // The ActionBar (design/tokens.md, rule 2; SPEC section 0): Edit list, Check cards, Share, More.
+  const checkActions = <>
+    <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
+    <Link to={`/decks/${d.id}/scan`}><span>Scan the box as the list</span><span className="more-menu-note">Saves a version</span></Link>
+    <button onClick={() => { if (layout === "prices") setLayout(window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list"); setView("needed"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></button>
+  </>;
   const moreActions = <>
-    <Link className="button" to={`/decks/${d.id}/scan`}>Scan cards</Link>
-    <Link className="button" to={`/decks/${d.id}/check`}>Check cards</Link>
-    <button onClick={() => setCollecting(true)}>Add to collection</button>
+    <button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
+    <button onClick={() => setGoldfish(true)}>Sample hand</button>
     <MenuSeparator />
-    <button onClick={() => setConfiguring(true)}>New configuration</button>
-    <button onClick={() => setExporting(true)}>Export</button>
+    <button onClick={() => setExporting(true)}>Copy or export</button>
     <MythicSendButton className="" onClick={() => setMythic(true)} />
+    <MenuSeparator />
+    <button onClick={() => setCollecting(true)}>Add to collection</button>
+    <button onClick={() => setEditing(true)}>Deck settings</button>
     {askOffered && <AskClaudeButton onClick={() => setAsking(true)} />}
     <MenuSeparator />
-    <button onClick={() => setEditing(true)}>Deck settings</button>
     <button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
   </>;
-  const actions = <>
-    <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
-    <button className="on-art" onClick={() => setGoldfish(true)}>Sample hand</button>
-    <Link className="button on-art" to={`/decks/${d.id}/edit`}>Update from a list</Link>
-    <button className="on-art" onClick={() => setSharing(true)}>Share</button>
-    <MoreMenu className="on-art">{moreActions}</MoreMenu>
-  </>;
-  const legal = v.ok ? <span className="pill good deck-legal-pill">Commander-legal</span> : <span className="pill bad deck-legal-pill">Not legal yet</span>;
   const planLink = plan && (
     <Link to={planHref(plan.deck.key)} className="deck-plan-link">
       <span className="deck-plan-text">
@@ -322,15 +291,8 @@ export function DeckPage() {
           Plan: {plan.line}
           {plan.more && <span className="wide-only">, {plan.more}</span>}
         </b>
-        <span className="phone-only">
-          {d.bracket != null ? `Bracket ${d.bracket}, ` : ""}
-          {v.ok ? "Commander-legal" : "not legal yet"}
-        </span>
       </span>
-      <span className="deck-plan-open wide-only">Open plan</span>
-      <svg className="phone-only" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="m9 18 6-6-6-6" />
-      </svg>
+      <span className="deck-plan-open">Open plan</span>
     </Link>
   );
 
@@ -348,106 +310,44 @@ export function DeckPage() {
           </span>
         )}
         <div className="hero-inner">
-          <span className="hero-sub">
-            <Pips identity={v.color_identity} />
-            <span>
-              {commanderEntries.map((e) => e.name).join(" and ") || "No commander set"}
-              <span className="wide-only">
-                . {identityName(v.color_identity)}
-                {d.bracket != null ? `, bracket ${d.bracket}` : ""}
-              </span>
+          <div className="hero-text">
+            <span className="hero-sub">
+              <Pips identity={v.color_identity} />
+              <span>{commanderEntries.map((e) => e.name).join(" and ") || "No commander set"}</span>
             </span>
-          </span>
-          <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
-          {d.configurations.length > 1 && (
-            <nav className="hero-configs" aria-label="Configurations of this deck" aria-busy={deck.isPlaceholderData}>
-              {d.configurations.filter((c, i) => i === 0 || !legacyConfiguration(c.configuration)).map((c, i) => {
-                const label = configurationLabel(c.configuration, c.name, i === 0);
-                const loading = deck.isPlaceholderData && c.id === id;
-                return (
-                  <Link
-                    key={c.id}
-                    to={`/decks/${c.id}`}
-                    className="on-art"
-                    aria-current={c.id === (deck.isPlaceholderData ? id : d.id) ? "page" : undefined}
-                    onMouseEnter={() => prefetch(c.id)}
-                    onFocus={() => prefetch(c.id)}
-                  >
-                    {label}
-
-                    {loading && <span className="hero-configs-loading">, opening…</span>}
-                  </Link>
-                );
-              })}
-              {d.configurations.some((c, i) => i > 0 && legacyConfiguration(c.configuration)) && (
-                <details className="hero-configs-legacy" open={legacyConfiguration(d.configuration)}>
-                  <summary>Older snapshots</summary>
-                  <div className="hero-configs-legacy-list">
-                    {d.configurations.filter((c, i) => i > 0 && legacyConfiguration(c.configuration)).map((c) => (
-                      <Link
-                        key={c.id}
-                        className="on-art"
-                        to={`/decks/${c.id}`}
-                        aria-current={c.id === (deck.isPlaceholderData ? id : d.id) ? "page" : undefined}
-                        onMouseEnter={() => prefetch(c.id)}
-                        onFocus={() => prefetch(c.id)}
-                      >
-                        {c.configuration ?? c.name}
-                        {deck.isPlaceholderData && c.id === id && <span className="hero-configs-loading">, opening…</span>}
-                      </Link>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </nav>
-          )}
-          <div className="hero-row">
-            <div className="hero-stats">{stats}</div>
-            <div className="hero-actions" inert={deck.isPlaceholderData}>{actions}</div>
+            <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
+            <span className="hero-status">
+              <span className={`pill ${status.tone}`}>{status.pill}</span>
+              <span>{status.line}</span>
+            </span>
           </div>
+          <div className="wide-only"><DeckTiles deck={d} summary={summary} measures={measures} hrefFor={tabHref} /></div>
         </div>
       </ArtPanel>
 
       <div className="page deck-body" inert={deck.isPlaceholderData} aria-busy={deck.isPlaceholderData}>
-        {d.buylist && <BuylistReferences b={d.buylist} />}
-        {/* Phones: three figure tiles, the plan, then the other actions. */}
-        <div className="deck-stats-tiles">
-          {d.acquisition_status === "planned" ? <span className="deck-stat"><b>Planned</b><span>Deck not acquired</span></span> : <>
-          <span className="deck-stat">
-            <b className="num">{o.owned}</b>
-            <span>{proxies ? `of ${o.cards} real, ${proxies} ${proxies === 1 ? "proxy" : "proxies"}` : `of ${o.cards} owned`}</span>
-          </span>
-          <span className="deck-stat">
-            <b className="num">{o.needed ? usd(neededCost(o)) : "Complete"}</b>
-            <span>{o.needed ? `for the last ${o.needed}${priceDay ? `, ${priceDay}` : ""}` : "Cards accounted for"}</span>
-          </span>
-          <span className="deck-stat">
-            <b className="num">{summary?.games ? `${summary.wins ?? 0}–${losses}` : "0"}</b>
-            <span>{summary?.games ? "in Yama games" : "games played"}</span>
-          </span>
-          </>}
+        <div className="phone-only"><DeckTiles deck={d} summary={summary} measures={measures} hrefFor={tabHref} /></div>
+        <div className="deck-actionbar">
+          <div className="deck-actions" role="toolbar" aria-label="Deck actions">
+            <Link className="button primary" to={`/decks/${d.id}/edit`}>Edit list</Link>
+            <MoreMenu label="Check cards" align="start">{checkActions}</MoreMenu>
+            <button onClick={() => setSharing(true)}>Share</button>
+            <MoreMenu title={d.name}>{moreActions}</MoreMenu>
+          </div>
+          {d.configurations.length > 1 || variants.length > 0 ? (
+            <ListPicker deck={d} shownId={id ?? d.id} onPrefetch={prefetch} onNewList={() => setConfiguring(true)} variants={variants} />
+          ) : (
+            <button className="quiet deck-new-list" onClick={() => setConfiguring(true)}>Save a copy as a new list</button>
+          )}
         </div>
-        {d.acquisition_status !== "planned" && o.needed > 0 && (
-          <p className="deck-price-note phone-only">
-            To finish: basics excluded{o.needed_without_price > 0 ? `, ${o.needed_without_price} with no price` : ""}. {priced}.
-          </p>
+        <SavedListBar deck={d} />
+        {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
+        {(planLink || plan?.sim) && (
+          <div className={`deck-status${plan ? " has-plan" : ""}`}>
+            {planLink}
+            {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
+          </div>
         )}
-        {planLink && <div className="phone-only deck-plan-phone">{planLink}</div>}
-        <div className="row deck-actions-phone">
-          <Link className="button outline" to={`/decks/${d.id}/edit`}>Update from a list</Link>
-          <button className="outline" onClick={() => setSharing(true)}>Share</button>
-          <MoreMenu className="outline">{moreActions}</MoreMenu>
-        </div>
-
-        {/* The status row: legality, the plan for this deck, and its simulated strength. */}
-        <div className={`deck-status${plan ? " has-plan" : ""}`}>
-          {legal}
-          {planLink && <span className="wide-only deck-plan-wide">{planLink}</span>}
-          {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
-        </div>
-        {!v.ok && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-        <DeckLists deck={d} />
-        <PlaygroupBuilds deckId={d.id} />
 
         {editing && <DeckSettings deck={d} onClose={() => setEditing(false)} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
@@ -582,6 +482,7 @@ export function DeckPage() {
 
         </>)}
 
+        {tab === "stats" && d.buylist && <BuylistReferences b={d.buylist} />}
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
         {tab === "stats" && (
         <section className="deck-more" aria-label="Stats">
@@ -648,11 +549,6 @@ export function DeckPage() {
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
       </div>
 
-      {/* Phones: the two actions you reach for, kept above the tab bar. */}
-      <div className="deck-actbar" inert={deck.isPlaceholderData}>
-        <button onClick={() => setGoldfish(true)}>Sample hand</button>
-        <button className="primary" onClick={() => navigate("/", { state: { deckId: d.id } })}>Play this deck</button>
-      </div>
     </main>
   );
 }

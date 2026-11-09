@@ -1850,7 +1850,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 }
 .deck-hero.art-panel {
   border-radius: 0;
-  min-height: 340px;
+  min-height: 260px;
   display: grid;
 }
 .deck-hero > .art-body {
@@ -1858,7 +1858,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 72px var(--page-pad) 20px;
+  padding: 64px var(--page-pad) 20px;
 }
 .hero-inner {
   width: 100%;
@@ -1921,50 +1921,9 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .deck-hero.art-none .hero-credit {
   color: var(--text);
 }
-.hero-row {
-  display: none;
-}
-.deck-stat {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-  min-width: 0;
-}
-.deck-stat b {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 1.75rem;
-}
-.deck-stat span {
-  font-size: 0.75rem;
-  color: var(--dim);
-}
-/* Phones: the figures as three tiles in a row (the price's source sits under them) and the
-   other actions in a row under the plan. */
-.deck-stats-tiles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.deck-stats-tiles .deck-stat {
-  padding: 10px;
-  border-radius: 14px;
-  background: var(--surface);
-}
-.deck-actions-phone {
-  margin-bottom: 16px;
-}
-.deck-actions-phone button {
-  flex: 1 1 auto;
-}
-/* Secondary buttons on art: a dark glass pill with a light hairline. Off the art, ordinary. */
-.deck-actions-phone button.on-art {
-  background: var(--raised);
-}
 @media (min-width: 900px) {
   .deck-hero.art-panel {
-    min-height: 420px;
+    min-height: 240px;
   }
   /* Scryfall's art crop is 626 px wide. Stretched across a laptop screen it turns soft, so on
      wide screens it stays a window on the right, near its own size, and the wash takes it into
@@ -1982,7 +1941,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
       linear-gradient(180deg, transparent 0%, transparent 45%, rgb(11 12 14 / 0.6) 75%, var(--ground) 100%);
   }
   .deck-hero > .art-body {
-    padding: 120px var(--page-pad) 32px;
+    padding: 72px var(--page-pad) 28px;
   }
   .hero-back {
     top: 24px;
@@ -2008,52 +1967,200 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   .hero-sub {
     font-size: var(--t-base);
   }
-  .hero-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px 40px;
-    align-items: end;
+}
+/* The deck page's header (deck page SPEC 0 and 0b): title, one status pill and line on the left,
+   the Bracket, Value and Record tiles on the right (under the hero on a phone), then the
+   ActionBar with the List picker. */
+.deck-hero .hero-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px 32px;
+}
+.hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.hero-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: var(--t-sm);
+  color: var(--on-art);
+  text-shadow: var(--art-shadow);
+}
+.hero-status .pill {
+  text-shadow: none;
+}
+.deck-hero.art-none .hero-status {
+  color: var(--text);
+}
+.deck-head-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.deck-page .deck-head-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.2;
+}
+.deck-page .deck-head-tile:hover {
+  background: var(--raised);
+}
+.deck-head-tile-label {
+  font-size: var(--t-xs);
+  font-weight: 700;
+  color: var(--dim);
+}
+.deck-head-tile b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.875rem;
+  line-height: 1.1;
+}
+.deck-head-tile-note {
+  font-size: var(--t-xs);
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.deck-actionbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+.deck-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.deck-actions > .primary {
+  grid-column: 1 / -1;
+}
+.deck-actions > :is(button, .button, .more-menu) {
+  width: 100%;
+}
+.deck-actions button {
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+.deck-list-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.deck-list-picker > .more-menu {
+  flex: 1 1 auto;
+}
+.deck-page .deck-list-picker-button {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-button);
+  background: var(--surface);
+  font-weight: 700;
+}
+.deck-list-picker-label {
+  display: none;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.deck-new-list {
+  align-self: flex-start;
+}
+/* A menu's group heading and an item's note on the right. */
+.more-menu-head {
+  padding: 8px 10px 2px;
+  font-size: var(--t-xs);
+  color: var(--dim);
+}
+.more-menu-items > :is(button, a) {
+  gap: 12px;
+}
+.more-menu-note {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  color: var(--dim);
+  font-weight: 400;
+}
+.more-menu-items > a[aria-current="page"] {
+  background: var(--raised);
+  font-weight: 700;
+}
+.deck-saved-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.deck-saved-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+@media (min-width: 900px) {
+  .deck-head-tiles {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
   }
-  /* Top-aligned: a two-line caption under one stat lifted its number above the others. */
-  .hero-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px 40px;
-    align-items: start;
+  .deck-hero .deck-head-tile {
+    border-color: rgb(255 255 255 / 0.12);
+    background: rgb(11 12 14 / 0.82);
   }
-  .hero-stats .deck-stat b {
-    font-size: 2.5rem;
-    text-shadow: var(--art-shadow);
+  .deck-hero .deck-head-tile:hover {
+    background: rgb(11 12 14 / 0.92);
   }
-  .hero-stats .deck-stat span {
-    max-width: 30ch;
-    font-size: var(--t-label);
+  .deck-hero .deck-head-tile-label,
+  .deck-hero .deck-head-tile-note {
     color: var(--on-art-dim);
   }
-  .deck-hero.art-none .hero-stats .deck-stat span {
-    color: var(--dim);
+  .deck-head-tile b {
+    font-size: 2.125rem;
   }
-  .hero-actions {
-    margin-left: auto;
-    display: flex;
-    gap: 10px;
+  .deck-actionbar {
+    flex-direction: row;
     flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
   }
-  .hero-actions .on-art {
-    background: rgb(11 12 14 / 0.4);
-    border-color: rgb(255 255 255 / 0.3);
-    color: var(--on-art);
-    min-height: var(--target);
+  .deck-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
   }
-  .hero-actions .on-art:hover {
-    background: rgb(11 12 14 / 0.6);
+  .deck-actions > .primary {
+    grid-column: auto;
   }
-  .hero-actions .primary {
-    min-height: var(--target-primary);
+  .deck-actions > :is(button, .button, .more-menu) {
+    width: auto;
   }
-  .deck-stats-tiles,
-  .deck-actions-phone {
-    display: none;
+  .deck-list-picker-label {
+    display: inline;
+  }
+  .deck-list-picker > .more-menu {
+    flex: 0 0 auto;
+    min-width: 220px;
   }
 }
 .deck-body {
@@ -2281,68 +2388,6 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   /* Stays at the right end when the foot wraps onto a second line. */
   margin-left: auto;
 }
-.hero-configs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0 10px;
-}
-.hero-configs a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  border: 1px solid rgb(255 255 255 / 0.3);
-  background: rgb(11 12 14 / 0.4);
-  color: var(--on-art);
-  font-size: var(--t-sm);
-  text-decoration: none;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  flex-wrap: wrap;
-}
-.hero-configs-legacy {
-  flex-basis: 100%;
-  min-width: 0;
-}
-.hero-configs-legacy summary {
-  width: fit-content;
-  min-height: var(--target);
-  padding: 8px 12px;
-  border: 1px solid rgb(255 255 255 / 0.3);
-  border-radius: var(--r-pill);
-  background: rgb(11 12 14 / 0.4);
-  color: var(--on-art);
-  font-size: var(--t-sm);
-  cursor: pointer;
-}
-.hero-configs-legacy-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 8px;
-}
-@media (pointer: coarse) {
-  .hero-configs a {
-    min-height: var(--target);
-  }
-}
-.hero-configs-label {
-  align-self: center;
-  margin-right: 4px;
-  font-size: var(--t-sm);
-  color: var(--on-art);
-  text-shadow: var(--art-shadow);
-}
-.hero-configs-loading {
-  font-weight: 400;
-}
-.hero-configs a[aria-current="page"] {
-  background: var(--on-art);
-  border-color: var(--on-art);
-  color: var(--ground);
-}
 .app-update { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px var(--page-pad); border-bottom: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
 .app-update button { min-height: var(--target); }
 
@@ -2402,6 +2447,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .more-menu-sheet .more-menu-items > :is(button, a) {
   min-height: 48px;
   font-size: var(--t-base);
+}
 /* ── Section tabs (components/SectionTabs.tsx; design/tokens.md, rule 4) ───────────────────── */
 /* Where sticky page parts start: below the phone's status bar (the Android shell) and below the
    admin "View as" banner while it shows. */
