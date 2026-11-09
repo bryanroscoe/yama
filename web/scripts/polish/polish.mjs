@@ -13,7 +13,7 @@
 // empty browser profile, so a run on production changes no one's data however many buttons it
 // presses (signing in still records the session and last_seen_at).
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -35,6 +35,80 @@ export const VIEWPORTS = {
 };
 const SPACING_SCALE = [1, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 48, 56, 64];
 
+// Every run is a first visit in Chrome, which offers to install Yama: the page gets a
+// beforeinstallprompt, as Chrome sends it, so the Install Yama card and buttons show. A fresh
+// headless profile never gets one by itself, so earlier runs never saw them.
+function chromeInstallPrompt() {
+  addEventListener(
+    "load",
+    () => {
+      const e = new Event("beforeinstallprompt", { cancelable: true });
+      e.prompt = () => Promise.resolve();
+      e.userChoice = Promise.resolve({ outcome: "dismissed" });
+      dispatchEvent(e);
+    },
+    { once: true },
+  );
+}
+
+// A game left on the device, for the states that show what happens to it.
+const LOCAL_GAME = (id) => ({
+  setup: { id, startedAt: "2026-11-01T19:00:00Z", format: "commander", startingLife: 40, players: [{ seat: 0, name: "Polish", colorIdentity: "" }, { seat: 1, name: "Run", colorIdentity: "" }] },
+  log: [],
+  redo: [],
+  syncedThrough: 0,
+});
+
+/**
+ * Browser and device states the default run doesn't reach. `--states a,b` (or `all`) adds a pass
+ * per state after the main one: each page again, screens only, at the state's sizes, shot as
+ * `<size>-<state>-…`. `storage` is put in localStorage before the app loads; `init` runs in the
+ * page first; `offline` cuts the network once the page has loaded, as a train tunnel would.
+ */
+export const STATES = {
+  iphone: {
+    about: "Safari on an iPhone: no install prompt, so Share, then Add to Home Screen",
+    viewports: ["mobile"],
+    prompt: false,
+    context: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1" },
+    init: () => {
+      if (!("share" in navigator)) navigator.share = () => Promise.resolve();
+    },
+  },
+  installed: {
+    about: "Opened as the installed app (no install offers, no Full screen button)",
+    viewports: ["laptop", "mobile"],
+    prompt: false,
+    init: () => Object.defineProperty(navigator, "standalone", { value: true, configurable: true }),
+  },
+  returning: {
+    about: "Someone who has read What's new and waved off Install: the steady state",
+    viewports: ["laptop", "mobile"],
+    prompt: false,
+    storage: { "yama.whatsNew.seen": "__NEWEST__", "yama.install.dismissed": "1" },
+  },
+  offline: {
+    about: "The connection drops after the page loads",
+    viewports: ["laptop", "mobile"],
+    offline: true,
+  },
+  unsynced: {
+    about: "Games waiting to upload, one Yama refused, and games counted signed out",
+    viewports: ["laptop", "mobile"],
+    storage: {
+      "yama.table.outbox": JSON.stringify([LOCAL_GAME("polish-waiting")]),
+      "yama.table.rejected": JSON.stringify([{ game: LOCAL_GAME("polish-refused"), error: "A seat's deck isn't yours" }]),
+      "yama.table.guestGames": JSON.stringify([{ ...LOCAL_GAME("polish-guest"), guest: true }]),
+    },
+  },
+};
+
+/** The newest What's new entry, so `returning` hides the notice as reading it would. */
+function newestNewsId() {
+  const src = readFileSync(join(REPO, "web", "src", "whatsNew.ts"), "utf8");
+  return src.match(/\bid:\s*"([^"]+)"/)?.[1] ?? "";
+}
+
 // Buttons the safe mode presses: ones that say they open something.
 const OPENER_WORDS = /\b(more|menu|filters?|sort|options?|details?|info|help|settings|share|show|view|open|expand|edit|choose|pick|change|why|how|about|account|profile|preview)\b|[…⋯⋮]/i;
 // Never pressed, even with --interact all: the network guard would block the write, but the
@@ -52,6 +126,7 @@ function usage(code = 0) {
   polish login --base URL --browser                          sign in by hand in Chrome
   polish login --base URL --cookie-stdin                     paste a yama_session value
   polish shoot --base URL [paths...] [options]
+  polish sheets --run DIR [--size laptop] [--per N]           contact sheets of a run's screens
 
 Sign-in for shoot: the saved session for the host, else with --as EMAIL a new one (dev login on
 localhost, else --ssh-session over SSH to YAMA_POLISH_SSH, default the deploy target from
@@ -69,6 +144,8 @@ Options for shoot:
                           not on the never-press list) or none
   --max-interactions N    presses per page and size (default 14)
   --no-details            don't take the extra "all disclosures open" frames
+  --states LIST           another pass per browser state after the main one: ${Object.keys(STATES).join(", ")}
+                          or all (\`--states help\` says what each is)
   --jpeg                  JPEG screenshots (smaller) instead of PNG
   --out DIR               output folder (default output/polish/<time>)
   --state FILE            signed-in browser state (default ~/.config/yama-polish/<host>.json)
@@ -98,18 +175,24 @@ const { values: args, positionals } = parseArgs({
     interact: { type: "string", default: "safe" },
     "max-interactions": { type: "string", default: "14" },
     "no-details": { type: "boolean" },
+    states: { type: "string" },
     jpeg: { type: "boolean" },
     out: { type: "string" },
     headed: { type: "boolean" },
     "allow-writes": { type: "boolean" },
     help: { type: "boolean", short: "h" },
+    run: { type: "string" },
+    size: { type: "string" },
+    per: { type: "string" },
   },
 });
 if (args.help || !positionals.length) usage(args.help ? 0 : 1);
 
 const command = positionals.shift();
 const base = new URL(args.base);
-const statePath = args.state ? resolve(args.state) : join(STATE_DIR, `${base.host.replace(/[^a-z0-9.-]/gi, "_")}.json`);
+// npm runs this from web/; a relative --out or --state means the caller's folder, not web/.
+const CALLER = process.env.INIT_CWD ?? process.cwd();
+const statePath = args.state ? resolve(CALLER, args.state) : join(STATE_DIR, `${base.host.replace(/[^a-z0-9.-]/gi, "_")}.json`);
 
 async function launch(headed) {
   const executablePath = process.env.YAMA_POLISH_CHROME;
@@ -295,6 +378,11 @@ async function settle(page, net, { quiet = 500, max = 12_000 } = {}) {
     if (pending.length === 0 && Date.now() - net.last > quiet) break;
     await sleep(100);
   }
+  // A request that failed is retried after a backoff (React Query waits a second): the network
+  // is quiet, but the page still says Loading. Give it until max to show the answer or the error.
+  while (Date.now() - start < max && (await page.evaluate(() => /\bLoading(…|\.\.\.)/.test(document.body.innerText)).catch(() => false))) {
+    await sleep(250);
+  }
   await page
     .evaluate(
       (ms) =>
@@ -392,6 +480,7 @@ class Run {
       started: this.started,
       finished: new Date().toISOString(),
       viewports: this.opts.viewports,
+      states: this.opts.states,
       interact: this.opts.interact,
       pages: [...this.pages.values()],
       blockedWrites: this.blocked,
@@ -405,14 +494,14 @@ class Run {
 async function capture(run, page, entry, vp, name, view, { atStart = false, atEnd = false } = {}) {
   const cfg = VIEWPORTS[vp];
   const found = await page
-    .evaluate(audit, { minTarget: cfg.minTarget, edgePad: cfg.edgePad, atStart, atEnd, spacingScale: SPACING_SCALE })
+    .evaluate(audit, { minTarget: cfg.minTarget, edgePad: cfg.edgePad, atStart, atEnd, spacingScale: SPACING_SCALE, screenWidth: cfg.viewport.width })
     .catch((e) => ({ issues: [{ kind: "audit-failed", severity: "info", message: String(e).slice(0, 200), selector: "", text: "", rect: null }], offScale: {} }));
-  const file = await run.shot(page, run.file(entry, vp, name));
+  const file = await run.shot(page, run.file(entry, view.key ?? vp, name));
   let annotated = null;
   const marked = found.issues.filter((i) => i.rect && i.severity !== "info");
   if (marked.length) {
     await page.evaluate(drawOverlay, found.issues).catch(() => {});
-    annotated = await run.shot(page, run.file(entry, vp, `${name}-marked`));
+    annotated = await run.shot(page, run.file(entry, view.key ?? vp, `${name}-marked`));
     await page.evaluate(clearOverlay).catch(() => {});
   }
   for (const [k, n] of Object.entries(found.offScale)) {
@@ -600,14 +689,17 @@ async function interact(run, page, entry, vp, view, url, discover) {
   }
 }
 
-async function visit(run, context, vp, url, discover) {
+async function visit(run, context, vp, url, discover, state = null) {
   const entry = run.record(url);
-  const view = (entry.views[vp] = { shots: [], errors: [], height: 0, truncated: false });
+  const key = state ? `${vp}-${state}` : vp;
+  const view = (entry.views[key] = { key, shots: [], errors: [], height: 0, truncated: false });
   const page = await context.newPage();
   run.net = trackNetwork(page);
   page.on("console", (m) => {
     // The network guard's own refusals aren't the page's errors.
     if (m.type() === "error" && !/ERR_BLOCKED_BY_CLIENT/.test(m.text())) view.errors.push(`console: ${m.text().slice(0, 300)}`);
+    // React Router renders nothing for an address it doesn't know: say so, or the run shoots a blank page.
+    else if (m.type() === "warning" && /No routes matched/.test(m.text())) view.errors.push(`no route: ${m.text().slice(0, 200)}`);
   });
   page.on("pageerror", (e) => view.errors.push(`page error: ${String(e.message || e).slice(0, 300)}`));
   page.on("response", (r) => {
@@ -616,13 +708,24 @@ async function visit(run, context, vp, url, discover) {
   });
   page.on("requestfailed", (r) => {
     const f = r.failure()?.errorText ?? "";
+    if (state && STATES[state].offline && /ERR_INTERNET_DISCONNECTED/.test(f)) return;
     if (!/ERR_BLOCKED_BY_CLIENT|ERR_ABORTED/.test(f)) view.errors.push(`failed ${r.url().slice(0, 200)}: ${f}`);
   });
   try {
     await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await settle(page, run.net);
+    if (!(await page.evaluate(() => document.body.innerText.trim().length).catch(() => 1))) view.errors.push("blank page: nothing on screen to read");
     entry.title = await page.title();
     entry.finalUrl = new URL(page.url()).pathname + new URL(page.url()).search;
+    if (state) {
+      // A state pass: the screens down the page, nothing pressed.
+      if (STATES[state].offline) {
+        await context.setOffline(true);
+        await sleep(400);
+      }
+      await frames(run, page, entry, vp, view, "page-", run.opts.maxFrames);
+      return;
+    }
     if (!run.copy.has(entry.url)) run.copy.set(entry.url, await page.evaluate(visibleText).catch(() => ""));
     if (discover) {
       const hrefs = await page.$$eval("a[href]", (as) => as.filter((a) => !a.hasAttribute("download")).map((a) => a.href));
@@ -651,6 +754,7 @@ async function visit(run, context, vp, url, discover) {
     view.errors.push(`visit failed: ${String(e.message || e).slice(0, 300)}`);
   } finally {
     await page.close().catch(() => {});
+    if (state && STATES[state].offline) await context.setOffline(false).catch(() => {});
   }
 }
 
@@ -659,6 +763,12 @@ async function shoot() {
   for (const v of viewports) if (!VIEWPORTS[v]) throw new Error(`Unknown viewport ${v}; use ${Object.keys(VIEWPORTS).join(", ")}`);
   if (!["safe", "all", "none"].includes(args.interact)) throw new Error("--interact is safe, all or none");
   if (args["allow-writes"] && !isLocal(base)) throw new Error("--allow-writes only works against localhost");
+  if (args.states === "help") {
+    for (const [name, s] of Object.entries(STATES)) console.log(`${name.padEnd(10)} ${s.about} (${s.viewports.join(", ")})`);
+    return;
+  }
+  const states = !args.states ? [] : args.states === "all" ? Object.keys(STATES) : args.states.split(",").map((s) => s.trim()).filter(Boolean);
+  for (const s of states) if (!STATES[s]) throw new Error(`Unknown state ${s}; use ${Object.keys(STATES).join(", ")}, all or help`);
   const count = (name, min) => {
     const n = Number(args[name]);
     if (!Number.isInteger(n) || n < min) throw new Error(`--${name} takes a whole number of at least ${min}`);
@@ -673,8 +783,9 @@ async function shoot() {
     maxInteractions: count("max-interactions", 0),
     details: !args["no-details"],
     jpeg: !!args.jpeg,
+    states,
   };
-  const outDir = resolve(args.out ?? join(REPO, "output", "polish", stamp()));
+  const outDir = args.out ? resolve(CALLER, args.out) : join(REPO, "output", "polish", stamp());
   mkdirSync(outDir, { recursive: true });
   const run = new Run(outDir, opts);
 
@@ -692,15 +803,26 @@ async function shoot() {
   }
   const hasState = existsSync(statePath);
   const browser = await launch(!!args.headed);
-  const newContext = async (vp) => {
+  const newsId = newestNewsId();
+  const newContext = async (vp, state = null) => {
     const { minTarget, edgePad, ...cfg } = VIEWPORTS[vp];
+    const st = state ? STATES[state] : {};
     const context = await browser.newContext({
       ...cfg,
+      ...st.context,
       storageState: hasState ? statePath : undefined,
       serviceWorkers: "block",
       reducedMotion: "reduce",
       colorScheme: "dark",
     });
+    if (st.prompt !== false) await context.addInitScript(chromeInstallPrompt);
+    if (st.init) await context.addInitScript(st.init);
+    if (st.storage) {
+      const items = Object.fromEntries(Object.entries(st.storage).map(([k, v]) => [k, v === "__NEWEST__" ? newsId : v]));
+      await context.addInitScript((items) => {
+        for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);
+      }, items);
+    }
     if (!args["allow-writes"]) {
       await context.route("**/*", (route) => {
         const req = route.request();
@@ -781,6 +903,17 @@ async function shoot() {
       }
       await context.close();
     }
+    for (const state of states) {
+      for (const vp of STATES[state].viewports.filter((v) => viewports.includes(v))) {
+        context = await newContext(vp, state);
+        for (let i = 0; i < queue.length; i++) {
+          console.log(`[${vp}, ${state}] ${i + 1}/${queue.length} ${queue[i].pathname}${queue[i].search}`);
+          await visit(run, context, vp, queue[i], null, state);
+          run.save(me);
+        }
+        await context.close();
+      }
+    }
     run.save(me);
     console.log(`\nDone: ${join(outDir, "report.md")}\n      ${join(outDir, "index.html")}`);
   } finally {
@@ -788,11 +921,69 @@ async function shoot() {
   }
 }
 
+/**
+ * Contact sheets: a run's screens down each page, several pages to an image, labelled, so a
+ * polish pass can look at the whole run in a few dozen images instead of hundreds. Written to
+ * <run>/sheets/<size>[-state]-NN.png. Only page frames (not presses or marked copies).
+ */
+async function sheets() {
+  if (!args.run) throw new Error("sheets needs --run DIR (an output/polish/<time> folder)");
+  const dir = resolve(CALLER, args.run);
+  const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+  const keys = [...new Set(report.pages.flatMap((p) => Object.keys(p.views)))].filter((k) => !args.size || k === args.size || k.startsWith(`${args.size}-`));
+  const outDir = join(dir, "sheets");
+  mkdirSync(outDir, { recursive: true });
+  const browser = await launch(false);
+  const page = await browser.newPage({ viewport: { width: 1800, height: 1000 } });
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  let written = 0;
+  try {
+    for (const key of keys) {
+      const phone = key.startsWith("mobile") || key.startsWith("tablet");
+      const per = Number(args.per ?? (phone ? 3 : 2));
+      const cols = phone ? 6 : 3;
+      const rows = report.pages
+        .map((p) => ({ url: p.url, shots: (p.views[key]?.shots ?? []).filter((s) => /^page-/.test(s.name)).slice(0, cols) }))
+        .filter((r) => r.shots.length);
+      for (let i = 0; i < rows.length; i += per) {
+        const chunk = rows.slice(i, i + per);
+        const html = `<!doctype html><meta charset="utf-8"><style>
+body{margin:0;background:#202226;color:#fff;font:600 18px system-ui;padding:8px}
+section{margin:0 0 10px}h2{font-size:18px;margin:4px 0 6px;color:#ffd60a}
+.row{display:grid;grid-template-columns:repeat(${cols},1fr);gap:6px}
+figure{margin:0;position:relative}img{width:100%;display:block;outline:1px solid #555}
+figcaption{position:absolute;left:0;top:0;background:#000c;font-size:13px;padding:1px 5px}
+</style>${chunk
+          .map(
+            (r) =>
+              `<section><h2>${esc(r.url)} <span style="color:#aaa">${esc(key)}</span></h2><div class="row">${r.shots
+                .map((s) => `<figure><img src="${esc(s.file)}"><figcaption>${esc(s.name)}</figcaption></figure>`)
+                .join("")}</div></section>`,
+          )
+          .join("")}`;
+        const htmlPath = join(outDir, "_sheet.html");
+        // In the run folder's sheets/, so the screens' relative paths need ../
+        writeFileSync(htmlPath, html.replaceAll('src="shots/', 'src="../shots/'));
+        await page.goto(`file://${htmlPath}`);
+        await page.waitForLoadState("load");
+        const out = join(outDir, `${key}-${String(i / per + 1).padStart(2, "0")}.png`);
+        await page.screenshot({ path: out, fullPage: true });
+        written++;
+      }
+    }
+  } finally {
+    await browser.close();
+    rmSync(join(outDir, "_sheet.html"), { force: true });
+  }
+  console.log(`${written} sheets in ${outDir}`);
+}
+
 try {
   // A session token sent over plain HTTP to another machine could be read on the way.
   if (base.protocol !== "https:" && !isLocal(base)) throw new Error(`Use https for ${base.host}: only localhost may be plain http`);
   if (command === "login") await login();
   else if (command === "shoot") await shoot();
+  else if (command === "sheets") await sheets();
   else usage(1);
 } catch (e) {
   console.error(String(e.message || e));

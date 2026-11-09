@@ -1,6 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { defineConfig, type Plugin } from "vite";
@@ -76,8 +76,30 @@ function precompress(): Plugin {
   };
 }
 
+/**
+ * In development, the public pages kept as `public/<page>/index.html` (/about/, /privacy/, /tos/,
+ * …) at their own addresses, as the server sends them in production. Vite would otherwise hand
+ * them the app, which has no such route.
+ */
+function publicPages(): Plugin {
+  const root = new URL("./public/", import.meta.url);
+  return {
+    name: "yama-public-pages",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const [path, query = ""] = (req.url ?? "").split("?");
+        if (path.endsWith("/") && path.length > 1 && !path.includes("..") && existsSync(new URL(`.${path}index.html`, root))) {
+          req.url = `${path}index.html${query ? `?${query}` : ""}`;
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), precacheList(), precompress()],
+  plugins: [react(), precacheList(), precompress(), publicPages()],
   define: {
     // A changed worker must reach browsers even when a CDN retains the old /sw.js.
     "import.meta.env.VITE_SW_VERSION": JSON.stringify(createHash("sha256").update(readFileSync(new URL("./public/sw.js", import.meta.url))).digest("hex").slice(0, 16)),
@@ -91,7 +113,7 @@ export default defineConfig({
     // The Rust server; run it with `cargo run -p yama-server -- serve`.
     proxy: {
       "/api": { target: "http://127.0.0.1:8787", ws: true },
-      "^/(precons(?:/|$)|[udr]/|sitemap\\.xml$)": { target: "http://127.0.0.1:8787" },
+      "^/(precons(?:/|$)|commanders(?:/|$)|[udr]/|sitemap\\.xml$)": { target: "http://127.0.0.1:8787" },
       // The scanner's recognition bundle (server/src/scan.rs).
       "/scan-bundle": { target: "http://127.0.0.1:8787" },
       // phase's own board (deploy/build-board.sh, served by the server from YAMA_BOARD_DIST).
