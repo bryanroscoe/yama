@@ -701,6 +701,7 @@ pub(super) async fn index(
         .iter()
         .chain(data.comparisons.iter())
         .collect();
+    let power_comparison = power::comparison(&data);
     filters.apply(&mut data.precons)?;
     let mut body = format!(
         "<section class=\"public-hero\"><div class=\"hero-copy\"><h1>Compare precons.</h1><p class=\"dim\">{total} decks</p></div>"
@@ -808,6 +809,8 @@ pub(super) async fn index(
     .into_iter()
     .chain(commander_label.as_deref().map(|l| ("commander", l)))
     .chain([
+        ("power", "Computed power"),
+        ("bracket", "Estimated bracket"),
         ("upgradeability", "Upgradeability"),
         ("name", "Deck name"),
         ("year", "Newest first"),
@@ -896,6 +899,7 @@ pub(super) async fn index(
                 write!(body, "<th scope=\"col\">{}</th>", e(&label)).unwrap();
             }
         }
+        body.push_str(&sort_heading(&filters, "power", "Computed power", "1–10 / estimated bracket"));
         body.push_str(&sort_heading(&filters, "real", "Real games", if by_commander.is_empty() { "Stock lists" } else { "Stock lists, then any list" }));
         body.push_str("<th scope=\"col\"><a href=\"/precons/methodology#upgradeability\">Upgradeability</a></th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
         for p in data.precons.iter().skip(start).take(24) {
@@ -915,6 +919,7 @@ pub(super) async fn index(
                 )
                 .unwrap();
             }
+            write!(body, "<td data-label=\"Computed power\">{}</td>", power::cell(p)).unwrap();
             write!(body,"<td data-label=\"Real games\">{}</td><td data-label=\"Upgradeability\">{}</td><td class=\"price-cell\" data-label=\"Sealed market\">{}</td></tr>",real(p,false),upgradeability(p,false),price(p,false)).unwrap();
         }
         body.push_str("</tbody></table></div>");
@@ -938,6 +943,7 @@ pub(super) async fn index(
         body.push_str("</div></nav>");
     }
     body.push_str("</div>");
+    body.push_str(&power_comparison);
     Ok(response(
         &headers,
         page(
@@ -988,6 +994,9 @@ pub(super) async fn detail(
     write!(body,"<div class=\"art-heading\"><h1>{}</h1><p>{}</p><div class=\"deck-meta\">{}<span>{} / {} / {} cards</span></div></div><p class=\"art-credit\">{}</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/precons/{}/decklist.txt\">Download stock list</a><a class=\"button\" href=\"/lab/p/{}\">Save to my decks</a><a class=\"text-action\" href=\"/lab/try?precon={}\">Try a change ↗</a></div>",e(&p.name),e(&p.commanders.join(" and ")),colors(p),e(p.set_name.as_deref().unwrap_or(&p.set_code)),when(p.released.as_deref().unwrap_or("")),p.card_count,credit(p),e(&p.id),e(&p.id),e(&p.id)).unwrap();
     body.push_str("<section class=\"evidence-heading\"><div><h2>How it compares</h2></div><a href=\"/precons/methodology\">Sources &amp; method ↗</a></section><div class=\"public-evidence\"><section class=\"public-panel meta-panel\"><span class=\"source-chip\">Experimental</span><h3>Meta rank</h3>");
     body.push_str(&meta(p, true));
+    body.push_str("</section><section class=\"public-panel\"><h3>Computed power</h3>");
+    body.push_str(&power::cell(p));
+    body.push_str("<p>Card-text estimate, not simulated play. Estimated bracket is a power range, not an official assignment. No stock-list combo check.</p>");
     body.push_str("</section><section class=\"public-panel\"><h3>Real games</h3>");
     body.push_str(&real(p, true));
     body.push_str("</section>");

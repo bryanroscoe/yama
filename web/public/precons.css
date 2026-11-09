@@ -1544,3 +1544,8 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .commander-games { display:block; margin-top:8px; font-size:13px; line-height:1.35; color:var(--dim); }
 .commander-games strong { color:var(--text); font-weight:400; }
 .source-credit { display:block; margin-top:4px; color:var(--dim); overflow-wrap:anywhere; }
+
+.power-charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:24px; }
+.power-charts figure { margin:16px 0; min-width:0; }
+.power-charts svg { width:100%; height:auto; }
+.power-charts text { fill:currentColor; font-size:12px; }
