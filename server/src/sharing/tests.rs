@@ -1196,6 +1196,8 @@ async fn want_list_derives_deck_gaps_once_and_invalidates_on_collection_changes(
     assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"1 Sol Ring\n");
     copies(&app,&auth,"second-real","p-ring",1,false,None).await;
     assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"");
+    let (_,overlay)=send(&app,Method::GET,"/api/sharing/wants/list-owner/owned",Some(&auth),None).await;
+    assert_eq!(overlay["public"],json!([])); // old browser rows can be removed with the same refresh
 }
 
 #[tokio::test]
@@ -1526,7 +1528,8 @@ async fn a_loose_purchased_copy_cannot_fulfill_two_saved_deck_targets() {
     card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
     let (first,version)=deck(&pool,&owner,"First").await;
     sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"ring","name":"Sol Ring","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
-    let (second,_)=deck(&pool,&owner,"Second").await;
+    let (second,second_version)=deck(&pool,&owner,"Second").await;
+    sqlx::query("UPDATE deck_versions SET cards='[]' WHERE id=?").bind(second_version).execute(&pool).await.unwrap();
     let b=json!({"decks":[{"key":"second","yama_deck":{"id":second},"states":{"stock":{"cards":[]}},"plan":{"state":"in_progress"}}],
         "swaps":[{"key":"buy-ring","deck":"second","stage":"planned","role":"swap","src":"buy","in":"Sol Ring","out":"Plains","order_item":{"order":"bought","line":1}}]});
     let _=first;
@@ -1535,4 +1538,44 @@ async fn a_loose_purchased_copy_cannot_fulfill_two_saved_deck_targets() {
     assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Sol Ring".into(),1,false)]);
     copies(&app,&auth,"another-real-copy","p-ring",1,false,None).await;
     assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn target_counts_keep_distinct_oracles_and_resolve_face_aliases_before_swaps() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"distinct-card-oracles@example.com").await;
+    card(&pool,"split","Fire // Ice","Instant","p-split","tst","1").await;
+    card(&pool,"standalone","Fire","Instant","p-standalone","tst","2").await;
+    card(&pool,"other","Other card","Artifact","p-other","tst","3").await;
+    sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES ('Ice','split'),('Fire','split')").execute(&pool).await.unwrap();
+    let mut b=json!({"decks":[{"key":"d","states":{"stock":{"cards":[{"name":"Fire"},{"name":"Fire // Ice"}]}},"plan":{"state":"in_progress"}}]});
+    let rows=super::want_sources::needs(&pool,&owner,&b,false).await.unwrap();
+    assert_eq!(rows.len(),2);
+    assert!(rows.contains(&("Fire".into(),1,false)));
+    assert!(rows.contains(&("Fire // Ice".into(),1,false)));
+    b["swaps"]=json!([{"key":"replace-split","deck":"d","stage":"planned","role":"swap","src":"print","out":"Ice","in":"Other card"}]);
+    let rows=super::want_sources::needs(&pool,&owner,&b,false).await.unwrap();
+    assert_eq!(rows.len(),2);
+    assert!(rows.contains(&("Fire".into(),1,false)));
+    assert!(rows.contains(&("Other card".into(),1,false)));
+}
+
+#[tokio::test]
+async fn unresolved_planned_cards_stay_on_the_want_list_without_invented_prices() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"future-want@example.com").await;
+    let (_,version)=deck(&pool,&owner,"A future deck").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"not-imported-yet","name":"Future Card","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"future-want","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/future-want/wants.txt").await.2,"1 Future Card\n");
+    let html=page(&app,"/u/future-want/wants").await.2;
+    assert!(html.contains("Future Card") && html.contains("No market price") && !html.contains("$0.00"));
+    let (_,lines)=super::wants::shared_wants(&pool,"future-want").await.unwrap();
+    assert!(lines[0].oracle_id.is_none());
+    // Importing the card resolves its existing need, not a duplicate or a lost name.
+    card(&pool,"future-id","Future Card","Artifact","p-future","tst","1").await;
+    sqlx::query("INSERT INTO import_runs (id,kind,started_at,finished_at) VALUES ('future-import','cards','2031','2031')").execute(&pool).await.unwrap();
+    let (_,lines)=super::wants::shared_wants(&pool,"future-want").await.unwrap();
+    assert_eq!(lines.len(),1);
+    assert_eq!(lines[0].oracle_id.as_deref(),Some("future-id"));
 }

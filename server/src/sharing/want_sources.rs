@@ -9,23 +9,23 @@ type Counts = BTreeMap<String, (String, i64)>;
 fn text<'a>(v: &'a Value, k: &str) -> &'a str {
     v[k].as_str().unwrap_or_default()
 }
-fn key(n: &str) -> String {
-    n.split(" // ").next().unwrap_or(n).trim().to_lowercase()
+fn key(n: &str, ids: &HashMap<String, String>) -> String {
+    ids.get(n).map(|id| format!("card:{id}")).unwrap_or_else(|| format!("name:{}", n.trim().to_lowercase()))
 }
-fn add(c: &mut Counts, n: &str, q: i64) {
+fn add(c: &mut Counts, n: &str, q: i64, ids: &HashMap<String, String>) {
     if !n.trim().is_empty() {
-        let r = c.entry(key(n)).or_insert((n.to_string(), 0));
+        let r = c.entry(key(n, ids)).or_insert((n.to_string(), 0));
         r.1 += q;
     }
 }
-fn qty(c: &Counts, n: &str) -> i64 {
-    c.get(&key(n)).map_or(0, |r| r.1)
+fn qty(c: &Counts, n: &str, ids: &HashMap<String, String>) -> i64 {
+    c.get(&key(n, ids)).map_or(0, |r| r.1)
 }
-fn list(v: &Value) -> Counts {
+fn list(v: &Value, ids: &HashMap<String, String>) -> Counts {
     let mut c = Counts::new();
     for r in v.as_array().into_iter().flatten() {
         if !matches!(text(r, "board"), "side" | "maybe") && r["maybe"] != true {
-            add(&mut c, text(r, "name"), r["qty"].as_i64().unwrap_or(1).max(0));
+            add(&mut c, text(r, "name"), r["qty"].as_i64().unwrap_or(1).max(0), ids);
         }
     }
     c
@@ -66,13 +66,43 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
     .bind(owner)
     .fetch_all(pool)
     .await?;
+    let rows: Vec<(String, Value, Option<String>)> = rows
+        .into_iter()
+        .map(|(id, cards, container)| (id, serde_json::from_str(&cards).unwrap_or_default(), container))
+        .collect();
+    let mut names = Vec::new();
+    for (_, cards, _) in &rows {
+        for c in cards.as_array().into_iter().flatten() {
+            names.push(text(c, "name").to_string());
+        }
+    }
+    for d in b["decks"].as_array().into_iter().flatten() {
+        for c in d["states"]["stock"]["cards"].as_array().into_iter().flatten() {
+            names.push(text(c, "name").to_string());
+        }
+        for c in d["owner_changes"].as_array().into_iter().flatten() {
+            names.push(text(c, "in").to_string());
+            names.push(text(c, "out").to_string());
+        }
+    }
+    for c in b["swaps"].as_array().into_iter().flatten() {
+        names.push(text(c, "in").to_string());
+        names.push(text(c, "out").to_string());
+    }
+    for r in b["reviews"].as_object().into_iter().flat_map(|r| r.values()) {
+        names.push(text(r, "cut").to_string());
+    }
+    names.retain(|n| !n.trim().is_empty());
+    // Resolve before counting: face aliases can identify one oracle, while different cards
+    // can share a first face. Only oracle IDs settle their identity.
+    let resolved = resolve_names(pool, &names).await?;
     let mut targets: BTreeMap<String, Target> = rows
         .into_iter()
         .map(|(id, cards, container)| {
             (
                 id,
                 Target {
-                    cards: list(&serde_json::from_str::<Value>(&cards).unwrap_or_default()),
+                    cards: list(&cards, &resolved),
                     container,
                     ..Default::default()
                 },
@@ -104,14 +134,14 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             continue;
         }
         let id = d["yama_deck"]["id"].as_str().map(String::from).unwrap_or_else(|| format!("plan:{}", text(d, "key")));
-        let mut stock = list(&d["states"]["stock"]["cards"]);
+        let mut stock = list(&d["states"]["stock"]["cards"], &resolved);
         // The physical pre-plan baseline includes the owner's substitutions, as spares does.
         // These are distinct from the generated now list, which may include pending proposals.
         for change in d["owner_changes"].as_array().into_iter().flatten() {
             let out = text(change, "out");
-            if qty(&stock, out) > 0 {
-                add(&mut stock, out, -1);
-                add(&mut stock, text(change, "in"), 1);
+            if qty(&stock, out, &resolved) > 0 {
+                add(&mut stock, out, -1, &resolved);
+                add(&mut stock, text(change, "in"), 1, &resolved);
             }
         }
         let t = targets.entry(id.clone()).or_insert_with(|| Target {
@@ -138,13 +168,13 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
                     let donor = text(&s["got"], "deck");
                     transfers.push((id.clone(), roots.get(donor).cloned().unwrap_or_else(|| donor.to_string()), inn.to_string()));
                 }
-                add(&mut adds, inn, 1);
+                add(&mut adds, inn, 1, &resolved);
                 let cut = r["cut"].as_str().filter(|c| !c.is_empty()).or(s["out"].as_str());
                 if let Some(cut) = cut {
-                    add(&mut cuts, cut, 1);
+                    add(&mut cuts, cut, 1, &resolved);
                 }
             } else if include_pending && waiting.contains(sk) && !skipped.contains(sk) && !(fresh && r["decision"] == "no") {
-                add(&mut later, text(s, "in"), 1);
+                add(&mut later, text(s, "in"), 1, &resolved);
             }
         }
         // Apply all deltas together. A→B followed by B→C has only C as its final target,
@@ -153,30 +183,36 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         for k in touched {
             let n = adds.get(&k).or_else(|| cuts.get(&k)).unwrap().0.clone();
             let baseline = if has_stock {
-                qty(&stock, &n)
+                qty(&stock, &n, &resolved)
             } else {
-                qty(&t.cards, &n).max(qty(&adds, &n)) - qty(&adds, &n)
+                qty(&t.cards, &n, &resolved).max(qty(&adds, &n, &resolved)) - qty(&adds, &n, &resolved)
             };
-            t.cards.insert(k, (n.clone(), (baseline + qty(&adds, &n) - qty(&cuts, &n)).max(0)));
+            t.cards.insert(k, (n.clone(), (baseline + qty(&adds, &n, &resolved) - qty(&cuts, &n, &resolved)).max(0)));
         }
         for (k, row) in later {
             t.pending.insert(k, row);
         }
     }
-    let names: Vec<String> = targets.values().flat_map(|t| t.cards.values().chain(t.pending.values())).map(|r| r.0.clone()).collect();
-    let resolved = resolve_names(pool, &names).await?;
-    let cards: HashMap<String, String> =
+    let mut cards: HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT oracle_id,name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?)) AND type_line NOT LIKE 'Basic%'")
             .bind(serde_json::to_string(&resolved.values().collect::<Vec<_>>()).map_err(anyhow::Error::from)?)
             .fetch_all(pool)
             .await?
             .into_iter()
             .collect();
+    // A forthcoming or misspelled card is still a stated need. Keep its written name with
+    // unknown details; the next card import can resolve it without losing it from this list.
+    for name in &names {
+        if !resolved.contains_key(name) {
+            cards.entry(key(name, &resolved)).or_insert_with(|| name.trim().to_string());
+        }
+    }
     let canonical = |counts: &Counts| {
         let mut out = HashMap::<String, i64>::new();
         for (n, q) in counts.values() {
-            if let Some(id) = resolved.get(n).filter(|id| cards.contains_key(*id)) {
-                *out.entry(id.clone()).or_default() += q;
+            let id = resolved.get(n).cloned().unwrap_or_else(|| key(n, &resolved));
+            if cards.contains_key(&id) {
+                *out.entry(id).or_default() += q;
             }
         }
         out

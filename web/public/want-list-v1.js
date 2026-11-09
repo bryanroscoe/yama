@@ -14,6 +14,7 @@
   const saveError = root.querySelector('.want-save-error');
   const pending = root.querySelector('.want-pending');
   const pendingList = pending.querySelector('ul');
+  const publicList = root.querySelector('.want-list');
   const allRows = () => [...root.querySelectorAll('.want-row')];
   let generation = 0, controller;
   const apply = () => {
@@ -46,9 +47,10 @@
     if (['spare','owned'].includes(select.value)) select.value = 'all';
     apply();
   };
-  const newRow = (card) => {
+  const newRow = (card, privatePending = false) => {
     const row = document.createElement('li'); row.className = 'want-row'; row.dataset.name = card.name;
-    row.dataset.search = `${card.name} ${card.type_line || ''}`.toLocaleLowerCase(); row.dataset.kind = 'pending'; row.dataset.pending = 'true';
+    row.dataset.search = `${card.name} ${card.type_line || ''}`.toLocaleLowerCase();
+    row.dataset.kind = card.needed ? 'needed' : card.pending ? 'pending' : 'wishlist'; row.dataset.pending = String(!!card.pending || privatePending);
     const link = document.createElement('a'); link.className = 'public-card-ref want-card';
     link.href = `https://scryfall.com/search?q=${encodeURIComponent('!"' + card.name + '"')}`;
     link.dataset.cardName = card.name;
@@ -57,12 +59,14 @@
       const img = document.createElement('img'); img.src = card.image; img.alt = ''; img.loading = 'lazy'; img.width = 64; img.height = 89; link.append(img);
     }
     const words = document.createElement('span'), title = document.createElement('b'), type = document.createElement('small');
-    title.textContent = card.name; type.textContent = card.type_line || ''; words.append(title,type); link.append(words);
+    title.textContent = card.name; type.textContent = (card.type_line || '') + (card.pending_qty ? ` — includes pending upgrades (${card.pending_qty})` : ''); words.append(title,type); link.append(words);
     const quantity = document.createElement('span'); quantity.className = 'want-qty';
-    const qty = document.createElement('b'), label = document.createElement('span'); qty.textContent = String(card.qty); label.textContent = 'planned'; quantity.append(qty,label);
+    const qty = document.createElement('b'), label = document.createElement('span'); qty.textContent = String(card.qty); label.textContent = privatePending ? 'planned' : 'wanted'; quantity.append(qty,label);
     const owned = document.createElement('span'); owned.className = 'want-owned'; owned.hidden = true;
     const price = document.createElement('span'); price.className = 'want-price';
-    price.textContent = card.market == null ? 'No market price' : `$${card.market.toFixed(2)} each${card.market_date ? ', '+card.market_date.slice(0,10) : ''}`;
+    const date = card.market_date ? new Date(card.market_date.slice(0,10)+'T12:00:00Z') : null;
+    const dated = date && !Number.isNaN(date.getTime()) ? new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(date) : '';
+    price.textContent = card.market == null ? 'No market price' : `$${card.market.toFixed(2)} each${dated ? ', '+dated : ''}`;
     row.append(link,quantity,owned,price); return row;
   };
   const load = async () => {
@@ -75,7 +79,12 @@
       const data = await response.json();
       if (current !== generation) return;
       preference.hidden = !data.owner; checkbox.disabled = !data.owner; checkbox.checked = !!data.include_pending;
-      for (const card of data.pending) pendingList.append(newRow(card));
+      if (Array.isArray(data.public)) {
+        publicList.replaceChildren(...data.public.map(card => newRow(card)));
+        const copies = data.public.reduce((n,card) => n+card.qty,0);
+        root.querySelector('.want-heading p').textContent = `${data.public.length} cards, ${copies} copies`;
+      }
+      for (const card of data.pending) pendingList.append(newRow(card,true));
       const cards = new Map(data.cards.map(c => [c.name,c]));
       for (const row of allRows()) {
         const c = cards.get(row.dataset.name) || {copies:0,in_decks:0,proxies:0};

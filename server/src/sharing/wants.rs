@@ -281,6 +281,7 @@ struct OwnedLine {
 }
 #[derive(Serialize)]
 struct OwnedView {
+    public: Vec<WantLine>,
     owner: bool,
     include_pending: bool,
     cards: Vec<OwnedLine>,
@@ -308,7 +309,7 @@ pub(super) async fn owned_route(State(st): State<AppState>, CurrentUser(user): C
     } else {
         vec![]
     };
-    let mut all = public;
+    let mut all = public.clone();
     all.extend(pending.iter().cloned());
     let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
         "SELECT c.name, SUM(CASE WHEN i.proxy = 0 THEN i.qty ELSE 0 END),
@@ -327,6 +328,7 @@ pub(super) async fn owned_route(State(st): State<AppState>, CurrentUser(user): C
         .map(|(name, copies, in_decks, proxies)| OwnedLine { name, copies, in_decks, proxies })
         .collect();
     let mut response = Json(OwnedView {
+        public,
         owner,
         include_pending: sharer.wants_include_pending,
         cards,
