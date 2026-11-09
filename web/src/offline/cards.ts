@@ -84,7 +84,7 @@ async function ask<T>(request: Ask): Promise<T> {
 
 const access = (): Access => ({ apiBase: API_BASE, token: currentToken(), credentials: FETCH_CREDENTIALS });
 
-/** Check the saved copy with the server now and save a changed list ("Update" in Group, You). */
+/** Check the saved copy with the server now and save a changed list ("Update" in Your profile, Account settings). */
 export async function downloadOfflineCards(): Promise<void> {
   if (status.downloading) return;
   set({ downloading: true, error: null });

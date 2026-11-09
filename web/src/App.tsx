@@ -146,7 +146,7 @@ function Shell({ pending = false }: { pending?: boolean }) {
               </NavLink>
             );
           })}
-          {/* Admins only, and only in the laptop rail; phones reach it from Group, You. */}
+          {/* Admins only, and only in the laptop rail; phones reach it from Your profile, Account settings. */}
           {!pending && me.data?.is_admin && (
             <NavLink to="/admin" className="nav-admin">
               <AdminIcon />

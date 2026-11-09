@@ -28,5 +28,7 @@ describe("deleting your own account", () => {
     expect(html).toContain("What is deleted");
     expect(html).toContain("not affiliated with, endorsed by, or sponsored by Wizards of the Coast");
     expect(page("privacy/index.html")).toContain('href="/delete-account/"');
+    expect(page("privacy/index.html")).toContain('href="/profile#delete-account"');
+    expect(page("privacy/index.html")).not.toContain("Group, You");
   });
 });
