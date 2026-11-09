@@ -1,14 +1,12 @@
-import { CardHover, CardRef } from "../components/CardRef";
 import { SinglesPrice } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { bottom, draw, expandDeck, GROUP_ORDER, groupOf, identityName, newHand, rng, type Goldfish } from "@yama/core";
+import { bottom, draw, expandDeck, newHand, rng, type Goldfish } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, priceSource, shortDate, usd, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, priceSource, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
-import { Crop } from "../components/Crop";
 import { CardImage, ErrorText, Pips } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
@@ -16,7 +14,7 @@ import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView, type PlanView } from "../plan/view";
 import "./decks.css";
-import { ArtPanel, ArtCredits, artCredit, artCredits } from "../components/ArtPanel";
+import { ArtPanel, ArtCredits, artCredit } from "../components/ArtPanel";
 import { BracketChips } from "../components/Bracket";
 import { useDeckAnalysis } from "../decks/DeckAnalysis";
 import { DeckStatsTab } from "../decks/DeckStatsTab";
@@ -37,8 +35,8 @@ import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
+import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
 import { boxBracket, bracketSwaps, SwapPanel } from "../decks/BracketSwaps";
-import { DeckPriceList } from "../decks/DeckPriceList";
 import { usePlaygroupVariants } from "../decks/PlaygroupBuilds";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
@@ -148,11 +146,6 @@ function DeckTile({ d }: { d: DeckSummary }) {
   );
 }
 
-/** How many cards a collapsed stack shows before "Show all". */
-const STACK_PEEK = 6;
-
-type Layout = "stacks" | "list" | "prices";
-
 export function DeckPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -167,29 +160,8 @@ export function DeckPage() {
   });
   const prefetch = (other: string) => void qc.prefetchQuery({ queryKey: ["deck", other], queryFn: ({ signal }) => api<DeckView>(`/api/decks/${other}`, { signal }), staleTime: 30_000 });
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
-  const [view, setView] = useState<"all" | "needed">("all");
-  const [layout, setLayoutState] = useState<Layout>(() => {
-    let saved: string | null = null;
-    try {
-      saved = localStorage.getItem("yama.deck.layout");
-    } catch {
-      // Storage blocked: start from the default.
-    }
-    if (saved === "stacks" || saved === "list" || saved === "prices") return saved;
-    return window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list";
-  });
-  const setLayout = (l: Layout) => {
-    if (l === "prices") setView("all");
-    try {
-      localStorage.setItem("yama.deck.layout", l);
-    } catch {
-      // Storage blocked: the choice lasts for this page.
-    }
-    setLayoutState(l);
-  };
+  const cards = useCardControls();
   const [open, setOpen] = useState<string | null>(null);
-  const [preview, setPreview] = useState<DeckEntry | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState(false);
   const [goldfish, setGoldfish] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -237,16 +209,6 @@ export function DeckPage() {
     setOpen(null);
   }, [id]);
 
-  const groups = useMemo(() => {
-    const map = new Map<string, DeckEntry[]>();
-    for (const e of deck.data?.cards ?? []) {
-      if (view === "needed" && e.needed === 0) continue;
-      const g = groupOf(e.board, e.card?.type_line);
-      map.set(g, [...(map.get(g) ?? []), e]);
-    }
-    return GROUP_ORDER.filter((g) => map.has(g)).map((g) => [g, map.get(g)!.sort((a, b) => (a.card?.cmc ?? 0) - (b.card?.cmc ?? 0) || a.name.localeCompare(b.name))] as const);
-  }, [deck.data, view]);
-
   if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
   const d = deck.data;
   if (!d) return <main className="page" />;
@@ -256,12 +218,10 @@ export function DeckPage() {
   const commander = commanderEntries.find((e) => e.card?.image_art_crop)?.card;
   const summary = decks.data?.find((x) => x.id === d.id);
   const priced = priceSource(o.price_date);
-  const shown = preview ?? commanderEntries[0] ?? d.cards[0] ?? null;
   const openByName = (name: string) => {
     const hit = d.cards.find((c) => c.name === name);
     if (hit) setOpen(hit.oracle_id);
   };
-  const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
   const status = deckStatus(d);
   // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
@@ -280,7 +240,7 @@ export function DeckPage() {
   const checkActions = <>
     <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
     <Link to={`/decks/${d.id}/scan`}><span>Scan the box as the list</span><span className="more-menu-note">Saves a version</span></Link>
-    <button onClick={() => { if (layout === "prices") setLayout(window.matchMedia("(min-width: 900px)").matches ? "stacks" : "list"); setView("needed"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></button>
+    <button onClick={() => { cards.setShow("need"); if (tab !== "cards") navigate(tabHref("cards")); }}><span>Compare with my collection</span><span className="more-menu-note">Still need</span></button>
   </>;
   const moreActions = <>
     <button onClick={() => navigate("/", { state: { deckId: d.id } })}>Play</button>
@@ -378,125 +338,21 @@ export function DeckPage() {
         {atSwaps && plan && (tab === "cards" || tab === "stats") && (
           <SwapPanel at={atSwaps.bracket} swaps={atSwaps.swaps} view={plan.view} printHref={`/decks/builds?savedDeck=${d.id}&from=${encodeURIComponent(`saved:${d.id}`)}&to=${encodeURIComponent(`plan:${plan.deck.key}:b${atSwaps.bracket}`)}`} backHref={atHref(null)} />
         )}
-        {tab === "cards" && (<>
-        <div className="deck-toolbar">
-          {layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
-            <button role="tab" aria-selected={view === "all"} onClick={() => setView("all")}>Whole deck</button>
-            <button role="tab" aria-selected={view === "needed"} onClick={() => setView("needed")}>Still need {o.needed}</button>
-          </div>}
-          <div className="deck-layout" role="group" aria-label="View">
-            <button aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
-            <button aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
-            <button aria-pressed={layout === "prices"} onClick={() => setLayout("prices")}>Prices</button>
-          </div>
-        </div>
-
-        {groups.length === 0 && layout !== "prices" && <p className="empty">Nothing left to get for this deck.</p>}
-
-        {layout === "prices" && <DeckPriceList key={d.id} deck={d} onOpen={setOpen} />}
-        {layout === "prices" ? null : layout === "stacks" ? (
-          <div className="deck-stacks-wrap">
-            <div className="deck-stacks">
-              {groups.map(([group, entries]) => {
-                const count = entries.reduce((a, e) => a + e.qty, 0);
-                const need = entries.reduce((a, e) => a + e.needed, 0);
-                const all = expanded.has(group) || entries.length <= STACK_PEEK + 1;
-                const cards = all ? entries : entries.slice(0, STACK_PEEK);
-                return (
-                  <section key={group} className="deck-stack" aria-label={group}>
-                    <h2>
-                      {group} <span className="deck-stack-meta num">{count}{need && view === "all" ? `, need ${need}` : ""}</span>
-                    </h2>
-                    <div className="stack-cards">
-                      {cards.map((e) => (
-                        <button
-                          key={`${e.oracle_id}-${e.board}`}
-                          className="stack-card"
-                          onClick={() => setOpen(e.oracle_id)}
-                          onMouseEnter={() => setPreview(e)}
-                          onFocus={() => setPreview(e)}
-                          aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}${outAt.has(e.name) ? `, out at Bracket ${atSwaps!.bracket}` : ""}`}
-                        >
-                          <CardHover name={e.name} oracleId={e.oracle_id} image={e.card?.image_normal}><CardImage src={e.card?.image_normal} name={e.name}/></CardHover>
-                          {/* Still needed: an amber dot just off the card's left edge, so the mana cost stays clear. */}
-                          {e.needed > 0 && <span className="need-dot" aria-hidden="true" title={`Need ${e.needed}`} />}
-                          {e.qty > 1 && <span className="qty-badge num">×{e.qty}</span>}
-                          {outAt.has(e.name) && <span className="out-badge">Out at Bracket {atSwaps!.bracket}</span>}
-                        </button>
-                      ))}
-                    </div>
-                    {entries.length > STACK_PEEK + 1 && (
-                      <button
-                        className="small stack-more"
-                        onClick={() => setExpanded((cur) => {
-                          const next = new Set(cur);
-                          if (next.has(group)) next.delete(group);
-                          else next.add(group);
-                          return next;
-                        })}
-                      >
-                        {expanded.has(group) ? "Show fewer" : `Show all ${entries.length}`}
-                      </button>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-            {shown && (
-              <aside className="deck-preview" aria-label="Card preview">
-                <CardImage src={shown.card?.image_normal} name={shown.name} />
-                <div className="deck-preview-facts">
-                  <b><CardRef name={shown.name} oracleId={shown.oracle_id} image={shown.card?.image_normal}/></b>
-                  <CardStatus e={shown} />
-                  {shown.board !== "side" && (
-                    <span>
-                      {shown.cheapest_usd != null ? <>Cheapest {usd(shown.cheapest_usd)} </> : "No price "}
-                      <span className="dim">{priced}</span>
-                    </span>
-                  )}
-                  {plan && <PlanCardLine plan={plan} name={shown.name} />}
-                </div>
-              </aside>
-            )}
-          </div>
-        ) : (
-          <>
-            {groups.map(([group, entries]) => (
-              <section key={group} className="deck-group">
-                <h2 className="deck-group-head">
-                  {group} <span className="deck-stack-meta num">{entries.reduce((a, e) => a + e.qty, 0)}</span>
-                </h2>
-                <div className="deck-rows">
-                  {entries.map((e) => (
-                    <button key={`${e.oracle_id}-${e.board}`} className="deck-row" onClick={() => setOpen(e.oracle_id)}>
-                      <Crop src={e.card?.image_art_crop} size="sm" />
-                      <span className="deck-row-text">
-                        <span className="deck-row-name">
-                          {e.qty > 1 ? `${e.qty} ` : ""}
-                          <CardHover name={e.name} oracleId={e.oracle_id} image={e.card?.image_normal}/>
-                        </span>
-                        <CardStatus e={e} small plan={plan} />
-                      </span>
-                      <span className="deck-row-state num">
-                        {outAt.has(e.name) && <span className="out-note">Out at Bracket {atSwaps!.bracket}</span>}
-                        {e.needed > 0 ? <span className="need">Need{e.needed > 1 ? ` ${e.needed}` : ""}</span> : <span className="have">Have</span>}
-                        {e.needed > 0 && <span className="dim">{usd(e.cheapest_usd)}</span>}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </>
+        {tab === "cards" && (
+          <DeckCardsTab
+            deck={d}
+            controls={cards}
+            outAt={outAt}
+            atBracket={atSwaps?.bracket ?? null}
+            status={(e) => <CardStatus e={e} small plan={plan} />}
+            onOpen={setOpen}
+          />
         )}
-
-        </>)}
 
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
         {tab === "stats" && <DeckStatsTab deck={d} onCard={openByName} />}
         {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} />{plan?.sim && <p className="deck-sim">{plan.sim}</p>}</section>}
         {tab === "history" && <section className="deck-history-tab" aria-label="History"><DeckHistoryBody deckId={d.id} currentVersionId={d.version_id} /></section>}
-        {tab === "cards" && <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>}
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
       </div>
 

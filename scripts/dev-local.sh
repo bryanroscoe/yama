@@ -30,7 +30,8 @@ shots=0
 paths=()
 polish_extra=()
 api_port=8787
-web_port=5173
+# YAMA_LOCAL_WEB_PORT moves the web app off 5173 when another project holds it.
+web_port="${YAMA_LOCAL_WEB_PORT:-5173}"
 
 die() { echo "dev-local: $*" >&2; exit 1; }
 say() { printf 'dev-local: %s\n' "$*"; }
@@ -206,7 +207,7 @@ wait_for() { # URL PID LOG NAME
 }
 wait_for "http://127.0.0.1:$api_port/api/health" "$server_pid" "$logs/server.log" 'the server' || exit 1
 
-env "${web_env[@]}" npm run dev -w web -- --strictPort > "$logs/web.log" 2>&1 &
+env "${web_env[@]}" npm run dev -w web -- --strictPort --port "$web_port" > "$logs/web.log" 2>&1 &
 web_pid=$!
 wait_for "http://localhost:$web_port/" "$web_pid" "$logs/web.log" 'the web app' || exit 1
 

@@ -411,18 +411,3 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
-.deck-page .out-badge {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
-  font-size: 0.75rem;
-  font-weight: 700;
-  background: var(--art-chip);
-  color: var(--warn);
-}
-.deck-page .out-note {
-  font-size: var(--t-xs);
-  color: var(--warn);
-}
