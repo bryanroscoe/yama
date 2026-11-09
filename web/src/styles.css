@@ -1999,12 +1999,12 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .deck-hero.art-none .hero-status {
   color: var(--text);
 }
-.deck-tiles {
+.deck-head-tiles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
-.deck-page .deck-tile {
+.deck-page .deck-head-tile {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2017,21 +2017,21 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   text-decoration: none;
   line-height: 1.2;
 }
-.deck-page .deck-tile:hover {
+.deck-page .deck-head-tile:hover {
   background: var(--raised);
 }
-.deck-tile-label {
+.deck-head-tile-label {
   font-size: var(--t-xs);
   font-weight: 700;
   color: var(--dim);
 }
-.deck-tile b {
+.deck-head-tile b {
   font-family: var(--display);
   font-weight: 800;
   font-size: 1.875rem;
   line-height: 1.1;
 }
-.deck-tile-note {
+.deck-head-tile-note {
   font-size: var(--t-xs);
   color: var(--dim);
   overflow-wrap: anywhere;
@@ -2120,21 +2120,21 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   gap: 8px;
 }
 @media (min-width: 900px) {
-  .deck-tiles {
+  .deck-head-tiles {
     grid-template-columns: repeat(3, minmax(150px, 1fr));
   }
-  .deck-hero .deck-tile {
+  .deck-hero .deck-head-tile {
     border-color: rgb(255 255 255 / 0.12);
     background: rgb(11 12 14 / 0.82);
   }
-  .deck-hero .deck-tile:hover {
+  .deck-hero .deck-head-tile:hover {
     background: rgb(11 12 14 / 0.92);
   }
-  .deck-hero .deck-tile-label,
-  .deck-hero .deck-tile-note {
+  .deck-hero .deck-head-tile-label,
+  .deck-hero .deck-head-tile-note {
     color: var(--on-art-dim);
   }
-  .deck-tile b {
+  .deck-head-tile b {
     font-size: 2.125rem;
   }
   .deck-actionbar {

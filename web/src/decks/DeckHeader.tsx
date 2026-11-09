@@ -49,23 +49,25 @@ export function DeckTiles({ deck, summary, measures, hrefFor }: { deck: DeckView
   const declared = deck.bracket;
   const measured = measures != null ? `measures ${measures}` : null;
   return (
-    <div className="deck-tiles">
-      <Link className="deck-tile" to={hrefFor("stats")}>
-        <span className="deck-tile-label">Bracket</span>
+    <div className="deck-head-tiles">
+      <Link className="deck-head-tile" to={hrefFor("stats")}>
+        <span className="deck-head-tile-label">Bracket</span>
         <b className="num">{declared ?? "None"}</b>
-        <span className="deck-tile-note">
+        <span className="deck-head-tile-note">
           {declared != null ? [bracketName(declared), measured].filter(Boolean).join(", ") : measured ? `Not declared, ${measured}` : "Not declared"}
         </span>
       </Link>
-      <Link className="deck-tile" to={hrefFor("stats")}>
-        <span className="deck-tile-label">Value</span>
+      <Link className="deck-head-tile" to={hrefFor("stats")}>
+        <span className="deck-head-tile-label">Value</span>
         <b className="num">{value?.usd != null ? usd(value.usd) : "No price"}</b>
-        <span className="deck-tile-note">{value?.newest_date ? `${value.source}, ${shortDate(value.newest_date)}` : "Market, singles"}</span>
+        <span className="deck-head-tile-note">
+          {[value?.usd != null && value.unpriced_copies > 0 ? `Partial, ${value.unpriced_copies} without a price` : null, value?.newest_date ? `${value.source}, ${shortDate(value.newest_date)}` : "Market, singles"].filter(Boolean).join(". ")}
+        </span>
       </Link>
-      <Link className="deck-tile" to={hrefFor("history")}>
-        <span className="deck-tile-label">Record</span>
+      <Link className="deck-head-tile" to={hrefFor("history")}>
+        <span className="deck-head-tile-label">Record</span>
         <b className="num">{rec.big}</b>
-        <span className="deck-tile-note">{rec.line}</span>
+        <span className="deck-head-tile-note">{rec.line}</span>
       </Link>
     </div>
   );
