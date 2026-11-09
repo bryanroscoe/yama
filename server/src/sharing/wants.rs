@@ -24,6 +24,7 @@ pub(crate) struct WantLine {
     /// Otherwise one they'd pick up along the way, or a real copy for the wishlist.
     pub(crate) needed: bool,
     pub(crate) pending: bool,
+    pub(crate) pending_qty: i64,
     pub(crate) image: Option<String>,
     pub(crate) type_line: Option<String>,
     /// The card's cheapest non-foil market price and its date; none is unknown, never $0.
@@ -108,7 +109,7 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
         .await?
         .into_iter()
         .collect();
-    let mut merged: HashMap<String, (WantLine, i64, i64, i64)> = HashMap::new();
+    let mut merged: HashMap<String, (WantLine, i64, i64, i64, i64)> = HashMap::new();
     for (name, qty, needed, pending, source) in named {
         let f = super::research::found(&found, &name);
         let key = f.map_or_else(|| format!("name:{}", name.to_lowercase()), |f| f.5.clone());
@@ -120,6 +121,7 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
                     qty: 0,
                     needed: false,
                     pending: false,
+                    pending_qty: 0,
                     image: f.and_then(|f| f.4.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
                     type_line: f.and_then(|f| f.1.clone()),
                     market: None,
@@ -128,20 +130,23 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
                 0,
                 0,
                 0,
+                0,
             )
         });
         match source {
             0 => entry.1 += qty,
             1 => entry.2 = entry.2.max(qty),
-            _ => entry.3 = entry.3.max(qty),
+            _ if pending => entry.4 += qty,
+            _ => entry.3 += qty,
         };
         entry.0.needed |= needed;
         entry.0.pending |= pending;
     }
     let mut out: Vec<WantLine> = merged
         .into_values()
-        .map(|(mut line, manual, wishlist, derived)| {
-            line.qty = manual + wishlist.max(derived);
+        .map(|(mut line, manual, wishlist, confirmed, pending)| {
+            line.qty = manual + wishlist.max(confirmed + pending);
+            line.pending_qty = pending;
             line
         })
         .collect();
@@ -185,13 +190,13 @@ fn card_row(l: &WantLine) -> String {
         _ => "No market price".into(),
     };
     format!(
-        "<li class=\"want-row\" data-name=\"{}\" data-search=\"{}\" data-kind=\"{}\"><a class=\"public-card-ref want-card\" data-card-name=\"{}\" data-card-image=\"{}\" href=\"{}\">{image}<span><b>{}</b><small>{}</small></span></a><span class=\"want-qty\"><b>{}</b><span>wanted</span></span><span class=\"want-owned\" hidden></span><span class=\"want-price\">{}</span></li>",
+        "<li class=\"want-row\" data-name=\"{}\" data-search=\"{}\" data-kind=\"{}\" data-pending=\"{has_pending}\"><a class=\"public-card-ref want-card\" data-card-name=\"{}\" data-card-image=\"{}\" href=\"{}\">{image}<span><b>{}</b><small>{}</small></span></a><span class=\"want-qty\"><b>{}</b><span>wanted</span></span><span class=\"want-owned\" hidden></span><span class=\"want-price\">{}</span></li>",
         e(&l.name),
         e(&format!("{} {}", l.name, l.type_line.as_deref().unwrap_or_default()).to_lowercase()),
-        if l.pending {
-            "pending"
-        } else if l.needed {
+        if l.needed {
             "needed"
+        } else if l.pending {
+            "pending"
         } else {
             "wishlist"
         },
@@ -202,10 +207,15 @@ fn card_row(l: &WantLine) -> String {
         e(&format!(
             "{}{}",
             l.type_line.as_deref().unwrap_or_default(),
-            if l.pending { " — includes pending upgrades" } else { "" }
+            if l.pending {
+                format!(" — includes pending upgrades ({})", l.pending_qty)
+            } else {
+                String::new()
+            }
         )),
         l.qty,
-        e(&price)
+        e(&price),
+        has_pending = l.pending,
     )
 }
 
@@ -286,6 +296,7 @@ pub(super) async fn owned_route(State(st): State<AppState>, CurrentUser(user): C
                 let already = public.iter().find(|p| p.name == l.name).map_or(0, |p| p.qty);
                 l.qty -= already;
                 l.pending = true;
+                l.pending_qty = l.qty;
                 (l.qty > 0).then_some(l)
             })
             .collect()
@@ -499,7 +510,14 @@ pub(crate) fn text(c: &Compare) -> String {
         (Some(p), Some(d)) => format!("{} market on {d}", usd(Some(p))),
         _ => "no market price".into(),
     };
-    let wants = |w: &WantLine| format!("{} wanted{}", w.qty, if w.needed { "" } else { ", along the way or wishlist" });
+    let wants = |w: &WantLine| {
+        format!(
+            "{} wanted{}{}",
+            w.qty,
+            if w.needed { "" } else { ", along the way or wishlist" },
+            if w.pending_qty > 0 { format!(", {} pending", w.pending_qty) } else { String::new() }
+        )
+    };
     if c.wants_public {
         let _ = writeln!(out, "@{h}'s want list: {} cards. This account owns real copies of {}:", c.their_wants, c.you_have.len());
         for m in &c.you_have {

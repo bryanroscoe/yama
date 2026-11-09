@@ -1310,7 +1310,12 @@ async fn owner_overlay_keeps_pending_copies_when_card_also_has_confirmed_demand(
     let (status,_) = send(&app,Method::PUT,"/api/sharing/wants/pending-copies/pending",Some(&auth),Some(json!({"enabled":true}))).await;
     assert_eq!(status,StatusCode::OK);
     assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"2 Sol Ring\n");
-    assert!(page(&app,"/u/pending-copies/wants").await.2.contains("includes pending upgrades"));
+    let html = page(&app,"/u/pending-copies/wants").await.2;
+    assert!(html.contains("includes pending upgrades"));
+    assert!(html.contains("data-kind=\"needed\" data-pending=\"true\""));
+    let (_,lines) = super::wants::shared_wants(&pool,"pending-copies").await.unwrap();
+    assert!(lines[0].needed);
+    assert_eq!(lines[0].pending_qty,1);
     let after = send(&app,Method::GET,"/api/plan/bundle",Some(&auth),None).await.1;
     assert_eq!(before["decks"][0]["plan"],after["decks"][0]["plan"]);
     assert_eq!(before["reviews"],after["reviews"]);
@@ -1354,7 +1359,7 @@ async fn real_copy_in_one_target_and_order_for_another_are_distinct_coverage() {
         sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":id,"name":n,"qty":1,"board":"main"}]).to_string()).bind(v).execute(&pool).await.unwrap();
     }
     let (_,box_) = send(&app,Method::POST,"/api/containers",Some(&auth),Some(json!({"kind":"deck","name":"Second target"}))).await;
-    sqlx::query("UPDATE decks SET container_id=? WHERE id=?").bind(box_["id"].as_str().unwrap()).bind(b).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE decks SET container_id=? WHERE id=?").bind(box_["id"].as_str().unwrap()).bind(&b).execute(&pool).await.unwrap();
     copies(&app,&auth,"already-in-second","p-new",1,false,Some(&box_["id"])).await;
     let plan = json!({"decks":[{"key":"a","yama_deck":{"id":a},"states":{"stock":{"cards":[{"name":"Old"}]}},"plan":{"state":"in_progress"}}],
         "swaps":[{"key":"ordered","deck":"a","stage":"planned","role":"swap","src":"buy","out":"Old","in":"New","order_item":{"order":"o","line":1}}]});
@@ -1364,6 +1369,11 @@ async fn real_copy_in_one_target_and_order_for_another_are_distinct_coverage() {
     moved["swaps"][0]["got"] = json!({"how":"deck","deck":"second"});
     // Reusing the second deck's only copy cannot fulfill both physical deck targets.
     assert_eq!(super::want_sources::needs(&pool,&owner,&moved,false).await.unwrap(),vec![("New".into(),1,false)]);
+    moved["decks"].as_array_mut().unwrap().push(json!({"key":"second","yama_deck":{"id":b},"states":{"stock":{"cards":[{"name":"New"}]}},"plan":{"state":"in_progress"}}));
+    moved["swaps"].as_array_mut().unwrap().push(json!({"key":"donor-cut","deck":"second","stage":"planned","role":"swap","src":"print","in":"Old","out":"New"}));
+    copies(&app,&auth,"donor-replacement","p-old",1,false,None).await;
+    // Its approved cut releases the real boxed New for the destination; no second copy needed.
+    assert!(super::want_sources::needs(&pool,&owner,&moved,false).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1388,7 +1398,10 @@ async fn pending_repeated_nonbasic_additions_keep_every_copy() {
         "plan":{"state":"in_progress","next":{"keys":["r1","r2"],"skipped":[]}}}],
         "swaps":[{"key":"r1","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Rat Colony","out":"Plains"},
                   {"key":"r2","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}]});
-    assert_eq!(super::want_sources::needs(&pool,&owner,&b,true).await.unwrap(),vec![("Rat Colony".into(),3,true)]);
+    let rows = super::want_sources::needs(&pool,&owner,&b,true).await.unwrap();
+    assert_eq!(rows.len(),2);
+    assert!(rows.contains(&("Rat Colony".into(),1,false)));
+    assert!(rows.contains(&("Rat Colony".into(),2,true)));
 }
 
 #[tokio::test]

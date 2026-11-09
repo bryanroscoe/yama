@@ -24,7 +24,7 @@
       row.hidden = !terms.every(t => row.dataset.search.includes(t)) ||
         (mode === 'needed' && row.dataset.kind !== 'needed') ||
         (mode === 'wishlist' && row.dataset.kind !== 'wishlist') ||
-        (mode === 'pending' && row.dataset.kind !== 'pending') ||
+        (mode === 'pending' && row.dataset.pending !== 'true' && row.dataset.kind !== 'pending') ||
         (mode === 'spare' && !(Number(row.dataset.spare) > 0)) ||
         (mode === 'owned' && !(Number(row.dataset.owned) > 0));
       if (!row.hidden) shown++;
@@ -48,7 +48,7 @@
   };
   const newRow = (card) => {
     const row = document.createElement('li'); row.className = 'want-row'; row.dataset.name = card.name;
-    row.dataset.search = `${card.name} ${card.type_line || ''}`.toLocaleLowerCase(); row.dataset.kind = 'pending';
+    row.dataset.search = `${card.name} ${card.type_line || ''}`.toLocaleLowerCase(); row.dataset.kind = 'pending'; row.dataset.pending = 'true';
     const link = document.createElement('a'); link.className = 'public-card-ref want-card';
     link.href = `https://scryfall.com/search?q=${encodeURIComponent('!"' + card.name + '"')}`;
     link.dataset.cardName = card.name;

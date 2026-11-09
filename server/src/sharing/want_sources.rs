@@ -71,12 +71,24 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         .collect();
     let answers = crate::plan::trip::answers(b, &live);
     let bought = crate::plan::trip::bought(b, &live);
+    let roots: HashMap<String, String> = b["decks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|d| {
+            (
+                text(d, "key").to_string(),
+                d["yama_deck"]["id"].as_str().map(String::from).unwrap_or_else(|| format!("plan:{}", text(d, "key"))),
+            )
+        })
+        .collect();
+    let mut transfers: Vec<(String, String, String)> = Vec::new();
     for d in b["decks"].as_array().into_iter().flatten() {
         if d["status"] == "archived" || d["plan"]["state"] == "archived" {
             continue;
         }
         let id = d["yama_deck"]["id"].as_str().map(String::from).unwrap_or_else(|| format!("plan:{}", text(d, "key")));
-        let t = targets.entry(id).or_insert_with(|| Target {
+        let t = targets.entry(id.clone()).or_insert_with(|| Target {
             cards: list(&d["states"]["stock"]["cards"]),
             ..Default::default()
         });
@@ -97,6 +109,10 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             let accepted = s["stage"] == "planned" || (fresh && r["decision"] == "want" && matches!(d["plan"]["state"].as_str(), Some("in_progress" | "done")));
             if accepted {
                 let inn = text(s, "in");
+                if s["src"] == "owned" && s["got"]["how"] == "deck" {
+                    let donor = text(&s["got"], "deck");
+                    transfers.push((id.clone(), roots.get(donor).cloned().unwrap_or_else(|| donor.to_string()), inn.to_string()));
+                }
                 add(&mut adds, inn, 1);
                 let cut = r["cut"].as_str().filter(|c| !c.is_empty()).or(s["out"].as_str());
                 if let Some(cut) = cut {
@@ -167,7 +183,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         }
     }
     let mut gaps = Vec::new();
-    for t in targets.values() {
+    for (root, t) in &targets {
         let acquired = canonical(&t.acquired);
         for (id, q) in canonical(&t.cards) {
             let in_box = t.container.as_ref().and_then(|c| boxed.get_mut(&(c.clone(), id.clone()))).map_or(0, |n| {
@@ -180,23 +196,39 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             // those first; physically distinct copies in another target's box are untouched.
             let spare = free.entry(id.clone()).or_default();
             *spare = (*spare - (credit - in_box)).max(0);
-            gaps.push((id, q - credit, false));
+            gaps.push((root.clone(), id, q - credit, false));
         }
     }
-    for t in targets.values() {
+    // A donor's confirmed target keeps its copies first. Only a real copy left over after
+    // that allocation can fulfill an explicitly approved transfer to another target.
+    for (destination, donor, name) in transfers {
+        let Some(card) = resolved.get(&name) else { continue };
+        let Some(container) = targets.get(&donor).and_then(|t| t.container.as_ref()) else {
+            continue;
+        };
+        let Some(available) = boxed.get_mut(&(container.clone(), card.clone())) else { continue };
+        if *available <= 0 {
+            continue;
+        }
+        if let Some((_, _, need, _)) = gaps.iter_mut().find(|(root, id, q, pending)| root == &destination && id == card && *q > 0 && !pending) {
+            *need -= 1;
+            *available -= 1;
+        }
+    }
+    for (root, t) in &targets {
         for (id, q) in canonical(&t.pending) {
             let in_box = t.container.as_ref().and_then(|c| boxed.get_mut(&(c.clone(), id.clone()))).map_or(0, |n| {
                 let used = (*n).min(q);
                 *n -= used;
                 used
             });
-            gaps.push((id, q - in_box, true));
+            gaps.push((root.clone(), id, q - in_box, true));
         }
     }
     // Confirmed needs take spare copies before speculative upgrades do.
-    gaps.sort_by_key(|(_, _, pending)| *pending);
+    gaps.sort_by_key(|(_, _, _, pending)| *pending);
     let mut missing = HashMap::<String, (i64, i64)>::new();
-    for (id, q, pending) in gaps {
+    for (_, id, q, pending) in gaps {
         let spare = free.entry(id.clone()).or_default();
         let used = q.min(*spare);
         *spare -= used;
@@ -209,6 +241,12 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
     }
     Ok(missing
         .into_iter()
-        .filter_map(|(id, (now, later))| (now + later > 0).then(|| (cards[&id].clone(), now + later, later > 0)))
+        .flat_map(|(id, (now, later))| {
+            [(now, false), (later, true)]
+                .into_iter()
+                .filter(|(qty, _)| *qty > 0)
+                .map(move |(qty, pending)| (id.clone(), qty, pending))
+        })
+        .map(|(id, qty, pending)| (cards[&id].clone(), qty, pending))
         .collect())
 }
