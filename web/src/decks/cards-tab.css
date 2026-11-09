@@ -1,0 +1,275 @@
+/* The deck page's Cards tab (decks/DeckCardsTab.tsx; SPEC 1b, board Deck). */
+.cards-tab {
+  --type-0: #f2efe8;
+  --type-1: #d8d5ce;
+  --type-2: #bebbb5;
+  --type-3: #a5a29d;
+  --type-4: #8d8b86;
+  --type-5: #767470;
+  --type-6: #605f5b;
+  --type-7: #4c4b48;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.cards-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cards-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.cards-control-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.cards-tab .seg {
+  display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+}
+.cards-tab .seg > button {
+  min-height: calc(var(--target) - 6px);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cards-tab .seg > button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--ground);
+}
+.cards-total {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-left: auto;
+  font-size: var(--t-sm);
+}
+.cards-tab .cards-copy {
+  min-height: var(--target);
+}
+.type-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.type-bar-track {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.type-bar-track > span {
+  flex-basis: 0;
+}
+.type-bar-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+.type-bar-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--target-compact);
+  font-size: var(--t-sm);
+  color: var(--text);
+  text-decoration: none;
+}
+.type-bar-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.cards-empty {
+  margin: 0;
+  padding: 24px;
+  border: 2px dashed var(--line);
+  border-radius: 16px;
+  color: var(--dim);
+  text-align: center;
+}
+.cards-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-margin-top: calc(var(--sticky-top) + 64px);
+}
+.cards-group-head {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+.cards-group-head > button {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.cards-group-title {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.375rem;
+}
+.cards-group-head .num {
+  font-family: var(--body);
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+.cards-group-price {
+  margin-left: auto;
+}
+.cards-group-chev {
+  align-self: center;
+  color: var(--dim);
+  transition: transform 0.15s;
+}
+.cards-group-head > button[aria-expanded="false"] .cards-group-chev {
+  transform: rotate(-90deg);
+}
+.cards-pictures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 12px;
+}
+.cards-tab .cards-picture {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+.cards-picture .card-img,
+.cards-picture .card-fallback {
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  border-radius: 6px;
+}
+.card-chip {
+  align-self: flex-start;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.card-chip.need {
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn), transparent 55%);
+}
+.card-chip.proxy {
+  color: var(--dim);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.card-chip.out {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn), transparent 86%);
+}
+.cards-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.cards-tab .cards-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-weight: 400;
+}
+.cards-tab .cards-row:first-child {
+  border-top: 0;
+}
+.cards-row-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cards-row-name {
+  overflow-wrap: anywhere;
+}
+.cards-row-price {
+  min-width: 56px;
+  text-align: right;
+  font-size: var(--t-sm);
+}
+.cards-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.cards-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+.cards-table th,
+.cards-table td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+.cards-table thead th {
+  border-top: 0;
+  color: var(--dim);
+  font-weight: 700;
+}
+.cards-table .num {
+  text-align: right;
+}
+.cards-tab .cards-table-name {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+}
+.cards-credits {
+  margin: 0;
+  font-size: var(--t-xs);
+}
