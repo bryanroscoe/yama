@@ -1,6 +1,7 @@
 import { identityKeys, MANA } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { errorMessage } from "../api";
 
 export function Pips({ identity, label = true }: { identity: string; label?: boolean }) {
   const keys = identityKeys(identity);
@@ -94,5 +95,5 @@ export function Details({ children, label = "Details", className = "" }: { child
 
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
-  return <p className="error" role="alert">{error instanceof Error ? error.message : String(error)}</p>;
+  return <p className="error" role="alert">{errorMessage(error)}</p>;
 }

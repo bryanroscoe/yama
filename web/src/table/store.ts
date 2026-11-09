@@ -14,7 +14,7 @@ import {
   type TableState,
 } from "@yama/core";
 import { useSyncExternalStore } from "react";
-import { api, ApiError } from "../api";
+import { api, ApiError, errorMessage, unanswered } from "../api";
 import { isViewing } from "../viewingFlag";
 import { isGuest } from "../guest";
 import { keepStorage } from "../storage";
@@ -636,7 +636,8 @@ export function sync(): Promise<void> {
       }
       syncState = { syncing: false, error: null, lastSyncedAt: new Date().toISOString() };
     } catch (e) {
-      syncState = { ...syncState, syncing: false, error: e instanceof Error ? e.message : String(e) };
+      // Yama didn't answer (fetch's own error): the games are safe here and upload on their own later.
+      syncState = { ...syncState, syncing: false, error: unanswered(e) ? "Yama didn't answer. The games stay on this device, and it tries again on its own." : errorMessage(e) };
     } finally {
       inflight = null;
       syncState = { ...syncState, syncing: false };

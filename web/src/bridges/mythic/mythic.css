@@ -1,5 +1,7 @@
 /* The Mythic Tools import (MythicImport.tsx). */
-.mythic-import { max-width: 52rem; }
+/* A readable measure for the import's text, with the page itself where every other page is
+   (a narrower .page would centre apart from the rest). */
+.mythic-import > * { max-width: 52rem; }
 /* Code keeps its lines and indentation; a phone scrolls it sideways instead of wrapping. */
 .mythic-snippet {
   white-space: pre;

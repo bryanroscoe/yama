@@ -82,6 +82,20 @@ export async function apiBlob(path: string): Promise<Blob> {
   return (await apiResponse(path)).blob();
 }
 
+/** fetch never got an answer: offline, or the server is down. */
+export function unanswered(e: unknown): boolean {
+  return e instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(e.message);
+}
+
+/**
+ * An error in words for a person. fetch's own "Failed to fetch" (Chrome) or "Load failed"
+ * (Safari) means the request never got an answer: say that, not the browser's words.
+ */
+export function errorMessage(e: unknown): string {
+  if (unanswered(e)) return "Yama didn't answer. Check the connection and try again.";
+  return e instanceof Error ? e.message : String(e);
+}
+
 /**
  * A JSON (or text) answer from Yama's server. Pass a query's `signal` in `init` (React Query gives
  * one to every query function) so a search that's been typed past, or a page that's been left, stops

@@ -48,6 +48,8 @@ npm run polish -- shoot --base http://localhost:5173 --as bryanroscoe@gmail.com 
 npm run polish -- shoot --base https://yama.saget.org --as bryanroscoe@gmail.com /decks   # production, over SSH session
 ```
 
+Every run fires Chrome's install prompt, as a first visit does; `--states all` adds passes for an iPhone, the installed app, a returning visitor, a dropped connection and games waiting to upload. `npm run polish -- sheets --run output/polish/<time>` makes contact sheets to look through the whole run. Paths are app addresses (the Table tab is `/`); a page that draws nothing is listed first in the report.
+
 Production runs are read-only too, but never probe a new static path on https://yama.ing before its deploy (Cloudflare caches the SPA fallback for 4 hours). Delete a run's folder once its findings are dealt with.
 
 ## Privacy

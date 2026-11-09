@@ -85,6 +85,8 @@ export function RunWarnings({ warnings }: { warnings: string[] }) {
 /** One of your own lists as your paired run rated it (its own field and model fit, not the table's). */
 interface MyList {
   id: string;
+  /** The same list can be rated in several runs, each its own row: run and list together. */
+  key: string;
   name: string;
   state: string;
   run: RunListItem;
@@ -117,7 +119,7 @@ function useMyLists(): MyList[] {
         const deck = plan.bundle?.decks.find((p) => variantState(v.id, p.key) != null);
         const state = deck ? variantState(v.id, deck.key)! : (/,\s*([^,)]+)\)\s*$/.exec(v.name)?.[1] ?? "list");
         const base = deck?.name ?? v.name.replace(/\s*\([^)]*\)\s*$/, "");
-        out.push({ id: v.id, name: `${base}, ${listWords(state)}`, state, run, rating, commanders: deck?.commander ?? [], identity: deck?.color_identity ?? null });
+        out.push({ id: v.id, key: `${run.id}/${v.id}`, name: `${base}, ${listWords(state)}`, state, run, rating, commanders: deck?.commander ?? [], identity: deck?.color_identity ?? null });
       }
     });
     return out.sort((a, b) => (b.rating.p4_field ?? -1) - (a.rating.p4_field ?? -1));
@@ -306,7 +308,7 @@ export function PreconsPage() {
               </tr>
               {(mineOpen || needle) &&
                 mineShown.map((m) => (
-                  <MineRow key={m.id} m={m} max={max} level={level} />
+                  <MineRow key={m.key} m={m} max={max} level={level} />
                 ))}
             </tbody>
           )}
@@ -342,7 +344,7 @@ export function PreconsPage() {
           </li>
         )}
         {(mineOpen || needle ? mineShown : []).map((m) => (
-          <li key={m.id} className="lab-card is-mine">
+          <li key={m.key} className="lab-card is-mine">
             <span className="rank num">{m.rating.rank ?? ""}</span>
             <span className="lab-card-main">
               <span className="lab-card-name">

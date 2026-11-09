@@ -58,10 +58,15 @@ export function writeReports(outDir, run) {
   const md = [];
   md.push(`# Polish run ${run.started.slice(0, 16).replace("T", " ")}`, "");
   md.push(`- Base: ${run.base}; ${run.signedInAs ? `signed in as ${run.signedInAs.email ?? run.signedInAs.name}` : "signed out"}`);
-  md.push(`- Sizes: ${run.viewports.join(", ")}; presses: ${run.interact}`);
+  md.push(`- Sizes: ${run.viewports.join(", ")}; presses: ${run.interact}; a first visit in Chrome (install prompt fired)${run.states?.length ? `; states: ${run.states.join(", ")}` : ""}`);
   md.push(`- ${pages.length} pages, ${shots} screens. Findings: ${totals.error} errors, ${totals.warn} warnings, ${totals.info} notes`);
   md.push(`- Writes blocked: ${run.blockedWrites.length}${run.blockedWrites.length ? ` (${[...new Set(run.blockedWrites.map((b) => `${b.method} ${new URL(b.url).pathname}`))].slice(0, 8).join(", ")})` : ""}`);
   md.push("", "Findings are leads, not verdicts: look at the screenshot. `-marked` screenshots outline them, numbered in the order listed in report.json.", "");
+  // Blank pages and unknown routes first: every other finding assumes the page drew.
+  const broken = pages.flatMap((p) =>
+    Object.entries(p.views).flatMap(([vp, v]) => v.errors.filter((e) => /^(blank page|no route|visit failed|page error)/.test(e)).map((e) => `- ${p.url} (${vp}): ${e}`)),
+  );
+  if (broken.length) md.push("## Pages that didn't draw", "", ...[...new Set(broken)].slice(0, 40), "");
   md.push("## By kind", "", "| Kind | Severity | Findings | Pages |", "|---|---|---|---|");
   for (const [k, v] of Object.entries(byKind).sort((a, b) => RANK[a[1].severity] - RANK[b[1].severity] || b[1].count - a[1].count))
     md.push(`| ${k} | ${v.severity} | ${v.count} | ${v.pages.size} |`);

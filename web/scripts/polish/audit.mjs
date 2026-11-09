@@ -5,10 +5,12 @@
 // person (or Claude) to look at in the screenshot, not a verdict: some truncation is intended.
 
 /**
- * @param {{ minTarget: number, edgePad: number, atEnd: boolean, spacingScale: number[] }} opts
+ * @param {{ minTarget: number, edgePad: number, atEnd: boolean, spacingScale: number[], screenWidth?: number }} opts
  */
 export function audit(opts) {
-  const vw = window.innerWidth;
+  // The screen's width, not innerWidth: a phone zooms out to fit a page that's too wide, and
+  // innerWidth then grows with it, so the overflow would measure as no overflow at all.
+  const vw = opts.screenWidth ?? window.innerWidth;
   const vh = window.innerHeight;
   const issues = [];
   const seen = new Set();
