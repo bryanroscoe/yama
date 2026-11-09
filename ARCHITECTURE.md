@@ -1902,3 +1902,14 @@ Power and bracket can sort the table but do not change published ranks. Full-cat
 scatterplots compare it with each engine model and stock real games separately using
 Spearman correlation (complete card data, at least 20 games). This is descriptive,
 not validation on unseen decks or an official bracket assignment.
+
+### Star Trek stock catalog (2026-11-09)
+
+The public benchmark catalog was still the 174-list import and omitted Star Trek.
+At server startup `lab::seed::missing_stock` now inserts the four missing TRC stock
+lists from reviewed MTGJSON deck files (`resources/star-trek-precons.json`, checked
+against Wizards' published decklists). Collector's Editions repeat these lists and
+are not separate ranked decks. Every list has 100 cards, its commander, Oracle IDs,
+source and November 13 release date. Existing rows are preserved; later catalog
+imports remain authoritative. No simulation publication or real-game evidence is
+created. Computed power reads the same stock cards as every other catalog row.

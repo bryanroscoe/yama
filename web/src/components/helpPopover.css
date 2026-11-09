@@ -1,3 +1,11 @@
+/* Keep section titles and their help button together without sizing the icon as heading text. */
+.help-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* The "?" beside a section heading and the popover it opens (HelpPopover.tsx). */
 .help-pop {
   position: relative;
