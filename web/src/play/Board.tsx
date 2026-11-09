@@ -231,6 +231,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const [pov, setPov] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
   const [selected, setSelected] = useState<number[] | null>(null);
   const [inspect, setInspect] = useState<CardView | null>(null);
   const [hover, setHover] = useState<{ card: CardView; image: string | null; left: number; top: number } | null>(null);
@@ -322,6 +323,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     let attempt = 0;
     let timer: number | null = null;
     const open = () => {
+      let firstView = true;
       const ws = new WebSocket(playSocketUrl(id, watch));
       socket.current = ws;
       ws.onopen = () => {
@@ -354,6 +356,11 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           return;
         }
         if (data.type === "view") {
+          // Reset cue history on this socket's first fresh board, never on its stale cached view.
+          if (firstView) {
+            firstView = false;
+            setConnectionGeneration((n) => n + 1);
+          }
           setMsg(data);
           // The server re-sends the board after refusing a move; keep the reason up until the
           // game actually moves on.
@@ -2131,7 +2138,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   };
   const sheets = (
     <>
-      <CombatCues events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} />
+      <CombatCues key={connectionGeneration} events={view.events} names={names} root={boardRoot} speed={watchStatus?.speed} />
       {/* One preview layer stays above both the board and its dialogs. */}
       {hover?.image && (
         <div className="pb-preview" style={{ left: hover.left, top: hover.top }} aria-hidden="true">

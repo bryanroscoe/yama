@@ -1022,3 +1022,9 @@
     flex: 1 1 260px;
   }
 }
+
+/* The same searchable deck picker as Table, with room for its desktop list. */
+.ph-seat:has(.combo), .ph-join-form:has(.combo) { overflow: visible; }
+.ph-seat:focus-within { position: relative; z-index: 3; }
+.ph-seat-fields .combo input, .ph-join-deck .combo input { min-width: 0; }
+.ph-seat-fields .combo input, .ph-seat-fields .combo-field, .ph-join-deck .combo input, .ph-join-deck .combo-field { background-color: var(--ground); }

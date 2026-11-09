@@ -17,6 +17,7 @@ import { ago } from "./PlayHome";
 import { shortName } from "./text";
 import { LEVELS, SPEEDS, statusLine, tableNames, watchRequest, type Level, type WatchSeatPlan, type WatchSummary } from "./watch";
 import type { Speed } from "./types";
+import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
 import "./play.css";
 
 const BackArrow = () => (
@@ -180,21 +181,9 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
                   <button type="button" aria-pressed={s.source === "precon"} disabled={!choices.length} onClick={() => update(i, { source: "precon" })}>Precons</button>
                 </div>
                 {s.source === "deck" ? (
-                  <label>
-                    Deck
-                    <select value={s.deckId} onChange={(e) => update(i, { deckId: e.target.value })}>
-                      {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
-                  </label>
+                  <SavedDeckPicker decks={decks} value={s.deckId} onChange={(deckId) => update(i, { deckId })} />
                 ) : (
-                  <label>
-                    Precon
-                    <select value={s.preconId} onChange={(e) => update(i, { preconId: e.target.value })}>
-                      {choices.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name} ({p.set_code}{p.released ? `, ${p.released.slice(0, 4)}` : ""})</option>
-                      ))}
-                    </select>
-                  </label>
+                  <PreconPicker precons={choices} value={s.preconId} onChange={(preconId) => update(i, { preconId })} />
                 )}
                 <div className="ph-skills" role="group" aria-label={`Computer for seat ${i + 1}`}>
                   {LEVELS.map((k) => (

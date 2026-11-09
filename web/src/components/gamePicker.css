@@ -259,3 +259,19 @@ span.combo-toggle {
   width: auto;
   margin-inline: 0;
 }
+
+/* Under a seat's deck: which of its lists, which of its commanders. */
+.deck-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+/* Only short choices show as pills (SeatChoice); longer ones are a dropdown. */
+.deck-choice-row {
+  align-self: start;
+}
+
+.saved-deck-picker { display: grid; gap: 8px; min-width: 0; }
+/* Narrow setup seats still show the deck and commander names in full. */
+.combo-label, .combo-sub { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }

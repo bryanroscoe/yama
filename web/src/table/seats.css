@@ -27,15 +27,3 @@
   flex: 0 0 auto;
   align-self: end;
 }
-
-/* Under a seat's deck: which of its lists, which of its commanders. */
-.seat-choice {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-/* Only short choices show as pills (SeatChoice); longer ones are a dropdown. */
-.seat-choice-row {
-  align-self: start;
-}
