@@ -34,8 +34,6 @@ fn list(v: &Value) -> Counts {
 struct Target {
     cards: Counts,
     pending: Counts,
-    acquired: Counts,
-    preexisting: Counts,
     container: Option<String>,
 }
 
@@ -43,14 +41,15 @@ struct Target {
 /// priority (real cards, exact full name, then popularity). No per-deck/per-name SQL awaits.
 pub(super) async fn resolve_names(pool: &SqlitePool, names: &[String]) -> AppResult<HashMap<String, String>> {
     let names: std::collections::BTreeSet<&str> = names.iter().map(String::as_str).collect();
+    let inputs: Vec<(&str, &str)> = names.into_iter().map(|name| (name, name.trim())).collect();
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT j.value, (SELECT n.oracle_id FROM card_names n JOIN cards c ON c.oracle_id=n.oracle_id
-          WHERE n.name=trim(j.value)
+        "SELECT json_extract(j.value,'$[0]'), (SELECT n.oracle_id FROM card_names n JOIN cards c ON c.oracle_id=n.oracle_id
+          WHERE n.name=json_extract(j.value,'$[1]')
           ORDER BY IFNULL(c.layout,'') IN ('token','double_faced_token','art_series'), c.name=n.name COLLATE NOCASE DESC,
                    IFNULL(c.edhrec_rank,1000000000) LIMIT 1)
          FROM json_each(?) j",
     )
-    .bind(serde_json::to_string(&names).map_err(anyhow::Error::from)?)
+    .bind(serde_json::to_string(&inputs).map_err(anyhow::Error::from)?)
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().filter_map(|(name, id)| id.map(|id| (name, id))).collect())
@@ -58,7 +57,7 @@ pub(super) async fn resolve_names(pool: &SqlitePool, names: &[String]) -> AppRes
 
 /// Canonical name, missing copies, pending-only. Main decks count once, configurations never
 /// add physical demand. Boxed copies satisfy only their own deck; spare copies are allocated
-/// once. Recorded acquisitions cover their target, without counting the same entered copy twice.
+/// once. Purchase marks never stand in for physical collection records.
 pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pending: bool) -> AppResult<Vec<(String, i64, bool)>> {
     let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
         "SELECT d.id,v.cards,d.container_id FROM decks d JOIN deck_versions v ON v.id=d.current_version_id AND v.deck_id=d.id
@@ -73,7 +72,6 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             (
                 id,
                 Target {
-                    preexisting: list(&serde_json::from_str::<Value>(&cards).unwrap_or_default()),
                     cards: list(&serde_json::from_str::<Value>(&cards).unwrap_or_default()),
                     container,
                     ..Default::default()
@@ -89,7 +87,6 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         .filter_map(|s| s["key"].as_str())
         .collect();
     let answers = crate::plan::trip::answers(b, &live);
-    let bought = crate::plan::trip::bought(b, &live);
     let roots: HashMap<String, String> = b["decks"]
         .as_array()
         .into_iter()
@@ -121,7 +118,6 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             cards: stock.clone(),
             ..Default::default()
         });
-        t.preexisting = stock.clone();
         let has_stock = d["states"]["stock"]["cards"].is_array();
         let waiting: HashSet<&str> = d["plan"]["next"]["keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
         let skipped: HashSet<&str> = d["plan"]["next"]["skipped"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
@@ -147,9 +143,6 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
                 if let Some(cut) = cut {
                     add(&mut cuts, cut, 1);
                 }
-                if s["src"] == "buy" && (!s["order_item"].is_null() || bought.contains(sk)) {
-                    add(&mut t.acquired, inn, 1);
-                }
             } else if include_pending && waiting.contains(sk) && !skipped.contains(sk) && !(fresh && r["decision"] == "no") {
                 add(&mut later, text(s, "in"), 1);
             }
@@ -170,11 +163,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             t.pending.insert(k, row);
         }
     }
-    let names: Vec<String> = targets
-        .values()
-        .flat_map(|t| t.cards.values().chain(t.pending.values()).chain(t.acquired.values()).chain(t.preexisting.values()))
-        .map(|r| r.0.clone())
-        .collect();
+    let names: Vec<String> = targets.values().flat_map(|t| t.cards.values().chain(t.pending.values())).map(|r| r.0.clone()).collect();
     let resolved = resolve_names(pool, &names).await?;
     let cards: HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT oracle_id,name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?)) AND type_line NOT LIKE 'Basic%'")
@@ -211,42 +200,18 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             *free.entry(id).or_default() += q;
         }
     }
-    // Reserve real boxed copies first, then allocate loose copies to pre-plan needs across
-    // every target before absorbing any acquisitions already entered in loose inventory.
-    let mut allocation = Vec::new();
+    // Only real collection copies fulfill physical demand. A purchase/order mark is not
+    // an inventory entry and may describe the very same copy entered into this collection.
+    let mut gaps = Vec::new();
     for (root, t) in &targets {
-        let acquired = canonical(&t.acquired);
-        let preexisting = canonical(&t.preexisting);
         for (id, q) in canonical(&t.cards) {
             let in_box = t.container.as_ref().and_then(|c| boxed.get_mut(&(c.clone(), id.clone()))).map_or(0, |n| {
                 let used = (*n).min(q);
                 *n -= used;
                 used
             });
-            allocation.push((
-                root.clone(),
-                id.clone(),
-                q,
-                in_box,
-                preexisting.get(&id).copied().unwrap_or(0).min(q),
-                acquired.get(&id).copied().unwrap_or(0),
-            ));
+            gaps.push((root.clone(), id, q - in_box, false));
         }
-    }
-    let mut gaps = Vec::new();
-    let mut entered_purchases = Vec::new();
-    for (root, id, q, in_box, stock, acquired) in allocation {
-        let old_in_box = in_box.min(stock);
-        let spare = free.entry(id.clone()).or_default();
-        let old_loose = (stock - old_in_box).min(*spare);
-        *spare -= old_loose;
-        let credit = (old_in_box + old_loose + acquired).max(in_box + old_loose).min(q);
-        entered_purchases.push((id.clone(), credit - in_box - old_loose));
-        gaps.push((root, id, q - credit, false));
-    }
-    for (id, may_be_entered) in entered_purchases {
-        let spare = free.entry(id).or_default();
-        *spare = (*spare - may_be_entered).max(0);
     }
     // A donor's confirmed target keeps its copies first. Only a real copy left over after
     // that allocation can fulfill an explicitly approved transfer to another target.

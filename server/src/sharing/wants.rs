@@ -247,7 +247,7 @@ pub(super) async fn page(
     body.push_str(if sharer.wants_include_pending {
         "<p class=\"want-explainer\">Cards for decks and upgrades, including pending ideas, plus the wish list.</p>"
     } else {
-        "<p class=\"want-explainer\">Missing real cards for decks and approved upgrades, plus the wish list.</p>"
+        "<p class=\"want-explainer\">Missing real cards for decks and approved upgrades, based on the collection, plus the wish list.</p>"
     });
     body.push_str("<label class=\"want-pending-option\" hidden><input type=\"checkbox\"> Include pending upgrades on my public want list</label><p class=\"want-save-error\" role=\"status\"></p>");
     write!(body, "<form class=\"want-toolbar\" method=\"get\"><label class=\"want-search\"><span class=\"sr-only\">Search this want list</span><input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"Search cards or types\" maxlength=\"200\" autocomplete=\"off\"></label><button type=\"submit\">Search</button><label class=\"want-filter\" hidden><span class=\"sr-only\">Show cards</span><select><option value=\"all\">All cards</option><option value=\"needed\">Decks and upgrades</option><option value=\"wishlist\">Wish list</option><option value=\"pending\">Pending upgrades</option><option value=\"spare\" disabled>Your spare copies</option><option value=\"owned\" disabled>Cards you own</option></select></label></form>", e(&query.q.chars().take(200).collect::<String>())).unwrap();

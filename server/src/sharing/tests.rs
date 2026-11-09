@@ -1246,9 +1246,9 @@ async fn want_list_inventory_overlay_is_private_and_owner_scoped() {
 }
 
 #[tokio::test]
-async fn want_targets_use_aliases_stock_relative_counts_and_acquisition_coverage() {
-    let (_,pool) = app().await;
-    let (owner,_) = user(&pool,"target-edges@example.com").await;
+async fn want_targets_use_aliases_stock_relative_counts_and_real_inventory() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"target-edges@example.com").await;
     card(&pool,"old","Old card","Artifact","p-old","tst","1").await;
     card(&pool,"new","New card","Artifact","p-new","tst","2").await;
     let (root,version) = deck(&pool,&owner,"Partially installed").await;
@@ -1261,12 +1261,14 @@ async fn want_targets_use_aliases_stock_relative_counts_and_acquisition_coverage
     assert_eq!(super::want_sources::needs(&pool,&owner,&base,false).await.unwrap(),vec![("New card".into(),1,false)]);
     let mut acquired = base.clone();
     acquired["marks"] = json!({"original":{"bought":{"value":true,"at":"2031","op_id":"b"}}});
-    assert!(super::want_sources::needs(&pool,&owner,&acquired,false).await.unwrap().is_empty());
-    // Neither an acquired replacement nor its rejected predecessor creates a want.
+    assert_eq!(super::want_sources::needs(&pool,&owner,&acquired,false).await.unwrap(),vec![("New card".into(),1,false)]);
+    // A rejected proposal leaves the current saved list authoritative.
     let mut rejected = base.clone();
     rejected["reviews"]["original"]["decision"] = json!("no");
     let needs = super::want_sources::needs(&pool,&owner,&rejected,false).await.unwrap();
     assert_eq!(needs.len(),2); // current deck still has both; no unapproved replacement applied
+    copies(&app,&auth,"actual-bought-card","p-new",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&acquired,false).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1348,7 +1350,7 @@ async fn want_upgrade_chains_are_order_independent_and_owned_moves_apply_cuts() 
 }
 
 #[tokio::test]
-async fn real_copy_in_one_target_and_order_for_another_are_distinct_coverage() {
+async fn orders_are_not_inventory_and_accepted_transfers_consume_only_spares() {
     let (app,pool) = app().await;
     let (owner,auth) = user(&pool,"acquired-targets@example.com").await;
     card(&pool,"old","Old","Artifact","p-old","tst","1").await;
@@ -1363,7 +1365,7 @@ async fn real_copy_in_one_target_and_order_for_another_are_distinct_coverage() {
     copies(&app,&auth,"already-in-second","p-new",1,false,Some(&box_["id"])).await;
     let plan = json!({"decks":[{"key":"a","yama_deck":{"id":a},"states":{"stock":{"cards":[{"name":"Old"}]}},"plan":{"state":"in_progress"}}],
         "swaps":[{"key":"ordered","deck":"a","stage":"planned","role":"swap","src":"buy","out":"Old","in":"New","order_item":{"order":"o","line":1}}]});
-    assert!(super::want_sources::needs(&pool,&owner,&plan,false).await.unwrap().is_empty());
+    assert_eq!(super::want_sources::needs(&pool,&owner,&plan,false).await.unwrap(),vec![("New".into(),1,false)]);
     let mut moved = plan.clone();
     moved["swaps"][0]["src"] = json!("owned"); moved["swaps"][0]["order_item"] = json!(null);
     moved["swaps"][0]["got"] = json!({"how":"deck","deck":"second"});
@@ -1462,7 +1464,7 @@ async fn plan_only_targets_apply_owner_changes_but_saved_lists_stay_authoritativ
 }
 
 #[tokio::test]
-async fn boxed_stock_and_new_acquisitions_cover_distinct_repeated_copies() {
+async fn boxed_real_copies_are_allocated_once_regardless_of_purchase_marks() {
     let (app,pool)=app().await;
     let (owner,auth)=user(&pool,"stock-and-bought@example.com").await;
     card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
@@ -1473,8 +1475,8 @@ async fn boxed_stock_and_new_acquisitions_cover_distinct_repeated_copies() {
     copies(&app,&auth,"stock-rat","p-rat",1,false,Some(&box_["id"])).await;
     let mut b=json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Rat Colony"}]}},"plan":{"state":"in_progress"}}],
         "swaps":[{"key":"second","deck":"d","stage":"planned","role":"swap","src":"buy","in":"Rat Colony","out":"Plains","order_item":{"order":"bought","line":1}}]});
-    // One original boxed copy plus one newly acquired copy covers both target copies.
-    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    // A purchase claim does not add a second physical copy to the collection.
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
     copies(&app,&auth,"entered-purchase","p-rat",1,false,Some(&box_["id"])).await;
     assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
     // Entering that purchase cannot also cover a third, unacquired copy.
@@ -1483,7 +1485,7 @@ async fn boxed_stock_and_new_acquisitions_cover_distinct_repeated_copies() {
 }
 
 #[tokio::test]
-async fn loose_stock_survives_acquisition_deduplication_and_is_allocated_once() {
+async fn loose_real_copies_are_allocated_once_regardless_of_purchase_marks() {
     let (app,pool)=app().await;
     let (owner,auth)=user(&pool,"loose-stock@example.com").await;
     card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
@@ -1492,7 +1494,7 @@ async fn loose_stock_survives_acquisition_deduplication_and_is_allocated_once() 
     copies(&app,&auth,"loose-stock","p-rat",1,false,None).await;
     let mut b=json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Rat Colony"}]}},"plan":{"state":"in_progress"}}],
         "swaps":[{"key":"second","deck":"d","stage":"planned","role":"swap","src":"buy","in":"Rat Colony","out":"Plains","order_item":{"order":"bought","line":1}}]});
-    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
     copies(&app,&auth,"entered-loose-purchase","p-rat",1,false,None).await;
     assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
     b["swaps"].as_array_mut().unwrap().push(json!({"key":"third","deck":"d","stage":"planned","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}));
@@ -1509,9 +1511,28 @@ async fn batched_want_name_resolution_preserves_card_priority_and_faces() {
     for (name,id) in [("Fire","split"),("Ice","split"),("Fire","token")] {
         sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES (?,?)").bind(name).bind(id).execute(&pool).await.unwrap();
     }
-    let mut names=vec!["Fire".to_string();200]; names.extend(["fire".into(),"Ice".into(),"Fire // Ice".into(),"Unknown".into()]);
+    let mut names=vec!["Fire".to_string();200]; names.extend(["fire".into(),"Ice".into(),"Fire // Ice".into(),"Unknown".into(),"\tFire\t".into(),"\u{2003}Fire\u{2003}".into()]);
     let resolved=super::want_sources::resolve_names(&pool,&names).await.unwrap();
     assert_eq!(resolved["Fire"],"exact"); assert_eq!(resolved["fire"],"exact");
     assert_eq!(resolved["Ice"],"split"); assert_eq!(resolved["Fire // Ice"],"split");
-    assert!(!resolved.contains_key("Unknown")); assert_eq!(resolved.len(),4);
+    assert_eq!(resolved["\tFire\t"],"exact"); assert_eq!(resolved["\u{2003}Fire\u{2003}"],"exact");
+    assert!(!resolved.contains_key("Unknown")); assert_eq!(resolved.len(),6);
+}
+
+#[tokio::test]
+async fn a_loose_purchased_copy_cannot_fulfill_two_saved_deck_targets() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"one-copy-two-targets@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    let (first,version)=deck(&pool,&owner,"First").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"ring","name":"Sol Ring","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    let (second,_)=deck(&pool,&owner,"Second").await;
+    let b=json!({"decks":[{"key":"second","yama_deck":{"id":second},"states":{"stock":{"cards":[]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"buy-ring","deck":"second","stage":"planned","role":"swap","src":"buy","in":"Sol Ring","out":"Plains","order_item":{"order":"bought","line":1}}]});
+    let _=first;
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Sol Ring".into(),2,false)]);
+    copies(&app,&auth,"entered-purchase-once","p-ring",1,false,None).await;
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Sol Ring".into(),1,false)]);
+    copies(&app,&auth,"another-real-copy","p-ring",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
 }

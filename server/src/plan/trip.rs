@@ -357,7 +357,7 @@ pub(crate) fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String,
 }
 
 /// Live swaps with a set "bought it" mark (`marks.ts` `markIndex`, the newer mark winning).
-pub(crate) fn bought(b: &Value, live: &HashSet<&str>) -> HashSet<String> {
+fn bought(b: &Value, live: &HashSet<&str>) -> HashSet<String> {
     let mut best: HashMap<String, &Value> = HashMap::new();
     for (key, pair) in obj(b, "marks").into_iter().flatten() {
         let Some(m) = pair.get("bought").filter(|m| m.is_object()) else { continue };
