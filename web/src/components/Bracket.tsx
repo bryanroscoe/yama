@@ -5,6 +5,7 @@ import { useDeckAnalysis } from "../decks/DeckAnalysis";
 import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
 import { DeclareBracket } from "./DeclareBracket";
 import { NameList } from "./OnlineSupport";
+import { HelpPopover } from "./HelpPopover";
 import { Details, ErrorText } from "./ui";
 import "./decks.css";
 
@@ -19,7 +20,7 @@ export const BRACKETS: { value: number; name: string }[] = [
 
 export const bracketName = (n: number) => BRACKETS.find((b) => b.value === n)?.name ?? "";
 
-const SPELLBOOK = "https://commanderspellbook.com/";
+export const SPELLBOOK = "https://commanderspellbook.com/";
 
 /**
  * The declared bracket and Yama's starting suggestion as two chips side by side. The suggestion
@@ -59,13 +60,16 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
  * the cards and combos behind the estimate, and the local Game Changer count when there's no
  * estimate to show.
  */
-export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard }: {
+export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard, open = false }: {
   deckId: string;
   versionId: string | null;
   declared: number | null;
   /** From our own card data; null while the flags aren't loaded. */
   gameChangers: string[] | null;
   onCard: (name: string) => void;
+  /** The Stats tab: nothing folded. The explanation and the bracket guide open from one "?",
+   *  and the combo lists are left to the tab's Combos section (DeckStatsTab). */
+  open?: boolean;
 }) {
   const qc = useQueryClient();
   const check = useDeckCheck(deckId, versionId);
@@ -100,7 +104,17 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
   return (
     <section className="deck-panel" aria-labelledby="bracket-head">
       <div className="deck-panel-head">
-        <h2 id="bracket-head">Bracket</h2>
+        {open ? (
+          <span className="deck-panel-title">
+            <h2 id="bracket-head">Bracket</h2>
+            <HelpPopover label="bracket">
+              <BracketWhy result={r} />
+              <BracketGuideText />
+            </HelpPopover>
+          </span>
+        ) : (
+          <h2 id="bracket-head">Bracket</h2>
+        )}
         {c?.enabled && !c.archived && !c.pending && c.version_id && (
           <button className="quiet small" onClick={() => again.mutate()} disabled={again.isPending}>Check again</button>
         )}
@@ -141,12 +155,12 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
       <DeclareBracket deckId={deckId} declared={declared} />
       {status && <p className="note" role="status">{status}</p>}
       <ErrorText error={again.error} />
-      <Details label={r ? "Why this suggestion?" : "About bracket suggestions"}>
-        <p>{r ? estimateExplanation(r.bracket_tag) : "Yama suggests a starting bracket from the card list. Your declared bracket is what you tell the table, based on the deck's speed, consistency and intended play experience."}</p>
-        {r && <p>{gameChangerFloor(r.game_changers.length)}</p>}
-        {r && <p>Commander Spellbook counts your commander as always available, so it isn't counted as a combo piece. A listed combo doesn't establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.</p>}
-      </Details>
-      <BracketGuide />
+      {!open && (
+        <Details label={r ? "Why this suggestion?" : "About bracket suggestions"}>
+          <BracketWhy result={r} />
+        </Details>
+      )}
+      {!open && <BracketGuide />}
 
       {r ? (
         <>
@@ -154,7 +168,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
             <li>
               <b>Game Changers: {r.game_changers.length}</b>
               {r.game_changers.length > 0 &&
-                (sameNames(r.game_changers, gameChangers) ? (
+                (!open && sameNames(r.game_changers, gameChangers) ? (
                   <>, the same cards as Scryfall's list above</>
                 ) : (
                   <>. <NameList names={r.game_changers} onCard={onCard} /></>
@@ -172,7 +186,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
               </li>
             )}
           </ul>
-          <div>
+          {!open && <><div>
             <h3 className="bracket-subhead">Two-card combos: {twoCard.length}</h3>
             {twoCard.length > 0 ? <ComboList combos={twoCard} onCard={onCard} /> : <p className="note">Commander Spellbook found none in this list.</p>}
           </div>
@@ -188,7 +202,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
               <summary>Combos with more pieces: {longer.length}</summary>
               <ComboList combos={longer} onCard={onCard} />
             </details>
-          )}
+          )}</>}
           <p className="note">
             Card-list signals and combos from <a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>.
           </p>
@@ -204,10 +218,29 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
   );
 }
 
+function BracketWhy({ result: r }: { result: DeckCheck["result"] }) {
+  return (
+    <>
+      <p>{r ? estimateExplanation(r.bracket_tag) : "Yama suggests a starting bracket from the card list. Your declared bracket is what you tell the table, based on the deck's speed, consistency and intended play experience."}</p>
+      {r && <p>{gameChangerFloor(r.game_changers.length)}</p>}
+      {r && <p>Commander Spellbook counts your commander as always available, so it isn't counted as a combo piece. A listed combo doesn't establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.</p>}
+    </>
+  );
+}
+
 export function BracketGuide() {
   return (
     <details className="bracket-guide">
       <summary>How Commander brackets work</summary>
+      <BracketGuideText />
+    </details>
+  );
+}
+
+/** How the brackets work, with Wizards' sources. */
+function BracketGuideText() {
+  return (
+    <>
       <p className="note">Game Changers set deck-building limits; they don't measure the whole deck. Intent, speed, consistency, game-ending combos, extra-turn chains and mass land denial also matter.</p>
       <p className="note">How Yama suggests a bracket: start provisionally at Core (2) when the check finds no higher-bracket signals. One to three Game Changers suggest at least 3; four or more suggest at least 4. Known combos and other flagged effects can raise the suggestion too. Choose Exhibition (1) yourself for a deliberately theme-first deck, or cEDH (5) for a deck built for that competitive metagame. A suggestion never changes your declared bracket.</p>
       <dl>
@@ -219,7 +252,7 @@ export function BracketGuide() {
       </dl>
       <p className="note">These are play expectations, not a rule that one unusually fast win changes your bracket. Precons aren't automatically bracket 2: Wizards removed that benchmark in October 2025. Farewell became a Game Changer in February 2026, including in stock precons that contain it.</p>
       <p className="note">Sources, reviewed October 25, 2026: <a href="https://magic.wizards.com/en/formats/commander" target="_blank" rel="noreferrer">Wizards' bracket overview</a>, <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025" target="_blank" rel="noreferrer">October 2025 update</a> and <a href="https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026" target="_blank" rel="noreferrer">February 2026 update</a>.</p>
-    </details>
+    </>
   );
 }
 
