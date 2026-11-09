@@ -77,7 +77,7 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
         }
         let id = d["yama_deck"]["id"].as_str().map(String::from).unwrap_or_else(|| format!("plan:{}", text(d, "key")));
         let t = targets.entry(id).or_insert_with(|| Target {
-            cards: list(&d["states"]["now"]["cards"]),
+            cards: list(&d["states"]["stock"]["cards"]),
             ..Default::default()
         });
         let stock = list(&d["states"]["stock"]["cards"]);
@@ -102,11 +102,11 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
                 if let Some(cut) = cut {
                     add(&mut cuts, cut, 1);
                 }
-                if s["src"] == "owned" || (s["src"] == "buy" && (!s["order_item"].is_null() || bought.contains(sk))) {
+                if s["src"] == "buy" && (!s["order_item"].is_null() || bought.contains(sk)) {
                     add(&mut t.acquired, inn, 1);
                 }
             } else if include_pending && waiting.contains(sk) && !skipped.contains(sk) && !(fresh && r["decision"] == "no") {
-                later.entry(key(text(s, "in"))).or_insert((text(s, "in").to_string(), 1));
+                add(&mut later, text(s, "in"), 1);
             }
         }
         // Apply all deltas together. A→B followed by B→C has only C as its final target,
@@ -121,10 +121,8 @@ pub(super) async fn needs(pool: &SqlitePool, owner: &str, b: &Value, include_pen
             };
             t.cards.insert(k, (n.clone(), (baseline + qty(&adds, &n) - qty(&cuts, &n)).max(0)));
         }
-        for (k, (n, q)) in later {
-            if qty(&t.cards, &n) == 0 {
-                t.pending.insert(k, (n, q));
-            }
+        for (k, row) in later {
+            t.pending.insert(k, row);
         }
     }
     let names: Vec<String> = targets

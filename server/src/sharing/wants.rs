@@ -34,9 +34,6 @@ pub(crate) struct WantLine {
 /// Bound public list work, allowing large collections and upgrade plans.
 const MAX_CARDS: usize = 10000;
 
-/// The most distinct names read from a list before they're matched to cards.
-const MAX_NAMES: usize = 5000;
-
 /// Each owner's list with the plan bundle's cache key it was made from (`bundle::rev`, which
 /// changes with their plan, decks, wants, research and every card or price import). Reading a
 /// list loads the whole bundle, so a public page mustn't do it on every visit.
@@ -83,50 +80,26 @@ pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<
 
 async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> AppResult<Vec<WantLine>> {
     let bundle = crate::plan::bundle::load_bundle(pool, owner).await?;
-    // By name as written first: (name, copies, needed).
-    let mut named: Vec<(String, i64, bool, bool)> = Vec::new();
-    let mut at: HashMap<String, usize> = HashMap::new();
-    let mut manual = std::collections::HashSet::new();
+    // Keep source semantics until after canonicalization: manual wishes are extra copies,
+    // whereas a watchlist entry and a derived deck gap can describe the same acquisition.
+    // (name, quantity, needed, pending, source: manual=0/watchlist=1/derived=2)
+    let mut named: Vec<(String, i64, bool, bool, u8)> = Vec::new();
     for w in crate::plan::trip::trip_wants(&bundle) {
-        // Explicit wishes keep their own quantities; derived deck/upgrade needs are added below.
-        if w.source != "want" && w.source != "wishlist" {
-            continue;
-        }
-        let name = w.card.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let key = name.to_lowercase();
-        if w.source == "want" {
-            manual.insert(key.clone());
-        }
-        match at.get(&key) {
-            Some(&i) => {
-                named[i].1 += 1;
-                named[i].2 |= w.needed;
-            }
-            None if named.len() < MAX_NAMES => {
-                at.insert(key, named.len());
-                named.push((name.to_string(), 1, w.needed, false));
-            }
-            None => {}
+        let source = match w.source {
+            "want" => 0,
+            "wishlist" => 1,
+            _ => continue,
+        };
+        if !w.card.trim().is_empty() {
+            named.push((w.card, 1, w.needed, false, source));
         }
     }
-    for (name, qty, pending) in super::want_sources::needs(pool, owner, &bundle, include_pending).await? {
-        let key = name.to_lowercase();
-        if let Some(&i) = at.get(&key) {
-            // Manual wants are explicitly extra copies, as on the store trip. A watchlist
-            // entry, by contrast, can describe the same missing real copy as a deck gap.
-            named[i].1 = if manual.contains(&key) { named[i].1 + qty } else { named[i].1.max(qty) };
-            named[i].2 |= !pending;
-            named[i].3 |= pending;
-        } else {
-            at.insert(key, named.len());
-            named.push((name, qty, !pending, pending));
-        }
-    }
-    // Then by card: one card written two ways ("Delver of Secrets" and its full double-faced
-    // name, or "sol ring") is one line under the card's own name.
+    named.extend(
+        super::want_sources::needs(pool, owner, &bundle, include_pending)
+            .await?
+            .into_iter()
+            .map(|(name, qty, pending)| (name, qty, !pending, pending, 2)),
+    );
     let found = super::research::lookup(pool, named.iter().map(|l| l.0.as_str())).await?;
     let ids: Vec<&str> = named.iter().filter_map(|l| super::research::found(&found, &l.0).map(|f| f.5.as_str())).collect();
     let canonical: HashMap<String, String> = sqlx::query_as("SELECT oracle_id, name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
@@ -135,30 +108,43 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
         .await?
         .into_iter()
         .collect();
-    let mut out: Vec<WantLine> = Vec::new();
-    let mut by_card: HashMap<String, usize> = HashMap::new();
-    for (name, qty, needed, pending) in named {
+    let mut merged: HashMap<String, (WantLine, i64, i64, i64)> = HashMap::new();
+    for (name, qty, needed, pending, source) in named {
         let f = super::research::found(&found, &name);
         let key = f.map_or_else(|| format!("name:{}", name.to_lowercase()), |f| f.5.clone());
-        if let Some(&i) = by_card.get(&key) {
-            out[i].qty += qty;
-            out[i].needed |= needed;
-            out[i].pending |= pending;
-            continue;
-        }
-        by_card.insert(key, out.len());
-        out.push(WantLine {
-            name: f.and_then(|f| canonical.get(&f.5).cloned()).unwrap_or(name),
-            oracle_id: f.map(|f| f.5.clone()),
-            qty,
-            needed,
-            pending,
-            image: f.and_then(|f| f.4.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
-            type_line: f.and_then(|f| f.1.clone()),
-            market: None,
-            market_date: None,
+        let entry = merged.entry(key).or_insert_with(|| {
+            (
+                WantLine {
+                    name: f.and_then(|f| canonical.get(&f.5).cloned()).unwrap_or(name),
+                    oracle_id: f.map(|f| f.5.clone()),
+                    qty: 0,
+                    needed: false,
+                    pending: false,
+                    image: f.and_then(|f| f.4.clone()).filter(|u| u.starts_with("https://cards.scryfall.io/")),
+                    type_line: f.and_then(|f| f.1.clone()),
+                    market: None,
+                    market_date: None,
+                },
+                0,
+                0,
+                0,
+            )
         });
+        match source {
+            0 => entry.1 += qty,
+            1 => entry.2 = entry.2.max(qty),
+            _ => entry.3 = entry.3.max(qty),
+        };
+        entry.0.needed |= needed;
+        entry.0.pending |= pending;
     }
+    let mut out: Vec<WantLine> = merged
+        .into_values()
+        .map(|(mut line, manual, wishlist, derived)| {
+            line.qty = manual + wishlist.max(derived);
+            line
+        })
+        .collect();
     out.sort_by(|a, b| b.needed.cmp(&a.needed).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     out.truncate(MAX_CARDS);
     let ids: Vec<&str> = out.iter().filter_map(|l| l.oracle_id.as_deref()).collect();
