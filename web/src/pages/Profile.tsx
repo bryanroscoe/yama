@@ -46,7 +46,7 @@ export function ProfilePage() {
         {copied?.startsWith("Couldn't") && <input aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}
         <nav className="profile-public-links" aria-label="Your public pages">
           {s?.collection_public && <a href={`${profile}/collection`} target="_blank" rel="noreferrer">Public collection</a>}
-          {s?.wants_public && <a href={`${profile}/wants`} target="_blank" rel="noreferrer">Public wish list</a>}
+          {s?.wants_public && <a href={`${profile}/wants`} target="_blank" rel="noreferrer">Public want list</a>}
         </nav>
       </> : s && <>
         <p>Choose a handle to give friends a link to your public profile.</p>
