@@ -1290,7 +1290,7 @@ async fn owner_overlay_keeps_pending_copies_when_card_also_has_confirmed_demand(
     card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
     let (_,v) = deck(&pool,&owner,"Needs one").await;
     sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?").bind(json!([{"oracle_id":"ring","name":"Sol Ring","qty":1,"board":"main"}]).to_string()).bind(v).execute(&pool).await.unwrap();
-    let doc = json!({"format":"yama-plan/1","plan":{"decks":[{"key":"pending","name":"A future deck","status":"proposals_only"}],
+    let doc = json!({"format":"yama-plan/1","plan":{"decks":[{"key":"pending","name":"A future deck","status":"proposals_only","commander":["Test Commander"]}],
         "swaps":[{"key":"pending-ring","deck":"pending","stage":"proposed","role":"swap","src":"print","in":"Sol Ring","out":"Plains"}]}});
     let (status,result) = send(&app,Method::POST,"/api/plan/import",Some(&auth),Some(doc)).await;
     assert_eq!(status,StatusCode::OK,"{result}");
