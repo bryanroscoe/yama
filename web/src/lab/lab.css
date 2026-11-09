@@ -1060,8 +1060,8 @@
   flex-direction: column;
   gap: 8px;
 }
-/* Title beside the pill; the meta line runs on under the pill instead of squeezing into a
-   narrow column beside it. Works with and without the art crop. */
+/* Title beside the pill, the meta line under the title (not under the pill, where a one-line
+   title left it touching). Works with and without the art crop. */
 .lab-runcard-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

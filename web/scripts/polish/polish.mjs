@@ -17,7 +17,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
 import { audit, clearOverlay, drawOverlay, visibleText } from "./audit.mjs";
 import { NEVER_VISIT, SERVER_ROUTES, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
@@ -380,7 +380,8 @@ async function settle(page, net, { quiet = 500, max = 12_000 } = {}) {
   }
   // A request that failed is retried after a backoff (React Query waits a second): the network
   // is quiet, but the page still says Loading. Give it until max to show the answer or the error.
-  while (Date.now() - start < max && (await page.evaluate(() => /\bLoading(…|\.\.\.)/.test(document.body.innerText)).catch(() => false))) {
+  // Offline, a paused request says Loading for good: nothing to wait for.
+  while (Date.now() - start < max && (await page.evaluate(() => navigator.onLine && /\bLoading(…|\.\.\.)/.test(document.body.innerText)).catch(() => false))) {
     await sleep(250);
   }
   await page
@@ -769,6 +770,8 @@ async function shoot() {
   }
   const states = !args.states ? [] : args.states === "all" ? Object.keys(STATES) : args.states.split(",").map((s) => s.trim()).filter(Boolean);
   for (const s of states) if (!STATES[s]) throw new Error(`Unknown state ${s}; use ${Object.keys(STATES).join(", ")}, all or help`);
+  // Its seeded games would upload into the signed-in account once writes go through.
+  if (states.includes("unsynced") && args["allow-writes"]) throw new Error("--states unsynced can't be used with --allow-writes");
   const count = (name, min) => {
     const n = Number(args[name]);
     if (!Number.isInteger(n) || n < min) throw new Error(`--${name} takes a whole number of at least ${min}`);
@@ -941,6 +944,7 @@ async function sheets() {
     for (const key of keys) {
       const phone = key.startsWith("mobile") || key.startsWith("tablet");
       const per = Number(args.per ?? (phone ? 3 : 2));
+      if (!Number.isInteger(per) || per < 1) throw new Error("--per takes a whole number of at least 1");
       const cols = phone ? 6 : 3;
       const rows = report.pages
         .map((p) => ({ url: p.url, shots: (p.views[key]?.shots ?? []).filter((s) => /^page-/.test(s.name)).slice(0, cols) }))
@@ -964,7 +968,7 @@ figcaption{position:absolute;left:0;top:0;background:#000c;font-size:13px;paddin
         const htmlPath = join(outDir, "_sheet.html");
         // In the run folder's sheets/, so the screens' relative paths need ../
         writeFileSync(htmlPath, html.replaceAll('src="shots/', 'src="../shots/'));
-        await page.goto(`file://${htmlPath}`);
+        await page.goto(pathToFileURL(htmlPath).href);
         await page.waitForLoadState("load");
         const out = join(outDir, `${key}-${String(i / per + 1).padStart(2, "0")}.png`);
         await page.screenshot({ path: out, fullPage: true });

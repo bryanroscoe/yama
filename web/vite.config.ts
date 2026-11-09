@@ -89,7 +89,9 @@ function publicPages(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
         const [path, query = ""] = (req.url ?? "").split("?");
-        if (path.endsWith("/") && path.length > 1 && !path.includes("..") && existsSync(new URL(`.${path}index.html`, root))) {
+        const page = path.endsWith("/") && path.length > 1 ? new URL(`.${path}index.html`, root) : null;
+        // Only a file inside public/ (an encoded ../ resolves outside it).
+        if (page && page.href.startsWith(root.href) && existsSync(page)) {
           req.url = `${path}index.html${query ? `?${query}` : ""}`;
         }
         next();
