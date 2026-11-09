@@ -335,7 +335,7 @@ fn resolve<'a>(key: &'a str, live: &HashSet<&str>, aliases: Option<&'a Map<Strin
 }
 
 /// Each live swap's answer (`text.ts` `answerIndex`): the latest by time, an import losing a tie.
-fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String, &'a Value> {
+pub(crate) fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String, &'a Value> {
     let mut latest: HashMap<String, &Value> = HashMap::new();
     for (key, r) in obj(b, "reviews").into_iter().flatten() {
         let Some(to) = resolve(key, live, obj(b, "aliases")) else { continue };
@@ -357,7 +357,7 @@ fn answers<'a>(b: &'a Value, live: &HashSet<&str>) -> HashMap<String, &'a Value>
 }
 
 /// Live swaps with a set "bought it" mark (`marks.ts` `markIndex`, the newer mark winning).
-fn bought(b: &Value, live: &HashSet<&str>) -> HashSet<String> {
+pub(crate) fn bought(b: &Value, live: &HashSet<&str>) -> HashSet<String> {
     let mut best: HashMap<String, &Value> = HashMap::new();
     for (key, pair) in obj(b, "marks").into_iter().flatten() {
         let Some(m) = pair.get("bought").filter(|m| m.is_object()) else { continue };

@@ -48,11 +48,19 @@ const CACHE_OWNERS: usize = 256;
 pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<WantLine>> {
     let mut rev = crate::plan::bundle::rev(pool, owner).await?;
     // Deck gaps change when copies are added, edited or removed, independently of plan revisions.
-    let collection: Vec<String> = sqlx::query_scalar("SELECT id || '/' || scryfall_id || '/' || qty || '/' || proxy FROM collection_items WHERE owner_id = ? ORDER BY id")
+    let collection: Vec<String> = sqlx::query_scalar(
+        "SELECT i.id || '/' || i.scryfall_id || '/' || i.qty || '/' || i.proxy || '/' || COALESCE(i.container_id, '') || '/' || COALESCE(c.kind, '')
+         FROM collection_items i LEFT JOIN containers c ON c.id = i.container_id AND c.owner_id = i.owner_id WHERE i.owner_id = ? ORDER BY i.id",
+    )
+    .bind(owner)
+    .fetch_all(pool)
+    .await?;
+    rev.push_str(&crate::util::sha256_hex(&collection.join(";")));
+    let boxes: Vec<String> = sqlx::query_scalar("SELECT id || '/' || COALESCE(container_id, '') FROM decks WHERE owner_id = ? AND archived = 0 AND parent_id IS NULL ORDER BY id")
         .bind(owner)
         .fetch_all(pool)
         .await?;
-    rev.push_str(&crate::util::sha256_hex(&collection.join(";")));
+    rev.push_str(&crate::util::sha256_hex(&boxes.join(";")));
     let cache = CACHE.get_or_init(Default::default);
     if let Some((r, lines)) = cache.lock().expect("want list cache").get(owner)
         && *r == rev
@@ -73,6 +81,7 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
     // By name as written first: (name, copies, needed).
     let mut named: Vec<(String, i64, bool, bool)> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
+    let mut manual = std::collections::HashSet::new();
     for w in crate::plan::trip::trip_wants(&bundle) {
         // Explicit wishes keep their own quantities; derived deck/upgrade needs are added below.
         if w.source != "want" && w.source != "wishlist" {
@@ -83,6 +92,9 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
             continue;
         }
         let key = name.to_lowercase();
+        if w.source == "want" {
+            manual.insert(key.clone());
+        }
         match at.get(&key) {
             Some(&i) => {
                 named[i].1 += 1;
@@ -98,8 +110,9 @@ async fn load_lines(pool: &SqlitePool, owner: &str, include_pending: bool) -> Ap
     for (name, qty, pending) in super::want_sources::needs(pool, owner, &bundle, include_pending).await? {
         let key = name.to_lowercase();
         if let Some(&i) = at.get(&key) {
-            // A manual/wishlist entry and a derived gap can describe the same acquisition.
-            named[i].1 = named[i].1.max(qty);
+            // Manual wants are explicitly extra copies, as on the store trip. A watchlist
+            // entry, by contrast, can describe the same missing real copy as a deck gap.
+            named[i].1 = if manual.contains(&key) { named[i].1 + qty } else { named[i].1.max(qty) };
             named[i].2 |= !pending;
         } else {
             at.insert(key, named.len());
@@ -264,7 +277,16 @@ pub(super) async fn owned_route(State(st): State<AppState>, CurrentUser(user): C
     let (sharer, public) = shared_wants(&st.pool, &handle).await?;
     let owner = sharer.id == user.id;
     let pending: Vec<WantLine> = if owner {
-        load_lines(&st.pool, &user.id, true).await?.into_iter().filter(|l| l.pending).collect()
+        load_lines(&st.pool, &user.id, true)
+            .await?
+            .into_iter()
+            .filter_map(|mut l| {
+                let already = public.iter().find(|p| p.name == l.name).map_or(0, |p| p.qty);
+                l.qty -= already;
+                l.pending = true;
+                (l.qty > 0).then_some(l)
+            })
+            .collect()
     } else {
         vec![]
     };
