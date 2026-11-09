@@ -3,3 +3,4 @@
 export { DeckPage, DecksPage } from "../pages/Decks";
 export { BuildChoicesPage } from "./BuildChoices";
 export { ImportPage } from "./ImportPage";
+export { EditListPage } from "./EditListPage";

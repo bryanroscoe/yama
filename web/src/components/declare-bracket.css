@@ -1,0 +1,18 @@
+/* The declared bracket on the bracket panel: a label over a segmented None, 1-5. */
+.declare-bracket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.declare-bracket-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.declare-bracket-choices {
+  align-self: flex-start;
+  /* The panel is --surface, the track's own color: ground keeps the track visible. */
+  background: var(--ground);
+}
+.declare-bracket-choices > button {
+  padding: 0 0.85rem;
+}

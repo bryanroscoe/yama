@@ -1000,6 +1000,11 @@ struct SaveVersion {
     /// Printings the import named (deck_import::save_prints).
     #[serde(default)]
     prints: Vec<crate::deck_import::DeckPrint>,
+    /// The version the edit started from (Edit the list). When set, the save is refused with 409
+    /// if the deck's list changed since, checked in the same transaction as the insert, so two
+    /// editors can't silently replace each other's list.
+    #[serde(default)]
+    base_version: Option<String>,
 }
 
 async fn save_version(
@@ -1010,7 +1015,21 @@ async fn save_version(
 ) -> AppResult<Json<serde_json::Value>> {
     st.limits.deck_writes.check_user(&user)?;
     owned_deck(&st.pool, &user.id, &id).await?;
-    let vid = insert_version(&st.pool, &id, &body.cards, body.note.as_deref()).await?;
+    let vid = match &body.base_version {
+        None => insert_version(&st.pool, &id, &body.cards, body.note.as_deref()).await?,
+        Some(base) => {
+            // Immediate, so another save can't land between the check and the insert.
+            let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+            let current: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&mut *tx).await?;
+            if current.as_deref() != Some(base.as_str()) {
+                return Err(AppError::Conflict("this list changed since you opened it".into()));
+            }
+            let vid = insert_version_in(&mut tx, &id, &body.cards, body.note.as_deref()).await?;
+            tx.commit().await?;
+            crate::deck_checks::wake();
+            vid
+        }
+    };
     crate::deck_import::save_prints(&st.pool, &id, &body.prints).await?;
     Ok(Json(serde_json::json!({ "version_id": vid })))
 }
@@ -1759,6 +1778,27 @@ mod tests {
         assert_eq!(lines[1], ParsedLine { qty: 1, name: "Sol Ring".into(), board: Board::Main });
         assert_eq!(lines[2].qty, 12);
         assert_eq!(lines[3].board, Board::Side);
+    }
+
+    #[tokio::test]
+    async fn saving_over_a_changed_list_is_refused() {
+        use crate::testutil::{app, deck, send, user};
+        use axum::http::{Method, StatusCode};
+        let (app, pool) = app().await;
+        let (owner, token) = user(&pool, "editor@example.com").await;
+        let (id, v1) = deck(&pool, &owner, "Edited").await;
+        let path = format!("/api/decks/{id}");
+        let cards = serde_json::json!([{ "oracle_id": "o-commander", "name": "Test Commander", "qty": 1, "board": "commander" }]);
+        let (status, saved) = send(&app, Method::PUT, &path, Some(&token), Some(serde_json::json!({ "cards": cards, "base_version": v1 }))).await;
+        assert_eq!(status, StatusCode::OK);
+        // A second editor that also started from v1 is refused; the first save stays the list.
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(serde_json::json!({ "cards": cards, "base_version": v1 }))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let current: String = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(current, saved["version_id"].as_str().unwrap());
+        // Without a base version, saving works as before.
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(serde_json::json!({ "cards": cards }))).await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     #[test]

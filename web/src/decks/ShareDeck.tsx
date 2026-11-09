@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
+import { configurationLabel } from "./buildCatalog";
 import "./share.css";
 
 export const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] = [
@@ -26,75 +27,139 @@ export function useCopy(): [string | null, (text: string) => Promise<void>] {
   return [said, copy];
 }
 
-/** Who can see this deck, and its link. */
+/** Making a new link, confirmed in place: the confirm button really rotates the link (the canvas's
+ *  version called cancel), Keep this one closes the question. */
+export function ResetConfirm({ pending, onConfirm, onKeep }: { pending: boolean; onConfirm: () => void; onKeep: () => void }) {
+  return (
+    <div className="share-reset" role="alert">
+      <span>The old link will stop working.</span>
+      <span className="share-link-actions">
+        <button disabled={pending} onClick={onConfirm}>{pending ? "Making it…" : "Make a new link"}</button>
+        <button className="quiet" onClick={onKeep}>Keep this one</button>
+      </span>
+    </div>
+  );
+}
+
+/** Who can see this deck, and its link (deck page SPEC section 5; board DeckShare). */
 export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => void }) {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
   const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
   const [copied, copy] = useCopy();
+  const [help, setHelp] = useState(false);
+  const [askReset, setAskReset] = useState(false);
+  const [changing, setChanging] = useState<string | null>(null);
   const refresh = () => {
-    void qc.invalidateQueries({ queryKey: ["deck", deck.id] });
+    // Every list of the deck lists the others' sharing.
+    void qc.invalidateQueries({ queryKey: ["deck"] });
     void qc.invalidateQueries({ queryKey: ["decks"] });
     void qc.invalidateQueries({ queryKey: ["sharing"] });
   };
   const set = useMutation({
-    mutationFn: (visibility: Visibility) => api(`/api/decks/${deck.id}`, { method: "PATCH", json: { visibility } }),
-    onSuccess: refresh,
+    mutationFn: ({ id, visibility }: { id: string; visibility: Visibility }) => api(`/api/decks/${encodeURIComponent(id)}`, { method: "PATCH", json: { visibility } }),
+    onSuccess: (_, { id }) => {
+      if (id !== deck.id) setChanging(null);
+      refresh();
+    },
   });
   const reset = useMutation({
-    mutationFn: () => api<{ share_token: string }>(`/api/decks/${deck.id}/share-link`, { method: "POST" }),
-    onSuccess: refresh,
+    mutationFn: () => api<{ share_token: string }>(`/api/decks/${encodeURIComponent(deck.id)}/share-link`, { method: "POST" }),
+    onSuccess: () => {
+      setAskReset(false);
+      refresh();
+    },
   });
-  const visibility = set.isPending ? set.variables : deck.visibility;
+  const pending = set.isPending ? set.variables : null;
+  const visibility = pending?.id === deck.id ? pending.visibility : deck.visibility;
   const link = deck.share_token ? shareUrl(deck.share_token) : null;
   const handle = sharing.data?.handle;
+  const others = deck.configurations.map((c, i) => ({ ...c, label: configurationLabel(c.configuration, c.name, i === 0) })).filter((c) => c.id !== deck.id);
+  const labelOf = (v: Visibility) => VISIBILITY_CHOICES.find((c) => c.value === v)?.label ?? v;
 
   return (
     <Sheet label="Share deck" onClose={onClose}>
-      <div className="stack share-sheet">
+      <div className="share-sheet">
         <div className="sheet-head">
           <h2>Share {deck.name}</h2>
           <button className="quiet" onClick={onClose}>Close</button>
         </div>
         <fieldset className="share-choices">
-          <legend className="small dim">Who can see it</legend>
+          <legend className="share-legend">
+            Who can see it
+            <button type="button" className="share-help" aria-label="What sharing shows" aria-expanded={help} onClick={() => setHelp((h) => !h)}>?</button>
+          </legend>
+          {help && (
+            <div className="share-help-note" role="note">
+              <span><b>Shown:</b> the cards, the printings its exports name, its commander art and the bracket you declare.</span>
+              <span><b>Never shown:</b> your collection, proxies, prices you paid, notes, boxes, plans, games and account details.</span>
+            </div>
+          )}
           {VISIBILITY_CHOICES.map((c) => (
-            <label key={c.value}>
-              <input type="radio" name="visibility" checked={visibility === c.value} disabled={set.isPending} onChange={() => set.mutate(c.value)} />
-              {c.label}
-              <span className="hint">{c.hint}</span>
+            <label key={c.value} className="share-card">
+              <input type="radio" name="visibility" checked={visibility === c.value} disabled={set.isPending} onChange={() => { setAskReset(false); set.mutate({ id: deck.id, visibility: c.value }); }} />
+              <b>{c.label}</b>
             </label>
           ))}
         </fieldset>
-        <p className="small dim share-what">
-          A shared deck shows its cards, the printings its exports name, its commander art and the bracket you declare. Your
-          collection, prices you paid, notes, plans and games stay private.
-        </p>
+
         {visibility !== "private" && link && (
-          <div className="stack share-link">
+          <div className="share-link">
             <label>
               Link
               <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
             </label>
-            <div className="row">
+            <div className="share-link-actions">
               <button className="primary" onClick={() => void copy(link)}>Copy link</button>
-              <a className="button" href={link} target="_blank" rel="noreferrer">Open</a>
-              <button className="quiet" disabled={reset.isPending} onClick={() => confirm("Make a new link? The old one stops working.") && reset.mutate()}>
-                Reset link
-              </button>
+              <a className="button" href={link} target="_blank" rel="noreferrer">Open it</a>
+              <button className="quiet" aria-expanded={askReset} onClick={() => setAskReset(true)}>Make a new link</button>
+              {copied && <span className="small" role="status">{copied}</span>}
             </div>
-            {copied && <p className="small" role="status">{copied}</p>}
+            {askReset && <ResetConfirm pending={reset.isPending} onConfirm={() => reset.mutate()} onKeep={() => setAskReset(false)} />}
           </div>
         )}
         {visibility === "public" && !handle && sharing.data && (
-          <p className="small">
+          <p className="small share-line">
             Your profile needs a handle before it lists anything. <Link to="/sharing#sharing">Pick a handle in Sharing</Link>.
           </p>
         )}
         {visibility === "public" && handle && (
-          <p className="small dim">
+          <p className="small share-line">
             Listed on <a href={`/u/${handle}`}>your profile, @{handle}</a>.
           </p>
+        )}
+
+        {others.length > 0 && (
+          <div className="share-rows">
+            <h3>Its other lists</h3>
+            {others.map((c) => (
+              <div key={c.id} className="share-row">
+                <div className="share-row-head">
+                  <span>{c.label}</span>
+                  <span className="share-row-value">
+                    <span className="dim">{labelOf(pending?.id === c.id ? pending.visibility : c.visibility)}</span>
+                    <button className="quiet" aria-expanded={changing === c.id} onClick={() => setChanging(changing === c.id ? null : c.id)}>Change</button>
+                  </span>
+                </div>
+                {changing === c.id && (
+                  <div className="segmented share-row-choice" role="group" aria-label={`Who can see ${c.label}`}>
+                    {VISIBILITY_CHOICES.map((v) => (
+                      <button key={v.value} type="button" aria-pressed={c.visibility === v.value} disabled={set.isPending} onClick={() => set.mutate({ id: c.id, visibility: v.value })}>
+                        {v.value === "link" ? "With the link" : v.value === "public" ? "Public" : v.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {sharing.data && (
+          <div className="share-row share-row-head share-lab">
+            <span>Simulated win rates <span className="dim">{sharing.data.share_lab_results ? "shown" : "hidden"}</span></span>
+            <Link to="/sharing#sharing" onClick={onClose}>Change in Sharing</Link>
+          </div>
         )}
         <ErrorText error={set.error ?? reset.error} />
       </div>

@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { api, type Combo, type DeckCheck, type Estimated } from "../api";
 import { useDeckAnalysis } from "../decks/DeckAnalysis";
 import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
+import { DeclareBracket } from "./DeclareBracket";
 import { NameList } from "./OnlineSupport";
 import { Details, ErrorText } from "./ui";
 import "./decks.css";
@@ -58,14 +59,13 @@ export function useDeckCheck(deckId: string, versionId: string | null) {
  * the cards and combos behind the estimate, and the local Game Changer count when there's no
  * estimate to show.
  */
-export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard, onDeclare }: {
+export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard }: {
   deckId: string;
   versionId: string | null;
   declared: number | null;
   /** From our own card data; null while the flags aren't loaded. */
   gameChangers: string[] | null;
   onCard: (name: string) => void;
-  onDeclare: () => void;
 }) {
   const qc = useQueryClient();
   const check = useDeckCheck(deckId, versionId);
@@ -115,10 +115,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
               <span className="sub">{bracketName(declared)}</span>
             </>
           ) : (
-            <>
-              <span className="value none">Not declared</span>
-              <button className="name-link sub" style={{ justifySelf: "start" }} onClick={onDeclare}>Declare a bracket</button>
-            </>
+            <span className="value none">Not declared</span>
           )}
         </div>
         <div className="bracket-side estimate">
@@ -141,6 +138,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
         )}
       </div>
 
+      <DeclareBracket deckId={deckId} declared={declared} />
       {status && <p className="note" role="status">{status}</p>}
       <ErrorText error={again.error} />
       <Details label={r ? "Why this suggestion?" : "About bracket suggestions"}>
@@ -148,7 +146,6 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
         {r && <p>{gameChangerFloor(r.game_changers.length)}</p>}
         {r && <p>Commander Spellbook counts your commander as always available, so it isn't counted as a combo piece. A listed combo doesn't establish how early it wins. Yama uses Core (2) as a provisional starting point when no higher-bracket signals are found.</p>}
       </Details>
-      {r && <button className="name-link small" onClick={onDeclare}>Choose or change your bracket</button>}
       <BracketGuide />
 
       {r ? (
