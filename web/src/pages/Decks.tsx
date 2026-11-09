@@ -1,4 +1,3 @@
-import { planHref } from "../plan/href";
 import { CardHover, CardRef } from "../components/CardRef";
 import { SinglesPrice } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +37,7 @@ import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
+import { boxBracket, bracketSwaps, SwapPanel } from "../decks/BracketSwaps";
 import { DeckPriceList } from "../decks/DeckPriceList";
 import { usePlaygroupVariants } from "../decks/PlaygroupBuilds";
 
@@ -264,6 +264,18 @@ export function DeckPage() {
   const listArtists = layout === "list" ? groups.flatMap(([, es]) => es.map((e) => (e.card?.image_art_crop ? e.card.artist : null))) : [];
 
   const status = deckStatus(d);
+  // Play it at a lower bracket: the plan's swap bags, previewed from the List picker (?at=3).
+  // Only an approved plan's bags are instructions for the box (as on Print swap cards).
+  const planInForce = !!plan && ["in_progress", "done"].includes(plan.view.planOf(plan.deck).state);
+  const brackets = planInForce ? bracketSwaps(plan!.deck.bracket) : [];
+  const atSwaps = brackets.find((b) => String(b.bracket) === search.get("at")) ?? null;
+  const outAt = new Set(atSwaps?.swaps.map((s) => s.out) ?? []);
+  const atHref = (b: number | null) => {
+    const next = new URLSearchParams(search);
+    if (b == null) next.delete("at");
+    else next.set("at", String(b));
+    return `${pathname}${next.size ? `?${next}` : ""}`;
+  };
   // The ActionBar (design/tokens.md, rule 2; SPEC section 0): Edit list, Check cards, Share, More.
   const checkActions = <>
     <Link to={`/decks/${d.id}/check`}><span>Check the box against the list</span><span className="more-menu-note">Saves nothing</span></Link>
@@ -283,17 +295,6 @@ export function DeckPage() {
     <MenuSeparator />
     <button className="deck-delete" onClick={() => setDeleting(true)}>{deleteWording(d).action}</button>
   </>;
-  const planLink = plan && (
-    <Link to={planHref(plan.deck.key)} className="deck-plan-link">
-      <span className="deck-plan-text">
-        <b>
-          Plan: {plan.line}
-          {plan.more && <span className="wide-only">, {plan.more}</span>}
-        </b>
-      </span>
-      <span className="deck-plan-open">Open plan</span>
-    </Link>
-  );
 
   return (
     <main className="deck-page">
@@ -333,20 +334,24 @@ export function DeckPage() {
             <button onClick={() => setSharing(true)}>Share</button>
             <MoreMenu title={d.name}>{moreActions}</MoreMenu>
           </div>
-          {d.configurations.length > 1 || variants.length > 0 ? (
-            <ListPicker deck={d} shownId={id ?? d.id} onPrefetch={prefetch} onNewList={() => setConfiguring(true)} variants={variants} />
+          {d.configurations.length > 1 || variants.length > 0 || brackets.length > 0 ? (
+            <ListPicker
+              deck={d}
+              shownId={id ?? d.id}
+              onPrefetch={prefetch}
+              onNewList={() => setConfiguring(true)}
+              variants={variants}
+              brackets={brackets.map((b) => ({ bracket: b.bracket, count: b.swaps.length }))}
+              boxBracket={planInForce ? boxBracket(plan!.deck.bracket) : null}
+              at={atSwaps?.bracket ?? null}
+              atHref={planInForce ? atHref : undefined}
+            />
           ) : (
             <button className="quiet deck-new-list" onClick={() => setConfiguring(true)}>Save a copy as a new list</button>
           )}
         </div>
         <SavedListBar deck={d} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-        {(planLink || plan?.sim) && (
-          <div className={`deck-status${plan ? " has-plan" : ""}`}>
-            {planLink}
-            {plan?.sim && <span className="deck-sim">{plan.sim}</span>}
-          </div>
-        )}
 
         {editing && <DeckSettings deck={d} onClose={() => setEditing(false)} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
@@ -370,6 +375,9 @@ export function DeckPage() {
           label="Deck sections"
         />
 
+        {atSwaps && plan && (tab === "cards" || tab === "stats") && (
+          <SwapPanel at={atSwaps.bracket} swaps={atSwaps.swaps} view={plan.view} printHref={`/decks/builds?savedDeck=${d.id}&from=${encodeURIComponent(`saved:${d.id}`)}&to=${encodeURIComponent(`plan:${plan.deck.key}:b${atSwaps.bracket}`)}`} backHref={atHref(null)} />
+        )}
         {tab === "cards" && (<>
         <div className="deck-toolbar">
           {layout !== "prices" && <div className="deck-show" role="tablist" aria-label="Show">
@@ -407,12 +415,13 @@ export function DeckPage() {
                           onClick={() => setOpen(e.oracle_id)}
                           onMouseEnter={() => setPreview(e)}
                           onFocus={() => setPreview(e)}
-                          aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}`}
+                          aria-label={`${e.qty > 1 ? `${e.qty} ` : ""}${e.name}${e.needed > 0 ? `, need ${e.needed}` : ""}${outAt.has(e.name) ? `, out at Bracket ${atSwaps!.bracket}` : ""}`}
                         >
                           <CardHover name={e.name} oracleId={e.oracle_id} image={e.card?.image_normal}><CardImage src={e.card?.image_normal} name={e.name}/></CardHover>
                           {/* Still needed: an amber dot just off the card's left edge, so the mana cost stays clear. */}
                           {e.needed > 0 && <span className="need-dot" aria-hidden="true" title={`Need ${e.needed}`} />}
                           {e.qty > 1 && <span className="qty-badge num">×{e.qty}</span>}
+                          {outAt.has(e.name) && <span className="out-badge">Out at Bracket {atSwaps!.bracket}</span>}
                         </button>
                       ))}
                     </div>
@@ -469,6 +478,7 @@ export function DeckPage() {
                         <CardStatus e={e} small plan={plan} />
                       </span>
                       <span className="deck-row-state num">
+                        {outAt.has(e.name) && <span className="out-note">Out at Bracket {atSwaps!.bracket}</span>}
                         {e.needed > 0 ? <span className="need">Need{e.needed > 1 ? ` ${e.needed}` : ""}</span> : <span className="have">Have</span>}
                         {e.needed > 0 && <span className="dim">{usd(e.cheapest_usd)}</span>}
                       </span>
@@ -484,7 +494,7 @@ export function DeckPage() {
 
         {/* Stats: everything about the deck that isn't the list (design: the deck's Stats tab). */}
         {tab === "stats" && <DeckStatsTab deck={d} onCard={openByName} />}
-        {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} /></section>}
+        {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} />{plan?.sim && <p className="deck-sim">{plan.sim}</p>}</section>}
         {tab === "history" && <section className="deck-history-tab" aria-label="History"><DeckHistoryBody deckId={d.id} currentVersionId={d.version_id} /></section>}
         {tab === "cards" && <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>}
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}
