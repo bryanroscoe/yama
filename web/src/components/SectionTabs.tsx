@@ -2,15 +2,15 @@
 // design/system/components/SectionTabs): a sticky strip of a long page's 3-5 sections, so you jump
 // between them instead of scrolling through stacked disclosures. These are jump links to sections
 // that all stay open; the one in view is marked current.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 export interface SectionTab {
   /** The section element's id. */
   id: string;
   label: string;
-  /** A count or a short state beside the label. */
-  note?: string | number | null;
+  /** A count or a short state beside the label (an element when it loads on its own). */
+  note?: ReactNode;
 }
 
 export function SectionTabs({ tabs, label = "Sections" }: { tabs: SectionTab[]; label?: string }) {

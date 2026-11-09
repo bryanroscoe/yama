@@ -24,7 +24,9 @@ import { BracketChips, BracketPanel } from "../components/Bracket";
 import { DeckAnalysisPanel, useDeckAnalysis } from "../decks/DeckAnalysis";
 import { DeckStatsPanel } from "../components/DeckStats";
 import { DeckExport } from "../components/DeckExport";
-import { DeckHistoryBody } from "../components/DeckHistory";
+import { DeckHistoryBody, HistoryTabNote } from "../components/DeckHistory";
+import { DeckPlanTab } from "../decks/DeckPlanTab";
+import { planTabNote } from "../decks/deckPlanHub";
 import { PageTabs } from "../components/SectionTabs";
 import { DeckResults } from "../components/DeckResults";
 import { AskClaudeButton, AskClaudeSheet, useAskClaudeOffered } from "../advisor/AskClaude";
@@ -205,7 +207,7 @@ export function DeckPage() {
   // The deck's sections are tabs (design/tokens.md, rule 4; deck page SPEC): Cards at /decks/:id,
   // Stats and History at /decks/:id/stats and /history, so links and Back land on the same tab.
   const { pathname } = useLocation();
-  const tab = (["stats", "history"] as const).find((t) => pathname.endsWith(`/${t}`)) ?? "cards";
+  const tab = (["stats", "plan", "history"] as const).find((t) => pathname.endsWith(`/${t}`)) ?? "cards";
   const tabHref = (t: string) => `/decks/${id}${t === "cards" ? "" : `/${t}`}${search.size ? `?${search}` : ""}`;
   const offer = search.get("collect") === "1";
   const [collecting, setCollecting] = useState(offer);
@@ -363,7 +365,8 @@ export function DeckPage() {
           tabs={[
             { id: "cards", label: "Cards", note: o.cards },
             { id: "stats", label: "Stats" },
-            { id: "history", label: "History" },
+            { id: "plan", label: "Plan", note: planTabNote(plan) },
+            { id: "history", label: "History", note: <HistoryTabNote deckId={d.id} currentVersionId={d.version_id} /> },
           ]}
           current={tab}
           hrefFor={tabHref}
@@ -544,6 +547,7 @@ export function DeckPage() {
           <DeckStatsPanel cards={d.cards} />
         </section>
         )}
+        {tab === "plan" && <section className="deck-plan-tab-wrap" aria-label="Plan"><DeckPlanTab deckId={d.id} deckName={d.name} /></section>}
         {tab === "history" && <section className="deck-history-tab" aria-label="History"><DeckHistoryBody deckId={d.id} currentVersionId={d.version_id} /></section>}
         {tab === "cards" && <details className="deck-sources small dim"><summary>Art credits and price source</summary>{listArtists.some(Boolean) && <p>{artCredits(listArtists)}</p>}<p>Cheapest printing per copy. {priced}.</p></details>}
         {open && <CardSheet oracleId={open} onClose={() => setOpen(null)} />}

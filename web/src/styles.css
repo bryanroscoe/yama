@@ -2492,6 +2492,9 @@ body:has(.view-banner) {
   color: var(--text);
   border-bottom-color: var(--text);
 }
+.section-tabs > a > span:empty {
+  display: none;
+}
 .section-tabs > a > span {
   font-weight: 400;
   font-size: var(--t-sm);

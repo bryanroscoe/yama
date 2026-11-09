@@ -1,0 +1,182 @@
+/* The deck page's Plan and History tabs (deck page SPEC 0 and 0b; boards Deck and PhoneDeck).
+   Gap-based: sections 32 px apart, action rows 16 px below what's above them. */
+
+.deck-plan-tab,
+.deck-history-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.deck-tab-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.deck-tab-section h2,
+.deck-plan-current h2,
+.deck-tab-empty h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  line-height: 1.1;
+}
+.deck-tab-section .plans-rows,
+.deck-plan-left .plans-rows {
+  margin: 0;
+  border-radius: var(--radius);
+}
+.deck-tab-more,
+.deck-tab-action,
+.deck-plan-earlier {
+  align-self: flex-start;
+}
+.deck-tab-action,
+.deck-history-confirm {
+  margin-top: var(--s-1);
+}
+
+/* One-line rows with an action at the end: Up next. */
+.deck-tab-rows {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.deck-tab-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  min-height: 52px;
+  padding: var(--s-1) var(--s-3);
+  border-top: 1px solid var(--line);
+}
+.deck-tab-row:first-child {
+  border-top: 0;
+}
+.deck-tab-row-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+/* Current plan */
+.deck-plan-current {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: 20px;
+  border-radius: var(--r-list);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.deck-plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.deck-plan-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.deck-plan-count {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.deck-plan-count b {
+  font-family: var(--display);
+  font-size: var(--t-2xl);
+  line-height: 1;
+}
+.deck-plan-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.deck-plan-left h3 {
+  margin: 0;
+  font-size: var(--t-label);
+}
+.deck-plan-left .plans-rows {
+  background: var(--ground);
+}
+.deck-plan-earlier {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-compact);
+  color: var(--text);
+}
+.deck-tab-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+}
+
+/* History: the lists on the left, the one open on the right; one column on phones. */
+.deck-history-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-5);
+  align-items: flex-start;
+}
+.deck-history-lists {
+  flex: 1 1 320px;
+  max-width: 400px;
+}
+.deck-history-main {
+  flex: 999 1 480px;
+  min-width: 0;
+}
+.deck-history-version {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--target);
+  padding: 6px 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--t-label);
+  font-weight: 400;
+  text-align: left;
+}
+.deck-history-version:first-child {
+  border-top: 0;
+}
+.deck-history-version[aria-pressed="true"] {
+  background: var(--raised);
+}
+.deck-history-version b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.deck-history-version .dim {
+  flex: none;
+}
+.deck-history-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+}
+@media (max-width: 899px) {
+  .deck-history-lists,
+  .deck-history-main {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
