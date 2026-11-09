@@ -219,7 +219,7 @@ export function FieldTile({ pile, meta, look, h, label: extraLabel }: { pile: Pi
             {meta?.art && <img src={meta.art} alt="" loading="lazy" draggable={false} />}
           </span>
           <span className="ft-bar">
-            <span className="ft-name">{shortName(c.name)}</span>
+            <span className="ft-name">{c.name}</span>
             {c.tapped && <TapMark />}
           </span>
         </>

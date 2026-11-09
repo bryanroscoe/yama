@@ -219,6 +219,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
           </label>
         )}
       </div>
+      <p className="small dim">Rules engine: Phase. Choose Easy, Medium or Hard for each computer below before starting.</p>
       <ol className="ph-seats">
         {seats.map((s, i) => {
           const deck = shown[i];
@@ -258,7 +259,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                   </label>
                 )}
                 {s.kind === "ai" && (
-                  <div className="ph-skills" role="group" aria-label={`Skill for seat ${i + 1}`}>
+                  <div className="ph-skills" role="group" aria-label={`Difficulty for seat ${i + 1}`}>
                     {SKILLS.map((k) => (
                       <button key={k} type="button" aria-pressed={s.difficulty === k} onClick={() => update(i, { difficulty: k })}>{k}</button>
                     ))}
