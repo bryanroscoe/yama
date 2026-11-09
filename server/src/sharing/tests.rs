@@ -1359,6 +1359,11 @@ async fn real_copy_in_one_target_and_order_for_another_are_distinct_coverage() {
     let plan = json!({"decks":[{"key":"a","yama_deck":{"id":a},"states":{"stock":{"cards":[{"name":"Old"}]}},"plan":{"state":"in_progress"}}],
         "swaps":[{"key":"ordered","deck":"a","stage":"planned","role":"swap","src":"buy","out":"Old","in":"New","order_item":{"order":"o","line":1}}]});
     assert!(super::want_sources::needs(&pool,&owner,&plan,false).await.unwrap().is_empty());
+    let mut moved = plan.clone();
+    moved["swaps"][0]["src"] = json!("owned"); moved["swaps"][0]["order_item"] = json!(null);
+    moved["swaps"][0]["got"] = json!({"how":"deck","deck":"second"});
+    // Reusing the second deck's only copy cannot fulfill both physical deck targets.
+    assert_eq!(super::want_sources::needs(&pool,&owner,&moved,false).await.unwrap(),vec![("New".into(),1,false)]);
 }
 
 #[tokio::test]
