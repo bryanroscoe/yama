@@ -1,3 +1,4 @@
+import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -5,7 +6,7 @@ import { useSearchParams } from "react-router";
 import { api, priceSource, usd, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
-import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
+import { CardImage, ErrorText, Sheet } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
 import { queryChips, withoutTerm } from "./cardQuery";
@@ -98,7 +99,12 @@ export function CardsPage() {
   return (
     <>
       <main className="page cards-page" aria-hidden={open ? true : undefined}>
-        <h1>Cards</h1>
+        <div className="help-heading">
+          <h1>Cards</h1>
+          <HelpPopover label="Search syntax">
+            <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+          </HelpPopover>
+        </div>
         <form
           className="cards-search"
           role="search"
@@ -128,9 +134,6 @@ export function CardsPage() {
 
         {!q && (
           <div className="cards-help">
-            <Details label="Search syntax">
-              <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
-            </Details>
             <div className="cards-chips">
               {EXAMPLES.map((e) => (
                 <button key={e.q} className="cards-chip" onClick={() => set({ q: e.q, page: "1" })}>{e.label}</button>

@@ -22,6 +22,16 @@ export const NEWS: NewsEntry[] = [
       "Open your public profile or copy its link from the same page, with links to your collection and wish list when you share them.",
     ],
     link: { to: "/profile", label: "Your profile" },
+    },
+    {
+    id: "2026-11-09-want-list-needs",
+    date: "2026-11-09",
+    title: "A fuller want list for friends",
+    items: [
+      "Your want list includes missing real cards for saved decks and approved upgrades, including upgrades you plan to print.",
+      "Search the list and see your own copies, including those in deck boxes. You can also choose to show friends cards from pending upgrades without approving the plans.",
+    ],
+    link: { to: "/sharing", label: "Open Sharing" },
   },
   {
     id: "2026-11-09-assistant-games-collection",

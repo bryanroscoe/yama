@@ -1073,9 +1073,8 @@ async fn a_want_list_is_private_until_shared_and_shows_only_cards() {
     assert_eq!(headers[header::CACHE_CONTROL], "private, no-cache");
     assert!(html.contains("noindex"));
     // Needed cards first, then the ones along the way; a missing price is said, never $0.
-    let (needed, along) = html.split_once("Also on the list").unwrap();
-    assert!(needed.contains("Sol Ring") && !needed.contains("Arcane Signet"));
-    assert!(along.contains("Arcane Signet"));
+    assert!(html.find("data-name=\"Sol Ring\"").unwrap() < html.find("data-name=\"Arcane Signet\"").unwrap());
+    assert!(html.contains("data-kind=\"needed\"") && html.contains("data-kind=\"wishlist\""));
     assert!(html.contains("No market price") && !html.contains("$0.00"));
     assert!(html.contains("href=\"/sharing/compare/saget\""));
     let (_, headers, txt) = page(&app, "/u/saget/wants.txt").await;
@@ -1171,4 +1170,412 @@ async fn comparing_with_a_friend_reads_only_what_they_share() {
     let text = crate::sharing::wants::text(&crate::sharing::wants::compare(&pool, &friend, "saget").await.unwrap());
     assert!(text.contains("- Sol Ring (2 wanted; no market price): owns 3, 1 in deck boxes"), "{text}");
     assert!(text.contains("- Command Tower (1 wanted; no market price): @saget has 1 (1 CMM 1000 NM)"), "{text}");
+}
+
+#[tokio::test]
+async fn want_list_derives_deck_gaps_once_and_invalidates_on_collection_changes() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "list-owner@example.com").await;
+    let (other, _) = user(&pool, "other-list-owner@example.com").await;
+    card(&pool, "o-ring", "Sol Ring", "Artifact", "p-ring", "cmm", "410").await;
+    card(&pool, "o-basic", "Plains", "Basic Land — Plains", "p-basic", "cmm", "1").await;
+    for (who, title) in [(&owner,"First"),(&owner,"Second"),(&owner,"Alternate"),(&other,"Not yours")] {
+        let (id,v) = deck(&pool, who, title).await;
+        let cards = json!([{"oracle_id":"o-ring","name":"Sol Ring","qty":1,"board":"main"},
+                           {"oracle_id":"o-basic","name":"Plains","qty":20,"board":"main"}]);
+        sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?").bind(cards.to_string()).bind(v).execute(&pool).await.unwrap();
+        if title == "Alternate" {
+            let parent: String = sqlx::query_scalar("SELECT id FROM decks WHERE name = 'First' AND owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+            sqlx::query("UPDATE decks SET parent_id = ? WHERE id = ?").bind(parent).bind(id).execute(&pool).await.unwrap();
+        }
+    }
+    send(&app, Method::PUT, "/api/me/sharing", Some(&auth), Some(json!({"handle":"list-owner","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"2 Sol Ring\n");
+    copies(&app,&auth,"one-real","p-ring",1,false,None).await;
+    copies(&app,&auth,"many-proxies","p-ring",3,true,None).await;
+    assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"1 Sol Ring\n");
+    copies(&app,&auth,"second-real","p-ring",1,false,None).await;
+    assert_eq!(page(&app,"/u/list-owner/wants.txt").await.2,"");
+    let (_,overlay)=send(&app,Method::GET,"/api/sharing/wants/list-owner/owned",Some(&auth),None).await;
+    assert_eq!(overlay["public"],json!([])); // old browser rows can be removed with the same refresh
+}
+
+#[tokio::test]
+async fn want_list_includes_print_upgrades_and_keeps_pending_and_rejected_private() {
+    let (_, pool) = app().await;
+    let (owner, _) = user(&pool,"upgrade-list@example.com").await;
+    for (oid,n,pid) in [("print","Print upgrade","p-print"),("pending","Pending upgrade","p-pending"),("no","Rejected upgrade","p-no"),("old","Old card","p-old")] {
+        card(&pool,oid,n,"Artifact",pid,"tst",oid).await;
+    }
+    let b = json!({"decks":[{"key":"d","states":{"now":{"cards":[{"name":"Old card","qty":1}]}},
+        "plan":{"state":"in_progress","next":{"keys":["later","rejected"],"skipped":["rejected"]}}}],
+        "swaps":[{"key":"print","deck":"d","role":"swap","stage":"planned","src":"print","in":"Print upgrade","out":"Old card"},
+                  {"key":"later","deck":"d","role":"swap","stage":"proposed","src":"buy","in":"Pending upgrade"},
+                  {"key":"rejected","deck":"d","role":"swap","stage":"proposed","src":"buy","in":"Rejected upgrade"}],
+        "reviews":{"rejected":{"decision":"no"}}});
+    let public = super::want_sources::needs(&pool,&owner,&b,false).await.unwrap();
+    assert_eq!(public,vec![("Print upgrade".into(),1,false)]);
+    let owner_view = super::want_sources::needs(&pool,&owner,&b,true).await.unwrap();
+    assert!(owner_view.contains(&("Pending upgrade".into(),1,true)));
+    assert!(!owner_view.iter().any(|r|r.0 == "Rejected upgrade" || r.0 == "Old card"));
+}
+
+#[tokio::test]
+async fn want_list_inventory_overlay_is_private_and_owner_scoped() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"overlay-owner@example.com").await;
+    let (_,friend) = user(&pool,"overlay-viewer@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    send(&app,Method::POST,"/api/plan/wants",Some(&auth),Some(json!({"name":"Sol Ring","qty":2}))).await;
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"overlay-owner","wants_public":true}))).await;
+    let (_,box_) = send(&app,Method::POST,"/api/containers",Some(&friend),Some(json!({"kind":"deck","name":"Secret deck"}))).await;
+    copies(&app,&friend,"deck-copy","p-ring",1,false,Some(&box_["id"])).await;
+    copies(&app,&friend,"spare-copy","p-ring",2,false,None).await;
+    copies(&app,&friend,"proxy-copy","p-ring",4,true,None).await;
+    let path = "/api/sharing/wants/overlay-owner/owned";
+    assert_eq!(send(&app,Method::GET,path,None,None).await.0,StatusCode::UNAUTHORIZED);
+    let (_,mine) = send(&app,Method::GET,path,Some(&auth),None).await;
+    assert_eq!(mine["cards"],json!([]));
+    let (_,theirs) = send(&app,Method::GET,path,Some(&friend),None).await;
+    assert_eq!(theirs["owner"],false);
+    assert_eq!(theirs["cards"][0],json!({"name":"Sol Ring","copies":3,"in_decks":1,"proxies":4}));
+    let req = Request::builder().uri(path).header(header::AUTHORIZATION,format!("Bearer {friend}")).body(Body::empty()).unwrap();
+    let res = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.headers()[header::CACHE_CONTROL],"private, no-store");
+    let public = page(&app,"/u/overlay-owner/wants?q=missing").await.2;
+    assert!(public.contains("<li hidden class=\"want-row\""));
+    for secret in ["Secret deck","You own 3","proxy-copy",&owner] { assert!(!public.contains(secret)); }
+}
+
+#[tokio::test]
+async fn want_targets_use_aliases_stock_relative_counts_and_real_inventory() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"target-edges@example.com").await;
+    card(&pool,"old","Old card","Artifact","p-old","tst","1").await;
+    card(&pool,"new","New card","Artifact","p-new","tst","2").await;
+    let (root,version) = deck(&pool,&owner,"Partially installed").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"old","name":"Old card","qty":1,"board":"main"},{"oracle_id":"new","name":"New card","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    let base = json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Old card"}]},
+        "now":{"cards":[{"name":"Old card"},{"name":"New card"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"renamed","deck":"d","role":"swap","stage":"proposed","src":"buy","in":"New card","out":"Old card","deck_installed":false}],
+        "aliases":{"original":"renamed"},"reviews":{"original":{"decision":"want","at":"2030"}}});
+    // Incoming already exists while its cut remains: target has one new card, not two.
+    assert_eq!(super::want_sources::needs(&pool,&owner,&base,false).await.unwrap(),vec![("New card".into(),1,false)]);
+    let mut acquired = base.clone();
+    acquired["marks"] = json!({"original":{"bought":{"value":true,"at":"2031","op_id":"b"}}});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&acquired,false).await.unwrap(),vec![("New card".into(),1,false)]);
+    // A rejected proposal leaves the current saved list authoritative.
+    let mut rejected = base.clone();
+    rejected["reviews"]["original"]["decision"] = json!("no");
+    let needs = super::want_sources::needs(&pool,&owner,&rejected,false).await.unwrap();
+    assert_eq!(needs.len(),2); // current deck still has both; no unapproved replacement applied
+    copies(&app,&auth,"actual-bought-card","p-new",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&acquired,false).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn manually_requested_copies_remain_extra_and_unrelated_deck_boxes_are_reserved() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"extra-list@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    let (_,v) = deck(&pool,&owner,"Needs a ring").await;
+    sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?").bind(json!([{"oracle_id":"ring","name":"Sol Ring","qty":1,"board":"main"}]).to_string()).bind(v).execute(&pool).await.unwrap();
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"extras","wants_public":true}))).await;
+    let (_,box_) = send(&app,Method::POST,"/api/containers",Some(&auth),Some(json!({"kind":"deck","name":"Another deck, not saved"}))).await;
+    copies(&app,&auth,"reserved","p-ring",1,false,Some(&box_["id"])).await;
+    assert_eq!(page(&app,"/u/extras/wants.txt").await.2,"1 Sol Ring\n");
+    send(&app,Method::POST,"/api/plan/wants",Some(&auth),Some(json!({"name":"Sol Ring","qty":1,"deck_name":"One more"}))).await;
+    assert_eq!(page(&app,"/u/extras/wants.txt").await.2,"2 Sol Ring\n");
+}
+
+#[tokio::test]
+async fn owner_overlay_keeps_pending_copies_when_card_also_has_confirmed_demand() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"pending-copies@example.com").await;
+    let (_,friend) = user(&pool,"pending-friend@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    let (_,v) = deck(&pool,&owner,"Needs one").await;
+    sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?").bind(json!([{"oracle_id":"ring","name":"Sol Ring","qty":1,"board":"main"}]).to_string()).bind(v).execute(&pool).await.unwrap();
+    let doc = json!({"format":"yama-plan/1","plan":{"decks":[{"key":"pending","name":"A future deck","status":"proposals_only","commander":["Test Commander"]}],
+        "swaps":[{"key":"pending-ring","deck":"pending","stage":"proposed","role":"swap","src":"print","in":"Sol Ring","out":"Plains"}]}});
+    let (status,result) = send(&app,Method::POST,"/api/plan/import",Some(&auth),Some(doc)).await;
+    assert_eq!(status,StatusCode::OK,"{result}");
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"pending-copies","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"1 Sol Ring\n");
+    let (_,view) = send(&app,Method::GET,"/api/sharing/wants/pending-copies/owned",Some(&auth),None).await;
+    assert_eq!(view["pending"][0]["name"],"Sol Ring");
+    assert_eq!(view["pending"][0]["qty"],1);
+    let (_,view) = send(&app,Method::GET,"/api/sharing/wants/pending-copies/owned",Some(&friend),None).await;
+    assert_eq!(view["pending"],json!([]));
+    let (_,settings) = send(&app,Method::GET,"/api/me/sharing",Some(&auth),None).await;
+    assert_eq!(settings["wants_include_pending"],false);
+    assert_eq!(send(&app,Method::PUT,"/api/sharing/wants/pending-copies/pending",Some(&friend),Some(json!({"enabled":true}))).await.0,StatusCode::FORBIDDEN);
+    let before = send(&app,Method::GET,"/api/plan/bundle",Some(&auth),None).await.1;
+    let (status,_) = send(&app,Method::PUT,"/api/sharing/wants/pending-copies/pending",Some(&auth),Some(json!({"enabled":true}))).await;
+    assert_eq!(status,StatusCode::OK);
+    assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"2 Sol Ring\n");
+    let html = page(&app,"/u/pending-copies/wants").await.2;
+    assert!(html.contains("includes pending upgrades"));
+    assert!(html.contains("data-kind=\"needed\" data-pending=\"true\""));
+    let (_,lines) = super::wants::shared_wants(&pool,"pending-copies").await.unwrap();
+    assert!(lines[0].needed);
+    assert_eq!(lines[0].pending_qty,1);
+    let after = send(&app,Method::GET,"/api/plan/bundle",Some(&auth),None).await.1;
+    assert_eq!(before["decks"][0]["plan"],after["decks"][0]["plan"]);
+    assert_eq!(before["reviews"],after["reviews"]);
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"wants_include_pending":false}))).await;
+    assert_eq!(page(&app,"/u/pending-copies/wants.txt").await.2,"1 Sol Ring\n");
+}
+
+#[tokio::test]
+async fn want_upgrade_chains_are_order_independent_and_owned_moves_apply_cuts() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"chains@example.com").await;
+    for n in ["A","B","C"] {card(&pool,n,n,"Artifact",&format!("p-{n}"),"tst",n).await;}
+    let b = json!({"decks":[{"key":"d","states":{"stock":{"cards":[{"name":"A"}]},"now":{"cards":[{"name":"A"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"bc","deck":"d","stage":"proposed","role":"swap","src":"print","in":"C","out":"B"},
+                  {"key":"ab","deck":"d","stage":"planned","role":"swap","src":"print","in":"B","out":"A"}],
+        "reviews":{"bc":{"decision":"want","at":"2030"}}});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("C".into(),1,false)]);
+    let mut owned = b.clone(); owned["swaps"][0]["src"]=json!("owned");
+    assert_eq!(super::want_sources::needs(&pool,&owner,&owned,false).await.unwrap(),vec![("C".into(),1,false)]);
+    copies(&app,&auth,"proxy-owned","p-C",1,true,None).await;
+    assert_eq!(super::want_sources::needs(&pool,&owner,&owned,false).await.unwrap(),vec![("C".into(),1,false)]);
+    copies(&app,&auth,"real-owned","p-C",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&owned,false).await.unwrap().is_empty());
+    // A separate owner keeps this later assertion independent of the fulfillment above.
+    let (owner,_) = user(&pool,"changed-chain@example.com").await;
+    let mut changed = b.clone(); changed["swaps"][0]["updated_at"]=json!("2031");
+    changed["reviews"]["bc"]["decision"]=json!("no");
+    changed["decks"][0]["plan"]["next"]=json!({"keys":["bc"],"skipped":[]});
+    assert!(super::want_sources::needs(&pool,&owner,&changed,true).await.unwrap().contains(&("C".into(),1,true)));
+}
+
+#[tokio::test]
+async fn orders_are_not_inventory_and_accepted_transfers_consume_only_spares() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"acquired-targets@example.com").await;
+    card(&pool,"old","Old","Artifact","p-old","tst","1").await;
+    card(&pool,"new","New","Artifact","p-new","tst","2").await;
+    let (a,av) = deck(&pool,&owner,"First target").await;
+    let (b,bv) = deck(&pool,&owner,"Second target").await;
+    for (v,id,n) in [(av,"old","Old"),(bv,"new","New")] {
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":id,"name":n,"qty":1,"board":"main"}]).to_string()).bind(v).execute(&pool).await.unwrap();
+    }
+    let (_,box_) = send(&app,Method::POST,"/api/containers",Some(&auth),Some(json!({"kind":"deck","name":"Second target"}))).await;
+    sqlx::query("UPDATE decks SET container_id=? WHERE id=?").bind(box_["id"].as_str().unwrap()).bind(&b).execute(&pool).await.unwrap();
+    copies(&app,&auth,"already-in-second","p-new",1,false,Some(&box_["id"])).await;
+    let plan = json!({"decks":[{"key":"a","yama_deck":{"id":a},"states":{"stock":{"cards":[{"name":"Old"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"ordered","deck":"a","stage":"planned","role":"swap","src":"buy","out":"Old","in":"New","order_item":{"order":"o","line":1}}]});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&plan,false).await.unwrap(),vec![("New".into(),1,false)]);
+    let mut moved = plan.clone();
+    moved["swaps"][0]["src"] = json!("owned"); moved["swaps"][0]["order_item"] = json!(null);
+    moved["swaps"][0]["got"] = json!({"how":"deck","deck":"second"});
+    // Reusing the second deck's only copy cannot fulfill both physical deck targets.
+    assert_eq!(super::want_sources::needs(&pool,&owner,&moved,false).await.unwrap(),vec![("New".into(),1,false)]);
+    moved["decks"].as_array_mut().unwrap().push(json!({"key":"second","yama_deck":{"id":b},"states":{"stock":{"cards":[{"name":"New"}]}},"plan":{"state":"in_progress"}}));
+    moved["swaps"].as_array_mut().unwrap().push(json!({"key":"donor-cut","deck":"second","stage":"planned","role":"swap","src":"print","in":"Old","out":"New"}));
+    copies(&app,&auth,"donor-replacement","p-old",1,false,None).await;
+    // Its approved cut releases the real boxed New for the destination; no second copy needed.
+    assert!(super::want_sources::needs(&pool,&owner,&moved,false).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn pending_owned_note_cards_never_enter_the_approved_baseline() {
+    let (_,pool) = app().await;
+    let (owner,_) = user(&pool,"pending-note-baseline@example.com").await;
+    card(&pool,"stock","Stock card","Artifact","p-stock","tst","1").await;
+    card(&pool,"private","Pending proxy upgrade","Artifact","p-private","tst","2").await;
+    let b = json!({"decks":[{"key":"d","states":{"stock":{"cards":[{"name":"Stock card"}]},"now":{"cards":[{"name":"Pending proxy upgrade"}]}},
+        "plan":{"state":"waiting","next":{"keys":["p"],"skipped":[]}}}],
+        "swaps":[{"key":"p","deck":"d","stage":"proposed","role":"swap","src":"owned","in":"Pending proxy upgrade","out":"Stock card","got":{"how":"owned","detail":"Your print, arrived"}}]});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Stock card".into(),1,false)]);
+    assert!(super::want_sources::needs(&pool,&owner,&b,true).await.unwrap().contains(&("Pending proxy upgrade".into(),1,true)));
+}
+
+#[tokio::test]
+async fn pending_repeated_nonbasic_additions_keep_every_copy() {
+    let (_,pool) = app().await;
+    let (owner,_) = user(&pool,"pending-rats@example.com").await;
+    card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
+    let b = json!({"decks":[{"key":"d","states":{"stock":{"cards":[{"name":"Rat Colony"}]}},
+        "plan":{"state":"in_progress","next":{"keys":["r1","r2"],"skipped":[]}}}],
+        "swaps":[{"key":"r1","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Rat Colony","out":"Plains"},
+                  {"key":"r2","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}]});
+    let rows = super::want_sources::needs(&pool,&owner,&b,true).await.unwrap();
+    assert_eq!(rows.len(),2);
+    assert!(rows.contains(&("Rat Colony".into(),1,false)));
+    assert!(rows.contains(&("Rat Colony".into(),2,true)));
+}
+
+#[tokio::test]
+async fn wishlist_and_derived_gaps_merge_canonical_faces_but_manual_wishes_stay_extra() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"canonical-wants@example.com").await;
+    let full = "Delver of Secrets // Insectile Aberration";
+    card(&pool,"delver",full,"Creature — Human Wizard","p-delver","isd","51").await;
+    // The production card import indexes each face as well as the full card name.
+    sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES ('Delver of Secrets','delver')").execute(&pool).await.unwrap();
+    let (_,version) = deck(&pool,&owner,"Needs Delver").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"delver","name":full,"qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    let document = json!({"scenarios":[{"id":"wish","purpose":"permanent_real_wishlist","buys":[{"card":"Delver of Secrets"}]}]});
+    sqlx::query("INSERT INTO research_reports (owner_id,id,title,content_hash,document,updated_at) VALUES (?,'wish','Wish','h',?,'2026-11-09')").bind(&owner).bind(document.to_string()).execute(&pool).await.unwrap();
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"canonical-wants","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/canonical-wants/wants.txt").await.2,format!("1 {full}\n"));
+    assert_eq!(send(&app,Method::POST,"/api/plan/wants",Some(&auth),Some(json!({"name":"Delver of Secrets"}))).await.0,StatusCode::OK);
+    assert_eq!(page(&app,"/u/canonical-wants/wants.txt").await.2,format!("2 {full}\n"));
+}
+
+#[tokio::test]
+async fn pending_overlay_keeps_intent_when_the_watchlist_already_covers_its_quantity() {
+    let (app,pool) = app().await;
+    let (owner,auth) = user(&pool,"pending-watchlist@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    let document = json!({"scenarios":[{"id":"wish","purpose":"permanent_real_wishlist","buys":[{"card":"Sol Ring"}]}]});
+    sqlx::query("INSERT INTO research_reports (owner_id,id,title,content_hash,document,updated_at) VALUES (?,'wish','Wish','h',?,'2026-11-09')").bind(&owner).bind(document.to_string()).execute(&pool).await.unwrap();
+    let doc = json!({"format":"yama-plan/1","plan":{"decks":[{"key":"d","name":"Future","status":"proposals_only","commander":["Test Commander"]}],
+        "swaps":[{"key":"p","deck":"d","stage":"proposed","role":"swap","src":"print","in":"Sol Ring","out":"Plains"}]}});
+    assert_eq!(send(&app,Method::POST,"/api/plan/import",Some(&auth),Some(doc)).await.0,StatusCode::OK);
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"pending-watchlist","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/pending-watchlist/wants.txt").await.2,"1 Sol Ring\n");
+    let path="/api/sharing/wants/pending-watchlist/owned";
+    let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
+    assert_eq!(view["pending"][0]["qty"],1);
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"wants_include_pending":true}))).await;
+    assert_eq!(page(&app,"/u/pending-watchlist/wants.txt").await.2,"1 Sol Ring\n");
+    let (_,view)=send(&app,Method::GET,path,Some(&auth),None).await;
+    assert_eq!(view["pending"],json!([]));
+}
+
+#[tokio::test]
+async fn plan_only_targets_apply_owner_changes_but_saved_lists_stay_authoritative() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"owner-baseline@example.com").await;
+    for (id,n) in [("stock","Stock"),("mine","My change"),("upgrade","Upgrade"),("current","Actual list")] {
+        card(&pool,id,n,"Artifact",&format!("p-{id}"),"tst",id).await;
+    }
+    let mut b=json!({"decks":[{"key":"d","owner_changes":[{"out":"Stock","in":"My change"}],
+        "states":{"stock":{"cards":[{"name":"Stock"}]}},"plan":{"state":"in_progress"}}]});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("My change".into(),1,false)]);
+    b["swaps"]=json!([{"key":"u","deck":"d","stage":"planned","role":"swap","src":"print","out":"My change","in":"Upgrade"}]);
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Upgrade".into(),1,false)]);
+    let (root,version)=deck(&pool,&owner,"Real list").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"current","name":"Actual list","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    b["decks"][0]["yama_deck"]=json!({"id":root}); b["swaps"]=json!([]);
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Actual list".into(),1,false)]);
+}
+
+#[tokio::test]
+async fn boxed_real_copies_are_allocated_once_regardless_of_purchase_marks() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"stock-and-bought@example.com").await;
+    card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
+    let (root,version)=deck(&pool,&owner,"Rats").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"rat","name":"Rat Colony","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    let (_,box_)=send(&app,Method::POST,"/api/containers",Some(&auth),Some(json!({"kind":"deck","name":"Rats"}))).await;
+    sqlx::query("UPDATE decks SET container_id=? WHERE id=?").bind(box_["id"].as_str().unwrap()).bind(&root).execute(&pool).await.unwrap();
+    copies(&app,&auth,"stock-rat","p-rat",1,false,Some(&box_["id"])).await;
+    let mut b=json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Rat Colony"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"second","deck":"d","stage":"planned","role":"swap","src":"buy","in":"Rat Colony","out":"Plains","order_item":{"order":"bought","line":1}}]});
+    // A purchase claim does not add a second physical copy to the collection.
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
+    copies(&app,&auth,"entered-purchase","p-rat",1,false,Some(&box_["id"])).await;
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    // Entering that purchase cannot also cover a third, unacquired copy.
+    b["swaps"].as_array_mut().unwrap().push(json!({"key":"third","deck":"d","stage":"planned","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}));
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
+}
+
+#[tokio::test]
+async fn loose_real_copies_are_allocated_once_regardless_of_purchase_marks() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"loose-stock@example.com").await;
+    card(&pool,"rat","Rat Colony","Creature — Rat","p-rat","tst","1").await;
+    let (root,version)=deck(&pool,&owner,"Loose rats").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"rat","name":"Rat Colony","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    copies(&app,&auth,"loose-stock","p-rat",1,false,None).await;
+    let mut b=json!({"decks":[{"key":"d","yama_deck":{"id":root},"states":{"stock":{"cards":[{"name":"Rat Colony"}]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"second","deck":"d","stage":"planned","role":"swap","src":"buy","in":"Rat Colony","out":"Plains","order_item":{"order":"bought","line":1}}]});
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
+    copies(&app,&auth,"entered-loose-purchase","p-rat",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+    b["swaps"].as_array_mut().unwrap().push(json!({"key":"third","deck":"d","stage":"planned","role":"swap","src":"print","in":"Rat Colony","out":"Plains"}));
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Rat Colony".into(),1,false)]);
+}
+
+#[tokio::test]
+async fn batched_want_name_resolution_preserves_card_priority_and_faces() {
+    let (_,pool)=app().await;
+    card(&pool,"split","Fire // Ice","Instant","p-split","tst","1").await;
+    card(&pool,"exact","Fire","Instant","p-exact","tst","2").await;
+    card(&pool,"token","Fire token","Token","p-token","tst","3").await;
+    sqlx::query("UPDATE cards SET layout='token' WHERE oracle_id='token'").execute(&pool).await.unwrap();
+    for (name,id) in [("Fire","split"),("Ice","split"),("Fire","token")] {
+        sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES (?,?)").bind(name).bind(id).execute(&pool).await.unwrap();
+    }
+    let mut names=vec!["Fire".to_string();200]; names.extend(["fire".into(),"Ice".into(),"Fire // Ice".into(),"Unknown".into(),"\tFire\t".into(),"\u{2003}Fire\u{2003}".into()]);
+    let resolved=super::want_sources::resolve_names(&pool,&names).await.unwrap();
+    assert_eq!(resolved["Fire"],"exact"); assert_eq!(resolved["fire"],"exact");
+    assert_eq!(resolved["Ice"],"split"); assert_eq!(resolved["Fire // Ice"],"split");
+    assert_eq!(resolved["\tFire\t"],"exact"); assert_eq!(resolved["\u{2003}Fire\u{2003}"],"exact");
+    assert!(!resolved.contains_key("Unknown")); assert_eq!(resolved.len(),6);
+}
+
+#[tokio::test]
+async fn a_loose_purchased_copy_cannot_fulfill_two_saved_deck_targets() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"one-copy-two-targets@example.com").await;
+    card(&pool,"ring","Sol Ring","Artifact","p-ring","tst","1").await;
+    let (first,version)=deck(&pool,&owner,"First").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"ring","name":"Sol Ring","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    let (second,second_version)=deck(&pool,&owner,"Second").await;
+    sqlx::query("UPDATE deck_versions SET cards='[]' WHERE id=?").bind(second_version).execute(&pool).await.unwrap();
+    let b=json!({"decks":[{"key":"second","yama_deck":{"id":second},"states":{"stock":{"cards":[]}},"plan":{"state":"in_progress"}}],
+        "swaps":[{"key":"buy-ring","deck":"second","stage":"planned","role":"swap","src":"buy","in":"Sol Ring","out":"Plains","order_item":{"order":"bought","line":1}}]});
+    let _=first;
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Sol Ring".into(),2,false)]);
+    copies(&app,&auth,"entered-purchase-once","p-ring",1,false,None).await;
+    assert_eq!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap(),vec![("Sol Ring".into(),1,false)]);
+    copies(&app,&auth,"another-real-copy","p-ring",1,false,None).await;
+    assert!(super::want_sources::needs(&pool,&owner,&b,false).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn target_counts_keep_distinct_oracles_and_resolve_face_aliases_before_swaps() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"distinct-card-oracles@example.com").await;
+    card(&pool,"split","Fire // Ice","Instant","p-split","tst","1").await;
+    card(&pool,"standalone","Fire","Instant","p-standalone","tst","2").await;
+    card(&pool,"other","Other card","Artifact","p-other","tst","3").await;
+    sqlx::query("INSERT INTO card_names (name,oracle_id) VALUES ('Ice','split'),('Fire','split')").execute(&pool).await.unwrap();
+    let mut b=json!({"decks":[{"key":"d","states":{"stock":{"cards":[{"name":"Fire"},{"name":"Fire // Ice"}]}},"plan":{"state":"in_progress"}}]});
+    let rows=super::want_sources::needs(&pool,&owner,&b,false).await.unwrap();
+    assert_eq!(rows.len(),2);
+    assert!(rows.contains(&("Fire".into(),1,false)));
+    assert!(rows.contains(&("Fire // Ice".into(),1,false)));
+    b["swaps"]=json!([{"key":"replace-split","deck":"d","stage":"planned","role":"swap","src":"print","out":"Ice","in":"Other card"}]);
+    let rows=super::want_sources::needs(&pool,&owner,&b,false).await.unwrap();
+    assert_eq!(rows.len(),2);
+    assert!(rows.contains(&("Fire".into(),1,false)));
+    assert!(rows.contains(&("Other card".into(),1,false)));
+}
+
+#[tokio::test]
+async fn unresolved_planned_cards_stay_on_the_want_list_without_invented_prices() {
+    let (app,pool)=app().await;
+    let (owner,auth)=user(&pool,"future-want@example.com").await;
+    let (_,version)=deck(&pool,&owner,"A future deck").await;
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(json!([{"oracle_id":"not-imported-yet","name":"Future Card","qty":1,"board":"main"}]).to_string()).bind(version).execute(&pool).await.unwrap();
+    send(&app,Method::PUT,"/api/me/sharing",Some(&auth),Some(json!({"handle":"future-want","wants_public":true}))).await;
+    assert_eq!(page(&app,"/u/future-want/wants.txt").await.2,"1 Future Card\n");
+    let html=page(&app,"/u/future-want/wants").await.2;
+    assert!(html.contains("Future Card") && html.contains("No market price") && !html.contains("$0.00"));
+    let (_,lines)=super::wants::shared_wants(&pool,"future-want").await.unwrap();
+    assert!(lines[0].oracle_id.is_none());
+    // Importing the card resolves its existing need, not a duplicate or a lost name.
+    card(&pool,"future-id","Future Card","Artifact","p-future","tst","1").await;
+    sqlx::query("INSERT INTO import_runs (id,kind,started_at,finished_at) VALUES ('future-import','cards','2031','2031')").execute(&pool).await.unwrap();
+    let (_,lines)=super::wants::shared_wants(&pool,"future-want").await.unwrap();
+    assert_eq!(lines.len(),1);
+    assert_eq!(lines[0].oracle_id.as_deref(),Some("future-id"));
 }

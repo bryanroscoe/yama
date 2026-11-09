@@ -3,13 +3,14 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
 import { useMe } from "../auth";
-import { Details, ErrorText } from "../components/ui";
+import { ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats, pct } from "../components/GroupStats";
 import { streakText } from "../components/statsText";
 import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
+import { HelpPopover } from "../components/HelpPopover";
 import { exportLink } from "../download";
 
 export function GroupPage() {
@@ -355,11 +356,13 @@ function ExportGames({ group }: { group?: Playgroup }) {
     exportLink(`/api/games/export.${ext}?offset=${offset}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}${playgroup ? `&playgroup=${encodeURIComponent(playgroup)}` : ""}`, `yama-games.${ext}`);
   return (
     <section className="stack" style={{ marginBottom: "2.5rem", gap: "0.6rem" }}>
-      <h2 style={{ margin: 0 }}>Export games</h2>
-      <Details label="Export contents and formats">
-        <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
-        <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
-      </Details>
+      <div className="help-heading">
+        <h2 style={{ margin: 0 }}>Export games</h2>
+        <HelpPopover label="Export contents and formats">
+          <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
+          <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
+        </HelpPopover>
+      </div>
       {/* One grid for both rows, so the JSON and CSV buttons line up in columns. */}
       <div className="grp-export">
         {group && (

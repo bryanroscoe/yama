@@ -66,7 +66,7 @@ function finishName(f: string): string {
 }
 
 function MatchRow({ m, mine }: { m: TradeMatch; mine: boolean }) {
-  const wanted = `${m.qty} wanted${m.needed ? "" : ", along the way"}`;
+  const wanted = `${m.qty} wanted${m.pending_qty ? `, ${m.pending_qty} from pending upgrades` : m.needed ? "" : ", along the way"}`;
   const has = mine ? `You have ${m.copies}${m.in_decks ? `, ${m.in_decks} in deck boxes` : ""}` : `They have ${m.copies}`;
   const prints = m.printings?.map((p) => `${p.qty} ${p.set_code.toUpperCase()} ${p.collector_number}${finishName(p.finish)}, ${p.condition}${p.lang === "en" ? "" : `, ${p.lang}`}`);
   return <li className="trade-row">
