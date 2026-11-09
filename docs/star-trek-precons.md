@@ -7,7 +7,7 @@ Reviewed 9 November 2026 against MTGJSON 5.3.0+20261109 and
 |---|---|---|
 | Federation Fleet | Jean-Luc Picard, Luminary | FederationFleet_TRC |
 | Landing Party | Commander Spock | LandingParty_TRC |
-| Klingon Fury | Worf, Son of Mogh | KlingonFury_TRC |
+| Klingon Fury | Worf, Defiant Commander | KlingonFury_TRC |
 | We Are the Borg | The Borg Queen | WeAreTheBorg_TRC |
 
 The files are under `https://mtgjson.com/api/v5/decks/<file>.json`. The reviewed
