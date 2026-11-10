@@ -849,7 +849,7 @@ mod supervision_tests {
         st.play = Arc::new(PlayHub {
             engine: Mutex::new(EngineState::Failed("current engine deliberately absent".into())),
             live: Mutex::new(HashMap::new()), historical: Some(config.clone()),
-            unavailable: Mutex::new(HashMap::new()),
+            setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
         });
         let hub = st.play.clone();
         let seats = json!([{"seat":0,"kind":"human","name":"Ana","user_id":owner,"color_identity":""}]);
