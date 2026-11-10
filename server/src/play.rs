@@ -1356,7 +1356,7 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     let ai = ai_seats(&seats);
     // Setup can fault cold engine pages in from disk. It must neither block an async
     // worker nor hold SQLite's one writer while constructing the match and replay.
-    let (m, replay, _permit) = prepare_match(move || {
+    let (m, replay, permit) = prepare_match(move || {
         let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
         let replay = m.replay_json();
         Ok((m, replay, permit))
@@ -1409,6 +1409,7 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     // Once SQLite is asked to commit, publishing the live game must finish even if
     // the HTTP request disconnects. Dropping this join handle does not abort its task.
     tokio::spawn(async move {
+        let _permit = permit; // publication owns the slot even if the HTTP future disconnects
         tx.commit().await?;
         hub.spawn_game(game_id, m, seats, prefs, pool);
         Ok::<(), AppError>(())
