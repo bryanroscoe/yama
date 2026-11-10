@@ -1346,9 +1346,17 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         decks.push(resolve(&engine, &cards).0);
     }
     let prefs = seat_prefs(&st.pool, &seats).await;
-    // Claim and save the initial game in one transaction. Other requests keep seeing
-    // the lobby until its identity and replay exist; failures roll the claim back.
-    // Only the request that still owns these seats constructs a match.
+    let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
+    let ai = ai_seats(&seats);
+    // Setup can fault cold engine pages in from disk. It must neither block an async
+    // worker nor hold SQLite's one writer while constructing the match and replay.
+    let (m, replay) = prepare_match(move || {
+        let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
+        let replay = m.replay_json();
+        Ok((m, replay))
+    }).await?;
+    // Claim and save atomically after preparation. A concurrent start or join can
+    // invalidate this candidate; only the request still owning these seats publishes it.
     let mut tx = st.pool.begin().await?;
     let claimed = sqlx::query("UPDATE online_games SET stage = 'live', updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
         .bind(now())
@@ -1358,13 +1366,8 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         .await?
         .rows_affected();
     if claimed == 0 {
-        return Ok(()); // someone else started it, or the seats just changed
+        return Ok(());
     }
-    let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
-    let ai = ai_seats(&seats);
-    // Loops follow the rules (CR 732): the setting is saved in the replay log's header, so the
-    // game resumes and replays with it.
-    let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
     sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ? WHERE id = ?")
         .bind(yama_play::ENGINE_VERSION)
         .bind(seed as i64) // u64 stored bit-for-bit
@@ -1389,7 +1392,7 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         .await?;
     }
     sqlx::query("UPDATE online_games SET replay = ?, updated_at = ? WHERE game_id = ?")
-        .bind(m.replay_json())
+        .bind(replay)
         .bind(now())
         .bind(id)
         .execute(&mut *tx)
@@ -1406,6 +1409,18 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     })
     .await
     .map_err(|error| AppError::Other(error.into()))?
+}
+
+/// Engine setup uses the same large stack as live games. No database connection
+/// travels into this worker; cancelling the request drops its uncommitted candidate.
+async fn prepare_match<T: Send + 'static>(build: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> AppResult<T> {
+    let (tx, rx) = oneshot::channel();
+    std::thread::Builder::new()
+        .name("game-setup".into())
+        .stack_size(STACK)
+        .spawn(move || { let _ = tx.send(build()); })
+        .map_err(anyhow::Error::from)?;
+    rx.await.map_err(|_| anyhow::anyhow!("game setup worker stopped"))?.map_err(AppError::from)
 }
 
 // ── WebSocket ──────────────────────────────────────────────────────────────
