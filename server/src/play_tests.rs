@@ -402,6 +402,7 @@ async fn phase_board_preferences_carry_to_the_next_game_without_overwriting_othe
 #[tokio::test(flavor = "current_thread")]
 async fn slow_setup_leaves_the_async_runtime_and_database_available() {
     let pool = crate::db::test_pool().await;
+    let (owner, _) = crate::testutil::user(&pool, "setup-write@example.com").await;
     let (entered, ready) = oneshot::channel();
     let (release, wait) = std::sync::mpsc::channel();
     let setup = tokio::spawn(prepare_match(move || {
@@ -412,8 +413,8 @@ async fn slow_setup_leaves_the_async_runtime_and_database_available() {
     tokio::time::timeout(Duration::from_secs(2), ready).await.unwrap().unwrap();
     // This current-thread runtime must keep serving writes while setup is stalled.
     let mut tx = tokio::time::timeout(Duration::from_secs(2), pool.begin()).await.unwrap().unwrap();
-    sqlx::query("INSERT INTO games(id, mode, status, started_at) VALUES ('setup-unrelated', 'in_person', 'in_progress', '2026-11-10')")
-        .execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO games(id, mode, created_by, status, started_at) VALUES ('setup-unrelated', 'in_person', ?, 'in_progress', '2026-11-10')")
+        .bind(owner).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     release.send(()).unwrap();
     assert_eq!(setup.await.unwrap().unwrap(), 42);
