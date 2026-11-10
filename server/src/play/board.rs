@@ -480,7 +480,7 @@ mod tests {
                 .bind(&id).bind(&id).bind(&owner).bind(serde_json::to_string(&seats).unwrap()).bind(matched.replay_json()).execute(&pool).await.unwrap();
             let hub = Arc::new(PlayHub {
                 engine: Mutex::new(EngineState::Ready(Arc::new(engine))), live: Mutex::new(HashMap::new()),
-                historical: None, unavailable: Mutex::new(HashMap::new()),
+                historical: None, setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
             });
             hub.spawn_game(id.clone(), matched, seats, HashMap::new(), pool.clone());
             let live = hub.live(&id).unwrap();

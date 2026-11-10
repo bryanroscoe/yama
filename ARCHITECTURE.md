@@ -1922,4 +1922,7 @@ Construct the initial engine match and serialize its replay on a dedicated 32 Mi
 stack before taking SQLite's write transaction. Then compare-and-set the original
 lobby seats and commit the identity, seats and replay together; only the winning
 candidate becomes live. Cold setup must not hold the database writer or block an
-async request worker. Failed or cancelled preparation leaves the lobby retryable.
+async request worker. Failed or cancelled preparation leaves the lobby retryable. A single setup slot
+serializes candidates through publication; its permit stays with a cancelled
+request's worker until that worker exits. Waiting for the slot has a 10-second
+deadline and reports a temporary-unavailability response.

@@ -64,6 +64,7 @@ pub struct PlayHub {
     live: Mutex<HashMap<String, LiveGame>>,
     historical: Option<history::Config>,
     unavailable: Mutex<HashMap<String, String>>,
+    setup_gate: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Clone)]
@@ -165,7 +166,7 @@ impl PlayHub {
             engine: Mutex::new(EngineState::Loading),
             live: Mutex::new(HashMap::new()),
             historical: card_data.as_deref().map(history::Config::discover),
-            unavailable: Mutex::new(HashMap::new()),
+            setup_gate: Arc::new(tokio::sync::Semaphore::new(1)), unavailable: Mutex::new(HashMap::new()),
         });
         let Some(path) = card_data else {
             *hub.engine.lock().unwrap() =
@@ -1328,6 +1329,11 @@ async fn start(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(
 }
 
 async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
+    // Serialize setup without occupying SQLite. Duplicate starts re-read the lobby
+    // after the first commit; cancellation cannot free a still-running worker's slot.
+    let permit = tokio::time::timeout(std::time::Duration::from_secs(10), st.play.setup_gate.clone().acquire_owned())
+        .await.map_err(|_| AppError::Unavailable("A game is still starting. Try again in a moment.".into()))?
+        .map_err(|e| AppError::Other(e.into()))?;
     let r = load_row(&st.pool, id).await?;
     if r.host_id != user {
         return Err(AppError::Forbidden("only the host starts the game".into()));
@@ -1350,10 +1356,10 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     let ai = ai_seats(&seats);
     // Setup can fault cold engine pages in from disk. It must neither block an async
     // worker nor hold SQLite's one writer while constructing the match and replay.
-    let (m, replay) = prepare_match(move || {
+    let (m, replay, _permit) = prepare_match(move || {
         let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
         let replay = m.replay_json();
-        Ok((m, replay))
+        Ok((m, replay, permit))
     }).await?;
     // Claim and save atomically after preparation. A concurrent start or join can
     // invalidate this candidate; only the request still owning these seats publishes it.
