@@ -1,14 +1,16 @@
-//! Collection: containers, items, offline ops, and Mythic Tools CSV import/export.
+//! Collection: containers, items, offline ops, imports and the CSV export.
 //!
 //! Every change is an op with a client-generated `op_id`. The server records applied op IDs,
 //! so a phone that retries a sync never double-counts. Quantity changes are deltas, which
 //! merge cleanly when two devices edit the same card; other fields are last-writer-wins.
 //!
-//! Bulk changes the server works out itself (a Mythic Tools import in `mythic.rs`, "Add to my
-//! collection" for a deck in `deck_box.rs`) are planned against the collection as it stands and
+//! Bulk changes the server works out itself (an import of another app's export or a pasted list
+//! in `import.rs`, a Mythic Tools import in `mythic.rs`, "Add to my collection" for a deck in
+//! `deck_box.rs`) are planned against the collection as it stands and
 //! applied as the same ops, in one transaction.
 
 pub mod deck_box;
+pub mod import;
 pub mod mythic;
 
 use crate::auth::CurrentUser;
@@ -32,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/containers", get(list_containers).post(create_container))
         .route("/api/containers/{id}", patch(rename_container).delete(delete_container))
         .merge(mythic::router())
+        .merge(import::router())
         .merge(deck_box::router())
 }
 
