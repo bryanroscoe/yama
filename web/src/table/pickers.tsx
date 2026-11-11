@@ -4,7 +4,7 @@ import type { CommanderPick } from "@yama/core";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type Card, type FoundPerson, type SearchResult } from "../api";
 import { artCredits } from "../components/ArtPanel";
-import { Pips } from "../components/ui";
+import { Button, Pips } from "../components/ui";
 import { cardSearchPath, isGuest } from "../guest";
 import { useDebounced } from "../useDebounced";
 import { Combobox, PickerField, PickerSheet, useTouch, type Option } from "../components/GamePicker";
@@ -301,9 +301,8 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
               });
             }}
           />
-          <button
-            type="button"
-            className="quiet small"
+          <Button
+            variant="quiet" size="small"
             onClick={async () => {
               const mine = ++pickNo.current;
               setAdding(false);
@@ -314,13 +313,13 @@ export function CommanderFields({ value, onChange, autoFocus }: { value: Command
             }}
           >
             Remove {pairs === "background" ? "Background" : "partner"}
-          </button>
+          </Button>
         </span>
       ) : (
         (pairs || (name && !mainPicked)) && (
-          <button type="button" className="quiet small cmdr-add-partner" onClick={() => setAdding(true)}>
+          <Button variant="quiet" size="small" className="cmdr-add-partner" onClick={() => setAdding(true)}>
             {pairs === "background" ? "Add a Background" : "Add a partner"}
-          </button>
+          </Button>
         )
       )}
       {name && !mainPicked && <span className="small dim">Pick {name.length > 2 ? "it" : "a commander"} from the list to show its art and colors.</span>}

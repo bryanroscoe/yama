@@ -6,7 +6,7 @@ import type { CommanderPick, TableState } from "@yama/core";
 import { api, type DeckSummary, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
-import { Pips, Loading, DialogHead } from "../components/ui";
+import { Button, DialogHead, Loading, Pips } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
 import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
@@ -382,7 +382,7 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
         {commander ? "Damage already dealt and taken stays as it is." : ""}
       </p>
       <div className="row">
-        <button className="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        <Button variant="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
       </div>
     </div>
   );

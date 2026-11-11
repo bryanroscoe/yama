@@ -3,7 +3,7 @@ import { GAME_WORDS } from "@yama/core";
 import { Link, useSearchParams } from "react-router";
 import { api, type GameRow } from "../api";
 import { useMe } from "../auth";
-import { EmptyState, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, EmptyState, ErrorText, Loading } from "../components/ui";
 import { usePendingDeletes } from "./store";
 import { isPlaceholderName } from "./playerNames";
 import { recentGameText, turnsText } from "./recent";
@@ -58,7 +58,7 @@ export function GameHistoryPage() {
       </header>
       <p className="dim">Review old games or delete ones you recorded.</p>
       <div className="gh-filters" role="group" aria-label="Show games">
-        {FILTERS.map(([key, label]) => <button key={key} aria-pressed={filter === key} onClick={() => change("filter", key)}>{label}</button>)}
+        {FILTERS.map(([key, label]) => <Button key={key} aria-pressed={filter === key} onClick={() => change("filter", key)}>{label}</Button>)}
       </div>
       <div className="gh-search">
         <label>Find a player or commander<input type="search" value={search} maxLength={100} placeholder="Kelly, Atraxa…" onChange={(e) => change("q", e.target.value, true)} /></label>
@@ -73,8 +73,8 @@ export function GameHistoryPage() {
           title="No games yet"
           action={
             <>
-              <Link className="button primary" to="/">Start a game</Link>
-              <Link className="button outline" to="/" state={{ log: true }}>Log one you played</Link>
+              <ButtonLink variant="primary" to="/">Start a game</ButtonLink>
+              <ButtonLink variant="outline" to="/" state={{ log: true }}>Log one you played</ButtonLink>
             </>
           }
         >
@@ -82,12 +82,12 @@ export function GameHistoryPage() {
         </EmptyState>
       )}
       {empty === "no-match" && (
-        <EmptyState action={<Link className="button outline" to="/table/games">Show all games</Link>}>
+        <EmptyState action={<ButtonLink variant="outline" to="/table/games">Show all games</ButtonLink>}>
           No games match{search ? ` “${search}”` : ""}{filter === "unfinished" ? " among unfinished games" : filter === "unnamed" ? " among games with unnamed players" : ""}.
         </EmptyState>
       )}
       {empty === "past-end" && (
-        <EmptyState action={<button className="outline" onClick={() => change("offset", "0")}>Back to the first page</button>}>
+        <EmptyState action={<Button variant="outline" onClick={() => change("offset", "0")}>Back to the first page</Button>}>
           No more games on this page.
         </EmptyState>
       )}
@@ -109,9 +109,9 @@ export function GameHistoryPage() {
       {/* One page of games, or none, has nothing to page through. */}
       {(offset > 0 || games.data?.has_more) && (
         <nav className="gh-pages" aria-label="Game history pages">
-          <button disabled={offset === 0 || games.isPending} onClick={() => change("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</button>
+          <Button disabled={offset === 0 || games.isPending} onClick={() => change("offset", String(Math.max(0, offset - PAGE_SIZE)))}>Previous</Button>
           <span>Page {Math.floor(offset / PAGE_SIZE) + 1}</span>
-          <button disabled={!games.data?.has_more || games.isPending} onClick={() => change("offset", String(offset + PAGE_SIZE))}>Next</button>
+          <Button disabled={!games.data?.has_more || games.isPending} onClick={() => change("offset", String(offset + PAGE_SIZE))}>Next</Button>
         </nav>
       )}
     </main>

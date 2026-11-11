@@ -32,7 +32,7 @@ import {
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { Pips, Dialog, Segmented, DialogHead } from "../components/ui";
+import { Button, Dialog, DialogHead, Pips, Segmented } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, NotePicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
@@ -165,8 +165,8 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
     <>
       <div className="table-view-switch">
         <Segmented label="View" value={personal ? "mine" : "table"} onChange={chooseView} options={[["mine", "My seat"], ["table", "Whole table"]]} />
-        <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
-        <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
+        <Button variant="quiet" size="small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</Button>
+        <Button variant="quiet" size="small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></Button>
       </div>
       {/* The clock is a strip of its own under the bar, and the table starts below it: it covers nothing. */}
       {clock && <TableClock setup={game.setup} log={game.log} counting={counting} following={!!following} />}
@@ -176,12 +176,12 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
           {state.players.filter((p) => p.seat !== me.seat).map((p) => {
             const a = artFor(p.seat);
             return <li key={p.seat}>
-              <button className="guest-tile-btn" onClick={() => setSheetSeat(p.seat)} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Open`}>
+              <Button className="guest-tile-btn" onClick={() => setSheetSeat(p.seat)} aria-label={`${p.name}, ${p.eliminated ? "out" : `${p.life} life`}. Open`}>
                 <ArtPanel as="span" className={`guest-tile${p.eliminated ? " out" : ""}`} art={a?.art} artist={a?.artist} wash="bottom" credit={false}>
                   <span className="guest-tile-name">{p.name}</span>
                   <b className="num">{p.eliminated ? "Out" : p.life}</b>
                 </ArtPanel>
-              </button>
+              </Button>
             </li>;
           })}
         </ul>
@@ -189,11 +189,11 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         <div className="table-my-panel">{panel(me.seat, 0, "1 / 1", true)}</div>
       </> : cells.map(({ seat, rot, area }) => panel(seat, rot, area))}
       {attack || taking !== null ? (
-        <button className="hub hub-done" onClick={() => { setAttack(null); setTaking(null); }} aria-label="Done with commander damage">
+        <Button className="hub hub-done" onClick={() => { setAttack(null); setTaking(null); }} aria-label="Done with commander damage">
           <span>Done</span>
-        </button>
+        </Button>
       ) : (
-        <button
+        <Button
           className={`hub${counting ? "" : " hub-menu"}`}
           onClick={() => setMenu(true)}
           aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other devices. " : ""}Open table menu`}
@@ -201,16 +201,16 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
           {counting ? <span>{state.turn}</span> : <MenuIcon />}
           {/* Shared: a small dot on the hub. The join code is at the top of the menu. */}
           {sharing && <span className="hub-live" aria-hidden="true" />}
-        </button>
+        </Button>
       )}
 
       {choosingSeat && (
         <Dialog label="Which seat is yours?" onClose={() => setChoosingSeat(false)}>
           <h2>Which seat is yours?</h2>
           <div className="list">
-            {state.players.map((p) => <button key={p.seat} className="list-row" onClick={() => chooseSeat(p.seat)}>
+            {state.players.map((p) => <Button key={p.seat} className="list-row" onClick={() => chooseSeat(p.seat)}>
               <Pips identity={p.colorIdentity} /><span>{p.name}</span><span className="num">{p.life}</span>
-            </button>)}
+            </Button>)}
           </div>
         </Dialog>
       )}
@@ -320,9 +320,9 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         <div className="winner-banner" role="status">
           <p>{alive[0]!.name} is the last one standing.</p>
           <div className="row">
-            <button className="primary" onClick={() => setFinishing({ winner: alive[0]!.seat })}>
+            <Button variant="primary" onClick={() => setFinishing({ winner: alive[0]!.seat })}>
               Record the win
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -446,19 +446,19 @@ export function LethalSheet({ state, seat, loss, onDone }: { state: TableState; 
       <p className="lethal-cause">{loss.text}.</p>
       <p className="small dim" style={{ margin: 0 }}>{LOSS_RULE[loss.kind]} Some cards keep a player in; if one does, keep playing.</p>
       {by ? (
-        <button className="primary" onClick={() => out(by.seat)}>Yes, {by.name} knocked {p.name} out</button>
+        <Button variant="primary" onClick={() => out(by.seat)}>Yes, {by.name} knocked {p.name} out</Button>
       ) : (
         <>
           <p className="small" style={{ margin: 0 }}>Who knocked {p.name} out?</p>
           <div className="row">
             {others.map((o) => (
-              <button key={o.seat} onClick={() => out(o.seat)}>{o.name}</button>
+              <Button key={o.seat} onClick={() => out(o.seat)}>{o.name}</Button>
             ))}
-            <button className="outline" onClick={() => out()}>No one, or not sure</button>
+            <Button variant="outline" onClick={() => out()}>No one, or not sure</Button>
           </div>
         </>
       )}
-      <button className="quiet" onClick={onDone}>Not out, keep playing</button>
+      <Button variant="quiet" onClick={onDone}>Not out, keep playing</Button>
     </div>
   );
 }
@@ -624,32 +624,32 @@ export function Panel(props: {
             </div>
           )}
         </div>
-        <button className="who" onClick={onOpen}>
+        <Button className="who" onClick={onOpen}>
           <span className="name">
             {p.name}
             {p.colorIdentity && <Pips identity={p.colorIdentity} label={false} />}
           </span>
           {p.commanderName && <span className="cmdr">{p.commanderName}</span>}
-        </button>
+        </Button>
         {/* Scryfall asks for the artist and copyright wherever an art crop shows. */}
         {art && <span className="panel-credit">{artCredit(bothArtists(art.artist, partnerArt?.artist))}</span>}
         {loss && !busy && (
-          <button className="out-prompt" onClick={onKnockOut}>
+          <Button className="out-prompt" onClick={onKnockOut}>
             Out? {loss.text}
-          </button>
+          </Button>
         )}
         {out && <div className="out-label">{p.eliminated!.uncounted ? "Out" : `Out on turn ${p.eliminated!.turn}`}</div>}
         {commanderGame && !out && !busy && (onAttack || onTake) && (
           <span className="cmdr-btns">
             {onTake && (
-              <button className="attack-btn" onClick={onTake} aria-label={`${p.name} takes commander damage`} title="Take commander damage">
+              <Button className="attack-btn" onClick={onTake} aria-label={`${p.name} takes commander damage`} title="Take commander damage">
                 <ShieldIcon />
-              </button>
+              </Button>
             )}
             {onAttack && (
-              <button className="attack-btn" onClick={() => onAttack(false)} aria-label={`Deal commander damage with ${p.commanderName ?? `${p.name}'s commander`}`} title="Deal commander damage">
+              <Button className="attack-btn" onClick={() => onAttack(false)} aria-label={`Deal commander damage with ${p.commanderName ?? `${p.name}'s commander`}`} title="Deal commander damage">
                 <SwordsIcon />
-              </button>
+              </Button>
             )}
           </span>
         )}
@@ -659,7 +659,7 @@ export function Panel(props: {
               <span className="attack-title">{p.name} is taking commander damage</span>
               <span className="attack-hint">Use + on the commander that hit you. Life comes off too.</span>
               <span className="attack-actions">
-                <button className="primary" onClick={onTake}>Done</button>
+                <Button variant="primary" onClick={onTake}>Done</Button>
               </span>
             </div>
           ) : (
@@ -699,9 +699,9 @@ export function Panel(props: {
               <span className="attack-hint">Use + on each player it hit. Life comes off too.</span>
               <span className="attack-actions">
                 {p.partnerName && (
-                  <button onClick={() => onAttack?.(!attack.partner)}>Switch to {attack.partner ? (p.commanderName ?? "commander") : p.partnerName}</button>
+                  <Button onClick={() => onAttack?.(!attack.partner)}>Switch to {attack.partner ? (p.commanderName ?? "commander") : p.partnerName}</Button>
                 )}
-                <button className="primary" onClick={() => onAttack?.(attack.partner)}>Done</button>
+                <Button variant="primary" onClick={() => onAttack?.(attack.partner)}>Done</Button>
               </span>
             </div>
           ) : (
@@ -754,7 +754,7 @@ function Hold({ onStep, className, label, children }: { onStep: (n: number) => v
     timer.current = window.setTimeout(tick, count.current > 8 ? 450 : 140);
   };
   return (
-    <button
+    <Button
       className={className}
       aria-label={label}
       onPointerDown={(e) => {
@@ -781,7 +781,7 @@ function Hold({ onStep, className, label, children }: { onStep: (n: number) => v
       }}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -821,9 +821,9 @@ const ShieldIcon = () => (
 function Steps({ label, value, onChange, shape = "round", warn = false }: { label: string; value: number; onChange: (d: number) => void; shape?: "round" | "square"; warn?: boolean }) {
   return (
     <span className={`ps-steps ${shape}`}>
-      <button onClick={() => onChange(-1)} aria-label={`${label} minus one`}>−</button>
+      <Button onClick={() => onChange(-1)} aria-label={`${label} minus one`}>−</Button>
       {shape === "round" && <span className={`ps-value num${warn ? " warn" : ""}`}>{value}</span>}
-      <button onClick={() => onChange(1)} aria-label={`${label} plus one`}>+</button>
+      <Button onClick={() => onChange(1)} aria-label={`${label} plus one`}>+</Button>
     </span>
   );
 }
@@ -873,11 +873,11 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
     <div className="player-sheet">
       <ArtPanel className="ps-hero" art={art?.art} artist={art?.artist} wash="bottom" toGround credit={false}>
         {art && <span className="ps-credit">{artCredit(art.artist)}</span>}
-        <button className="ps-done" onClick={onClose}>Done</button>
+        <Button className="ps-done" onClick={onClose}>Done</Button>
         <span className="ps-who">
           <span className="ps-name">
             {host ? (
-              <button className="art-big ps-name-edit" onClick={() => setChanging(true)} aria-label={`${p.name}. Change the player or their deck`}>{p.name}</button>
+              <Button className="art-big ps-name-edit" onClick={() => setChanging(true)} aria-label={`${p.name}. Change the player or their deck`}>{p.name}</Button>
             ) : (
               <span className="art-big">{p.name}</span>
             )}
@@ -889,30 +889,30 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
       <div className="ps-actions">
         <span className="ps-actions-row">
           {[-10, -5, 5, 10].map((d) => (
-            <button key={d} className="ps-jump" onClick={() => dispatch({ type: "life", seat, delta: d })} aria-label={`${d > 0 ? "Gain" : "Lose"} ${Math.abs(d)} life`}>
+            <Button key={d} className="ps-jump" onClick={() => dispatch({ type: "life", seat, delta: d })} aria-label={`${d > 0 ? "Gain" : "Lose"} ${Math.abs(d)} life`}>
               {d > 0 ? `+${d}` : `−${-d}`}
-            </button>
+            </Button>
           ))}
         </span>
         <span className="ps-actions-row">
           {commanderGame && onTake && state.players.length > 1 && !p.eliminated && (
-            <button className="outline" onClick={onTake}>
+            <Button variant="outline" onClick={onTake}>
               <ShieldIcon /> Take commander damage
-            </button>
+            </Button>
           )}
           {commanderGame && onAttack && state.players.length > 1 && !p.eliminated && (
-            <button className="outline" onClick={() => onAttack(false)}>
+            <Button variant="outline" onClick={() => onAttack(false)}>
               <SwordsIcon /> Deal commander damage
-            </button>
+            </Button>
           )}
         </span>
         <span className="ps-actions-row">
           {host ? (
-            <button className="outline" onClick={() => setChanging(true)}>{commanderGame ? "Change player or deck" : "Change player"}</button>
+            <Button variant="outline" onClick={() => setChanging(true)}>{commanderGame ? "Change player or deck" : "Change player"}</Button>
           ) : (
-            commanderGame && <button className="outline" onClick={() => setChanging(true)}>{p.commanderName ? "Change commander" : "Pick a commander"}</button>
+            commanderGame && <Button variant="outline" onClick={() => setChanging(true)}>{p.commanderName ? "Change commander" : "Pick a commander"}</Button>
           )}
-          {onWin && !p.eliminated && <button className="primary ps-win" onClick={onWin}>{p.name} won</button>}
+          {onWin && !p.eliminated && <Button variant="primary" className="ps-win" onClick={onWin}>{p.name} won</Button>}
         </span>
       </div>
 
@@ -983,21 +983,21 @@ export function PlayerSheet({ state, seat, onClose, artFor, onAttack, onTake, on
       </section>
 
       <div className="ps-marks">
-        <button className="outline" aria-pressed={state.monarch === seat} onClick={() => dispatch({ type: "monarch", seat: state.monarch === seat ? null : seat })}>
+        <Button variant="outline" aria-pressed={state.monarch === seat} onClick={() => dispatch({ type: "monarch", seat: state.monarch === seat ? null : seat })}>
           {state.monarch === seat ? "Remove monarch" : "Make monarch"}
-        </button>
-        <button className="outline" aria-pressed={state.initiative === seat} onClick={() => dispatch({ type: "initiative", seat: state.initiative === seat ? null : seat })}>
+        </Button>
+        <Button variant="outline" aria-pressed={state.initiative === seat} onClick={() => dispatch({ type: "initiative", seat: state.initiative === seat ? null : seat })}>
           {state.initiative === seat ? "Remove initiative" : "Take the initiative"}
-        </button>
-        <button className="outline" aria-pressed={(p.counters.blessing ?? 0) > 0} onClick={() => dispatch({ type: "counter", seat, counter: "blessing", delta: (p.counters.blessing ?? 0) > 0 ? -1 : 1 })}>
+        </Button>
+        <Button variant="outline" aria-pressed={(p.counters.blessing ?? 0) > 0} onClick={() => dispatch({ type: "counter", seat, counter: "blessing", delta: (p.counters.blessing ?? 0) > 0 ? -1 : 1 })}>
           {/* The blessing is for good (CR 702.131c); taking it back is only for a mistaken tap. */}
           {(p.counters.blessing ?? 0) > 0 ? "Take back city's blessing (selected by mistake)" : "Got the city's blessing"}
-        </button>
+        </Button>
       </div>
       {p.eliminated ? (
-        <button className="outline ps-out" onClick={() => dispatch({ type: "revive", seat })}>Put {p.name} back in the game</button>
+        <Button variant="outline" className="ps-out" onClick={() => dispatch({ type: "revive", seat })}>Put {p.name} back in the game</Button>
       ) : (
-        <button className="outline ps-out bad" onClick={() => setKnocking(true)}>Knock {p.name} out</button>
+        <Button variant="outline" className="ps-out bad" onClick={() => setKnocking(true)}>Knock {p.name} out</Button>
       )}
     </div>
   );
@@ -1010,9 +1010,9 @@ function SetLife({ life, onSet }: { life: number; onSet: (n: number) => void }) 
   const [typing, setTyping] = useState<string | null>(null);
   if (typing === null) {
     return (
-      <button className="ps-life art-big num" onClick={() => setTyping(String(life))} aria-label={`${life} life. Type a new total`}>
+      <Button className="ps-life art-big num" onClick={() => setTyping(String(life))} aria-label={`${life} life. Type a new total`}>
         {life}
-      </button>
+      </Button>
     );
   }
   const done = () => {
@@ -1087,7 +1087,7 @@ function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) 
       <CommanderFields value={typed} onChange={setDraft} autoFocus />
       <p className="small dim" style={{ margin: 0 }}>Damage already dealt and taken stays as it is.</p>
       <div className="row">
-        <button className="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        <Button variant="primary" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
       </div>
     </div>
   );
@@ -1109,11 +1109,11 @@ export function KnockOut({ state, seat, onDone, onCancel }: { state: TableState;
       <p className="dim" style={{ margin: 0 }}>Who knocked {p.name} out? It counts toward the playgroup's rivalries.</p>
       <div className="row">
         {others.map((o) => (
-          <button key={o.seat} className={o.seat === suggested ? "primary" : ""} onClick={() => out(o.seat)}>
+          <Button key={o.seat} variant={o.seat === suggested ? "primary" : "secondary"} onClick={() => out(o.seat)}>
             {o.name}
-          </button>
+          </Button>
         ))}
-        <button className="quiet" onClick={() => out()}>No one, or not sure</button>
+        <Button variant="quiet" onClick={() => out()}>No one, or not sure</Button>
       </div>
     </div>
   );
@@ -1147,8 +1147,8 @@ function FinishSheet({ state, winner, onBack, onSave }: {
       <FunPicker seats={seats} value={fun} onChange={setFun} />
       <NotePicker value={note} onChange={setNote} />
       <div className="row">
-        <button className="primary" onClick={() => onSave(details(), first, false)}>Save the game</button>
-        <button onClick={() => onSave(details(), first, true)}>Save and play again</button>
+        <Button variant="primary" onClick={() => onSave(details(), first, false)}>Save the game</Button>
+        <Button onClick={() => onSave(details(), first, true)}>Save and play again</Button>
       </div>
     </div>
   );
@@ -1247,13 +1247,13 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
   const tile = (m: Marker, label: string) => {
     const h = holder(m);
     return (
-      <button className="tm-marker" aria-pressed={picking === m || !!h} aria-expanded={picking === m} onClick={() => setPicking(picking === m ? null : m)}>
+      <Button className="tm-marker" aria-pressed={picking === m || !!h} aria-expanded={picking === m} onClick={() => setPicking(picking === m ? null : m)}>
         <span className="tm-marker-name">{label}</span>
         <span className="tm-marker-who">
           {h && <SeatDot art={artFor(h.seat)} colorIdentity={h.colorIdentity} className="tm-marker-dot" />}
           {h ? h.name : m === "first" ? "Not decided" : "Nobody"}
         </span>
-      </button>
+      </Button>
     );
   };
   return (
@@ -1278,27 +1278,27 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             </span>
           </div>
         )}
-        <button className="tm-round" aria-label="Back to the game" onClick={onClose}>
+        <Button className="tm-round" aria-label="Back to the game" onClick={onClose}>
           <CloseIcon />
-        </button>
+        </Button>
       </div>
 
       {counting && (
-        <button className="primary tm-pass-turn" onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
+        <Button variant="primary" className="tm-pass-turn" onClick={() => { dispatch({ type: "pass_turn" }); onClose(); }}>
           {next && <SeatDot art={artFor(next.seat)} colorIdentity={next.colorIdentity} className="tm-pass-dot" />}
           {next ? `Pass the turn to ${next.name}` : "Pass the turn"}
-        </button>
+        </Button>
       )}
       {!following && <div className="tm-pass">
-        <button className={confirmEnd ? "outline" : "primary"} onClick={() => setConfirmEnd((c) => !c)} aria-expanded={confirmEnd}>
+        <Button variant={confirmEnd ? "outline" : "primary"} onClick={() => setConfirmEnd((c) => !c)} aria-expanded={confirmEnd}>
           <TrophyIcon /> Finish the game
-        </button>
-        <button className="tm-icon" onClick={undo} disabled={!canUndo()} aria-label="Undo">
+        </Button>
+        <Button className="tm-icon" onClick={undo} disabled={!canUndo()} aria-label="Undo">
           <UndoIcon />
-        </button>
-        <button className="tm-icon" onClick={redo} aria-label="Redo">
+        </Button>
+        <Button className="tm-icon" onClick={redo} aria-label="Redo">
           <RedoIcon />
-        </button>
+        </Button>
       </div>}
       {confirmEnd && (
         <section className="tm-finish" aria-labelledby="tm-who-won">
@@ -1306,15 +1306,15 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           {aliveCount > 1 && <p className="small dim">{aliveCount} players are still in. Pick the winner, or go back to the table.</p>}
           <div className="tm-winners">
             {state.players.map((p) => (
-              <button key={p.seat} className="tm-winner" onClick={() => onFinish(p.seat)}>
+              <Button key={p.seat} className="tm-winner" onClick={() => onFinish(p.seat)}>
                 <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-winner-dot" />
                 <span>{p.name}</span>
-              </button>
+              </Button>
             ))}
           </div>
           <div className="row">
-            <button className="outline" onClick={() => onFinish(null)}>It was a draw</button>
-            <button className="quiet" onClick={() => setConfirmEnd(false)}>Keep playing</button>
+            <Button variant="outline" onClick={() => onFinish(null)}>It was a draw</Button>
+            <Button variant="quiet" onClick={() => setConfirmEnd(false)}>Keep playing</Button>
           </div>
         </section>
       )}
@@ -1324,7 +1324,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
         <section className="stack" aria-label="Following the table">
           <p role="status">{following.status}</p>
           <div className="row">
-            <button onClick={onClose}>Back to the table</button>
+            <Button onClick={onClose}>Back to the table</Button>
           </div>
         </section>
       ) : isGuest() ? (
@@ -1339,14 +1339,14 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           {tile("monarch", "Monarch")}
           {tile("initiative", "Initiative")}
           {tile("first", firstLabel)}
-          <button
+          <Button
             className="tm-marker"
             aria-pressed={state.dayNight !== null}
             onClick={() => dispatch({ type: "day_night", value: state.dayNight === "day" ? "night" : "day" })}
           >
             <span className="tm-marker-name">{state.dayNight === null ? "Day and night" : state.dayNight === "day" ? "Day" : "Night"}</span>
             <span className="tm-marker-who">{state.dayNight === null ? "Start day" : state.dayNight === "day" ? "Change to night" : "Change to day"}</span>
-          </button>
+          </Button>
         </div>
         {picking ? (
           <div className="tm-pick">
@@ -1356,12 +1356,12 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             </p>
             <div className="tm-pick-row">
               {state.players.map((p) => (
-                <button key={p.seat} aria-pressed={holder(picking)?.seat === p.seat} onClick={() => give(picking, p.seat)}>
+                <Button key={p.seat} aria-pressed={holder(picking)?.seat === p.seat} onClick={() => give(picking, p.seat)}>
                   <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-marker-dot" />
                   {p.name}
-                </button>
+                </Button>
               ))}
-              {picking !== "first" && <button className="outline" onClick={() => give(picking, null)}>Nobody</button>}
+              {picking !== "first" && <Button variant="outline" onClick={() => give(picking, null)}>Nobody</Button>}
             </div>
           </div>
         ) : (
@@ -1374,7 +1374,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
 
       <div className="tm-actions">
         <RollButton state={state} />
-        <button onClick={onDice}>Dice and coin</button>
+        <Button onClick={onDice}>Dice and coin</Button>
       </div>
       {!following && <LayoutPicker n={state.players.length} className="tm-layout" />}
       <GameLog state={state} log={log} />
@@ -1411,16 +1411,16 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           </label>
         )}
         <div className="tm-screen">
-          {fullscreen.supported && <button className="outline" onClick={fullscreen.toggle} aria-pressed={fullscreen.on}>{fullscreen.on ? "Leave full screen" : "Full screen"}</button>}
-          {install.canPrompt && <button className="outline" onClick={() => void install.install()}>Install Yama</button>}
+          {fullscreen.supported && <Button variant="outline" onClick={fullscreen.toggle} aria-pressed={fullscreen.on}>{fullscreen.on ? "Leave full screen" : "Full screen"}</Button>}
+          {install.canPrompt && <Button variant="outline" onClick={() => void install.install()}>Install Yama</Button>}
         </div>
         {install.fromShareMenu && <p className="small dim">For full screen on an iPhone or iPad, add Yama to the home screen: Share, then Add to Home Screen.</p>}
       </section>
 
       <div className="tm-leave">
-        <button className="outline" onClick={onLeave}>Leave the table</button>
-        {!following && <button
-          className="outline tm-discard"
+        <Button variant="outline" onClick={onLeave}>Leave the table</Button>
+        {!following && <Button
+          variant="outline" className="tm-discard"
           onClick={async () => {
             if (await ask(DISCARD_GAME)) {
               discardGame();
@@ -1429,7 +1429,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           }}
         >
           Discard game
-        </button>}
+        </Button>}
       </div>
       <p className="small dim tm-leave-note">{following ? "The host keeps the game. Open Table to follow it again." : "Leaving keeps the game going on this device: it’s on the Table page to come back to."}</p>
       <div className="tm-foot">
@@ -1513,8 +1513,8 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
         </div>
         <div className="row">
           {/* The button tapped is gone by now; keyboard focus lands here instead of the page. */}
-          <button className="primary" autoFocus onClick={onDone}>Start</button>
-          <button className="quiet" onClick={roll}>Roll again</button>
+          <Button variant="primary" autoFocus onClick={onDone}>Start</Button>
+          <Button variant="quiet" onClick={roll}>Roll again</Button>
         </div>
       </div>
     );
@@ -1525,7 +1525,7 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
       <DialogHead onClose={onDone}>Who goes first?</DialogHead>
       <div className="tm-winners" aria-busy={spinning}>
         {state.players.map((p) => (
-          <button
+          <Button
             key={p.seat}
             className={`tm-winner${lit?.seat === p.seat ? (lit.landed ? " lit landed" : " lit") : ""}`}
             aria-disabled={spinning}
@@ -1533,10 +1533,10 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
           >
             <SeatDot art={artFor(p.seat)} colorIdentity={p.colorIdentity} className="tm-winner-dot" />
             <span>{p.name}</span>
-          </button>
+          </Button>
         ))}
       </div>
-      <button className="primary" aria-disabled={spinning} autoFocus={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</button>
+      <Button variant="primary" aria-disabled={spinning} autoFocus={spinning} onClick={roll}>{spinning ? "Picking" : "Pick at random"}</Button>
       <p className="small dim" style={{ margin: 0 }}>Saved with the game for the playgroup's turn-order stats. Change it any time from the menu.</p>
     </div>
   );
@@ -1554,9 +1554,9 @@ function RollButton({ state }: { state: TableState }) {
     setResult(`The roll picked ${p.name}.`);
   };
   return (
-    <button onClick={roll}>
+    <Button onClick={roll}>
       <span aria-hidden={!!result}>{result ? result.replace("The roll picked ", "").replace(/\.$/, "") + " goes first" : "Roll for first"}</span>
       <span className="visually-hidden" role="status">{result}</span>
-    </button>
+    </Button>
   );
 }

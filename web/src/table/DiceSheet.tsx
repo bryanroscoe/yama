@@ -3,7 +3,7 @@
 
 import type { PlayerState } from "@yama/core";
 import { useState } from "react";
-import { Segmented, DialogHead } from "../components/ui";
+import { Button, DialogHead, Segmented } from "../components/ui";
 
 const DICE = [4, 6, 8, 10, 12, 20] as const;
 
@@ -52,7 +52,7 @@ export function DiceSheet({ players, onDone }: { players: PlayerState[]; onDone:
       </div>
       <div className="dice-grid">
         {DICE.map((n) => (
-          <button key={n} onClick={() => dice(n)} aria-label={`Roll ${count > 1 ? `${count} ` : "a "}d${n}`}>d{n}</button>
+          <Button key={n} onClick={() => dice(n)} aria-label={`Roll ${count > 1 ? `${count} ` : "a "}d${n}`}>d{n}</Button>
         ))}
       </div>
       <Segmented as="span" label="How many dice" value={count} onChange={setCount} options={[1, 2, 3].map((c) => [c, `${c} ${c === 1 ? "die" : "dice"}`] as const)} />
@@ -61,12 +61,12 @@ export function DiceSheet({ players, onDone }: { players: PlayerState[]; onDone:
           <span aria-hidden="true">d</span>
           <input aria-label="Sides on a custom die" inputMode="numeric" value={sides} onChange={(e) => setSides(e.target.value.replace(/\D/g, "").slice(0, 4))} />
         </label>
-        <button disabled={!(custom >= 2)} onClick={() => dice(custom)}>Roll</button>
+        <Button disabled={!(custom >= 2)} onClick={() => dice(custom)}>Roll</Button>
       </div>
       <div className="row">
-        <button onClick={() => setResult({ title: "Coin", value: roll(2) === 1 ? "Heads" : "Tails" })}>Flip a coin</button>
+        <Button onClick={() => setResult({ title: "Coin", value: roll(2) === 1 ? "Heads" : "Tails" })}>Flip a coin</Button>
         {alive.length > 1 && (
-          <button onClick={() => setResult({ title: "Random player", value: alive[roll(alive.length) - 1]!.name })}>Pick a random player</button>
+          <Button onClick={() => setResult({ title: "Random player", value: alive[roll(alive.length) - 1]!.name })}>Pick a random player</Button>
         )}
       </div>
     </div>

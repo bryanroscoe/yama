@@ -5,7 +5,7 @@
 import { RELAY_TOKEN, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { Pips } from "../components/ui";
+import { Button, ButtonLink, Pips } from "../components/ui";
 import { guestWsUrl, joinFragment, joinLink } from "./share";
 import type { LayoutKey } from "./layouts";
 import { useMe } from "../auth";
@@ -142,7 +142,7 @@ function GuestGame({ gameId }: { gameId: string }) {
     <main className="page">
       <h1>This table has ended</h1>
       <p className="dim">The host finished or discarded this game. Open Table to find the next one.</p>
-      <Link className="button primary" to="/">Back to Table</Link>
+      <ButtonLink variant="primary" to="/">Back to Table</ButtonLink>
     </main>
   );
 
@@ -177,23 +177,23 @@ function GuestGame({ gameId }: { gameId: string }) {
         <h1>Which seat is yours?</h1>
         <div className="list">
           {state.players.map((p) => (
-            <button key={p.seat} className="list-row" onClick={() => chooseSeat(p.seat)}>
+            <Button key={p.seat} className="list-row" onClick={() => chooseSeat(p.seat)}>
               <Pips identity={p.colorIdentity} />
               <span>
                 <span className="title">{p.name}</span>
                 {p.commanderName && <span className="dim"> playing {p.commanderName}</span>}
               </span>
               <span className="num">{p.life}</span>
-            </button>
+            </Button>
           ))}
-          <button className="list-row" onClick={() => chooseSeat(WATCH)}>
+          <Button className="list-row" onClick={() => chooseSeat(WATCH)}>
             <span />
             <span>
               <span className="title">Just following</span>
               <span className="dim"> see the whole table</span>
             </span>
             <span />
-          </button>
+          </Button>
         </div>
       </main>
     );
