@@ -6,6 +6,7 @@ import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats } from "../components/GroupStats";
+import { Members } from "./GroupMembers";
 import { streakText } from "../components/statsText";
 import { useCardArt } from "../components/useCardArt";
 import "./group.css";
@@ -42,7 +43,8 @@ export function GroupPage() {
         />
       )}
       <div className="grp-pair">
-        {group && <Members group={group} />}
+        {/* Keyed by group: a name being typed or an error shown never carries over to another group. */}
+        {group && <Members key={group.id} group={group} />}
         <section className="grp-section" id="sharing"><h2>You</h2><Link className="button outline" to="/profile">Your profile and account</Link></section>
       </div>
       <ExportGames group={group} />
@@ -316,38 +318,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
   );
 }
 
-function Members({ group }: { group: Playgroup }) {
-  const qc = useQueryClient();
-  const [guest, setGuest] = useState("");
-  const addGuest = useMutation({
-    mutationFn: () => api(`/api/playgroups/${group.id}/guests`, { method: "POST", json: { name: guest } }),
-    onSuccess: () => {
-      setGuest("");
-      void qc.invalidateQueries({ queryKey: ["playgroups"] });
-    },
-  });
-  const accounts = group.members.filter((m) => m.user_id).map((m) => m.display_name);
-  const guests = group.members.filter((m) => !m.user_id).map((m) => m.display_name);
-  return (
-    <section className="grp-section" aria-labelledby="grp-members">
-      <h2 id="grp-members">Members</h2>
-      <p className="dim" style={{ margin: 0 }}>
-        {accounts.length > 0 && `${listNames(accounts)} ${accounts.length === 1 ? "has an account" : "have accounts"}.`}
-        {guests.length > 0 && ` ${listNames(guests)} ${guests.length === 1 ? "is a guest" : "are guests"}.`} Friends join with the code {group.join_code}; add guests for people without an account.
-      </p>
-      <form className="grp-guest" onSubmit={(e) => { e.preventDefault(); addGuest.mutate(); }}>
-        <label>
-          <span className="visually-hidden">Guest name</span>
-          <input value={guest} onChange={(e) => setGuest(e.target.value)} placeholder="Guest name" required />
-        </label>
-        <button disabled={addGuest.isPending}>Add guest</button>
-      </form>
-      <ErrorText error={addGuest.error} />
-    </section>
-  );
-}
-
-/** Game history as JSON (shaped for commander-decks' data/games.json) or CSV, one row per seat. */
+/** Game history as JSON (one record per game) or CSV, one row per seat. */
 function ExportGames({ group }: { group?: Playgroup }) {
   // The browser's time zone, so each game's date is the local day it was played, with daylight
   // saving as it was that day. The offset is the fallback if the server doesn't know the zone.
@@ -361,7 +332,7 @@ function ExportGames({ group }: { group?: Playgroup }) {
         <h2 style={{ margin: 0 }}>Export games</h2>
         <HelpPopover label="Export contents and formats">
           <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
-          <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
+          <p>The JSON has one record per game with its seats; the CSV has one row per seat.</p>
         </HelpPopover>
       </div>
       {/* One grid for both rows, so the JSON and CSV buttons line up in columns. */}
@@ -392,7 +363,7 @@ function GroupActions() {
     <section className="stack" style={{ marginBottom: "2.5rem" }}>
       <h2>Start or join a playgroup</h2>
       <form className="row" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playgroup name" required style={{ flex: "1 1 12rem" }} />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playgroup name" maxLength={60} required style={{ flex: "1 1 12rem" }} />
         <button disabled={create.isPending}>Start playgroup</button>
       </form>
       <form className="row" onSubmit={(e) => { e.preventDefault(); join.mutate(); }}>

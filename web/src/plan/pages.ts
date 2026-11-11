@@ -9,3 +9,4 @@ export { PlanSettings } from "./Settings";
 export { SwapCardsPage } from "./SwapCards";
 export { SwapSheetPage } from "./SwapSheet";
 export { Trip } from "./Trip";
+export { Sourcing } from "./Sourcing";

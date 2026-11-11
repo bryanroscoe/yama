@@ -105,7 +105,7 @@ export function Ideas({ deck, view }: { deck: PlanDeck; view: PlanView }) {
             <li key={i.op_id}>
               {i.in}
               {i.out ? ` for ${i.out}` : ""}
-              {i.why ? `: ${i.why}` : ""} <span className="faint">{pendingIds.has(i.op_id) ? "Saved on this phone, waiting to sync." : "Saved in Yama."}</span>
+              {i.why ? `: ${i.why}` : ""} <span className="faint">{pendingIds.has(i.op_id) ? "Saved on this device, waiting to sync." : "Saved in Yama."}</span>
             </li>
           ))}
           {sent.map((i) => (

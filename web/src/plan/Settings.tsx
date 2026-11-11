@@ -228,14 +228,14 @@ function when(iso: string | null): string {
   return iso ? fmtDate(iso) : "never";
 }
 
-const KEY_NAMES: Record<KeyScope, string> = { "plan:sync": "commander-decks on the Mac", mcp: "Claude Code on the Mac" };
+const KEY_NAMES: Record<KeyScope, string> = { "plan:sync": "Plan script on my computer", mcp: "Claude Code on my computer" };
 
 /** The command that connects Claude Code to Yama's tools with a new key. */
 function claudeCommand(token: string): string {
   return `claude mcp add --transport http yama ${publicOrigin()}/mcp --header "Authorization: Bearer ${token}"`;
 }
 
-/** Keys for publish.py and pull.py, and for Claude's tools: create (shown once), list and revoke. */
+/** Keys for plan scripts and for Claude's tools: create (shown once), list and revoke. */
 function Keys() {
   const qc = useQueryClient();
   const keys = useQuery({ queryKey: ["plan-keys"], queryFn: listKeys });
@@ -248,12 +248,12 @@ function Keys() {
     <section className="stack">
       <h3>Keys for scripts and Claude</h3>
       <p className="dim small">
-        A script key lets commander-decks send your plan file to Yama and pick up your answers. A Claude key lets Claude Code (or another app that speaks MCP) read your decks,
+        A script key lets a script of yours send a plan file to Yama and pick up your answers. A Claude key lets Claude Code (or another app that speaks MCP) read your decks,
         plans, collection and lab runs with Yama's tools, for apps that can't sign in. Revoke a key if the computer is lost.
       </p>
       <Details>
         <p>
-          The scripts are commander-decks' publish.py and pull.py; their keys can't read your decks, collection or games. A Claude key reads everything of yours that Ask Claude can,
+          A script key only uploads a plan file and downloads your answers to it; it can't read your decks, collection or games. A Claude key reads everything of yours that Ask Claude can,
           and changes nothing. No key can make more keys.
         </p>
       </Details>
@@ -299,8 +299,8 @@ function Keys() {
             </>
           ) : (
             <p className="small dim">
-              On the Mac, save it in the Keychain, where the scripts look for it: run <code>security add-generic-password -a "$USER" -s yama-plan-sync -w</code>{" "}
-              in Terminal and paste the key when it asks. Or keep it in 1Password and set <code>YAMA_TOKEN</code> when you run a script.
+              Keep it in a password manager and set <code>YAMA_TOKEN</code> when you run a script. On a Mac you can save it in the Keychain instead: run{" "}
+              <code>security add-generic-password -a "$USER" -s yama-plan-sync -w</code> in Terminal and paste the key when it asks.
             </p>
           )}
         </div>

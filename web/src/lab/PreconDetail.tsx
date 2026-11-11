@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
+import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
@@ -38,7 +39,8 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
   const v2 = useQuery({ queryKey: ["lab", "rating-v2"], queryFn: ({ signal }) => api<RatingV2>("/api/precons/rating-v2", { signal }), staleTime: 5 * 60_000 });
   const [open, setOpen] = useState<string | null>(null);
 
-  if (detail.error) {
+  // Only with no precon to show: a failed refresh leaves the page, and a card sheet open on it.
+  if (queryFailure(detail) === "page") {
     return (
       <>
         <LabHead slim back={{ to: "/lab", label: "Back to the precons" }} />
@@ -55,6 +57,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
   return (
     <>
       <LabHead slim back={{ to: "/lab", label: "Back to the precons" }} />
+      <RefreshFailed query={detail} what="this precon" />
       <ArtPanel art={p.art}>
         <h1>{p.name}</h1>
         <span>

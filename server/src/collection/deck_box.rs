@@ -209,7 +209,9 @@ async fn add_deck_with_proxies(
     proxies: Option<&[String]>,
     dry_run: bool,
 ) -> AppResult<Preview> {
-    let mut tx = pool.begin().await?;
+    // It reads the deck and the collection, then writes: immediate, so a commit landing in
+    // between can't fail it. A preview only reads, and mustn't hold the write lock.
+    let mut tx = if dry_run { pool.begin().await? } else { pool.begin_with("BEGIN IMMEDIATE").await? };
     let (deck_name, version_id, linked): (String, Option<String>, Option<String>) =
         sqlx::query_as("SELECT name, current_version_id, container_id FROM decks WHERE id = ? AND owner_id = ?")
             .bind(deck_id)

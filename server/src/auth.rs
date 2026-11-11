@@ -71,7 +71,10 @@ macro_rules! power_sql {
 pub(crate) use power_sql;
 
 /// Why a request for a power-user feature was refused.
-pub const POWER_ONLY: &str = "Simulations and Ask Claude are open to admins and power users for now.";
+pub const POWER_ONLY: &str = "Simulations and Ask Claude need access that an admin turns on for an account. To ask for it, use the contact on the About page.";
+
+/// What to do about a limit, said after the limit itself.
+pub const ASK_FOR_MORE: &str = "To ask for a higher limit, use the contact on the About page.";
 
 /// The columns of [`User`], read from `users u`.
 macro_rules! user_columns {
@@ -1147,6 +1150,15 @@ async fn access_user(parts: &Parts, state: &AppState) -> AppResult<Option<User>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refusal says what the limit is and where to ask, not how the account joined.
+    #[test]
+    fn refusals_say_where_to_ask() {
+        for text in [POWER_ONLY, ASK_FOR_MORE] {
+            assert!(text.contains("the contact on the About page"), "{text}");
+            assert!(!text.contains("power users") && !text.contains("invite"), "{text}");
+        }
+    }
 
     #[tokio::test]
     async fn signing_keys_follow_max_age_and_survive_a_failed_refresh() {

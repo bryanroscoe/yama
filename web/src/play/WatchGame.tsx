@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api } from "../api";
+import { queryFailure } from "../components/QueryError";
 import { ErrorText } from "../components/ui";
 import { Board } from "./Board";
 import type { WatchSummary } from "./watch";
@@ -12,7 +13,9 @@ export function WatchGame() {
   const { id = "" } = useParams();
   // Check the game exists (and is yours) before opening its socket.
   const game = useQuery({ queryKey: ["watch", id], queryFn: () => api<WatchSummary>(`/api/watch/${id}`), retry: false });
-  if (game.error) {
+  // The board stays through a check that got no answer; a game that's gone (cleared, or the
+  // server restarted) says so.
+  if (queryFailure(game) === "page") {
     return (
       <main className="page stack">
         <ErrorText error={game.error} />

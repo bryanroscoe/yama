@@ -4,7 +4,7 @@ use crate::auth::CurrentUser;
 use crate::cards::{CARD_COLUMNS, Card, RELEASES_ON};
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
-use crate::util::{new_id, now};
+use crate::util::{new_id, now, sha256_hex};
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -42,6 +42,91 @@ pub struct DeckCard {
     pub name: String,
     pub qty: i64,
     pub board: Board,
+}
+
+/// The most different cards one saved list may hold (the importer's limit, `deck_import`).
+pub const MAX_DECK_ROWS: usize = 2_000;
+/// The most copies of one card in a list.
+pub const MAX_CARD_QTY: i64 = 1_000;
+/// A deck's name and its folder, in characters.
+pub const DECK_NAME_MAX: usize = 120;
+/// A version's note, in characters.
+const NOTE_MAX: usize = 500;
+
+/// Card rows a client sent, made safe to store. Yama's own readers (`resolve`, the scanner, the
+/// importer) build rows from card data; the editor and the import page send rows back, and a
+/// request can be made by anything. So every row must name a card Yama knows by its oracle id and
+/// takes that card's canonical name, never the one sent: analysis, legality and prices go by the
+/// id, and a shared deck's page prints the name, so a row whose name differed from its id would
+/// show one card and count as another. Unknown ids are refused with the names sent for them.
+/// Rows for the same card on the same board are merged; counts and the number of rows are capped.
+pub(crate) async fn checked_cards(pool: &SqlitePool, cards: Vec<DeckCard>) -> AppResult<Vec<DeckCard>> {
+    if cards.len() > MAX_DECK_ROWS {
+        return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} different cards")));
+    }
+    if cards.iter().any(|c| !(1..=MAX_CARD_QTY).contains(&c.qty)) {
+        return Err(AppError::bad(format!("each card needs between 1 and {MAX_CARD_QTY} copies")));
+    }
+    let ids: Vec<&str> = cards.iter().map(|c| c.oracle_id.as_str()).collect();
+    let names: HashMap<String, String> = sqlx::query_as("SELECT oracle_id, name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
+    let mut out: Vec<DeckCard> = Vec::with_capacity(cards.len());
+    let mut unknown: Vec<String> = Vec::new();
+    for c in cards {
+        let Some(name) = names.get(&c.oracle_id) else {
+            // Named back as sent (shortened), so the page can say which rows to fix.
+            unknown.push(c.name.chars().take(200).collect());
+            continue;
+        };
+        if let Some(existing) = out.iter_mut().find(|o| o.oracle_id == c.oracle_id && o.board == c.board) {
+            existing.qty += c.qty;
+        } else {
+            out.push(DeckCard { name: name.clone(), ..c });
+        }
+    }
+    if !unknown.is_empty() {
+        unknown.truncate(50);
+        return Err(AppError::Invalid {
+            message: "this list has cards Yama doesn't know; read the list again and save".into(),
+            details: serde_json::json!({ "unknown": unknown }),
+        });
+    }
+    within_caps(&out)?;
+    Ok(out)
+}
+
+/// The caps on a list as it will be stored, whichever way its rows were read: how many
+/// different cards, and how many copies of one card over all its boards.
+fn within_caps(cards: &[DeckCard]) -> AppResult<()> {
+    if cards.len() > MAX_DECK_ROWS {
+        return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} different cards")));
+    }
+    let mut copies: HashMap<&str, i64> = HashMap::new();
+    for c in cards {
+        let n = copies.entry(c.oracle_id.as_str()).or_insert(0);
+        *n = n.saturating_add(c.qty);
+        if c.qty < 1 || *n > MAX_CARD_QTY {
+            return Err(AppError::bad(format!("each card needs between 1 and {MAX_CARD_QTY} copies")));
+        }
+    }
+    Ok(())
+}
+
+/// Parsed lines within the same caps, before any is looked up (`resolve` asks the database about
+/// each line, and adds up the copies of a card named twice, so its result goes through
+/// `within_caps` as well).
+fn capped_lines(lines: Vec<ParsedLine>) -> AppResult<Vec<ParsedLine>> {
+    if lines.len() > MAX_DECK_ROWS {
+        return Err(AppError::bad(format!("a list can have at most {MAX_DECK_ROWS} lines")));
+    }
+    if lines.iter().any(|l| l.qty > MAX_CARD_QTY) {
+        return Err(AppError::bad(format!("a line can have at most {MAX_CARD_QTY} copies")));
+    }
+    Ok(lines)
 }
 
 // ── parsing ────────────────────────────────────────────────────────────────
@@ -153,7 +238,9 @@ pub(crate) async fn resolve(pool: &SqlitePool, lines: Vec<ParsedLine>) -> AppRes
 
 async fn parse_preview(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(req): Json<ParseRequest>) -> AppResult<Json<ParseResult>> {
     st.limits.deck_writes.check_user(&user)?;
-    Ok(Json(resolve(&st.pool, parse_list(&req.text, req.first_is_commander)).await?))
+    let read = resolve(&st.pool, capped_lines(parse_list(&req.text, req.first_is_commander))?).await?;
+    within_caps(&read.cards)?;
+    Ok(Json(read))
 }
 
 // ── decks ──────────────────────────────────────────────────────────────────
@@ -296,6 +383,10 @@ struct NewDeck {
     /// Printings the import named, kept with the deck (deck_import::save_prints).
     #[serde(default)]
     prints: Vec<crate::deck_import::DeckPrint>,
+    /// Client-generated, so a request sent again (a lost reply, or "Add all" run again after one
+    /// deck failed) makes one deck (`applied_ops`). Without it every request makes a deck.
+    #[serde(default)]
+    op_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -306,17 +397,91 @@ struct Created {
 
 async fn create_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<NewDeck>) -> AppResult<Json<Created>> {
     st.limits.deck_writes.check_user(&user)?;
+    let name = deck_name(&body.name)?;
+    let folder = folder_name(body.folder)?;
+    let op_id = body.op_id.as_deref();
+    if op_id.is_some_and(|op| op.trim().is_empty() || op.len() > 100) {
+        return Err(AppError::bad("op_id can't be blank or longer than 100 characters"));
+    }
+    // What this request asks for, as it was sent: the same request has the same fingerprint
+    // whatever card data has changed since, and an op id sent again for another deck (other
+    // rows, other text, other printings) is refused rather than answered with the first one.
+    let asked = sha256_hex(
+        &serde_json::json!({
+            "name": name,
+            "folder": folder,
+            "cards": body.cards.as_ref().map(|cards| cards.iter().map(|c| (c.oracle_id.as_str(), c.qty, &c.board)).collect::<Vec<_>>()),
+            "text": body.text,
+            "first_is_commander": body.first_is_commander,
+            "prints": body.prints,
+        })
+        .to_string(),
+    );
+    // A retry gets the first answer before its cards are read again. (The connection goes back
+    // before the list is read; the check is repeated inside the write below.)
+    if let Some(op) = op_id {
+        let mut conn = st.pool.acquire().await?;
+        if let Some(done) = replayed(&mut conn, &user.id, op, &asked).await? {
+            return Ok(Json(done));
+        }
+    }
     let (cards, unknown) = match (body.cards, body.text) {
-        (Some(cards), _) => (cards, vec![]),
+        (Some(cards), _) => (checked_cards(&st.pool, cards).await?, vec![]),
         (None, Some(text)) => {
-            let r = resolve(&st.pool, parse_list(&text, body.first_is_commander)).await?;
+            let r = resolve(&st.pool, capped_lines(parse_list(&text, body.first_is_commander))?).await?;
+            within_caps(&r.cards)?;
             (r.cards, r.unknown)
         }
         (None, None) => (vec![], vec![]),
     };
-    let id = create_deck_with_cards(&st.pool, &user.id, &body.name, body.folder.as_deref(), cards).await?;
-    crate::deck_import::save_prints(&st.pool, &id, &body.prints).await?;
+    // Immediate, so two sends of one op can't both find it unused. The deck, its printings and
+    // the op's record commit together.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if let Some(op) = op_id
+        && let Some(done) = replayed(&mut tx, &user.id, op, &asked).await?
+    {
+        return Ok(Json(done));
+    }
+    let id = create_deck_in(&mut tx, &user.id, &name, folder.as_deref(), &cards, "created").await?;
+    crate::deck_import::save_prints_in(&mut tx, &id, &body.prints).await?;
+    if let Some(op) = op_id {
+        sqlx::query(
+            "INSERT INTO applied_ops (op_id, owner_id, kind, payload, applied_at) VALUES (?,?,?,?,?)
+             ON CONFLICT (owner_id, op_id) DO UPDATE SET payload = excluded.payload, applied_at = excluded.applied_at",
+        )
+        .bind(op)
+        .bind(&user.id)
+        .bind("deck.create")
+        .bind(serde_json::json!({ "id": id, "unknown": unknown, "asked": asked }).to_string())
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    crate::deck_checks::wake();
     Ok(Json(Created { id, unknown }))
+}
+
+/// The answer a deck-creating op already got, while the deck it made is still there. If its
+/// owner has deleted that deck since, sending the list again makes it again (None). An id used
+/// for another kind of write, or for another deck, is a conflict.
+async fn replayed(conn: &mut SqliteConnection, owner: &str, op: &str, asked: &str) -> AppResult<Option<Created>> {
+    let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
+        .bind(op)
+        .bind(owner)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some((kind, payload)) = done else { return Ok(None) };
+    let stored: serde_json::Value = serde_json::from_str(&payload).map_err(anyhow::Error::from)?;
+    if kind != "deck.create" || stored["asked"] != asked {
+        return Err(AppError::Conflict("that op_id was used for something else".into()));
+    }
+    let live: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0")
+        .bind(stored["id"].as_str().unwrap_or_default())
+        .bind(owner)
+        .fetch_optional(&mut *conn)
+        .await?;
+    Ok(live.map(|id| Created { id, unknown: serde_json::from_value(stored["unknown"].clone()).unwrap_or_default() }))
 }
 
 pub async fn create_deck_with_cards(
@@ -1015,8 +1180,12 @@ async fn save_version(
 ) -> AppResult<Json<serde_json::Value>> {
     st.limits.deck_writes.check_user(&user)?;
     owned_deck(&st.pool, &user.id, &id).await?;
+    if body.note.as_deref().is_some_and(|n| n.chars().count() > NOTE_MAX) {
+        return Err(AppError::bad(format!("a version's note can have at most {NOTE_MAX} characters")));
+    }
+    let cards = checked_cards(&st.pool, body.cards).await?;
     let vid = match &body.base_version {
-        None => insert_version(&st.pool, &id, &body.cards, body.note.as_deref()).await?,
+        None => insert_version(&st.pool, &id, &cards, body.note.as_deref()).await?,
         Some(base) => {
             // Immediate, so another save can't land between the check and the insert.
             let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
@@ -1024,7 +1193,7 @@ async fn save_version(
             if current.as_deref() != Some(base.as_str()) {
                 return Err(AppError::Conflict("this list changed since you opened it".into()));
             }
-            let vid = insert_version_in(&mut tx, &id, &body.cards, body.note.as_deref()).await?;
+            let vid = insert_version_in(&mut tx, &id, &cards, body.note.as_deref()).await?;
             tx.commit().await?;
             crate::deck_checks::wake();
             vid
@@ -1062,7 +1231,7 @@ async fn update_deck(
     Path(id): Path<String>,
     Json(body): Json<UpdateDeck>,
 ) -> AppResult<()> {
-    let (name, _, container) = owned_deck(&st.pool, &user.id, &id).await?;
+    owned_deck(&st.pool, &user.id, &id).await?;
     if let Some(Some(status)) = &body.acquisition_status
         && !matches!(status.as_str(), "owned" | "planned")
     {
@@ -1081,9 +1250,10 @@ async fn update_deck(
     {
         return Err(AppError::bad("brackets go from 1 to 5"));
     }
-    let name = match body.name {
-        Some(n) => deck_name(&n)?,
-        None => name,
+    let sent_name = body.name;
+    let new_folder = match body.folder {
+        Some(f) => Some(folder_name(f)?),
+        None => None,
     };
     if let Some(v) = &body.visibility {
         crate::sharing::visibility(v)?;
@@ -1093,11 +1263,21 @@ async fn update_deck(
     if let Some(Some(parent)) = &body.parent_id {
         check_parent(&mut tx, &user.id, &id, parent).await?;
     }
-    let (folder, bracket, visibility, parent_id, configuration): (Option<String>, Option<i64>, String, Option<String>, Option<String>) =
-        sqlx::query_as("SELECT folder, bracket, visibility, parent_id, configuration FROM decks WHERE id = ?")
+    // Everything the request leaves alone is read here, inside the write transaction, so a
+    // change to another field can't put back a name or box that someone changed meanwhile.
+    type Kept = (String, Option<String>, Option<String>, Option<i64>, String, Option<String>, Option<String>);
+    let (name, container, folder, bracket, visibility, parent_id, configuration): Kept =
+        sqlx::query_as("SELECT name, container_id, folder, bracket, visibility, parent_id, configuration FROM decks WHERE id = ? AND owner_id = ?")
             .bind(&id)
+            .bind(&user.id)
             .fetch_one(&mut *tx)
             .await?;
+    // The settings page sends the name with every save. Only a changed name is checked, so a
+    // deck named another way (a configuration's built name, an import) can still change its box.
+    let name = match sent_name {
+        Some(n) if n.trim() != name => deck_name(&n)?,
+        _ => name,
+    };
     let configuration = match body.configuration {
         Some(label) => configuration_label(label.as_deref())?,
         None => configuration,
@@ -1110,7 +1290,7 @@ async fn update_deck(
                 share_token = COALESCE(share_token, ?), updated_at = ? WHERE id = ?",
     )
     .bind(name)
-    .bind(body.folder.unwrap_or(folder))
+    .bind(new_folder.unwrap_or(folder))
     .bind(body.container_id.unwrap_or(container))
     .bind(body.bracket.unwrap_or(bracket))
     .bind(body.visibility.unwrap_or(visibility))
@@ -1193,8 +1373,15 @@ async fn new_configuration(
     if body.op_id.trim().is_empty() || body.op_id.len() > 100 {
         return Err(AppError::bad("op_id is required"));
     }
-    let (_, version_id, _) = owned_deck(&st.pool, &user.id, &id).await?;
-    let mut tx = st.pool.begin().await?;
+    owned_deck(&st.pool, &user.id, &id).await?;
+    // Immediate: the op check, the list it copies and the new deck are one write, so a save
+    // landing meanwhile can't fail it (a deferred transaction that read first can't upgrade).
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let version_id: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ? AND owner_id = ?")
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_one(&mut *tx)
+        .await?;
     let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
         .bind(&body.op_id)
         .bind(&user.id)
@@ -1277,9 +1464,16 @@ async fn use_list(
     if body.op_id.trim().is_empty() || body.op_id.len() > 100 {
         return Err(AppError::bad("op_id is required"));
     }
-    let (_, current, _) = owned_deck(&st.pool, &user.id, &id).await?;
+    owned_deck(&st.pool, &user.id, &id).await?;
     let group = configuration_group(&st.pool, &user.id, &id).await?;
-    let mut tx = st.pool.begin().await?;
+    // Immediate, with the deck's current list read inside: "is it already the same?" is then
+    // answered against the list this write replaces, and a save landing meanwhile can't fail it.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let current: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ? AND owner_id = ?")
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_one(&mut *tx)
+        .await?;
     let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
         .bind(&body.op_id)
         .bind(&user.id)
@@ -1407,7 +1601,7 @@ pub async fn delete(pool: &SqlitePool, owner: &str, id: &str, configurations: bo
 /// conflict, so a configuration made since is never deleted unseen.
 pub async fn delete_pinned(pool: &SqlitePool, owner: &str, id: &str, configurations: bool, pinned: Option<&[String]>) -> AppResult<Deleted> {
     owned_deck(pool, owner, id).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let at = now();
     // Read and written in one transaction: what's checked is what's deleted.
     let children: Vec<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND parent_id = ? AND archived = 0 ORDER BY created_at, id")
@@ -1450,13 +1644,28 @@ pub async fn rename(pool: &SqlitePool, owner: &str, id: &str, name: &str) -> App
     Ok(())
 }
 
-/// A deck name as typed: trimmed, and not empty.
+/// A deck name as typed: trimmed, not empty, without line breaks or control characters, and at
+/// most `DECK_NAME_MAX` characters (it is printed on the deck's shared page).
 fn deck_name(name: &str) -> AppResult<String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(AppError::bad("deck needs a name"));
     }
+    if name.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
+        return Err(AppError::bad("a deck's name can't hold line breaks or control characters"));
+    }
+    if name.chars().count() > DECK_NAME_MAX {
+        return Err(AppError::bad(format!("a deck's name can have at most {DECK_NAME_MAX} characters")));
+    }
     Ok(name.to_string())
+}
+
+/// A deck's folder as sent: kept as it is, within the name's length.
+fn folder_name(folder: Option<String>) -> AppResult<Option<String>> {
+    if folder.as_deref().is_some_and(|f| f.chars().count() > DECK_NAME_MAX || f.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))) {
+        return Err(AppError::bad(format!("a folder's name can have at most {DECK_NAME_MAX} characters, without line breaks")));
+    }
+    Ok(folder)
 }
 
 /// The one live (not archived) deck of `owner`'s called `name`, ignoring case: (id, name as
@@ -1780,6 +1989,250 @@ mod tests {
         assert_eq!(lines[3].board, Board::Side);
     }
 
+    /// A card Yama knows, for saves that go through the routes.
+    async fn known_card(pool: &SqlitePool, oracle: &str, name: &str) {
+        sqlx::query("INSERT INTO cards (oracle_id, name, type_line, color_identity, legalities, updated_at) VALUES (?, ?, 'Artifact', '', '{}', 'now')")
+            .bind(oracle)
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    /// The editor and the import page send card rows back. A request can be made by anything, so
+    /// a row's name comes from its oracle id, never from the request.
+    #[tokio::test]
+    async fn saves_name_cards_by_their_id_and_refuse_ids_yama_doesnt_know() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "builder@example.com").await;
+        known_card(&pool, "o-sol", "Sol Ring").await;
+        known_card(&pool, "o-bolt", "Lightning Bolt").await;
+        let row = |oracle: &str, name: &str, qty: i64| json!({ "oracle_id": oracle, "name": name, "qty": qty, "board": "main" });
+
+        // Creating: the stored and shown name is the card's, and rows for one card are merged.
+        let sent = json!([row("o-sol", "Black Lotus, free at this link", 1), row("o-bolt", "Lightning Bolt", 2), row("o-bolt", "lightning bolt", 1)]);
+        let (status, made) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "  Honest  ", "cards": sent }))).await;
+        assert_eq!(status, StatusCode::OK, "{made}");
+        let id = made["id"].as_str().unwrap().to_string();
+        let stored = |pool: SqlitePool, id: String| async move {
+            let json: String = sqlx::query_scalar("SELECT v.cards FROM decks d JOIN deck_versions v ON v.id = d.current_version_id WHERE d.id = ?")
+                .bind(id).fetch_one(&pool).await.unwrap();
+            serde_json::from_str::<Vec<DeckCard>>(&json).unwrap().into_iter().map(|c| (c.oracle_id, c.name, c.qty)).collect::<Vec<_>>()
+        };
+        let honest = vec![("o-sol".to_string(), "Sol Ring".to_string(), 1), ("o-bolt".to_string(), "Lightning Bolt".to_string(), 3)];
+        assert_eq!(stored(pool.clone(), id.clone()).await, honest);
+        let name: String = sqlx::query_scalar("SELECT name FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(name, "Honest");
+
+        // Saving a version: the same, and the shared page names the card as Yama's data does.
+        let path = format!("/api/decks/{id}");
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": [row("o-sol", "<b>Mox</b>", 4)] }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(stored(pool.clone(), id.clone()).await, vec![("o-sol".to_string(), "Sol Ring".to_string(), 4)]);
+        send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "visibility": "public" }))).await;
+        let share: String = sqlx::query_scalar("SELECT share_token FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        // A row stored before this check (written straight to the table here) is named by its id too.
+        sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = (SELECT current_version_id FROM decks WHERE id = ?)")
+            .bind(json!([row("o-sol", "Black Lotus, free at this link", 1)]).to_string()).bind(&id).execute(&pool).await.unwrap();
+        let (status, public) = send(&app, Method::GET, &format!("/api/public/decks/{share}"), None, None).await;
+        assert_eq!(status, StatusCode::OK, "{public}");
+        assert!(public.to_string().contains("Sol Ring") && !public.to_string().contains("Black Lotus"), "{public}");
+
+        // Refused, and nothing saved: an id Yama doesn't know (named back), no copies, too many
+        // copies (in one row or added up), too many rows.
+        let before = stored(pool.clone(), id.clone()).await;
+        let too_many: Vec<_> = (0..=MAX_DECK_ROWS).map(|i| row(&format!("o-{i}"), "x", 1)).collect();
+        let bad = [
+            json!([row("o-sol", "Sol Ring", 1), row("o-nope", "Made Up Card", 1)]),
+            json!([row("o-sol", "Sol Ring", 0)]),
+            json!([row("o-sol", "Sol Ring", -3)]),
+            json!([row("o-sol", "Sol Ring", MAX_CARD_QTY + 1)]),
+            json!([row("o-sol", "Sol Ring", MAX_CARD_QTY), row("o-sol", "Sol Ring", 1)]),
+            // The cap is on copies of a card, over all its boards.
+            json!([row("o-sol", "Sol Ring", MAX_CARD_QTY), { "oracle_id": "o-sol", "name": "Sol Ring", "qty": 1, "board": "side" }]),
+            json!(too_many),
+        ];
+        for cards in bad {
+            let (status, body) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": cards }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            let (status, body) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Nope", "cards": cards }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        }
+        let (_, body) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": [row("o-nope", "Made Up Card", 1)] }))).await;
+        assert_eq!(body["unknown"], json!(["Made Up Card"]));
+        assert_eq!(stored(pool.clone(), id.clone()).await, before);
+        let decks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks").fetch_one(&pool).await.unwrap();
+        assert_eq!(decks, 1);
+    }
+
+    /// A lost reply or "Add all" run again sends the same op id: one deck, the first answer.
+    #[tokio::test]
+    async fn creating_a_deck_twice_with_one_op_id_makes_one_deck() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "builder@example.com").await;
+        let (_, other) = user(&pool, "other@example.com").await;
+        known_card(&pool, "o-sol", "Sol Ring").await;
+        let cards = json!([{ "oracle_id": "o-sol", "name": "Sol Ring", "qty": 1, "board": "main" }]);
+        let prints = json!([{ "oracle_id": "o-sol", "set_code": "cmm", "collector_number": "410", "finish": "foil" }]);
+        let body = json!({ "name": "Imported", "cards": cards, "prints": prints, "op_id": "op-1" });
+        let count = |pool: SqlitePool| async move {
+            let n: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM decks), (SELECT COUNT(*) FROM deck_versions), (SELECT COUNT(*) FROM deck_prints)")
+                .fetch_one(&pool).await.unwrap();
+            n
+        };
+
+        let (status, first) = send(&app, Method::POST, "/api/decks", Some(&token), Some(body.clone())).await;
+        assert_eq!(status, StatusCode::OK, "{first}");
+        for _ in 0..3 {
+            let (status, again) = send(&app, Method::POST, "/api/decks", Some(&token), Some(body.clone())).await;
+            assert_eq!((status, &again["id"]), (StatusCode::OK, &first["id"]));
+        }
+        assert_eq!(count(pool.clone()).await, (1, 1, 1));
+
+        // The same id for another deck is refused, never answered with the first deck.
+        let mut renamed = body.clone();
+        renamed["name"] = json!("Something else");
+        let (status, _) = send(&app, Method::POST, "/api/decks", Some(&token), Some(renamed)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        // An id belongs to its account: someone else's use of the same one is their own deck.
+        let (status, theirs) = send(&app, Method::POST, "/api/decks", Some(&other), Some(body.clone())).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(theirs["id"], first["id"]);
+        // A pasted list answers a retry with the names it couldn't read, as the first time.
+        let pasted = json!({ "name": "Pasted", "text": "1 Sol Ring\n1 Not A Card", "op_id": "op-2" });
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Sol Ring', 'o-sol')").execute(&pool).await.unwrap();
+        let (_, one) = send(&app, Method::POST, "/api/decks", Some(&token), Some(pasted.clone())).await;
+        let (_, two) = send(&app, Method::POST, "/api/decks", Some(&token), Some(pasted)).await;
+        assert_eq!(one, two);
+        assert_eq!(one["unknown"], json!(["Not A Card"]));
+        assert_eq!(count(pool.clone()).await, (3, 3, 2));
+        // The same request is the same op even after card data has changed under it (the name
+        // it couldn't read is a card now): still the first answer, and no second deck.
+        known_card(&pool, "o-new", "Not A Card").await;
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Not A Card', 'o-new')").execute(&pool).await.unwrap();
+        let (status, three) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Pasted", "text": "1 Sol Ring\n1 Not A Card", "op_id": "op-2" }))).await;
+        assert_eq!((status, &three), (StatusCode::OK, &one));
+        // Other text under the same id is another deck, even if it reads to the same cards.
+        let (status, _) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Pasted", "text": "1 Sol Ring\n1 Another Unknown", "op_id": "op-2" }))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(count(pool.clone()).await, (3, 3, 2));
+
+        // Without an op id every request is a new deck, as before; a blank or huge id is refused.
+        for _ in 0..2 {
+            send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Plain", "cards": cards }))).await;
+        }
+        assert_eq!(count(pool.clone()).await.0, 5);
+        for bad in [json!(" "), json!("x".repeat(101))] {
+            let (status, _) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Bad", "cards": cards, "op_id": bad }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+        // An op id used by another kind of write is refused.
+        let id = first["id"].as_str().unwrap();
+        let (status, _) = send(&app, Method::POST, &format!("/api/decks/{id}/configurations"), Some(&token), Some(json!({ "configuration": "Stock", "op_id": "op-3" }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Clash", "cards": cards, "op_id": "op-3" }))).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // After the owner deletes the deck, sending the list again makes it again.
+        let (status, _) = send(&app, Method::DELETE, &format!("/api/decks/{id}"), Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, remade) = send(&app, Method::POST, "/api/decks", Some(&token), Some(body.clone())).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(remade["id"], first["id"]);
+        let (_, again) = send(&app, Method::POST, "/api/decks", Some(&token), Some(body)).await;
+        assert_eq!(again["id"], remade["id"]);
+    }
+
+    /// A change to one field must not put back a name or box that changed since the request
+    /// read the deck. Both requests are in flight together, in either order.
+    #[tokio::test]
+    async fn changing_one_field_never_writes_back_an_old_name_or_box() {
+        use crate::testutil::{app, deck, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (owner, token) = user(&pool, "editor@example.com").await;
+        let (_, boxed) = send(&app, Method::POST, "/api/containers", Some(&token), Some(json!({ "kind": "deck", "name": "Box" }))).await;
+        let container = boxed["id"].as_str().expect("a container").to_string();
+        for rename_first in [true, false] {
+            let (id, _) = deck(&pool, &owner, "Old name").await;
+            let path = format!("/api/decks/{id}");
+            let rename = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "name": "New name", "container_id": container })));
+            let bracket = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "bracket": 3 })));
+            let (a, b) = if rename_first { tokio::join!(rename, bracket) } else {
+                let (b, a) = tokio::join!(bracket, rename);
+                (a, b)
+            };
+            assert_eq!((a.0, b.0), (StatusCode::OK, StatusCode::OK));
+            let (name, boxed, bracket): (String, Option<String>, Option<i64>) =
+                sqlx::query_as("SELECT name, container_id, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+            assert_eq!((name.as_str(), boxed.as_deref(), bracket), ("New name", Some(container.as_str()), Some(3)), "rename first: {rename_first}");
+        }
+    }
+
+    #[tokio::test]
+    async fn deck_names_notes_and_pasted_lists_are_capped() {
+        use crate::testutil::{app, deck, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (owner, token) = user(&pool, "builder@example.com").await;
+        let (id, _) = deck(&pool, &owner, "Named").await;
+        let path = format!("/api/decks/{id}");
+        let long = "n".repeat(DECK_NAME_MAX + 1);
+        for bad in ["", "   ", "two\nlines", "two\u{2028}lines", long.as_str()] {
+            let (status, _) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": bad }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "create {bad:?}");
+            let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "name": bad }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "rename {bad:?}");
+        }
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "folder": long }))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let at_cap = "é".repeat(DECK_NAME_MAX);
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "name": at_cap, "folder": "Brews" }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (name, folder): (String, Option<String>) = sqlx::query_as("SELECT name, folder FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!((name, folder.as_deref()), (at_cap, Some("Brews")));
+
+        let (status, _) = send(&app, Method::PUT, &path, Some(&token), Some(json!({ "cards": [], "note": "n".repeat(NOTE_MAX + 1) }))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // A deck named another way (a configuration's built name, an import) may hold a longer
+        // name. The settings page sends the name with every save: unchanged, it isn't checked,
+        // so the deck can still change its bracket or box; a new name is checked as usual.
+        let built = "b".repeat(DECK_NAME_MAX + 30);
+        sqlx::query("UPDATE decks SET name = ? WHERE id = ?").bind(&built).bind(&id).execute(&pool).await.unwrap();
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "name": built, "bracket": 2 }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "name": format!("{built}!") }))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (name, bracket): (String, Option<i64>) = sqlx::query_as("SELECT name, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!((name, bracket), (built, Some(2)));
+
+        // A pasted list is capped before any line is looked up.
+        let many = "1 Sol Ring\n".repeat(MAX_DECK_ROWS + 1);
+        let heavy = format!("{} Sol Ring", MAX_CARD_QTY + 1);
+        // Two lines for one card add up past the cap, on one board or across two.
+        known_card(&pool, "o-sol", "Sol Ring").await;
+        sqlx::query("INSERT INTO card_names (name, oracle_id) VALUES ('Sol Ring', 'o-sol')").execute(&pool).await.unwrap();
+        let twice = format!("Deck\n{MAX_CARD_QTY} Sol Ring\n1 Sol Ring");
+        let split = format!("Deck\n{MAX_CARD_QTY} Sol Ring\nSideboard\n1 Sol Ring");
+        for text in [many.as_str(), heavy.as_str(), twice.as_str(), split.as_str()] {
+            let (status, _) = send(&app, Method::POST, "/api/decks/parse", Some(&token), Some(json!({ "text": text }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            let (status, _) = send(&app, Method::POST, "/api/decks", Some(&token), Some(json!({ "name": "Pasted", "text": text }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+        let decks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decks").fetch_one(&pool).await.unwrap();
+        assert_eq!(decks, 1);
+    }
+
     #[tokio::test]
     async fn saving_over_a_changed_list_is_refused() {
         use crate::testutil::{app, deck, send, user};
@@ -1787,6 +2240,7 @@ mod tests {
         let (app, pool) = app().await;
         let (owner, token) = user(&pool, "editor@example.com").await;
         let (id, v1) = deck(&pool, &owner, "Edited").await;
+        known_card(&pool, "o-commander", "Test Commander").await;
         let path = format!("/api/decks/{id}");
         let cards = serde_json::json!([{ "oracle_id": "o-commander", "name": "Test Commander", "qty": 1, "board": "commander" }]);
         let (status, saved) = send(&app, Method::PUT, &path, Some(&token), Some(serde_json::json!({ "cards": cards, "base_version": v1 }))).await;

@@ -96,6 +96,8 @@ server_env=(
 web_env=(VITE_API_BASE= "VITE_PUBLIC_URL=http://localhost:$web_port" VITE_RELAY_URL=)
 show_env() { for kv in "${server_env[@]}" "${web_env[@]}"; do printf '    %s\n' "$kv"; done; }
 
+# Saget's address for this machine, read by deploy/target.sh after the environment and deploy/.env.
+machine_env="${YAMA_DEPLOY_ENV:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/yama/deploy.env}"
 need_db=0
 if [ ! -f data/yama.db ] || [ "$refresh" = 1 ]; then need_db=1; fi
 
@@ -114,8 +116,8 @@ if [ "$dry" = 1 ]; then
   say 'dry run: nothing was copied, built or started.'
   [ -d node_modules ] || say 'a real run would first run npm ci (no node_modules here).'
   [ -d ../yama-phase ] || say "a real run needs the engine checkout at $root/../yama-phase (deploy/phase-rev) for Cargo; it is missing."
-  if [ "$need_db" = 1 ] && [ -z "${YAMA_DEPLOY_HOST:-}" ] && [ ! -f deploy/.env ]; then
-    say 'a real run could not copy prod: set YAMA_DEPLOY_HOST (or copy deploy/.env.example to deploy/.env).'
+  if [ "$need_db" = 1 ] && [ -z "${YAMA_DEPLOY_HOST:-}" ] && [ ! -f deploy/.env ] && [ ! -f "$machine_env" ]; then
+    say 'a real run could not copy prod: put YAMA_DEPLOY_HOST in ~/.config/yama/deploy.env or deploy/.env (see deploy/.env.example), or export it.'
   fi
   for port in "$api_port" "$web_port"; do
     ! listening "$port" || say "port $port is in use; a real run would stop here."
@@ -130,8 +132,8 @@ done
 command -v cargo > /dev/null || die 'cargo is not installed.'
 command -v node > /dev/null || die 'node is not installed.'
 [ -d ../yama-phase ] || die "Cargo needs the engine checkout at $root/../yama-phase, pinned at deploy/phase-rev (README, Run it locally)."
-if [ "$need_db" = 1 ] && [ -z "${YAMA_DEPLOY_HOST:-}" ] && [ ! -f deploy/.env ]; then
-  die 'to copy prod I need saget'"'"'s address: export YAMA_DEPLOY_HOST (and YAMA_DEPLOY_USER), or copy deploy/.env.example to deploy/.env.'
+if [ "$need_db" = 1 ] && [ -z "${YAMA_DEPLOY_HOST:-}" ] && [ ! -f deploy/.env ] && [ ! -f "$machine_env" ]; then
+  die 'to copy prod I need saget'"'"'s address: put YAMA_DEPLOY_HOST (and YAMA_DEPLOY_USER) in ~/.config/yama/deploy.env or deploy/.env (see deploy/.env.example), or export them.'
 fi
 # Rule of thumb from the machine's hygiene rules: keep 20 GiB free after a build; a first build in a
 # checkout adds roughly 5 GiB.

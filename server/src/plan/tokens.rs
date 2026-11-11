@@ -165,7 +165,7 @@ struct CreatedKey {
 async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<NewKey>) -> AppResult<Json<CreatedKey>> {
     let name = body.name.trim().to_string();
     if name.is_empty() || name.chars().count() > 100 {
-        return Err(AppError::bad("name: say where the key is used (up to 100 characters), for example \"commander-decks on the Mac\""));
+        return Err(AppError::bad("name: say where the key is used (up to 100 characters), for example \"Plan script on my laptop\""));
     }
     let days = body.days.unwrap_or(DEFAULT_DAYS);
     if !(1..=MAX_DAYS).contains(&days) {

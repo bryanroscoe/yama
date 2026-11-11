@@ -71,8 +71,9 @@ COPY play play
 # The server validates a hosted board's build marker against this compiled pin.
 COPY deploy/phase-rev deploy/phase-rev
 COPY runtime/historical.json runtime/historical-source.json runtime/
-# The MCP format resource is embedded by the server at compile time.
+# MCP documentation resources are embedded by the server at compile time.
 COPY docs/research-format.md docs/research-format.md
+COPY docs/local-shopping-workflow.md docs/local-shopping-workflow.md
 # The public Rust renderer embeds these shared web inputs at compile time.
 COPY web/src/styles.css web/src/controls.css web/src/art-framing.css web/src/
 COPY web/public/precons.css web/public/site-notice.html web/public/public-list-v1.js web/public/

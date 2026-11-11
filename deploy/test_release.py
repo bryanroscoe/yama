@@ -44,6 +44,8 @@ class ReleaseChecks(unittest.TestCase):
             "GIT_COMMITTER_NAME": "Release test",
             "GIT_COMMITTER_EMAIL": "release-test@example.invalid",
             "YAMA_RELEASE_TEST_CONTACT_LOG": str(self.contact_log),
+            # This machine's own target file (~/.config/yama/deploy.env) must never reach a test.
+            "YAMA_DEPLOY_ENV": os.devnull,
         }
         for name in ("YAMA_PHASE_DIR", "YAMA_DEPLOY_HOST", "YAMA_DEPLOY_USER"):
             self.env.pop(name, None)
@@ -130,6 +132,42 @@ exit 97
             capture_output=True, text=True, timeout=15)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.contact_log.exists(), "deploy passed an option as the host")
+
+    def test_target_falls_back_to_this_machines_file(self):
+        # A fresh worktree has no deploy/.env; the machine's file names saget once for every checkout.
+        script = '. "$DEPLOY_DIR/target.sh"; printf %s "$HOST"'
+        machine = self.root / "machine-deploy.env"
+        machine.write_text("# saget\nYAMA_DEPLOY_HOST=192.0.2.41\nYAMA_DEPLOY_USER='deployer'\nOTHER=ignored\n")
+        deploy = self.repo / "deploy"
+        def host(**extra):
+            env = {**self.env, "DEPLOY_DIR": str(deploy), "YAMA_DEPLOY_ENV": str(machine), **extra}
+            result = subprocess.run(["sh", "-c", script], cwd=self.repo, env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+        self.assertEqual(host(), "deployer@192.0.2.41")
+        # The default place is under the config directory.
+        config = self.root / "config"
+        (config / "yama").mkdir(parents=True)
+        (config / "yama" / "deploy.env").write_text("YAMA_DEPLOY_HOST=192.0.2.42\n")
+        env = {k: v for k, v in self.env.items() if k != "YAMA_DEPLOY_ENV"}
+        result = subprocess.run(["sh", "-c", script], cwd=self.repo, capture_output=True, text=True, timeout=15,
+            env={**env, "DEPLOY_DIR": str(deploy), "XDG_CONFIG_HOME": str(config)})
+        self.assertEqual((result.returncode, result.stdout), (0, "root@192.0.2.42"), result.stderr)
+        # The checkout's own deploy/.env wins over the machine's file, and the environment over both.
+        (deploy / ".env").write_text("YAMA_DEPLOY_HOST=192.0.2.40\n")
+        self.assertEqual(host(), "deployer@192.0.2.40")
+        self.assertEqual(host(YAMA_DEPLOY_HOST="192.0.2.43", YAMA_DEPLOY_USER="root"), "root@192.0.2.43")
+        # An empty value in the checkout's file leaves the machine's value in place.
+        (deploy / ".env").write_text("YAMA_DEPLOY_HOST=\n")
+        self.assertEqual(host(), "deployer@192.0.2.41")
+        (deploy / ".env").unlink()
+        # A machine file that can't be read is skipped, so an explicit target still works.
+        machine.chmod(0o000)
+        try:
+            if not os.access(machine, os.R_OK):
+                self.assertEqual(host(YAMA_DEPLOY_HOST="192.0.2.43"), "root@192.0.2.43")
+        finally:
+            machine.chmod(0o600)
 
     def test_tracked_files_hold_no_lan_addresses(self):
         # saget's address and other LAN details live in the gitignored deploy/.env and the
@@ -348,7 +386,8 @@ else:
 ''')
             move.chmod(0o755)
         self.env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'],
-                        FAKE_SERVER=str(self.remote), YAMA_DEPLOY_HOST='test.invalid', YAMA_DEPLOY_USER='root')
+                        FAKE_SERVER=str(self.remote), YAMA_DEPLOY_HOST='test.invalid', YAMA_DEPLOY_USER='root',
+                        YAMA_DEPLOY_ENV=os.devnull)  # never this machine's ~/.config/yama/deploy.env
 
     def run_setup(self):
         return subprocess.run(['sh', str(self.script)], env=self.env, capture_output=True, text=True)

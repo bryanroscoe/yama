@@ -7,6 +7,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } 
 import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
+import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { CardImage, ErrorText, Pips } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
@@ -210,7 +211,8 @@ export function DeckPage() {
     setOpen(null);
   }, [id]);
 
-  if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
+  // Only with no deck to show: a refresh that failed leaves the page, and any sheet open on it.
+  if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
   const d = deck.data;
   if (!d) return <main className="page" />;
   const v = d.validation;
@@ -287,6 +289,7 @@ export function DeckPage() {
       </ArtPanel>
 
       <div className="page deck-body" inert={deck.isPlaceholderData} aria-busy={deck.isPlaceholderData}>
+        <RefreshFailed query={deck} what="this deck" />
         <div className="phone-only"><DeckTiles deck={d} summary={summary} measures={measures} hrefFor={tabHref} /></div>
         <div className="deck-actionbar">
           <div className="deck-actions" role="toolbar" aria-label="Deck actions">

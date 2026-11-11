@@ -67,6 +67,7 @@ const PlanPage = plan.page("PlanPage");
 const Archived = plan.page("Archived");
 const GetCards = plan.page("GetCards");
 const Trip = plan.page("Trip");
+const Sourcing = plan.page("Sourcing");
 const SwapSheetPage = plan.page("SwapSheetPage");
 const MpcPrint = plan.page("MpcPrint");
 const SwapCardsPage = plan.page("SwapCardsPage");
@@ -212,7 +213,9 @@ export function App() {
   // answers: the frame of the app, so the screen isn't blank. Asking again later (the connection
   // came back after an unanswered start) leaves the open page, even a game, where it is.
   if (me.isPending && !answered.current) return <Shell pending />;
-  if (me.error && !guestChosen) {
+  // Only when it has never said who is signed in: once it has (signed out included), a later
+  // check that gets no answer leaves the app as it is.
+  if (me.error && me.data === undefined && !guestChosen) {
     return (
       <main className="login">
         <div className="login-inner">
@@ -271,6 +274,7 @@ export function App() {
             <Route path="settings" element={<PlanSettings />} />
             <Route path="get" element={<GetCards />} />
             <Route path="get/trip" element={<Trip />} />
+            <Route path="get/sourcing" element={<Sourcing />} />
             <Route path="get/mpc" element={<MpcPrint />} />
             <Route path="get/swap-sheet" element={<SwapSheetPage />} />
             <Route path="get/swap-cards" element={<SwapCardsPage />} />

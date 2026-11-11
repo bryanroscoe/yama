@@ -273,7 +273,10 @@ export interface CollectionSummary {
   market_value_usd: number;
   copies_without_price: number;
   price_date: string | null;
+  /** Dollars paid, over real copies with a dollar purchase price; the two counts are what it leaves out. */
   purchase_total_usd: number;
+  copies_without_purchase_price?: number;
+  copies_paid_in_other_currency?: number;
 }
 
 export type Board = "commander" | "main" | "side";

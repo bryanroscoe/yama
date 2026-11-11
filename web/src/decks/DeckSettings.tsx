@@ -106,7 +106,7 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         </div>
         <label>
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />
         </label>
         {!parent && (
           <div className="deck-settings-field">

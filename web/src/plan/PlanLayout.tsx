@@ -74,7 +74,7 @@ export function PlanLayout() {
   const banner = plan.offline && (
     <p className="plan-banner small" role="status">
       No connection. This is the copy of your plans saved on this device{plan.bundle?.head ? `, imported ${fmtDate(plan.bundle.head.imported_at)}` : ""}.
-      {box.pending.length ? ` Your answers are saved on this phone and go to Yama when you're back online.` : ""}
+      {box.pending.length ? ` Your answers are saved on this device and go to Yama when you're back online.` : ""}
     </p>
   );
   return (

@@ -334,6 +334,19 @@
   border-radius: var(--r-pill);
   padding: 8px 16px;
 }
+.grp-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.grp-members .grp-you-row {
+  flex-wrap: wrap;
+}
+.grp-member-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
 .grp-you {
   display: flex;
   flex-direction: column;

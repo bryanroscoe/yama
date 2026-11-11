@@ -5,7 +5,7 @@ import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
-import { api, API_BASE, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
+import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
 import "./collection.css";
@@ -137,7 +137,7 @@ export function CollectionPage() {
                     {count(s.copies_without_price)} {s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.{" "}
                   </span>
                 )}
-                {s.purchase_total_usd > 0 && <>You paid {usdWhole(s.purchase_total_usd)}, where recorded.</>}
+                {s.purchase_total_usd > 0 && <>You paid {usdWhole(s.purchase_total_usd)}, where recorded{s.copies_without_purchase_price ? ` (${count(s.copies_without_purchase_price)} ${s.copies_without_purchase_price === 1 ? "copy has" : "copies have"} no purchase price)` : ""}{s.copies_paid_in_other_currency ? `; ${count(s.copies_paid_in_other_currency)} paid in another currency ${s.copies_paid_in_other_currency === 1 ? "isn't" : "aren't"} added in` : ""}.</>}
               </span>
             </>
           )}
@@ -425,7 +425,8 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
   const qc = useQueryClient();
   const label = (KIND_LABEL[container.kind] ?? "container").toLowerCase();
   const remove = useMutation({
-    mutationFn: () => api(`/api/containers/${encodeURIComponent(container.id)}`, { method: "DELETE" }),
+    // Not found means it is already deleted (a second try after a lost reply): the same outcome.
+    mutationFn: () => api(`/api/containers/${encodeURIComponent(container.id)}`, { method: "DELETE" }).catch((e: unknown) => { if (!(e instanceof ApiError && e.status === 404)) throw e; }),
     onSuccess: () => {
       void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || ["containers", "decks", "deck", "deck-collect"].includes(String(q.queryKey[0])) });
       onDeleted();

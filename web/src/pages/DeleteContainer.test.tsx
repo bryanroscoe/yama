@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeleteContainer } from "./Collection";
-import { api, type Container } from "../api";
+import { api, ApiError, type Container } from "../api";
 
 const state = vi.hoisted(() => ({
   options: null as null | { mutationFn: () => Promise<unknown>; onSuccess: () => void },
@@ -50,6 +50,16 @@ describe("deleting a collection container", () => {
     expect(html).toContain('aria-label="Delete deck box"');
     expect(html).toContain("stay in your collection as loose cards");
     expect(html).toContain("Saved decks and their lists will stay too.");
+    client.clear();
+  });
+
+  it("reads not found as already deleted, and still fails on anything else", async () => {
+    const { client } = confirmation("box", 0);
+    // A second try after a lost reply: the server no longer has the container.
+    vi.mocked(api).mockRejectedValueOnce(new ApiError(404, "container not found"));
+    await expect(state.options!.mutationFn()).resolves.toBeUndefined();
+    vi.mocked(api).mockRejectedValueOnce(new ApiError(500, "internal error"));
+    await expect(state.options!.mutationFn()).rejects.toThrow("internal error");
     client.clear();
   });
 

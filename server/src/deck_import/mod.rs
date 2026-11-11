@@ -19,7 +19,7 @@ use axum::{Json, Router};
 use formats::{Format, ImportLine, Parsed};
 use links::Site;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use std::collections::HashMap;
 
 pub fn router() -> Router<AppState> {
@@ -434,10 +434,18 @@ pub async fn save_prints(pool: &SqlitePool, deck_id: &str, prints: &[DeckPrint])
     if prints.is_empty() {
         return Ok(());
     }
+    let mut tx = pool.begin().await?;
+    save_prints_in(&mut tx, deck_id, prints).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// As `save_prints`, inside the caller's transaction, so a new deck and its printings commit
+/// together.
+pub async fn save_prints_in(conn: &mut SqliteConnection, deck_id: &str, prints: &[DeckPrint]) -> AppResult<()> {
     if prints.len() > MAX_LINES {
         return Err(AppError::bad("too many printings"));
     }
-    let mut tx = pool.begin().await?;
     for p in prints {
         let set = p.set_code.trim().to_lowercase();
         // No printing is only worth keeping to say the copy is a proxy.
@@ -459,10 +467,9 @@ pub async fn save_prints(pool: &SqlitePool, deck_id: &str, prints: &[DeckPrint])
         .bind(p.collector_number.as_deref().map(str::trim).filter(|n| !set.is_empty() && !n.is_empty() && n.len() <= 16))
         .bind(finish)
         .bind(p.proxy)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
     }
-    tx.commit().await?;
     Ok(())
 }
 

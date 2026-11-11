@@ -1,8 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
-import { POWER_NOTE } from "../components/PowerOnly";
+import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
+import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { Details, ErrorText } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
@@ -134,7 +135,7 @@ export function RunsPage() {
           </p>
         ) : (
           <p className="empty">
-            No runs. {POWER_NOTE} See the <Link to="/lab">simulated precon rankings</Link>.
+            No runs. <PowerNote /> See the <Link to="/lab">simulated precon rankings</Link>.
           </p>
         )
       )}
@@ -311,7 +312,7 @@ function shortName(name: string): string {
 export function BatchPage() {
   const { id } = useParams();
   const run = useQuery({ queryKey: ["lab", "run", id], queryFn: ({ signal }) => api<RunDetail>(`/api/lab/runs/${id}`, { signal }) });
-  if (run.error) {
+  if (queryFailure(run) === "page") {
     return (
       <>
         <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
@@ -332,6 +333,7 @@ export function BatchPage() {
   return (
     <>
       <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
+      <RefreshFailed query={run} what="this run" />
       <div className="page-head">
         <div>
           <h1>{r.name}</h1>
@@ -436,7 +438,7 @@ export function BatchPage() {
             ))}
             <p className="lab-note">Intervals here come from your planner's own analysis, not the one "Try a change" uses; the verdict wording is the same.</p>
             <Details>
-              <p>A bootstrap over pods, from commander-decks' analyze.py.</p>
+              <p>A bootstrap over pods, computed by the analysis that came with the imported run.</p>
             </Details>
           </section>
         </>

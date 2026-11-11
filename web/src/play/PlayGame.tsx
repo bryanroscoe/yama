@@ -2,11 +2,12 @@
 // the board.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { api, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
+import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { ErrorText, Pips } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { BracketChips } from "../components/Bracket";
@@ -25,10 +26,12 @@ export function PlayGame() {
     refetchInterval: (q) => (q.state.data?.runtime_error ? 15_000 : q.state.data?.status === "lobby" ? 4000 : false),
     refetchOnWindowFocus: "always",
   });
-  if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
+  // Only with no game to show, or when the game is gone or not yours: one failed check (the lobby
+  // asks every 4 s) leaves the lobby or board up.
+  if (queryFailure(game) === "page") return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
   if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
-  if (game.data.status === "lobby") return <Lobby game={game.data} />;
+  if (game.data.status === "lobby") return <Lobby game={game.data} notice={<RefreshFailed query={game} what="this game" />} />;
   // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
   return <Board key={id} id={id} live={game.data.status === "in_progress"} phaseBoard={game.data.phase_board === true} />;
 }
@@ -39,7 +42,7 @@ const BackArrow = () => (
   </svg>
 );
 
-function Lobby({ game }: { game: OnlineGame }) {
+function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
   const qc = useQueryClient();
   const me = useMe();
   const [copied, setCopied] = useState(false);
@@ -75,6 +78,7 @@ function Lobby({ game }: { game: OnlineGame }) {
         <Link to="/play" className="lobby-back"><BackArrow />Play online</Link>
         <span className="lobby-group">{game.playgroup ? `${game.playgroup}, counts toward group stats` : "Not counted in group stats"}</span>
       </div>
+      {notice}
 
       <div className="lobby-head">
         <div className="lobby-title">

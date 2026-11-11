@@ -79,6 +79,16 @@ plain-text full `list` with Commander and Deck sections. Optional fields support
   bracket_fit, sources, present, missing_cards and is_caution. A caution can explain a
   nonworking claim; the presence of its cards is not proof that the claim works.
 - Root: summary, method, local_checks, default_scenario_id and alternative shopping `scenarios`.
+  Optional private `local_sources` rows support the all-deck sourcing preview
+  (`/decks/plans/get/sourcing`). Each row has `name`, `status`, `uses` (stable per-copy
+  `id`, `deck`, `deck_name`, `category`) and `best_offer_per_store` (nullable entries
+  with store, price, qty, condition, URL, Shopify variant_id, checked_at and qualifies).
+  Unknown price/quantity is null. A use is a source wish, not proof a card must be
+  bought; categories keep unresolved sources and optional proxy/print replacements
+  distinct. Count a recipient's union of bracket alternatives once and allocate
+  each known SKU quantity only once across all recipients. Rows must match the
+  report's exact builds and declared stock date. This extension is never included
+  in the public research projection and does not update active trip snapshots.
   Scenarios carry id, label, note, deck_count, buys, prints, buy_total, print_count and optional
   sealed_purchases. Sealed product prerequisites have separate prices and market references;
   they are excluded from the singles buy_total and the $2 singles ceiling.
