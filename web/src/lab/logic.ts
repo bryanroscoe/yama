@@ -40,11 +40,14 @@ export const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /**
  * A reason from a stored analysis, as a sentence. The analysis writes the engine's name in
  * lower case ("partly unimplemented in phase") and three dots where a list is cut; the page
- * says Phase and "…". A game's phases ("main phase") are left alone.
+ * says Phase and "…". Only the shapes the analysis writes are touched ("unimplemented in
+ * phase", "31% on phase,", "phase gap"), so a game's phases ("in phase two of combat", "main
+ * phase") are left alone.
  */
 export const reasonText = (s: string) =>
   sentence(s)
-    .replace(/\b(in|on) phase\b(?![-\w])/g, "$1 Phase")
+    .replace(/\b(unimplemented|unsupported|missing) in phase\b(?![-\w])/g, "$1 in Phase")
+    .replace(/\bon phase(?=[,.;:)]|$)/g, "on Phase")
     .replace(/\bphase (gap|engine|AI)\b/g, "Phase $1")
     .replace(/\.\.\./g, "…");
 

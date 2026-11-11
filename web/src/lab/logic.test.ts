@@ -450,6 +450,8 @@ describe("a reason from a stored analysis", () => {
 
   it("leaves a game's phases and the engine's package name as they are", () => {
     expect(reasonText("the AI passes its main phase with mana up")).toBe("The AI passes its main phase with mana up");
+    expect(reasonText("known phase gap: the AI stalls in phase two of combat")).toBe("Known Phase gap: the AI stalls in phase two of combat");
+    expect(reasonText("it attacks on phase one")).toBe("It attacks on phase one");
     expect(reasonText("simulated on phase-rs v0.113.0")).toBe("Simulated on phase-rs v0.113.0");
   });
 });
