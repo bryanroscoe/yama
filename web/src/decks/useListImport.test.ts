@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxEdits, dropPlan, type Source } from "./useListImport";
+import { boxEdits, dropPlan, unsavedList, type Source } from "./useListImport";
 
 /** The box as the handlers see it: what was set, what was checked, and the timers still to run. */
 function box() {
@@ -70,5 +70,32 @@ describe("dropping onto the list box", () => {
     expect(dropPlan({ files: false, boxHasText: false, overBox: false })).toBe("fill");
     expect(dropPlan({ files: false, boxHasText: true, overBox: true })).toBe("insert");
     expect(dropPlan({ files: false, boxHasText: true, overBox: false })).toBe("ignore");
+  });
+});
+
+describe("work in the list box that leaving would lose", () => {
+  const none = { text: "", given: "", drafts: 0, draftEdited: false };
+  it("is a list the person typed, pasted or chose", () => {
+    expect(unsavedList(none)).toBe(false);
+    expect(unsavedList({ ...none, text: "1 Sol Ring" })).toBe(true);
+    // Several files read at once leave the box empty, with their decks below.
+    expect(unsavedList({ ...none, drafts: 3 })).toBe(true);
+    // Blank lines alone are nothing to lose.
+    expect(unsavedList({ ...none, text: " \n" })).toBe(false);
+  });
+
+  it("is a list sent from the phone's share sheet, which the box opens with", () => {
+    // Nothing was given by Yama: the opening text is the person's own.
+    expect(unsavedList({ text: "1 Sol Ring\n1 Arcane Signet", given: "", drafts: 1, draftEdited: false })).toBe(true);
+  });
+
+  it("isn't a list Yama put there itself, until the person changes it", () => {
+    const stock = "Commander\n1 Atraxa, Praetors' Voice";
+    expect(unsavedList({ text: stock, given: stock, drafts: 1, draftEdited: false })).toBe(false);
+    expect(unsavedList({ text: `${stock}\n1 Sol Ring`, given: stock, drafts: 1, draftEdited: false })).toBe(true);
+    // A fix to the reading (a new name, another commander) is work too.
+    expect(unsavedList({ text: stock, given: stock, drafts: 1, draftEdited: true })).toBe(true);
+    // Cleared after fixing: nothing is left.
+    expect(unsavedList({ text: "", given: stock, drafts: 0, draftEdited: true })).toBe(false);
   });
 });

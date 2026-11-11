@@ -314,7 +314,7 @@ export function DeckPage() {
         <SavedListBar deck={d} />
         {!v.ok && v.errors.length > 1 && <ul className="small deck-errors">{v.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
 
-        {editing && <DeckSettings deck={d} onClose={() => setEditing(false)} />}
+        {editing && <DeckSettings key={d.id} deck={d} onClose={() => setEditing(false)} />}
         {deleting && <DeleteDeck deck={d} onClose={() => setDeleting(false)} />}
         {asking && askOffered && <AskClaudeSheet context={{ kind: "deck", ref: d.id }} about={d.name} ideasFor={plan?.deck.key ?? null} onClose={() => setAsking(false)} />}
         {goldfish && <SampleHand deck={d} art={commander?.image_art_crop ?? null} artist={commander?.artist ?? null} onClose={() => setGoldfish(false)} />}

@@ -13,6 +13,7 @@ import { SearchPicker } from "../components/SearchPicker";
 import { ErrorText, Sheet } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
+import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { buildNotes, buildNotesKey } from "../research/api";
 import { buildFamilies, configurationLabel, resolveBuildFamily, type SwapPair as Hint } from "./buildCatalog";
 import { newListName, otherLists, pairEdits, startButtons, type CardFacts, type StartList } from "./editList";
@@ -118,6 +119,8 @@ function EditList({ id }: { id: string }) {
   const [opId] = useState(() => crypto.randomUUID());
   const [stale, setStale] = useState(false);
   const moved = stale || (!!d && base.current !== undefined && d.version_id !== base.current);
+  // Typed edits, a note or a name for the new list: leaving asks first (unsaved.tsx).
+  const guard = useUnsavedChanges(list.unsaved || !!note.trim() || name !== null);
   const save = useMutation({
     mutationFn: async () => {
       if (!body) throw new Error("Nothing to save yet.");
@@ -144,6 +147,7 @@ function EditList({ id }: { id: string }) {
       void qc.invalidateQueries({ queryKey: ["decks"] });
       void qc.invalidateQueries({ queryKey: ["deck-versions"] });
       // The deck page then offers to add new cards to the collection (CollectSheet).
+      guard.allow();
       navigate(`/decks/${saved}?collect=1`);
     },
   });
@@ -155,8 +159,9 @@ function EditList({ id }: { id: string }) {
     load(startButtons(family, fresh)[0]!);
   };
 
-  if (deck.error) return <main className="page"><ErrorText error={deck.error} /></main>;
-  if (!d) return <main className="page"><p className="dim">Loading…</p></main>;
+  // The guard is live on these too: without its question a stopped navigation would show nothing.
+  if (deck.error) return <main className="page"><ErrorText error={deck.error} /><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
+  if (!d) return <main className="page"><p className="dim">Loading…</p><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
 
   const commander = d.cards.find((e) => e.board === "commander")?.card ?? null;
   const main = d.configurations[0];
@@ -331,6 +336,7 @@ function EditList({ id }: { id: string }) {
           </div>
         </Sheet>
       )}
+      <UnsavedPrompt guard={guard} what="your changes to this list" />
       {guides && (
         <Sheet label="From another site" onClose={() => setGuides(false)}>
           <div className="stack">

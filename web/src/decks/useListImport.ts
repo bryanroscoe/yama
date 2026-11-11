@@ -65,6 +65,18 @@ export function dropPlan({ files, boxHasText, overBox }: { files: boolean; boxHa
 }
 
 /**
+ * Whether the box holds work that leaving would lose: a list the person typed, pasted, chose or
+ * sent from the share sheet (several files read at once leave the box empty and their decks
+ * below), or a fix they made to the reading. A list Yama put there itself (a precon, a shared
+ * deck, a deck's own list) isn't.
+ */
+export function unsavedList({ text, given, drafts, draftEdited }: { text: string; given: string; drafts: number; draftEdited: boolean }): boolean {
+  if (draftEdited && drafts > 0) return true;
+  if (!text.trim()) return drafts > 0;
+  return text !== given;
+}
+
+/**
  * The list being read: its text, the preview's answer and the decks found in it. `makeDraft` turns
  * each deck the preview found into a draft (it is read when the answer arrives, so it may change).
  * Every way in (typing, a paste, a file, a drop, a loaded list) cancels a slower answer still on
@@ -72,6 +84,13 @@ export function dropPlan({ files, boxHasText, overBox }: { files: boolean; boxHa
  */
 export function useListImport({ initialText, makeDraft }: { initialText: () => string; makeDraft: (deck: PreviewDeck, source: Source) => Draft }) {
   const [text, setText] = useState(initialText);
+  /**
+   * The text Yama put in the box itself (a precon, a shared deck, a loaded list): not the person's
+   * work. The text the box opens with is theirs: a list sent from the phone's share sheet.
+   */
+  const [given, setGiven] = useState("");
+  /** The person fixed something in the reading (a name, a commander, an unknown line). */
+  const [draftEdited, setDraftEdited] = useState(false);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [active, setActive] = useState(0);
@@ -101,6 +120,7 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
       setPreview(first);
       if (first?.link && !first.link.fetched) setGuideKey(guideFor(first.link.site)?.key ?? "text");
       setDrafts(results.flatMap(({ source, preview }) => preview.decks.map((d) => draftOf.current(d, source))));
+      setDraftEdited(false);
       setActive(0);
     },
   });
@@ -133,6 +153,7 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
     if (touched.current) return;
     touched.current = true;
     setText((t) => t || next);
+    setGiven((t) => t || next);
   }, []);
 
   /** Load a list into the box (a start list); a newer load or the person's typing wins. Resolves
@@ -152,6 +173,7 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
         setDrafts([]);
         setPreview(null);
         setText(next);
+        setGiven(next);
         // Different lists can hold identical text: check explicitly even when React keeps `text`.
         runCheck([{ text: next }]);
         return next;
@@ -237,12 +259,16 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
   };
 
   const draft = drafts[active];
-  const setDraft = (d: Draft) => setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
+  const setDraft = (d: Draft) => {
+    setDraftEdited(true);
+    setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
+  };
+  const unsaved = unsavedList({ text, given, drafts: drafts.length, draftEdited });
 
   return {
     text, setUserText, prefill, loadList, sourceLoading,
     preview, drafts, draft, setDraft, active, setActive,
     check, runCheck, notice, setNotice, guideKey, setGuideKey, dragging,
-    readFiles, pasteFromClipboard, boxProps, dropProps,
+    readFiles, pasteFromClipboard, boxProps, dropProps, unsaved,
   };
 }
