@@ -848,6 +848,11 @@ pub(crate) struct HistoryParams {
     pub q: String,
     #[serde(default)]
     pub offset: u32,
+    /// Only games played in this playgroup. Its owner and members also get the ones they weren't
+    /// in (`playgroups::is_member`'s rule, as `GET /api/games?playgroup=` lists them); the rule
+    /// is checked in the query. Anyone else gets only their own games that were played in it.
+    #[serde(default)]
+    pub playgroup: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -868,7 +873,8 @@ fn history_search_text(text: &str) -> String {
 }
 
 /// Personal history, including old unfinished tables beyond the recent list's 200-game cap.
-/// Search/filter before pagination. A playgroup alone never grants access to this endpoint.
+/// Search/filter before pagination. Without `playgroup`, being in a playgroup never grants
+/// access to a game here; with it, a member sees that playgroup's games.
 async fn game_history(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -910,12 +916,19 @@ pub(crate) async fn history_page(pool: &SqlitePool, user_id: &str, p: HistoryPar
              FROM game_seats s LEFT JOIN users u ON u.id=s.user_id
              LEFT JOIN playgroup_members m ON m.id=s.member_id WHERE s.game_id=g.id
          ) AS names FROM games g
-         WHERE (g.created_by = ? OR g.id IN (SELECT game_id FROM game_seats WHERE user_id = ?))
-           AND {NOT_A_LOBBY} AND ({filter})
+         WHERE (g.created_by = ? OR g.id IN (SELECT game_id FROM game_seats WHERE user_id = ?)
+                OR (g.playgroup_id = ? AND EXISTS (SELECT 1 FROM playgroups pg LEFT JOIN playgroup_members pm ON pm.playgroup_id = pg.id
+                                                   WHERE pg.id = g.playgroup_id AND (pg.owner_id = ? OR pm.user_id = ?))))
+           AND {NOT_A_LOBBY} AND ({filter}) AND (? IS NULL OR g.playgroup_id = ?)
          ORDER BY {order} LIMIT ? OFFSET ?"
     )))
     .bind(user_id)
     .bind(user_id)
+    .bind(p.playgroup.as_deref())
+    .bind(user_id)
+    .bind(user_id)
+    .bind(p.playgroup.as_deref())
+    .bind(p.playgroup.as_deref())
     .bind(if q.is_empty() { 51_i64 } else { -1 })
     .bind(if q.is_empty() { i64::from(p.offset) } else { 0 });
     // SQLite lower() only folds ASCII (so it misses éowyn against Éowyn). Stream personal

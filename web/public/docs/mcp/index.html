@@ -128,7 +128,7 @@
 
     <section id="catalog">
       <h2>The complete tool catalog</h2>
-      <p>64 tools, checked 11 November 2026. Availability depends on the caller and the account: Ask Claude omits apply and discard, a read-only connection omits everything that writes, and the store, dataset and lab tools are listed once your account has stores, a dataset or lab runs. Expand a group for the tool names your client may display.</p>
+      <p>69 tools, checked 11 November 2026. Availability depends on the caller and the account: Ask Claude omits apply and discard, a read-only connection omits everything that writes, and the store, dataset and lab tools are listed once your account has stores, a dataset or lab runs. Expand a group for the tool names your client may display.</p>
       <details><summary>Cards, rules and sources (7)</summary><dl>
         <dt><code>search_cards</code></dt><dd>Search Yama's local card catalog with its supported Scryfall-style grammar; answers with rows of data, a page at a time.</dd>
         <dt><code>get_cards</code></dt><dd>Read Oracle text, legality, rulings, dated prices and your owned copies.</dd>
@@ -138,7 +138,7 @@
         <dt><code>search_rules</code></dt><dd>Look up current numbered rules, subrules, glossary terms or keywords.</dd>
         <dt><code>get_research_sources</code></dt><dd>Inspect attribution, local data freshness and research limits.</dd>
       </dl></details>
-      <details><summary>Decks, construction and history (10)</summary><dl>
+      <details><summary>Decks, construction and history (11)</summary><dl>
         <dt><code>get_overview</code></dt><dd>Your account at a glance: counts of decks, plans and notes with the first few of each, configurations grouped under their deck. Ask for one section to page through the rest.</dd>
         <dt><code>get_deck</code></dt><dd>Read a saved list, Commander checks, declared bracket and recorded results.</dd>
         <dt><code>check_deck_list</code></dt><dd>Validate a proposed list without saving it.</dd>
@@ -149,6 +149,7 @@
         <dt><code>edit_deck</code></dt><dd>Stage additions and removals to a saved deck.</dd>
         <dt><code>save_deck</code></dt><dd>Stage a complete, validated 100-card Commander deck as a new deck or replacement.</dd>
         <dt><code>delete_deck</code></dt><dd>Stage deleting a deck or one of its configurations; recorded games keep their record.</dd>
+        <dt><code>update_deck</code></dt><dd>Stage renaming a deck or declaring its bracket.</dd>
       </dl></details>
       <details><summary>Commander recommendations and combos (2)</summary><dl>
         <dt><code>get_commander_recommendations</code></dt><dd>Read EDHREC suggestions with sample sizes, theme/budget options and local ownership filtering.</dd>
@@ -160,24 +161,28 @@
         <dt><code>test_mana</code></dt><dd>Sample early land sequencing and payment under an explicit lands-only model.</dd>
       </dl></details>
       <details><summary>Games you played (3)</summary><dl>
-        <dt><code>list_games</code></dt><dd>Search your game history by player or commander, or find unfinished and unnamed games, as the Game history page does.</dd>
+        <dt><code>list_games</code></dt><dd>Search your game history by player or commander, narrow it to one playgroup, or find unfinished and unnamed games, as the Game history page does.</dd>
         <dt><code>get_game</code></dt><dd>Read one game's seats, winner, turns and note, and optionally its event log.</dd>
         <dt><code>list_playgroups</code></dt><dd>List your playgroups and members, or read one group's stats: records, commanders, seats, win conditions and head-to-head.</dd>
       </dl></details>
-      <details><summary>Collection (5)</summary><dl>
+      <details><summary>Collection (8)</summary><dl>
         <dt><code>get_collection_summary</code></dt><dd>Read collection totals, dated market value, what you paid and each binder, deck box and list.</dd>
         <dt><code>list_collection_cards</code></dt><dd>Read quantities, proxies and containers, with optional filters.</dd>
         <dt><code>add_to_collection</code></dt><dd>Stage adding copies to a container.</dd>
         <dt><code>move_cards</code></dt><dd>Stage moving copies between your containers.</dd>
         <dt><code>set_condition</code></dt><dd>Stage condition updates.</dd>
+        <dt><code>edit_copies</code></dt><dd>Stage correcting copies: finish, proxy, note or price paid.</dd>
+        <dt><code>remove_from_collection</code></dt><dd>Stage removing copies you no longer have.</dd>
+        <dt><code>create_container</code></dt><dd>Stage making a new binder, deck box, box or list.</dd>
       </dl></details>
-      <details><summary>Upgrade plans and shopping (18)</summary><dl>
+      <details><summary>Upgrade plans and shopping (19)</summary><dl>
         <dt><code>get_plan</code></dt><dd>Read stock, current and after-prints lists, swaps, review answers, orders and prints.</dd>
         <dt><code>get_review_queue</code></dt><dd>Find swaps still waiting for your answer, a page at a time, for every plan or one.</dd>
         <dt><code>track_build</code></dt><dd>Stage making one build from a saved note the deck's plan.</dd>
         <dt><code>approve_plan</code></dt><dd>Stage approving a plan version whole, skipping the changes you name, once open questions are answered.</dd>
         <dt><code>get_shopping_list</code></dt><dd>Read your one shopping list and where the store trip puts each card, or why it isn't on the trip.</dd>
         <dt><code>add_wish</code></dt><dd>Stage adding a card or sealed product to your shopping list.</dd>
+        <dt><code>remove_wish</code></dt><dd>Stage taking something you added off your shopping list.</dd>
         <dt><code>get_shopping_trip</code></dt><dd>Plan which of your stores to visit: the fewest stores that have your planned and wanted buys under your shopping rule, each store's cart or search links, and what to print instead.</dd>
         <dt><code>compare_with_friend</code></dt><dd>Compare with a friend's profile: the cards on their shared want list you own, and the cards on your shopping list in their shared collection.</dd>
         <dt><code>get_shopping_settings</code></dt><dd>Read your buy rule, its dated rule sets, the sealed precon limit and how you feel about each store.</dd>

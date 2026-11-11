@@ -65,7 +65,7 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
           <div className="ask-change-actions">
             {canApply && (
               <button type="button" className="primary" disabled={busy} onClick={() => decide.mutate("apply")}>
-                {busy && decide.variables === "apply" ? "Applying…" : shown.kind === "delete_deck" ? "Delete" : "Apply"}
+                {busy && decide.variables === "apply" ? "Applying…" : shown.kind === "delete_deck" ? "Delete" : shown.kind === "remove_from_collection" ? "Remove" : "Apply"}
               </button>
             )}
             <button type="button" className="outline" disabled={busy} onClick={() => decide.mutate("discard")}>

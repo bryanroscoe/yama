@@ -941,7 +941,7 @@ struct NewContainer {
 
 /// A container name as typed: trimmed, not blank, no line breaks or control characters, at most
 /// `CONTAINER_NAME_MAX` characters.
-fn container_name(raw: &str) -> AppResult<String> {
+pub(crate) fn container_name(raw: &str) -> AppResult<String> {
     let name = raw.trim();
     if name.is_empty() {
         return Err(AppError::bad("container needs a name"));
@@ -966,29 +966,36 @@ async fn create_container(
         return Err(AppError::bad(format!("container kind must be one of {}", KINDS.join(", "))));
     }
     st.limits.collection_writes.check_user(&user)?;
+    let id = insert_container(&st.pool, &user.id, &kind, &name).await?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+/// Make a container of a checked kind and name, or answer with the one that is already there.
+/// Shared with the MCP's `create_container`.
+pub(crate) async fn insert_container(pool: &SqlitePool, owner: &str, kind: &str, name: &str) -> AppResult<String> {
     // Immediate, so the count and the insert are one step: two requests arriving together
     // can't both find room for the last one. Asking for a container that is already there
     // answers with it, as before, however many there are.
-    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?")
-        .bind(&user.id)
-        .bind(&kind)
-        .bind(&name)
+        .bind(owner)
+        .bind(kind)
+        .bind(name)
         .fetch_optional(&mut *tx)
         .await?;
     let id = match existing {
         Some(id) => id,
         None => {
-            let have: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(&user.id).fetch_one(&mut *tx).await?;
+            let have: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(owner).fetch_one(&mut *tx).await?;
             if have >= CONTAINERS_MAX {
                 return Err(AppError::Conflict(format!("You already have {CONTAINERS_MAX} binders, boxes and lists. Delete one you no longer use first.")));
             }
             let id = new_id();
             sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?,?,?,?,?)")
                 .bind(&id)
-                .bind(&user.id)
-                .bind(&kind)
-                .bind(&name)
+                .bind(owner)
+                .bind(kind)
+                .bind(name)
                 .bind(now())
                 .execute(&mut *tx)
                 .await?;
@@ -996,7 +1003,7 @@ async fn create_container(
         }
     };
     tx.commit().await?;
-    Ok(Json(serde_json::json!({ "id": id })))
+    Ok(id)
 }
 
 pub async fn ensure_container(pool: &SqlitePool, owner: &str, kind: &str, name: &str) -> AppResult<String> {
