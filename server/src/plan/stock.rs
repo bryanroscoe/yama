@@ -832,13 +832,42 @@ async fn fetch_shopify_catalog(pool: &SqlitePool, f: &mut Fetcher, base: &str, c
                 let Some(title) = product["title"].as_str() else { continue };
                 let Some(card) = wanted.get(&card_key(title_name(title))) else { continue };
                 let Some(handle) = product["handle"].as_str() else { continue };
-                let mut listings: Vec<_> = shopify_product(&product,card,base,handle).into_iter().filter(|l|l.available==Some(true)).collect();
+                // A catalog is an index, not a permanent sold-out verdict. Recheck all
+                // variant availability in one product read before selecting quantity pages.
+                let mut listings = shopify_product(&product,card,base,handle);
+                let url = format!("{base}/products/{handle}.js");
+                let was_refresh = f.refresh;
+                f.refresh = true;
+                let live = f.send(Kind::Shopify,"GET",&url,None,raw).await;
+                f.refresh = was_refresh;
+                if !live.as_ref().is_ok_and(|body| refresh_variant_availability(&mut listings,body)) {
+                    found.failed.push((*card).clone());
+                    found.errors.push(format!("{url}: current variant availability could not be verified"));
+                    continue;
+                }
+                listings.retain(|l|l.available==Some(true));
                 enrich_shopify_quantities(f,base,handle,&mut listings,raw).await;
                 found.listings.extend(listings.into_iter().filter(|l| l.available==Some(true)));
             }
             found
         }
     }
+}
+
+/// Apply only a complete current availability answer. Price provenance stays in the catalog.
+fn refresh_variant_availability(listings: &mut [Listing], body: &Value) -> bool {
+    let Some(variants) = body["variants"].as_array() else { return false };
+    let mut states = HashMap::new();
+    for v in variants {
+        let Some(id) = v["id"].as_u64().map(|id|id.to_string()).or_else(||v["id"].as_str().map(String::from)) else { return false };
+        let Some(available) = v["available"].as_bool() else { return false };
+        if states.insert(id,available).is_some() { return false; }
+    }
+    if listings.iter().any(|l|l.variant.as_ref().is_none_or(|id|!states.contains_key(id))) { return false; }
+    for listing in listings {
+        listing.available = listing.variant.as_ref().and_then(|id|states.get(id)).copied();
+    }
+    true
 }
 
 async fn enrich_shopify_quantities(f: &mut Fetcher, base: &str, handle: &str, listings: &mut [Listing], raw: &mut Raw) {

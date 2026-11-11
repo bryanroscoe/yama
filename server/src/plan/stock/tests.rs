@@ -740,3 +740,17 @@ async fn cached_prices_keep_their_date_while_new_quantity_checks_take_precedence
     assert_eq!(quotes[0]["checked"],price_date);
     assert_eq!(quotes[0]["quantity_checked_at"],"2026-11-11T00:00:00Z");
 }
+
+#[test]
+fn a_cached_sold_out_variant_can_restock_without_a_catalog_refresh() {
+    let cached=json!({"title":"Card A [Set]","variants":[{"id":123,"title":"Near Mint / English / Normal","price":175,"available":false},{"id":456,"title":"Near Mint / English / Foil","price":200,"available":true}]});
+    let mut listings=shopify_product(&cached,"Card A","https://mothershipatx.com","card-a");
+    assert!(refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true},{"id":456,"available":false}]})));
+    let selected:Vec<_>=listings.iter().filter(|l|l.available==Some(true)).collect();
+    assert_eq!(selected.len(),1);assert_eq!(selected[0].variant.as_deref(),Some("123"));
+    assert_eq!(selected[0].price,Some(1.75));
+    let html=r#"<form id="product-form-main"><input name="id" value="123"></form><div id="Inventory-main">Only 1 left</div>"#;
+    assert_eq!(shopify_variant_quantity(html,"123"),Some(1));
+    assert!(!refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true}]})),"a truncated answer is not proof another variant is sold out");
+    assert!(!refresh_variant_availability(&mut listings,&json!({"variants":[{"id":123,"available":true},{"id":123,"available":false}]})));
+}
