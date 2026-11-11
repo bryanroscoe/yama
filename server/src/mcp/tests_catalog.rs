@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn who(power: bool) -> User {
-    User { id: "snapshot".into(), email: "snapshot@example.com".into(), display_name: "Snapshot".into(), is_admin: false, limited: false, power }
+    User { id: "snapshot".into(), email: "snapshot@example.com".into(), display_name: "Snapshot".into(), is_admin: false, limited: false, power, guest: false }
 }
 
 /// Every kind of caller: how they got in, and whether they may start simulations.

@@ -206,8 +206,25 @@ function saveState(state) {
   chmodSync(statePath, 0o600);
 }
 
+/**
+ * The saved session for the host as an `Authorization` header, for production. yama.ing runs
+ * Cloudflare's Super Bot Fight Mode, which challenges a headless browser; a request carrying
+ * `Authorization` passes (a WAF skip rule for the apps, script keys and MCP), and the server takes
+ * the session from it as from the cookie. Only ever sent to the host itself.
+ */
+function sessionHeader() {
+  if (isLocal(base) || !existsSync(statePath)) return {};
+  try {
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    const cookie = (state.cookies ?? []).find((c) => c.name === SESSION_COOKIE && (base.hostname === c.domain.replace(/^\./, "") || base.hostname.endsWith(c.domain)));
+    return cookie ? { authorization: `Bearer ${cookie.value}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function whoAmI(request) {
-  const res = await request.get(new URL("/api/me", base).href, { failOnStatusCode: false });
+  const res = await request.get(new URL("/api/me", base).href, { failOnStatusCode: false, headers: sessionHeader() });
   if (res.status() !== 200) return null;
   const me = await res.json().catch(() => null);
   return me ? { name: me.name ?? me.user?.name ?? null, email: me.email ?? me.user?.email ?? null } : null;
@@ -834,13 +851,20 @@ async function shoot() {
         for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);
       }, items);
     }
-    if (!args["allow-writes"]) {
+    const auth = sessionHeader();
+    if (!args["allow-writes"] || auth.authorization) {
       await context.route("**/*", (route) => {
         const req = route.request();
-        if (["GET", "HEAD", "OPTIONS"].includes(req.method())) return route.continue();
-        run.blocked.push({ method: req.method(), url: req.url().slice(0, 200), viewport: vp });
-        return route.abort("blockedbyclient");
+        if (!args["allow-writes"] && !["GET", "HEAD", "OPTIONS"].includes(req.method())) {
+          run.blocked.push({ method: req.method(), url: req.url().slice(0, 200), viewport: vp });
+          return route.abort("blockedbyclient");
+        }
+        // The session as a header past Cloudflare's bot check, to the host only (sessionHeader).
+        if (auth.authorization && new URL(req.url()).origin === base.origin) return route.continue({ headers: { ...req.headers(), ...auth } });
+        return route.continue();
       });
+    }
+    if (!args["allow-writes"]) {
       // context.route doesn't see WebSocket traffic, and Yama's sockets write (a game's stop
       // preferences on connect, a shared table's state). Answer them here, never connecting to
       // the server: live pages show as disconnected, which is the price of a read-only run.

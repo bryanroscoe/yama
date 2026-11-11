@@ -57,6 +57,8 @@ The states live in `STATES` in `polish.mjs`; when a new piece of UI depends on t
 
 ## Read-only on purpose
 
+On production, yama.ing runs Cloudflare's Super Bot Fight Mode, which challenges a headless browser. A signed-in run passes because the tool sends its saved session as an `Authorization` header on requests to the host only (a WAF rule lets requests with that header through); a signed-out run on production only screenshots the challenge, so shoot public pages signed out against a local server instead.
+
 A run can't change anyone's decks, collection, games, plans or settings, so it's safe on production. The only writes are sign-in bookkeeping: `--as` adds a session row (`user session`), and requests update the account's `last_seen_at`, as any visit does.
 
 - Every request that isn't GET, HEAD or OPTIONS is blocked (`--allow-writes` lifts that, on localhost only). WebSockets never reach the server either: Yama's sockets write (a game's stop preferences, a shared table's state), so live pages show as disconnected. The report lists what was blocked.

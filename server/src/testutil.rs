@@ -37,6 +37,7 @@ pub fn config() -> Config {
         open_signup: false,
         password_login: true,
         guest_mode: true,
+        turnstile: None,
         trusted_proxies: vec![],
         lab_quota: crate::config::LabQuota::default(),
         advisor: crate::config::AdvisorConfig::default(),

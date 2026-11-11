@@ -20,6 +20,7 @@ mod decks;
 mod error;
 mod game_export;
 mod games;
+mod guests;
 mod lab;
 mod limits;
 mod mcp;

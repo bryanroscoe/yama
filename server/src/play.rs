@@ -10,7 +10,8 @@
 //! [`OPEN_MAX_OPEN_GAMES_ALL`]. New games and join codes are rate-limited per account too
 //! (`limits.rs`).
 
-use crate::auth::{CurrentUser, User};
+use crate::auth::User;
+use crate::guests::Player;
 use crate::deck_checks::Estimated;
 use crate::decks::{Board, DeckCard, load_version_cards};
 use crate::error::{AppError, AppResult};
@@ -751,10 +752,12 @@ pub(crate) struct SeatCfg {
 /// The stock precon a computer's seat plays (`deck_id` "precon:<id>", as Watch seats them),
 /// if it plays one rather than one of the host's decks.
 fn precon_of(s: &SeatCfg) -> Option<&str> {
-    s.deck_id.as_deref().filter(|_| s.kind == "ai")?.strip_prefix("precon:")
+    // A person's seat plays a precon only once someone sits in it (the host, or a guest player).
+    s.deck_id.as_deref().filter(|_| s.kind == "ai" || s.user_id.is_some())?.strip_prefix("precon:")
 }
 
-/// The seat has a player and a deck: a saved deck version, or a precon for the computer.
+/// The seat has a player and a deck: a saved deck version, or a precon (the computer's, or a
+/// player's own seat playing one).
 fn seated(s: &SeatCfg) -> bool {
     s.deck_version_id.is_some() || precon_of(s).is_some()
 }
@@ -1038,7 +1041,7 @@ struct Status {
     unavailable_games: Vec<serde_json::Value>,
 }
 
-async fn status(State(st): State<AppState>, CurrentUser(user): CurrentUser,) -> AppResult<Json<Status>> {
+async fn status(State(st): State<AppState>, Player(user): Player,) -> AppResult<Json<Status>> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{ROW_SELECT} WHERE o.host_id=? OR o.seats LIKE ?")))
         .bind(&user.id)
         .bind(format!("%\"user_id\":\"{}\"%", user.id))
@@ -1052,7 +1055,7 @@ async fn status(State(st): State<AppState>, CurrentUser(user): CurrentUser,) -> 
     Ok(Json(Status { enabled: reason.is_none(), reason, board, unavailable_games, }))
 }
 
-async fn list(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Vec<OnlineGame>>> {
+async fn list(State(st): State<AppState>, Player(user): Player) -> AppResult<Json<Vec<OnlineGame>>> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "{ROW_SELECT} WHERE o.host_id = ? OR o.seats LIKE ? ORDER BY o.updated_at DESC LIMIT 50"
     )))
@@ -1129,7 +1132,7 @@ async fn rematch_for(pool: &SqlitePool, r: &Row, user: &str) -> AppResult<Option
     Ok(code.map(|code| Rematch { id: id.clone(), code, deck_id: mine.and_then(|s| s.deck_id.clone()) }))
 }
 
-async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<OnlineGame>> {
+async fn detail(State(st): State<AppState>, Player(user): Player, Path(id): Path<String>) -> AppResult<Json<OnlineGame>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     let mut missing = HashMap::new();
     if r.stage == "lobby" && let Ok(engine) = st.play.engine() {
@@ -1186,7 +1189,7 @@ struct ResultRequest {
 /// recorded a table game is the one who writes its finish.
 async fn record_result(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Path(id): Path<String>,
     Json(body): Json<ResultRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
@@ -1309,7 +1312,7 @@ struct OnlineSupport {
 /// out of games) and cards with abilities it hasn't implemented.
 async fn online_support(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Path(id): Path<String>,
 ) -> AppResult<Json<OnlineSupport>> {
     let version: Option<String> = sqlx::query_scalar("SELECT current_version_id FROM decks WHERE id = ? AND owner_id = ?")
@@ -1383,8 +1386,8 @@ struct SeatRequest {
     kind: String,
     deck_id: Option<String>,
     difficulty: Option<String>,
-    /// A computer's seat only: a stock precon (`precons.id`) to play, instead of one of the
-    /// host's decks.
+    /// A computer's seat, or the host's own: a stock precon (`precons.id`) to play, instead of
+    /// one of the host's decks. A guest player's seat always plays one.
     #[serde(default)]
     precon_id: Option<String>,
 }
@@ -1417,9 +1420,25 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
             .bind(&user.id)
             .fetch_one(pool)
             .await?;
-    let cap = if user.limited { OPEN_MAX_OPEN_GAMES } else { MAX_OPEN_GAMES };
+    let cap = if user.guest {
+        crate::guests::GUEST_MAX_OPEN_GAMES
+    } else if user.limited {
+        OPEN_MAX_OPEN_GAMES
+    } else {
+        MAX_OPEN_GAMES
+    };
     if waiting + playing >= cap {
         return Err(AppError::Conflict(open_games_message(waiting, playing)));
+    }
+    if user.guest {
+        let guests: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM online_games o JOIN users u ON u.id = o.host_id WHERE o.stage IN ('lobby','live') AND u.guest = 1",
+        )
+        .fetch_one(pool)
+        .await?;
+        if guests >= crate::guests::GUEST_MAX_OPEN_GAMES_ALL {
+            return Err(AppError::Conflict("Lots of guests are playing right now. Sign in to play, or try again later.".into()));
+        }
     }
     if user.limited {
         let all: i64 = sqlx::query_scalar(concat!(
@@ -1450,7 +1469,7 @@ fn open_games_message(waiting: i64, playing: i64) -> String {
 
 async fn create(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Json(body): Json<CreateRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let id = create_game(&st, &user, &body, true).await?;
@@ -1461,7 +1480,7 @@ async fn create(
 /// everyone's history and stats, as deleting a table game does (`games::remove`). A game being
 /// played isn't deleted from under its players: it ends first (a concession, or End game for a
 /// solo game).
-async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+async fn remove(State(st): State<AppState>, Player(user): Player, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     if r.host_id != user.id {
         return Err(AppError::Forbidden(if r.stage == "lobby" { "Only the host can close this table." } else { "Only the host can delete this game." }.into()));
@@ -1490,7 +1509,7 @@ async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
 /// Stop a host-owned solo table, preserving an abandoned result without a winner.
 async fn end_solo(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
@@ -1538,7 +1557,7 @@ async fn end_solo(
 /// deck and the computer's decks and levels, and the same playgroup. Other people's seats are open
 /// for them to join, from their own game-over screen or with the code. Only the host may; asking
 /// again returns the rematch already made.
-async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>,) -> AppResult<Json<serde_json::Value>> {
+async fn rematch(State(st): State<AppState>, Player(user): Player, Path(id): Path<String>,) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     if r.host_id != user.id {
         return Err(AppError::Forbidden("only the host starts a rematch".into()));
@@ -1608,6 +1627,9 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     {
         return Err(AppError::NotFound("playgroup"));
     }
+    if user.guest && body.seats.iter().any(|s| s.kind == "friend") {
+        return Err(AppError::Forbidden("Sign in to play with friends. Guests play the computer.".into()));
+    }
     if body.first.is_some_and(|f| usize::from(f) >= body.seats.len()) {
         return Err(AppError::bad("the first player must be one of the seats"));
     }
@@ -1629,6 +1651,14 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
                 bracket: None,
             },
             "ai" if s.precon_id.is_some() => precon_seat(&st.pool, seat, s.precon_id.as_deref().unwrap(), s.difficulty.as_deref()).await?,
+            // Your own seat on a precon: how a guest plays, and anyone without a deck yet.
+            "me" if s.precon_id.is_some() => SeatCfg {
+                kind: "human".into(),
+                user_id: Some(user.id.clone()),
+                name: user.display_name.clone(),
+                difficulty: None,
+                ..precon_seat(&st.pool, seat, s.precon_id.as_deref().unwrap(), None).await?
+            },
             "me" | "ai" => {
                 let deck_id = s.deck_id.as_deref().ok_or_else(|| AppError::bad(format!("seat {} needs a deck", i + 1)))?;
                 let d = deck_for_seat(&st.pool, &user.id, deck_id).await?;
@@ -1690,9 +1720,12 @@ struct JoinRequest {
 
 async fn join(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Json(body): Json<JoinRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
+    if user.guest {
+        return Err(AppError::Forbidden(crate::guests::SIGN_IN_TO_JOIN.into()));
+    }
     st.limits.join_codes.check_user(&user)?;
     let id: String = sqlx::query_scalar("SELECT game_id FROM online_games WHERE code = ?")
         .bind(body.code.trim().to_uppercase())
@@ -1738,7 +1771,7 @@ async fn join(
     Err(AppError::Conflict("the table changed while you were joining; try again".into()))
 }
 
-async fn start(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
+async fn start(State(st): State<AppState>, Player(user): Player, Path(id): Path<String>) -> AppResult<()> {
     start_game(&st, &id, &user.id).await
 }
 
@@ -1921,7 +1954,7 @@ enum ClientMessage {
 
 async fn connect(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Path(id): Path<String>,
     ws: WebSocketUpgrade,
 ) -> AppResult<Response> {
@@ -2332,7 +2365,7 @@ async fn seat_prefs(pool: &SqlitePool, seats: &[SeatCfg]) -> HashMap<u8, PlayPre
 /// anyone who can't hold a socket open. Same payload as a socket message.
 async fn final_view(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;

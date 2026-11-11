@@ -2065,3 +2065,55 @@ async fn a_table_without_a_chosen_first_player_records_the_engines_roll() {
     assert!(matches!(r.first_seat, Some(0 | 1)), "the engine's pick is one of the two seats: {:?}", r.first_seat);
     st.play.stop("rolled");
 }
+
+#[tokio::test]
+async fn a_guest_plays_a_precon_against_the_computer_one_game_at_a_time() {
+    use crate::guests::tests::{as_guest, become_guest, guest_server};
+    use axum::http::{Method, StatusCode};
+    let mut cfg = crate::testutil::config();
+    cfg.open_signup = true;
+    cfg.turnstile = Some(crate::config::Turnstile { site_key: "site".into(), secret: "test-secret".into() });
+    let mut st = crate::testutil::state_with(cfg, crate::db::test_pool().await).await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let (app, pool) = guest_server(Some(st)).await;
+    let stock = vec![
+        crate::lab::PreconCard { name: "Combat Celebrant".into(), oracle_id: None, qty: 1, board: crate::decks::Board::Commander },
+        crate::lab::PreconCard { name: "Mountain".into(), oracle_id: None, qty: 99, board: crate::decks::Board::Main },
+    ];
+    sqlx::query("INSERT INTO precons (id, lab_id, name, set_code, commanders, color_identity, cards, source, content_sha256, imported_at) VALUES ('test-precon','precons/test-precon','Test Precon','TST','[\"Combat Celebrant\"]','R',?,'fixture','hash','2026-11-11')")
+        .bind(serde_json::to_string(&stock).unwrap()).execute(&pool).await.unwrap();
+    let guest = become_guest(&app).await;
+    let guest_id: String = sqlx::query_scalar("SELECT id FROM users WHERE guest = 1").fetch_one(&pool).await.unwrap();
+
+    // A friend's seat needs an account.
+    let with_friend = serde_json::json!({ "seats": [{ "kind": "me", "precon_id": "test-precon" }, { "kind": "friend" }] });
+    assert_eq!(as_guest(&app, Method::POST, "/api/play", Some(&guest), None, Some(with_friend)).await.0, StatusCode::FORBIDDEN);
+
+    let seats = serde_json::json!({ "seats": [
+        { "kind": "me", "precon_id": "test-precon" },
+        { "kind": "ai", "precon_id": "test-precon", "difficulty": "Easy" },
+    ] });
+    let (status, made, _) = as_guest(&app, Method::POST, "/api/play", Some(&guest), None, Some(seats.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
+    let r = load_row(&pool, &id).await.unwrap();
+    assert_eq!(r.stage, "live");
+    let mine = r.seats().into_iter().find(|s| s.kind == "human").unwrap();
+    assert_eq!((mine.user_id.as_deref(), mine.deck_id.as_deref(), mine.name.as_str()), (Some(guest_id.as_str()), Some("precon:test-precon"), "Guest"));
+    let stored: (Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT user_id, deck_version_id, deck_label FROM game_seats WHERE game_id = ? AND user_id IS NOT NULL").bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(stored, (Some(guest_id.clone()), None, Some("Test Precon".into())));
+    // The game is the guest's to see.
+    let (status, page, _) = as_guest(&app, Method::GET, &format!("/api/play/{id}"), Some(&guest), None, None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+
+    // One unfinished game at a time.
+    let (status, _, _) = as_guest(&app, Method::POST, "/api/play", Some(&guest), None, Some(seats)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    hub.stop(&id);
+
+    // Deleting the guest takes its games with it.
+    assert_eq!(as_guest(&app, Method::DELETE, "/api/guest/session", Some(&guest), None, None).await.0, StatusCode::OK);
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM online_games WHERE host_id = ?").bind(&guest_id).fetch_one(&pool).await.unwrap(), 0);
+}

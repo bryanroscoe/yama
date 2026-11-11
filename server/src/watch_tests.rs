@@ -246,7 +246,7 @@ fn nobody_watching_pauses_the_game_then_ends_it() {
 // ── the hub ────────────────────────────────────────────────────────────────
 
 fn user(id: &str, limited: bool, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: true }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: true, guest: false }
 }
 
 fn request() -> CreateRequest {
@@ -419,7 +419,7 @@ async fn routes_check_seats_decks_and_owners() {
     assert!(body.to_string().contains("online play is off"), "{body}");
 
     // A running game: its owner sees it, nobody else does.
-    let owner = User { id: ann.clone(), email: "ann@example.com".into(), display_name: "ann".into(), is_admin: false, limited: false, power: true };
+    let owner = User { id: ann.clone(), email: "ann@example.com".into(), display_name: "ann".into(), is_admin: false, limited: false, power: true, guest: false };
     let g = park(&st.watch, &owner);
     let (code, body) = testutil::send(&app, Method::GET, &format!("/api/watch/{}", g.id), Some(&ann_token), None).await;
     assert_eq!(code, StatusCode::OK, "{body}");

@@ -134,7 +134,7 @@ pub(super) fn frames(game_id: &str, m: &Match, viewer: Option<u8>, tail: &wire::
 
 pub(super) async fn connect(
     State(st): State<AppState>,
-    CurrentUser(user): CurrentUser,
+    Player(user): Player,
     Path(id): Path<String>,
     ws: WebSocketUpgrade,
 ) -> AppResult<Response> {

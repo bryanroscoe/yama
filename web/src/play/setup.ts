@@ -7,13 +7,26 @@ export interface SeatPlan {
   /** One of your decks: yours, or the one the computer plays. "" means the first in your list. */
   deckId: string;
   difficulty: string;
-  /** A computer seat plays one of your decks or a stock precon. */
+  /** Your seat or a computer's plays one of your decks or a stock precon. */
   source?: "deck" | "precon";
   preconId?: string;
 }
 
-/** The computer plays a precon in this seat (and one is chosen). */
-export const playsPrecon = (s: SeatPlan) => s.kind === "ai" && s.source === "precon" && !!s.preconId;
+/** This seat (yours or the computer's) plays a precon, and one is chosen. */
+export const playsPrecon = (s: SeatPlan) => s.kind !== "friend" && s.source === "precon" && !!s.preconId;
+
+/**
+ * The seats as they'll be sent. With no decks of your own (a guest, or a new account) every seat
+ * but a friend's plays a precon; a seat set to precons that hasn't picked one gets one of the
+ * list, spread out so the table isn't one deck four times.
+ */
+export function withPrecons(seats: SeatPlan[], precons: string[], noDecks: boolean): SeatPlan[] {
+  if (!precons.length) return seats;
+  return seats.map((s, i) => {
+    if (s.kind === "friend" || (!noDecks && s.source !== "precon") || (s.source === "precon" && s.preconId)) return s;
+    return { ...s, source: "precon", preconId: s.preconId || precons[(i * 37 + 11) % precons.length]! };
+  });
+}
 
 /**
  * The POST /api/play body. `first` is a seat's place in the list, or null for a roll; `firstDeck`
