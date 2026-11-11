@@ -13,7 +13,7 @@
 
 import type { Mutation, QueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
-import { abortRequests, ApiError, type User } from "./api";
+import { abortRequests, ApiError, setSignedInAccount, type User } from "./api";
 
 /** The cached user (auth.tsx keeps it): a change from another tab means the account changed there. */
 export const ME_KEY = "yama.me";
@@ -136,6 +136,7 @@ const clearAccountData = () => {
 export function startSession(queryClient: QueryClient, owner: string | null) {
   client = queryClient;
   state = { owner, lapsed: null };
+  setSignedInAccount(owner);
   pages = 0;
   deliberate = false;
   confirmed = false;
@@ -172,6 +173,8 @@ export function followSession(now: string | null) {
   const next = cacheStep(state, now, { pages: confirmed ? pages : 0, deliberate });
   const changed = next.lapsed !== state.lapsed;
   state = { owner: next.owner, lapsed: next.lapsed };
+  // Who the server says is signed in, for work that is kept per account (api.ts isSignedInAs).
+  setSignedInAccount(now);
   if (next.clear) clearAccountData();
   // Everything on screen asked while signed out and failed: ask again as the account that's back.
   if (next.refresh) void client?.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "me" });

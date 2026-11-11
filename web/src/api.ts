@@ -89,6 +89,30 @@ export function abortRequests() {
   stopped.abort(new DOMException("The signed-in account changed, so this was stopped.", "AbortError"));
 }
 
+/**
+ * The signal for a request made as the account signed in now, joined with the caller's own. For
+ * the few requests that don't go through `api()` (a streamed answer).
+ */
+export function accountSignal(own?: AbortSignal | null): AbortSignal {
+  return either(requests.signal, own);
+}
+
+/**
+ * The account signed in, as the session knows it (session.ts keeps it in step); undefined until
+ * the session has started. Work kept for one account (the plan outbox) checks it before sending,
+ * so nothing queued for one account goes out under another's sign-in.
+ */
+let signedIn: string | null | undefined;
+
+export function setSignedInAccount(id: string | null) {
+  signedIn = id;
+}
+
+/** Whether `userId`'s own work may be sent now: that account is the one signed in (or the session hasn't said yet). */
+export function isSignedInAs(userId: string): boolean {
+  return signedIn === undefined || signedIn === userId;
+}
+
 /** Stops when either signal does. */
 function either(a: AbortSignal, b: AbortSignal | null | undefined): AbortSignal {
   if (!b) return a;

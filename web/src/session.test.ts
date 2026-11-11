@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "./api";
+import { ApiError, isSignedInAs } from "./api";
 import { accountConfirmed, accountPageOpen, cacheStep, followMe, followSession, keptAcrossAccounts, lapsedAccount, ME_KEY, releaseSession, releaseStep, SIGN_IN_MUTATION, SIGNED_OUT_KEY, signInEnded, signingOut, startSession, storageStep } from "./session";
 
 const open = { pages: 1, deliberate: false };
@@ -102,9 +102,14 @@ describe("this tab's cache as accounts come and go", () => {
   it("holds nothing of the last account once another signs in", () => {
     const { families } = cache("a");
     followSession("a");
+    // Work kept per account (the plan outbox) is told who may send.
+    expect([isSignedInAs("a"), isSignedInAs("b")]).toEqual([true, false]);
     expect(families()).toEqual(["auth-config", "collection", "deck", "me", "plan"]);
     followSession("b");
     expect(families()).toEqual(["auth-config", "me"]);
+    expect([isSignedInAs("a"), isSignedInAs("b")]).toEqual([false, true]);
+    followSession(null);
+    expect([isSignedInAs("a"), isSignedInAs("b")]).toEqual([false, false]);
   });
 
   it("empties on a 401 at start (the saved account was never confirmed by the server), even with a page open", () => {
