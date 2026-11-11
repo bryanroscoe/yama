@@ -14,6 +14,7 @@ import { statCards } from "../components/DeckStats";
 import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { CardImage, ErrorText, Loading, Segmented } from "../components/ui";
+import { BuyDeck } from "./BuyDeck";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
 import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
@@ -42,6 +43,7 @@ export function DeckStatsTab({ deck: d, onCard }: { deck: DeckView; onCard: OnCa
       {analysis.data && <PowerOverTime view={analysis.data} />}
       <div className="stats-panel stats-value">
         <DeckPrices singles={d.singles_value} ownership={d.ownership} buylist={d.buylist} />
+        <BuyDeck cards={d.cards} />
       </div>
       <DeckResults deckId={d.id} versionId={d.version_id} />
       {(v.warnings.length > 0 || !!v.prerelease?.length) && (
