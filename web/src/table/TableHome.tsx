@@ -21,7 +21,8 @@ import { recentGameText, turnsText, winningSeat } from "./recent";
 import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
-import { clickEditsForm, formFromGame, seatResults, settleRebuilt } from "./logEdit";
+import { formFromGame, seatResults, settleRebuilt } from "./logEdit";
+import { useFormChanges } from "./formChanges";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
@@ -679,12 +680,6 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   const [fun, setFun] = useState<FunRating[]>(form?.fun ?? []);
   const [outs, setOuts] = useState<KnockoutAnswer[]>(form?.outs ?? []);
   const [note, setNote] = useState(form?.note ?? "");
-  // Something has been typed, picked or ticked since the form opened (or since the last game
-  // saved from it). Closing then (Close, Escape, a tap outside) or leaving the page asks first:
-  // the form is long, and it used to close on Escape and drop everything.
-  const [touched, setTouched] = useState(false);
-  const guard = useUnsavedChanges(touched, { onLeave: onClose });
-  const close = () => guard.close(onClose);
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
   const [gameId, setGameId] = useState(() => editing?.id ?? crypto.randomUUID());
   // Games saved from this form with "Save and log another".
@@ -697,6 +692,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       ...Array.from({ length: 3 }, emptySeat),
     ],
   );
+  // Something has been entered since the form opened (or since the last game saved from it):
+  // its values differ from how they stood. Closing then (Close, Escape, a tap outside) or
+  // leaving the page asks first: the form is long, and it used to close on Escape and drop
+  // everything. What the form fills in itself (below) doesn't count.
+  const entered = useFormChanges({ groupId, format, startingLife, date, turns, winner, first, condition, fun, outs, note, seats });
+  const guard = useUnsavedChanges(entered.changed, { onLeave: onClose });
+  const close = () => guard.close(onClose);
   // An edited game's seats know only their commanders' names: look the cards up again for their
   // art and colors, unless the seat has changed meanwhile.
   useEffect(() => {
@@ -706,7 +708,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       if (!s.commanderName || s.art) return;
       // The saved game already paired them, so they stay a pair.
       void deckCommanders({ commanders: [s.commanderName, ...(s.partnerName ? [s.partnerName] : [])] }, { checkPair: false }).then(
-        (c) => c && updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? settleRebuilt(c, !!s.partnerName, form.savedLabels[key]) : null)),
+        (c) => {
+          if (!c) return;
+          entered.byItself();
+          updateSeat(key, (now) => (stillHolds(now, s) && !now.art ? settleRebuilt(c, !!s.partnerName, form.savedLabels[key]) : null));
+        },
       );
     });
   }, [form]);
@@ -755,10 +761,12 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     if (!groups.data || !me.data) return;
     const all = groups.data;
     if (groupId && !all.some((g) => g.id === groupId)) {
+      entered.byItself();
       setGroupId("");
       setSeats((s) => withHandles(withoutGroup(s, me.data), undefined, all));
     } else if (form) {
       const group = all.find((g) => g.id === groupId);
+      entered.byItself();
       setSeats((s) => withHandles(rebuildForGroup(s, group, me.data), group, all));
     }
   }, [groups.data, me.data]);
@@ -849,18 +857,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       setNote(UNANSWERED.note);
       setSavedHere((n) => n + 1);
       // That game is saved; the players and decks carried over aren't work to lose.
-      setTouched(false);
+      entered.startOver();
     },
   });
 
   return (
     <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={close}>
-      <form
-        className="stack capture"
-        onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}
-        onChangeCapture={() => setTouched(true)}
-        onClickCapture={(e) => { if (clickEditsForm(e.target as Element)) setTouched(true); }}
-      >
+      <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
         <div className="row" style={{ alignItems: "end" }}>
           <label style={{ flex: "1 1 12rem" }}>
             Playgroup

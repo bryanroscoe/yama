@@ -129,14 +129,3 @@ export function settleRebuilt(found: Partial<SeatDraft>, readPartner: boolean, s
   return readPartner && !found.partnerName && savedLabel ? { ...found, deckLabel: savedLabel } : found;
 }
 
-
-/**
- * Whether a click in the Log a game form changed something worth asking about before the form
- * closes: any button but the one that saves the form (adding or removing a player, picking who
- * won, a rating, a knockout). Typing and ticking are caught as changes; this is for the answers
- * given with buttons.
- */
-export function clickEditsForm(target: { closest(selector: string): { type?: string } | null } | null): boolean {
-  const button = target?.closest("button");
-  return !!button && button.type !== "submit";
-}
