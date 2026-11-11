@@ -239,7 +239,7 @@
     width: 100%;
     color: #000;
     background: #fff;
-    font-size: 10.5px;
+    font-size: var(--t-xs);
   }
   :root {
     color-scheme: light !important;
@@ -281,7 +281,7 @@
     break-before: page;
   }
   .swap-sheet .ss-deck-head h2 {
-    font-size: 15px;
+    font-size: var(--t-15);
   }
   .swap-sheet .ss-done .ss-tick {
     color: #000;

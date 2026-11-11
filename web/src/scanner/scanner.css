@@ -180,7 +180,7 @@
 .scan-info h3 {
   margin: 0;
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   line-height: 1.1;
 }
 .scan-method {
@@ -441,7 +441,7 @@ button.scan-count {
   border-radius: 50%;
   background: rgb(0 0 0 / 0.6);
   color: #fff;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
   font-weight: 700;
   line-height: 1;
 }

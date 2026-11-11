@@ -325,3 +325,54 @@ describe("formatting goes through @yama/core's format module", () => {
     expect(uses(/\$\$\{[^}]*\.toFixed\(/, (file) => file === FORMAT)).toEqual([]);
   });
 });
+
+describe("type sizes come from the scale", () => {
+  function stylesheets(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const path = join(dir, e.name);
+      if (e.isDirectory()) return stylesheets(path);
+      return e.name.endsWith(".css") ? [path] : [];
+    });
+  }
+
+  it("no stylesheet adds a font size of its own", () => {
+    // Use a --t-* token (web/src/styles.css; design/tokens.md, Type). What is left, file by
+    // file: display numbers with no step (life totals, big prices), the 16 px root and a few
+    // chips under 11 px. A file's list only shrinks, and a file not listed has none. An em
+    // size, a clamp() and a print pt size are fine: they follow their parent, the container or
+    // the paper.
+    const left: Record<string, string> = {
+      "web/src/datasets/datasets.css": "1.7rem 1.8rem",
+      "web/src/decks/deckAnalysis.css": "10px",
+      "web/src/decks/deckCheck.css": "1.2rem 1.6rem 1.8rem 2.6rem",
+      "web/src/decks/deckStatsTab.css": "8px 9px 1.875rem 4rem",
+      "web/src/lab/lab.css": "1.625rem 1.875rem",
+      "web/src/pages/cards.css": "1.0625rem 1.625rem 4.25rem",
+      "web/src/pages/collection.css": "3.5rem",
+      "web/src/pages/decks.css": "3.5rem",
+      "web/src/pages/group.css": "1.625rem 1.875rem",
+      "web/src/pages/landing.css": ".625rem 1.0625rem",
+      "web/src/plan/plan.css": "0.55rem 0.625rem 1.0625rem 1.625rem 3rem 3.125rem 4.75rem",
+      "web/src/plan/swapsheet.css": "9.5px 17px",
+      "web/src/play/play.css": "10px 26px 30px 38px 46px 54px 72px",
+      "web/src/scanner/scanner.css": "1.0625rem",
+      "web/src/styles.css": "0.5625rem 16px 1.0625rem 1.625rem 1.875rem 2.125rem 6rem",
+      "web/src/table/home.css": "26px 30px 34px",
+      "web/src/table/layouts.css": "26px",
+      "web/src/table/table.css": "10px 1.875rem 2.125rem 2.375rem 3rem 64px 72px",
+    };
+    const found: string[] = [];
+    for (const path of stylesheets(WEB)) {
+      const file = relative(ROOT, path);
+      if (file === "web/src/play/board.css") continue;
+      const allowed = new Set((left[file] ?? "").split(" "));
+      const css = readFileSync(path, "utf8").replace(/\/\*[^]*?\*\//g, "");
+      for (const m of css.matchAll(/font-size:\s*((?:\d*\.)?\d+(?:px|rem))\s*(?:!important\s*)?[;}]/g)) {
+        if (!allowed.has(m[1] ?? "")) found.push(`${file}: font-size: ${m[1]}`);
+      }
+    }
+    expect(found).toEqual([]);
+    // In code too: a style's fontSize is a token, not a number.
+    expect(uses(/fontSize:\s*["'`]?\d/, (file) => BOARD.test(file))).toEqual([]);
+  });
+});

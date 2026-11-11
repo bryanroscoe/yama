@@ -473,7 +473,7 @@
   box-shadow: 0 0 0 6px #000;
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   line-height: 1;
   z-index: 5;
   padding: 0;
@@ -602,7 +602,7 @@
 }
 .table-menu .tm-turn-text h2 {
   margin: 0;
-  font-size: 2.5rem;
+  font-size: var(--t-2xl);
   font-weight: 800;
   line-height: 1.1;
 }
@@ -652,7 +652,7 @@
 }
 .table-menu h3 {
   margin: 0;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
   line-height: 1;
 }
 .table-menu p {
@@ -899,7 +899,7 @@
   min-width: 0;
 }
 .ps-name .art-big {
-  font-size: 2.75rem;
+  font-size: var(--t-big);
   line-height: 1;
 }
 .ps-cmdr {
@@ -928,7 +928,7 @@
 }
 .player-sheet h2 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
   line-height: 1.15;
 }
 .ps-rows {
@@ -974,7 +974,7 @@
   height: 44px;
   padding: 0;
   border-radius: 50%;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
   font-weight: 400;
 }
 .ps-value {
@@ -998,7 +998,7 @@
   padding: 0;
   border-radius: 12px;
   background: var(--surface);
-  font-size: 1.25rem;
+  font-size: var(--t-md);
   font-weight: 400;
 }
 .ps-counters {
@@ -1109,7 +1109,7 @@
   min-width: 0;
 }
 .guest-tile-note {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .guest-tile.art-none .guest-tile-note {
@@ -1365,7 +1365,7 @@
   min-width: 76px;
   padding: 0 16px;
   border-radius: var(--r-pill);
-  font-size: 1.25rem;
+  font-size: var(--t-md);
   background: var(--text);
   color: var(--ground);
 }
@@ -1420,7 +1420,7 @@
   min-width: 52px;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: var(--t-18);
 }
 
 /* ── guest views: my seat, or the whole table ───────────────────────────── */
@@ -1763,7 +1763,7 @@
 .first-rolled h2 {
   margin: 0;
   font-family: var(--display);
-  font-size: 2.25rem;
+  font-size: var(--t-36);
   animation: first-name 320ms 120ms ease-out both;
 }
 .first-rolled-dot {
@@ -1815,7 +1815,7 @@
 
 /* ── player sheet: poison out of ten, the name opens the seat, who won ── */
 .ps-of {
-  font-size: 1.125rem;
+  font-size: var(--t-18);
   color: var(--dim);
   font-weight: 500;
 }
@@ -1847,7 +1847,7 @@
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
-  font-size: .875rem;
+  font-size: var(--t-label);
   text-align: center;
   pointer-events: none;
 }
@@ -1900,6 +1900,6 @@
 .personal-others li { flex: 1; min-width: 0; }
 .personal-others .guest-tile { height: 92px; padding: 8px; }
 .personal-others .guest-tile-name { font-size: var(--t-sm); }
-.personal-others .num { font-size: 1.75rem; }
+.personal-others .num { font-size: var(--t-28); }
 .personal-credit { margin: 0; font-size: var(--t-xs); color: var(--dim); }
 .table-my-panel { display: grid; position: relative; min-height: 0; flex: 1; }

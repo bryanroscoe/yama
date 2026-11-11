@@ -59,6 +59,15 @@ The idea: a near-black, neutral table, so the commander art and the mana colors 
   | Life total, guest phone | 220 px | |
 
 - Body text is 16 px. Captions and meta are 13–14 px, credits 10–12 px.
+- Every size is a step on one scale, as a token in `web/src/styles.css`:
+
+  | px | 11 | 12 | 13 | 14 | 15 | 16 | 18 | 20 | 22 | 24 | 28 | 32 | 36 | 40 | 44 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | `--t-…` | `xs` | `12` | `sm` | `label` | `15` | `base` | `18` | `md` | `22` | `lg` | `28` | `xl` | `36` | `2xl` | `big` |
+
+  `--t-title` and `--t-hero` are the page and deck titles, which grow on a laptop; `--t-button`
+  is a button's label (15 px on a laptop, 16 px on touch). A stylesheet doesn't write a px or
+  rem font size of its own (`conventions.test.ts` holds the few display numbers still to move).
 - Keep sentence case everywhere: no all-caps labels and no middle-dot meta strings.
 
 ## Shape and spacing

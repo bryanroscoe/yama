@@ -73,7 +73,7 @@
   align-items: center;
   gap: 8px;
   padding: 0 0 8px;
-  font-size: 0.875rem;
+  font-size: var(--t-label);
   font-weight: 700;
 }
 .share-help {
@@ -85,7 +85,7 @@
   border: 1px solid var(--line);
   background: transparent;
   color: var(--dim);
-  font-size: 0.875rem;
+  font-size: var(--t-label);
 }
 /* The whole "?" stays reachable on a touch screen: an invisible 44 px target around the circle. */
 @media (pointer: coarse) {
@@ -102,7 +102,7 @@
   padding: 12px 14px;
   border-radius: 10px;
   background: var(--raised);
-  font-size: 0.875rem;
+  font-size: var(--t-label);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -137,7 +137,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 0.875rem;
+  font-size: var(--t-label);
   font-weight: 700;
 }
 .share-sheet .share-link input {
@@ -163,7 +163,7 @@
 .share-rows h3 {
   margin: 0;
   padding: 12px 0 4px;
-  font-size: 0.875rem;
+  font-size: var(--t-label);
 }
 .share-row {
   display: flex;
@@ -183,7 +183,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 0.875rem;
+  font-size: var(--t-label);
 }
 .share-row-choice {
   align-self: flex-start;
@@ -196,5 +196,5 @@
   flex-direction: row;
 }
 .share-lab a {
-  font-size: 0.875rem;
+  font-size: var(--t-label);
 }

@@ -272,7 +272,7 @@
 
 .curve .tick, .curve .cap {
   fill: var(--dk-text-dim);
-  font-size: 12px;
+  font-size: var(--t-12);
   font-family: var(--body);
 }
 

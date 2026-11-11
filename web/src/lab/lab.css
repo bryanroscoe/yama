@@ -258,7 +258,7 @@
 .ichart-axis {
   position: relative;
   height: 1.4rem;
-  font-size: 0.72rem;
+  font-size: var(--t-12);
   color: var(--dim);
   font-variant-numeric: tabular-nums;
   border-top: 1px solid var(--line);
@@ -370,7 +370,7 @@
   width: 100%;
   min-width: 860px;
   border-collapse: collapse;
-  font-size: 0.9375rem;
+  font-size: var(--t-15);
 }
 .lab-table th,
 .lab-table td {
@@ -411,7 +411,7 @@
   text-align: left;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
   width: 3.5rem;
 }
 /* Outside the table these ran inline: "Package ungraded0/2 commander configurations". */
@@ -496,7 +496,7 @@
 .lab-mine-head th {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: var(--t-18);
   color: var(--text);
 }
 .lab-mine-head th {
@@ -562,7 +562,7 @@
 .lab-card .rank {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
   text-align: center;
 }
 .lab-card-main {
@@ -592,7 +592,7 @@
   height: 8px;
 }
 .lab-card-games {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 .lab-card-games.few {
@@ -895,7 +895,7 @@
   border-radius: 50%;
   background: transparent;
   color: var(--dim);
-  font-size: 1.25rem;
+  font-size: var(--t-md);
 }
 @media (max-width: 899px) {
   .lab-diff-row {
@@ -1011,7 +1011,7 @@
 .lab-sofar b {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 2rem;
+  font-size: var(--t-xl);
   line-height: 1;
 }
 .lab-line.lab-cut .name {
@@ -1099,11 +1099,11 @@
   color: var(--dim);
 }
 .lab-runcard-result {
-  font-size: 0.9375rem;
+  font-size: var(--t-15);
 }
 .lab-runcard .lab-note {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
 }
 .lab-runcard-leaders {
   margin: 0;
@@ -1233,7 +1233,7 @@
   align-items: center;
   flex: none;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 700;
   line-height: 1.35;
   padding: 1px 8px;
@@ -1276,7 +1276,7 @@ button.conf-mark:focus-visible {
   margin: 0;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
   line-height: 1.1;
 }
 .conf-sheet p {
@@ -1284,7 +1284,7 @@ button.conf-mark:focus-visible {
 }
 .conf-why {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--t-base);
 }
 .conf-reasons {
   margin: 0;
@@ -1340,7 +1340,7 @@ button.conf-mark:focus-visible {
   display: block;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: var(--t-18);
   color: var(--text);
 }
 .lab-table tr.unjudged td.bar b,
@@ -1358,7 +1358,7 @@ button.conf-mark:focus-visible {
   display: block;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: var(--t-18);
   color: var(--text);
 }
 .lab-card.unjudged .rank,

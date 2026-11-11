@@ -55,14 +55,22 @@
   --body: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --mono: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
 
-  /* Type. Body is 16 px; captions and meta 13 px; labels 14 px; credits 11 px. */
+  /* Type. Body is 16 px; captions and meta 13 px; labels 14 px; credits 11 px. Every font size
+     in the app is one of these steps (conventions.test.ts): the named ones, and the in-between
+     steps named for their size in px at the 16 px root (--t-12 is 0.75rem). */
   --t-xs: 0.6875rem;
+  --t-12: 0.75rem;
   --t-sm: 0.8125rem;
   --t-label: 0.875rem;
+  --t-15: 0.9375rem;
   --t-base: 1rem;
+  --t-18: 1.125rem;
   --t-md: 1.25rem;
+  --t-22: 1.375rem;
   --t-lg: 1.5rem;
+  --t-28: 1.75rem;
   --t-xl: 2rem;
+  --t-36: 2.25rem;
   --t-2xl: 2.5rem;
   --t-big: 2.75rem; /* big numbers: prices, counts, win rates (28-56 px) */
   --t-title: 3rem; /* page titles: 48 px on phones, 64 px on laptops */
@@ -164,7 +172,7 @@ h1 {
   line-height: 0.9;
 }
 h2 {
-  font-size: 1.75rem;
+  font-size: var(--t-28);
 }
 h3 {
   font-size: var(--t-lg);
@@ -788,7 +796,7 @@ a.choice-chip {
 .site-links { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; max-width: calc(var(--content-w) + 2 * var(--page-pad)); margin: 0 auto; padding: 8px var(--page-pad); border-bottom: 1px solid var(--line); }
 .site-links a { display: inline-flex; align-items: center; min-height: var(--target); font-size: var(--t-sm); color: var(--dim); text-decoration: none; }
 .site-links a:hover, .site-links a.active { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
-.site-notice { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
+.site-notice { color: var(--dim); font-size: var(--t-sm); line-height: 1.5; }
 .site-notice p { margin: 12px 0 0; }
 
 /* ── app shell ──────────────────────────────────────────────────────────── */
@@ -852,7 +860,7 @@ body::before {
   min-width: 0;
   text-decoration: none;
   color: var(--dim);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -878,7 +886,7 @@ body::before {
 /* Seven labels fit a 360 px phone a little smaller and tighter. */
 @media (max-width: 430px) {
   .nav a {
-    font-size: 0.6875rem;
+    font-size: var(--t-xs);
     letter-spacing: -0.02em;
   }
   .nav a svg {
@@ -1026,7 +1034,7 @@ body::before {
   color: var(--text);
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.25rem;
+  font-size: var(--t-md);
 }
 .avatar img {
   width: 100%;
@@ -1526,7 +1534,7 @@ table.plain tr.few td {
 .login-expansion {
   margin: 10px 0 0;
   color: var(--dim);
-  font-size: 1rem;
+  font-size: var(--t-base);
   letter-spacing: 0.04em;
 }
 .login .pips .pip {
@@ -1569,7 +1577,7 @@ table.plain tr.few td {
 }
 .login-credit {
   margin: 14px 0 0;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .login-hero.art-none .login-credit {
@@ -1587,7 +1595,7 @@ table.plain tr.few td {
   margin: 0 auto;
 }
 .login-title {
-  font-size: 2.75rem;
+  font-size: var(--t-big);
   font-weight: 800;
   margin: 0 0 8px;
 }
@@ -1699,7 +1707,7 @@ fieldset.seat.seat-card:has(> .seat-head.art-empty) {
 .seat-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 2rem;
+  font-size: var(--t-xl);
   line-height: 1;
   text-shadow: var(--art-shadow);
 }
@@ -1925,13 +1933,13 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .ct-kind,
 /* Pretty wrapping: "1 with no price" and "swap bag" left one word alone on the last line. */
 .ct-meta {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
   text-wrap: pretty;
 }
 .ct-name {
   font-weight: 700;
-  font-size: 0.9375rem;
+  font-size: var(--t-15);
   text-wrap: pretty;
 }
 .container-tile .art-none .ct-kind,
@@ -2000,7 +2008,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .deck-tile-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
   line-height: 0.95;
   text-shadow: var(--art-shadow);
   text-wrap: balance;
@@ -2021,7 +2029,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .deck-record {
@@ -2062,7 +2070,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
     padding: 16px;
   }
   .deck-tile-name {
-    font-size: 2rem;
+    font-size: var(--t-xl);
   }
   .deck-tile-cmdr {
     display: flex;
@@ -2163,7 +2171,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   .hero-credit {
     top: 34px;
     right: var(--page-pad);
-    font-size: 0.75rem;
+    font-size: var(--t-12);
   }
   .hero-credit-card {
     display: inline;
@@ -2428,7 +2436,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
 }
 .deck-stack-meta {
   font-family: var(--body);
@@ -2482,7 +2490,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   left: 6px;
   padding: 1px 8px;
   border-radius: var(--r-pill);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 700;
   line-height: 1.4;
   background: var(--art-chip);
@@ -2723,7 +2731,7 @@ body:has(.view-banner) {
     display: none;
   }
   .deck-head-tile b {
-    font-size: 1.5rem;
+    font-size: var(--t-lg);
     overflow-wrap: anywhere;
   }
 }

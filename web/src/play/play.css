@@ -81,13 +81,13 @@
   line-height: 1.1;
 }
 .ph-hero-kicker {
-  font-size: 13px;
+  font-size: var(--t-sm);
   color: var(--on-art-dim);
 }
 .ph-hero-title {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 32px;
+  font-size: var(--t-xl);
   line-height: 1;
   text-shadow: var(--art-shadow);
 }
@@ -162,7 +162,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
+  font-size: var(--t-label);
   font-weight: 400;
   color: var(--dim);
 }
@@ -208,7 +208,7 @@
   color: var(--dim);
   font-family: var(--display);
   font-weight: 800;
-  font-size: 22px;
+  font-size: var(--t-22);
 }
 .ph-seat-thumb img {
   width: 100%;
@@ -222,7 +222,7 @@
   min-width: 0;
 }
 .ph-seat-sum span {
-  font-size: 13px;
+  font-size: var(--t-sm);
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
@@ -231,7 +231,7 @@
 .ph-change {
   min-height: 40px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: var(--t-sm);
 }
 .ph-seat-fields {
   display: none;
@@ -256,7 +256,7 @@
   flex: 1;
   justify-content: center;
   min-height: 38px;
-  font-size: 14px;
+  font-size: var(--t-label);
 }
 .ph-skills {
   display: flex;
@@ -269,7 +269,7 @@
   border: 1px solid var(--line);
   background: transparent;
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--t-sm);
 }
 .ph-skills button[aria-pressed="true"] {
   border-color: var(--text);
@@ -280,7 +280,7 @@
   min-height: 44px;
   display: flex;
   align-items: center;
-  font-size: 14px;
+  font-size: var(--t-label);
   color: var(--dim);
 }
 .ph-new-foot {
@@ -340,13 +340,13 @@
   background: var(--ground);
   font-family: var(--display);
   font-weight: 800;
-  font-size: 28px;
+  font-size: var(--t-28);
   letter-spacing: 0.18em;
 }
 .ph-code input::placeholder {
   font-family: var(--body);
   font-weight: 400;
-  font-size: 16px;
+  font-size: var(--t-base);
   letter-spacing: 0;
 }
 /* Empty, the field takes the placeholder's size too, so "Code" sits centred instead of on the
@@ -354,7 +354,7 @@
 .ph-code input:placeholder-shown {
   font-family: var(--body);
   font-weight: 400;
-  font-size: 16px;
+  font-size: var(--t-base);
   letter-spacing: 0;
 }
 .ph-join-deck {
@@ -422,14 +422,14 @@
   color: var(--dim);
 }
 .ph-game-who {
-  font-size: 14px;
+  font-size: var(--t-label);
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ph-game-when {
-  font-size: 13px;
+  font-size: var(--t-sm);
   color: var(--dim);
   white-space: nowrap;
 }
@@ -462,10 +462,10 @@
     gap: 6px;
   }
   .ph-hero-kicker {
-    font-size: 14px;
+    font-size: var(--t-label);
   }
   .ph-hero-title {
-    font-size: 44px;
+    font-size: var(--t-big);
     line-height: 0.95;
   }
   .ph-hero-who {
@@ -494,7 +494,7 @@
     gap: 16px;
   }
   .ph-new h2 {
-    font-size: 36px;
+    font-size: var(--t-36);
   }
   .ph-side {
     flex: 1 1 300px;
@@ -540,7 +540,7 @@
     text-shadow: none;
   }
   .ph-seat-n {
-    font-size: 13px;
+    font-size: var(--t-sm);
     color: var(--on-art-dim);
   }
   .ph-seat-head:not(.art-has) .ph-seat-n {
@@ -645,7 +645,7 @@
 }
 .lobby-group {
   display: none;
-  font-size: 14px;
+  font-size: var(--t-label);
   color: var(--dim);
 }
 .lobby-head {
@@ -683,7 +683,7 @@
   line-height: 1;
 }
 .lobby-code-label {
-  font-size: 12px;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 .lobby-code-value {
@@ -723,7 +723,7 @@
   padding: 12px;
 }
 .lobby-seat-n {
-  font-size: 12px;
+  font-size: var(--t-12);
   color: var(--on-art-dim);
 }
 .lobby-tile:not(.art-has) .lobby-seat-n,
@@ -747,7 +747,7 @@
   text-shadow: none;
 }
 .lobby-detail {
-  font-size: 13px;
+  font-size: var(--t-sm);
   color: var(--on-art-dim);
 }
 .lobby-bracket {
@@ -765,7 +765,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--t-sm);
   font-weight: 700;
 }
 .lobby-state::before {
@@ -800,7 +800,7 @@
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  font-size: 13px;
+  font-size: var(--t-sm);
   color: var(--dim);
 }
 .lobby-note svg {
@@ -851,7 +851,7 @@
     border-radius: 22px;
   }
   .lobby-code-label {
-    font-size: 13px;
+    font-size: var(--t-sm);
   }
   .lobby-code-value {
     font-size: 72px;
@@ -889,7 +889,7 @@
     border-radius: var(--r-pill);
     background: rgb(0 0 0 / 0.55);
     color: var(--on-art);
-    font-size: 13px;
+    font-size: var(--t-sm);
     font-weight: 700;
     z-index: 3;
   }
@@ -906,7 +906,7 @@
     gap: 4px;
   }
   .lobby-name {
-    font-size: 40px;
+    font-size: var(--t-2xl);
     line-height: 0.95;
   }
   .lobby-detail {
@@ -918,14 +918,14 @@
   }
   .lobby-state {
     margin-top: 8px;
-    font-size: 14px;
+    font-size: var(--t-label);
   }
   .lobby-state::before {
     width: 8px;
     height: 8px;
   }
   .lobby-credit {
-    font-size: 11px;
+    font-size: var(--t-xs);
   }
   .lobby-foot {
     flex-direction: row;
@@ -963,7 +963,7 @@
 }
 .ph-watch p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--t-label);
 }
 .ph-watch .button {
   align-self: flex-start;

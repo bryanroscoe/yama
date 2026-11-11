@@ -100,7 +100,7 @@
 .plan-figure b {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 2.5rem;
+  font-size: var(--t-2xl);
   line-height: 1;
 }
 .plan-figure b.warn {
@@ -122,7 +122,7 @@
   margin: 0 0 10px;
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
 }
 .plan-section-head .num {
   font-family: var(--body);
@@ -165,7 +165,7 @@
 .plan-tile-name {
   font-family: var(--display);
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   line-height: 0.95;
   text-shadow: var(--art-shadow);
 }
@@ -198,7 +198,7 @@
 }
 .art-chip.warn {
   color: var(--warn);
-  font-size: 0.75rem;
+  font-size: var(--t-12);
 }
 .art-chip.plain {
   font-weight: 400;
@@ -304,7 +304,7 @@
     top: auto;
     bottom: 14px;
     right: var(--page-pad);
-    font-size: 0.75rem;
+    font-size: var(--t-12);
   }
   .plan-crumbs {
     display: flex;
@@ -404,11 +404,11 @@
 }
 .plan-panel h2 {
   margin: 0;
-  font-size: 1.375rem;
+  font-size: var(--t-22);
 }
 .plan-panel-note {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 /* Flush left with the panel's text (side padding indented them); still 44 px tall to tap. */
@@ -437,7 +437,7 @@
   color: var(--dim);
 }
 .plan-version-ci {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
 }
 .plan-version .wbar {
   grid-column: 1 / -1;
@@ -504,7 +504,7 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
 }
 .plan-group-title .num {
   font-family: var(--body);
@@ -565,7 +565,7 @@
 }
 /* Wraps rather than ellipsis: the card name is a button, so an ellipsis swallowed it whole ("Out: …"). */
 .swap-crop-label {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   line-height: 1.35;
   color: var(--dim);
 }
@@ -919,7 +919,7 @@
 }
 .review-group-head {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
 }
 .review-group-head .num,
 .review-queue-head .num {
@@ -974,7 +974,7 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 .review-cut .review-out {
@@ -999,7 +999,7 @@
   gap: 4px;
 }
 .review-name {
-  font-size: 1.125rem;
+  font-size: var(--t-18);
   line-height: 1.2;
 }
 .review-title .dim {
@@ -1164,14 +1164,14 @@
   overflow: hidden;
 }
 .review-qrow-out {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .review-qrow-state {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   font-weight: 700;
   color: var(--dim);
 }
@@ -1358,7 +1358,7 @@
 .buy-store-note {
   margin: 0;
   padding: 0 14px 10px;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 .buy-row {
@@ -1444,7 +1444,7 @@
   min-width: 0;
 }
 .buy-mini-text > span {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 .buy-mini-text > span.good {
@@ -1523,7 +1523,7 @@
 .prints-order-title h2 {
   margin: 0 0 8px;
   font-weight: 800;
-  font-size: 1.75rem;
+  font-size: var(--t-28);
 }
 .prints-order-title .dim {
   font-size: var(--t-label);
@@ -1534,7 +1534,7 @@
 .prints-count {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 2.5rem;
+  font-size: var(--t-2xl);
   line-height: 1;
 }
 .prints-lines-head {
@@ -1563,7 +1563,7 @@
   font-size: var(--t-label);
 }
 .prints-line-text > span {
-  font-size: 0.75rem;
+  font-size: var(--t-12);
   color: var(--dim);
 }
 .prints-line-pills {
@@ -1597,7 +1597,7 @@
 .prints-next-head h2 {
   margin: 0;
   font-weight: 800;
-  font-size: 1.5rem;
+  font-size: var(--t-lg);
 }
 .prints-bar {
   position: relative;

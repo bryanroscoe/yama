@@ -46,7 +46,7 @@
 }
 @media (min-width: 900px) {
   .stats-h.big {
-    font-size: 2.25rem;
+    font-size: var(--t-36);
   }
 }
 .stats-title,
@@ -294,7 +294,7 @@ button.vector[aria-pressed="true"] {
   gap: 4px 20px;
   flex-wrap: wrap;
   padding: 0 16px 0 162px;
-  font-size: 0.75rem;
+  font-size: var(--t-12);
 }
 @media (max-width: 600px) {
   button.vector {
@@ -318,7 +318,7 @@ button.vector[aria-pressed="true"] {
     height: 22px;
   }
   .vector-score {
-    font-size: 1.5rem;
+    font-size: var(--t-lg);
   }
   .vector-marks {
     padding: 0 12px;
@@ -523,7 +523,7 @@ button.combo-pic:hover {
 }
 .curve-figures b {
   font-family: var(--display);
-  font-size: 1.75rem;
+  font-size: var(--t-28);
   line-height: 1.1;
 }
 .curve-figures .dim {
