@@ -7,7 +7,7 @@ import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
 import { ErrorText, Dialog, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
-import { foldersOf } from "./deckIndex";
+import { folderMoveProblem, foldersOf, isFollowedFolder } from "./deckIndex";
 import "./deck-settings.css";
 
 type Ownership = "owned" | "planned" | "";
@@ -63,7 +63,9 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   // so a save made before the list arrives leaves the folder alone.
   const [folder, setFolder] = useState<string | null>(null);
   const savedFolder = decks.data?.find((x) => x.id === deck.id)?.folder?.trim() || null;
-  const folders = foldersOf(decks.data ?? []);
+  // A folder an import keeps for itself isn't offered, and a deck isn't moved into or out of one.
+  const folders = foldersOf(decks.data ?? []).filter((f) => !isFollowedFolder(f));
+  const folderProblem = folder === null || parent ? null : folderMoveProblem(savedFolder, folder);
   const [picking, setPicking] = useState<"box" | "parent" | null>(null);
   const hasLists = deck.configurations.length > 1 && !deck.parent_id;
   const mains = (decks.data ?? []).filter((x) => !x.parent_id && x.id !== deck.id);
@@ -129,13 +131,20 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
               list="deck-settings-folders"
               placeholder={decks.isPending ? "…" : "None"}
               disabled={decks.isPending}
+              readOnly={isFollowedFolder(savedFolder)}
+              aria-invalid={!!folderProblem}
+              aria-describedby={folderProblem || isFollowedFolder(savedFolder) ? "deck-settings-folder-note" : undefined}
               autoComplete="off"
             />
             <datalist id="deck-settings-folders">
               {folders.map((f) => <option key={f} value={f} />)}
             </datalist>
-            <span className="small dim deck-settings-hint">Groups decks on your Decks list. Only you see it.</span>
           </label>
+        )}
+        {!parent && (folderProblem || isFollowedFolder(savedFolder)) && (
+          <p id="deck-settings-folder-note" className="small deck-settings-hint" role={folderProblem ? "alert" : undefined}>
+            {folderProblem ?? `This deck follows your ${savedFolder} imports, which keep it in this folder.`}
+          </p>
         )}
         {!parent && (
           <div className="deck-settings-field">
@@ -175,7 +184,7 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         )}
         <ErrorText error={save.error} />
         <div className="deck-settings-actions">
-          <button className="primary" disabled={save.isPending || !name.trim()}>{save.isPending ? "Saving…" : "Save"}</button>
+          <button className="primary" disabled={save.isPending || !name.trim() || !!folderProblem}>{save.isPending ? "Saving…" : "Save"}</button>
           <button type="button" className="quiet" onClick={onClose}>Cancel</button>
         </div>
       </form>

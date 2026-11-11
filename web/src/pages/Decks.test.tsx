@@ -49,9 +49,13 @@ describe("finding a deck on the Decks list", () => {
     expect(html).toContain('aria-label="Search decks by name or commander"');
     expect(html).toContain(">In Precons</span>");
     expect(html).toContain(">In Brews</span>");
-    for (const option of ["All folders", "Brews", "Precons", "No folder", "Any bracket", "3, Upgraded", "No bracket yet", "Recently changed", "Record"]) {
+    for (const option of ["All folders", "Brews", "Precons", "No folder", "Any", "3, Upgraded", "None declared"]) {
       expect(html).toContain(`>${option}</option>`);
     }
+    // The sort is three choices: one pill track, name pressed.
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Name<\/button>/);
+    for (const sort of ["Recently changed", "Record"]) expect(html).toMatch(new RegExp(`aria-pressed="false"[^>]*>${sort}</button>`));
+    expect(html).toContain("Search 3 decks by name or commander");
     for (const color of ["White", "Blue", "Black", "Red", "Green"]) expect(html).toContain(`aria-label="${color}"`);
     // Nothing is narrowed, so there is no count and nothing to clear.
     expect(html).not.toContain("Clear filters");
@@ -72,6 +76,35 @@ describe("finding a deck on the Decks list", () => {
     expect(tiles(page("/decks?folder="))).toEqual(["Krenko"]);
     expect(tiles(page("/decks?sort=record"))).toEqual(["Omo Lands", "Atraxa Counters", "Krenko"]);
     expect(page("/decks?colors=UG")).toMatch(/aria-pressed="true"[^>]*aria-label="Blue"/);
+  });
+
+  it("keeps the folder the address names as the choice, even when no deck is in it any more", () => {
+    const html = page("/decks?folder=Old+brews");
+    expect(tiles(html)).toEqual([]);
+    expect(html).toMatch(/<option value="Old brews" selected="">Old brews<\/option>/);
+    expect(html).toContain("0 of 3 decks");
+    // With no folders at all, the picker still shows while a folder filters the list.
+    const none = page("/decks?folder=Gone", DECKS.map((d) => ({ ...d, folder: null })));
+    expect(none).toMatch(/<option value="Gone" selected="">Gone<\/option>/);
+  });
+
+  it("shows every tile's record, at any width, while sorted by record", () => {
+    expect(page("/decks?sort=record")).toContain('class="deck-tiles by-record"');
+    expect(page("/decks")).toContain('class="deck-tiles"');
+  });
+
+  it("waits for the list before offering to search it", () => {
+    const client = new QueryClient();
+    client.setQueryData(["me"], { id: "u1" });
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/decks?q=omo"]}>
+          <DecksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(html).not.toContain("Search decks by name or commander");
+    expect(html).not.toContain("0 of 0");
   });
 
   it("says when nothing matches, with a way back to every deck", () => {

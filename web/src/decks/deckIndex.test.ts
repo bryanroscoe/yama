@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { arrangeDecks, bracketOf, folderOf, foldersOf, isFiltered, NO_FOLDER, readFilter, shownText, writeFilter, type DeckFilter, type DeckGroup } from "./deckIndex";
+import { arrangeDecks, folderMoveProblem, folderOf, foldersOf, isFiltered, isFollowedFolder, NO_FOLDER, readFilter, shownText, writeFilter, type DeckFilter, type DeckGroup } from "./deckIndex";
 
 type D = DeckGroup["main"];
-const deck = (name: string, over: Partial<D> = {}): D => ({ id: name, name, folder: null, commanders: [], color_identity: "", bracket: null, estimate: null, updated_at: "2026-01-01T00:00:00Z", games: 0, wins: 0, configuration: null, ...over });
+const deck = (name: string, over: Partial<D> = {}): D => ({ id: name, name, folder: null, commanders: [], color_identity: "", bracket: null, updated_at: "2026-01-01T00:00:00Z", games: 0, wins: 0, configuration: null, ...over });
 const group = (name: string, over: Partial<D> = {}, configurations: D[] = []): DeckGroup => ({ main: deck(name, over), configurations });
 const ANY: DeckFilter = { q: "", folder: null, colors: "", bracket: "", sort: "name" };
 const names = (groups: DeckGroup[], f: Partial<DeckFilter>) => arrangeDecks(groups, { ...ANY, ...f }).map((g) => g.main.name);
 
 const DECKS = [
   group("Omo Lands", { folder: "Brews", commanders: ["Omo, Queen of Vesuva"], color_identity: "GU", bracket: 3, updated_at: "2026-03-01T00:00:00Z", games: 4, wins: 3 }),
-  group("atraxa counters", { folder: " Precons ", commanders: ["Atraxa, Praetors' Voice"], color_identity: "WUBG", estimate: { tag: "C", label: "Core", bracket: 2, checked_at: null }, updated_at: "2026-02-01T00:00:00Z", games: 10, wins: 5 }),
+  group("atraxa counters", { folder: " Precons ", commanders: ["Atraxa, Praetors' Voice"], color_identity: "WUBG", updated_at: "2026-02-01T00:00:00Z", games: 10, wins: 5 }),
   group("Krenko", { commanders: ["Krenko, Mob Boss"], color_identity: "R", updated_at: "2026-01-15T00:00:00Z" }, [deck("Krenko budget", { configuration: "Budget", commanders: ["Krenko, Tin Street Kingpin"], updated_at: "2026-04-01T00:00:00Z" })]),
   group("Éowyn Humans", { folder: "Precons", commanders: ["Éowyn, Shieldmaiden"], color_identity: "WUR", bracket: 2, games: 2, wins: 1 }),
 ];
@@ -28,6 +28,32 @@ describe("folders", () => {
   it("keeps one folder's decks, or the decks in none", () => {
     expect(names(DECKS, { folder: "Precons" })).toEqual(["atraxa counters", "Éowyn Humans"]);
     expect(names(DECKS, { folder: NO_FOLDER })).toEqual(["Krenko"]);
+  });
+});
+
+describe("folders an import keeps for itself", () => {
+  it("knows the Mythic Tools folder, whatever its case", () => {
+    expect(isFollowedFolder("Mythic Tools")).toBe(true);
+    expect(isFollowedFolder(" mythic tools ")).toBe(true);
+    expect(isFollowedFolder("Precons")).toBe(false);
+    expect(isFollowedFolder(null)).toBe(false);
+  });
+
+  it("won't move a deck out of it, which would stop the import updating the deck", () => {
+    expect(folderMoveProblem("Mythic Tools", "Brews")).toBe("This deck follows your Mythic Tools imports, which keep it in this folder.");
+    expect(folderMoveProblem("Mythic Tools", "")).not.toBeNull();
+    expect(folderMoveProblem("Mythic Tools", "Mythic Tools ")).toBeNull();
+  });
+
+  it("won't move a deck into it, which would let the next import replace the deck's list", () => {
+    expect(folderMoveProblem("Brews", "mythic tools")).toBe("Mythic Tools is the folder for decks that follow that import. Pick another name.");
+    expect(folderMoveProblem(null, "Mythic Tools")).not.toBeNull();
+  });
+
+  it("lets any other move through", () => {
+    expect(folderMoveProblem("Brews", "Precons")).toBeNull();
+    expect(folderMoveProblem(null, "Brews")).toBeNull();
+    expect(folderMoveProblem("Brews", "")).toBeNull();
   });
 });
 
@@ -50,13 +76,11 @@ describe("filters", () => {
     expect(names(DECKS, { colors: "R" })).toEqual(["Éowyn Humans", "Krenko"]);
   });
 
-  it("files a deck under its declared bracket, else Yama's suggestion", () => {
-    expect(bracketOf({ bracket: 4, estimate: { tag: "C", label: "", bracket: 2, checked_at: null } })).toBe(4);
-    expect(bracketOf({ bracket: null, estimate: { tag: "E", label: "", bracket: 1, checked_at: null } })).toBe(2);
-    expect(bracketOf({ bracket: null, estimate: { tag: "B", label: "", bracket: null, checked_at: null } })).toBeNull();
-    expect(names(DECKS, { bracket: "2" })).toEqual(["atraxa counters", "Éowyn Humans"]);
+  it("filters on the bracket the owner declared, never a suggestion", () => {
+    // Atraxa has no declared bracket (whatever Yama suggests for it), so it is under none.
+    expect(names(DECKS, { bracket: "2" })).toEqual(["Éowyn Humans"]);
     expect(names(DECKS, { bracket: "3" })).toEqual(["Omo Lands"]);
-    expect(names(DECKS, { bracket: "none" })).toEqual(["Krenko"]);
+    expect(names(DECKS, { bracket: "none" })).toEqual(["atraxa counters", "Krenko"]);
   });
 
   it("combines filters", () => {

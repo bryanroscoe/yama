@@ -481,3 +481,15 @@
     width: 100%;
   }
 }
+.deck-index-sort {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  min-width: 0;
+}
+/* Sorted by record, the record shows at every width (styles.css hides it on a phone). */
+.deck-tiles.by-record .deck-record {
+  display: inline;
+}

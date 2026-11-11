@@ -35,7 +35,7 @@ import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
 import { arrangeDecks, folderOf, foldersOf, isFiltered, readFilter, writeFilter, type DeckFilter } from "../decks/deckIndex";
-import { DeckIndexTools } from "../decks/DeckIndexTools";
+import { CLEARED, DeckIndexTools } from "../decks/DeckIndexTools";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
@@ -94,9 +94,16 @@ export function DecksPage() {
   const folders = useMemo(() => foldersOf(mains), [mains]);
   const shown = useMemo(() => arrangeDecks(groups, filter), [groups, filter]);
   if (precon) return <Navigate to={`/decks/import?precon=${encodeURIComponent(precon)}`} replace />;
-  // The router moves the address before React renders it: build on the address as it is now, so
-  // quick typing never drops a letter or another filter.
-  const change = (next: DeckFilter, typing = false) => setParams(writeFilter(new URLSearchParams(window.location.search), next), { replace: typing });
+  // Once shown the tools stay, so clearing the search of a one-deck list doesn't take the box away mid-typing.
+  const tools = useRef(false);
+  if (groups.length > 1 || isFiltered(filter)) tools.current = true;
+  // The router moves the address before React renders it. One change is laid over the filter the
+  // address holds now, not the one last rendered, so quick typing never drops a letter and a
+  // second change never puts back what the first one changed.
+  const change = (patch: Partial<DeckFilter>, typing = false) => {
+    const now = new URLSearchParams(window.location.search);
+    setParams(writeFilter(now, { ...readFilter(now), ...patch }), { replace: typing });
+  };
   return (
     <main className="page">
       <AreaHead
@@ -123,15 +130,16 @@ export function DecksPage() {
           No decks yet.
         </EmptyState>
       )}
-      {(groups.length > 1 || isFiltered(filter)) && (
+      {decks.data && tools.current && (
         <DeckIndexTools filter={filter} onChange={change} folders={folders} hasUnfiled={mains.some((d) => folderOf(d) === null)} shown={shown.length} total={groups.length} />
       )}
       {groups.length > 0 && shown.length === 0 && (
-        <EmptyState variant="boxed" action={<button type="button" onClick={() => change({ ...filter, q: "", folder: null, colors: "", bracket: "" })}>Clear filters</button>}>
+        <EmptyState variant="boxed" action={<button type="button" onClick={() => change(CLEARED)}>Clear filters</button>}>
           No decks match.
         </EmptyState>
       )}
-      <ul className="deck-tiles">
+      {/* Sorted by record, every tile shows its record, on a phone too. */}
+      <ul className={`deck-tiles${filter.sort === "record" ? " by-record" : ""}`}>
         {/* Configurations and bracket builds live on the deck's own page, not under its tile. */}
         {shown.map(({ main }) => (
           <li key={main.id}>

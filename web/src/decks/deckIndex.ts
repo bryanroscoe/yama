@@ -3,7 +3,6 @@
 // (?q=…&folder=…&colors=UG&bracket=3&sort=recent), so Back and a reload keep them.
 import { identityKeys } from "@yama/core";
 import type { DeckSummary } from "../api";
-import { suggestedBracket } from "../components/deckCheck";
 
 export type DeckSort = "name" | "recent" | "record";
 export const SORTS: { value: DeckSort; label: string }[] = [
@@ -22,12 +21,12 @@ export interface DeckFilter {
   folder: string | null;
   /** Colors the deck's identity must include, in WUBRG order ("" for any). */
   colors: string;
-  /** "1" to "5", "none" (no bracket declared or suggested), or "" for any. */
+  /** The bracket the owner declared, "1" to "5"; "none" for decks with none declared; "" for any. */
   bracket: string;
   sort: DeckSort;
 }
 
-type Deck = Pick<DeckSummary, "id" | "name" | "folder" | "commanders" | "color_identity" | "bracket" | "estimate" | "updated_at" | "games" | "wins" | "configuration">;
+type Deck = Pick<DeckSummary, "id" | "name" | "folder" | "commanders" | "color_identity" | "bracket" | "updated_at" | "games" | "wins" | "configuration">;
 export interface DeckGroup<T extends Deck = Deck> {
   main: T;
   configurations: T[];
@@ -44,9 +43,26 @@ export function foldersOf(decks: Pick<DeckSummary, "folder">[]): string[] {
   return [...all].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
 }
 
-/** The bracket a deck is filed under: the one its owner declared, else Yama's starting suggestion. */
-export function bracketOf(d: Pick<DeckSummary, "bracket" | "estimate">): number | null {
-  return d.bracket ?? (d.estimate ? suggestedBracket(d.estimate.tag, d.estimate.bracket) : null);
+/**
+ * Folders the server reads as more than a label: a deck in "Mythic Tools" follows the Mythic
+ * Tools collection import, which rewrites its list from the deck box each time
+ * (server/src/decks.rs `sync_deck_from_container`). Moving a deck out would quietly stop that,
+ * and moving one in would let the next import replace a list its owner keeps by hand. So the
+ * settings sheet doesn't move a deck across that line.
+ */
+const FOLLOWED = ["Mythic Tools"];
+export function isFollowedFolder(folder: string | null | undefined): boolean {
+  const name = folder?.trim().toLowerCase();
+  return !!name && FOLLOWED.some((f) => f.toLowerCase() === name);
+}
+
+/** Why a deck's folder can't become `next`, or null when it can. */
+export function folderMoveProblem(saved: string | null, next: string): string | null {
+  const to = next.trim();
+  if ((saved ?? "") === to) return null;
+  if (isFollowedFolder(saved)) return `This deck follows your ${saved} imports, which keep it in this folder.`;
+  if (isFollowedFolder(to)) return `${FOLLOWED.find((f) => f.toLowerCase() === to.toLowerCase())} is the folder for decks that follow that import. Pick another name.`;
+  return null;
 }
 
 /** The filter the address asks for; anything it doesn't understand is left off. */
@@ -89,10 +105,8 @@ function matches(g: DeckGroup, f: DeckFilter): boolean {
     const identity = identityKeys(d.color_identity).join("");
     if (![...f.colors].every((k) => identity.includes(k))) return false;
   }
-  if (f.bracket) {
-    const b = bracketOf(d);
-    if (f.bracket === "none" ? b !== null : String(b) !== f.bracket) return false;
-  }
+  // The declared bracket only: a suggestion isn't the owner's word, and the tile shows both.
+  if (f.bracket && (f.bracket === "none" ? d.bracket != null : String(d.bracket) !== f.bracket)) return false;
   const words = fold(f.q).split(/\s+/).filter(Boolean);
   if (words.length) {
     // A deck's own name and commanders, and those of its other lists ("Stock", "Bracket 3").

@@ -20,7 +20,7 @@ export const NEWS: NewsEntry[] = [
     title: "Folders, search and sorting for your decks",
     items: [
       "Put a deck in a folder from its settings (More, Deck settings). Only you see your folders.",
-      "The Decks list can search by name or commander, show one folder, one bracket or the decks that include a color, and sort by name, most recently changed or record.",
+      "The Decks list can search by name or commander, show one folder, one declared bracket or the decks that include a color, and sort by name, most recently changed or record.",
     ],
     link: { to: "/decks", label: "Open Decks" },
   },
