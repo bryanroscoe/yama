@@ -2,7 +2,7 @@ import { safeUrl, type ResearchDocument } from "../research/api";
 import { parseDeckList } from "@yama/core";
 
 export interface SourceUse { id: string; deck: string; deck_name: string; category: string; build_match?: boolean; brackets?: number[] }
-export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean; title?: string; finish?: string; language?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string }
+export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean; rule_reason?: string; title?: string; finish?: string; language?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string }
 export interface SourceCard { name: string; status: string; uses: SourceUse[]; offers: SourceOffer[] }
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => v && typeof v === "object" && !Array.isArray(v) ? v as Obj : {};
@@ -24,7 +24,7 @@ function normalizeSourceCards(value: unknown): SourceCard[] {
       const o = obj(rawOffer), url = safeUrl(str(o.url));
       if (!url || !str(o.store)) return [];
       const qty = number(o.qty);
-      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), qualifies: o.qualifies === true, title: str(o.title), finish: str(o.finish), language: str(o.language), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id) }];
+      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), qualifies: o.qualifies === true, rule_reason: str(o.rule_reason), title: str(o.title), finish: str(o.finish), language: str(o.language), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id) }];
     });
     return [{ name, status: str(c.status), uses, offers }];
   });

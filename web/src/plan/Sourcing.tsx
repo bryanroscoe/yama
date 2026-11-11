@@ -1,12 +1,15 @@
 import { usd, fmtDateTime, count, plural } from "@yama/core";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { CardRef } from "../components/CardRef";
 import { ErrorText, Loading } from "../components/ui";
 import { report, reports, safeUrl, type ResearchBundle } from "../research/api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { allChoices, choicesFor, knownStockChoices, offerRows, offerId, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, type SourceChoice } from "./sourcing-model";
+import { localBuyRule, rulesAt, MAX_RULE_USD, shoppingRulesProblems, type RuleSet } from "@yama/core/plan";
+import { fetchBundle, saveShoppingRules } from "./api";
+import { capDraft, pricedRows, readCap } from "./source-pricing";
 import "./sourcing.css";
 
 export function Sourcing() {
@@ -27,7 +30,32 @@ export function Sourcing() {
 }
 
 export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
-  const { view } = usePlanOutlet();
+  const { view, userId } = usePlanOutlet();
+  const qc = useQueryClient();
+  const [freshSettings, setFreshSettings] = useState<RuleSet[] | null>(null);
+  useEffect(() => setFreshSettings(null), [view.b.settings]);
+  const settings = freshSettings ?? view.b.settings ?? [];
+  const today = view.today ?? new Date().toISOString().slice(0,10);
+  const current = localBuyRule(rulesAt(settings,today));
+  const savedCap = current.rule?.max_usd ?? null;
+  const [capText, setCapText] = useState<string | null>(null);
+  const capInput = capText ?? (savedCap == null ? "" : String(savedCap));
+  const cap = readCap(capInput);
+  const draft = capDraft(settings,today,cap.value);
+  const problems = cap.valid ? shoppingRulesProblems(draft) : [`Enter a price from $0 to $${MAX_RULE_USD}, or leave blank for no ceiling.`];
+  const saveCap = useMutation({
+    mutationFn: async (maximum: number | null) => {
+      const latest = await fetchBundle();
+      if (!("settings" in latest)) throw new Error("Could not load current shopping rules. Try again before saving.");
+      setFreshSettings(latest.settings);
+      const next = capDraft(latest.settings,today,maximum);
+      const invalid = shoppingRulesProblems(next);
+      if (invalid.length) throw new Error(invalid.join(" "));
+      return saveShoppingRules({ effective_from: today, ...next, note: "Local per-card cap set from sourcing" });
+    },
+    // Keep the entered preview: a failed refetch must not restore the stale saved ceiling.
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ["plan",userId] }); },
+  });
   const doc = bundle.document;
   const parsed = useMemo(() => sourceSnapshot(doc.local_sources), [doc]);
   const cards = parsed.cards;
@@ -45,7 +73,7 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   const [choices, setChoices] = useState<Record<string, SourceChoice[]>>({});
   const [limit, setLimit] = useState(25);
   const portfolio = useMemo(() => portfolioRows(cards, doc, decks, bracket, scope), [cards, doc, decks, bracket, scope]);
-  const rows = offerRows(portfolio,condition,store).filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  const rows = offerRows(pricedRows(portfolio,draft.local_buy,problems.length === 0),condition,store).filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
   const visible = rows.filter(c => !onlyOffers || c.offers.some(o => o.qualifies && o.qty !== 0 && o.price != null));
   const stores = view.b.stores.filter(s => !s.retired && s.kind !== "printer");
   const cartTemplates = new Map<string,string>();
@@ -65,6 +93,15 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   return <>
     {parsed.conflicts.length > 0 && <p role="alert">{parsed.conflicts.length} conflicting copy identities excluded; these need reconciliation.</p>}
     <div className="source-freshness"><b>Saved quotes{dates.at(-1) ? ` through ${fmtDateTime(dates.at(-1))}` : ": date unknown"}</b><span>Search links open a store; they do not run a stock check.</span><details><summary>List version and evidence</summary><p>{doc.summary}</p><p>Report revision {bundle.revision}. Quote dates: {dates.length ? `${fmtDateTime(dates[0])} to ${fmtDateTime(dates.at(-1))}` : "unknown"}. Owned cards and print reservations have not been rechecked. This list does not approve a plan or place an order.</p><Link to={`/decks/plans/archived/${encodeURIComponent(doc.id)}`}>Source report and methods</Link> · <Link to="/decks/plans/settings#shopping-rules">Your buying rules</Link></details></div>
+    <section className="source-cap" aria-label="Local price limit">
+      <label>Maximum per card ($)<input type="number" inputMode="decimal" min={0} max={MAX_RULE_USD} step="0.05" disabled={saveCap.isPending} placeholder="No ceiling" value={capInput} onChange={e => { setCapText(e.target.value); saveCap.reset(); }} /></label>
+      <button disabled={problems.length > 0 || saveCap.isPending || (cap.value === savedCap || (saveCap.isSuccess && cap.value === saveCap.variables))} onClick={() => saveCap.mutate(cap.value)}>{saveCap.isPending ? "Saving…" : "Save cap as default"}</button>
+      <span className="small dim">Applies now to this page and its carts. Save to use it for future shopping. Blank means no dollar ceiling; your market limits still apply.</span>
+      {cap.value != null && current.rule?.always_ok_usd != null && cap.value < current.rule.always_ok_usd && <span className="small dim">Saving also lowers your always-okay amount to {usd(cap.value)} to fit this ceiling.</span>}
+      {problems.length > 0 && <p role="alert">{problems.join(" ")}</p>}
+      <ErrorText error={saveCap.error} />{saveCap.isSuccess && <span role="status">Local cap saved.</span>}
+      <details><summary>Market limits and other buying rules</summary><p>Last loaded buying rule: {current.text}</p><Link to="/decks/plans/settings#shopping-rules">Change the full buying rule</Link></details>
+    </section>
     <div className="source-filters">
       <label>Bracket<select value={bracket} onChange={e => setBracket(e.target.value)}><option value="">All brackets (one copy per deck)</option>{[2,3,4,5].map(b => <option key={b} value={b}>Bracket {b}</option>)}</select></label>
       <label>Cards for<select value={scope} onChange={e => setScope(e.target.value)}><option value="all">All needs and optional upgrades</option><option value="gaps">Cards to source</option><option value="optional">Real replacements for proxies</option></select></label>

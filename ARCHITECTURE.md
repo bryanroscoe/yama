@@ -2060,3 +2060,5 @@ and source in the question; other player choices keep a general player/opponent 
 
 
 Local sourcing shopping rows default to Near Mint and expose deck/bracket recipients, store/condition/card filters, per-printing dated market provenance and same-printing condition minima where saved. Bulk requested carts may include stock-count-unknown listings, explicitly marked unconfirmed; confirmed-only bulk selection remains separate. Neither action orders or marks bought. Search links open storefront searches and do not claim a stock refresh.
+
+Sourcing exposes a per-card dollar ceiling initialized from the current account rule. Changing it recalculates row/manual/bulk-cart eligibility against retained quotes and the remaining market limits, without rewriting research. Explicit Save persists a dated account rule through the existing settings API, preserving market tiers and sealed limits (an always-okay threshold above a lowered ceiling is narrowed to that ceiling). Generic or non-price rejections remain excluded.

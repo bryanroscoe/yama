@@ -14,7 +14,7 @@ describe("all-deck sourcing page",()=>{
     const html=render(bundle);
     expect(html).toContain("1 matching card"); expect(html).toContain("Deck: Deck A"); expect(html).toContain("Bracket 2");
     expect(html).toContain("Deck A");expect(html).toContain("Stock count unknown");
-    expect(html).toContain("Printing market");expect(html).toContain("$0.75");expect(html).toContain("Near Mint only");expect(html).not.toContain("check source before buying");expect(html).toContain("Nov 10, 2026");expect(html).toContain("Add all matching cards");
+    expect(html).toContain("Printing market");expect(html).toContain("$0.75");expect(html).toContain("Near Mint only");expect(html).toContain("Maximum per card ($)");expect(html).toContain("Save cap as default");expect(html).not.toContain("check source before buying");expect(html).toContain("Nov 10, 2026");expect(html).toContain("Add all matching cards");
     expect(html).toContain('href="https://mothershipatx.com/products/ring"');expect(html).toContain('blackcastlegamez.tcgplayerpro.com/search/products?');expect(html).toContain("/decks/plans/get/trip");expect(html).toContain("does not regenerate");expect(html).not.toContain('>Apply</button>');
   });
   it("keeps unsupported or malformed research from crashing or becoming a zero-cost cart",()=>{
