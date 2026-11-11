@@ -269,7 +269,8 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     }
     let place_label = |p: Option<usize>| p.map_or("unfiled".to_string(), |i| format!("{}: {}", places[i].0, places[i].1));
 
-    let mut tx = pool.begin().await?;
+    // Each row is looked up in card data first, outside any transaction: a big file is thousands
+    // of lookups, and they mustn't be made while holding the database's one writer.
     let mut file: Vec<FileCopy> = Vec::new();
     for (i, r) in rows {
         if r.qty <= 0 {
@@ -285,7 +286,7 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
             .bind(r.set_code.to_lowercase())
             .bind(&r.collector_number)
             .bind(&r.lang)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(pool)
             .await?;
             match found {
                 Some(id) => id,
@@ -295,7 +296,7 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
                 }
             }
         };
-        let known: Option<String> = sqlx::query_scalar("SELECT scryfall_id FROM printings WHERE scryfall_id = ?").bind(&scryfall_id).fetch_optional(&mut *tx).await?;
+        let known: Option<String> = sqlx::query_scalar("SELECT scryfall_id FROM printings WHERE scryfall_id = ?").bind(&scryfall_id).fetch_optional(pool).await?;
         if known.is_none() {
             report.unknown_printings.push(format!("{} ({} #{})", r.name, r.set_code.to_uppercase(), r.collector_number));
         }
@@ -331,6 +332,9 @@ pub async fn import_mythic_csv(pool: &SqlitePool, owner: &str, text: &str, opts:
     // Where things are: the file by place index, Yama by container id. `loc` is a container id
     // (or a preview's stand-in), `None` for unfiled.
     let loc_of = |p: Option<usize>| p.map(|i| place_ids[i].clone());
+    // From here it reads the collection and then writes it: immediate, so a commit landing in
+    // between can't fail it. A preview only reads, and never takes the write lock.
+    let mut tx = if opts.dry_run { pool.begin().await? } else { pool.begin_with("BEGIN IMMEDIATE").await? };
     let copies = owned_copies(&mut tx, owner).await?;
     let key_of = |c: &OwnedCopy| (c.scryfall_id.clone(), c.finish.clone(), c.lang.clone(), c.proxy);
     let mut file_total: HashMap<Key, i64> = HashMap::new();

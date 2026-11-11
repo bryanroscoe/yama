@@ -181,6 +181,38 @@ async fn shared_pages_name_cards_from_card_data_not_from_the_stored_row() {
     assert!(deck_page.contains("Lightning Bolt") && deck_page.contains("A card data no longer has"));
 }
 
+/// A shared collection's CSV is opened in spreadsheets by other people. Condition and language
+/// are the only columns a client or an imported file chose.
+#[tokio::test]
+async fn the_shared_collection_csv_defuses_spreadsheet_formulas() {
+    let (app, pool) = app().await;
+    let (bryan, _) = user(&pool, "bryan@example.com").await;
+    sqlx::query("UPDATE users SET handle = 'saget', collection_public = 1 WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    // Rows as an older client or an imported file could have left them.
+    for (id, printing, condition, lang) in [("i1", "p-sol", "=HYPERLINK(\"https://evil.example\",\"x\")", "@SUM(1)"), ("i2", "p-bolt", "+1", "-2")] {
+        sqlx::query(
+            "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, finish, lang, created_at, updated_at)
+             VALUES (?, ?, ?, 1, ?, 'nonfoil', ?, 'now', 'now')",
+        )
+        .bind(id).bind(&bryan).bind(printing).bind(condition).bind(lang).execute(&pool).await.unwrap();
+    }
+    let (status, _, csv) = page(&app, "/u/saget/collection.csv").await;
+    assert_eq!(status, StatusCode::OK);
+    let mut reader = csv::Reader::from_reader(csv.as_bytes());
+    let rows: Vec<csv::StringRecord> = reader.records().map(|r| r.unwrap()).collect();
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        for (i, field) in row.iter().enumerate() {
+            assert!(!field.starts_with(['=', '+', '-', '@', '\t', '\r']), "column {i} is a live formula: {field:?}");
+        }
+    }
+    assert_eq!(&rows[0][1], "Lightning Bolt");
+    assert_eq!((&rows[0][5], &rows[0][6]), ("'+1", "'-2"));
+    assert_eq!((&rows[1][5], &rows[1][6]), ("'=HYPERLINK(\"https://evil.example\",\"x\")", "'@SUM(1)"));
+}
+
 #[tokio::test]
 async fn shared_pages_carry_no_private_details() {
     let (app, pool) = app().await;

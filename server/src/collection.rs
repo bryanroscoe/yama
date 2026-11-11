@@ -36,6 +36,20 @@ pub fn router() -> Router<AppState> {
 }
 
 pub const KINDS: [&str; 4] = ["binder", "deck", "list", "box"];
+/// What a copy's condition, finish and language may be in an op a client sends. The language
+/// codes are Scryfall's.
+pub const CONDITIONS: [&str; 5] = ["NM", "LP", "MP", "HP", "DMG"];
+pub const FINISHES: [&str; 3] = ["nonfoil", "foil", "etched"];
+pub const LANGS: [&str; 18] = ["en", "es", "fr", "de", "it", "pt", "ja", "ko", "ru", "zhs", "zht", "he", "la", "grc", "ar", "sa", "ph", "qya"];
+/// Ops in one request. The pages send a handful; a scanning session sends them as it goes.
+pub const MAX_OPS: usize = 500;
+/// Copies one op may add, take or split off.
+pub const MAX_OP_QTY: i64 = 10_000;
+/// A copy's note, in characters.
+pub const NOTE_MAX: usize = 1_000;
+/// A container's name, in characters, and how many containers one account may make by hand.
+pub const CONTAINER_NAME_MAX: usize = 80;
+pub const CONTAINERS_MAX: i64 = 500;
 
 // ── ops ────────────────────────────────────────────────────────────────────
 
@@ -121,11 +135,130 @@ struct OpsResult {
     skipped_duplicates: usize,
 }
 
+/// The longest id an op may name (a Scryfall id or one of Yama's own, both UUIDs).
+const MAX_ID: usize = 64;
+
+/// An op as a client sent it, checked before anything is written. `apply_op` is also called by
+/// Yama's own code (the Mythic Tools import, deck boxes, the MCP's staged changes), which builds
+/// its ops from values it has read or checked itself; a request can say anything. So the values
+/// a shared collection page and its CSV print (condition, finish, language) must be ones Yama
+/// knows, and counts, prices, notes and ids are bounded (every op's JSON is kept in
+/// `applied_ops`, whether or not it found a row to change).
+///
+/// Returns a language to look up in card data, when the op names one that is shaped like a
+/// code but isn't in `LANGS`: "change printing" sends the printing's own language, and Scryfall
+/// may add one before this list hears of it (`known_lang`).
+fn check_client_op(op: &Op) -> AppResult<Option<&str>> {
+    fn one_of(what: &str, value: &str, allowed: &[&str]) -> AppResult<()> {
+        if allowed.contains(&value) { Ok(()) } else { Err(AppError::bad(format!("{what} must be one of {}", allowed.join(", ")))) }
+    }
+    /// A language in the list, or (returned) one shaped like a code, to be looked up.
+    fn lang(value: &str) -> AppResult<Option<&str>> {
+        if LANGS.contains(&value) {
+            Ok(None)
+        } else if (2..=3).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_lowercase()) {
+            Ok(Some(value))
+        } else {
+            Err(unknown_lang())
+        }
+    }
+    fn id(value: &str) -> AppResult<()> {
+        if value.is_empty() || value.len() > MAX_ID { Err(AppError::bad("that isn't a card or copy id")) } else { Ok(()) }
+    }
+    fn price(p: Option<f64>) -> AppResult<()> {
+        if p.is_some_and(|p| !p.is_finite() || !(0.0..=10_000_000.0).contains(&p)) {
+            return Err(AppError::bad("a purchase price must be a number from 0 up"));
+        }
+        Ok(())
+    }
+    if op.op_id.trim().is_empty() || op.op_id.len() > 100 || op.device_id.as_deref().is_some_and(|d| d.len() > 100) {
+        return Err(AppError::bad("each op needs an op_id of at most 100 characters"));
+    }
+    let mut to_look_up = None;
+    match &op.op {
+        OpKind::Add { scryfall_id, qty, copy, purchase_price, purchase_currency, container_id } => {
+            id(scryfall_id)?;
+            if let Some(c) = container_id {
+                id(c)?;
+            }
+            if !(1..=MAX_OP_QTY).contains(qty) {
+                return Err(AppError::bad(format!("add needs a quantity from 1 to {MAX_OP_QTY}")));
+            }
+            one_of("condition", &copy.condition, &CONDITIONS)?;
+            one_of("finish", &copy.finish, &FINISHES)?;
+            to_look_up = lang(&copy.lang)?;
+            price(*purchase_price)?;
+            if purchase_currency.as_deref().is_some_and(|c| c.len() != 3 || !c.bytes().all(|b| b.is_ascii_uppercase())) {
+                return Err(AppError::bad("purchase_currency must be a three-letter code such as USD"));
+            }
+        }
+        OpKind::Adjust { item_id, delta } => {
+            id(item_id)?;
+            if !(-MAX_OP_QTY..=MAX_OP_QTY).contains(delta) {
+                return Err(AppError::bad(format!("adjust changes at most {MAX_OP_QTY} copies at a time")));
+            }
+        }
+        OpKind::Update { item_id, condition, finish, lang: new_lang, container_id, purchase_price, note, scryfall_id, split, .. } => {
+            id(item_id)?;
+            if let Some(p) = scryfall_id {
+                id(p)?;
+            }
+            if let Some(Some(c)) = container_id {
+                id(c)?;
+            }
+            if let Some(c) = condition {
+                one_of("condition", c, &CONDITIONS)?;
+            }
+            if let Some(f) = finish {
+                one_of("finish", f, &FINISHES)?;
+            }
+            if let Some(l) = new_lang {
+                to_look_up = lang(l)?;
+            }
+            price(purchase_price.flatten())?;
+            if note.as_ref().is_some_and(|n| n.as_deref().is_some_and(|n| n.chars().count() > NOTE_MAX)) {
+                return Err(AppError::bad(format!("a note can have at most {NOTE_MAX} characters")));
+            }
+            if split.is_some_and(|n| n > MAX_OP_QTY) {
+                return Err(AppError::bad(format!("split moves at most {MAX_OP_QTY} copies at a time")));
+            }
+        }
+        OpKind::Remove { item_id } => id(item_id)?,
+    }
+    Ok(to_look_up)
+}
+
+fn unknown_lang() -> AppError {
+    AppError::bad(format!("lang must be one of {}", LANGS.join(", ")))
+}
+
+/// Whether card data has a printing in this language (for a code `LANGS` doesn't list).
+async fn known_lang(pool: &SqlitePool, lang: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM printings WHERE lang = ?)").bind(lang).fetch_one(pool).await?)
+}
+
 async fn apply_ops(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Json(ops): Json<Vec<Op>>,
 ) -> AppResult<Json<OpsResult>> {
+    if ops.len() > MAX_OPS {
+        return Err(AppError::bad(format!("send at most {MAX_OPS} changes at a time")));
+    }
+    let mut looked_up: Vec<&str> = Vec::new();
+    for op in &ops {
+        if let Some(lang) = check_client_op(op)?
+            && !looked_up.contains(&lang)
+        {
+            looked_up.push(lang);
+        }
+    }
+    st.limits.collection_writes.check_user(&user)?;
+    for lang in looked_up {
+        if !known_lang(&st.pool, lang).await? {
+            return Err(unknown_lang());
+        }
+    }
     let mut tx = st.pool.begin().await?;
     let (mut applied, mut skipped) = (0, 0);
     for op in ops {
@@ -681,7 +814,13 @@ pub(crate) struct Summary {
     market_value_usd: f64,
     copies_without_price: i64,
     price_date: Option<String>,
+    /// What was paid in US dollars, over the real copies that have a purchase price in dollars.
+    /// The two counts below say which copies it leaves out; neither is counted as $0.
     purchase_total_usd: f64,
+    /// Real copies with no purchase price recorded.
+    copies_without_purchase_price: i64,
+    /// Real copies whose purchase price is in another currency, so it isn't added in.
+    copies_paid_in_other_currency: i64,
 }
 
 async fn summary(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Summary>> {
@@ -699,6 +838,8 @@ pub(crate) async fn summary_for(pool: &SqlitePool, owner: &str) -> AppResult<Sum
         copies_without_price: 0,
         price_date: None,
         purchase_total_usd: 0.0,
+        copies_without_purchase_price: 0,
+        copies_paid_in_other_currency: 0,
     };
     let mut printings = std::collections::HashSet::new();
     for i in &items {
@@ -715,8 +856,11 @@ pub(crate) async fn summary_for(pool: &SqlitePool, owner: &str) -> AppResult<Sum
         if i.price_date > s.price_date {
             s.price_date = i.price_date.clone();
         }
-        if i.purchase_currency.as_deref().unwrap_or("USD") == "USD" {
-            s.purchase_total_usd += i.purchase_price.unwrap_or(0.0) * i.qty as f64;
+        // A missing purchase price is unknown, never $0; another currency isn't dollars.
+        match (i.purchase_price, i.purchase_currency.as_deref().unwrap_or("USD")) {
+            (None, _) => s.copies_without_purchase_price += i.qty,
+            (Some(p), "USD") => s.purchase_total_usd += p * i.qty as f64,
+            (Some(_), _) => s.copies_paid_in_other_currency += i.qty,
         }
     }
     s.distinct_printings = printings.len() as i64;
@@ -795,12 +939,63 @@ struct NewContainer {
     name: String,
 }
 
+/// A container name as typed: trimmed, not blank, no line breaks or control characters, at most
+/// `CONTAINER_NAME_MAX` characters.
+fn container_name(raw: &str) -> AppResult<String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err(AppError::bad("container needs a name"));
+    }
+    if name.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
+        return Err(AppError::bad("a container's name can't hold line breaks or control characters"));
+    }
+    if name.chars().count() > CONTAINER_NAME_MAX {
+        return Err(AppError::bad(format!("a container's name can have at most {CONTAINER_NAME_MAX} characters")));
+    }
+    Ok(name.to_string())
+}
+
 async fn create_container(
     State(st): State<AppState>,
     CurrentUser(user): CurrentUser,
     Json(body): Json<NewContainer>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let id = ensure_container(&st.pool, &user.id, &body.kind, &body.name).await?;
+    let name = container_name(&body.name)?;
+    let kind = body.kind.to_lowercase();
+    if !KINDS.contains(&kind.as_str()) {
+        return Err(AppError::bad(format!("container kind must be one of {}", KINDS.join(", "))));
+    }
+    st.limits.collection_writes.check_user(&user)?;
+    // Immediate, so the count and the insert are one step: two requests arriving together
+    // can't both find room for the last one. Asking for a container that is already there
+    // answers with it, as before, however many there are.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let existing: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?")
+        .bind(&user.id)
+        .bind(&kind)
+        .bind(&name)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let id = match existing {
+        Some(id) => id,
+        None => {
+            let have: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(&user.id).fetch_one(&mut *tx).await?;
+            if have >= CONTAINERS_MAX {
+                return Err(AppError::Conflict(format!("You already have {CONTAINERS_MAX} binders, boxes and lists. Delete one you no longer use first.")));
+            }
+            let id = new_id();
+            sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?,?,?,?,?)")
+                .bind(&id)
+                .bind(&user.id)
+                .bind(&kind)
+                .bind(&name)
+                .bind(now())
+                .execute(&mut *tx)
+                .await?;
+            id
+        }
+    };
+    tx.commit().await?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -840,23 +1035,51 @@ async fn rename_container(
     Path(id): Path<String>,
     Json(body): Json<RenameContainer>,
 ) -> AppResult<()> {
-    let n = sqlx::query("UPDATE containers SET name = ? WHERE id = ? AND owner_id = ?")
-        .bind(body.name.trim())
+    let name = container_name(&body.name)?;
+    st.limits.collection_writes.check_user(&user)?;
+    // Immediate, so the name can't be taken between the check and the rename. (Names are unique
+    // per owner and kind; without the check a clash was a database error, a 500.)
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let kind: String = sqlx::query_scalar("SELECT kind FROM containers WHERE id = ? AND owner_id = ?")
         .bind(&id)
         .bind(&user.id)
-        .execute(&st.pool)
+        .fetch_optional(&mut *tx)
         .await?
-        .rows_affected();
-    if n == 0 { Err(AppError::NotFound("container")) } else { Ok(()) }
+        .ok_or(AppError::NotFound("container"))?;
+    let taken: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ? AND id != ?")
+        .bind(&user.id)
+        .bind(&kind)
+        .bind(&name)
+        .bind(&id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if taken.is_some() {
+        return Err(AppError::Conflict(format!("You already have a {kind} called {name}.")));
+    }
+    sqlx::query("UPDATE containers SET name = ? WHERE id = ? AND owner_id = ?").bind(&name).bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-/// Deleting a container keeps its cards; they become unfiled.
+/// Deleting a container keeps its cards; they become unfiled. A container that isn't the
+/// caller's (someone else's, already deleted, never there) is a 404 and changes nothing.
 async fn delete_container(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
-    delete_container_for_owner(&st.pool, &user.id, &id).await
+    st.limits.collection_writes.check_user(&user)?;
+    if delete_container_for_owner(&st.pool, &user.id, &id).await? { Ok(()) } else { Err(AppError::NotFound("container")) }
 }
 
-async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
+/// Returns whether `owner` had this container (false: nothing was there to delete).
+async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<bool> {
+    // Immediate: it reads the container's cards and then rewrites them.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mine: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE id = ? AND owner_id = ?")
+        .bind(id)
+        .bind(owner)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if mine.is_none() {
+        return Ok(false);
+    }
     // Unfiling can collide with an identical unfiled row, so re-add rather than update.
     let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM collection_items WHERE container_id = ? AND owner_id = ?")
         .bind(id)
@@ -886,7 +1109,7 @@ async fn delete_container_for_owner(pool: &SqlitePool, owner: &str, id: &str) ->
         .bind(id).bind(owner).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM containers WHERE id = ? AND owner_id = ?").bind(id).bind(owner).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(())
+    Ok(true)
 }
 
 /// Export in Mythic Tools' column layout, so the file round-trips into Mythic Tools or back into Yama.
@@ -1021,14 +1244,16 @@ mod tests {
             }).await.unwrap();
             tx.commit().await.unwrap();
         }
-        delete_container_for_owner(&pool, "u2", &box_id).await.unwrap();
+        assert!(!delete_container_for_owner(&pool, "u2", &box_id).await.unwrap(), "someone else's box");
         let linked: Option<String> = sqlx::query_scalar("SELECT container_id FROM decks WHERE id = 'd1'").fetch_one(&pool).await.unwrap();
         assert_eq!(linked.as_deref(), Some(box_id.as_str()));
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(&box_id).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 1);
 
-        delete_container_for_owner(&pool, &owner, &box_id).await.unwrap();
-        delete_container_for_owner(&pool, &owner, &box_id).await.unwrap(); // retry after a lost response
+        assert!(delete_container_for_owner(&pool, &owner, &box_id).await.unwrap());
+        // A retry after a lost response changes nothing more (the route answers 404, which the
+        // page reads as already deleted).
+        assert!(!delete_container_for_owner(&pool, &owner, &box_id).await.unwrap());
         let rows: Vec<(i64, Option<String>)> = sqlx::query_as("SELECT qty, container_id FROM collection_items WHERE owner_id = ?")
             .bind(&owner).fetch_all(&pool).await.unwrap();
         assert_eq!(rows, vec![(5, None)]);
@@ -1037,9 +1262,241 @@ mod tests {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(&box_id).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
         let empty = ensure_container(&pool, &owner, "box", "Empty").await.unwrap();
-        delete_container_for_owner(&pool, &owner, &empty).await.unwrap();
+        assert!(delete_container_for_owner(&pool, &owner, &empty).await.unwrap());
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE id = ?").bind(empty).fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
+    }
+
+    /// A printing Yama knows, priced or not, for tests through the routes.
+    async fn printing(pool: &SqlitePool, id: &str, name: &str) {
+        sqlx::query("INSERT OR IGNORE INTO cards (oracle_id, name, type_line, color_identity, legalities, updated_at) VALUES (?, ?, 'Artifact', '', '{}', 'now')")
+            .bind(format!("o-{id}")).bind(name).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES (?, ?, ?, 'tst', 'Test Set', ?, 'en', 'now')")
+            .bind(id).bind(format!("o-{id}")).bind(name).bind(id).execute(pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_ops_take_only_conditions_finishes_and_languages_yama_knows() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "collector@example.com").await;
+        printing(&pool, "p1", "Sol Ring").await;
+        let ops = |body: serde_json::Value| send(&app, Method::POST, "/api/collection/ops", Some(&token), Some(body));
+        let add = |op_id: &str, extra: serde_json::Value| {
+            let mut op = json!({ "op_id": op_id, "kind": "add", "scryfall_id": "p1", "qty": 1 });
+            op.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json!([op])
+        };
+
+        // Refused before anything is written, so the op id isn't used up either.
+        let bad = [
+            json!({ "condition": "=HYPERLINK(\"https://evil.example\")" }),
+            json!({ "condition": "nm" }),
+            json!({ "finish": "shiny" }),
+            json!({ "lang": "@SUM(1+1)" }),
+            json!({ "lang": "english" }),
+            json!({ "lang": "xx" }),
+            json!({ "scryfall_id": "p".repeat(MAX_ID + 1) }),
+            json!({ "scryfall_id": "" }),
+            json!({ "container_id": "c".repeat(MAX_ID + 1) }),
+            json!({ "qty": 0 }),
+            json!({ "qty": MAX_OP_QTY + 1 }),
+            json!({ "purchase_price": -1.0 }),
+            json!({ "purchase_price": 1.0e12 }),
+            json!({ "purchase_currency": "dollars" }),
+        ];
+        for extra in bad {
+            let (status, body) = ops(add("a", extra.clone())).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{extra}: {body}");
+        }
+        let rows: i64 = sqlx::query_scalar("SELECT (SELECT COUNT(*) FROM collection_items) + (SELECT COUNT(*) FROM applied_ops)").fetch_one(&pool).await.unwrap();
+        assert_eq!(rows, 0);
+
+        // The defaults and every listed value are fine.
+        let (status, _) = ops(add("a", json!({}))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = ops(add("b", json!({ "condition": "DMG", "finish": "etched", "lang": "ja", "purchase_price": 2.5, "purchase_currency": "USD" }))).await;
+        assert_eq!(status, StatusCode::OK);
+        // A language the list hasn't heard of yet is fine once card data has a printing in it
+        // ("change printing" sends the printing's own language).
+        sqlx::query("INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, updated_at) VALUES ('p-new', 'o-p1', 'Sol Ring', 'tst', 'Test Set', 'new', 'tlh', 'now')")
+            .execute(&pool).await.unwrap();
+        let (status, body) = ops(add("b2", json!({ "scryfall_id": "p-new", "lang": "tlh" }))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let item: String = sqlx::query_scalar("SELECT id FROM collection_items WHERE scryfall_id = 'p1' AND condition = 'NM'").fetch_one(&pool).await.unwrap();
+
+        // Changing a copy: the same lists, and a bounded note.
+        let update = |op_id: &str, extra: serde_json::Value| {
+            let mut op = json!({ "op_id": op_id, "kind": "update", "item_id": item });
+            op.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json!([op])
+        };
+        let bad = [
+            json!({ "condition": "+1" }),
+            json!({ "finish": "-foil" }),
+            json!({ "lang": "xx" }),
+            json!({ "note": "n".repeat(NOTE_MAX + 1) }),
+            json!({ "purchase_price": -0.01 }),
+            json!({ "split": MAX_OP_QTY + 1 }),
+        ];
+        for extra in bad {
+            let (status, body) = ops(update("c", extra.clone())).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{extra}: {body}");
+        }
+        let (status, _) = ops(update("c", json!({ "condition": "LP", "lang": "de", "note": "from Dave", "purchase_price": null }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let kept: (String, String, String) = sqlx::query_as("SELECT condition, finish, lang FROM collection_items WHERE id = ?").bind(&item).fetch_one(&pool).await.unwrap();
+        assert_eq!(kept, ("LP".into(), "nonfoil".into(), "de".into()));
+
+        // One request carries at most MAX_OPS changes, and each needs a usable op id.
+        let many: Vec<_> = (0..=MAX_OPS).map(|i| json!({ "op_id": format!("m{i}"), "kind": "adjust", "item_id": item, "delta": 1 })).collect();
+        assert_eq!(ops(json!(many)).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(ops(json!([{ "op_id": " ", "kind": "remove", "item_id": item }])).await.0, StatusCode::BAD_REQUEST);
+        // Ids are bounded whatever the op, since every op's JSON is kept.
+        let long_id = "i".repeat(MAX_ID + 1);
+        for op in [
+            json!({ "op_id": "e", "kind": "remove", "item_id": long_id }),
+            json!({ "op_id": "e", "kind": "adjust", "item_id": long_id, "delta": 1 }),
+            json!({ "op_id": "e", "kind": "update", "item_id": long_id }),
+            json!({ "op_id": "e", "kind": "update", "item_id": item, "scryfall_id": long_id }),
+        ] {
+            assert_eq!(ops(json!([op])).await.0, StatusCode::BAD_REQUEST, "{op}");
+        }
+        let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM applied_ops WHERE op_id = 'e'").fetch_one(&pool).await.unwrap();
+        assert_eq!(kept, 0);
+        assert_eq!(ops(json!([{ "op_id": "d", "kind": "adjust", "item_id": item, "delta": -(MAX_OP_QTY + 1) }])).await.0, StatusCode::BAD_REQUEST);
+        let qty: i64 = sqlx::query_scalar("SELECT qty FROM collection_items WHERE id = ?").bind(&item).fetch_one(&pool).await.unwrap();
+        assert_eq!(qty, 1);
+    }
+
+    #[tokio::test]
+    async fn collection_changes_are_rate_limited_per_account() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "collector@example.com").await;
+        let (_, other) = user(&pool, "other@example.com").await;
+        let mut refused = None;
+        for i in 0..2_000 {
+            let (status, _) = send(&app, Method::POST, "/api/collection/ops", Some(&token), Some(json!([]))).await;
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                refused = Some(i);
+                break;
+            }
+            assert_eq!(status, StatusCode::OK);
+        }
+        assert!(refused.is_some_and(|n| n >= 100), "a script is stopped, a person at a screen isn't: {refused:?}");
+        let (status, _) = send(&app, Method::POST, "/api/containers", Some(&token), Some(json!({ "kind": "box", "name": "Bulk" }))).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        let (status, _) = send(&app, Method::POST, "/api/collection/ops", Some(&other), Some(json!([]))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn container_names_are_checked_and_unknown_containers_are_not_found() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "collector@example.com").await;
+        let (_, other) = user(&pool, "other@example.com").await;
+        let make = |kind: &str, name: &str| send(&app, Method::POST, "/api/containers", Some(&token), Some(json!({ "kind": kind, "name": name })));
+        let (_, bulk) = make("box", "Bulk").await;
+        let (_, trade) = make("box", "Trade").await;
+        let (_, binder) = make("binder", "Rares").await;
+        let (bulk, trade, binder) = (bulk["id"].as_str().unwrap(), trade["id"].as_str().unwrap(), binder["id"].as_str().unwrap());
+        let rename = |token: &str, id: &str, name: &str| {
+            let (token, path) = (token.to_string(), format!("/api/containers/{id}"));
+            let (app, body) = (app.clone(), json!({ "name": name }));
+            async move { send(&app, Method::PATCH, &path, Some(&token), Some(body)).await.0 }
+        };
+
+        // A name another box already has is a conflict (it was a 500); a binder may share it.
+        assert_eq!(rename(&token, trade, "Bulk").await, StatusCode::CONFLICT);
+        assert_eq!(rename(&token, trade, "  Bulk  ").await, StatusCode::CONFLICT);
+        assert_eq!(rename(&token, binder, "Bulk").await, StatusCode::OK);
+        assert_eq!(rename(&token, trade, "Trade").await, StatusCode::OK, "its own name again");
+        // Blank, multi-line and overlong names are refused, for a new container too.
+        let long = "n".repeat(CONTAINER_NAME_MAX + 1);
+        for bad in ["", "   ", "two\nlines", "two\u{2029}lines", long.as_str()] {
+            assert_eq!(rename(&token, trade, bad).await, StatusCode::BAD_REQUEST, "{bad:?}");
+            assert_eq!(make("box", bad).await.0, StatusCode::BAD_REQUEST, "{bad:?}");
+        }
+        assert_eq!(rename(&token, trade, &"é".repeat(CONTAINER_NAME_MAX)).await, StatusCode::OK);
+        // A container that isn't yours, or isn't there, is not found, and nothing changes.
+        assert_eq!(rename(&other, bulk, "Mine now").await, StatusCode::NOT_FOUND);
+        assert_eq!(rename(&token, "nope", "Anything").await, StatusCode::NOT_FOUND);
+        let delete = |token: &str, id: &str| {
+            let (token, path, app) = (token.to_string(), format!("/api/containers/{id}"), app.clone());
+            async move { send(&app, Method::DELETE, &path, Some(&token), None).await.0 }
+        };
+        assert_eq!(delete(&other, bulk).await, StatusCode::NOT_FOUND);
+        assert_eq!(delete(&token, "nope").await, StatusCode::NOT_FOUND);
+        let names: Vec<String> = sqlx::query_scalar("SELECT name FROM containers ORDER BY created_at, name").fetch_all(&pool).await.unwrap();
+        assert_eq!(names.len(), 3);
+        assert!(names.contains(&"Bulk".to_string()) && !names.contains(&"Mine now".to_string()), "{names:?}");
+        assert_eq!(delete(&token, bulk).await, StatusCode::OK);
+        assert_eq!(delete(&token, bulk).await, StatusCode::NOT_FOUND, "already deleted");
+
+        // An account makes at most CONTAINERS_MAX by hand. With room for one more, two
+        // requests arriving together get one container between them.
+        let owner: String = sqlx::query_scalar("SELECT owner_id FROM containers LIMIT 1").fetch_one(&pool).await.unwrap();
+        let have: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+        for i in have..CONTAINERS_MAX - 1 {
+            sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?, ?, 'list', ?, 'now')")
+                .bind(format!("c{i}")).bind(&owner).bind(format!("List {i}")).execute(&pool).await.unwrap();
+        }
+        let (one, two) = tokio::join!(make("box", "One more"), make("box", "And another"));
+        let got = [one.0, two.0];
+        assert!(got.contains(&StatusCode::OK) && got.contains(&StatusCode::CONFLICT), "{got:?}");
+        let have: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+        assert_eq!(have, CONTAINERS_MAX);
+        // One that is already there is still answered with its id, and an unknown kind refused.
+        let (status, again) = make("binder", "Bulk").await;
+        assert_eq!((status, again["id"].as_str()), (StatusCode::OK, Some(binder)));
+        assert_eq!(make("crate", "Nope").await.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn the_purchase_total_says_which_copies_it_leaves_out() {
+        let pool = crate::db::test_pool().await;
+        let owner = user(&pool).await;
+        for id in ["p1", "p2", "p3", "p4"] {
+            printing(&pool, id, id).await;
+        }
+        let add = |op_id: &str, id: &str, qty, price: Option<f64>, currency: Option<&str>, proxy| Op {
+            op_id: op_id.into(),
+            device_id: None,
+            op: OpKind::Add {
+                scryfall_id: id.into(),
+                qty,
+                copy: CopyKind { condition: nm(), finish: nonfoil(), lang: en(), proxy, ..Default::default() },
+                container_id: None,
+                purchase_price: price,
+                purchase_currency: currency.map(String::from),
+            },
+        };
+        let mut tx = pool.begin().await.unwrap();
+        for op in [
+            add("a", "p1", 2, Some(1.5), Some("USD"), false),
+            add("b", "p2", 3, None, None, false),
+            add("c", "p3", 4, Some(9.0), Some("EUR"), false),
+            add("d", "p4", 1, Some(0.25), None, false),
+            add("e", "p4", 5, Some(100.0), Some("USD"), true),
+        ] {
+            apply_op(&mut tx, &owner, &op).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+        let s = summary_for(&pool, &owner).await.unwrap();
+        // $3.00 for two copies and $0.25 for one with no currency named (dollars). The three
+        // with no price and the four paid in euros are counted, not added in as $0; proxies
+        // are left out of all of it.
+        assert_eq!(s.purchase_total_usd, 3.25);
+        assert_eq!((s.copies_without_purchase_price, s.copies_paid_in_other_currency), (3, 4));
+        assert_eq!((s.copies, s.proxies), (15, 5));
     }
 
     #[test]

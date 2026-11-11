@@ -149,6 +149,9 @@ pub struct Limits {
     pub playgroup_writes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
+    /// Collection changes (batches of ops, and making, renaming and deleting containers), per
+    /// account. A scanning session sends a batch per card, so this allows one a second.
+    pub collection_writes: RateLimiter,
     /// Scan photos kept for improving the scanner (scan_samples.rs), per account.
     pub scan_samples: RateLimiter,
     /// Mythic Tools bridge game previews and imports, per account (bridges/mythic). The page
@@ -191,6 +194,7 @@ impl Default for Limits {
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             playgroup_writes: RateLimiter::new("playgroup changes", 60, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
+            collection_writes: RateLimiter::new("collection changes", 600, 10 * MINUTE),
             scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
             mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),

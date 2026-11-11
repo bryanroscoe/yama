@@ -126,9 +126,10 @@ async fn a_stranger_sees_none_of_another_accounts_things() {
         let (status, res) = send(&app, method.clone(), &path, Some(&st), body).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}: {res}");
     }
-    // Deleting Bryan's box or naming his card in an op changes nothing (the delete answers 200
-    // because it is scoped to the caller's own boxes, of which this isn't one).
-    let _ = send(&app, Method::DELETE, &format!("/api/containers/{container}"), Some(&st), None).await;
+    // Deleting Bryan's box or naming his card in an op changes nothing (the delete is scoped to
+    // the caller's own boxes, of which this isn't one: not found).
+    let (status, _) = send(&app, Method::DELETE, &format!("/api/containers/{container}"), Some(&st), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
     let (_, boxes) = get(&app, &bt, "/api/containers").await;
     assert_eq!(boxes.as_array().unwrap().len(), 1, "{boxes}");
     let remove = json!([{ "op_id": "op-x", "kind": "remove", "item_id": item }]);

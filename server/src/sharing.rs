@@ -934,7 +934,7 @@ async fn collection_text(State(st): State<AppState>, address: ClientAddress, hea
 }
 
 fn csv_field(s: &str) -> String {
-    if s.contains([',', '"', '\n']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
+    if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
 }
 
 async fn collection_csv(State(st): State<AppState>, address: ClientAddress, headers: HeaderMap, Path(handle): Path<String>) -> AppResult<Response> {
@@ -954,8 +954,12 @@ async fn collection_csv(State(st): State<AppState>, address: ClientAddress, head
             csv_field(&l.set_code),
             csv_field(&l.collector_number),
             foil,
-            csv_field(&l.condition),
-            csv_field(&l.lang)
+            // Condition and language are what the owner's client or file stored. Ops are checked
+            // against Yama's lists now; an older row or an imported file can still hold anything,
+            // so text a spreadsheet would run as a formula is defused, as the game export does.
+            // The name, set and number come from card data and are written as they are.
+            csv_field(&crate::game_export::cell(&l.condition)),
+            csv_field(&crate::game_export::cell(&l.lang))
         ));
     }
     let res = fresh(&headers, body, "text/csv; charset=utf-8");
