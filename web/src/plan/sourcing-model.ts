@@ -1,8 +1,8 @@
 import { safeUrl, type ResearchDocument } from "../research/api";
 import { parseDeckList } from "@yama/core";
 
-export interface SourceUse { id: string; deck: string; deck_name: string; category: string; build_match?: boolean }
-export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean }
+export interface SourceUse { id: string; deck: string; deck_name: string; category: string; build_match?: boolean; brackets?: number[] }
+export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean; title?: string; finish?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string }
 export interface SourceCard { name: string; status: string; uses: SourceUse[]; offers: SourceOffer[] }
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => v && typeof v === "object" && !Array.isArray(v) ? v as Obj : {};
@@ -20,11 +20,11 @@ function normalizeSourceCards(value: unknown): SourceCard[] {
       if (!id || !deck) return [];
       return [{ id, deck, deck_name: str(u.deck_name) || deck, category: str(u.category) }];
     });
-    const offers = list(c.best_offer_per_store).flatMap(rawOffer => {
+    const offers = list(c.offers ?? c.best_offer_per_store).flatMap(rawOffer => {
       const o = obj(rawOffer), url = safeUrl(str(o.url));
       if (!url || !str(o.store)) return [];
       const qty = number(o.qty);
-      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), qualifies: o.qualifies === true }];
+      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), qualifies: o.qualifies === true, title: str(o.title), finish: str(o.finish), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id) }];
     });
     return [{ name, status: str(c.status), uses, offers }];
   });
@@ -52,6 +52,7 @@ export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks:
     const builds = d.builds.filter(b => !bracket || String(b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : null)) === bracket);
     names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side").map(l => l.name.split(" // ")[0]!.trim().toLowerCase()))));
   }
+  const bracketsFor = (deck: string, card: string) => doc.decks.find(d => d.key === deck)?.builds.filter(b => parseDeckList(b.list).some(l => l.board !== "side" && l.name.split(" // ")[0]!.trim().toLowerCase() === card.split(" // ")[0]!.trim().toLowerCase())).map(b => b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : 0)).filter(b => b > 0) ?? [];
   const groups = new Map<string, SourceCard>();
   for (const c of cards) {
     const uses = c.uses.flatMap(u => {
@@ -59,18 +60,20 @@ export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks:
       // Permanent real-card wishes and bonus reservations are explicitly outside some builds.
       // They remain optional wishes, never unresolved target demand.
       const standalone = !bracket && ["arrived proxy: optional real-card wishlist", "reserved selected500 bonus: optional real substitute"].includes(u.category);
-      return decks.has(u.deck) && (inBuild || standalone) && (scope === "all" || (scope === "optional") === optionalUse(u)) ? [{ ...u, build_match: inBuild }] : [];
+      return decks.has(u.deck) && (inBuild || standalone) && (scope === "all" || (scope === "optional") === optionalUse(u)) ? [{ ...u, build_match: inBuild, brackets: [...new Set(bracketsFor(u.deck,c.name))].filter(b => !bracket || String(b) === bracket) }] : [];
     });
     if (!uses.length) continue;
     const row = groups.get(c.name) ?? { ...c, uses: [], offers: [] };
     const ids = new Set(row.uses.map(u => u.id));
     row.uses.push(...uses.filter(u => !ids.has(u.id) && ids.add(u.id)));
-    const urls = new Set(row.offers.map(o => o.url));
-    row.offers.push(...c.offers.filter(o => !urls.has(o.url) && urls.add(o.url)));
+    const urls = new Set(row.offers.map(offerId));
+    row.offers.push(...c.offers.filter(o => !urls.has(offerId(o)) && urls.add(offerId(o))));
     groups.set(c.name, row);
   }
   return [...groups.values()].sort((a,b) => a.name.localeCompare(b.name));
 }
+
+export const offerId = (o: SourceOffer): string => o.variant_id ? `${o.url}#variant=${encodeURIComponent(o.variant_id)}` : o.url;
 
 export interface SourceChoice { offer: string; qty: number }
 export const choicesFor = (choices: Record<string, SourceChoice[]>, name: string): SourceChoice[] => Object.hasOwn(choices,name) && Array.isArray(choices[name]) ? choices[name]! : [];
@@ -83,9 +86,10 @@ export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceCh
     let remaining = row.uses.length;
     const seen = new Set<string>();
     for (const choice of choicesFor(choices,row.name)) {
-      const offer = row.offers.find(o => o.url === choice.offer);
-      if (!offer?.qualifies || offer.price == null || !Number.isFinite(choice.qty) || seen.has(offer.url)) continue;
-      seen.add(offer.url);
+      const matches = row.offers.filter(o => offerId(o) === choice.offer || o.url === choice.offer);
+      const offer = matches.length === 1 ? matches[0] : undefined;
+      if (!offer?.qualifies || offer.price == null || !Number.isFinite(choice.qty) || seen.has(offerId(offer))) continue;
+      seen.add(offerId(offer));
       const origin = new URL(offer.url).origin;
       const sku = `${origin}|${offer.variant_id || offer.url}`;
       const available = offer.qty == null ? Infinity : Math.max(0, offer.qty - (stockUsed.get(sku) ?? 0));
@@ -114,10 +118,31 @@ export function knownStockChoices(rows: SourceCard[]): Record<string, SourceChoi
   for (const row of rows) {
     let remaining = row.uses.length;
     choices[row.name] = [];
-    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty != null && o.qty > 0).sort((a,b) => a.price! - b.price!)) {
+    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty != null && o.qty > 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price! - b.price!)) {
       const qty = Math.min(remaining, o.qty!);
-      if (qty) choices[row.name]!.push({ offer: o.url, qty });
+      if (qty) choices[row.name]!.push({ offer: offerId(o), qty });
       remaining -= qty;
+    }
+  }
+  return choices;
+}
+
+/** Near Mint is the shopping default; missing condition never silently counts as NM. */
+export const nearMint = (condition: string) => /^(nm|near[ -]?mint)(?:$|\s|\/)/i.test(condition.trim());
+export function offerRows(rows: SourceCard[], condition: string, store: string): SourceCard[] {
+  return rows.map(c => ({...c, offers:c.offers.filter(o => (!store || o.store === store) && (condition !== "nm" || nearMint(o.condition)))}));
+}
+/** Fill requested quantities, even when a retailer omits stock count. This prepares a cart, not a stock claim. */
+export function allChoices(rows: SourceCard[]): Record<string, SourceChoice[]> {
+  const choices: Record<string, SourceChoice[]> = Object.create(null);
+  for (const row of rows) {
+    let remaining = row.uses.length;
+    choices[row.name] = [];
+    for (const o of [...row.offers].filter(o => o.qualifies && o.price != null && o.qty !== 0).sort((a,b) => Number(nearMint(b.condition))-Number(nearMint(a.condition)) || a.price!-b.price!)) {
+      const qty = Math.min(remaining,o.qty ?? remaining);
+      if(qty > 0) choices[row.name]!.push({offer:offerId(o),qty});
+      remaining -= qty;
+      if(!remaining)break;
     }
   }
   return choices;
