@@ -126,7 +126,9 @@ pub struct Reading {
     /// The least bracket the card rules allow: none of the Game Changers in Bracket 2, up to
     /// three in Bracket 3, and with a Commander Spellbook check at least the bracket its tag
     /// names (mass land denial, chained extra turns, early two-card combos). `None` when the
-    /// card data has no Game Changer flags and there is no check.
+    /// card data has no Game Changer flags and there is no check, and when nothing was found
+    /// but some of the list couldn't be read (a card missing from the card data, a name that
+    /// matched nothing).
     pub rules: Option<i64>,
     /// What the rules look at that this list holds, in words: its Game Changers, and from a
     /// Spellbook check its mass land denial, extra turns and two-card combos.
@@ -167,8 +169,10 @@ fn plays_like(power: f64, margin: f64) -> [i64; 2] {
 }
 
 /// The bracket reading. `game_changers` are the list's, from Yama's own card data (`None`
-/// when it has no flags yet, and Spellbook's list stands in if there is a check).
-fn reading(power: f64, margin: f64, game_changers: Option<&[String]>, check: Option<&CheckResult>) -> Reading {
+/// when it has no flags yet, and Spellbook's list stands in if there is a check). `incomplete`
+/// when some of the list couldn't be read at all: what was found still stands, since a rule
+/// can only ask for more, but "nothing found" is then no reading.
+fn reading(power: f64, margin: f64, game_changers: Option<&[String]>, check: Option<&CheckResult>, incomplete: bool) -> Reading {
     let plural = |n: usize| if n == 1 { "" } else { "s" };
     let changers: Option<Vec<String>> = game_changers.map(<[String]>::to_vec).or_else(|| check.map(|c| c.game_changers.clone()));
     let mut rules = changers.as_ref().map(|g| match g.len() {
@@ -196,7 +200,7 @@ fn reading(power: f64, margin: f64, game_changers: Option<&[String]>, check: Opt
             rules = Some(rules.map_or(b, |r| r.max(b)));
         }
     }
-    Reading { plays_like: plays_like(power, margin), rules, flags }
+    Reading { plays_like: plays_like(power, margin), rules: rules.filter(|r| !incomplete || *r > 2), flags }
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -507,7 +511,7 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
         names.dedup();
         names
     });
-    let bracket = reading(power, margin, game_changers.as_deref(), check);
+    let bracket = reading(power, margin, game_changers.as_deref(), check, !unknown_cards.is_empty());
 
     let mut vectors = vec![];
     for v in [Vector::Speed, Vector::Consistency, Vector::Interaction, Vector::Mana, Vector::Threats] {
@@ -589,6 +593,8 @@ pub fn add_unresolved(a: &mut DeckAnalysis, names: &[String]) {
     a.unknown_cards.extend(names.iter().cloned());
     (a.margin, a.confidence) = spread(a.unknown_cards.len(), &a.combos, a.unscored, a.nonland);
     a.bracket.plays_like = plays_like(a.power, a.margin);
+    // A name that matched no card could be anything, a Game Changer included.
+    a.bracket.rules = a.bracket.rules.filter(|r| *r > 2);
 }
 
 /// The facts for a list from loaded card data and produced mana.

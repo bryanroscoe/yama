@@ -193,30 +193,30 @@ fn unresolved_names_count_as_unknown_cards() {
 fn the_bracket_reading_keeps_power_and_the_card_rules_apart() {
     let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     // A stock precon holding one Game Changer: it plays like Bracket 2, and the rules say 3.
-    let precon = reading(3.8, 0.7, Some(&names(&["Narset, Parter of Veils"])), None);
+    let precon = reading(3.8, 0.7, Some(&names(&["Narset, Parter of Veils"])), None, false);
     assert_eq!((precon.plays_like, precon.rules), ([2, 2], Some(3)));
     assert_eq!(precon.flags, ["1 Game Changer: Narset, Parter of Veils"]);
     // A tuned list with none: the rules allow Bracket 2, and the margin reaches Bracket 3.
-    let tuned = reading(4.6, 0.7, Some(&[]), None);
+    let tuned = reading(4.6, 0.7, Some(&[]), None, false);
     assert_eq!((tuned.plays_like, tuned.rules, tuned.flags.len()), ([2, 3], Some(2), 0));
     // Four Game Changers are Bracket 4 by the rules whatever the power.
-    assert_eq!(reading(5.5, 0.7, Some(&names(&["a", "b", "c", "d"])), None).rules, Some(4));
+    assert_eq!(reading(5.5, 0.7, Some(&names(&["a", "b", "c", "d"])), None, false).rules, Some(4));
     // No flags in the card data and no check: the rules can't be read.
-    assert_eq!(reading(7.5, 0.7, None, None), Reading { plays_like: [3, 4], rules: None, flags: vec![] });
+    assert_eq!(reading(7.5, 0.7, None, None, false), Reading { plays_like: [3, 4], rules: None, flags: vec![] });
 
     // A Spellbook check adds what it flags, and its tag can only raise the rules reading.
     let mut r = check(&serde_json::json!([])).unwrap();
     r.mld = names(&["Ruination"]);
     (r.bracket_tag, r.bracket) = ("R".into(), Some(4));
-    let ruined = reading(3.0, 0.7, Some(&[]), Some(&r));
+    let ruined = reading(3.0, 0.7, Some(&[]), Some(&r), false);
     assert_eq!((ruined.plays_like, ruined.rules), ([2, 2], Some(4)));
     assert_eq!(ruined.flags, ["Mass land denial: Ruination"]);
     (r.bracket_tag, r.bracket) = ("C".into(), Some(2));
     r.mld.clear();
-    assert_eq!(reading(3.0, 0.7, Some(&names(&["Rhystic Study"])), Some(&r)).rules, Some(3));
+    assert_eq!(reading(3.0, 0.7, Some(&names(&["Rhystic Study"])), Some(&r), false).rules, Some(3));
     // Without Yama's own flags, Spellbook's list of Game Changers stands in.
     r.game_changers = names(&["Rhystic Study", "The One Ring"]);
-    let stand_in = reading(3.0, 0.7, None, Some(&r));
+    let stand_in = reading(3.0, 0.7, None, Some(&r), false);
     assert_eq!((stand_in.rules, stand_in.flags.as_slice()), (Some(3), ["2 Game Changers: Rhystic Study, The One Ring".to_string()].as_slice()));
 }
 
@@ -236,8 +236,20 @@ fn a_list_reads_its_own_game_changers_and_a_wider_margin_moves_what_it_plays_lik
     let unflagged = card("Test Rock", 2.0, "Artifact", "{T}: Add {C}.");
     let b = analyze(&[Entry { card: &cards[0], facts: Some(&study) }, Entry { card: &cards[1], facts: Some(&unflagged) }], None, &mut Cache::default());
     assert_eq!(b.bracket.rules, None);
+    // What was found stands when part of the list can't be read; "nothing found" does not.
+    let missing = DeckCard { oracle_id: "o-missing".into(), name: "Not In The Data".into(), qty: 1, board: Board::Main };
+    let partly = analyze(&[Entry { card: &cards[0], facts: Some(&study) }, Entry { card: &missing, facts: None }], None, &mut Cache::default());
+    assert_eq!(partly.bracket.rules, Some(3));
+    let clean = analyze(&[Entry { card: &cards[1], facts: Some(&rock) }], None, &mut Cache::default());
+    assert_eq!(clean.bracket.rules, Some(2));
+    let unread = analyze(&[Entry { card: &cards[1], facts: Some(&rock) }, Entry { card: &missing, facts: None }], None, &mut Cache::default());
+    assert_eq!(unread.bracket.rules, None, "the missing card could be a Game Changer");
+    let mut pasted = clean.clone();
+    add_unresolved(&mut pasted, &["Rhystic Stuudy".into()]);
+    assert_eq!(pasted.bracket.rules, None);
     // The reading follows the margin when unresolved names widen it.
     a.power = 4.4;
     add_unresolved(&mut a, &["Sol Rnig".into(), "Homebrew".into(), "Another".into(), "More".into(), "Again".into()]);
     assert_eq!(a.bracket.plays_like, [2, 3], "margin {}", a.margin);
+    assert_eq!(a.bracket.rules, Some(3), "a Game Changer that was found still counts");
 }

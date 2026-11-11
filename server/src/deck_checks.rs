@@ -922,11 +922,12 @@ pub async fn backfill(pool: &SqlitePool) -> sqlx::Result<u64> {
     .rows_affected())
 }
 
-/// With no person's deck due: ask about one public stock list (precons.rs). True when it got an
-/// answer, so the worker looks again at once; a failure or nothing to ask lets it rest.
+/// With no person's deck due: ask about one public stock list (precons.rs). True when the worker
+/// should look again at once (it got an answer, or a person's deck fell due while it waited); a
+/// failure or nothing to ask lets it rest.
 async fn stock_list_turn(pool: &SqlitePool, http: &reqwest::Client, url: &str, research: &Research) -> bool {
     match precons::run_next(pool, http, url, Some(research)).await {
-        Ok(asked) => asked,
+        Ok(turn) => turn != precons::Turn::Idle,
         Err(CheckError::RateLimited(wait)) => {
             tracing::warn!(secs = wait.as_secs(), "Commander Spellbook rate limit; pausing stock list checks");
             false

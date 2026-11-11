@@ -85,16 +85,31 @@ async fn next(pool: &SqlitePool) -> anyhow::Result<Option<(String, String, Vec<D
     Ok(None)
 }
 
-/// Ask Spellbook about one stock list that is due, and store the answer or the failure. `Ok(false)`
-/// when none is due. With `pacer`, the request waits for Spellbook's shared turn and a 429 holds
-/// everyone off, as for a person's deck ([`run_one`]).
-pub(super) async fn run_next(pool: &SqlitePool, http: &reqwest::Client, url: &str, pacer: Option<&Research>) -> Result<bool, CheckError> {
+/// What a stock list's turn did.
+#[derive(Debug, PartialEq)]
+pub(super) enum Turn {
+    /// Asked Spellbook and stored the answer.
+    Asked,
+    /// A person's deck fell due while this waited for its turn: theirs goes first.
+    Yielded,
+    /// No stock list is due.
+    Idle,
+}
+
+/// Ask Spellbook about one stock list that is due, and store the answer or the failure. With
+/// `pacer`, the request waits for Spellbook's shared turn and a 429 holds everyone off, as for a
+/// person's deck ([`run_one`]). That wait can be long, so a person's deck that fell due meanwhile
+/// takes the turn instead.
+pub(super) async fn run_next(pool: &SqlitePool, http: &reqwest::Client, url: &str, pacer: Option<&Research>) -> Result<Turn, CheckError> {
     let failed = |what: &str, e: &dyn std::fmt::Display| CheckError::Failed(format!("couldn't {what}: {e}"));
     let Some((id, hash, cards)) = next(pool).await.map_err(|e| failed("read the stock lists", &e))? else {
-        return Ok(false);
+        return Ok(Turn::Idle);
     };
     if let Some(pacer) = pacer {
         pacer.pace(Provider::Spellbook).await;
+        if matches!(next_pending(pool).await, Ok(Next::Due(_))) {
+            return Ok(Turn::Yielded);
+        }
     }
     let started = stamp();
     // Spellbook takes oracle ids; a card Yama's data doesn't know has none to send.
@@ -130,19 +145,24 @@ pub(super) async fn run_next(pool: &SqlitePool, http: &reqwest::Client, url: &st
         Err(e) => {
             sqlx::query(
                 "INSERT INTO precon_checks (list_hash, source, precon_id, attempts, last_attempt_at, error) VALUES (?, ?, ?, 1, ?, ?)
-                 ON CONFLICT (list_hash, source) DO UPDATE SET attempts = attempts + 1, last_attempt_at = excluded.last_attempt_at, error = excluded.error",
+                 ON CONFLICT (list_hash, source) DO UPDATE SET
+                    attempts = CASE WHEN precon_checks.attempts >= ? THEN 1 ELSE precon_checks.attempts + 1 END,
+                    last_attempt_at = excluded.last_attempt_at, error = excluded.error",
             )
             .bind(&hash)
             .bind(SPELLBOOK)
             .bind(&id)
             .bind(&started)
             .bind(e.to_string())
+            // A row at the limit is only tried again after its long rest ([`due`]): a failure
+            // then starts a new round of tries, not another month's wait.
+            .bind(MAX_ATTEMPTS)
             .execute(pool)
             .await
         }
     };
     stored.map_err(|e| failed("save a stock list's check", &e))?;
-    outcome.map(|_| true)
+    outcome.map(|_| Turn::Asked)
 }
 
 #[cfg(test)]
@@ -178,9 +198,9 @@ mod tests {
         precon(&pool, "riders-of-rohan", rohan()).await;
         let url = super::super::tests::fake_spellbook(200).await;
         let http = crate::routes::http_client();
-        assert!(run_next(&pool, &http, &url, None).await.unwrap());
+        assert_eq!(run_next(&pool, &http, &url, None).await.unwrap(), Turn::Asked);
         // Answered: nothing is due until the answer is old.
-        assert!(!run_next(&pool, &http, &url, None).await.unwrap());
+        assert_eq!(run_next(&pool, &http, &url, None).await.unwrap(), Turn::Idle);
 
         let lists = crate::public_precons::stock_lists(&pool).await.unwrap();
         let found = results(&pool).await.unwrap();
@@ -194,7 +214,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        assert!(run_next(&pool, &http, &url, None).await.unwrap());
+        assert_eq!(run_next(&pool, &http, &url, None).await.unwrap(), Turn::Asked);
         assert_eq!(results(&pool).await.unwrap().len(), 2);
 
         // No person's deck check was made or read.
@@ -208,7 +228,7 @@ mod tests {
         precon(&pool, "riders-of-rohan", rohan()).await;
         let http = crate::routes::http_client();
         let good = super::super::tests::fake_spellbook(200).await;
-        assert!(run_next(&pool, &http, &good, None).await.unwrap());
+        assert_eq!(run_next(&pool, &http, &good, None).await.unwrap(), Turn::Asked);
         // The answer goes stale, and Spellbook is down when it is asked again.
         sqlx::query("UPDATE precon_checks SET checked_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
         let down = super::super::tests::fake_spellbook(500).await;
@@ -218,7 +238,42 @@ mod tests {
         assert!(error.is_some_and(|e| e.contains("500")));
         // The old answer still reads, and the next try waits out its pause.
         assert_eq!(results(&pool).await.unwrap().len(), 1);
-        assert!(!run_next(&pool, &http, &good, None).await.unwrap());
+        assert_eq!(run_next(&pool, &http, &good, None).await.unwrap(), Turn::Idle);
+    }
+
+    #[tokio::test]
+    async fn a_failure_after_the_long_rest_starts_a_new_round_of_tries() {
+        let pool = crate::db::test_pool().await;
+        precon(&pool, "riders-of-rohan", rohan()).await;
+        let http = crate::routes::http_client();
+        let down = super::super::tests::fake_spellbook(500).await;
+        assert!(run_next(&pool, &http, &down, None).await.is_err());
+        // Given up a month ago.
+        sqlx::query("UPDATE precon_checks SET attempts = ?, last_attempt_at = '2026-01-01T00:00:00.000Z'").bind(MAX_ATTEMPTS).execute(&pool).await.unwrap();
+        assert!(run_next(&pool, &http, &down, None).await.is_err());
+        let attempts: i64 = sqlx::query_scalar("SELECT attempts FROM precon_checks").fetch_one(&pool).await.unwrap();
+        assert_eq!(attempts, 1);
+        // So the next try waits a minute, not another month.
+        assert_eq!(run_next(&pool, &http, &down, None).await.unwrap(), Turn::Idle);
+        sqlx::query("UPDATE precon_checks SET last_attempt_at = '2026-01-01T00:00:00.000Z'").execute(&pool).await.unwrap();
+        assert!(run_next(&pool, &http, &down, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_persons_deck_that_fell_due_takes_the_turn() {
+        let pool = crate::db::test_pool().await;
+        precon(&pool, "riders-of-rohan", rohan()).await;
+        sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('u1', 'a@example.com', 'A', '2026-10-19T00:00:00Z')").execute(&pool).await.unwrap();
+        let cards = vec![DeckCard { oracle_id: ROHAN.into(), name: "Éowyn, Shieldmaiden".into(), qty: 1, board: Board::Commander }];
+        crate::decks::create_deck_with_cards(&pool, "u1", "Rohan", None, cards).await.unwrap();
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(_)));
+        let pacer = Research::new(false, pool.clone());
+        let url = super::super::tests::fake_spellbook(200).await;
+        assert_eq!(run_next(&pool, &crate::routes::http_client(), &url, Some(&pacer)).await.unwrap(), Turn::Yielded);
+        // Nothing was asked about the stock list, and the person's check still waits its turn.
+        let stock: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM precon_checks").fetch_one(&pool).await.unwrap();
+        assert_eq!(stock, 0);
+        assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(_)));
     }
 
     #[test]
