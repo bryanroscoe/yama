@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
-import { CardImage, ErrorText, Sheet } from "../components/ui";
+import { CardImage, ErrorText, Sheet, Loading } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -99,7 +99,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   if (rescanning) {
     return (
       <div className="scan-overlay">
-        <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             onAccept={(c) =>
               rescanned(c).catch((e: unknown) => {
@@ -170,7 +170,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           {scanNote && <p className="small" role="status">{scanNote}</p>}
           {picking && (
             <>
-              {printings.isPending && <p className="dim small">Finding the printings…</p>}
+              {printings.isPending && <Loading small>Finding the printings…</Loading>}
               {printings.error instanceof ApiError && printings.error.status === 404 ? (
                 <p className="dim small">Yama's card data doesn't have this printing, so it can't list the others. Rescan this card instead.</p>
               ) : (

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../../api";
-import { ErrorText } from "../../components/ui";
+import { ErrorText, Loading } from "../../components/ui";
 import { deckApplyLabel, deckResultText, deckStatusText, type MythicApplied, type MythicDeckPreview, type MythicDeckRow, type MythicExport } from "./mythic";
 
 /** The import page's decks: each Mythic deck linked to a Yama deck, imported, or skipped. */
@@ -39,7 +39,7 @@ export function MythicDecks({ file }: { file: { name: string; data: MythicExport
           <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
         </div>
       )}
-      {preview.isLoading && <p className="dim">Reading the decks…</p>}
+      {preview.isLoading && <Loading>Reading the decks…</Loading>}
       {p && (
         <>
           <ul className="mythic-games">

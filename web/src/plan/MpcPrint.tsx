@@ -17,6 +17,7 @@ import { Link } from "react-router";
 import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { fmtDateTime } from "@yama/core";
+import { EmptyState } from "../components/ui";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
 export interface MpcImages {
@@ -182,7 +183,7 @@ export function MpcPrint() {
         Images for your next print order from MPC Autofill, a community index of print-ready scans. The Yama print helper for Chrome
         fills them into a MakePlayingCards project; you check MPC's preview and add to cart yourself. <Link to="/decks/plans/get#print">Back to Prints</Link>
       </p>
-      {!cards.length && <p className="empty">No prints waiting. Prints appear once a tracked plan prints a card.</p>}
+      {!cards.length && <EmptyState>No prints waiting. Prints appear once a tracked plan prints a card.</EmptyState>}
       {cards.length > 0 && (
         <>
           <section className="plan-section mpc-settings" aria-label="Project">

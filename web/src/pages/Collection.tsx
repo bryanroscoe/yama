@@ -7,7 +7,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
+import { CardImage, Details, ErrorText, Sheet, Loading, EmptyState } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -230,14 +230,12 @@ export function CollectionPage() {
         )}
         <ErrorText error={items.error ?? summary.error} />
         {items.data && items.data.length === 0 && !query && !container && kind === "all" && (
-          <div className="empty">
-            <p>No cards yet. Import a collection or add cards from search.</p>
-          </div>
+          <EmptyState>No cards yet. Import a collection or add cards from search.</EmptyState>
         )}
         {items.data && items.data.length === 0 && (query || container || kind !== "all") && (
-          <p className="empty">
+          <EmptyState>
             {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{query ? ` called "${query}"` : ""}.
-          </p>
+          </EmptyState>
         )}
         <ul className="coll-list">
           {shown.map((i) => {
@@ -367,7 +365,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           CSV file
           <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && void choose(e.target.files[0])} />
         </label>
-        {preview.isFetching && <p className="dim">Checking the file against your collection…</p>}
+        {preview.isFetching && <Loading>Checking the file against your collection…</Loading>}
         <ErrorText error={preview.error ?? apply.error} />
         {r && (
           <>
@@ -698,7 +696,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   );
   return (
     <div className="scan-overlay">
-      <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+      <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
         <ScannerView
           onAccept={accept}
           onClose={onClose}

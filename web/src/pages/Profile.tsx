@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { api, publicOrigin, type Sharing } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { useCopy } from "../decks/ShareDeck";
 import { AccountSettings } from "./AccountSettings";
 import "./profile.css";
@@ -34,7 +34,7 @@ export function ProfilePage() {
 
     {enabled && <section className="profile-public" aria-labelledby="profile-public-title">
       <h2 id="profile-public-title">Your public profile</h2>
-      {sharing.isPending && <p>Loading profile…</p>}
+      {sharing.isPending && <Loading>Loading profile…</Loading>}
       <ErrorText error={sharing.error} />
       {profile ? <>
         <div className="row">

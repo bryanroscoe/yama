@@ -8,7 +8,7 @@ import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { CardImage, ErrorText, Pips } from "../components/ui";
+import { CardImage, ErrorText, Pips, EmptyState } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -93,10 +93,7 @@ export function DecksPage() {
       <ChangesBanner />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
-        <div className="empty">
-          <p>No decks yet.</p>
-          <Link className="button primary" to="/decks/import">Add a deck</Link>
-        </div>
+        <EmptyState action={<Link className="button primary" to="/decks/import">Add a deck</Link>}>No decks yet.</EmptyState>
       )}
       <ul className="deck-tiles">
         {/* Configurations and bracket builds live on the deck's own page, not under its tile. */}

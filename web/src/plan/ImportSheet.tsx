@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { importReport } from "../research/api";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet, Loading } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -83,7 +83,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
             </label>
           </>
         )}
-        {(check.isPending || read.isPending) && <p className="dim">Checking the file…</p>}
+        {(check.isPending || read.isPending) && <Loading>Checking the file…</Loading>}
         <ErrorText error={read.error ?? check.error ?? apply.error ?? saveNote.error} />
         {note && (
           <>

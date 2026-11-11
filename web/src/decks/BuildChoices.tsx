@@ -7,7 +7,7 @@ import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
 import { AreaHead, BackButton } from "../components/DeckTabs";
-import { ErrorText, Pips } from "../components/ui";
+import { ErrorText, Pips, Loading } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -57,7 +57,7 @@ export function BuildChoicesPage() {
       actions={<><Link className="button primary" to="/decks/plans">Get a plan with bracket builds</Link><Link className="button outline" to="/decks">Open your decks</Link></>}
     />
     {errors}
-    {loading && <p className="dim">Loading your decks and plans…</p>}
+    {loading && <Loading>Loading your decks and plans…</Loading>}
     {!loading && asked && <p>That deck has no lists to swap between. Pick another below.</p>}
     {!loading && !shown.length && <p>No saved decks or plan builds yet.</p>}
     {!loading && shown.length > 0 && <>
@@ -213,7 +213,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
           {from.source !== to.source && <p className="small dim">{from.source}. <Link to={from.href}>{openLabel(from)}</Link></p>}
           <ErrorText error={left.error || right.error} />
           {comparison.error && <p role="alert" className="error">{comparison.error}</p>}
-          {!left.text || !right.text ? <p className="dim">Loading both lists…</p> : swaps && (swaps.length ? <ChangesTable rows={rowsOf} /> : <p className="dim">These lists play the same cards.</p>)}
+          {!left.text || !right.text ? <Loading>Loading both lists…</Loading> : swaps && (swaps.length ? <ChangesTable rows={rowsOf} /> : <p className="dim">These lists play the same cards.</p>)}
           <p className="small dim">Bracket labels are the plans' own assessments; legality isn't rechecked here. Printing doesn't mark any swap as done.</p>
         </section>
 

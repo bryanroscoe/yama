@@ -6,7 +6,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from "react-route
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
-import { CardImage, ErrorText, Pips } from "../components/ui";
+import { CardImage, ErrorText, Pips, Loading } from "../components/ui";
 import {
   checks,
   commanderChoices,
@@ -151,7 +151,7 @@ function ImportEditor() {
 
         <section className="import-check" aria-labelledby="imp-check" aria-busy={check.isPending}>
           <h2 id="imp-check">Check it</h2>
-          {check.isPending && <p className="dim">Reading the list…</p>}
+          {check.isPending && <Loading>Reading the list…</Loading>}
           <ErrorText error={check.error} />
           {!check.isPending && !preview && !check.error && <p className="dim">Your deck shows here once there's a list to read.</p>}
           <LinkNote preview={preview} stepsWhere="under Import from a file or another site" />

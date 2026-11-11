@@ -26,7 +26,7 @@ import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { BackButton } from "../components/DeckTabs";
 import { useScrollToHash } from "../components/useScrollToHash";
-import { Pips } from "../components/ui";
+import { Pips, EmptyState } from "../components/ui";
 import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -54,7 +54,7 @@ export function PlanPage() {
     return (
       <div className="page">
         <PlansHead title="Plans" />
-        <p className="empty">There's no plan called "{key}" in your plans.</p>
+        <EmptyState>There's no plan called "{key}" in your plans.</EmptyState>
         <Link to="/decks/plans">All your plans</Link>
       </div>
     );

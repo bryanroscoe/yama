@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { ErrorText, EmptyState } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { GroupStats } from "../components/GroupStats";
 import { Members } from "./GroupMembers";
@@ -27,7 +27,7 @@ export function GroupPage() {
       {groups.data?.length === 0 && (
         <>
           <h1>Playgroup</h1>
-          <p className="empty">No playgroup yet.</p>
+          <EmptyState>No playgroup yet.</EmptyState>
         </>
       )}
       {group && (

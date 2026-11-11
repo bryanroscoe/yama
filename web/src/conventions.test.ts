@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// The app keeps one way of doing each common thing.
+// The app keeps one way of doing each common thing (design/system/shared-code.md).
 // These tests fail when a page grows its own again, so it can't drift back.
 const WEB = fileURLToPath(new URL(".", import.meta.url));
 const CORE = fileURLToPath(new URL("../../packages/core/src/", import.meta.url));
@@ -32,6 +32,25 @@ function uses(pattern: RegExp, allowed: (file: string, line: string) => boolean 
   }
   return found;
 }
+
+// The online board belongs to another stream of work; its files join these rules when it does.
+const BOARD = /^web\/src\/play\//;
+
+describe("waiting and empty states use the shared components", () => {
+  it("no page writes its own Loading… paragraph", () => {
+    // Use <Loading>Loading the deck…</Loading> from components/ui.
+    const found = uses(/<(p|span|div|li)\b[^>]*>\s*Loading\b[^<{]*…/, (file) => file === "web/src/components/ui.tsx" || BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+
+  it("no page styles its own empty state", () => {
+    // Use <EmptyState> from components/ui; its variants are plain, boxed, panel and compact.
+    // An empty card slot (a dashed outline where a card goes) and a picker's "no match" row aren't empty states.
+    const slots = /\b(plan-pair-empty|mpc-thumb-empty|combo-empty)\b/;
+    const found = uses(/className="[^"]*\b[\w-]+-empty\b/, (file, line) => BOARD.test(file) || slots.test(line));
+    expect(found).toEqual([]);
+  });
+});
 
 describe("formatting goes through @yama/core's format module", () => {
   const FORMAT = "packages/core/src/format.ts";

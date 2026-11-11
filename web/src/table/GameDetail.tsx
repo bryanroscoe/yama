@@ -9,7 +9,7 @@ import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { splitPair } from "./logEdit";
@@ -151,7 +151,7 @@ export function GameDetailPage() {
     },
   });
 
-  if (game.isLoading) return <main className="page"><p className="dim">Loading the game…</p></main>;
+  if (game.isLoading) return <Loading page>Loading the game…</Loading>;
   if (!g) {
     return (
       <main className="page">

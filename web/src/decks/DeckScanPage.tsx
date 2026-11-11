@@ -8,7 +8,7 @@ import { Link, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet, Loading } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import {
@@ -49,7 +49,7 @@ export function DeckScanPage() {
 
   // Only with no deck to show: a refresh that failed leaves the scan in progress on screen.
   if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
-  if (!deck.data || !draft) return <main className="page"><p className="dim">Loading the deck…</p></main>;
+  if (!deck.data || !draft) return <Loading page>Loading the deck…</Loading>;
   const d = deck.data;
   const p = progress(draft);
 
@@ -254,7 +254,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
   return (
     <div className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Scan ${deck.name}`}>
       {catalog ? (
-        <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             catalog={catalog}
             identityOnly
@@ -323,7 +323,7 @@ function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: 
     <section className="stack deck-scan-review" aria-live="polite">
       <h2>Before saving</h2>
       <ErrorText error={check.error} />
-      {!c && !check.error && <p className="dim">Comparing with the deck's list…</p>}
+      {!c && !check.error && <Loading>Comparing with the deck's list…</Loading>}
       {c && (
         <>
           <Checks check={c} />

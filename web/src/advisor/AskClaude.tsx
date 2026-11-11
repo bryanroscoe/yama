@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useMe, usePower } from "../auth";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet, Loading } from "../components/ui";
 import { deviceId, outbox } from "../plan/outbox";
 import { advisorStatus, ask, changesKey, conversation, conversations, deleteConversation, stagedChanges, type AdvisorStatus, type StagedChange } from "./api";
 import { ChangeCard } from "./Changes";
@@ -205,7 +205,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
         <button type="button" className="quiet" onClick={onClose}>Close</button>
       </header>
 
-      {status.isPending && <p className="dim">Loading…</p>}
+      {status.isPending && <Loading />}
       <ErrorText error={status.error} />
       {s && !s.available && (
         <div className="ask-unavailable stack">

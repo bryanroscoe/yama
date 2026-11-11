@@ -6,7 +6,7 @@ import { type DeckEntry, type DeckView } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { CardHover } from "../components/CardRef";
 import { Crop } from "../components/Crop";
-import { CardImage } from "../components/ui";
+import { CardImage, EmptyState } from "../components/ui";
 import { CopyButton } from "../plan/parts";
 import { cardGroups, cardRows, copiesShown, copyChip, copyKinds, priceOf, rowPriceDates, showCounts, shownText, type CardGroupBy, type CardRow, type CardShow, type CardSort } from "./cardList";
 import { printingLabel } from "./priceList";
@@ -178,7 +178,7 @@ export function DeckCardsTab({
         </nav>
       )}
 
-      {groups.length === 0 && <p className="cards-empty">{empty}</p>}
+      {groups.length === 0 && <EmptyState variant="boxed">{empty}</EmptyState>}
 
       {groups.map((g) => {
         const open = !collapsed.has(g.id);

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, publicOrigin, type DeckView } from "../../api";
-import { Details, ErrorText, Sheet } from "../../components/ui";
+import { Details, ErrorText, Sheet, Loading } from "../../components/ui";
 import { sendCards, useMythicBridge, type MythicDeckLink } from "./mythic";
 import { mythicSendSnippet } from "./snippet";
 import "./mythic.css";
@@ -132,7 +132,7 @@ export function MythicSentPage() {
       {!code || !mythic ? (
         <p>This link is missing the send's details. Send the deck again from its page.</p>
       ) : done.isPending ? (
-        <p className="dim">Linking the deck…</p>
+        <Loading>Linking the deck…</Loading>
       ) : done.data ? (
         <p>
           The deck is in Mythic and linked. <Link to={`/decks/${done.data.deck_id}`}>Back to the deck</Link>

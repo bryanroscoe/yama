@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { BackButton } from "../../components/DeckTabs";
 import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
-import { Details, ErrorText } from "../../components/ui";
+import { Details, ErrorText, Loading } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
 import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
@@ -135,7 +135,7 @@ export function MythicImportPage() {
                   <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
                 </div>
               )}
-              {preview.isLoading && <p className="dim">Reading the file…</p>}
+              {preview.isLoading && <Loading>Reading the file…</Loading>}
               {p && (
                 <>
                   {p.players.length > 0 && (

@@ -5,7 +5,7 @@ import { useMe } from "../auth";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { CardRef, CardText } from "../components/CardRef";
 import { AreaHead, BackButton } from "../components/DeckTabs";
-import { ErrorText, Pips } from "../components/ui";
+import { ErrorText, Pips, Loading } from "../components/ui";
 import { saveFile } from "../download";
 import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
 import { DeckChanged, useDeckNamed } from "./about";
@@ -186,7 +186,7 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
           />
         )}
         <ErrorText error={view.error} />
-        {!v && view.isPending && <p className="dim">Pricing the cards…</p>}
+        {!v && view.isPending && <Loading>Pricing the cards…</Loading>}
         {v && v.shopping.items.length === 0 && <p className="dim">These builds add no cards to the starting lists.</p>}
         {v && v.shopping.items.length > 0 && (
           <div className={view.isPlaceholderData ? "note-stale" : undefined}>
@@ -692,7 +692,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
             Changes from{others.length > 0 ? <span className="visually-hidden"> {vs?.label ?? "the starting list"}</span> : " the starting list"}
           </SectionHead>
           <ErrorText error={view.error} />
-          {!v && view.isPending && <p className="dim">Loading the changes…</p>}
+          {!v && view.isPending && <Loading>Loading the changes…</Loading>}
           {v && v.changes.length === 0 && <p className="dim">{vs ? "These builds play the same cards." : "This build is the starting list."}</p>}
           {v && v.changes.length > 0 && (
             <ChangesTable
@@ -884,7 +884,7 @@ function CopyShared({ token }: { token: string }) {
             <Link to="/decks/plans">Open your plans</Link>
           </>
         ) : (
-          <p>Saving a copy of the shared plan…</p>
+          <Loading>Saving a copy of the shared plan…</Loading>
         )}
       </section>
     </main>
@@ -910,7 +910,7 @@ export function ResearchPage() {
       <main className="page plan note-page">
         <AreaHead slim back={{ to: "/decks/plans", label: "Back to plans" }} />
         <ErrorText error={data.error} />
-        {data.isPending && <p className="dim">Loading the plan…</p>}
+        {data.isPending && <Loading>Loading the plan…</Loading>}
       </main>
     );
   }

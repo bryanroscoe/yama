@@ -6,7 +6,7 @@ import type { CommanderPick, TableState } from "@yama/core";
 import { api, type DeckSummary, type GameRow, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
-import { Pips } from "../components/ui";
+import { Pips, Loading } from "../components/ui";
 import { BracketChips } from "../components/Bracket";
 import { commandersPatch, NOT_AN_ACCOUNT, personPatch, renameSeat, seatDeckLabel, stillHolds, type SeatDraft, type SeatPatch } from "./seats";
 import { canPair, cardNamed, CommanderFields, DeckSearch, draftFromCard, PlayerSearch, resolveDraft, unionIdentity, type CommanderDraft, type DeckPick, type Person } from "./pickers";
@@ -326,7 +326,7 @@ export function EditSeat({ state, seat, onDone }: { state: TableState; seat: num
   const fetching = (q: { isPending: boolean; fetchStatus: string }) => q.isPending && q.fetchStatus === "fetching";
   const loading = !draft && (fetching(groups) || fetching(decks));
   const now = draft ?? (loading ? null : draftFromPlayer(p, decks.data, group));
-  if (!now) return <p className="dim">Loading…</p>;
+  if (!now) return <Loading />;
   const commander = state.setup.format === "commander";
   const save = async () => {
     setSaving(true);

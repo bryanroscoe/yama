@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { ErrorText, Pips } from "../components/ui";
+import { ErrorText, Pips, Loading } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
 import type { HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
@@ -247,7 +247,7 @@ export function RunPage() {
     );
   }
   const e = exp.data;
-  if (!e) return <p className="dim">Loading…</p>;
+  if (!e) return <Loading />;
   const live = LIVE.has(e.status);
   const s = e.summary;
   const scored = s && hasResults(s) ? s : null;
@@ -915,7 +915,7 @@ function Pods({ id, done, status, mode, engine, pod = 4 }: { id: string; done: n
       <details onToggle={(ev) => setOpen((ev.target as HTMLDetailsElement).open)}>
         <summary>Every game{engine ? (engine === "forge" ? " on Forge" : " on phase") : ""} ({done} played)</summary>
         <ErrorText error={pods.error} />
-        {pods.isPending && open && <p className="dim small">Loading…</p>}
+        {pods.isPending && open && <Loading small />}
         {played.length > 0 && ["versus", "tournament"].includes(mode) && (
           <div className="lab-scroll">
             <table className="lab-pods">

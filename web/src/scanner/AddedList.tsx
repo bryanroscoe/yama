@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
+import { Loading } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -110,7 +111,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
           </div>
         </div>
       </div>
-      {a.pending && !a.pending.error && <p className="dim small">Saving…</p>}
+      {a.pending && !a.pending.error && <Loading small>Saving…</Loading>}
       {a.pending?.error && (
         <div className="scan-step is-tap" role="alert">
           <p>

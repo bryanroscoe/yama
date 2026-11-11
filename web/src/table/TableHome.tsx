@@ -6,7 +6,7 @@ import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameR
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Pips, Sheet } from "../components/ui";
+import { ErrorText, Pips, Sheet, Loading } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
@@ -516,7 +516,7 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
       )}
       <p className="small dim who-help">Tap a player to add or remove them.</p>
       {!groupReady ? (
-        <p className="small dim" style={{ margin: 0 }}>Loading players…</p>
+        <Loading small className="who-help">Loading players…</Loading>
       ) : people.length > 0 ? (
         <div className="who-chips">
           {shown.map((p) => {

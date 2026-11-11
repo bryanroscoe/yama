@@ -7,7 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { cardDetailQuery } from "../cardDetail";
-import { Sheet } from "../components/ui";
+import { Sheet, Loading } from "../components/ui";
 import { faceOf, inspectorFacts, inspectorTabs, type InspectorTab, type Names } from "./feed";
 import type { CardMeta, CardView, OptionView, View } from "./types";
 import { fmtDate } from "@yama/core";
@@ -163,7 +163,7 @@ function InspectorBody({ card, meta, view, names, cardById, options, onChoose, o
 function RulingsList({ oracleId }: { oracleId?: string }) {
   const detail = useQuery({ ...cardDetailQuery(oracleId ?? ""), enabled: !!oracleId });
   if (!oracleId) return <p className="dim">No rulings for this card.</p>;
-  if (detail.isLoading) return <p className="dim">Loading rulings…</p>;
+  if (detail.isLoading) return <Loading>Loading rulings…</Loading>;
   const rulings = detail.data?.rulings;
   if (rulings === undefined) return <p className="dim">Rulings aren't on this device.</p>;
   if (rulings === null) return <p className="dim">Rulings aren't loaded on this server yet.</p>;

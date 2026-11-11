@@ -97,3 +97,36 @@ export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
   return <p className="error" role="alert">{errorMessage(error)}</p>;
 }
+
+const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
+
+/**
+ * Something is on its way. Say what when the page knows ("Loading the deck…"); a screen reader
+ * hears it once, politely. `page` is for a page with nothing else to draw yet, `padded` for a
+ * line outside any page padding (an overlay still starting).
+ */
+export function Loading({ children = "Loading…", small = false, page = false, padded = false, className }: { children?: ReactNode; small?: boolean; page?: boolean; padded?: boolean; className?: string }) {
+  const line = (
+    <p className={cx("loading", "dim", small && "small", padded && "is-padded", className)} role="status">
+      {children}
+    </p>
+  );
+  return page ? <main className="page">{line}</main> : line;
+}
+
+/**
+ * Nothing here yet: one sentence, with the way to add the first thing when there is one.
+ * `boxed` is a dashed slot where the content will go, `panel` a surface card, `compact` a line
+ * inside a list or a small panel.
+ */
+export function EmptyState({ children, title, action, variant = "plain", className }: { children?: ReactNode; title?: ReactNode; action?: ReactNode; variant?: "plain" | "boxed" | "panel" | "compact"; className?: string }) {
+  const names = cx("empty", variant !== "plain" && `is-${variant}`, className);
+  if (!title && !action) return <p className={names}>{children}</p>;
+  return (
+    <div className={cx(names, "has-parts")}>
+      {title && <h2>{title}</h2>}
+      {children && <p>{children}</p>}
+      {action && <div className="empty-actions">{action}</div>}
+    </div>
+  );
+}

@@ -11,7 +11,7 @@ import { BackButton } from "../components/DeckTabs";
 import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet, Loading } from "../components/ui";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
 import { NameEntry } from "../scanner/NameEntry";
@@ -95,7 +95,7 @@ export function DeckCheckPage() {
 
   // Only with no deck to show: a refresh that failed leaves the check in progress on screen.
   if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
-  if (!deck.data || !draft) return <main className="page"><p className="dim">Loading the deck…</p></main>;
+  if (!deck.data || !draft) return <Loading page>Loading the deck…</Loading>;
   const d = deck.data;
   const t = target.data;
   const sum = t && verdicts ? tally(t, verdicts) : null;
@@ -145,7 +145,7 @@ export function DeckCheckPage() {
       </div>
 
       <ErrorText error={target.error} />
-      {!t && !target.error && <p className="dim">Loading the list…</p>}
+      {!t && !target.error && <Loading>Loading the list…</Loading>}
       {t && verdicts && sum && (
         <>
           <Tally sum={sum} />
@@ -418,7 +418,7 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
   return (
     <div className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Check ${deck.name}`}>
       {catalog ? (
-        <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             catalog={catalog}
             identityOnly

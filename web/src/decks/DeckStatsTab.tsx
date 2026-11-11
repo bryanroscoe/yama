@@ -13,7 +13,7 @@ import { DeckResults } from "../components/DeckResults";
 import { statCards } from "../components/DeckStats";
 import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
-import { CardImage, ErrorText } from "../components/ui";
+import { CardImage, ErrorText, Loading } from "../components/ui";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
 import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
@@ -97,7 +97,7 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
       </div>
       <ErrorText error={q.error} />
       {versionId == null && <p className="dim">Add cards to see the deck's power level.</p>}
-      {q.isPending && versionId != null && <p className="dim">Working it out…</p>}
+      {q.isPending && versionId != null && <Loading>Working it out…</Loading>}
       {a && selected && (
         <>
           <div className="power-grid">

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Sheet, EmptyState } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -210,7 +210,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             )}
           </>
         )}
-        {cards.length === 0 && <p className="empty">Nothing here to sell{minimum !== null ? ` worth at least ${usd(minimum)}` : ""}.</p>}
+        {cards.length === 0 && <EmptyState>Nothing here to sell{minimum !== null ? ` worth at least ${usd(minimum)}` : ""}.</EmptyState>}
       </div>
     </Sheet>
   );
