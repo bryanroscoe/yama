@@ -31,7 +31,7 @@ const SESSION_COOKIE = "yama_session";
 export const VIEWPORTS = {
   laptop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, minTarget: 24, edgePad: 0 },
   tablet: { viewport: { width: 820, height: 1180 }, deviceScaleFactor: 1, hasTouch: true, minTarget: 44, edgePad: 12 },
-  mobile: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, minTarget: 44, edgePad: 12 },
+  mobile: { userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, minTarget: 44, edgePad: 12 },
 };
 const SPACING_SCALE = [1, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 48, 56, 64];
 

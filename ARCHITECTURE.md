@@ -123,6 +123,7 @@ yama/
 
 **Distribution:**
 
+- **Install offer:** a dismissible banner above page content throughout the app, only in mobile browsers (including iPadOS). Desktop browsers keep manual installation in the Table menu. Installed and native apps show no install offer.
 - **Android:** the installable web app today. Plan (2026-10-31): a Capacitor app on Google Play, released through closed testing first (section 10, "Power users and the semi-public release"; steps in docs/mobile.md).
 - **iOS:** shelved. TestFlight would need the Apple Developer Program, and there is no Apple account.
 - **Web:** everything works in the browser too.
