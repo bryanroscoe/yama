@@ -954,6 +954,8 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 
 **Tool names (2026-11-11).** The tools follow one convention (`list_`, `get_`, `search_` for reads, a verb and a noun for writes; `deck`, `plan`, `run_id`, `card`, `reason`, `as_of`, `query`, `limit`, `cursor` for arguments). 37 tools were renamed; the table is in `docs/mcp-design.md`, "Names". Every older tool name and argument name still works (`registry::Tool::aliases` and `renamed`), so a connected client needs nothing; only `tools/list` changed. Stored change kinds are unchanged. Paragraphs in this file written before that date use the names the tools had then.
 
+**Read, stage and apply scopes (2026-11-11).** The OAuth consent page offers what an app asked for or less: read only (`mcp:read`), read and suggest changes (`mcp:stage`), or everything (`mcp`, as every earlier connection has and keeps). The token says the scope given, `tools/list` shows only what it allows, and Connected apps says each app's level. No migration: the scope was already stored per grant.
+
 #### Persistent deck research and review (2026-10-27)
 
 Shown under **Plans** since 2026-11-04 (see "One plan page" below); before that as **Agent notes**

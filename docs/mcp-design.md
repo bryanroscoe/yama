@@ -331,7 +331,7 @@ claude.com/docs/connectors/building/authentication, and code.claude.com/docs/en/
 
 | Claude needs | Yama |
 |---|---|
-| A 401 with `WWW-Authenticate: Bearer resource_metadata=…` | `/mcp` answers that, with `scope="mcp"` |
+| A 401 with `WWW-Authenticate: Bearer resource_metadata=…` | `/mcp` answers that, with `scope="mcp"` (everything; the person may narrow it on the consent page) |
 | RFC 9728 metadata whose `resource` is exactly the URL typed | `/.well-known/oauth-protected-resource[/mcp]`: `<base>/mcp`, issuer `<base>` |
 | RFC 8414 metadata with S256 advertised | `/.well-known/oauth-authorization-server` |
 | DCR (RFC 7591), or CIMD if advertised | DCR. Claude registers as a public client (`none`); no CIMD |
@@ -365,8 +365,19 @@ the consent page names the account being connected and says to allow only a sign
 - OAuth tokens work only on `/mcp`; `CurrentUser` refuses them, so no other route accepts one.
 - No CIMD: it would mean fetching a URL the client names (a server-side request to anywhere), and
   DCR with the allowlist and the sweep covers both clients.
-- Write tools (slice 2) need no new scope: they stage changes for review, and `apply_change` is
-  the person's own yes in the conversation. The consent page says so.
+- Write tools (slice 2) needed no new scope at first: they stage changes for review, and
+  `apply_change` is the person's own yes in the conversation.
+- **Read, stage and apply (2026-11-11).** A connection had to be everything. The consent page now
+  lets the person give an app what it asked for or less: read only; read and suggest changes
+  (staging and research notes); or those and applying a change after their yes. The scopes are
+  `mcp:read`, `mcp:stage` and, for everything, `mcp` as before (`mcp:apply` is accepted as a
+  name for it). Each includes the one before. The 401 still names `mcp`, so an app asks for
+  everything and the person narrows it; an app may also ask for less itself, and is never given
+  more than it asked for. The token response says the scope given. `tools/list` shows only what
+  the connection may do and nothing else can be called (`Via::OAuthLimited`,
+  `registry::offered_to`). **Every connection made before this has `mcp` and keeps everything.**
+  A refresh keeps the grant's scope, also when the app asks again for `mcp`. Script keys are
+  still all or nothing.
 
 **Not confirmed against the live claude.ai.** The docs say claude.ai registers with
 `token_endpoint_auth_method: "none"`; Yama also handles the RFC default (`client_secret_basic`) and

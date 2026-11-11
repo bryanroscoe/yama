@@ -159,7 +159,7 @@ async fn metadata_documents_describe_the_server_from_config() {
         assert_eq!(status, StatusCode::OK, "{path}");
         assert_eq!(prm["resource"], format!("{BASE}/mcp"));
         assert_eq!(prm["authorization_servers"], json!([BASE]));
-        assert_eq!(prm["scopes_supported"], json!(["mcp"]));
+        assert_eq!(prm["scopes_supported"], json!(["mcp", "mcp:read", "mcp:stage", "mcp:apply"]));
         assert_eq!(prm["bearer_methods_supported"], json!(["header"]));
     }
     // The Host header is never used for the addresses.
@@ -176,7 +176,7 @@ async fn metadata_documents_describe_the_server_from_config() {
     assert_eq!(asm["response_types_supported"], json!(["code"]));
     assert_eq!(asm["grant_types_supported"], json!(["authorization_code", "refresh_token"]));
     assert_eq!(asm["code_challenge_methods_supported"], json!(["S256"]));
-    assert_eq!(asm["scopes_supported"], json!(["mcp", "offline_access"]));
+    assert_eq!(asm["scopes_supported"], json!(["mcp", "mcp:read", "mcp:stage", "mcp:apply", "offline_access"]));
     assert!(asm["token_endpoint_auth_methods_supported"].as_array().unwrap().contains(&json!("none")));
     assert_eq!(asm["authorization_response_iss_parameter_supported"], true);
     // No Client ID Metadata Documents: Claude then registers through DCR.
@@ -738,4 +738,107 @@ async fn an_account_has_at_most_twenty_connected_apps() {
     // Signing in again with an app already connected replaces it, so that still works.
     let (status, r) = decide(&app, &session, &authorize_params(&clients[0], LOOPBACK, VERIFIER), true).await;
     assert_eq!(status, StatusCode::OK, "{r}");
+}
+
+// ── read, stage and apply (2026-11-11) ──────────────────────────────────────
+
+/// Allow from the consent page with a chosen level of access.
+async fn allow_with(app: &Router, session: &str, params: &[(&str, String)], access: &str) -> (StatusCode, Value) {
+    let mut body = serde_json::Map::new();
+    for (k, v) in params {
+        body.insert(k.to_string(), json!(v));
+    }
+    body.insert("approve".into(), json!(true));
+    body.insert("access".into(), json!(access));
+    let headers = [("authorization", format!("Bearer {session}")), ("origin", BASE.to_string()), ("content-type", "application/json".into())];
+    let (status, _, json) = request(app, Method::POST, "/api/oauth/authorize", &headers, Body::from(Value::Object(body).to_string())).await;
+    (status, json)
+}
+
+async fn tool_names(app: &Router, token: &str) -> Vec<String> {
+    let (status, r) = send(app, Method::POST, "/mcp", Some(token), Some(rpc("tools/list", json!({})))).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
+}
+
+#[tokio::test]
+async fn a_person_can_give_an_app_less_than_it_asked_for() {
+    let (app, pool) = oauth_app().await;
+    let (_, session) = user(&pool, "bryan@example.com").await;
+    let client = public_client(&app, LOOPBACK).await;
+    let params = authorize_params(&client, LOOPBACK, VERIFIER);
+
+    // The app asks for everything (`mcp`, what the 401 names); the page offers that or less.
+    let (_, c) = check(&app, &session, &params).await;
+    assert_eq!(c["access"], "apply", "{c}");
+    assert_eq!(c["access_choices"], json!(["read", "stage", "apply"]));
+
+    for (choice, scope) in [("read", "mcp:read offline_access"), ("stage", "mcp:stage offline_access"), ("apply", "mcp offline_access")] {
+        let (status, r) = allow_with(&app, &session, &params, choice).await;
+        assert_eq!(status, StatusCode::OK, "{r}");
+        let code = params_of(r["redirect"].as_str().unwrap())["code"].clone();
+        let (status, _, t) = exchange(&app, &client, &code, LOOPBACK, VERIFIER).await;
+        assert_eq!(status, StatusCode::OK, "{t}");
+        assert_eq!(t["scope"], scope, "the app is told what it was given");
+        let access = t["access_token"].as_str().unwrap().to_string();
+        let refresh_token = t["refresh_token"].as_str().unwrap().to_string();
+
+        let names = tool_names(&app, &access).await;
+        let has = |n: &str| names.iter().any(|x| x == n);
+        assert!(has("get_overview") && has("search_cards") && has("search_scryfall"), "{choice} reads: {names:?}");
+        assert_eq!(has("edit_deck") && has("save_deck") && has("save_research") && has("review_research"), choice != "read", "{choice}: {names:?}");
+        assert_eq!(has("apply_change") && has("discard_change"), choice == "apply", "{choice}: {names:?}");
+        // What a staged change says to do next is something this connection can do.
+        if choice == "stage" {
+            let (_, r) = send(&app, Method::POST, "/mcp", Some(&access), Some(rpc("tools/call", json!({"name": "add_wish", "arguments": {"name": "A sealed thing", "kind": "sealed"}})))).await;
+            let text = r["result"]["content"][0]["text"].as_str().unwrap_or_default();
+            assert!(r["result"]["isError"] == false && text.contains("This connection can't apply changes") && !text.contains("you may call apply_change"), "{r}");
+        }
+        // A tool it isn't offered isn't callable either, by its name or an older one.
+        for (tool, allowed) in [("edit_deck", choice != "read"), ("save_research", choice != "read"), ("apply_change", choice == "apply")] {
+            let (_, r) = send(&app, Method::POST, "/mcp", Some(&access), Some(rpc("tools/call", json!({"name": tool, "arguments": {}})))).await;
+            assert_eq!(r["error"]["code"] == -32602, !allowed, "{choice} calling {tool}: {r}");
+        }
+        let (_, r) = send(&app, Method::POST, "/mcp", Some(&access), Some(rpc("tools/call", json!({"name": "overview", "arguments": {}})))).await;
+        assert_eq!(r["result"]["isError"], false, "{choice} reads by the older name too: {r}");
+
+        // A refresh keeps what was given, also when the app asks again for what it first asked for.
+        let (status, _, again) = form(&app, "/oauth/token", &[("grant_type", "refresh_token"), ("refresh_token", &refresh_token), ("client_id", &client), ("scope", "mcp")], None).await;
+        assert_eq!(status, StatusCode::OK, "{again}");
+        assert_eq!(again["scope"], scope);
+        assert_eq!(tool_names(&app, again["access_token"].as_str().unwrap()).await, names, "{choice} after a refresh");
+
+        // Connected apps says what it may do.
+        let (_, apps) = send(&app, Method::GET, "/api/me/connected-apps", Some(&session), None).await;
+        assert_eq!(apps["apps"][0]["access"], choice, "{apps}");
+    }
+
+    // No more than the app asked for, and only a level Yama has.
+    let narrow: Vec<(&str, String)> = params.iter().map(|(k, v)| (*k, if *k == "scope" { "mcp:read".to_string() } else { v.clone() })).collect();
+    let (_, c) = check(&app, &session, &narrow).await;
+    assert_eq!((c["access"].as_str(), &c["access_choices"]), (Some("read"), &json!(["read"])), "{c}");
+    let (status, r) = allow_with(&app, &session, &narrow, "apply").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{r}");
+    let (status, r) = allow_with(&app, &session, &params, "everything").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{r}");
+    // Allow without a choice gives what was asked: a read-only request, a read-only connection.
+    let code = approve(&app, &session, &client, LOOPBACK, VERIFIER).await;
+    let (_, _, t) = exchange(&app, &client, &code, LOOPBACK, VERIFIER).await;
+    assert_eq!(t["scope"], "mcp offline_access", "what every connection got before the choice existed");
+    assert!(tool_names(&app, t["access_token"].as_str().unwrap()).await.iter().any(|n| n == "apply_change"));
+}
+
+#[tokio::test]
+async fn a_connection_from_before_the_narrower_scopes_keeps_everything() {
+    let (app, pool) = oauth_app().await;
+    let (owner, session) = user(&pool, "bryan@example.com").await;
+    let (_, access, _) = connect(&app, &session).await;
+    // What such a grant has stored: `mcp`, perhaps with offline_access.
+    let scopes: Vec<String> = sqlx::query_scalar("SELECT scope FROM oauth_grants WHERE user_id = ?").bind(&owner).fetch_all(&pool).await.unwrap();
+    assert_eq!(scopes, vec!["mcp offline_access".to_string()]);
+    sqlx::query("UPDATE oauth_grants SET scope = 'mcp' WHERE user_id = ?").bind(&owner).execute(&pool).await.unwrap();
+    let names = tool_names(&app, &access).await;
+    for tool in ["get_overview", "edit_deck", "save_research", "apply_change", "discard_change"] {
+        assert!(names.iter().any(|n| n == tool), "{tool} missing: {names:?}");
+    }
 }

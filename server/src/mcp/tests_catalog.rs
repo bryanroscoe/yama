@@ -25,6 +25,8 @@ fn callers() -> Vec<(&'static str, User, Via)> {
         ("script key", who(false), Via::Key),
         ("OAuth sign-in", who(false), Via::OAuth),
         ("Ask Claude, power user", who(true), Via::Question(Question::default())),
+        ("OAuth sign-in limited to reading and staging, power user", who(true), Via::OAuthLimited(crate::oauth::Access::Stage)),
+        ("OAuth sign-in limited to reading, power user", who(true), Via::OAuthLimited(crate::oauth::Access::Read)),
     ]
 }
 
@@ -67,7 +69,11 @@ fn every_tool_is_well_formed() {
         let decides = names.contains(&"apply_change") || names.contains(&"discard_change");
         assert_eq!(decides, via.may_apply(), "{label}: only outside clients apply and discard");
         let simulates = ["start_lab_run", "add_lab_games", "rerun_lab_run"].iter().any(|n| names.contains(n));
-        assert_eq!(simulates, user.power, "{label}: only power users start simulations");
+        assert_eq!(simulates, user.power && via.may_stage(), "{label}: only power users start simulations");
+        // A read-only connection is offered nothing that writes.
+        let writes = tools.iter().any(|t| t["annotations"]["readOnlyHint"] == false);
+        assert_eq!(writes, via.may_stage(), "{label}");
+        assert!(names.contains(&"get_overview") && names.contains(&"search_cards"), "{label} reads");
     }
 }
 

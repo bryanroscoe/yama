@@ -112,7 +112,11 @@ fn ask_token_user(token: &str) -> Option<(String, Question)> {
 pub enum Via {
     Key,
     Question(Question),
+    /// An OAuth sign-in that may do everything: every connection made before 2026-11-11, and
+    /// any since that the person gave everything.
     OAuth,
+    /// An OAuth sign-in the person limited on the consent page: read only, or read and stage.
+    OAuthLimited(crate::oauth::Access),
 }
 
 impl Via {
@@ -120,13 +124,26 @@ impl Via {
         match self {
             Via::Key => "key",
             Via::Question(_) => "question",
-            Via::OAuth => "oauth",
+            Via::OAuth | Via::OAuthLimited(_) => "oauth",
         }
     }
 
     /// Whether this caller may apply and discard changes itself.
     pub fn may_apply(&self) -> bool {
-        !matches!(self, Via::Question(_))
+        match self {
+            Via::Key | Via::OAuth => true,
+            Via::Question(_) => false,
+            Via::OAuthLimited(access) => *access >= crate::oauth::Access::Apply,
+        }
+    }
+
+    /// Whether this caller may stage changes and save research notes. A read-only connection
+    /// may not.
+    pub fn may_stage(&self) -> bool {
+        match self {
+            Via::OAuthLimited(access) => *access >= crate::oauth::Access::Stage,
+            _ => true,
+        }
     }
 }
 
@@ -142,7 +159,8 @@ async fn caller(st: &AppState, headers: &HeaderMap) -> Result<(User, Via), AppEr
             (id, Via::Question(q))
         }
         Some(t) if t.starts_with(crate::oauth::PREFIX_ACCESS) => {
-            (crate::oauth::access_token_user(st, t).await?.ok_or(AppError::Unauthorized)?, Via::OAuth)
+            let (id, access) = crate::oauth::access_token_user(st, t).await?.ok_or(AppError::Unauthorized)?;
+            (id, if access == crate::oauth::Access::Apply { Via::OAuth } else { Via::OAuthLimited(access) })
         }
         _ => return Err(AppError::Unauthorized),
     };

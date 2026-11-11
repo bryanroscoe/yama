@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allows, appKind, appName, authParams, caution, claudeCodeCommand, returnsTo } from "./logic";
+import { accessLabel, accessOf, allows, appKind, appName, authParams, caution, claudeCodeCommand, returnsTo } from "./logic";
 
 describe("the consent page's words", () => {
   it("passes on only the authorization parameters, first value of each", () => {
@@ -38,6 +38,13 @@ describe("the consent page's words", () => {
     expect(allows(["mcp"])[2]).toMatch(/waits in Yama for you to apply or discard/);
     expect(allows(["mcp", "offline_access"])).toHaveLength(4);
     expect(allows([])).toEqual([]);
+    // A narrower choice on the page, or a narrower scope, says less.
+    expect(allows(["mcp"], "read")).toEqual(["Read your decks, plans, Review, collection and lab runs", "Search cards"]);
+    expect(allows(["mcp:stage"])[2]).toMatch(/this app can't apply one/);
+    expect(allows(["mcp:read", "offline_access"])).toHaveLength(3);
+    expect(accessOf(["mcp:apply"])).toBe("apply");
+    expect(accessOf(["offline_access"])).toBeNull();
+    expect(accessLabel("read")).toBe("Read only");
   });
 
   it("gives Settings the command and a kind for each app", () => {

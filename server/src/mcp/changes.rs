@@ -223,6 +223,8 @@ fn next_step(st: &AppState, via: &Via) -> String {
     let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Suggested changes".into());
     match via {
         Via::Question(_) => "It shows under your answer with Apply and Discard buttons. Say that it's waiting for their review; never say it's done.".into(),
+        // A connection limited to staging has no apply_change: the person applies it in Yama.
+        v if !v.may_apply() => format!("They can apply or discard it in Yama ({page}). This connection can't apply changes, so say it is waiting for them there."),
         _ => format!("They can apply or discard it in Yama ({page}). If they say yes to this change in this conversation, you may call apply_change with its id."),
     }
 }

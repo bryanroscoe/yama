@@ -137,11 +137,13 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 }
 
 pub fn offered_to(tool: &Tool, user: &User, via: &Via) -> bool {
-    match tool.offer {
+    let offered = match tool.offer {
         Offer::Everyone => true,
         Offer::Power => user.power,
         Offer::Appliers => via.may_apply(),
-    }
+    };
+    // A read-only connection gets the tools that read; anything that stages or writes needs more.
+    offered && (matches!(tool.kind, Kind::Read | Kind::Outside) || via.may_stage())
 }
 
 fn annotations(kind: Kind) -> Value {
