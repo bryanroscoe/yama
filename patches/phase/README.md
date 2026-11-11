@@ -1,6 +1,7 @@
 # Phase source moved
 
-The maintained source is now <https://github.com/bryanroscoe/yama-phase> (private).
+The maintained source is now <https://github.com/bryanroscoe/yama-phase> (public since 31 October 2026;
+the earlier private repository is `bryanroscoe/yama-phase-archive`).
 Yama records its repository and full commit in `deploy/phase-repo` and `deploy/phase-rev`.
 Clone the engine beside Yama as `../yama-phase`. Releases fetch the published pin;
 they do not apply this directory as a patch series.

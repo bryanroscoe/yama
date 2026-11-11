@@ -1,11 +1,373 @@
-# Yama (Yet Another Magic App): architecture proposal
+# Yama architecture
+
+Yama (Yet Another Magic App) is a free Magic: The Gathering app for Commander players. It runs
+in the browser and as an installable web app; an Android app is built but not yet released. It
+does two jobs on one account: a **companion** for game night (life
+counter, playgroups and stats, cards, collection, prices, decks) and **online play** against
+friends or AI, with every game stored as a replay. Personal data stays private to each account
+unless its owner shares it.
+
+This document has two parts:
+
+1. **[How Yama works today](#how-yama-works-today)** describes the system as it runs now, with
+   diagrams. Read this part to find your way around.
+2. **[The decision record](#decision-record)** is the plan of record: the original proposal of
+   17 October 2026 and every dated decision since, with the reasons. When the two parts
+   disagree, the newest dated decision is right and the overview needs fixing.
+
+What works today, feature by feature, is in [docs/features.md](docs/features.md). The repository
+layout is in the [README](README.md#repository-layout).
+
+## How Yama works today
+
+### The system at a glance
+
+```mermaid
+flowchart LR
+  subgraph devices["People's devices"]
+    app["Web app and Android app<br/>one React build, offline-first"]
+    assistants["AI assistants<br/>Claude, ChatGPT, Codex"]
+    scripts["Scripts and lab workers"]
+  end
+
+  subgraph cf["Cloudflare"]
+    tunnel["Tunnel<br/>yama.ing"]
+    relay["Table relay<br/>relay.yama.ing"]
+  end
+
+  subgraph host["Home server"]
+    subgraph yama["yama container"]
+      server["yama-server<br/>Rust, Axum, sqlx"]
+      live["Live online games<br/>Phase engine, in process"]
+      labproc["Lab games<br/>isolated child processes"]
+      hist["Historical runtime<br/>child process"]
+      data[("/data volume<br/>SQLite, engine card data,<br/>backups, logs")]
+    end
+    subgraph sidecars["Sidecars"]
+      advisor["yama-advisor<br/>Claude Agent SDK"]
+      forge["yama-forge<br/>Forge JVMs, no internet"]
+    end
+  end
+
+  subgraph outside["Outside services"]
+    anthropic["Anthropic API"]
+    scryfall["Scryfall<br/>card data and images"]
+    feeds["MTGJSON, TCGCSV,<br/>Commander Spellbook,<br/>deck and store sites"]
+    google["Google sign-in"]
+  end
+
+  app -->|HTTPS, WebSocket| tunnel
+  assistants -->|MCP with OAuth| tunnel
+  scripts -->|HTTPS with a key| tunnel
+  app -.->|shared table| relay
+  tunnel --> server
+  server --- live
+  server --- labproc
+  server --- hist
+  server --- data
+  server --> advisor
+  server --> forge
+  advisor --> anthropic
+  server --> scryfall
+  server --> feeds
+  server --> google
+```
+
+The home server runs three containers under Docker Compose: `yama`, and two sidecars that only
+`yama` can reach, each on its own private network. Three things are left out of the picture to
+keep it readable: card images go from Scryfall's CDN straight to the device; the advisor calls
+back into the server's own MCP tools; and releases arrive by a separate path, shown under
+[Delivery](#delivery).
+
+| Piece | Where it runs | What it does | Code |
+|---|---|---|---|
+| Web app | Browser, installed web app, Android shell | The whole interface. Works offline for the life counter, card search, collection edits and plans. | `web/`, `packages/core/` |
+| `yama-server` | `yama` container | JSON API, WebSockets, MCP and its OAuth server, public pages, static files, scheduled imports, the Lab's scheduler. | `server/` |
+| Phase engine | Inside `yama-server`, and in child processes | Rules for online games and Lab games. A pinned fork, built from source. | `play/`, [yama-phase](https://github.com/bryanroscoe/yama-phase) |
+| Historical runtime | Child process of `yama-server` | Reopens games saved on an engine version the current build no longer parses. | `runtime/` |
+| SQLite | `/data` volume | Everything durable: accounts, cards, prices, collections, decks, games, replays, plans, Lab runs. | `server/migrations/` |
+| Advisor | `yama-advisor` container | Runs Claude for "Ask Claude". Only the server can reach it. | `advisor/` |
+| Forge worker | `yama-forge` container | A second engine for Lab games. No route to the internet. | `forge-worker/` |
+| Table relay | Cloudflare Worker | Lets the phones at a table share one life counter without the home server. | `relay/` |
+| Release gate | Home server, outside the containers | Decides whether a commit may go live, then builds and switches. | `deploy/host.py` |
+
+### Clients
+
+One React and TypeScript codebase serves the browser, the installable web app and the Android
+app (a Capacitor shell around the same build, in `web/android/`; built, and not yet in a store). Logic that needs no interface
+lives in `packages/core`, so it can be tested without a browser: the life counter's reducer,
+the offline card search, deck list parsing and stats, sample hands, and every derived view of a
+plan.
+
+Three things run on the device so that game night needs no connection:
+
+- **A service worker** caches the app shell.
+- **An offline card store** (a 5 MB download, about 24 MB in IndexedDB) answers card searches
+  and lookups in a web worker. It is refreshed with a conditional request about once a day.
+- **The scanner** recognises a card by its art with ONNX models in a web worker
+  (`onnxruntime-web`), and reads the collector line with Tesseract when the art is not enough.
+
+Card images load from Scryfall's CDN straight to the device, where the service worker may keep
+a bounded cache of them. Yama's server never stores, proxies or alters them.
+
+An online game can also be played on Phase's own board client, built to WASM from the same
+pinned engine and served under `/board/`.
+
+### Server
+
+`yama-server` is one Rust binary (Axum 0.8, Tokio, sqlx 0.9 on SQLite). The same binary is the
+command-line tool for imports, invites and account management. As a server it has six jobs:
+
+- **API.** JSON over HTTPS under `/api/`. Sessions are a cookie in the browser and a bearer
+  token in the Android app. Sign-in is a Google ID token that the server verifies. Password
+  accounts exist only from the command line, a development login works only on localhost, and
+  Cloudflare Access sign-in can be configured.
+- **WebSockets** for live online games (`/api/play/{id}/ws`), watching AI games
+  (`/api/watch/{id}/ws`) and the server's own table relay (`/api/table/{game_id}/ws`), which
+  local development and self-hosted copies use in place of Cloudflare's.
+- **MCP** at `/mcp`, with its own OAuth authorization server (`server/src/oauth`), so an
+  assistant can act for one account. See [Assistants](#assistants).
+- **Public pages.** The precon reference, the commander ranking, and the decks, collections,
+  plans and profiles their owners chose to share are rendered by the server as plain HTML before the app's sign-in gate
+  (`server/src/public_page.rs`, `public_precons`, `public_commanders`, `sharing`).
+- **Static files.** The built web app, with content-addressed assets.
+- **Background jobs.** Scheduled card, price and release-calendar imports from Scryfall, MTGJSON
+  and TCGCSV (with `YAMA_AUTO_IMPORT=1`), bracket checks against Commander Spellbook after a
+  deck is saved, and the Lab's scheduler.
+
+Sign-in, searches, imports, new games and the other costly routes are rate-limited per account
+or per client address (`server/src/limits.rs`). With `YAMA_LOG_DIR` set, as in production, every
+write request is logged to daily files on the data volume.
+
+### Data
+
+There is one SQLite database in WAL mode, next to the server process. At this scale one file
+is simpler to run and to back up than a database server, and the schema avoids anything that
+would make a later move a rewrite. The schema is the numbered migrations in
+`server/migrations/`.
+
+- **Every private row carries its owner.** Queries bind the caller's ID. The planner and
+  research tables go further: their cascading links use composite `(id, owner_id)` foreign
+  keys, so the database itself refuses a cross-owner link.
+- **Prices are dated.** Each price carries its date and source. History stores a row only when
+  a value changes. A missing price is `NULL` and is shown as "no price", never as 0.
+- **Games are event logs.** An in-person game is a list of table events; an online game is a
+  seed and an action log. Both use the same `games` table, so stats cover both.
+- **Backups.** The release gate copies an existing database before every activation. A nightly job on
+  the host keeps verified snapshots for 14 days, and another copies the live database offsite.
+
+### Online play
+
+The server is the authority. A client never sees the whole game, and never decides whether a
+move is legal.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Player's browser
+  participant S as yama-server
+  participant E as Phase engine
+  participant D as SQLite
+  participant O as Other seats and spectators
+
+  P->>S: Open the game's WebSocket (session checked, seat chosen)
+  S-->>P: Your view: only what your seat may see
+  P->>S: An action, with the revision it was chosen at
+  S->>E: Is it one of the legal actions?
+  E-->>S: Yes: the new state
+  S-->>P: Your new view
+  S-->>O: Their views, filtered per seat
+  S->>D: Save the replay with the new action
+  Note over P,O: AI seats act on the server, through the same legal-action path
+  Note over P,O: After a restart, live games are rebuilt from their replays
+```
+
+`play/` wraps the engine (`Engine`, `Match`) and adds what a person needs to play: the board
+view, payment, turn controls, the game log and the decisions several players take together. A
+saved game records the exact engine version and card-data hash it was played on. When the
+engine is upgraded, games saved on the old version are routed to the historical runtime, a
+frozen build in its own process with no database handle or credentials, so an upgrade never
+reinterprets an old replay. Details: [engine integration](docs/engine-integration.md),
+[play engines and saved game points](docs/game-engines-and-checkpoints.md),
+[saved-game runtimes](runtime/README.md).
+
+### Offline-first writes
+
+Anything a person can do at the table works without a connection. A change made offline is not
+a new copy of the record; it is an operation with an ID the device made up.
+
+```mermaid
+flowchart LR
+  subgraph phone["A device, online or not"]
+    change["A change in the app"] --> op["Operation with a<br/>client-made ID"]
+    op --> queue["Local queue"]
+  end
+  queue -->|when online| post["Sent to the server"]
+  post --> seen{"ID already<br/>applied?"}
+  seen -->|no| apply["Apply and record the ID<br/>in one transaction"]
+  seen -->|yes| same["Answer as already applied"]
+```
+
+Because the server applies each ID once, a retry after a lost reply is always safe. Quantity
+changes are deltas, so two devices editing the same card merge. Plain fields are last writer
+wins. Collection edits, plan answers and ticks, and table game events all follow this rule (the
+`applied_ops` table, `plan_inputs.op_id`, and a game event's `(game_id, seq)`), and any new sync
+path has to keep it.
+
+### The shared table
+
+The life counter is a pure reducer in `packages/core`: `apply(tableState, event)`. On one phone
+it needs nothing else. When every phone at the table joins, they meet on a relay, and the relay
+is on Cloudflare so that game night does not depend on the home server or its internet
+connection.
+
+```mermaid
+sequenceDiagram
+  participant H as Host phone
+  participant R as Relay room
+  participant G as Guest phones
+  participant S as yama-server
+
+  H->>R: Connect as host, proving the game's secret
+  Note over H,G: The QR code carries a share key derived one way from that secret
+  G->>R: Connect with the share key (no account needed)
+  G->>R: A tap: change a life total
+  R->>H: The tap
+  H->>R: The table's new snapshot
+  R->>G: The snapshot
+  H-->>S: The finished game, as events, once online
+```
+
+The host phone holds the game; the relay only forwards messages and keeps the newest snapshot
+for late joiners. It admits as host only whoever holds the secret behind the share key, so it
+needs no account data to decide who may host. Rate limits in front of and inside the Worker keep
+it within Cloudflare's free plan. Details: [relay/README.md](relay/README.md) and
+[section 8](#8-table-mode-life-counter).
+
+### Lab
+
+The Lab answers "is this deck better with this change?" by playing AI-against-AI games in bulk.
+Starting a run is limited to admins and the accounts they mark as power users; results stay
+visible.
+
+```mermaid
+flowchart LR
+  exp["Experiment<br/>deck lists, seeds,<br/>games per deck"] --> sched["Scheduler in yama-server<br/>frozen inputs, pods of four"]
+  sched --> phase["Phase games<br/>isolated child processes"]
+  sched --> forge["Forge games<br/>yama-forge container"]
+  sched -.->|opt-in pilot| remote["Remote workers<br/>a laptop or GitHub Actions"]
+  phase --> results["Results, each with its engine,<br/>card-data and runner identity"]
+  forge --> results
+  remote --> results
+  results --> stats["Rankings and paired differences,<br/>with intervals"]
+```
+
+Every game runs outside the server process, so a game that hangs or crashes cannot take the
+site down. Results carry the identity of the build that produced them, and results from
+different builds are never pooled silently. A change is judged on paired games (the same seeds
+with and without it), not on a single win rate. Phase and Forge are kept as separate evidence;
+`referee/` runs scripted rules scenarios through both to find where they disagree. Details:
+[lab workers](docs/lab-workers.md), [forge-worker/README.md](forge-worker/README.md),
+[referee/README.md](referee/README.md), [datasets](docs/datasets.md).
+
+### Assistants
+
+Yama is its own MCP server. An assistant connects to `https://yama.ing/mcp`, the person signs in
+and approves it through Yama's OAuth server, and the assistant then works on that one account.
+
+- **Reads** return the person's decks, collection, games and plans, with Yama's card data and
+  dated prices.
+- **Writes are staged.** A write tool creates a pending change that waits in Yama until its
+  owner applies or discards it. Saving research notes is the one exception; it changes no deck,
+  collection, order or game.
+- **Everything a tool returns is data.** Deck names, notes and outside sources are text typed
+  by people, and are labelled as such.
+
+"Ask Claude" inside the app (for admins and power users) works the same way: the server calls
+the advisor sidecar, which runs Claude with Yama's read tools as its only tools and calls back
+into `/mcp` with a token scoped to that one question. Details:
+[MCP design](docs/mcp-design.md), [capabilities](docs/mcp-parity.md),
+[UI and MCP parity](docs/ui-mcp-parity.md).
+
+### Privacy and isolation
+
+- **Owner isolation at every boundary.** Queries bind the owner; worker keys, script keys and
+  leased Lab work are scoped to their owner; deleting an account removes its dependent data.
+- **Sharing is opt-in and a separate projection.** Public pages read only what the owner chose
+  to share. They never show account details, prices paid, notes, containers, proxies or games,
+  and a shared plan never shows its owner's answers, ownership or shopping evidence.
+- **Hidden information stays on the server.** Each seat in an online game receives its own
+  filtered view.
+- **Credentials stay where they are used.** The advisor's token lives only in its container.
+  The Forge container has no route out. The `yama` container runs read-only with every
+  capability dropped. The application's secrets and the database never enter an image, a log or a CI
+  job; the deploy job holds only its restricted SSH key and its Access token.
+- **No self-hosted CI runner.** The repository is public, and a fork's pull request could
+  rewrite a workflow to run on one.
+
+### Delivery
+
+```mermaid
+flowchart TB
+  subgraph before["Before merge"]
+    direction LR
+    branch["Branch in a worktree"] --> pr["Pull request"]
+    pr --> review["Review, then fixes"]
+    pr --> ci["CI on GitHub-hosted runners<br/>web checks, Rust and Python tests"]
+    review --> merge["Merge to main"]
+    ci --> merge
+  end
+
+  subgraph after["After merge: the release"]
+    direction LR
+    push["Push CI on main"] --> deploy["Deploy workflow<br/>hosted job, SSH over<br/>Cloudflare Access"]
+    deploy --> gate["Release gate on the host<br/>checks the commit and its<br/>CI run on GitHub for itself"]
+    gate --> build["Builds images tagged<br/>with the full commit,<br/>then backs up SQLite"]
+    build --> health["Activates, and succeeds<br/>only when all three<br/>containers are healthy"]
+  end
+
+  before --> after
+```
+
+Merging to `main` is the release decision. The deploy job's key can run only the gate on the
+host, and the gate trusts nothing the job says: it asks GitHub whether the commit
+is on `main` and whether its push CI passed. Production never moves to an older commit. A failed build
+or backup leaves the running release untouched. A failure after activation is recorded and left
+for a person to inspect; the gate never restores a database or reverses a migration by itself.
+The gate itself is installed on the host by hand after review; merging a change to it does not install
+it. Details: [CI](docs/ci.md), [releasing](deploy/RELEASING.md),
+[the deploy runner and gate](deploy/RUNNER.md), [running on the host](deploy/README.md),
+[release trains](docs/release-trains.md).
+
+## Decision record
+
+Everything below is the plan of record. Sections 1 to 12 are the proposal of 17 October 2026
+(building started the next day), amended in place where a decision changed. The dated sections
+record later decisions with their reasons and the request that led to them. They are not in
+strict date order, so use the topic index. Some describe a state that has since moved on; each
+says when it was written, and the newest one on a topic stands.
+
+Two things in the original proposal read differently now. The code layout sketched in section 2
+was the plan; what was built is in the [README](README.md#repository-layout). The diagram in
+section 4 is the first sketch; the current system is [above](#the-system-at-a-glance).
+
+- **The proposal, section by section:** [1. What we're building](#1-what-were-building), [2. Apps and code layout](#2-apps-and-code-layout), [3. Rules engine (Play)](#3-rules-engine-play), [4. Backend](#4-backend), [5. Offline-first data (Table, Collection, Cards)](#5-offline-first-data-table-collection-cards), [6. Scanner](#6-scanner), [7. AI opponents (Play)](#7-ai-opponents-play), [8. Table mode (life counter)](#8-table-mode-life-counter), [9. Data model (first cut)](#9-data-model-first-cut), [10. Milestones](#10-milestones), [Progress (2026-10-18)](#progress-2026-10-18), [11. Risks](#11-risks), [12. Questions for Bryan](#12-questions-for-bryan), [Sources](#sources).
+- **Repository, releases and operations:** [Repository and licence (11 November 2026)](#repository-and-licence-11-november-2026), [Open sign-up (2026-10-20)](#open-sign-up-2026-10-20), [Admin area (2026-10-22)](#admin-area-2026-10-22), [View as (2026-10-22)](#view-as-2026-10-22), [Power users and the semi-public release (2026-10-31)](#power-users-and-the-semi-public-release-2026-10-31), [Polish runs (2026-10-31)](#polish-runs-2026-10-31), [Database backups (2026-11-02)](#database-backups-2026-11-02), [Faster first load, caching and cache busting (2026-11-02)](#faster-first-load-caching-and-cache-busting-2026-11-02), [Performance and operations (2026-11-02)](#performance-and-operations-2026-11-02).
+- **Online play and the engine:** [How online play ended up working](#how-online-play-ended-up-working), [Watch the AIs play (2026-10-22)](#watch-the-ais-play-2026-10-22), [Drag and drop on the online board (2026-10-22)](#drag-and-drop-on-the-online-board-2026-10-22), [Board motion (2026-10-22)](#board-motion-2026-10-22), [phase's own board (2026-10-29)](#phases-own-board-2026-10-29), [Engine choice and direct restoration (2026-10-30)](#engine-choice-and-direct-restoration-2026-10-30), [PR 29 historical runtime supervision and provenance follow-up (30 October 2026)](#pr-29-historical-runtime-supervision-and-provenance-follow-up-30-october-2026), [Phase board release integration (1 November 2026)](#phase-board-release-integration-1-november-2026), [Online game startup isolation (2026-11-10)](#online-game-startup-isolation-2026-11-10), [Playing mode recovery and presentation (2026-11-10)](#playing-mode-recovery-and-presentation-2026-11-10).
+- **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
+- **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
+- **Cards, collection and prices:** [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02).
+- **Decks, plans and sharing:** [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08).
+- **Assistants:** [Ask Claude, the advisor (2026-10-22)](#ask-claude-the-advisor-2026-10-22), [Yama's tools for Claude (MCP, 2026-10-22)](#yamas-tools-for-claude-mcp-2026-10-22).
+
+### The proposal (17 October 2026)
 
 A free Magic app, on Android phones and in the browser (iOS shelved: no Apple account, section 12). Personal data stays private to each account unless its owner shares it (Sharing, 2026-10-28); the public precon reference is described below (2026-10-27). It does two jobs on one account:
 
 - **Play:** Commander online against friends or AI, with every game stored and replayable.
 - **Companion:** what Mythic Tools does today (life counter, playgroups and stats, card scanner, collection, prices, card lookup and decks), plus links to Play that Mythic Tools can't offer.
 
-Status: proposal written 2026-10-17; building started 2026-10-18. See README.md for what works today. Repo and app-store facts below were checked on 2026-10-17.
+Status: proposal written 2026-10-17; building started 2026-10-18. See [docs/features.md](docs/features.md) for what works today. Repo and app-store facts below were checked on 2026-10-17.
 
 **Changed 2026-10-18:** the database is SQLite (WAL mode), not Postgres. At friend-group scale one file next to one server process is simpler to run and back up (e.g. Litestream to object storage), and this machine has no Docker. The schema avoids Postgres-only features, so moving later is a migration, not a rewrite.
 
@@ -108,6 +470,8 @@ Why not the alternatives:
 - **PWA only** can't get offline storage or the camera reliably enough on iOS for a scanner and life counter people rely on.
 
 Capacitor lets us drop to native code where the web view is too slow. The scanner is the one likely place (section 6).
+
+The layout as first planned (what was built differs: there is no `apps/`, `packages/api` or `packages/board`, the engine is a sibling repository and not a submodule, and the scanner lives in `web/src/scanner`; see the [README](README.md#repository-layout)):
 
 ```
 yama/
@@ -312,6 +676,8 @@ contacting saget; manual deployment calls the same server gate. See `deploy/RUNN
                        Object storage (R2/S3) ─ scanner model + catalog, replay snapshots, CSV exports
                        Scryfall image CDN ─ card images (cached on device, never re-hosted)
 ```
+
+The sketch above is the first plan. As built, nothing uses object storage, the server runs on a home server behind a Cloudflare tunnel, and sidecars were added for the advisor and Forge: see [the system at a glance](#the-system-at-a-glance).
 
 - **One Rust server and one SQLite database.** At friend-group scale this runs on one Fly.io machine or a small VM.
 - **Game state:** live games and table rooms sit in memory and are rebuilt from the event log after a restart.
