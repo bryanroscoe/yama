@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Outlet, useLocation, useMatch, useOutletContext } from "react-router";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { AreaHead, SubNav } from "../components/DeckTabs";
 import { outbox, useOutbox } from "./outbox";
 import { usePlan } from "./store";
@@ -83,7 +83,7 @@ export function PlanLayout() {
       {!view && (
         <>
           <PlansHead title="Plans" index />
-          {plan.pending && <p className="dim">Loading your plans…</p>}
+          {plan.pending && <Loading>Loading your plans…</Loading>}
           <ErrorText error={plan.error} />
         </>
       )}

@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading, EmptyState, CopyButton } from "../components/ui";
 import {
   addSealedQuote,
   addWant,
@@ -40,7 +40,6 @@ import {
 } from "./api";
 import { api, type DeckSummary } from "../api";
 import { marketSentence } from "./marks";
-import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { TripHowTo } from "./howto";
 import type { PlanView } from "./view";
@@ -183,7 +182,7 @@ export function Trip() {
         </p>
       )}
 
-      {trip.stops.length === 0 && <p className="empty">No store has a card you need under your rule. See below for what to print.</p>}
+      {trip.stops.length === 0 && <EmptyState>No store has a card you need under your rule. See below for what to print.</EmptyState>}
 
       <div className="buy-stores">
         {trip.stops.map((st, i) => (
@@ -542,7 +541,7 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
             {deckName ?? "This deck"}: cards your collection doesn't hold <span className="num dim">{gaps.data?.cards.length ?? ""}</span>
           </summary>
           <p className="dim small">Real copies counted across your whole collection, so a card another deck uses counts here too. Basic lands are left out.</p>
-          {gaps.isLoading && <p className="small dim">Reading the deck…</p>}
+          {gaps.isLoading && <Loading small>Reading the deck…</Loading>}
           <ErrorText error={gaps.error} />
           <ul className="small">
             {(gaps.data?.cards ?? []).map((c) => (

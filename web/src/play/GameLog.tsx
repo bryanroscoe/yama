@@ -4,7 +4,7 @@
 // An answer Yama gave for you from memory is tagged Automatic, with Turn off.
 
 import { useEffect, useRef, useState } from "react";
-import { Sheet } from "../components/ui";
+import { Dialog, DialogHead } from "../components/ui";
 import { aboutMe, LOG_FILTERS, lineCard, logRows, type LogFilter, type Names } from "./feed";
 import { answerOf } from "./turns";
 import type { Act, CardMeta, Happening, LogLine, TurnsView } from "./types";
@@ -34,14 +34,11 @@ export function GameLog(props: {
     if (el) el.scrollTop = el.scrollHeight;
   }, [filter]);
   return (
-    <Sheet label="Game log" onClose={props.onClose}>
+    <Dialog label="Game log" onClose={props.onClose}>
       <div className="glog">
         {/* The title and filters stay put while the lines scroll under them. */}
         <div className="glog-top">
-          <div className="sheet-head">
-            <h2>Game log</h2>
-            <button className="quiet" onClick={props.onClose}>Close</button>
-          </div>
+          <DialogHead>Game log</DialogHead>
           {events && (
             <div className="glog-filters" role="group" aria-label="Show">
               {LOG_FILTERS.filter((f) => names.you !== null || f.id === "all" || f.id === "spells" || f.id === "combat").map((f) => (
@@ -82,7 +79,7 @@ export function GameLog(props: {
           </ol>
         )}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 

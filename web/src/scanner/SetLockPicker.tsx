@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MAX_LOCKED, scanSets, type ScanSet } from "./setlock";
+import { Loading, ErrorText } from "../components/ui";
 
 const SHOWN = 30;
 
@@ -54,15 +55,15 @@ export function SetLockPicker({ codes, loading, onChange, onClose }: { codes: st
           ))}
         </ul>
       )}
-      {loading && <p className="scan-note">Getting the set's cards…</p>}
-      {error && <p className="error">{error}</p>}
+      {loading && <Loading className="scan-note">Getting the set's cards…</Loading>}
+      <ErrorText error={error} />
       {!full && (
         <label className="scan-lock-search">
           <span className="dim">{codes.length ? "Add another set" : "Set name or code"}</span>
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Edge of Eternities, ECC…" autoComplete="off" enterKeyHint="search" />
         </label>
       )}
-      {!full && sets === null && !error && <p className="scan-note">Loading sets…</p>}
+      {!full && sets === null && !error && <Loading className="scan-note">Loading sets…</Loading>}
       {!full && sets !== null && (
         <div className="scan-lock-list" role="listbox" aria-label="Sets">
           {shown.map((s) => (

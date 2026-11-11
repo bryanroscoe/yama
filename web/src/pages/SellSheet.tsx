@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Dialog, EmptyState, Segmented, CopyButton } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -34,7 +34,6 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   /** Rows not chosen one by one: all their copies (at first, and after Tick all) or none (after Untick all). */
   const [rest, setRest] = useState<"all" | "none">("all");
   const [limit, setLimit] = useState(SHOW);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const floor = Number(min);
@@ -69,32 +68,15 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   };
 
   const download = () => saveFile(new Blob([text.text], { type: `${info.mime};charset=utf-8` }), info.file).catch(setError);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text.text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      setError(e instanceof Error ? new Error(`Couldn't copy: ${e.message}`) : e);
-    }
-  };
 
   return (
-    <Sheet label="Sell list" onClose={onClose}>
+    <Dialog title="Sell list" onClose={onClose}>
       <div className="stack sell-sheet">
-        <div className="sheet-head">
-          <h2>Sell list</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         <p className="dim">
           From {from}. To choose cards by hand, move them into a list (New, then List) and open it here. Proxies are never included.
         </p>
 
-        <div className="segmented sell-formats" role="group" aria-label="Format">
-          {(Object.keys(SELL_FORMATS) as SellFormat[]).map((f) => (
-            <button key={f} aria-pressed={format === f} onClick={() => setFormat(f)}>{SELL_FORMATS[f].label}</button>
-          ))}
-        </div>
+        <Segmented className="sell-formats" label="Format" value={format} onChange={setFormat} options={(Object.keys(SELL_FORMATS) as SellFormat[]).map((f) => [f, SELL_FORMATS[f].label] as const)} />
         <p className="small">{info.how}</p>
 
         <div className="sell-filters">
@@ -129,17 +111,18 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             </span>
           )}
         </p>
+        {/* A sentence about the list as it stands, which changes as rows are ticked: not an alert. */}
         {limitNote && <p className="error">{limitNote}</p>}
         <div className="row">
           {info.paste ? (
             <>
-              <button className="primary" disabled={text.copies === 0} onClick={() => void copy()}>{copied ? "Copied" : "Copy the list"}</button>
+              <CopyButton className="primary" disabled={text.copies === 0} text={text.text} label="Copy the list" />
               <button className="outline" disabled={text.copies === 0} onClick={() => void download()}>Download</button>
             </>
           ) : (
             <>
               <button className="primary" disabled={text.copies === 0} onClick={() => void download()}>Download CSV</button>
-              <button className="outline" disabled={text.copies === 0} onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
+              <CopyButton className="outline" disabled={text.copies === 0} text={text.text} label="Copy" />
             </>
           )}
         </div>
@@ -210,8 +193,8 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             )}
           </>
         )}
-        {cards.length === 0 && <p className="empty">Nothing here to sell{minimum !== null ? ` worth at least ${usd(minimum)}` : ""}.</p>}
+        {cards.length === 0 && <EmptyState>Nothing here to sell{minimum !== null ? ` worth at least ${usd(minimum)}` : ""}.</EmptyState>}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -20,7 +20,13 @@
 //! here (`PUT /live`, memory only, for a while) so the creator and the selected group can follow.
 //!
 //! Memory: a room keeps its newest snapshot (at most [`MAX_MESSAGE`]) and a short backlog for slow
-//! guests, so anyone but an admin may host at most [`MAX_HOSTED`] tables at once.
+//! guests, so anyone but an admin may host at most [`MAX_HOSTED`] tables at once. Guests' events
+//! wait for the host's socket in a queue of at most [`HOST_QUEUE`]; each is at most
+//! [`MAX_EVENT`] bytes, a guest sends at most [`GUEST_EVENTS`] per [`GUEST_WINDOW`], and a table
+//! has at most [`MAX_GUESTS`] phones following. Past any of those the event (a tap, which can
+//! be made again) is dropped, and a phone past the table's limit isn't let in, so a guest
+//! holding the share key can't fill the server's memory. A room is forgotten when its last
+//! phone leaves, host or guest.
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -79,6 +85,18 @@ impl Rooms {
     }
 }
 
+impl Rooms {
+    /// Forget a room with no host and no guests. A host leaving does this when no guest is
+    /// connected; a guest leaving must too, or a room whose guests outlast its host would keep
+    /// its last snapshot (up to [`MAX_MESSAGE`]) until the server restarts.
+    fn forget_if_empty(&self, game_id: &str) {
+        let mut map = self.rooms.lock().unwrap();
+        if map.get(game_id).is_some_and(|r| r.host.is_none() && r.guests.receiver_count() == 0) {
+            map.remove(game_id);
+        }
+    }
+}
+
 /// The `ended` message that closes every socket following a table.
 fn room_end(game_id: &str) -> String {
     format!("room:{game_id}")
@@ -114,12 +132,19 @@ struct Room {
     /// The account hosting it.
     host_user: Option<String>,
     snapshot: Option<String>,
-    host: Option<(u64, mpsc::UnboundedSender<String>)>,
+    host: Option<(u64, mpsc::Sender<String>)>,
     guests: broadcast::Sender<String>,
     next_conn: u64,
 }
 
 impl Room {
+    /// A place among the phones following this table, if there is one: the guest's subscription
+    /// to the host's snapshots. Called under the rooms lock, so counting and subscribing are one
+    /// step and connections arriving together can't all slip under [`MAX_GUESTS`].
+    fn admit(&self) -> Option<broadcast::Receiver<String>> {
+        (self.guests.receiver_count() < MAX_GUESTS).then(|| self.guests.subscribe())
+    }
+
     fn new() -> Self {
         Self { key: None, host_user: None, snapshot: None, host: None, guests: broadcast::channel(BACKLOG).0, next_conn: 0 }
     }
@@ -240,6 +265,51 @@ fn guest_may_join(room: Option<&Room>, user: &str, key: &str) -> bool {
 }
 
 const MAX_MESSAGE: usize = 512 * 1024;
+/// Guests' events waiting for the host's socket. A host that far behind loses the newest ones.
+const HOST_QUEUE: usize = 256;
+/// The largest event a guest may send. An event is a tap: a few hundred bytes.
+const MAX_EVENT: usize = 16 * 1024;
+/// Events one guest may send in each [`GUEST_WINDOW`]: 30 a second, faster than fingers.
+const GUEST_EVENTS: usize = 300;
+const GUEST_WINDOW: Duration = Duration::from_secs(10);
+/// Phones following one table at once (a pod is six; spectators and second devices are extra).
+const MAX_GUESTS: usize = 32;
+
+/// Counts one guest's events per window.
+struct Throttle {
+    window_start: Instant,
+    count: usize,
+}
+
+impl Throttle {
+    fn new(now: Instant) -> Self {
+        Self { window_start: now, count: 0 }
+    }
+
+    /// Whether another event may go through at `now`.
+    fn allow(&mut self, now: Instant) -> bool {
+        if now.saturating_duration_since(self.window_start) >= GUEST_WINDOW {
+            self.window_start = now;
+            self.count = 0;
+        }
+        self.count += 1;
+        self.count <= GUEST_EVENTS
+    }
+}
+
+/// What a guest's text frame becomes for the host: the event, stamped with who sent it. None
+/// for anything that isn't an event, is too large, or is past the guest's rate.
+fn guest_event(text: &str, from: &str, throttle: &mut Throttle, now: Instant) -> Option<String> {
+    if text.len() > MAX_EVENT {
+        return None;
+    }
+    let mut value = serde_json::from_str::<serde_json::Value>(text).ok()?;
+    if value.get("type").and_then(|t| t.as_str()) != Some("event") || !throttle.allow(now) {
+        return None;
+    }
+    value["from"] = serde_json::Value::String(from.to_string());
+    Some(value.to_string())
+}
 /// Snapshots kept for a guest that falls behind (it skips to the newest, which carries everything).
 const BACKLOG: usize = 16;
 /// Tables one account (not an admin) may host at once.
@@ -271,8 +341,8 @@ async fn connect(
         if creator.as_deref() != Some(user.id.as_str()) {
             return Err(AppError::Forbidden("only the phone that started this game can share it".into()));
         }
-        let mut map = st.rooms.rooms.lock().unwrap();
-        // Rooms still in use: a host or guests connected (one whose upgrade never finished doesn't count).
+        let map = st.rooms.rooms.lock().unwrap();
+        // Rooms still in use: a host or guests connected.
         let hosted = map
             .iter()
             .filter(|(id, r)| **id != game_id && r.host_user.as_deref() == Some(user.id.as_str()))
@@ -281,31 +351,39 @@ async fn connect(
         if !user.is_admin && hosted >= MAX_HOSTED {
             return Err(AppError::Conflict(format!("You're sharing {hosted} tables already. Close one on its phone first.")));
         }
-        let room = map.entry(game_id.clone()).or_insert_with(Room::new);
-        room.key = Some(p.key.clone());
-        room.host_user = Some(user.id.clone());
+        // The room itself is made when the socket opens (`run_host`), so a request that never
+        // upgrades leaves nothing behind.
     } else {
         let map = st.rooms.rooms.lock().unwrap();
         if !guest_may_join(map.get(&game_id), &user.id, &p.key) {
             return Err(AppError::Forbidden("that table link has expired; scan the code again".into()));
         }
+        // A first, early refusal. A browser can't read a refused upgrade's reason, so the page
+        // only sees that it couldn't connect; `run_guest` makes the check that holds.
+        if map.get(&game_id).is_some_and(|r| r.guests.receiver_count() >= MAX_GUESTS) {
+            return Err(AppError::Conflict("That table has as many phones following as it can take.".into()));
+        }
     }
     let rooms = st.rooms.clone();
     Ok(ws.max_message_size(MAX_MESSAGE).on_upgrade(move |socket| async move {
         if host {
-            run_host(rooms, game_id, user.id, ended, socket).await
+            run_host(rooms, game_id, user.id, p.key, ended, socket).await
         } else {
             run_guest(rooms, game_id, user.id, user.display_name, ended, socket).await
         }
     }))
 }
 
-async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, mut ended: broadcast::Receiver<String>, socket: WebSocket) {
+async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, key: String, mut ended: broadcast::Receiver<String>, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = mpsc::channel::<String>(HOST_QUEUE);
     let (conn, guests) = {
         let mut map = rooms.rooms.lock().unwrap();
         let room = map.entry(game_id.clone()).or_insert_with(Room::new);
+        // Set here, on every host connection: the room may be new, or made again after the
+        // last phone left it.
+        room.key = Some(key);
+        room.host_user = Some(user_id.clone());
         room.next_conn += 1;
         // A newer host connection (e.g. after a reconnect) replaces the old one.
         room.host = Some((room.next_conn, tx));
@@ -356,17 +434,25 @@ async fn run_guest(
     socket: WebSocket,
 ) {
     let table = room_end(&game_id);
+    let mut throttle = Throttle::new(Instant::now());
     let (mut sink, mut stream) = socket.split();
-    let (mut updates, snapshot, host_connected) = {
-        let mut map = rooms.rooms.lock().unwrap();
-        let room = map.entry(game_id.clone()).or_insert_with(Room::new);
-        (room.guests.subscribe(), room.snapshot.clone(), room.host.is_some())
+    let admitted = {
+        let map = rooms.rooms.lock().unwrap();
+        // A room that went away since `connect` let this guest in isn't made again here.
+        let place = map.get(&game_id).and_then(|room| room.admit().map(|updates| (updates, room.snapshot.clone(), room.host.is_some())));
+        place
     };
+    // Gone or full (this is the check that holds when several arrive at once): the socket closes.
+    let Some((mut updates, snapshot, host_connected)) = admitted else { return };
     let hello = format!(r#"{{"type":"host","connected":{host_connected}}}"#);
-    if sink.send(Message::Text(hello.into())).await.is_err() {
-        return;
-    }
-    if let Some(s) = snapshot && sink.send(Message::Text(s.into())).await.is_err() {
+    let greeted = sink.send(Message::Text(hello.into())).await.is_ok()
+        && match snapshot {
+            Some(s) => sink.send(Message::Text(s.into())).await.is_ok(),
+            None => true,
+        };
+    if !greeted {
+        drop(updates);
+        rooms.forget_if_empty(&game_id);
         return;
     }
     let forward = tokio::spawn(async move {
@@ -390,17 +476,18 @@ async fn run_guest(
         };
         let Some(Ok(msg)) = msg else { break };
         let Message::Text(text) = msg else { continue };
-        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-        if value.get("type").and_then(|t| t.as_str()) != Some("event") {
-            continue;
-        }
-        value["from"] = serde_json::Value::String(name.clone());
+        let Some(event) = guest_event(&text, &name, &mut throttle, Instant::now()) else { continue };
         let host = rooms.rooms.lock().unwrap().get(&game_id).and_then(|r| r.host.as_ref().map(|(_, tx)| tx.clone()));
         if let Some(tx) = host {
-            let _ = tx.send(value.to_string());
+            // A full queue (the host's phone is far behind) drops the event rather than grow.
+            let _ = tx.try_send(event);
         }
     }
+    // The task holds this guest's place (its subscription): once it is gone, a room nobody is
+    // in any more is forgotten.
     forward.abort();
+    let _ = forward.await;
+    rooms.forget_if_empty(&game_id);
 }
 
 #[cfg(test)]
@@ -445,7 +532,7 @@ mod tests {
             }
         }
         let mut server_room = room(&"b".repeat(32), &host);
-        server_room.host = Some((1, mpsc::unbounded_channel().0));
+        server_room.host = Some((1, mpsc::channel(HOST_QUEUE).0));
         state.rooms.rooms.lock().unwrap().insert("server".into(), server_room);
         let (_, own) = send(&app, Method::GET, "/api/table/active", Some(&ht), None).await;
         assert_eq!(own.as_array().unwrap().len(), 3, "creator sees their private and group counters: {own}");
@@ -466,6 +553,77 @@ mod tests {
         assert_eq!(send(&app, Method::GET, "/api/table/active", Some(&mt), None).await.1, json!([]));
         sqlx::query("UPDATE users SET disabled_at = 'now' WHERE id = ?").bind(&host).execute(&pool).await.unwrap();
         assert!(active_tables(&state, &host).await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_guests_events_are_stamped_bounded_and_rate_limited() {
+        let t0 = Instant::now();
+        let mut throttle = Throttle::new(t0);
+        // An event goes to the host with who sent it; a "from" the guest wrote is replaced.
+        let sent = guest_event(r#"{"type":"event","event":{"kind":"life","seat":1,"delta":-1},"from":"the host"}"#, "Pat", &mut throttle, t0).unwrap();
+        let sent: serde_json::Value = serde_json::from_str(&sent).unwrap();
+        assert_eq!((sent["from"].as_str(), sent["event"]["delta"].as_i64()), (Some("Pat"), Some(-1)));
+        // Anything else is dropped: a snapshot (only the host sends those), junk, and an
+        // event too large to be a tap. None of them uses up the guest's allowance.
+        let huge = format!(r#"{{"type":"event","event":{{"pad":"{}"}}}}"#, "x".repeat(MAX_EVENT));
+        for dropped in [r#"{"type":"state","players":[]}"#, "not json", "[]", huge.as_str()] {
+            assert!(guest_event(dropped, "Pat", &mut throttle, t0).is_none());
+        }
+        assert_eq!(throttle.count, 1);
+        // A flood stops at the allowance and resumes with the next window.
+        let event = r#"{"type":"event","event":{}}"#;
+        let through = (0..GUEST_EVENTS * 3).filter(|_| guest_event(event, "Pat", &mut throttle, t0 + Duration::from_secs(1)).is_some()).count();
+        assert_eq!(through, GUEST_EVENTS - 1);
+        assert!(guest_event(event, "Pat", &mut throttle, t0 + GUEST_WINDOW - Duration::from_millis(1)).is_none());
+        assert!(guest_event(event, "Pat", &mut throttle, t0 + GUEST_WINDOW).is_some());
+    }
+
+    #[test]
+    fn a_table_admits_only_so_many_guests() {
+        let table = room(&"k".repeat(32), "host");
+        // Counting and subscribing are one step (`admit`, under the rooms lock in `run_guest`),
+        // so however many connect together, MAX_GUESTS get a place.
+        let mut seated: Vec<_> = (0..MAX_GUESTS + 5).filter_map(|_| table.admit()).collect();
+        assert_eq!(seated.len(), MAX_GUESTS);
+        assert!(table.admit().is_none());
+        // A guest leaving frees one place.
+        seated.pop();
+        seated.extend(table.admit());
+        assert_eq!(seated.len(), MAX_GUESTS);
+        assert!(table.admit().is_none());
+    }
+
+    #[test]
+    fn a_room_is_forgotten_when_its_last_phone_leaves() {
+        let rooms = Rooms::default();
+        let mut table = room(&"k".repeat(32), "host");
+        table.snapshot = Some("{\"type\":\"state\"}".into());
+        table.host = Some((1, mpsc::channel(HOST_QUEUE).0));
+        let guest = table.admit().unwrap();
+        rooms.rooms.lock().unwrap().insert("game".into(), table);
+        let there = |rooms: &Rooms| rooms.rooms.lock().unwrap().contains_key("game");
+        // With its host, or with a guest still following, it stays (and keeps its snapshot).
+        rooms.forget_if_empty("game");
+        assert!(there(&rooms));
+        rooms.rooms.lock().unwrap().get_mut("game").unwrap().host = None;
+        rooms.forget_if_empty("game");
+        assert!(there(&rooms), "a guest is still following");
+        // The guests outlasted the host; when the last of them goes, so does the room.
+        drop(guest);
+        rooms.forget_if_empty("game");
+        assert!(!there(&rooms));
+        rooms.forget_if_empty("game");
+    }
+
+    #[test]
+    fn the_hosts_queue_is_bounded() {
+        // What `run_guest` does with an event: `try_send` into the host's queue. Once the host
+        // has fallen HOST_QUEUE events behind, more are dropped instead of kept.
+        let (tx, mut rx) = mpsc::channel::<String>(HOST_QUEUE);
+        let kept = (0..HOST_QUEUE * 4).filter(|i| tx.try_send(i.to_string()).is_ok()).count();
+        assert_eq!(kept, HOST_QUEUE);
+        assert_eq!(rx.try_recv().unwrap(), "0");
+        assert!(tx.try_send("room again".into()).is_ok());
     }
 
     #[test]

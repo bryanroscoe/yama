@@ -3,6 +3,7 @@
 
 import type { PlayerState } from "@yama/core";
 import { useState } from "react";
+import { Segmented, DialogHead } from "../components/ui";
 
 const DICE = [4, 6, 8, 10, 12, 20] as const;
 
@@ -37,10 +38,7 @@ export function DiceSheet({ players, onDone }: { players: PlayerState[]; onDone:
   const custom = Number.parseInt(sides, 10);
   return (
     <div className="stack dice-sheet">
-      <div className="sheet-head">
-        <h2>Dice and coin</h2>
-        <button className="quiet" onClick={onDone}>Done</button>
-      </div>
+      <DialogHead onClose={onDone}>Dice and coin</DialogHead>
       <div className="dice-result" role="status" aria-live="polite">
         {result ? (
           <>
@@ -57,11 +55,7 @@ export function DiceSheet({ players, onDone }: { players: PlayerState[]; onDone:
           <button key={n} onClick={() => dice(n)} aria-label={`Roll ${count > 1 ? `${count} ` : "a "}d${n}`}>d{n}</button>
         ))}
       </div>
-      <span className="segmented" role="group" aria-label="How many dice">
-        {[1, 2, 3].map((c) => (
-          <button key={c} type="button" aria-pressed={count === c} onClick={() => setCount(c)}>{c} {c === 1 ? "die" : "dice"}</button>
-        ))}
-      </span>
+      <Segmented as="span" label="How many dice" value={count} onChange={setCount} options={[1, 2, 3].map((c) => [c, `${c} ${c === 1 ? "die" : "dice"}`] as const)} />
       <div className="row dice-row">
         <label className="dice-custom">
           <span aria-hidden="true">d</span>

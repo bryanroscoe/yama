@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router";
 import { api, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
-import { CardImage, ErrorText, Sheet } from "../components/ui";
+import { CardImage, ErrorText, Dialog } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
 import { queryChips, withoutTerm } from "./cardQuery";
@@ -222,10 +222,10 @@ function CardPage({ oracleId, onClose, backLabel, hit }: { oracleId: string; onC
 /** One card's details and printings, as a sheet over another screen. `readOnly` (plan pages) hides the buttons that add copies to your collection. */
 export function CardSheet({ oracleId, onClose, readOnly = false }: { oracleId: string; onClose: () => void; readOnly?: boolean }) {
   return (
-    <Sheet label="Card" onClose={onClose}>
+    <Dialog label="Card" onClose={onClose}>
       <div className="card-sheet2">
         <CardView oracleId={oracleId} onBack={onClose} backLabel="Close" readOnly={readOnly} close />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -9,7 +9,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { api, type DeckCard, type DeckSummary } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
-import { ErrorText, Pips } from "../components/ui";
+import { ErrorText, Pips, Segmented } from "../components/ui";
 import { FORGE_PROFILES, type BaseChoice, type EngineMode, type EngineSupport, type FieldChoice, type Pace } from "./api";
 import { forgeSeconds, type EngineState } from "./engines";
 import { contactHref } from "../components/PowerOnly";
@@ -421,13 +421,7 @@ export function GamesPicker({ choices, games, setGames, pace, note, id, label = 
       <span id={id} className="lab-games-label">
         {label}
       </span>
-      <div className="segmented" role="radiogroup" aria-labelledby={id}>
-        {choices.map((g) => (
-          <button key={g} type="button" role="radio" aria-checked={games === g} aria-pressed={games === g} onClick={() => setGames(g)}>
-            {g}
-          </button>
-        ))}
-      </div>
+      <Segmented labelledBy={id} value={games} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
       <span className="lab-note">
         {note} More games narrow the uncertainty.
         {eta != null ? ` ${durationText(eta).replace(/^about/, "About")}.` : ""}
@@ -493,21 +487,12 @@ export function EnginePicker({ value, onChange, pace, games, id }: { value: Engi
       <span id={id} className="lab-games-label">
         Engine
       </span>
-      <div className="segmented" role="radiogroup" aria-labelledby={id}>
-        {ENGINE_OPTIONS.map((o) => (
-          <button
-            key={o.id}
-            type="button"
-            role="radio"
-            aria-checked={value.mode === o.id}
-            aria-pressed={value.mode === o.id}
-            disabled={o.id !== "phase" && !forgeOk}
-            onClick={() => onChange({ ...value, mode: o.id })}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        labelledBy={id}
+        value={value.mode}
+        onChange={(mode) => onChange({ ...value, mode })}
+        options={ENGINE_OPTIONS.map((o) => ({ value: o.id, label: o.label, disabled: o.id !== "phase" && !forgeOk }))}
+      />
       <span className="lab-note">{forgeOk ? note : "phase: Yama's own rules engine. Forge isn't set up on this server, so phase is the only engine here."}</span>
       {forgeOk && value.mode !== "phase" && !forge?.online && <span className="lab-note lab-warn">The Forge worker isn't answering right now. You can still start the run; its Forge games wait until the worker is back.</span>}
       <div className="lab-engine-ai">

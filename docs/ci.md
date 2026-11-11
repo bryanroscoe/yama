@@ -53,6 +53,10 @@ share saget's CI pool.
 
 The rest of this page describes CI with tests on.
 
+While tests are off and several threads are landing work, one coordinator runs this gate once per
+batch instead of every thread running it per PR: see [release trains](release-trains.md). Trains
+stop when tests are switched on again.
+
 ## How it runs
 
 `.github/workflows/ci.yml` runs on ready pull requests into `main`, pushes to `main`, and manual

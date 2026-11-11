@@ -147,6 +147,8 @@ pub struct Limits {
     pub join_codes: RateLimiter,
     /// New playgroups, guests, renames and new join codes, per account.
     pub playgroup_writes: RateLimiter,
+    /// Changes to your own account's details (the name you go by), per account.
+    pub profile_writes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
     /// Collection changes (batches of ops, and making, renaming and deleting containers), per
@@ -160,6 +162,13 @@ pub struct Limits {
     /// New decks (pasted, from a precon or from a plan list), saved versions and list previews,
     /// per account (each save also queues a Commander Spellbook check).
     pub deck_writes: RateLimiter,
+    /// Table and logged games saved through `POST /api/games`, per account. A phone running a
+    /// game sends it again with each batch of taps, so this is set for a flood, not for play.
+    pub game_saves: RateLimiter,
+    /// Games new to Yama among those, per account (a phone back online may bring a night's worth).
+    pub game_creates: RateLimiter,
+    /// Copies of shared plans saved to an account ("Save a copy"), per account.
+    pub research_copies: RateLimiter,
     /// New online games, per account (each one can start a rules engine thread).
     pub play_creates: RateLimiter,
     /// Questions to the advisor, per account (each one is a Claude request).
@@ -193,11 +202,15 @@ impl Default for Limits {
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             playgroup_writes: RateLimiter::new("playgroup changes", 60, 10 * MINUTE),
+            profile_writes: RateLimiter::new("account changes", 30, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
             collection_writes: RateLimiter::new("collection changes", 600, 10 * MINUTE),
             scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
             mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
             deck_writes: RateLimiter::new("deck saves", 120, 10 * MINUTE),
+            game_saves: RateLimiter::new("game saves", 1200, 10 * MINUTE),
+            game_creates: RateLimiter::new("new games", 120, 10 * MINUTE),
+            research_copies: RateLimiter::new("saved copies", 30, 10 * MINUTE),
             play_creates: RateLimiter::new("new online games", 30, 60 * MINUTE),
             advisor: RateLimiter::new("questions to Claude", 6, MINUTE),
             watch_creates: RateLimiter::new("new watched games", 30, 60 * MINUTE),
@@ -375,6 +388,51 @@ mod tests {
         assert_eq!(address_key(Some(ip("2001:db8:1:2:bbbb::9"))), "2001:db8:1:2::/64");
         assert_eq!(address_key(Some(ip("203.0.113.9"))), "203.0.113.9");
         assert_eq!(address_key(None), "unknown");
+    }
+
+    /// Write routes that had no limit at all: saving a game and copying a shared plan.
+    #[tokio::test]
+    async fn game_saves_and_plan_copies_are_rate_limited_per_account() {
+        use crate::testutil::{app, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = app().await;
+        let (_, token) = user(&pool, "pat@example.com").await;
+        let (_, other) = user(&pool, "sam@example.com").await;
+        let game = |n: usize| json!({ "id": format!("6f1c2c43-6c1e-4d6c-9f55-{n:012}"), "seats": [{ "seat": 0, "guest_name": "Pat" }, { "seat": 1, "guest_name": "Sam" }] });
+
+        // A game sent again (as a phone does with every batch of taps) isn't a new game.
+        for _ in 0..150 {
+            let (status, body) = send(&app, Method::POST, "/api/games", Some(&token), Some(game(0))).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+        // New games stop at the limit; the game already there still saves, and so does
+        // another account's.
+        let mut made = 1;
+        loop {
+            let (status, _) = send(&app, Method::POST, "/api/games", Some(&token), Some(game(made))).await;
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                break;
+            }
+            assert_eq!(status, StatusCode::OK);
+            made += 1;
+            assert!(made < 1_000, "new games were never limited");
+        }
+        assert_eq!(made, 120);
+        let games: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games").fetch_one(&pool).await.unwrap();
+        assert_eq!(games, 120);
+        assert_eq!(send(&app, Method::POST, "/api/games", Some(&token), Some(game(0))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, "/api/games", Some(&other), Some(game(5_000))).await.0, StatusCode::OK);
+
+        // Copying a shared plan: tried 30 times in ten minutes, right or wrong.
+        async fn copy(app: &axum::Router, token: &str) -> StatusCode {
+            send(app, Method::POST, "/api/research/copy", Some(token), Some(json!({ "token": "0123456789abcdef0123" }))).await.0
+        }
+        for _ in 0..30 {
+            assert_eq!(copy(&app, &token).await, StatusCode::NOT_FOUND);
+        }
+        assert_eq!(copy(&app, &token).await, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(copy(&app, &other).await, StatusCode::NOT_FOUND);
     }
 
     #[test]

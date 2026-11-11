@@ -416,6 +416,10 @@ label > span.hint {
 .error {
   color: var(--bad);
 }
+/* ErrorText's Try again sits on the error's line. */
+.error > button {
+  margin-left: var(--s-1);
+}
 
 /* Segmented control: a surface track; the chosen segment is a text-colored pill. */
 .segmented {
@@ -462,6 +466,12 @@ label > span.hint {
 .segmented > .active:hover {
   background: var(--text);
   color: var(--ground);
+}
+/* The smaller track for a toolbar (Segmented's `compact`). */
+.segmented.is-compact > button {
+  min-height: calc(var(--target) - 6px);
+  padding: 0 12px;
+  font-size: var(--t-sm);
 }
 /* The track scrolls sideways when it's too narrow, which would clip a ring drawn outside the
    segment, so the ring sits inside it: light on the dark track, dark on the chosen pill. */
@@ -1096,11 +1106,53 @@ button.list-row:hover {
     opacity: 0;
   }
 }
+/* Dialog (components/Dialog.tsx): the scrim and the sheet share one wrapper that takes no box
+   of its own, so a dialog drawn inside a grid or a flex row doesn't add a gap to it. */
+.dialog-layer {
+  display: contents;
+}
+/* DialogHead: the heading, with Close at the end of the row, centered on the heading's line.
+   24 px to the content, whether the head is the sheet's own or the first thing in a stack. */
 .sheet-head {
   display: flex;
   justify-content: space-between;
   align-items: start;
   gap: 1rem;
+}
+.dialog-head {
+  align-items: center;
+  margin-bottom: var(--s-1);
+}
+.dialog-head h2 {
+  margin: 0;
+}
+.sheet > .dialog-head {
+  margin-bottom: var(--s-4);
+}
+/* A dialog's answers: one row at the end, the main one last. */
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+/* A destructive answer: --bad words on a secondary, saying what it removes. */
+.dialog-actions > button.danger {
+  color: var(--bad);
+}
+.dialog-actions > button.danger:hover {
+  border-color: var(--bad);
+}
+/* The sheet, its heading and the other full-screen layers take focus when they open, so the
+   keyboard stays down on a phone; they aren't controls, so no ring. */
+.sheet:focus,
+.dialog-head h2:focus,
+.scan-overlay:focus,
+.hand-view:focus,
+.card-zoom:focus,
+.picker:focus {
+  outline: none;
 }
 
 .oracle {
@@ -1247,9 +1299,64 @@ table.plain tr.few td {
   color: var(--dim);
 }
 
+/* EmptyState (components/ui.tsx): nothing here yet. One sentence, and the way to add the first
+   thing when there is one. */
 .empty {
   padding: 2rem 0;
   color: var(--dim);
+}
+.empty.has-parts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+.empty.has-parts > p,
+.empty.has-parts > h2 {
+  margin: 0;
+}
+.empty > h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: var(--t-lg);
+  line-height: 1.1;
+  color: var(--text);
+}
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+/* A dashed slot where the content will go. */
+.empty.is-boxed {
+  margin: 0;
+  padding: var(--s-4);
+  border: 2px dashed var(--line);
+  border-radius: 16px;
+  text-align: center;
+}
+.empty.is-boxed.has-parts {
+  align-items: center;
+}
+/* A surface card, for the first thing on a page. */
+.empty.is-panel {
+  padding: var(--s-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  color: inherit;
+}
+/* A line inside a list or a small panel. */
+.empty.is-compact {
+  margin: 0;
+  padding: 0;
+  font-size: var(--t-sm);
+}
+
+/* Loading (components/ui.tsx): a line saying something is on its way. */
+.loading.is-padded {
+  padding: 1rem;
 }
 
 .login {

@@ -6,7 +6,7 @@ import { Link } from "react-router";
 import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { ChangesHowTo } from "../plan/howto";
-import { Details, ErrorText } from "../components/ui";
+import { Details, ErrorText, Loading } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
 import { Proposal, ProposalText } from "./Proposal";
 import "./advisor.css";
@@ -119,7 +119,7 @@ export function ChangesPage() {
       <AreaHead title="Suggested changes" back={{ to: "/decks", label: "Decks" }} />
       <ChangesHowTo open={!!all.data && !waiting.some((c) => c.status === "pending")} />
       <ErrorText error={all.error} />
-      {all.isPending && <p className="dim">Loading…</p>}
+      {all.isPending && <Loading />}
       {all.data && !waiting.some((c) => c.status === "pending") && <p>Nothing is waiting for your review.</p>}
       {groups.map((via) => (
         <section key={via} className="ask-changes-group">

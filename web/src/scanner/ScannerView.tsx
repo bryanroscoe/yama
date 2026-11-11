@@ -29,6 +29,7 @@ import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
+import { ErrorText } from "../components/ui";
 
 export interface ScannerViewProps {
   /**
@@ -1136,7 +1137,7 @@ export function ScannerView({
         )}
         {!isFound && closeup !== "title" && !lockOpen && (
           <>
-            {error && <p className="error">{error}</p>}
+            <ErrorText error={error} />
             {lockError && <p className="error">Couldn't lock to {lockCodes.map((c) => c.toUpperCase()).join(", ")}: {lockError}</p>}
             {suggested && suggestedName && suggestDismissed !== suggested && (
               <div className="scan-step scan-suggest">
@@ -1276,7 +1277,7 @@ export function ScannerView({
                 )}
               </div>
             )}
-            {found.error && <p className="error">{found.error}</p>}
+            <ErrorText error={found.error} />
             {confirming && chosen && options && (
               <div ref={tapRef} className="scan-step is-tap" role="alert">
                 <p>

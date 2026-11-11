@@ -6,7 +6,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from "react-route
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
-import { CardImage, ErrorText, Pips } from "../components/ui";
+import { CardImage, ErrorText, Pips, Loading, Segmented } from "../components/ui";
 import {
   checks,
   commanderChoices,
@@ -151,7 +151,7 @@ function ImportEditor() {
 
         <section className="import-check" aria-labelledby="imp-check" aria-busy={check.isPending}>
           <h2 id="imp-check">Check it</h2>
-          {check.isPending && <p className="dim">Reading the list…</p>}
+          {check.isPending && <Loading>Reading the list…</Loading>}
           <ErrorText error={check.error} />
           {!check.isPending && !preview && !check.error && <p className="dim">Your deck shows here once there's a list to read.</p>}
           <LinkNote preview={preview} stepsWhere="under Import from a file or another site" />
@@ -404,14 +404,7 @@ function SaveBar({
         Save
       </h2>
       {decks.length > 0 && (
-        <div className="segmented import-mode" role="tablist" aria-label="New deck or new version">
-          <button type="button" role="tab" aria-selected={mode === "new"} onClick={() => setMode("new")}>
-            New deck
-          </button>
-          <button type="button" role="tab" aria-selected={mode === "update"} onClick={() => setMode("update")}>
-            Update one of your decks
-          </button>
-        </div>
+        <Segmented className="import-mode" label="New deck or new version" value={mode} onChange={setMode} options={[["new", "New deck"], ["update", "Update one of your decks"]]} />
       )}
       {mode === "update" && (
         <div className="stack">

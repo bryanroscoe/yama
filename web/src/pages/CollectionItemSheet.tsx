@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
-import { CardImage, ErrorText, Sheet } from "../components/ui";
+import { CardImage, ErrorText, Dialog, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -99,7 +99,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   if (rescanning) {
     return (
       <div className="scan-overlay">
-        <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             onAccept={(c) =>
               rescanned(c).catch((e: unknown) => {
@@ -128,12 +128,8 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   }
 
   return (
-    <Sheet label={item.name ?? "Card"} onClose={() => onClose()}>
+    <Dialog label={item.name ?? "Card"} title={<>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</>} onClose={() => onClose()}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</h2>
-          <button className="quiet" onClick={() => onClose()}>Close</button>
-        </div>
         <div style={{ maxWidth: 260 }}>
           <CardImage src={item.image_normal} name={item.name ?? ""} />
         </div>
@@ -149,10 +145,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         <section className="coll-printing stack" aria-label="Printing">
           <h3>Wrong printing?</h3>
           {item.qty > 1 && (
-            <div className="segmented" role="group" aria-label="Which copies">
-              <button aria-pressed={scope === "all"} onClick={() => setScope("all")}>All {item.qty} copies</button>
-              <button aria-pressed={scope === "one"} onClick={() => setScope("one")}>Just one</button>
-            </div>
+            <Segmented label="Which copies" value={scope} onChange={setScope} options={[["all", `All ${item.qty} copies`], ["one", "Just one"]]} />
           )}
           <div className="row">
             <button aria-expanded={picking} onClick={() => setPicking(!picking)}>Change printing</button>
@@ -170,7 +163,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           {scanNote && <p className="small" role="status">{scanNote}</p>}
           {picking && (
             <>
-              {printings.isPending && <p className="dim small">Finding the printings…</p>}
+              {printings.isPending && <Loading small>Finding the printings…</Loading>}
               {printings.error instanceof ApiError && printings.error.status === 404 ? (
                 <p className="dim small">Yama's card data doesn't have this printing, so it can't list the others. Rescan this card instead.</p>
               ) : (
@@ -239,7 +232,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
 
         {deleting ? (
-          <div className="coll-delete stack" role="alertdialog" aria-label="Delete">
+          <div className="coll-delete stack" role="alert">
             <p>
               Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {item.container_name ?? "your collection"}?
             </p>
@@ -261,6 +254,6 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         )}
         <ErrorText error={send.error} />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

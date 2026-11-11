@@ -4,11 +4,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useModalLayer } from "../components/Dialog";
 import { Link, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import {
@@ -17,6 +18,7 @@ import {
 } from "./deckScan";
 import "../scanner/scanner.css";
 import "./deckScan.css";
+import { ask } from "../components/confirm";
 
 // The scanner pulls in OCR; load it only when the camera opens.
 const scanner = () => import("../scanner");
@@ -49,7 +51,7 @@ export function DeckScanPage() {
 
   // Only with no deck to show: a refresh that failed leaves the scan in progress on screen.
   if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
-  if (!deck.data || !draft) return <main className="page"><p className="dim">Loading the deck…</p></main>;
+  if (!deck.data || !draft) return <Loading page>Loading the deck…</Loading>;
   const d = deck.data;
   const p = progress(draft);
 
@@ -72,7 +74,7 @@ export function DeckScanPage() {
           <div className="row">
             <button className="primary" disabled={!p.count} onClick={() => setStep("review")}>Check the changes</button>
             {p.count > 0 && (
-              <button className="quiet" onClick={() => confirm("Start the scan over? The cards scanned so far are cleared.") && setDraft((x) => ({ ...x, cards: [] }))}>
+              <button className="quiet" onClick={async () => (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
                 Start over
               </button>
             )}
@@ -197,6 +199,8 @@ function ScannedList({ draft, setDraft }: { draft: ScanDraft; setDraft: SetDraft
 }
 
 function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: ScanDraft; setDraft: SetDraft; onClose: () => void }) {
+  const root = useRef<HTMLDivElement>(null);
+  const layer = useModalLayer(root, onClose);
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -252,9 +256,9 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
     </div>
   );
   return (
-    <div className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Scan ${deck.name}`}>
+    <div ref={root} className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Scan ${deck.name}`} tabIndex={-1} {...layer}>
       {catalog ? (
-        <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             catalog={catalog}
             identityOnly
@@ -270,16 +274,12 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
             acceptLabel="Add and scan next"
           />
           {reviewing && (
-            <Sheet onClose={() => setReviewing(false)} label="Scanned cards">
+            <Dialog title="Scanned cards" onClose={() => setReviewing(false)}>
               <div className="stack">
-                <div className="sheet-head">
-                  <h2>Scanned cards</h2>
-                  <button className="quiet" onClick={() => setReviewing(false)}>Back to scanning</button>
-                </div>
                 <ScanProgress draft={draft} setDraft={setDraft} />
                 <ScannedList draft={draft} setDraft={setDraft} />
               </div>
-            </Sheet>
+            </Dialog>
           )}
         </Suspense>
       ) : (
@@ -323,7 +323,7 @@ function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: 
     <section className="stack deck-scan-review" aria-live="polite">
       <h2>Before saving</h2>
       <ErrorText error={check.error} />
-      {!c && !check.error && <p className="dim">Comparing with the deck's list…</p>}
+      {!c && !check.error && <Loading quiet>Comparing with the deck's list…</Loading>}
       {c && (
         <>
           <Checks check={c} />

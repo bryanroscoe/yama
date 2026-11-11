@@ -11,7 +11,7 @@ import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Segmented } from "../components/ui";
 import type { PreconItem, PreconList } from "../lab/api";
 import { shortName } from "./text";
 import { LEVELS, SPEEDS, statusLine, tableNames, watchRequest, type Level, type WatchSeatPlan, type WatchSummary } from "./watch";
@@ -176,10 +176,16 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
                 </button>
               </div>
               <div className="ph-seat-fields">
-                <div className="segmented ph-kind" role="group" aria-label={`Deck for seat ${i + 1}`}>
-                  <button type="button" aria-pressed={s.source === "deck"} disabled={!decks.length} onClick={() => update(i, { source: "deck" })}>Your decks</button>
-                  <button type="button" aria-pressed={s.source === "precon"} disabled={!choices.length} onClick={() => update(i, { source: "precon" })}>Precons</button>
-                </div>
+                <Segmented
+                  className="ph-kind"
+                  label={`Deck for seat ${i + 1}`}
+                  value={s.source}
+                  onChange={(source) => update(i, { source })}
+                  options={[
+                    { value: "deck", label: "Your decks", disabled: !decks.length },
+                    { value: "precon", label: "Precons", disabled: !choices.length },
+                  ]}
+                />
                 {s.source === "deck" ? (
                   <SavedDeckPicker decks={decks} value={s.deckId} onChange={(deckId) => update(i, { deckId })} />
                 ) : (
@@ -207,11 +213,7 @@ function WatchSetup({ decks, precons }: { decks: DeckSummary[]; precons: PreconI
         </label>
         <div className="wh-speed">
           <span className="wh-label" id="wh-speed-l">Speed</span>
-          <div className="segmented" role="group" aria-labelledby="wh-speed-l">
-            {SPEEDS.map((x) => (
-              <button key={x.speed} type="button" aria-pressed={speed === x.speed} aria-label={x.long} onClick={() => setSpeed(x.speed)}>{x.label}</button>
-            ))}
-          </div>
+          <Segmented labelledBy="wh-speed-l" value={speed} onChange={setSpeed} options={SPEEDS.map((x) => ({ value: x.speed, label: x.label, title: x.long }))} />
         </div>
         <label className="pb-check wh-reveal">
           <input type="checkbox" checked={reveal} onChange={(e) => setReveal(e.target.checked)} />

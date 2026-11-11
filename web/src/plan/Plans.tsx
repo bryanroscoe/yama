@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ConnectButton } from "../components/HowTo";
-import { Pips } from "../components/ui";
+import { Pips, EmptyState } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -102,13 +102,17 @@ export function Plans() {
       )}
 
       {rows.length === 0 && (
-        <section className="plans-empty">
-          <p>No plans yet. Ask your assistant for a plan for one of your decks, or import a plan file. Each plan waits here for your OK.</p>
-          <div className="row">
-            <ConnectButton className="primary" />
-            <button className="outline" onClick={() => setImporting(true)}>Import a plan file</button>
-          </div>
-        </section>
+        <EmptyState
+          variant="panel"
+          action={
+            <>
+              <ConnectButton className="primary" />
+              <button className="outline" onClick={() => setImporting(true)}>Import a plan file</button>
+            </>
+          }
+        >
+          No plans yet. Ask your assistant for a plan for one of your decks, or import a plan file. Each plan waits here for your OK.
+        </EmptyState>
       )}
 
       {(waitingMine.length > 0 || versions.length > 0) && (

@@ -2,8 +2,9 @@ import { EXPORT_FORMATS, exportDeck, exportFileName, type ExportFormat } from "@
 import { useMemo, useState } from "react";
 import type { DeckView } from "../api";
 import { saveFile } from "../download";
-import { Sheet } from "./ui";
+import { Dialog } from "./ui";
 import "./decks.css";
+import { CopyButton } from "./CopyButton";
 
 const LAST_FORMAT = "yama.deck.exportFormat";
 
@@ -13,7 +14,6 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
     const saved = localStorage.getItem(LAST_FORMAT);
     return EXPORT_FORMATS.some((f) => f.value === saved) ? (saved as ExportFormat) : "names";
   });
-  const [copied, setCopied] = useState<string | null>(null);
   const text = useMemo(
     () =>
       exportDeck(
@@ -35,26 +35,13 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
 
   const pick = (f: ExportFormat) => {
     setFormat(f);
-    setCopied(null);
     localStorage.setItem(LAST_FORMAT, f);
-  };
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied("Copied.");
-    } catch {
-      setCopied("Couldn't copy here; select the text and copy it instead.");
-    }
   };
   const download = () => void saveFile(new Blob([text], { type: "text/plain;charset=utf-8" }), exportFileName(deck.name, format));
 
   return (
-    <Sheet label="Export deck" onClose={onClose}>
+    <Dialog title="Export deck" onClose={onClose}>
       <div className="stack deck-export">
-        <div className="sheet-head">
-          <h2>Export deck</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         <fieldset className="formats" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="small dim" style={{ marginBottom: "0.4rem" }}>Format</legend>
           {EXPORT_FORMATS.map((f) => (
@@ -76,11 +63,10 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
           <textarea readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="Deck list to copy" />
         </label>
         <div className="row">
-          <button className="primary" onClick={() => void copy()}>Copy</button>
+          <CopyButton className="primary" text={text} label="Copy" />
           <button onClick={download}>Download .txt</button>
-          {copied && <span className="small dim" role="status">{copied}</span>}
         </div>
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

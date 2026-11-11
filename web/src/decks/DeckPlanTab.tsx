@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading, EmptyState } from "../components/ui";
 import { outbox, useOutbox } from "../plan/outbox";
 import { planHref } from "../plan/href";
 import { SwapPair } from "../plan/parts";
@@ -39,7 +39,7 @@ export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: st
 
   if (!hub) {
     if (data.error) return <ErrorText error={data.error} />;
-    return data.pending ? <p className="dim">Loading the plan…</p> : <NoPlan />;
+    return data.pending ? <Loading>Loading the plan…</Loading> : <NoPlan />;
   }
   const { current, upNext, ideas, earlier } = hub;
   return (
@@ -96,9 +96,8 @@ export function DeckPlanTab({ deckId, deckName }: { deckId: string; deckName: st
 
 function NoPlan() {
   return (
-    <section className="deck-tab-empty" aria-label="Plan">
-      <h2>No plan for this deck</h2>
-      <Link to="/decks/plans">How plans work</Link>
+    <section aria-label="Plan">
+      <EmptyState title="No plan for this deck" action={<Link to="/decks/plans">How plans work</Link>} />
     </section>
   );
 }

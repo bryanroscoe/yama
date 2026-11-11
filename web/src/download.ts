@@ -5,6 +5,7 @@
 import type { MouseEvent } from "react";
 import { API_BASE, apiBlob } from "./api";
 import { isNative } from "./native";
+import { tell } from "./components/confirm";
 
 export async function saveFile(blob: Blob, name: string): Promise<void> {
   if (isNative()) return shareFile(blob, name);
@@ -35,7 +36,7 @@ export function exportLink(path: string, name: string) {
     onClick: (e: MouseEvent) => {
       if (!isNative()) return;
       e.preventDefault();
-      saveExport(path, name).catch((err: unknown) => window.alert(`Couldn't export: ${err instanceof Error ? err.message : String(err)}`));
+      saveExport(path, name).catch((err: unknown) => tell({ title: "Couldn't export", body: err instanceof Error ? err.message : String(err) }));
     },
   };
 }

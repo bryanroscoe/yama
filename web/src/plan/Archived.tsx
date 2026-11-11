@@ -1,7 +1,7 @@
 import { sourceText } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { planSummaries, planSummariesKey } from "../research/view";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { planHref } from "./Plans";
@@ -34,7 +34,7 @@ export function Archived() {
       <section className="plans-section" aria-labelledby="arch-notes">
         <h2 id="arch-notes">Research notes{notes.data ? ` (${notes.data.length})` : ""}</h2>
         <ErrorText error={notes.error} />
-        {notes.isPending && <p className="dim">Loading your notes…</p>}
+        {notes.isPending && <Loading>Loading your notes…</Loading>}
         {notes.data?.length === 0 && <p className="dim">No research notes.</p>}
         {notes.data && notes.data.length > 0 && (
           <div className="plans-list">

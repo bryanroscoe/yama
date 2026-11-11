@@ -18,7 +18,7 @@ import { Link, useNavigate } from "react-router";
 import { api, API_BASE } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { PLAY_SPEEDS, readPlaySpeed, type PlaySpeed } from "./motion";
-import { Sheet } from "../components/ui";
+import { Dialog } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { targetChangeWarning } from "./response";
 import { CostText } from "./CostText";
@@ -2212,12 +2212,8 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         />
       )}
       {sheet === "stops" && (
-        <Sheet label="Stops and ways to pass" onClose={() => setSheet(null)}>
+        <Dialog title={playing ? "Stops and passing" : "Stops"} onClose={() => setSheet(null)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>{playing ? "Stops and passing" : "Stops"}</h2>
-              <button className="quiet" onClick={() => setSheet(null)}>Close</button>
-            </div>
             {playing && (
               <>
                 {modeChipEl}
@@ -2233,31 +2229,23 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
               <button type="button" className="outline" onClick={() => saveStops(null)}>Back to the usual stops</button>
             )}
           </div>
-        </Sheet>
+        </Dialog>
       )}
       {settingsOpen && !wide && (
-        <Sheet label="Game settings" onClose={() => setSettings(null)}>
+        <Dialog label="Game settings" onClose={() => setSettings(null)}>
           {settingsBody(true, <div className={`gs-buttons${controls.secondary ? "" : " one"}`}>{buttons}</div>)}
-        </Sheet>
+        </Dialog>
       )}
       {sheet === "stack" && (
-        <Sheet label="Stack" onClose={() => setSheet(null)}>
+        <Dialog title="Stack" onClose={() => setSheet(null)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>Stack</h2>
-              <button className="quiet" onClick={() => setSheet(null)}>Close</button>
-            </div>
             {stackList}
           </div>
-        </Sheet>
+        </Dialog>
       )}
       {sheet === "hand" && (
-        <Sheet label={watch ? `${seatName(seatInfo(bottom), bottom)}'s hand` : "Your hand"} onClose={() => setSheet(null)}>
+        <Dialog title={<>Hand {handCards.length}</>} onClose={() => setSheet(null)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>Hand {handCards.length}</h2>
-              <button className="quiet" onClick={() => setSheet(null)}>Close</button>
-            </div>
             <div className="hand-grid">
               {myCommanders.map((c) => (
                 <HandCard key={c.id} card={c} meta={meta[c.name]} look={look(single(c), { tag: "Commander" })} h={h} caption={c.tax ? `Commander, tax +${c.tax}` : "Commander"} />
@@ -2271,7 +2259,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             </div>
             {handCards.length === 0 && <p className="dim">No cards in hand.</p>}
           </div>
-        </Sheet>
+        </Dialog>
       )}
       {typeof sheet === "object" && sheet !== null && sheet.zone === "hand" && (
         <ZoneSheet
@@ -3647,12 +3635,8 @@ function ZoneSheet({ title, cards, meta, onRead, onClose, newestFirst = true }: 
     return s ? cards.filter((c) => c.name.toLowerCase().includes(s) || (meta[c.name]?.type_line ?? "").toLowerCase().includes(s)) : cards;
   }, [q, cards, meta]);
   return (
-    <Sheet label={title} onClose={onClose}>
+    <Dialog title={<>{title} {cards.length}</>} onClose={onClose}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>{title} {cards.length}</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         {cards.length > 8 && <input type="search" placeholder="Filter by name or type" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter" />}
         {cards.length === 0 && <p className="dim">Empty.</p>}
         <div className="zone-grid">
@@ -3664,6 +3648,6 @@ function ZoneSheet({ title, cards, meta, onRead, onClose, newestFirst = true }: 
         </div>
         {newestFirst && <p className="small dim">Newest first.</p>}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

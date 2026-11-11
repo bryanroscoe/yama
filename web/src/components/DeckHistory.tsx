@@ -10,7 +10,7 @@ import { cardDetailQuery } from "../cardDetail";
 import { baseOf, versionPairs, type VersionPair } from "../decks/versionPairs";
 import { SwapPair, Thumb } from "../plan/parts";
 import { DeckGames } from "./DeckGames";
-import { ErrorText } from "./ui";
+import { ErrorText, Loading } from "./ui";
 import "../plan/plans.css";
 import "../decks/deckTabs.css";
 import { fmtDate } from "@yama/core";
@@ -40,7 +40,7 @@ export function DeckHistoryBody({ deckId, currentVersionId }: { deckId: string; 
       <section className="deck-tab-section deck-history-lists" aria-labelledby="deck-history-lists">
         <h2 id="deck-history-lists">Earlier lists</h2>
         <ErrorText error={versions.error} />
-        {versions.isPending && <p className="dim">Loading…</p>}
+        {versions.isPending && <Loading />}
         {list.length > 0 && (
           <div className="deck-tab-rows">
             {list.map((v, i) => {
@@ -123,7 +123,7 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
     <section className="deck-tab-section" aria-labelledby="deck-history-changes">
       <h2 id="deck-history-changes">{base ? "Changes" : "The first list"}</h2>
       <ErrorText error={a.error ?? b.error} />
-      {loading && <p className="dim">Loading…</p>}
+      {loading && <Loading />}
       {base && !loading && !a.error && !b.error && !pairs.length && <p className="dim">The same cards as the list before.</p>}
       {shown.length > 0 && (
         <ul className="plans-rows">

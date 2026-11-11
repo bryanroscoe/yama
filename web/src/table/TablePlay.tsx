@@ -29,14 +29,14 @@ import {
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { Pips, Sheet } from "../components/ui";
+import { Pips, Dialog, Segmented, DialogHead } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
 import { tableLayout, useLandscape, useLayoutChoice } from "./layouts";
 import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { announceNext, JoinSheet, ShareCard, startHosting, useHosting, joinUrl } from "./share";
-import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame } from "./store";
+import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame, DISCARD_GAME } from "./store";
 import { history } from "./history";
 import { DiceSheet, roll as rollDie } from "./DiceSheet";
 import { spinSchedule } from "./spin";
@@ -51,6 +51,7 @@ import { isGuest } from "../guest";
 export const DispatchContext = createContext<(e: TableEvent) => void>(dispatch);
 import "./table.css";
 import "./art-panel.css";
+import { ask } from "../components/confirm";
 
 export { uprightLayout } from "./layouts";
 
@@ -157,10 +158,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   return (
     <>
       <div className="table-view-switch">
-        <div className="segmented" role="group" aria-label="View">
-          <button aria-pressed={personal} onClick={() => chooseView("mine")}>My seat</button>
-          <button aria-pressed={!personal} onClick={() => chooseView("table")}>Whole table</button>
-        </div>
+        <Segmented label="View" value={personal ? "mine" : "table"} onChange={chooseView} options={[["mine", "My seat"], ["table", "Whole table"]]} />
         <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
         <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
       </div>
@@ -199,17 +197,17 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
       )}
 
       {choosingSeat && (
-        <Sheet label="Which seat is yours?" onClose={() => setChoosingSeat(false)}>
+        <Dialog label="Which seat is yours?" onClose={() => setChoosingSeat(false)}>
           <h2>Which seat is yours?</h2>
           <div className="list">
             {state.players.map((p) => <button key={p.seat} className="list-row" onClick={() => chooseSeat(p.seat)}>
               <Pips identity={p.colorIdentity} /><span>{p.name}</span><span className="num">{p.life}</span>
             </button>)}
           </div>
-        </Sheet>
+        </Dialog>
       )}
       {menu && (
-        <Sheet label="Table menu" onClose={() => setMenu(false)}>
+        <Dialog label="Table menu" onClose={() => setMenu(false)}>
           <TableMenu
             state={state}
             following={following}
@@ -232,10 +230,10 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
             log={game.log}
             turnSince={[...game.log].reverse().find((e) => e.event.type === "pass_turn")?.at ?? game.setup.startedAt}
           />
-        </Sheet>
+        </Dialog>
       )}
       {sheetSeat !== null && (
-        <Sheet label="Player" onClose={() => setSheetSeat(null)}>
+        <Dialog label="Player" onClose={() => setSheetSeat(null)}>
           <PlayerSheet
             state={state}
             seat={sheetSeat}
@@ -255,15 +253,15 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
             }}
             host={!following}
           />
-        </Sheet>
+        </Dialog>
       )}
       {knockSeat !== null && (
-        <Sheet centered label="Knock out" onClose={() => setKnockSeat(null)}>
+        <Dialog centered label="Knock out" onClose={() => setKnockSeat(null)}>
           <KnockOut state={state} seat={knockSeat} onDone={() => setKnockSeat(null)} />
-        </Sheet>
+        </Dialog>
       )}
       {finishing && (
-        <Sheet label="End the game" onClose={() => setFinishing(null)}>
+        <Dialog label="End the game" onClose={() => setFinishing(null)}>
           <FinishSheet
             state={state}
             winner={finishing.winner}
@@ -288,27 +286,27 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
               if (sharing) startHosting(id);
             }}
           />
-        </Sheet>
+        </Dialog>
       )}
       {joining && (
-        <Sheet label="Join on your phone" onClose={() => setJoining(false)}>
+        <Dialog label="Join on your phone" onClose={() => setJoining(false)}>
           <JoinSheet gameId={state.setup.id} onDone={() => setJoining(false)} />
-        </Sheet>
+        </Dialog>
       )}
       {dice && (
-        <Sheet centered label="Dice and coin" onClose={() => setDice(false)}>
+        <Dialog centered label="Dice and coin" onClose={() => setDice(false)}>
           <DiceSheet players={state.players} onDone={() => setDice(false)} />
-        </Sheet>
+        </Dialog>
       )}
       {askFirst && !joining && !finishing && (
-        <Sheet centered label="Who goes first?" onClose={() => setAskFirst(false)}>
+        <Dialog centered label="Who goes first?" onClose={() => setAskFirst(false)}>
           <FirstSheet state={state} artFor={artFor} onDone={() => setAskFirst(false)} />
-        </Sheet>
+        </Dialog>
       )}
       {lethal.ask && !menu && !finishing && !attack && taking === null && !askFirst && !joining && !dice && sheetSeat === null && knockSeat === null && (
-        <Sheet centered label="Out of the game?" onClose={lethal.dismiss}>
+        <Dialog centered label="Out of the game?" onClose={lethal.dismiss}>
           <LethalSheet state={state} seat={lethal.ask.seat} loss={lethal.ask.loss} onDone={lethal.dismiss} />
-        </Sheet>
+        </Dialog>
       )}
       {!following && alive.length === 1 && state.players.length > 1 && !menu && !finishing && (
         <div className="winner-banner" role="status">
@@ -436,9 +434,7 @@ export function LethalSheet({ state, seat, loss, onDone }: { state: TableState; 
   };
   return (
     <div className="stack lethal">
-      <div className="sheet-head">
-        <h2>Is {p.name} out?</h2>
-      </div>
+      <DialogHead close={false}>Is {p.name} out?</DialogHead>
       <p className="lethal-cause">{loss.text}.</p>
       <p className="small dim" style={{ margin: 0 }}>{LOSS_RULE[loss.kind]} Some cards keep a player in; if one does, keep playing.</p>
       {by ? (
@@ -1079,10 +1075,7 @@ function ChangeCommander({ p, onDone }: { p: PlayerState; onDone: () => void }) 
   };
   return (
     <div className="stack">
-      <div className="sheet-head">
-        <h2>{p.name}'s commander</h2>
-        <button className="quiet" onClick={onDone}>Cancel</button>
-      </div>
+      <DialogHead onClose={onDone}>{p.name}'s commander</DialogHead>
       <CommanderFields value={typed} onChange={setDraft} autoFocus />
       <p className="small dim" style={{ margin: 0 }}>Damage already dealt and taken stays as it is.</p>
       <div className="row">
@@ -1104,10 +1097,7 @@ export function KnockOut({ state, seat, onDone, onCancel }: { state: TableState;
   };
   return (
     <div className="stack">
-      <div className="sheet-head">
-        <h2>Knock out {p.name}</h2>
-        <button className="quiet" onClick={onCancel ?? onDone}>Cancel</button>
-      </div>
+      <DialogHead onClose={onCancel ?? onDone}>Knock out {p.name}</DialogHead>
       <p className="dim" style={{ margin: 0 }}>Who knocked {p.name} out? It counts toward the playgroup's rivalries.</p>
       <div className="row">
         {others.map((o) => (
@@ -1137,10 +1127,7 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   const firstName = state.players.find((p) => p.seat === state.firstSeat)?.name;
   return (
     <div className="stack capture">
-      <div className="sheet-head">
-        <h2>{winnerName ? `${winnerName} wins` : "A draw"}</h2>
-        <button className="quiet" onClick={onBack}>Back</button>
-      </div>
+      <DialogHead onClose={onBack}>{winnerName ? `${winnerName} wins` : "A draw"}</DialogHead>
       {winnerName && <WinConditionPicker value={condition} onChange={setCondition} winner={winnerName} />}
       {state.firstSeat === null ? (
         <FirstPlayerPicker seats={seats} value={first} onChange={setFirst} />
@@ -1409,8 +1396,8 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
         <button className="outline" onClick={onLeave}>Leave the table</button>
         {!following && <button
           className="outline tm-discard"
-          onClick={() => {
-            if (confirm("Throw this game away? It won't count, and it's deleted from Yama.")) {
+          onClick={async () => {
+            if (await ask(DISCARD_GAME)) {
               discardGame();
               onLeave();
             }
@@ -1510,10 +1497,7 @@ function FirstSheet({ state, artFor, onDone }: { state: TableState; artFor: ArtF
   return (
     <div className="stack first-sheet">
       {status}
-      <div className="sheet-head">
-        <h2>Who goes first?</h2>
-        <button className="quiet" onClick={onDone}>Skip</button>
-      </div>
+      <DialogHead onClose={onDone}>Who goes first?</DialogHead>
       <div className="tm-winners" aria-busy={spinning}>
         {state.players.map((p) => (
           <button

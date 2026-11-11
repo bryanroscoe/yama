@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../components/ui";
 import { isViewing } from "../viewingFlag";
 import "../decks/collect.css";
 import "./swapsheet.css";
@@ -88,16 +88,10 @@ export function SwapInSheet({ deckKey, deckName, onClose }: { deckKey: string; d
   const viewing = isViewing();
   const p = result ?? preview.data;
   return (
-    <Sheet label={`Swap the prints into ${deckName}`} onClose={onClose}>
+    <Dialog title={`Swap the prints into ${deckName}`} onClose={onClose}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>Swap the prints into {deckName}</h2>
-          <button type="button" className="quiet" onClick={onClose}>
-            {result ? "Done" : "Close"}
-          </button>
-        </div>
         <ErrorText error={preview.error} />
-        {!p && !preview.error && <p className="dim">Checking the deck and your collection…</p>}
+        {!p && !preview.error && <Loading>Checking the deck and your collection…</Loading>}
         {p && p.done && !result && <p>{deckName} already has its prints swapped in, here in Yama. Nothing to do.</p>}
         {p && !(p.done && !result) && (
           <>
@@ -163,6 +157,6 @@ export function SwapInSheet({ deckKey, deckName, onClose }: { deckKey: string; d
           </>
         )}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api, type DeckView } from "../api";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Dialog } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 
 export interface DeleteWording {
@@ -60,12 +60,8 @@ export function DeleteDeck({ deck, onClose }: { deck: DeckView; onClose: () => v
   });
   const label = withConfigurations && many ? `Delete deck and ${many === 1 ? "its configuration" : `${many} configurations`}` : w.action;
   return (
-    <Sheet label={w.action} onClose={onClose}>
+    <Dialog title={w.action} onClose={onClose}>
       <form className="stack deck-delete-sheet" onSubmit={(e) => { e.preventDefault(); remove.mutate(); }}>
-        <div className="sheet-head">
-          <h2>{w.action}</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
         <p>{w.what} Its share link stops working, and you can't undo this from Yama. Games you've played with it keep their record.</p>
         {many > 0 && (
           <fieldset className="deck-delete-choice">
@@ -86,6 +82,6 @@ export function DeleteDeck({ deck, onClose }: { deck: DeckView; onClose: () => v
           <button type="button" className="outline" onClick={onClose}>Cancel</button>
         </div>
       </form>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -51,14 +51,18 @@ pub(crate) async fn want_lines(pool: &SqlitePool, owner: &str) -> AppResult<Vec<
     let mut rev = crate::plan::bundle::rev(pool, owner).await?;
     rev.push_str(if include_pending { "/pending" } else { "/approved" });
     // Deck gaps change when copies are added, edited or removed, independently of plan revisions.
-    let collection: Vec<String> = sqlx::query_scalar(
-        "SELECT i.id || '/' || i.scryfall_id || '/' || i.qty || '/' || i.proxy || '/' || COALESCE(i.container_id, '') || '/' || COALESCE(c.kind, '')
-         FROM collection_items i LEFT JOIN containers c ON c.id = i.container_id AND c.owner_id = i.owner_id WHERE i.owner_id = ? ORDER BY i.id",
-    )
-    .bind(owner)
-    .fetch_all(pool)
-    .await?;
-    rev.push_str(&crate::util::sha256_hex(&collection.join(";")));
+    // Every such change is an applied op (`collection::apply_op` is the only writer of
+    // `collection_items`), and their count only grows (`collection::op_stamp`), so it stands for
+    // the copies without reading them: this runs on every visit to a public page, and reading
+    // and hashing a whole collection there was most of the visit's work. A container's kind
+    // decides whether its copies are spoken for (a deck's box), and a kind is the one thing
+    // here that could change without an op (nothing does so to a deck's box today; this guards
+    // against that changing, or an edit made straight to the database), so the containers (a
+    // handful) are in the key too.
+    let ops: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM applied_ops WHERE owner_id = ?").bind(owner).fetch_one(pool).await?;
+    let containers: Vec<String> = sqlx::query_scalar("SELECT id || '/' || kind FROM containers WHERE owner_id = ? ORDER BY id").bind(owner).fetch_all(pool).await?;
+    rev.push_str(&format!("/ops{ops}/"));
+    rev.push_str(&crate::util::sha256_hex(&containers.join(";")));
     let boxes: Vec<String> = sqlx::query_scalar("SELECT id || '/' || COALESCE(container_id, '') FROM decks WHERE owner_id = ? AND archived = 0 AND parent_id IS NULL ORDER BY id")
         .bind(owner)
         .fetch_all(pool)

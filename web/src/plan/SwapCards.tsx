@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import "./swapcards.css";
+import { EmptyState } from "../components/ui";
 
 /** The page box for the cards: three 2.5 inch columns and three 3.5 inch rows fit only inside 0.25 inch margins. */
 const PAGE_RULE = "@page { size: letter; margin: 0.25in; }";
@@ -84,9 +85,9 @@ export function SwapCardsPage() {
           </p>
         )}
         {!cards.length && (
-          <p className="empty">
+          <EmptyState>
             {deckKey && !deck ? `There's no plan deck called "${deckKey}" in your plans.` : deckKey ? "This plan has no bracket swaps." : "None of your plan decks has bracket swaps yet."}
-          </p>
+          </EmptyState>
         )}
       </div>
       {cards.length > 0 && (

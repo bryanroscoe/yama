@@ -71,8 +71,10 @@ interface CardRefProps { name: string; oracleId?: string | null; image?: string 
 export function listenForPreviewControl(node: HTMLElement | null, open: () => void, close: () => void) {
   const control = node?.parentElement?.closest("button,a,[tabindex]");
   if (!control) return () => {};
-  control.addEventListener("focus",open);control.addEventListener("blur",close);control.addEventListener("click",close);
-  return () => { control.removeEventListener("focus",open);control.removeEventListener("blur",close);control.removeEventListener("click",close); };
+  // Keyboard focus only: a dialog handing focus back to the row that opened it must not pop the preview.
+  const focused = () => { if (control.matches(":focus-visible")) open(); };
+  control.addEventListener("focus",focused);control.addEventListener("blur",close);control.addEventListener("click",close);
+  return () => { control.removeEventListener("focus",focused);control.removeEventListener("blur",close);control.removeEventListener("click",close); };
 }
 
 /** Text stays compact; hover/focus shows the actual card and click/tap pins a readable preview. */

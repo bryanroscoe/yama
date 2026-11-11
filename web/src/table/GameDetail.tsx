@@ -9,7 +9,7 @@ import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { artCredits } from "../components/ArtPanel";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
 import { splitPair } from "./logEdit";
@@ -19,6 +19,7 @@ import { LogGame } from "./TableHome";
 import { isViewing } from "../viewingFlag";
 import { joinFragment } from "./share";
 import "./home.css";
+import { ask } from "../components/confirm";
 
 const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
 
@@ -151,7 +152,7 @@ export function GameDetailPage() {
     },
   });
 
-  if (game.isLoading) return <main className="page"><p className="dim">Loading the game…</p></main>;
+  if (game.isLoading) return <Loading page>Loading the game…</Loading>;
   if (!g) {
     return (
       <main className="page">
@@ -295,7 +296,7 @@ export function GameDetailPage() {
           <button
             className="outline bad"
             disabled={remove.isPending}
-            onClick={() => confirm("Delete this game from Yama? It comes out of the history and stats for everyone who played. This can't be undone.") && remove.mutate()}
+            onClick={async () => (await ask({ title: "Delete this game from Yama?", body: "It comes out of the history and stats for everyone who played. This can't be undone.", confirm: "Delete game", danger: true })) && remove.mutate()}
           >
             {remove.isPending ? "Deleting…" : "Delete this game"}
           </button>

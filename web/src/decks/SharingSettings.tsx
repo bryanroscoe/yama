@@ -5,6 +5,7 @@ import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
+import { ask } from "../components/confirm";
 
 /** Sharing: your handle and profile, what new decks start as, and the collection. */
 export function SharingSettings() {
@@ -30,10 +31,10 @@ export function SharingSettings() {
     onSuccess: done,
   });
   const s = sharing.data;
-  if (!s) return <ErrorText error={sharing.error} />;
+  if (!s) return <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />;
   const profile = s.handle ? `${publicOrigin()}/u/${s.handle}` : null;
   const total = s.decks.private + s.decks.link + s.decks.public;
-  const shareAll = (v: Visibility, ask: string) => confirm(ask) && all.mutate(v);
+  const shareAll = async (v: Visibility, title: string, body: string | undefined, confirm: string) => (await ask({ title, body, confirm, danger: true })) && all.mutate(v);
 
   return (
     <div className="grp-you-row grp-you-stack share-settings" id="sharing">
@@ -89,7 +90,7 @@ export function SharingSettings() {
         <button
           className="outline"
           disabled={all.isPending || total === 0 || s.decks.public === total}
-          onClick={() => shareAll("public", `Make all ${total} decks public on your profile?${s.handle ? "" : " Pick a handle too, so your profile can list them."}`)}
+          onClick={() => shareAll("public", `Make all ${total} decks public on your profile?`, s.handle ? undefined : "Pick a handle too, so your profile can list them.", "Make them public")}
         >
           Make all my decks public
         </button>
@@ -98,7 +99,7 @@ export function SharingSettings() {
         <button
           className="outline"
           disabled={all.isPending || total === 0 || s.decks.private === total}
-          onClick={() => shareAll("private", `Make all ${total} decks private? Every link you've sent stops working until you share again.`)}
+          onClick={() => shareAll("private", `Make all ${total} decks private?`, "Every link you've sent stops working until you share again.", "Make them private")}
         >
           Make all private
         </button>

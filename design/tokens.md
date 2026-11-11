@@ -189,7 +189,7 @@ This is the signature pattern. Use it for life-counter panels, deck headers, dec
 
 ## Prices and simulation numbers
 
-- **Prices:** every price carries its date and source, e.g. "TCGplayer market via Scryfall, Oct 19". A missing price says "No price", never $0.
+- **Prices:** every price carries its date and source, e.g. "TCGplayer market via Scryfall, Oct 19". A missing price says "No price", never $0. Money, dates, counts and plurals come from one module (`design/system/shared-code.md`): dollars, "Oct 19, 2026", American spelling.
 - **Simulation numbers** carry the engine, the number of games, the AI level and the date, and sit apart from real-game stats.
 - **Win-rate bars** draw a `--warn` line at 25% for 4-player games, and fade players or commanders with too few games (under 10 for players, under 5 for commanders).
 

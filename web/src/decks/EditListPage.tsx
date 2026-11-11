@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Dialog, Loading, EmptyState, Segmented } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -171,7 +171,7 @@ function EditList({ id }: { id: string }) {
   // Only with no deck to show: a refresh that failed mid-edit leaves the editor and what's typed in it.
   // The guard is live on these branches too: without its question a stopped navigation would show nothing.
   if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
-  if (!d) return <main className="page"><p className="dim">Loading…</p><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
+  if (!d) return <main className="page"><Loading /><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
 
   const commander = d.cards.find((e) => e.board === "commander")?.card ?? null;
   const main = d.configurations[0];
@@ -245,7 +245,7 @@ function EditList({ id }: { id: string }) {
                 <button type="button" className="quiet" onClick={() => list.setUserText(startText)}>Reset to the start list</button>
               )}
             </div>
-            {list.sourceLoading && <p className="small" role="status">Loading the list…</p>}
+            {list.sourceLoading && <Loading small>Loading the list…</Loading>}
             {list.notice && <p className="small import-warn" role="status">{list.notice}</p>}
             <LinkNote preview={preview} stepsWhere="open in From another site" />
           </div>
@@ -254,9 +254,9 @@ function EditList({ id }: { id: string }) {
         <aside className="edit-list-side" aria-label="Review and save">
           <section className="edit-list-panel" aria-labelledby="edit-changes" aria-busy={busy}>
             <h2 id="edit-changes">{pairs.length ? `${pairs.length} ${pairs.length === 1 ? "change" : "changes"}` : "Changes"}</h2>
-            {check.isPending && <p className="dim">Reading the list…</p>}
+            {check.isPending && <Loading>Reading the list…</Loading>}
             <ErrorText error={check.error} />
-            {!busy && noChanges && <p className="edit-list-empty">No changes yet.</p>}
+            {!busy && noChanges && <EmptyState variant="boxed">No changes yet.</EmptyState>}
             {draft && <UnknownLines draft={draft} setDraft={setDraft} />}
             {draft && (cmdrs.length === 0 || choosing) && (
               <CommanderPicker
@@ -301,10 +301,7 @@ function EditList({ id }: { id: string }) {
 
           <section className="edit-list-panel" aria-labelledby="edit-save">
             <h2 id="edit-save">Save it</h2>
-            <div className="segmented edit-list-save-as" role="group" aria-label="Save as">
-              <button type="button" aria-pressed={mode === "box"} onClick={() => setMode("box")}>{ownLabel}</button>
-              <button type="button" aria-pressed={mode === "new"} onClick={() => setMode("new")}>A new list</button>
-            </div>
+            <Segmented className="edit-list-save-as" label="Save as" value={mode} onChange={setMode} options={[["box", ownLabel], ["new", "A new list"]]} />
             {mode === "new" && (
               <label>
                 Name of the new list
@@ -336,28 +333,20 @@ function EditList({ id }: { id: string }) {
       </div>
 
       {another && (
-        <Sheet label="Another list" onClose={() => setAnother(false)}>
+        <Dialog title="Another list" onClose={() => setAnother(false)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>Another list</h2>
-              <button type="button" className="quiet" onClick={() => setAnother(false)}>Close</button>
-            </div>
-            {versions.isPending ? <p className="dim">Loading…</p> : <ErrorText error={versions.error} />}
+            {versions.isPending ? <Loading /> : <ErrorText error={versions.error} />}
             <SearchPicker label="Lists" options={others} current={current?.id} onPick={(pid) => { const s = others.find((o) => o.id === pid); if (s) pick(s); setAnother(false); }} />
           </div>
-        </Sheet>
+        </Dialog>
       )}
       <UnsavedPrompt guard={guard} what="your changes to this list" />
       {guides && (
-        <Sheet label="From another site" onClose={() => setGuides(false)}>
+        <Dialog title="From another site" onClose={() => setGuides(false)}>
           <div className="stack">
-            <div className="sheet-head">
-              <h2>From another site</h2>
-              <button type="button" className="quiet" onClick={() => setGuides(false)}>Close</button>
-            </div>
             <GuideTabs guideKey={list.guideKey} setGuideKey={list.setGuideKey} />
           </div>
-        </Sheet>
+        </Dialog>
       )}
     </main>
   );

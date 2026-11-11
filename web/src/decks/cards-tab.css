@@ -31,30 +31,7 @@
   font-size: var(--t-sm);
   color: var(--dim);
 }
-.cards-tab .seg {
-  display: inline-flex;
-  max-width: 100%;
-  overflow-x: auto;
-  padding: 3px;
-  gap: 2px;
-  border-radius: var(--r-pill);
-  background: var(--surface);
-}
-.cards-tab .seg > button {
-  min-height: calc(var(--target) - 6px);
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--dim);
-  font-size: var(--t-sm);
-  font-weight: 700;
-  white-space: nowrap;
-}
-.cards-tab .seg > button[aria-pressed="true"] {
-  background: var(--text);
-  color: var(--ground);
-}
+
 .cards-total {
   display: inline-flex;
   flex-wrap: wrap;
@@ -100,14 +77,7 @@
   height: 10px;
   border-radius: 3px;
 }
-.cards-empty {
-  margin: 0;
-  padding: 24px;
-  border: 2px dashed var(--line);
-  border-radius: 16px;
-  color: var(--dim);
-  text-align: center;
-}
+
 .cards-group {
   display: flex;
   flex-direction: column;

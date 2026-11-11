@@ -20,6 +20,7 @@ import { planHref } from "./Plans";
 import type { PlanView } from "./view";
 import "./plans.css";
 import { fmtDate, usd, plural } from "@yama/core";
+import { EmptyState, Segmented } from "../components/ui";
 
 const cardsWord = (n: number) => plural(n, "card");
 
@@ -65,26 +66,23 @@ export function GetCards() {
       <p className="dim plans-lede">Everything your approved plans still need, in the order you'd do it.</p>
       <p><Link to="/decks/plans/get/sourcing">Source cards across all decks</Link> — preview saved builds and optional real replacements together, including plans not yet approved.</p>
       {live.length === 0 ? (
-        <div className="plans-empty">
-          <p>Nothing to get yet. Approve a plan on <Link to="/decks/plans">Plans</Link> and its buys, prints and moves show up here.</p>
+        <EmptyState variant="panel">
+          Nothing to get yet. Approve a plan on <Link to="/decks/plans">Plans</Link> and its buys, prints and moves show up here.
           {(view.b.shopping_wants?.length ?? 0) > 0 && (
-            <p>
-              Cards you added to your shopping list by hand are on the <Link to="/decks/plans/get/trip">store trip</Link>.
-            </p>
+            <>
+              {" "}Cards you added to your shopping list by hand are on the <Link to="/decks/plans/get/trip">store trip</Link>.
+            </>
           )}
-        </div>
+        </EmptyState>
       ) : (
         <>
-          <div className="segmented plans-filter" role="group" aria-label="Show plans">
-            <button type="button" aria-pressed={!deck} onClick={() => pick(null)}>
-              All approved plans
-            </button>
-            {live.map((d) => (
-              <button key={d.key} type="button" aria-pressed={deck?.key === d.key} onClick={() => pick(d.key)}>
-                {d.name}
-              </button>
-            ))}
-          </div>
+          <Segmented<string | null>
+            className="plans-filter"
+            label="Show plans"
+            value={deck?.key ?? null}
+            onChange={pick}
+            options={[[null, "All approved plans"], ...live.map((d) => [d.key, d.name] as const)]}
+          />
 
           <nav className="plans-steps" aria-label="Steps">
             <a href="#buy">

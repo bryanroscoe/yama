@@ -160,13 +160,7 @@
 .edit-list-panel input {
   font-weight: 400;
 }
-.edit-list-empty {
-  margin: 0;
-  padding: 20px;
-  border-radius: 16px;
-  border: 2px dashed var(--line);
-  color: var(--dim);
-}
+
 .edit-list-pairs {
   list-style: none;
   margin: 0;

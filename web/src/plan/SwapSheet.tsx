@@ -8,6 +8,7 @@ import { destination, SwapCardResult, SwapReasons } from "./SwapDetails";
 import { prepareSheetForPrint } from "./print";
 import type { PlanView } from "./view";
 import "./swapsheet.css";
+import { Loading, EmptyState, ErrorText } from "../components/ui";
 
 const SwapScanner = lazy(() => import("./SwapScanner"));
 const SHEETS = [
@@ -103,7 +104,7 @@ export function SwapSheetPage() {
           <button className="primary" disabled={printing} onClick={() => setScanning(true)}>Scan a card</button>
           <button disabled={printing || !hasContent || !shown.length} aria-busy={printing} onClick={() => void print()}>{printing ? (pictures ? "Loading pictures…" : "Preparing print…") : "Print"}</button>
         </div>
-        {printError && <p className="error" role="alert">{printError}</p>}
+        <ErrorText error={printError} />
         <div className="ss-controls">
           <label>Sheet<select value={mode} disabled={printing} onChange={(e) => change("sheet", e.target.value)}>{SHEETS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
 
@@ -138,7 +139,7 @@ export function SwapSheetPage() {
       </div>
       <h1 className="print-only">{mode === "full" ? "Prints are here: swap them in" : SHEETS.find((s) => s.value === mode)!.label}{selected ? `: ${selected.name}` : ""}</h1>
       {shown.length === 0 ? (
-        <p className="empty">{selectedKeys.size === 0 ? "Choose at least one deck to print." : "No now-to-after-prints changes for the selected decks."}</p>
+        <EmptyState>{selectedKeys.size === 0 ? "Choose at least one deck to print." : "No now-to-after-prints changes for the selected decks."}</EmptyState>
       ) : mode !== "full" ? (
         <>
           <p className="ss-lead">{takeouts.length} cards to take out{selected ? ` of ${selected.name}` : ` across ${shown.length} decks`}.</p>
@@ -213,7 +214,7 @@ export function SwapSheetPage() {
         </>
       )}
       {swapping && <SwapInSheet deckKey={swapping.deck.key} deckName={swapping.deck.name} onClose={() => setSwapping(null)} />}
-      {scanning && <Suspense fallback={<div className="scan-overlay"><div className="sheet stack"><p>Starting the scanner…</p><button onClick={() => setScanning(false)}>Close</button></div></div>}>
+      {scanning && <Suspense fallback={<div className="scan-overlay"><div className="sheet stack"><Loading>Starting the scanner…</Loading><button onClick={() => setScanning(false)}>Close</button></div></div>}>
         <SwapScanner sheet={visibleSheet} view={view} deckKey={deckKey} onClose={() => setScanning(false)} />
       </Suspense>}
     </div>

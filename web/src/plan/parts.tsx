@@ -2,7 +2,7 @@ import { CardHover } from "../components/CardRef";
 // Small pieces the plan pages share.
 import type { PlanCard } from "@yama/core/plan";
 import { useState } from "react";
-import { CardImage, Sheet } from "../components/ui";
+import { CardImage, Dialog } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 
 /** A card thumbnail that opens the card (read-only) when Yama knows it. */
@@ -36,38 +36,3 @@ export function SwapPair({ cardIn, cardOut, view, dim = false }: { cardIn: strin
   );
 }
 
-/**
- * Copies text. Where the clipboard isn't available (a phone on plain http), it shows the text in
- * a sheet to select and copy by hand.
- */
-export function CopyButton({ text, label, className = "" }: { text: string; label: string; className?: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setState("copied");
-      setTimeout(() => setState("idle"), 2000);
-    } catch {
-      setState("manual");
-    }
-  };
-  return (
-    <>
-      <button type="button" className={className} onClick={() => void copy()}>
-        {state === "copied" ? "Copied" : label}
-      </button>
-      {state === "manual" && (
-        <Sheet label={label} onClose={() => setState("idle")}>
-          <div className="stack">
-            <div className="sheet-head">
-              <h2>{label}</h2>
-              <button className="quiet" onClick={() => setState("idle")}>Close</button>
-            </div>
-            <p className="dim small">This browser won't copy for Yama here. Select the text and copy it.</p>
-            <textarea readOnly value={text} style={{ minHeight: "18rem" }} onFocus={(e) => e.currentTarget.select()} />
-          </div>
-        </Sheet>
-      )}
-    </>
-  );
-}

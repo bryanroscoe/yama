@@ -8,7 +8,7 @@ import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { CardImage, ErrorText, Pips } from "../components/ui";
+import { CardImage, ErrorText, Pips, EmptyState } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -40,6 +40,7 @@ import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
 import { WhyBracket } from "../decks/WhyBracket";
 import { boxBracket, bracketSwaps, SwapPanel } from "../decks/BracketSwaps";
 import { usePlaygroupVariants } from "../decks/PlaygroupBuilds";
+import { useModalLayer } from "../components/Dialog";
 
 /** "Own 87 of 100" (still short: warn) or "Own all 100" (good), and the phone tile's "Need 13" or
  *  "Complete". A proxy covers a card for play, so a deck of real cards and proxies is complete;
@@ -93,10 +94,16 @@ export function DecksPage() {
       <ChangesBanner />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
-        <div className="empty">
-          <p>No decks yet.</p>
-          <Link className="button primary" to="/decks/import">Add a deck</Link>
-        </div>
+        <EmptyState
+          action={
+            <>
+              <Link className="button primary" to="/decks/import">Import a list</Link>
+              <Link className="button outline" to="/lab">Start from a precon</Link>
+            </>
+          }
+        >
+          No decks yet.
+        </EmptyState>
       )}
       <ul className="deck-tiles">
         {/* Configurations and bracket builds live on the deck's own page, not under its tile. */}
@@ -445,16 +452,12 @@ function SampleHand({ deck, art, artist, onClose }: { deck: DeckView; art: strin
   const images = useMemo(() => new Map(deck.cards.map((c) => [c.name, c.card?.image_normal ?? null])), [deck]);
   const deal = (mulligans: number) => newHand(library, rng(crypto.getRandomValues(new Uint32Array(1))[0]!), mulligans);
   const [g, setG] = useState<Goldfish>(() => deal(0));
+  const root = useRef<HTMLDivElement>(null);
   const done = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    done.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const layer = useModalLayer(root, onClose, done);
   const lands = g.hand.filter((c) => deck.cards.find((d) => d.name === c.name)?.card?.type_line.includes("Land")).length;
   return (
-    <div className="hand-view" role="dialog" aria-modal="true" aria-label="Sample hand">
+    <div ref={root} className="hand-view" role="dialog" aria-modal="true" aria-label="Sample hand" tabIndex={-1} {...layer}>
       <ArtPanel as="header" className="hand-head" art={art} artist={artist} wash="bottom" toGround>
         <span className="hand-title">
           <span className="hand-deck">{deck.name}</span>

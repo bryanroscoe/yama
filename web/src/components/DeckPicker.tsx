@@ -7,7 +7,7 @@ import { artCredits } from "./ArtPanel";
 import { useCardArt } from "./useCardArt";
 import { useMe } from "../auth";
 import { decksOf, fold, mergeGames, playedBy, playedDecks, playedLine, possessive, samePerson, type DeckOwner, type PlayedDeck } from "../table/playedDecks";
-import { Pips } from "./ui";
+import { Pips, Segmented } from "./ui";
 import { isGuest } from "../guest";
 import { Combobox, PickerField, PickerSheet, useTouch, type Option } from "./GamePicker";
 import { fitsSegmented } from "./deckChoices";
@@ -243,23 +243,17 @@ export function DeckPicker({ text, onText, onPick, decks = NO_DECKS, handle, who
           : undefined;
   const hint = shownScope === "all" && !typing && <span className="combo-hint">Type two letters to search the precons too, or a player's name for their decks.</span>;
   const filters = source === "table" && scopes.length > 2 && (
-    <div className="segmented deck-scopes" role="group" aria-label="Show decks">
-      {scopes.map((s) => (
-        <button
-          key={s.key}
-          type="button"
-          // On a desktop the list closes when the field loses focus, so the filters are for the
-          // pointer; the keyboard narrows by typing (a player's name, a deck's or a precon's).
-          tabIndex={touch ? undefined : -1}
-          aria-pressed={s.key === shownScope}
-          // Keep the deck field focused, so its list stays open.
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={() => setScope(s.key)}
-        >
-          {s.label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      className="deck-scopes"
+      label="Show decks"
+      value={shownScope}
+      onChange={setScope}
+      options={scopes.map((s) => [s.key, s.label] as const)}
+      // On a desktop the list closes when the field loses focus, so the filters are for the
+      // pointer; the keyboard narrows by typing (a player's name, a deck's or a precon's).
+      // preventDefault keeps the deck field focused, so its list stays open.
+      segmentProps={{ tabIndex: touch ? undefined : -1, onPointerDown: (e) => e.preventDefault() }}
+    />
   );
   if (touch) {
     const close = () => setPicking(false);
@@ -382,11 +376,7 @@ export function DeckChoice({ label, options, value, onChange }: { label: string;
   return (
     <div className="deck-choice">
       <span id={id} className="field-label">{label}</span>
-      <div className="segmented deck-choice-row" role="group" aria-labelledby={id}>
-        {options.map((o) => (
-          <button key={o.key} type="button" aria-pressed={o.key === value} onClick={() => onChange(o.key)}>{o.label}</button>
-        ))}
-      </div>
+      <Segmented className="deck-choice-row" labelledBy={id} value={value} onChange={onChange} options={options.map((o) => [o.key, o.label] as const)} />
     </div>
   );
 }

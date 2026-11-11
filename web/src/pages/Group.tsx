@@ -27,7 +27,7 @@ export function GroupPage() {
       {groups.data?.length === 0 && (
         <>
           <h1>Playgroup</h1>
-          <p className="empty">No playgroup yet.</p>
+          <GroupActions />
         </>
       )}
       {group && (
@@ -49,7 +49,10 @@ export function GroupPage() {
       </div>
       <ExportGames group={group} />
       <MythicImportEntry />
-      <GroupActions />
+      {/* With no playgroup, starting or joining one sits at the top instead. While the list is
+          still loading the form is in neither place, so it can't move under someone typing; a
+          list that never loaded gets it here. A failed refresh keeps the list it had. */}
+      {(groups.data ? groups.data.length > 0 : groups.isError) && <GroupActions />}
     </main>
   );
 }

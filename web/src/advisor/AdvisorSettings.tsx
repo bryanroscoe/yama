@@ -35,7 +35,7 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
     },
   });
   const s = status.data;
-  if (!s) return <ErrorText error={status.error} />;
+  if (!s) return <ErrorText error={status.error} retry={() => void status.refetch()} />;
   if (s.reason === "off") return null;
   return (
     <div className={`${className} advisor-settings`}>
