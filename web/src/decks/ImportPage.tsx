@@ -375,7 +375,7 @@ function SaveBar({
   const create = (d: Draft) => {
     const b = toSave(d);
     const name = d.name.trim();
-    return api<{ id: string }>("/api/decks", { method: "POST", json: { name, cards: b.cards, prints: b.prints, op_id: opIdFor(drafts.indexOf(d), name, b) } });
+    return api<{ id: string }>("/api/decks", { method: "POST", json: { name, cards: b.cards, prints: b.prints, maybe: b.maybe, op_id: opIdFor(drafts.indexOf(d), name, b) } });
   };
   const save = useMutation({
     mutationFn: async () => {
@@ -383,7 +383,8 @@ function SaveBar({
         // The list the changes above were worked out against: if the deck's list changed
         // elsewhere since, the save is refused instead of replacing it unseen.
         const base_version = current.data?.version_id ?? undefined;
-        await api(`/api/decks/${target}`, { method: "PUT", json: { cards: body.cards, prints: body.prints, base_version, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
+        await api(`/api/decks/${target}`, { method: "PUT", // A list that brings a maybeboard replaces the deck's Considering list; one without leaves it.
+        json: { cards: body.cards, prints: body.prints, ...(body.maybe.length ? { maybe: body.maybe } : {}), base_version, note: note.trim() || `Imported${formatLabel ? ` from ${formatLabel}` : ""}` } });
         return target;
       }
       return (await create(draft)).id;

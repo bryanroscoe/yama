@@ -15,6 +15,9 @@ export const GROUPS: [string, (t: string) => boolean][] = [
 /** Every group a list can show, in order. */
 export const GROUP_ORDER: string[] = ["Commander", ...GROUPS.map(([g]) => g), "Other", "Sideboard"];
 
+/** The board of a list's Considering section (a maybeboard): cards thought about, not in the deck. */
+export const MAYBE = "maybe";
+
 /**
  * The group a card shows under. Lands that are also creatures (Dryad Arbor) read as lands; the
  * front face decides for double-faced cards. An unknown type (a card Yama doesn't know yet) is "Other".
@@ -43,7 +46,8 @@ function readLine(raw: string): ReadLine {
   const header = line.replace(/^(?:\/\/)+/, "").replace(/^#+/, "").trim().replace(/:+$/, "").toLowerCase().split(/[ (]/)[0] ?? "";
   if (["commander", "commanders"].includes(header)) return { kind: "header", board: "commander" };
   if (["deck", "main", "mainboard", "maindeck", "creatures", "lands", "spells"].includes(header)) return { kind: "header", board: "main" };
-  if (["sideboard", "side", "maybeboard", "considering"].includes(header)) return { kind: "header", board: "side" };
+  if (["sideboard", "side"].includes(header)) return { kind: "header", board: "side" };
+  if (["maybeboard", "maybe", "considering"].includes(header)) return { kind: "header", board: MAYBE };
   if (line.startsWith("//") || line.startsWith("#")) return { kind: "skip" };
   const match = line.match(/^([+-]?\d+)[xX]* (.*)$/);
   const qty = match ? Number(match[1]) : 1;
@@ -51,7 +55,10 @@ function readLine(raw: string): ReadLine {
   return name && Number.isSafeInteger(qty) && qty > 0 ? { kind: "card", qty, name } : { kind: "skip" };
 }
 
-/** Import-name normalization matching server/src/decks.rs::parse_list. No card lookup. */
+/**
+ * Import-name normalization matching server/src/decks.rs::parse_list. No card lookup. Lines under
+ * a Considering or Maybeboard heading have the board "maybe": they aren't in the deck.
+ */
 export function parseDeckList(text: string): ListLine[] {
   const out: ListLine[] = [];
   let board = "main";
@@ -105,7 +112,7 @@ function recount(raw: string, qty: number, by: number): string | null {
   return `${indent}${next} ${raw.trim()}`;
 }
 
-const HEADINGS: Record<string, string> = { commander: "Commander", main: "Deck", side: "Sideboard" };
+const HEADINGS: Record<string, string> = { commander: "Commander", main: "Deck", side: "Sideboard", [MAYBE]: "Considering" };
 
 /**
  * The list with one more copy of `name` on `board` (the main deck unless said). A line already
@@ -148,7 +155,7 @@ export function addToList(text: string, name: string, board = "main"): string {
 
 /**
  * The list with one copy of `name` fewer: from the main deck first, then the sideboard, then the
- * commander (or only from `board` when given). A line left with no copies is dropped. The text
+ * Considering list, then the commander (or only from `board` when given). A line left with no copies is dropped. The text
  * comes back unchanged when the list doesn't hold the card.
  */
 export function removeFromList(text: string, name: string, board?: string): string {
@@ -160,7 +167,7 @@ export function removeFromList(text: string, name: string, board?: string): stri
     if (line.kind === "header") at = line.board;
     else if (line.kind === "card" && names(line.name, name) && (board === undefined || at === board)) found.push({ index, board: at, qty: line.qty });
   });
-  const order = ["main", "side", "commander"];
+  const order = ["main", "side", MAYBE, "commander"];
   // The last matching line of the first board that has one.
   const hit = found.sort((a, b) => order.indexOf(a.board) - order.indexOf(b.board) || b.index - a.index)[0];
   if (!hit) return text;
@@ -170,11 +177,11 @@ export function removeFromList(text: string, name: string, board?: string): stri
   return lines.join(eol(text));
 }
 
-/** "Commander", "Deck" and "Sideboard" sections of `N Name` lines, in the order given. */
+/** "Commander", "Deck", "Sideboard" and "Considering" sections of `N Name` lines, in the order given. */
 export function listText(cards: ListLine[]): string {
   const section = (title: string, board: string) => {
     const rows = cards.filter((c) => c.board === board).map((c) => `${c.qty} ${c.name}`);
     return rows.length ? [title, ...rows, ""] : [];
   };
-  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side")].join("\n").trim();
+  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side"), ...section("Considering", MAYBE)].join("\n").trim();
 }

@@ -24,6 +24,38 @@ describe("parseDeckList", () => {
   });
 });
 
+describe("the Considering list", () => {
+  const WITH = `${LIST}\n\nConsidering\n1 Swan Song\n2 Opt`;
+
+  it("reads Considering and Maybeboard headings as their own board, not the sideboard", () => {
+    expect(parseDeckList(WITH).filter((l) => l.board === "maybe")).toEqual([
+      { qty: 1, name: "Swan Song", board: "maybe" },
+      { qty: 2, name: "Opt", board: "maybe" },
+    ]);
+    expect(parseDeckList("1 Sol Ring\n// Maybeboard\n1 Opt").map((l) => l.board)).toEqual(["main", "maybe"]);
+    expect(parseDeckList("1 Sol Ring\nSideboard\n1 Opt").map((l) => l.board)).toEqual(["main", "side"]);
+  });
+
+  it("writes it as its own section, after the sideboard", () => {
+    const cards = [
+      { qty: 1, name: "Omo, Queen of Vesuva", board: "commander" },
+      { qty: 1, name: "Opt", board: "maybe" },
+      { qty: 3, name: "Island", board: "main" },
+    ];
+    expect(listText(cards)).toBe("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n3 Island\n\nConsidering\n1 Opt");
+    expect(parseDeckList(listText(cards)).map((l) => `${l.name} ${l.board}`).sort()).toEqual(["Island main", "Omo, Queen of Vesuva commander", "Opt maybe"]);
+  });
+
+  it("adds to it under its heading, and removes from the deck before it", () => {
+    expect(addToList(LIST, "Opt", "maybe")).toBe(`${LIST}\n\nConsidering\n1 Opt`);
+    expect(countInList(addToList(WITH, "Opt", "maybe"), "Opt", "maybe")).toBe(3);
+    const both = addToList(WITH, "Swan Song");
+    expect(countInList(removeFromList(both, "Swan Song"), "Swan Song", "maybe")).toBe(1);
+    expect(countInList(removeFromList(removeFromList(both, "Swan Song"), "Swan Song"), "Swan Song")).toBe(0);
+    expect(countInList(removeFromList(both, "Swan Song", "maybe"), "Swan Song", "main")).toBe(1);
+  });
+});
+
 describe("countInList", () => {
   it("counts a card's copies on every board, or on one", () => {
     expect(countInList(LIST, "Forest")).toBe(2);

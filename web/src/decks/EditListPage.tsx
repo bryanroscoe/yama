@@ -2,7 +2,6 @@
 // changing a deck's cards. It replaced the deck page's Text layout, the Edit deck sheet's list and
 // Update from a list (/decks/import?deck=:id, which now redirects here).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listText } from "@yama/core";
 import type { PlanCard } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
@@ -17,7 +16,7 @@ import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { buildNotes, buildNotesKey } from "../research/api";
 import { buildFamilies, configurationLabel, resolveBuildFamily, type SwapPair as Hint } from "./buildCatalog";
-import { newListName, otherLists, pairEdits, startButtons, type CardFacts, type StartList } from "./editList";
+import { deckListText, withConsidering, newListName, otherLists, pairEdits, startButtons, type CardFacts, type StartList } from "./editList";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { checks, commanderChoices, commanders, diff, draftFrom, setCommanders, toSave } from "./importLogic";
 import { ask } from "../components/confirm";
@@ -67,7 +66,7 @@ function EditList({ id }: { id: string }) {
   useEffect(() => {
     if (!d || base.current !== undefined) return;
     base.current = d.version_id;
-    const text = listText(d.cards);
+    const text = deckListText(d);
     setStartText(text);
     // Yama wrote this text itself, so the card search can edit it before the preview answers.
     if (!list.text) trusted.current = text;
@@ -94,10 +93,15 @@ function EditList({ id }: { id: string }) {
     setHints(s.choice?.pairs ?? []);
     void list.loadList(async () => {
       const c = s.choice;
-      return c?.list
-        ?? (c?.savedDeck ? listText((await api<DeckView>(`/api/decks/${encodeURIComponent(c.savedDeck)}`)).cards)
-        : s.version ? listText((await api<DeckVersion>(`/api/decks/${encodeURIComponent(id)}/versions/${encodeURIComponent(s.version)}`)).cards)
-        : null);
+      // This deck's own list comes with its Considering list; any other list is put over the one
+      // the deck has now, which a save would otherwise empty.
+      if (c?.list != null) return withConsidering(c.list, d?.maybe);
+      if (c?.savedDeck) {
+        const other = await api<DeckView>(`/api/decks/${encodeURIComponent(c.savedDeck)}`);
+        return c.savedDeck === id ? deckListText(other) : deckListText({ cards: other.cards, maybe: d?.maybe });
+      }
+      if (s.version) return deckListText({ cards: (await api<DeckVersion>(`/api/decks/${encodeURIComponent(id)}/versions/${encodeURIComponent(s.version)}`)).cards, maybe: d?.maybe });
+      return null;
     }).then((loaded) => {
       // Only the load that's still current sets the baseline; a superseded one is dropped.
       if (loaded !== null) setStartText(loaded);
@@ -138,7 +142,8 @@ function EditList({ id }: { id: string }) {
   const save = useMutation({
     mutationFn: async () => {
       if (!body) throw new Error("Nothing to save yet.");
-      const json = { cards: body.cards, prints: body.prints, note: note.trim() || null };
+      // The text is the whole of it: the Considering section in the box is the Considering list.
+      const json = { cards: body.cards, prints: body.prints, maybe: body.maybe, note: note.trim() || null };
       if (mode === "box") {
         // The server refuses (409) if the list changed since this edit started, in the same
         // transaction as the save, so two editors never silently replace each other's list.
@@ -336,7 +341,7 @@ function EditList({ id }: { id: string }) {
                   {c.problems.map((p) => <li key={p}>{p}</li>)}
                 </ul>
               ) : (
-                <p className="edit-list-ready"><b>Ready</b> {c.total} cards{cmdrs.length ? `, led by ${cmdrs.map((k) => k.name).join(" and ")}` : ""}.</p>
+                <p className="edit-list-ready"><b>Ready</b> {c.total} cards{cmdrs.length ? `, led by ${cmdrs.map((k) => k.name).join(" and ")}` : ""}.{c.considering ? ` ${c.considering} more under Considering, kept with the deck but not in it.` : ""}</p>
               )
             )}
             {draft && cmdrs.length > 0 && !choosing && commanderChoices(draft).length > cmdrs.length && (

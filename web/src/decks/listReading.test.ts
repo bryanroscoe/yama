@@ -38,6 +38,13 @@ describe("whether the card search may edit a list line by line", () => {
     expect(sameReading("", read([]))).toBe(true);
   });
 
+  it("agrees about a Considering section, which the preview reads as maybeboard cards", () => {
+    const text = "Commander\n1 Atraxa, Praetors' Voice\n\nDeck\n1 Sol Ring\n\nConsidering\n2 Opt";
+    expect(sameReading(text, read([ATRAXA, card("Sol Ring"), card("Opt", { qty: 2, board: "side", maybe: true })]))).toBe(true);
+    // The same card under Sideboard is another list.
+    expect(sameReading(text, read([ATRAXA, card("Sol Ring"), card("Opt", { qty: 2, board: "side" })]))).toBe(false);
+  });
+
   it("disagrees on a Magic Online list, where the commander follows a blank line", () => {
     const text = "1 Sol Ring\n98 Forest\n\n1 Atraxa, Praetors' Voice";
     expect(sameReading(text, read([card("Sol Ring"), card("Forest", { qty: 98 }), ATRAXA]))).toBe(false);
@@ -88,6 +95,12 @@ describe("rewriting a list in Yama's format", () => {
     expect(tidyText(server)).toBe(
       ["Commander", "1 Atraxa, Praetors' Voice", "", "Deck", "1 Sol Ring (C21) 263 *F*", "30 Forest (ELD)", "1 Arcane Signet", "2 Not A Real Card", "", "Sideboard", "1 Negate (M20) 69 *E*"].join("\n"),
     );
+  });
+
+  it("writes a maybeboard under Considering", () => {
+    const withMaybe = read([ATRAXA, card("Sol Ring"), card("Opt", { board: "side", maybe: true })], [unknown("Mystery", { board: "side", maybe: true })]);
+    expect(tidyText(withMaybe)).toBe("Commander\n1 Atraxa, Praetors' Voice\n\nDeck\n1 Sol Ring\n\nConsidering\n1 Opt\n1 Mystery");
+    expect(sameReading(tidyText(withMaybe), withMaybe)).toBe(true);
   });
 
   it("gives a text both readers read the same way", () => {

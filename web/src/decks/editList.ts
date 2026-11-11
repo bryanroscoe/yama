@@ -1,5 +1,5 @@
 // Edit the list (/decks/:id/edit): which lists to start from, and the changes as pairs of cards.
-import { GROUP_ORDER, groupOf, fmtDate } from "@yama/core";
+import { GROUP_ORDER, groupOf, fmtDate, listText, MAYBE, parseDeckList } from "@yama/core";
 import type { DeckVersionRow } from "../api";
 import { configurationLabel, pairChanges, type BuildChoice, type BuildFamily, type CardCopy, type SwapPair } from "./buildCatalog";
 
@@ -62,6 +62,21 @@ export function otherLists(family: BuildFamily | undefined, buttons: StartList[]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .map((v) => ({ id: `version:${v.id}`, label: v.note?.trim() ? v.note.trim() : `Version of ${fmtDate(v.created_at)}`, detail: `Saved ${fmtDate(v.created_at)}`, version: v.id }));
   return [...builds, ...saved];
+}
+
+/** A deck's list as the editor's text: its cards, then its Considering list under its own heading. */
+export function deckListText(deck: { cards: { qty: number; name: string; board: string }[]; maybe?: { qty: number; name: string }[] }): string {
+  return listText([...deck.cards, ...(deck.maybe ?? []).map((m) => ({ qty: m.qty, name: m.name, board: MAYBE }))]);
+}
+
+/**
+ * Another list's text (a plan's build, an older version) with this deck's Considering list under
+ * it, so starting from that list and saving doesn't quietly empty what the deck is considering.
+ * A text that brings its own Considering section keeps its own.
+ */
+export function withConsidering(text: string, maybe: { qty: number; name: string }[] | undefined): string {
+  if (!maybe?.length || parseDeckList(text).some((l) => l.board === MAYBE)) return text;
+  return `${text.trimEnd()}\n\n${listText(maybe.map((m) => ({ qty: m.qty, name: m.name, board: MAYBE })))}`;
 }
 
 /** What a changed card is, to pair it: its board, type line and mana value. */

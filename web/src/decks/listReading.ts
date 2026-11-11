@@ -7,14 +7,15 @@
 // offered only while both readers agree about the text, card for card and board for board.
 // When they don't, the editor offers to rewrite the list in Yama's own format, from the server's
 // reading, and the search works from there.
-import { parseDeckList } from "@yama/core";
+import { MAYBE, parseDeckList } from "@yama/core";
 import type { Draft, ImportCard, UnknownLine } from "./importLogic";
 
 const fold = (s: string) => s.trim().toLowerCase();
 
 /** The board a card of the server's reading is on, as the text's headings name boards. */
-function boardOf(c: Pick<ImportCard, "board">): string {
-  return c.board;
+function boardOf(c: Pick<ImportCard, "board" | "maybe">): string {
+  // A maybeboard line is under the Considering heading, whatever board the preview files it on.
+  return c.maybe ? MAYBE : c.board;
 }
 
 /** Whether `parseDeckList` reads `text` as the same cards, on the same boards, as the preview did. */
@@ -46,8 +47,8 @@ function printing(c: Pick<ImportCard, "set_code" | "collector_number" | "finish"
 }
 
 /**
- * The server's reading written out in Yama's own format: Commander, Deck and Sideboard headings
- * and `N Name (SET) 123 *F*` lines, keeping each printing the source named and every line that
+ * The server's reading written out in Yama's own format: Commander, Deck, Sideboard and
+ * Considering headings and `N Name (SET) 123 *F*` lines, keeping each printing the source named and every line that
  * matched no card. Comments and other sites' tags are not kept.
  */
 export function tidyText(draft: Pick<Draft, "cards" | "unknown">): string {
@@ -58,5 +59,5 @@ export function tidyText(draft: Pick<Draft, "cards" | "unknown">): string {
     ];
     return rows.length ? [title, ...rows, ""] : [];
   };
-  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side")].join("\n").trim();
+  return [...section("Commander", "commander"), ...section("Deck", "main"), ...section("Sideboard", "side"), ...section("Considering", MAYBE)].join("\n").trim();
 }
