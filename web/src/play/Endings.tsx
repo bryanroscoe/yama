@@ -11,6 +11,7 @@ import { Link, useNavigate } from "react-router";
 import { api } from "../api";
 import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
 import type { OnlineGame, Out, SeatInfo, Stats, View } from "./types";
+import { ErrorText } from "../components/ui";
 
 type Art = (seat: number) => { art: string | null; artist: string | null };
 type Tone = (seat: number) => string | undefined;
@@ -269,7 +270,7 @@ export function GameOver(props: {
             <b>{!view.abandoned && game?.playgroup ? `Counts toward ${game.playgroup}'s stats` : "Not counted toward a group's stats"}</b>
             <span className="dim small">Chosen when the game was made{ai ? "; a computer played in it" : ""}.</span>
           </div>
-          {error && <p className="error small" role="alert">{error}</p>}
+          <ErrorText small error={error} />
           <div className="go-buttons">
             <button type="button" className="outline" onClick={props.onLog}>Game log</button>
             <button type="button" className="outline" onClick={props.onBoard}>See the final board</button>

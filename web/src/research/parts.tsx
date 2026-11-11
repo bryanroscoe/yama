@@ -1,8 +1,7 @@
 import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
-import { CardImage, Segmented } from "../components/ui";
-import { CopyButton } from "../plan/parts";
+import { CardImage, Segmented, CopyButton } from "../components/ui";
 import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
 /**

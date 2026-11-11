@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ErrorText } from "../components/ui";
-import { CopyButton } from "../plan/parts";
+import { ErrorText, CopyButton } from "../components/ui";
 import { publicOrigin } from "../api";
 import { disconnectApp, listConnectedApps } from "./api";
 import { appKind, appName, claudeCodeCommand } from "./logic";

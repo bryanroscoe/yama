@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
-import { Loading, DialogHead } from "../components/ui";
+import { Loading, DialogHead, ErrorText } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -118,7 +118,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
           </button>
         </div>
       )}
-      {error && !a.pending?.error && <p className="error">{error}</p>}
+      {!a.pending?.error && <ErrorText error={error} />}
       {printings && (
         <div className="scan-printings" role="listbox" aria-label={`Printings of ${a.name}`}>
           {(showAll ? printings : printings.slice(0, PRINTINGS_FIRST)).map((p) => (

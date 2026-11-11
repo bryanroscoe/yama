@@ -31,7 +31,7 @@ export function SharingSettings() {
     onSuccess: done,
   });
   const s = sharing.data;
-  if (!s) return <ErrorText error={sharing.error} />;
+  if (!s) return <ErrorText error={sharing.error} retry={() => void sharing.refetch()} />;
   const profile = s.handle ? `${publicOrigin()}/u/${s.handle}` : null;
   const total = s.decks.private + s.decks.link + s.decks.public;
   const shareAll = async (v: Visibility, title: string, body: string | undefined, confirm: string) => (await ask({ title, body, confirm, danger: true })) && all.mutate(v);

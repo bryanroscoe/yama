@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Details, ErrorText, Dialog, EmptyState, Segmented } from "../components/ui";
+import { Details, ErrorText, Dialog, EmptyState, Segmented, CopyButton } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -34,7 +34,6 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   /** Rows not chosen one by one: all their copies (at first, and after Tick all) or none (after Untick all). */
   const [rest, setRest] = useState<"all" | "none">("all");
   const [limit, setLimit] = useState(SHOW);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const floor = Number(min);
@@ -69,15 +68,6 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
   };
 
   const download = () => saveFile(new Blob([text.text], { type: `${info.mime};charset=utf-8` }), info.file).catch(setError);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text.text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      setError(e instanceof Error ? new Error(`Couldn't copy: ${e.message}`) : e);
-    }
-  };
 
   return (
     <Dialog title="Sell list" onClose={onClose}>
@@ -121,17 +111,17 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             </span>
           )}
         </p>
-        {limitNote && <p className="error">{limitNote}</p>}
+        <ErrorText error={limitNote} />
         <div className="row">
           {info.paste ? (
             <>
-              <button className="primary" disabled={text.copies === 0} onClick={() => void copy()}>{copied ? "Copied" : "Copy the list"}</button>
+              <CopyButton className="primary" disabled={text.copies === 0} text={text.text} label="Copy the list" />
               <button className="outline" disabled={text.copies === 0} onClick={() => void download()}>Download</button>
             </>
           ) : (
             <>
               <button className="primary" disabled={text.copies === 0} onClick={() => void download()}>Download CSV</button>
-              <button className="outline" disabled={text.copies === 0} onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
+              <CopyButton className="outline" disabled={text.copies === 0} text={text.text} label="Copy" />
             </>
           )}
         </div>

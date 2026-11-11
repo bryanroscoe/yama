@@ -58,7 +58,7 @@ export function SharedPreconEvidence({ owner, names }: { owner: string; names: s
     onSuccess: (r) => { client.setQueryData(["precon-evidence"], r); void client.invalidateQueries({ queryKey: ["lab"] }); },
   });
   const r = report.data;
-  if (!r || names.length === 0) return <ErrorText error={report.error} />;
+  if (!r || names.length === 0) return <ErrorText error={report.error} retry={() => void report.refetch()} />;
   const on = new Set(r.sources.filter((s) => s.owner === owner).map((s) => s.source_name));
   const matched = Object.keys(r.matched).length;
   return <section className="dataset-card">

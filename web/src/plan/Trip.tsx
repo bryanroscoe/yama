@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { ErrorText, Loading, EmptyState } from "../components/ui";
+import { ErrorText, Loading, EmptyState, CopyButton } from "../components/ui";
 import {
   addSealedQuote,
   addWant,
@@ -40,7 +40,6 @@ import {
 } from "./api";
 import { api, type DeckSummary } from "../api";
 import { marketSentence } from "./marks";
-import { CopyButton } from "./parts";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { TripHowTo } from "./howto";
 import type { PlanView } from "./view";

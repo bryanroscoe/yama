@@ -212,7 +212,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
           <SectionHead id="bc-changes" eyebrow={swaps ? `${swaps.length} in, ${swaps.length} out` : undefined} after={<label className="note-vs"><span className="visually-hidden">Compare with</span><select value={from.id} onChange={(e) => pick("from", e.target.value)}><Choices choices={all.filter((c) => c.id !== to.id)} /></select></label>}>Changes from<span className="visually-hidden"> {from.label}</span></SectionHead>
           {from.source !== to.source && <p className="small dim">{from.source}. <Link to={from.href}>{openLabel(from)}</Link></p>}
           <ErrorText error={left.error || right.error} />
-          {comparison.error && <p role="alert" className="error">{comparison.error}</p>}
+          <ErrorText error={comparison.error} />
           {!left.text || !right.text ? <Loading>Loading both lists…</Loading> : swaps && (swaps.length ? <ChangesTable rows={rowsOf} /> : <p className="dim">These lists play the same cards.</p>)}
           <p className="small dim">Bracket labels are the plans' own assessments; legality isn't rechecked here. Printing doesn't mark any swap as done.</p>
         </section>

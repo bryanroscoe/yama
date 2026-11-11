@@ -8,7 +8,7 @@ import { destination, SwapCardResult, SwapReasons } from "./SwapDetails";
 import { prepareSheetForPrint } from "./print";
 import type { PlanView } from "./view";
 import "./swapsheet.css";
-import { Loading, EmptyState } from "../components/ui";
+import { Loading, EmptyState, ErrorText } from "../components/ui";
 
 const SwapScanner = lazy(() => import("./SwapScanner"));
 const SHEETS = [
@@ -104,7 +104,7 @@ export function SwapSheetPage() {
           <button className="primary" disabled={printing} onClick={() => setScanning(true)}>Scan a card</button>
           <button disabled={printing || !hasContent || !shown.length} aria-busy={printing} onClick={() => void print()}>{printing ? (pictures ? "Loading pictures…" : "Preparing print…") : "Print"}</button>
         </div>
-        {printError && <p className="error" role="alert">{printError}</p>}
+        <ErrorText error={printError} />
         <div className="ss-controls">
           <label>Sheet<select value={mode} disabled={printing} onChange={(e) => change("sheet", e.target.value)}>{SHEETS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
 

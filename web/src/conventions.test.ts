@@ -35,6 +35,7 @@ function uses(pattern: RegExp, allowed: (file: string, line: string) => boolean 
 
 // The online board belongs to another stream of work; its files join these rules when it does.
 const BOARD = /^web\/src\/play\//;
+const BOARD_FILES = /^web\/src\/play\/(Board|Decide)\.tsx$/;
 
 describe("waiting and empty states use the shared components", () => {
   it("no page writes its own waiting paragraph", () => {
@@ -107,6 +108,30 @@ describe("dialogs use the shared modal layer", () => {
       /=== "Escape"\)? (&& )?(onClose|setOpen|close)\b/,
       (file) => file === DIALOG || BOARD.test(file) || file === PAGE_OVER_PAGE,
     );
+    expect(found).toEqual([]);
+  });
+});
+
+describe("errors and copying use the shared components", () => {
+  it("no page writes its own error paragraph for something thrown", () => {
+    // Use <ErrorText error={…} /> from components/ui (with retry={…} where asking again can work).
+    // A sentence the page writes itself about its own state can stay a paragraph.
+    const found = uses(/<(p|span)\b[^>]*className="(?:[^"]* )?error(?: [^"]*)?"[^>]*>\{[\w.?!]+\}<\/(p|span)>/, (file) => file === "web/src/components/ui.tsx" || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+  });
+
+  it("no page writes to the clipboard itself", () => {
+    // Use <CopyButton text={…} label="…" /> from components/ui: it says Copied, and shows the
+    // text to copy by hand when the browser refuses. These five do more than copy (a status line
+    // beside a link, copy then open a site, the share sheet first); don't add to them.
+    const more = new Set([
+      "web/src/decks/ShareDeck.tsx",
+      "web/src/decks/DeckAnalysis.tsx",
+      "web/src/bridges/mythic/MythicDeck.tsx",
+      "web/src/play/PlayGame.tsx",
+      "web/src/pages/Group.tsx",
+    ]);
+    const found = uses(/clipboard\.writeText\(/, (file) => file === "web/src/components/CopyButton.tsx" || more.has(file));
     expect(found).toEqual([]);
   });
 });

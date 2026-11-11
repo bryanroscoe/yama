@@ -2,14 +2,13 @@ import { localBuyRule, MAX_TIERS, rulesAt, shoppingRulesDraft, shoppingRulesProb
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Details, ErrorText } from "../components/ui";
+import { Details, ErrorText, CopyButton } from "../components/ui";
 import { ConnectedApps } from "../oauth/ConnectedApps";
 import { publicOrigin } from "../api";
 import { createKey, listImports, listKeys, removeShoppingRules, revokeKey, saveShoppingRules, type KeyScope, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
 import { SettingsHowTo } from "./howto";
-import { CopyButton } from "./parts";
 import { clearPlanData } from "./store";
 import { fmtDate, usd } from "@yama/core";
 import { ask } from "../components/confirm";
@@ -371,7 +370,7 @@ function ThisDevice({ userId }: { userId: string }) {
 
 function Imports() {
   const imports = useQuery({ queryKey: ["plan-imports"], queryFn: listImports });
-  if (!imports.data?.length) return <ErrorText error={imports.error} />;
+  if (!imports.data?.length) return <ErrorText error={imports.error} retry={() => void imports.refetch()} />;
   return (
     <section className="stack">
       <h3>Import history</h3>

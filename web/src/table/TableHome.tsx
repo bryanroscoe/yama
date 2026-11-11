@@ -72,7 +72,7 @@ export function TableHome() {
   // Why games are still on this device: beside Recent games' upload status, not under its links.
   const notes = (
     <>
-      {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
+      {outbox.length > 0 && <ErrorText small error={syncStatus.error} />}
       {!guest && rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). {rejected.length === 1 ? "It's" : "They're"} kept on this device.

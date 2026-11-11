@@ -62,6 +62,7 @@ function CardZoom({ src, name, onClose }: { src: string; name: string; onClose: 
 }
 
 export { Dialog, DialogHead } from "./Dialog";
+export { CopyButton } from "./CopyButton";
 
 /**
  * Optional explanation behind a concise, descriptive disclosure. Native details
@@ -76,9 +77,23 @@ export function Details({ children, label = "Details", className = "" }: { child
   );
 }
 
-export function ErrorText({ error }: { error: unknown }) {
+/**
+ * What went wrong, in words, announced at once. `error` is whatever was thrown, or the message
+ * itself; nothing is drawn for no error. With `retry`, Try again sits on the same line: give it
+ * wherever asking again can work (a page or a panel that failed to load).
+ */
+export function ErrorText({ error, retry, small = false }: { error: unknown; retry?: () => void; small?: boolean }) {
   if (!error) return null;
-  return <p className="error" role="alert">{errorMessage(error)}</p>;
+  return (
+    <p className={cx("error", small && "small")} role="alert">
+      {errorMessage(error)}
+      {retry && (
+        <button type="button" className="quiet small" onClick={retry}>
+          Try again
+        </button>
+      )}
+    </p>
+  );
 }
 
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
