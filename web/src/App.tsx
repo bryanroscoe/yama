@@ -15,7 +15,7 @@ import { ErrorText } from "./components/ui";
 import { Wordmark } from "./components/Wordmark";
 import { ViewBanner } from "./components/ViewBanner";
 import { VIEWING_KEY } from "./viewingFlag";
-import { area, Paged } from "./lazyPages";
+import { area, Framed, Paged } from "./lazyPages";
 import { CardsPage } from "./pages/Cards";
 import { OldLabRedirect } from "./lab/OldLabRedirect";
 import { OldPlanRedirect } from "./plan/OldPlanRedirect";
@@ -244,11 +244,11 @@ export function App() {
       <Route element={<Shell />}>
         {/* Keyed by who's signed in: a session that ends (or starts) under an open setup starts
             it afresh, so no account's seats, decks or playgroup carry into a guest game. */}
-        <Route index element={<TableHome key={me.data?.id ?? "guest"} />} />
+        <Route index element={<Framed><TableHome key={me.data?.id ?? "guest"} /></Framed>} />
         {/* Keyed by who is signed in, as the Table is: one account's results (with its own copies)
             never stay on screen as the next account's placeholder. */}
-        <Route path="cards" element={<CardsPage key={me.data?.id ?? "guest"} />} />
-        <Route path="new" element={<WhatsNewPage />} />
+        <Route path="cards" element={<Framed><CardsPage key={me.data?.id ?? "guest"} /></Framed>} />
+        <Route path="new" element={<Framed><WhatsNewPage /></Framed>} />
         <Route element={<RequireAccount />}>
           <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />

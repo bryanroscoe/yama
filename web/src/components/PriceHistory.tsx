@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "../api";
+import { api, errorMessage } from "../api";
 import { usd } from "@yama/core";
 
 interface Point {
@@ -26,6 +26,15 @@ export function PriceHistory({ scryfallId, finish, setName }: { scryfallId: stri
   const label = `${setName}${finish === "nonfoil" ? "" : ` (${finish})`}`;
 
   if (history.isPending) return null;
+  // A request that failed says so: it isn't the same as a printing with no price on record.
+  if (history.error && !history.data) {
+    return (
+      <p className="small" role="alert">
+        <span className="error">Couldn't load the price history for {label}: {errorMessage(history.error)}</span>{" "}
+        <button type="button" className="small" disabled={history.isFetching} onClick={() => void history.refetch()}>{history.isFetching ? "Trying…" : "Try again"}</button>
+      </p>
+    );
+  }
   if (points.length === 0) return <p className="small dim">No market price recorded for {label}.</p>;
   if (points.length === 1) {
     return <p className="small dim">{label}: {usd(points[0]!.value)} on {points[0]!.date}. The chart fills in as daily prices arrive.</p>;

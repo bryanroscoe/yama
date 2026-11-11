@@ -5,6 +5,31 @@ import type { CollectionItem, Printing } from "../api";
 
 export type Op = Record<string, unknown> & { op_id: string; kind: string };
 
+/**
+ * Op ids for a screen's taps. The server applies an op id once, so the id has to outlive a send
+ * that failed: the save may have gone through with only its answer lost, and the same tap again
+ * must then be the same op, not a second copy (project review, 11 Nov 2026: every tap minted a new
+ * id). `idFor(action)` gives one id per action until `saved(action)` says the server has it.
+ */
+export function opIds(newId: () => string = () => crypto.randomUUID()) {
+  const unconfirmed = new Map<string, string>();
+  return {
+    idFor(action: string): string {
+      let id = unconfirmed.get(action);
+      if (!id) {
+        id = newId();
+        unconfirmed.set(action, id);
+      }
+      return id;
+    },
+    /** The server confirmed this action (all of them, with no argument): its next tap is a new op. */
+    saved(action?: string) {
+      if (action === undefined) unconfirmed.clear();
+      else unconfirmed.delete(action);
+    },
+  };
+}
+
 /** Which copies a change is for: the whole row, or one copy split off it. */
 export type Scope = "all" | "one";
 

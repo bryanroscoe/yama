@@ -1,9 +1,10 @@
 import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
+import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
@@ -648,6 +649,20 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     if (!(await send(a.key))) throw new Error("Still couldn't save it. Try again in a moment.");
   };
 
+  // Closing with scans that haven't reached the collection asks first (scanClose.ts): a failed
+  // save lives only on this screen, and one still on its way could fail after the scanner is gone.
+  const [closing, setClosing] = useState(false);
+  const unsaved = unsavedScans(added);
+  const question = closeQuestion(unsaved);
+  const close = () => (closeQuestion(unsavedScans(listRef.current)) ? setClosing(true) : onClose());
+  useEffect(() => {
+    // Asked to close while saves were out, and they have all gone through since.
+    if (closing && !question) onClose();
+  }, [closing, question, onClose]);
+  const retryAll = () => {
+    for (const a of listRef.current) if (a.pending?.error) void send(a.key);
+  };
+
   const controls = (
     <div className="scan-choices">
       <label>
@@ -699,13 +714,13 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
         <ScannerView
           onAccept={accept}
-          onClose={onClose}
+          onClose={close}
           addedCount={added.reduce((n, a) => n + a.copies, 0)}
           onShowAdded={() => setReviewing(true)}
           unsavedCount={added.filter((a) => a.pending?.error && a.pending.fix === null).length}
           autoAdd={keepAdding}
           closeups={closeups}
-          paused={reviewing}
+          paused={reviewing || closing}
           recent={[...new Set(added.map((a) => (a.set ? `${a.name} (${a.set.toUpperCase()})` : a.name)))]}
           finish={finish === "proxy" ? "nonfoil" : finish}
           controls={controls}
@@ -714,6 +729,18 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         {reviewing && (
           <Dialog onClose={() => setReviewing(false)} label="Added while scanning">
             <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} />
+          </Dialog>
+        )}
+        {closing && question && (
+          <Dialog centered title="Not saved yet" onClose={() => setClosing(false)}>
+            <div className="stack">
+              <p role="status">{question}</p>
+              <div className="row">
+                {unsaved.failed > 0 && <button className="primary" disabled={unsaved.sending > 0} onClick={retryAll}>{unsaved.sending > 0 ? "Saving…" : "Try again"}</button>}
+                <button onClick={() => setClosing(false)}>Keep scanning</button>
+                <button className="quiet" onClick={onClose}>Close without saving</button>
+              </div>
+            </div>
           </Dialog>
         )}
       </Suspense>

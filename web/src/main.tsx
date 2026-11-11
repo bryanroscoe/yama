@@ -6,7 +6,7 @@ import { type User } from "./api";
 import { App } from "./App";
 import { savedMe } from "./auth";
 import { setGuestActive } from "./guest";
-import { reloadOnStaleCode } from "./lazyPages";
+import { AppFailed, reloadOnStaleCode } from "./lazyPages";
 import { followMe, signInEnded, startSession, watchOtherTabs } from "./session";
 import { keepStorage } from "./storage";
 import { selectSlot } from "./table/store";
@@ -66,7 +66,7 @@ watchOtherTabs(queryClient);
 
 // One catch-all route around the app's own <Routes>: a data router, which is what lets a page
 // stop a navigation to ask about unsaved work (unsaved.tsx, useBlocker).
-const router = createBrowserRouter([{ path: "*", element: <App /> }]);
+const router = createBrowserRouter([{ path: "*", element: <App />, errorElement: <AppFailed /> }]);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
