@@ -156,6 +156,8 @@ export function Combobox<T>({
               e.preventDefault();
               if (options[active]) pick(options[active]);
             } else if (e.key === "Escape") {
+              // Handled here while the list is open: the dialog this sits in stays.
+              if (showList) e.preventDefault();
               setOpen(false);
             }
           }}

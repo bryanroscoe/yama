@@ -11,6 +11,7 @@ import { createContext, useContext, useEffect, useId, useRef, type KeyboardEvent
 /** Open layers, bottom to top. */
 const layers: HTMLElement[] = [];
 let lockedOverflow: string | null = null;
+let lockedPadding = "";
 /** What the open layers made inert. Anything inert for its own reasons isn't here, and is left alone. */
 let madeInert: HTMLElement[] = [];
 
@@ -20,7 +21,11 @@ const FOCUSABLE =
 /** The controls Tab can land on. Where the browser can say (not in jsdom), what CSS hides is left out: focusing it would do nothing and strand Tab. */
 function focusable(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => !el.closest("[inert], [hidden]") && (typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true })),
+    (el) =>
+      !el.closest("[inert], [hidden]") &&
+      // Inside a closed disclosure only its summary can take focus.
+      (el.tagName === "SUMMARY" || !el.closest("details:not([open])")) &&
+      (typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true })),
   );
 }
 
@@ -83,6 +88,11 @@ export function useModalLayer(root: RefObject<HTMLElement | null>, onClose: () =
 
     // The page under it stays put.
     if (lockedOverflow === null) {
+      // Where the scrollbar takes room (Windows, or macOS set to always show it), hiding it would
+      // shift the page sideways under the scrim: pad the body by its width while locked.
+      const bar = window.innerWidth - document.documentElement.clientWidth;
+      lockedPadding = document.body.style.paddingRight;
+      if (bar > 0) document.body.style.paddingRight = `calc(${getComputedStyle(document.body).paddingRight || "0px"} + ${bar}px)`;
       lockedOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";
     }
@@ -127,6 +137,7 @@ export function useModalLayer(root: RefObject<HTMLElement | null>, onClose: () =
       syncInert();
       if (layers.length === 0 && lockedOverflow !== null) {
         document.body.style.overflow = lockedOverflow;
+        document.body.style.paddingRight = lockedPadding;
         lockedOverflow = null;
       }
       // Back to what opened it, unless focus has already gone somewhere on purpose.
@@ -195,11 +206,13 @@ export function Dialog({
   centered = false,
   className,
   alert = false,
+  describedBy,
 }: (
   | {
-      /** The visible heading, with Close beside it. It names the dialog. */
+      /** The visible heading, with Close beside it. It names the dialog, unless `label` does. */
       title: ReactNode;
-      label?: undefined;
+      /** The name when the heading isn't plain words (a card preview button), or says less than the name should. */
+      label?: string;
     }
   | {
       title?: undefined;
@@ -213,13 +226,15 @@ export function Dialog({
   className?: string;
   /** A question that interrupts (a confirmation): announced at once as an alert dialog. */
   alert?: boolean;
+  /** The id of the sentence that says what the dialog is about, read out after its name. */
+  describedBy?: string;
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const layer = useModalLayer(root, onClose, title != null ? heading : panel);
-  const titled = title != null;
+  const titled = title != null && !label;
   return (
     <div className="dialog-layer" ref={root} {...layer}>
       <div className="scrim" onClick={onClose} />
@@ -230,6 +245,7 @@ export function Dialog({
         aria-modal="true"
         aria-label={label}
         aria-labelledby={titled ? `${id}-title` : undefined}
+        aria-describedby={describedBy}
         tabIndex={-1}
       >
         <DialogClose.Provider value={onClose}>

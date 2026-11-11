@@ -128,7 +128,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   }
 
   return (
-    <Dialog title={<>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</>} onClose={() => onClose()}>
+    <Dialog label={item.name ?? "Card"} title={<>{item.name && <CardRef name={item.name} oracleId={item.oracle_id} image={item.image_small} />}</>} onClose={() => onClose()}>
       <div className="stack">
         <div style={{ maxWidth: 260 }}>
           <CardImage src={item.image_normal} name={item.name ?? ""} />

@@ -98,7 +98,7 @@ describe("dialogs use the shared modal layer", () => {
     // A window listener can't tell which layer is on top. Dialog and useModalLayer can.
     // Floating menus and previews take Escape in the capture phase and mark it handled.
     const found = uses(
-      /=== "Escape" && (onClose|setOpen|close)\b/,
+      /=== "Escape"\)? (&& )?(onClose|setOpen|close)\b/,
       (file) => file === DIALOG || BOARD.test(file) || file === PAGE_OVER_PAGE,
     );
     expect(found).toEqual([]);

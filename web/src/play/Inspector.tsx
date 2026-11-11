@@ -5,12 +5,13 @@
 // rail offers for it. Only the card's real text: nothing written about it by Yama.
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { cardDetailQuery } from "../cardDetail";
 import { Dialog, Loading } from "../components/ui";
 import { faceOf, inspectorFacts, inspectorTabs, type InspectorTab, type Names } from "./feed";
 import type { CardMeta, CardView, OptionView, View } from "./types";
 import { fmtDate } from "@yama/core";
+import { useModalLayer } from "../components/Dialog";
 
 const SOURCES: Record<string, string> = { wotc: "Wizards of the Coast", scryfall: "Scryfall" };
 
@@ -30,25 +31,14 @@ export function CardReader(props: {
   wide: boolean;
 }) {
   const { card, meta, wide, onClose } = props;
-  // A laptop dialog closes on Esc itself; the phone's Sheet does the same.
-  useEffect(() => {
-    if (!wide) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
-      e.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [wide, onClose]);
   const body = <InspectorBody {...props} />;
   if (!wide) return <Dialog label={card.name} onClose={onClose}>{body}</Dialog>;
   return (
-    <div className="gi-overlay" onClick={onClose}>
+    <WideOverlay onClose={onClose}>
       <section className="gi-dialog" role="dialog" aria-modal="true" aria-label={card.name} onClick={(e) => e.stopPropagation()}>
         {body}
       </section>
-    </div>
+    </WideOverlay>
   );
 }
 
@@ -179,5 +169,19 @@ function RulingsList({ oracleId }: { oracleId?: string }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * A laptop's dialog over the table (the card reader, a zone's cards): a modal layer like the
+ * phone's sheet, so Escape closes the one on top and Tab stays in it.
+ */
+export function WideOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const root = useRef<HTMLDivElement>(null);
+  const layer = useModalLayer(root, onClose);
+  return (
+    <div ref={root} className="gi-overlay" tabIndex={-1} style={{ outline: "none" }} onClick={onClose} {...layer}>
+      {children}
+    </div>
   );
 }

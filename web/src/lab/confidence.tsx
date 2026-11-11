@@ -30,7 +30,7 @@ export function ConfidenceMark({ confidence, name, method }: { confidence: Confi
         {mark}
       </button>
       {open && (
-        <Dialog title={sentence(mark)} onClose={() => setOpen(false)}>
+        <Dialog label={`${sentence(mark)}: ${name}`} title={sentence(mark)} onClose={() => setOpen(false)}>
           <div className="stack conf-sheet">
             <p className="conf-sheet-deck">{name}</p>
             <p>{confidenceSentence(confidence.level)}</p>
