@@ -46,6 +46,8 @@ import { spinSchedule } from "./spin";
 import { LayoutPicker } from "./LayoutPicker";
 import { EditSeat } from "./SeatEditor";
 import { setCountTurns, useCountTurns } from "./turns";
+import { setTableClock, useTableClock } from "./clock";
+import { TableClock } from "./TableClock";
 import { useFullscreen, useInstall } from "../install";
 import { useScreenAwake } from "./wakeLock";
 import { isGuest } from "../guest";
@@ -122,6 +124,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   const navigate = useNavigate();
   const hosting = useHosting();
   const countTurns = useCountTurns();
+  const clock = useTableClock();
   // "Show the code" and "who goes first" are one-offs: a reload of this page mustn't open them
   // (and start sharing) again.
   useEffect(() => {
@@ -165,7 +168,9 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
         <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
       </div>
-      <div className={`table with-view-switch${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
+      {/* The clock is a strip of its own under the bar, and the table starts below it: it covers nothing. */}
+      {clock && <TableClock setup={game.setup} log={game.log} counting={counting} following={!!following} />}
+      <div className={`table with-view-switch${clock ? " with-clock" : ""}${personal ? " table-personal" : ""}${attack || taking !== null ? " attacking" : ""}`} style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
       {personal ? <>
         <ul className="personal-others" aria-label="Everyone else">
           {state.players.filter((p) => p.seat !== me.seat).map((p) => {
@@ -1220,6 +1225,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
   const sync = useSyncStatus();
   const showArt = useShowArt();
   const countTurns = useCountTurns();
+  const clock = useTableClock();
   const install = useInstall();
   const fullscreen = useFullscreen();
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -1384,6 +1390,19 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             </span>
           </span>
         </label>}
+        <label className="check-row">
+          <input type="checkbox" checked={clock} onChange={(e) => setTableClock(e.target.checked)} />
+          <span>
+            Clock
+            <span className="small dim tm-setting-note">
+              {clock
+                ? counting
+                  ? " How long this turn and the game have run, in a strip at the top of the table."
+                  : " How long the game has run, in a strip at the top of the table. Count turns to time each turn too."
+                : " Off: no running clock on the table."}
+            </span>
+          </span>
+        </label>
         {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
         {!following && (artists.length > 0 || !showArt) && (
           <label className="check-row">

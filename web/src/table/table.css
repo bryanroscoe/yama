@@ -1879,6 +1879,25 @@
 }
 .table-view-switch .segmented button { padding: 8px; font-size: var(--t-sm); }
 .table.with-view-switch { top: calc(52px + env(safe-area-inset-top)); }
+/* The clock: a strip under the top bar. The table starts below it, so it covers no life total. */
+.table-clock {
+  position: fixed;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: var(--ground);
+  font-size: var(--t-sm);
+  z-index: 10;
+}
+.table-clock-what {
+  color: var(--dim);
+}
+.table.with-view-switch.with-clock { top: calc(80px + env(safe-area-inset-top)); }
 .table.table-personal { display: flex; flex-direction: column; }
 .table-personal .hub { display: none; }
 .personal-others {
