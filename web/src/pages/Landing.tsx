@@ -15,14 +15,14 @@ const LANDING_ART = "https://cards.scryfall.io/art_crop/front/d/d/dd4a00ff-2206-
 export function Landing({ children, focused = false }: { children: ReactNode; focused?: boolean }) {
   return (
     <div className={`landing${focused ? " landing-focused" : ""}`}>
-      <a className="site-skip" href="#content">Skip to content</a>
-      <header className="site-header">
-        <a className="site-wordmark" href="/" aria-label="Yama home"><Wordmark /></a>
+      <a className="site-frame-skip" href="#content">Skip to content</a>
+      <header className="site-frame-header">
+        <a className="site-frame-wordmark" href="/" aria-label="Yama home"><Wordmark /></a>
         <nav aria-label="Yama">
           {SITE_NAV.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
         </nav>
         {/* Everywhere else this slot opens Yama; here the next step is signing in. */}
-        <a className="site-open" href="#sign-in">Sign in</a>
+        <a className="site-frame-open" href="#sign-in">Sign in</a>
       </header>
 
       <main id="content" className="landing-layout">
@@ -91,7 +91,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
         )}
       </main>
 
-      <footer className="site-footer">
+      <footer className="site-frame-footer">
         <nav aria-label="About Yama">
           {SITE_FOOT.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
         </nav>

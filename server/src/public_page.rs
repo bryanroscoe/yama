@@ -69,18 +69,18 @@ fn in_place(path: &str, href: &str) -> bool {
 /// four places, and the way into the app. The static pages under web/public carry this exact
 /// markup; a test below holds them to it.
 pub(crate) fn site_header(path: &str) -> String {
-    let mut s = format!("<a class=\"site-skip\" href=\"#content\">Skip to content</a><header class=\"site-header\"><a class=\"site-wordmark\" href=\"/\" aria-label=\"Yama home\">{WORDMARK}</a><nav aria-label=\"Yama\">");
+    let mut s = format!("<a class=\"site-frame-skip\" href=\"#content\">Skip to content</a><header class=\"site-frame-header\"><a class=\"site-frame-wordmark\" href=\"/\" aria-label=\"Yama home\">{WORDMARK}</a><nav aria-label=\"Yama\">");
     for (href, label) in SITE_NAV {
         let current = if in_place(path, href) { " aria-current=\"page\"" } else { "" };
         write!(s, "<a href=\"{href}\"{current}>{label}</a>").unwrap();
     }
-    s.push_str("</nav><a class=\"site-open\" href=\"/\">Open Yama</a></header>");
+    s.push_str("</nav><a class=\"site-frame-open\" href=\"/\">Open Yama</a></header>");
     s
 }
 
 /// The footer of every public page: the same links, then the rights and sources notice.
 pub(crate) fn site_footer(path: &str) -> String {
-    let mut s = String::from("<footer class=\"site-footer\"><nav aria-label=\"About Yama\">");
+    let mut s = String::from("<footer class=\"site-frame-footer\"><nav aria-label=\"About Yama\">");
     for (href, label) in SITE_FOOT {
         let current = if path == href { " aria-current=\"page\"" } else { "" };
         write!(s, "<a href=\"{href}\"{current}>{label}</a>").unwrap();
@@ -605,8 +605,8 @@ mod frame_tests {
             assert!(page.contains(&squash(&site_footer(path))), "{path}: the footer differs from public_page::site_footer");
             assert!(html.contains("<link rel=\"stylesheet\" href=\"/site-frame-v1.css\""), "{path}: no frame stylesheet");
             assert!(html.contains("id=\"content\""), "{path}: nothing for Skip to content to land on");
-            assert_eq!(html.matches("<header class=\"site-header\">").count(), 1, "{path}");
-            assert_eq!(html.matches("<footer class=\"site-footer\">").count(), 1, "{path}");
+            assert_eq!(html.matches("<header class=\"site-frame-header\">").count(), 1, "{path}");
+            assert_eq!(html.matches("<footer class=\"site-frame-footer\">").count(), 1, "{path}");
             assert!(html.contains("not affiliated with, endorsed by, or sponsored by Wizards of the Coast"), "{path}: the unofficial notice is gone");
         }
     }
@@ -615,7 +615,7 @@ mod frame_tests {
     #[test]
     fn the_compiled_stylesheet_includes_the_frame() {
         let css = &crate::public_precons::html::stylesheet().0;
-        assert!(css.contains(".site-header") && css.contains(".site-footer") && css.contains(".site-open"));
+        assert!(css.contains(".site-frame-header") && css.contains(".site-frame-footer") && css.contains(".site-frame-open"));
         assert!(!css.contains(".public-header") && !css.contains(".footer-top"), "the old frame's rules are still in precons.css");
     }
 }

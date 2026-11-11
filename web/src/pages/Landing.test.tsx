@@ -40,9 +40,9 @@ describe("signed-out discovery", () => {
     const links = (block: string | undefined) => [...(block ?? "").matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => `${m[2]} -> ${m[1]}`);
     expect(table("SITE_NAV")).toHaveLength(4);
     expect(table("SITE_FOOT")).toHaveLength(5);
-    expect(links(html.match(/<header class="site-header">.*?<\/header>/s)?.[0])).toEqual(table("SITE_NAV"));
-    expect(links(html.match(/<footer class="site-footer"><nav[^>]*>.*?<\/nav>/s)?.[0])).toEqual(table("SITE_FOOT"));
+    expect(links(html.match(/<header class="site-frame-header">.*?<\/header>/s)?.[0])).toEqual(table("SITE_NAV"));
+    expect(links(html.match(/<footer class="site-frame-footer"><nav[^>]*>.*?<\/nav>/s)?.[0])).toEqual(table("SITE_FOOT"));
     // The slot that opens Yama elsewhere is Sign in here.
-    expect(html).toContain('<a class="site-open" href="#sign-in">Sign in</a>');
+    expect(html).toContain('<a class="site-frame-open" href="#sign-in">Sign in</a>');
   });
 });

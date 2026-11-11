@@ -3,10 +3,10 @@
 .landing a:focus-visible, .landing-signin:focus-visible { outline: 2px solid var(--text); outline-offset: 5px; }
 /* The header and footer are the public pages' own (public/site-frame-v1.css); here they take the
    landing's width instead of the reference pages'. */
-.landing .site-header,
-.landing .site-footer { max-width: none; padding-inline: 0; }
-.landing .site-header { border-bottom: 1px solid var(--line); }
-.landing .site-footer { margin-top: 0; }
+.landing .site-frame-header,
+.landing .site-frame-footer { max-width: none; padding-inline: 0; }
+.landing .site-frame-header { border-bottom: 1px solid var(--line); }
+.landing .site-frame-footer { margin-top: 0; }
 .landing-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "hero signin" "explore signin" "account account"; gap: 32px; padding-block: 32px 48px; }
 .landing-hero.art-panel { grid-area: hero; min-height: 340px; display: grid; }
 .landing-hero > .art-body { align-self: end; padding: 32px; }
