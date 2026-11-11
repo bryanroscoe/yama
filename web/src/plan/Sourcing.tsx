@@ -43,8 +43,14 @@ export function Portfolio({ bundle }: { bundle: ResearchBundle }) {
   const rows = useMemo(() => portfolioRows(cards, doc, decks, bracket, scope), [cards, doc, decks, bracket, scope]);
   const visible = rows.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (!onlyOffers || c.offers.some(o => o.qualifies && o.qty !== 0 && o.price != null)));
   const stores = view.b.stores.filter(s => !s.retired && s.kind !== "printer");
-  const shopify = new Set(stores.filter(s => s.cart_url_template?.includes("/cart/{items}")).flatMap(s => { const url = safeUrl(s.homepage ?? ""); return url ? [new URL(url).origin] : []; }));
-  const carts = sourceCarts(rows, choices, shopify);
+  const cartTemplates = new Map<string,string>();
+  for (const s of stores) {
+    if (!s.cart_url_template?.startsWith("https://") || !s.cart_url_template.includes("{items}")) continue;
+    const home = safeUrl(s.homepage ?? "");
+    if (home) cartTemplates.set(new URL(home).origin, s.cart_url_template);
+    for (const o of cards.flatMap(c => c.offers).filter(o => o.store === s.name)) cartTemplates.set(new URL(o.url).origin, s.cart_url_template);
+  }
+  const carts = sourceCarts(rows, choices, cartTemplates);
   const selectedCopies = carts.reduce((n,c) => n+c.rows.reduce((n,r) => n+r.qty,0),0);
   const copies = rows.flatMap(c => c.uses), optional = copies.filter(optionalUse).length;
   const change = (name: string, url: string, qty: number) => setChoices(c => ({ ...c, [name]: [...choicesFor(c,name).filter(o => o.offer !== url), { offer: url, qty }] }));

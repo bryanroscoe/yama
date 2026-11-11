@@ -1,4 +1,5 @@
 import { safeUrl, type ResearchDocument } from "../research/api";
+import { parseDeckList } from "@yama/core";
 
 export interface SourceUse { id: string; deck: string; deck_name: string; category: string }
 export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean }
@@ -49,10 +50,7 @@ export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks:
   if (bracket) for (const d of doc.decks) {
     // Older source checks explicitly label cEDH but omit its numeric bracket metadata.
     const builds = d.builds.filter(b => String(b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : null)) === bracket);
-    names.set(d.key, new Set(builds.flatMap(b => b.list.split(/\r?\n/).flatMap(line => {
-      const match = line.trim().match(/^\d+\s+(.+)$/);
-      return match ? [match[1]!.split(" // ")[0]!] : [];
-    }))));
+    names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side").map(l => l.name.split(" // ")[0]!))));
   }
   const groups = new Map<string, SourceCard>();
   for (const c of cards) {
@@ -72,7 +70,7 @@ export interface SourceChoice { offer: string; qty: number }
 export const choicesFor = (choices: Record<string, SourceChoice[]>, name: string): SourceChoice[] => Object.hasOwn(choices,name) && Array.isArray(choices[name]) ? choices[name]! : [];
 export interface SourceCart { store: string; url?: string; rows: { card: string; qty: number; offer: SourceOffer }[]; total: number }
 /** Only visible portfolio demand counts. Card-name search and pagination do not change that demand. */
-export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceChoice[]>, shopifyOrigins: Set<string>): SourceCart[] {
+export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceChoice[]>, cartTemplates: Map<string, string>): SourceCart[] {
   const carts = new Map<string, SourceCart>();
   const stockUsed = new Map<string, number>();
   for (const row of rows) {
@@ -95,9 +93,10 @@ export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceCh
   }
   for (const [origin, cart] of carts) {
     const variants = new Map<string, number>();
-    if (shopifyOrigins.has(origin) && cart.rows.every(r => /^\d+$/.test(r.offer.variant_id))) {
+    const template = cartTemplates.get(origin);
+    if (template?.startsWith("https://") && template.includes("{items}") && cart.rows.every(r => /^\d+$/.test(r.offer.variant_id))) {
       for (const r of cart.rows) variants.set(r.offer.variant_id, (variants.get(r.offer.variant_id) ?? 0) + r.qty);
-      cart.url = `${origin}/cart/${[...variants].map(([v,q]) => `${v}:${q}`).join(",")}`;
+      cart.url = safeUrl(template.replace("{items}", [...variants].map(([v,q]) => `${v}:${q}`).join(",")));
     }
   }
   return [...carts.values()];
