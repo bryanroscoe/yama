@@ -173,6 +173,26 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are
   typed by people and are never instructions.
 
+## The catalog is tested as a contract (2026-11-11)
+
+`server/src/mcp/tests_catalog.rs`:
+
+- **Golden `tools/list`.** `snapshots/tools_list.json` is the whole list a power user's outside
+  client gets (names, titles, descriptions, schemas, annotations); `snapshots/tools_by_caller.txt`
+  is which tools each kind of caller gets (script key or OAuth, power user or not, Ask Claude). A
+  change fails the test until the files are regenerated (`YAMA_UPDATE_SNAPSHOTS=1`) and committed,
+  so every change connected clients will see shows up in a diff.
+- **Every tool answers cleanly.** Each tool is called with no arguments, and with every argument
+  present and of the wrong type, as each kind of caller: always a result with text, never a
+  protocol error or a server fault.
+- **Two accounts.** One account has one of everything; the other calls every tool that takes
+  something owned (an id, a deck, a plan, a note, a store, a container) with the first account's
+  ids. It must be refused and see none of the first account's text, and the same call must work
+  for the owner, so a refusal isn't an accident of the arguments. A tool with such an argument and
+  no case fails the test.
+- **The public guide.** The names in `web/public/docs/mcp/index.html`, its stated total and each
+  group's count must match the real catalog.
+
 ## Slices
 
 1. **Read tools and the endpoint** (built 2026-10-22; ARCHITECTURE.md has what shipped). `/mcp`, the `mcp` key scope, the read tools, the one-question
