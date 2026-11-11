@@ -62,6 +62,9 @@ rewritten once on the move to remove a work email from a patch header; the pre-r
 with its PRs, issues and Actions logs, stays private as `bryanroscoe/yama-archive`. CI runs on
 GitHub-hosted runners and deploys over Cloudflare Access; no self-hosted runner is ever registered
 on the public repository, because a fork's pull request could rewrite a workflow to run on it.
+The move happened on 11 November 2026: old main `7950d7df` became new main `a7ef2db5` with the
+same tree. `runtime/historical.json` keeps pinning old SHAs; saget's deploy checkout keeps that
+history under `refs/archive/private-main`, and local clones get it from the `archive` remote.
 
 ## 1. What we're building
 
