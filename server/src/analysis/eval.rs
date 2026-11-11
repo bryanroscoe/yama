@@ -2,7 +2,8 @@
 //! known without it, so a change to the scoring is judged by numbers before it ships
 //! (docs/deck-analysis.md, "Measuring the method"). It reads the card data and the public precon
 //! catalog in the database, and optionally a folder of text lists. It calls no outside service
-//! and no model, and writes nothing.
+//! and no model, and changes no deck, check or catalog data. Like every server command it
+//! first brings the database it is pointed at up to the current schema, so point it at a copy.
 //!
 //! - Stock precons: how each way of reading a bracket sorts them, and how well power (and plainer
 //!   signals) rank them against the stock list's real win rate.
@@ -312,7 +313,7 @@ pub fn report(precons: &[Row], lists: &[Row]) -> String {
     let mut powers: Vec<f64> = precons.iter().map(|r| r.power).collect();
     powers.sort_by(f64::total_cmp);
     if !powers.is_empty() {
-        writeln!(out, "  power median {:.1}, 10th to 90th {:.1} to {:.1}, range {:.1} to {:.1}", quantile(&powers, 0.5), quantile(&powers, 0.1), quantile(&powers, 0.9), powers[0], powers[powers.len() - 1]).unwrap();
+        writeln!(out, "  power median {:.1}, 10th to 90th {:.1} to {:.1}, range {:.1} to {:.1}", median(&mut powers.clone()).unwrap_or(0.0), quantile(&powers, 0.1), quantile(&powers, 0.9), powers[0], powers[powers.len() - 1]).unwrap();
     }
     writeln!(out, "  {:<22} {:>9} {:>9} {:>9}", "bracket read by", "Bracket 2", "Bracket 3", "Bracket 4").unwrap();
     for rule in Rule::ALL {
@@ -365,7 +366,7 @@ pub fn report(precons: &[Row], lists: &[Row]) -> String {
             (Some(a), Some(b)) => format!("{a} to {b}"),
             _ => "unknown".into(),
         };
-        writeln!(out, "  {:<22} {:>5} {:>13.1} {:>14} {:>15}", format!("Bracket {label}"), rows.len(), quantile(&p, 0.5), format!("{:.1} to {:.1}", quantile(&p, 0.1), quantile(&p, 0.9)), gcs).unwrap();
+        writeln!(out, "  {:<22} {:>5} {:>13.1} {:>14} {:>15}", format!("Bracket {label}"), rows.len(), median(&mut p.clone()).unwrap_or(0.0), format!("{:.1} to {:.1}", quantile(&p, 0.1), quantile(&p, 0.9)), gcs).unwrap();
     }
 
     if !labelled.is_empty() {
@@ -488,6 +489,8 @@ mod tests {
         let text = report(&[], &rows);
         assert!(text.contains("1 of 1 score higher, median gap +0.5"), "{text}");
         assert!(text.contains("Game Changer rule"), "{text}");
+        // An even group's median is the mean of its middle pair: Bracket 3 here is 4.0 and 5.0.
+        assert!(text.contains(&format!("{:<22} {:>5} {:>13.1}", "Bracket 3", 2, 4.5)), "{text}");
     }
 
     #[test]

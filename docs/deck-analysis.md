@@ -133,8 +133,10 @@ because its 0-100 is a ceiling only optimized decks approach, not anchored on pr
 Bryan, 11 Nov 2026: "we should measure before changing the score. Ideally we could do this
 programmatically." `yama-server power-eval [--lists DIR] [--json]` (`analysis/eval.rs`) does
 that. It reads the card data and the public precon catalog in the database, and a folder of
-text lists if one is given. It calls no outside service and no model, and writes nothing.
-Run it on a copy of production's data (`deploy/pull-db.sh`), before and after any change to a
+text lists if one is given. It calls no outside service and no model, and changes no deck,
+check or catalog data. Like every server command it first brings the database up to the
+current schema, so run it on a copy of production's data (`deploy/pull-db.sh`), never on a
+database an older server still uses. Run it before and after any change to a
 rule, point, weight, curve, cap or margin, and put both outputs in the PR.
 
 It prints:
