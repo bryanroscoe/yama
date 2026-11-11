@@ -46,6 +46,31 @@ describe("buyList", () => {
     expect(all.unpriced).toBe(1);
   });
 
+  it("counts only what is still missing of a card with several copies, and nothing past what the deck holds", () => {
+    const need = buyList([entry("Rat Colony", { qty: 20, owned: 12, proxies: 3, ...priced(0.335, "2026-11-10") }), entry("Sol Ring", { owned: 4 })], "need");
+    expect(need.paste).toBe("5 Rat Colony");
+    // Five copies at 33.5 cents: rounded to the cent once, at the end.
+    expect(need.usd).toBe(1.68);
+  });
+
+  it("lists a card that is both the commander and in the deck once, with both copies", () => {
+    const both = [entry("Omo, Queen of Vesuva", { board: "commander" }), entry("Omo, Queen of Vesuva")];
+    expect(buyList(both, "need").paste).toBe("2 Omo, Queen of Vesuva");
+    expect(buyList(both, "all").copies).toBe(2);
+  });
+
+  it("leaves every kind of basic out of what is needed: snow-covered ones and Wastes too", () => {
+    const basics = [entry("Snow-Covered Island", { qty: 5 }), entry("Wastes", { qty: 3 }), entry("Mountain", { qty: 2 }), entry("Dryad Arbor")];
+    expect(buyList(basics, "need").paste).toBe("1 Dryad Arbor");
+    expect(buyList(basics, "all").copies).toBe(11);
+  });
+
+  it("keeps accents in the names it sends", () => {
+    const list = buyList([entry("Lim-Dûl's Vault")], "need");
+    expect(new URL(list.cardKingdom!).searchParams.get("c")).toBe("1 Lim-Dûl's Vault");
+    expect(decodeURIComponent(list.tcgplayer!.split("&c=")[1]!)).toBe("1 Lim-Dûl's Vault");
+  });
+
   it("is empty when every card is covered", () => {
     const need = buyList([entry("Sol Ring", { owned: 1 }), entry("Forest", { qty: 4 })], "need");
     expect(need).toMatchObject({ copies: 0, usd: null, paste: "", tcgplayer: null, cardKingdom: null });

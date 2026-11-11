@@ -60,6 +60,15 @@ describe("Buy this deck", () => {
     expect(links()[1]).toBe("Open in Card Kingdom's deck builder -> https://www.cardkingdom.com/builder?c=1%20Omo%2C%20Queen%20of%20Vesuva%0A1%20Sol%20Ring%0A1%20Mystery%20Card%0A8%20Forest");
   });
 
+  it("keeps the choice when the deck's cards change, and shows the new deck's cards", () => {
+    show(CARDS);
+    act(() => segment(/whole list/).click());
+    show([entry("Omo, Queen of Vesuva", { board: "commander" }), entry("Arcane Signet", { ...priced(0.5, "2026-11-09") })]);
+    expect(segment(/whole list/).getAttribute("aria-pressed")).toBe("true");
+    expect(segment(/whole list/).textContent).toBe("The whole list (2)");
+    expect(links()[1]).toBe("Open in Card Kingdom's deck builder -> https://www.cardkingdom.com/builder?c=1%20Omo%2C%20Queen%20of%20Vesuva%0A1%20Arcane%20Signet");
+  });
+
   it("says No price, never $0, when nothing in the list has a price", () => {
     show([entry("Mystery Card")]);
     expect(host.textContent).toContain("No price for 1 card at market prices, 1 card without a price.");
