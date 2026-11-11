@@ -68,13 +68,13 @@ server configuration, not the Google OAuth client's JavaScript-origin list.
 
 ## Verify the experience
 
-1. Install/enable the private plugin, sign in, and call `overview`. Check that the
+1. Install/enable the private plugin, sign in, and call `get_overview`. Check that the
    expected account is connected; do not paste private deck lists into logs.
    An existing standalone `mcp_servers.yama` declaration takes precedence over
    the plugin's same-named server, even if the standalone entry is disabled.
    Once the package is installed and its server declaration is discoverable,
    remove the redundant entry with `codex mcp remove yama`, then verify the
-   runtime reports a plugin ID and `overview` still succeeds. This removes the
+   runtime reports a plugin ID and `get_overview` still succeeds. This removes the
    configuration only; it does not revoke the account's connection. If the
    plugin cannot connect, restore the canonical standalone connection with
    `codex mcp add yama --url https://yama.ing/mcp` while investigating.

@@ -32,16 +32,16 @@ source dates must reflect observed evidence. A missing price is unknown.
 The server accepts at most 4 MiB per report, 20 reports per account, 100 decks per
 report and 12 builds per deck. A successful import validates document structure;
 it does not prove Commander legality, card count, power, ownership or prices.
-Validate playable lists separately with `check_list` and `deck_analysis`. Label
+Validate playable lists separately with `check_deck_list` and `get_deck_analysis`. Label
 prospective or unknown cards explicitly and do not claim their list is legal.
 
-Before updating an existing report, read `research` with its `id` and `full=true`
+Before updating an existing report, read `get_research` with its `id` and `full=true`
 so an upsert preserves unrelated decks, evidence, allocations and sources. Keep
 report, deck, build and swap IDs stable. A tracked plan follows its updated
 research build; explain substantive changes. `save_research` does not save a
 playable deck, change inventory, approve purchases, order prints or start games.
 
-Read the saved report back with `research` (optionally narrowed to a deck/build)
+Read the saved report back with `get_research` (optionally narrowed to a deck/build)
 before reporting persistence. A timeout is not proof of failure; read the report
 before retrying. An unchanged document is idempotent by content hash.
 

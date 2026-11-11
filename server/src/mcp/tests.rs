@@ -65,18 +65,28 @@ async fn only_an_mcp_key_or_a_question_token_gets_in() {
 #[tokio::test]
 async fn only_power_users_get_the_tools_that_start_simulations() {
     let (app, pool) = app().await;
-    let (_, session) = user(&pool, "friend@example.com").await;
+    let (id, session) = user(&pool, "friend@example.com").await;
+    // A run of their own from when they could start one: still theirs to read and cancel.
+    sqlx::query(
+        "INSERT INTO lab_experiments (id, owner_id, name, status, spec, games_total, games_done, engine, card_data, runner, difficulty, created_at, updated_at)
+         VALUES ('run-old', ?, 'An old run', 'done', '{}', 100, 100, 'phase', 'x', 'x', 'Easy', '2026-11-01T00:00:00Z', 't')",
+    )
+    .bind(&id)
+    .execute(&pool)
+    .await
+    .unwrap();
     let mcp = key(&app, &session, Some("mcp")).await;
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+    // By their names and by the names they had before the renames.
+    for n in ["start_lab_run", "add_lab_games", "rerun_lab_run", "more_lab_games", "run_lab_again"] {
         assert!(!names.contains(&n), "{n} offered to an account that isn't a power user");
         let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": n, "arguments": {}})))).await;
         assert_eq!(status, StatusCode::OK, "{r}");
         assert!(r["error"]["message"].as_str().unwrap().contains("unknown tool"), "{r}");
     }
     // Their own data and runs stay readable.
-    for n in ["overview", "lab_runs", "lab_run", "cancel_lab_run", "precon"] {
+    for n in ["get_overview", "list_lab_runs", "get_lab_run", "cancel_lab_run", "get_precon"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
 }
@@ -84,13 +94,15 @@ async fn only_power_users_get_the_tools_that_start_simulations() {
 #[tokio::test]
 async fn the_protocol_basics() {
     let (app, pool) = app().await;
-    let (_, session) = power_user(&pool, "bryan@example.com").await;
+    let (id, session) = power_user(&pool, "bryan@example.com").await;
+    // The store tools are listed for an account that has a store.
+    sqlx::query("INSERT INTO plan_stores (id, owner_id, key, name, kind, origin, created_at, updated_at) VALUES ('s1', ?, 'pats', 'Pat''s Games', 'local', 'yama', 't', 't')").bind(&id).execute(&pool).await.unwrap();
     let mcp = key(&app, &session, Some("mcp")).await;
 
     let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     assert_eq!(status, StatusCode::OK);
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["overview", "deck", "plan_deck", "review_queue", "shopping_trip", "shopping_settings", "find_cards", "card", "check_list", "lab_runs", "lab_run", "lab_games", "precon", "start_lab_run", "more_lab_games", "run_lab_again", "cancel_lab_run", "set_condition"] {
+    for n in ["get_overview", "get_deck", "get_plan", "get_review_queue", "get_shopping_trip", "get_shopping_settings", "search_cards", "get_cards", "check_deck_list", "list_lab_runs", "get_lab_run", "list_lab_games", "get_precon", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "set_condition"] {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
     let start = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "start_lab_run").unwrap();
@@ -319,7 +331,7 @@ async fn ask_claude_stages_but_cannot_apply() {
     let q = QuestionToken::mint(&id, Question { conversation_id: "conv-1".into(), message_id: "msg-1".into() });
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&q.token), Some(rpc("tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert!(names.contains(&"edit_deck") && names.contains(&"changes"), "{names:?}");
+    assert!(names.contains(&"edit_deck") && names.contains(&"list_changes"), "{names:?}");
     assert!(!names.contains(&"apply_change") && !names.contains(&"discard_change"), "{names:?}");
     let edit = r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "edit_deck").unwrap();
     assert_eq!(edit["annotations"]["readOnlyHint"], false);
@@ -853,28 +865,38 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     assert_eq!(change_id(&a_text), change_id(&b_text));
     assert_eq!(staged().await, 3);
 
-    // Every staging tool takes op_id, and says so in its schema.
+    // Every staging tool takes op_id, and says so in its schema. An account that isn't a power
+    // user and has no stores or lab runs is listed no tool that starts a simulation, none for
+    // stores and no cancel_lab_run.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
-    let mut staging = 0;
-    for t in r["result"]["tools"].as_array().unwrap() {
-        if t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false {
-            staging += 1;
-            assert_eq!(t["inputSchema"]["properties"]["op_id"]["type"], "string", "{} has no op_id", t["name"]);
-        }
-    }
-    // The 20 staging tools less the three that start simulations (this account isn't a power
-    // user), and save_deck.
-    assert_eq!(staging, 18, "staging tools listed for an account that can't start simulations");
-    // A power user is also listed the three that start simulations, with op_id like the rest.
+    let plain = [
+        "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "mark_installed", "add_to_collection", "move_cards", "set_condition", "save_deck",
+    ];
+    assert_eq!(staging_names(&r), plain, "staging tools listed for an account that can't start simulations and has no stores or runs");
+    // A power user is listed the lab's four as well, with op_id like the rest: it may start a
+    // run, so it is offered the lab tools before it has one (`Has::load`). Still none for stores.
     let (_, power_session) = power_user(&pool, "power@example.com").await;
     let power = key(&app, &power_session, Some("mcp")).await;
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
-    let staging: Vec<&Value> = r["result"]["tools"].as_array().unwrap().iter().filter(|t| t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false).collect();
-    assert_eq!(staging.len(), 21);
-    for name in ["start_lab_run", "more_lab_games", "run_lab_again"] {
-        let tool = staging.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} isn't listed for a power user"));
-        assert_eq!(tool["inputSchema"]["properties"]["op_id"]["type"], "string", "{name}");
+    let with_lab = [
+        "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition", "save_deck",
+    ];
+    assert_eq!(staging_names(&r), with_lab, "staging tools listed for a power user with no stores");
+}
+
+/// The staging tools in a `tools/list` answer, by name and in its order, each checked to take
+/// `op_id`. By name, so a failure says which tool came or went.
+fn staging_names(listed: &Value) -> Vec<String> {
+    let mut names = Vec::new();
+    for t in listed["result"]["tools"].as_array().unwrap() {
+        if t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false {
+            assert_eq!(t["inputSchema"]["properties"]["op_id"]["type"], "string", "{} has no op_id", t["name"]);
+            names.push(t["name"].as_str().unwrap().to_string());
+        }
     }
+    names
 }
 
 #[test]
@@ -937,4 +959,79 @@ async fn a_flood_of_tool_calls_is_refused_as_a_tool_error() {
     assert_eq!(status, StatusCode::OK);
     let (err, text) = call(&app, &other, "changes", json!({})).await;
     assert!(!err, "{text}");
+}
+
+#[tokio::test]
+async fn a_retired_store_is_not_one_of_their_stores_for_any_tool() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "bryan@example.com").await;
+    for (id, store, name, retired) in [("s1", "pats", "Pat's Games", None), ("s2", "gone", "Gone Games", Some("2026-11-01T00:00:00Z"))] {
+        sqlx::query("INSERT INTO plan_stores (id, owner_id, key, name, kind, origin, retired_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'local', 'yama', ?, 't', 't')")
+            .bind(id)
+            .bind(&a)
+            .bind(store)
+            .bind(name)
+            .bind(retired)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let (err, text) = call(&app, &mcp, "store_stock", json!({"store": "pats", "cards": ["Sol Ring"]})).await;
+    assert!(!err && text.contains("Pat's Games"), "{text}");
+    // store_stock had its own copy of the store lookup, without the retired check: it still found
+    // a store their plan no longer has. Every store tool now uses the one lookup.
+    for (tool, args) in [("store_stock", json!({"store": "gone", "cards": ["Sol Ring"]})), ("set_store_preference", json!({"store": "gone", "preference": "never"}))] {
+        let (err, text) = call(&app, &mcp, tool, args).await;
+        assert!(err && text.contains("No store \"gone\"") && !text.contains("Gone Games"), "{tool}: {text}");
+    }
+}
+
+#[tokio::test]
+async fn an_online_games_log_is_read_as_each_player_saw_it() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (b, b_session) = user(&pool, "friend@example.com").await;
+    let (_, c_session) = user(&pool, "stranger@example.com").await;
+    sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, turns, winner_seat) VALUES ('online-1', 'online', ?, 'finished', '2026-11-01T20:00:00Z', 7, 0)").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO game_seats (game_id, seat, user_id, commander_name) VALUES ('online-1', 0, ?, 'Atraxa'), ('online-1', 1, ?, 'Krenko')").bind(&a).bind(&b).execute(&pool).await.unwrap();
+    let seats = json!([{"seat": 0, "kind": "human", "user_id": a, "name": "Bryan"}, {"seat": 1, "kind": "human", "user_id": b, "name": "Friend"}]);
+    let log = json!([
+        {"turn": 1, "text": "Bryan plays Forest."},
+        {"turn": 1, "text": "Yama passed priority for you.", "seat": 0, "auto": "pass"},
+        {"turn": 2, "text": "Friend keeps a card only they saw.", "seat": 1},
+        {"turn": 7, "text": "Bryan wins."}
+    ]);
+    sqlx::query("INSERT INTO online_games (game_id, code, host_id, stage, seats, log, created_at, updated_at) VALUES ('online-1', 'ABCDEF', ?, 'over', ?, ?, 't', 't')")
+        .bind(&a)
+        .bind(seats.to_string())
+        .bind(log.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let a_key = key(&app, &a_session, Some("mcp")).await;
+    let b_key = key(&app, &b_session, Some("mcp")).await;
+    let c_key = key(&app, &c_session, Some("mcp")).await;
+
+    // Without events: only how long the log is. The game had no life-counter events at all.
+    let (err, text) = call(&app, &a_key, "game", json!({"id": "online-1"})).await;
+    assert!(!err, "{text}");
+    let game: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!((game["event_count"].as_u64(), game["log_lines"].as_u64()), (Some(0), Some(3)), "{text}");
+    assert!(game.get("log").is_none(), "{text}");
+
+    // With events: the lines everyone saw, and the caller's own.
+    let (_, text) = call(&app, &a_key, "game", json!({"id": "online-1", "events": true})).await;
+    let game: Value = serde_json::from_str(&text).unwrap();
+    let lines: Vec<&str> = game["log"].as_array().unwrap().iter().map(|l| l["text"].as_str().unwrap()).collect();
+    assert_eq!(lines, ["Bryan plays Forest.", "Yama passed priority for you.", "Bryan wins."]);
+    assert_eq!(game["log"][0]["turn"], 1);
+    assert!(!text.contains("only they saw") && !text.contains("auto"), "{text}");
+    let (_, text) = call(&app, &b_key, "game", json!({"id": "online-1", "events": true})).await;
+    assert!(text.contains("only they saw") && !text.contains("passed priority for you"), "the other player's own lines: {text}");
+    assert!(!text.contains(&a) && !text.contains(&b), "no account ids: {text}");
+
+    // Someone who wasn't in the game sees none of it.
+    let (err, text) = call(&app, &c_key, "game", json!({"id": "online-1", "events": true})).await;
+    assert!(err && text == "game not found", "{text}");
 }

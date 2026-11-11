@@ -1,0 +1,3111 @@
+{
+  "tools": [
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List your private imported evidence datasets, active revisions, sources and record counts. Imported aggregates, overlapping windows and ELO points are not independent game records. Use get_dataset to inspect dated evidence.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_datasets",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Your evidence datasets"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one private evidence dataset by id. Filter records by kind, entity id or name search; use section=sources for source provenance. Pages are bounded. An exact entity also gets descriptive monthly source-rate averages with a default 180-day exponential half-life; cumulative snapshots, overlapping rolling windows, flagged and undated data are excluded from that average. ELO sequence indices are not dates. This never imports, publishes or changes decks/games.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "description": "Optional YYYY-MM-DD evaluation date.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "entity": {
+            "description": "Exact source entity id from a dataset record.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "half_life_days": {
+            "maximum": 3650,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "performance",
+              "weekly_activity",
+              "commander",
+              "commander_history",
+              "archetype",
+              "source_table"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 200000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Case-insensitive name search.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "section": {
+            "enum": [
+              "records",
+              "sources"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "get_dataset",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Read dated dataset evidence"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read private research and review choices. No id lists reports; id alone gives a compact overview with build power and scenario totals. deck retrieves one full deck audit, optionally narrowed by build; scenario retrieves one exact global shopping/print allocation. full=true returns the complete potentially large document. Research is advice, not installed decks or approved purchases.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "build": {
+            "description": "Optional build id, with deck.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Optional deck key within the report.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "detail": {
+            "description": "summary (default) or full: full is the same as full=true.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "full": {
+            "description": "Return the complete document instead of a compact overview; can be large.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Report id; omit to list reports.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "scenario": {
+            "description": "One global acquisition scenario, instead of deck.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_research",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Your saved deck research and review choices"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, stage track_build.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "document": {
+            "description": "A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds.",
+            "type": "object"
+          },
+          "stop_plans": {
+            "description": "Only when they asked to drop the plan: also archive each plan tracking a deck or build this document no longer has, and retire its swaps (default false: such a save is refused and names those plans).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "type": "object"
+      },
+      "name": "save_research",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Save private research for review in Yama"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Save a research preference only when the person states that choice or asks to save the note. Read research first for the exact target, target_hash and review version. This records a preferred build or want/unsure/no, not an installed deck, purchase approval or planner promotion. Use a fresh UUID op_id for each new answer; reuse it unchanged to retry a failed request.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "maxLength": 300,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_version": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 6000,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op_id": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "target": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "target_hash": {
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "op_id",
+          "target",
+          "decision",
+          "note",
+          "expected_version",
+          "target_hash"
+        ],
+        "type": "object"
+      },
+      "name": "review_research",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Record their research choice or note"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Start here. This person's Yama account at a glance: how many decks, deck plans and saved notes they have, and the first few of each, with which note build each plan tracks and its plan key. A deck's configurations (other builds of it) are listed under that deck, not as decks of their own. The answer stays small on a large account: to list one kind in full, call again with section decks, plans or notes, limit rows at a time; the answer ends with next_cursor for the page after.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "With section: next_cursor from the page before, to continue it.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "description": "With section: how many rows to list. A row is a deck or one of its configurations, a plan, or a note's deck. Default 40 (15 for notes); at most 100 (40 for notes).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "section": {
+            "description": "List this kind in full instead of the summary: decks (with ids and each configuration), plans (archived ones included) or notes (every note deck and its builds).",
+            "enum": [
+              "decks",
+              "plans",
+              "notes"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_overview",
+      "title": "Your decks and deck plans"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One of their Yama decks: the current list, the bracket they declared, Commander legality problems (size, singleton, color identity, banned cards), Game Changers and real game results. Give the deck's name (as `get_overview` lists it) or its id.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "The deck's name or id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "deck"
+        ],
+        "type": "object"
+      },
+      "name": "get_deck",
+      "title": "One deck"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One deck plan: the stock list and the now and after lists as differences, every planned and proposed swap with its reasons and their review answers, whether each planned swap is installed (read from their Yama deck's current list when the plan has one), their shopping rules, the newest paired lab run, and real games. Give the plan key from `get_overview`. A note deck that has no tracked build yet answers with its builds and how to track one.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key, for example \"riders-of-rohan\".",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "type": "object"
+      },
+      "name": "get_plan",
+      "title": "One deck plan"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Plan a trip to their stores for the cards they want to buy: the fewest stores covering the most cards under their buy rule and store preferences. Needed cards are the buys in their approved plans with no order yet; their wishlist only comes along from stores already on the trip. Gives each store's cards, total and cart or search links, what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not purchases; a missing price is unknown, never $0. For a build that isn't approved, read yama://shopping/workflow first.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "description": "Optional YYYY-MM-DD the trip is for; picks the rule set. Default: today (UTC).",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "stores": {
+            "description": "Optional store keys they're going to this time (see get_shopping_settings); the rest are left off. Default: every store they'll go to.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_shopping_trip",
+      "title": "Which stores to visit"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Their shopping rules and stores: the local buy rule in force today (and the dated rule set it comes from, made in Yama or imported), every dated rule set, the most they'll pay for a sealed precon, and each store's level (favourite to support, fine, maybe, won't go), its place in their order of how easy stores are to get to, and a favourite's premium. Use the store keys with get_shopping_trip and set_store_preference.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_shopping_settings",
+      "title": "Shopping rules and stores"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Change their buy rule and sealed precon limit, as a new rule set from the day they apply it; parts left out keep the rule in force. A listing qualifies at or under always_ok_usd whatever the market; otherwise it may cost at most max_usd and at most max_multiple times market, by the first tier whose market_under is above the market. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "always_ok_usd": {
+            "description": "At or under this, fine whatever the market; null: none.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max_usd": {
+            "description": "The most a card may cost; null: no limit.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it changed.",
+            "maxLength": 6000,
+            "type": "string"
+          },
+          "sealed_max_usd": {
+            "description": "The most for a sealed precon, per deck, before tax; null: no limit.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tiers": {
+            "description": "Market ranges, lowest first; only the last may have market_under null.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "market_under": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "max_multiple": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "market_under",
+                "max_multiple"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "name": "set_shopping_rules",
+      "title": "Change the buy rule"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set how they feel about one of their stores: favorite (on every trip it has a card for, and it gets a card when it costs at most premium_usd more than the cheapest), ok, maybe (only for cards no other store has) or never; its place in their order of how easy stores are to get to (hassle, 1 is easiest); and a note. Parts left out stay as they are. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "hassle": {
+            "description": "Place in their order, 1 = easiest to get to; null clears it.",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "note": {
+            "maxLength": 6000,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "preference": {
+            "enum": [
+              "favorite",
+              "ok",
+              "maybe",
+              "never"
+            ],
+            "type": "string"
+          },
+          "premium_usd": {
+            "description": "How much more a card may cost at a favourite, $0 to $10; null clears it.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "store": {
+            "description": "The store's key or name, from get_shopping_settings.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "store"
+        ],
+        "type": "object"
+      },
+      "name": "set_store_preference",
+      "title": "Set how they feel about a store"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One of their stores' newest stock answers for cards: each listing's price, condition, finish and quantity where the store gives them, or not in stock, with the time it was read. Default cards: every card the trip plans for. Listings are dated quotes from a snapshot (read when they asked, or imported), not proof the card is still there; a missing price is unknown.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cards": {
+            "description": "Card names; default every card the trip plans for.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "store": {
+            "description": "The store's key or name, from get_shopping_settings.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "store"
+        ],
+        "type": "object"
+      },
+      "name": "get_store_stock",
+      "title": "A store's stock"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Read their stores' stock when they apply it, as a dated snapshot for each store that the trip and get_store_stock then read. A store Yama can't read is refused by name. yestcg true also asks YesTCG, a stock search covering some local stores. Default stores: every store they'll go to that Yama can read. Default cards: every card the trip plans for; for a build that isn't approved, give its cards (at most 300). See yama://shopping/workflow. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cards": {
+            "description": "Card names, at most 300.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "stores": {
+            "description": "Store keys or names, from get_shopping_settings.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "yestcg": {
+            "description": "Also ask YesTCG, a stock search for some local stores, about the stores it covers.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "check_stores",
+      "title": "Read stores' stock"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Everything on their shopping list and where the store trip puts each card: planned buys with no order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), and a count of their wishlist. Each card says the store and price the trip picks, or why it isn't on the trip. Sealed products show each store's newest price against their sealed limit. Listings are dated quotes, not purchases.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "description": "Optional YYYY-MM-DD; picks the rule set. Default: today (UTC).",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_shopping_list",
+      "title": "Their shopping list"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "What they could trade with a friend on Yama, by the friend's profile handle: the cards on the friend's shared want list (\"looking for\") they own real copies of, with how many are in deck boxes, and the cards on their own shopping list in the friend's shared collection, with its printings and conditions. Only what the friend shares is read: a list or collection they haven't shared is reported as not shared. Market prices are dated, not offers.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "handle": {
+            "description": "The friend's profile handle, with or without @ (yama.ing/u/<handle>).",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "type": "object"
+      },
+      "name": "compare_with_friend",
+      "title": "Compare with a friend's profile"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add a card or a sealed product to their shopping list. priority need (default) is a reason to go to a store; along means only from a store already on the trip. deck is one of their decks by name, or a label for a deck not in Yama yet. Each copy is its own want. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deck": {
+            "description": "A Yama deck's name, or a label for a deck not in Yama.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "card",
+              "sealed"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "The card's name (Yama must know it), or a sealed product's name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "priority": {
+            "enum": [
+              "need",
+              "along"
+            ],
+            "type": "string"
+          },
+          "qty": {
+            "maximum": 99,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "add_wish",
+      "title": "Add to their shopping list"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Proposed swaps waiting for their answer: every plan deck's count of waiting and answered proposals, then the waiting ones with their reasons, 15 at a time, deck by deck. plan narrows it to one deck; answered true also lists the ones they answered, with their answers. The answer ends with next_cursor when there are more. A cursor counts from the start of the list: after a proposal is answered, start again without one.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "description": "Also list the proposals they already answered (default false: only counted).",
+            "type": "boolean"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the page before, with the same plan and answered.",
+            "maxLength": 600,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Swaps to list (default 15).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "plan": {
+            "description": "Only this plan: its key or deck name from `get_overview`.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_review_queue",
+      "title": "Proposals to review"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search Magic cards with Yama's Scryfall-style syntax: o:\"draw a card\", t:artifact, id<=rw (fits a Boros commander), mv<=3, f:commander (legal), is:gamechanger, -t:creature, or, parentheses, !\"Exact Name\". 60 cards at a time (next_cursor continues), each with cost, type, color identity, Commander legality, Game Changer, a dated market price (null when none is recorded) and how many copies they own.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "order": {
+            "description": "name (default), mv (mana value), edhrec (most played first) or color.",
+            "enum": [
+              "name",
+              "mv",
+              "edhrec",
+              "color"
+            ],
+            "type": "string"
+          },
+          "page": {
+            "description": "The older way to continue: page number, from 1. cursor is preferred.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "The search, for example: id<=rw t:artifact o:treasure f:commander",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_cards",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Search cards"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Full details for up to 20 cards by name: Oracle text, cost, type, color identity, Commander legality, Game Changer, EDHREC rank, the latest market price with its date, and the copies they own (where, and which are proxies). Optionally the official rulings.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cards": {
+            "description": "Card names (any face).",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "rulings": {
+            "description": "Include the official rulings.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cards"
+        ],
+        "type": "object"
+      },
+      "name": "get_cards",
+      "title": "Card details"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One printing's price over time from one source, on the days Yama read it: first and last price, low and high, and each change with its date. Give a card name (its default printing, or with cheapest the cheapest playable one), a Scryfall printing id, or set and collector number. Sources: TCGplayer market (default), Card Kingdom retail or buylist, Mana Pool's lowest listing, in USD. None is a store quote. A missing price is null; days Yama didn't read are gaps.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "description": "A card name (any face).",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "cheapest": {
+            "description": "With card: the cheapest playable printing instead of the default one.",
+            "type": "boolean"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "days": {
+            "description": "How far back, in days (default 90).",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "finish": {
+            "description": "nonfoil (default), foil or etched.",
+            "enum": [
+              "nonfoil",
+              "foil",
+              "etched"
+            ],
+            "type": "string"
+          },
+          "number": {
+            "description": "A collector number, with set.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "printing": {
+            "description": "A Scryfall printing id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "set": {
+            "description": "A set code, with number.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "source": {
+            "description": "Whose price: TCGplayer market via Scryfall (default), Card Kingdom retail or buylist, or Mana Pool's lowest listing (via MTGJSON). One source at a time; they're never combined.",
+            "enum": [
+              "tcgplayer",
+              "cardkingdom_retail",
+              "cardkingdom_buylist",
+              "manapool"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_price_history",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Price history"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Check a proposed Commander list without saving it: the 100-card count, singleton, color identity, commander eligibility, cards banned in Commander, Game Changers, and names Yama doesn't know. One card per line (\"1 Sol Ring\"); a \"Commander\" header, or else the first card is the commander. Legality is Scryfall's as of Yama's last card import.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "first_is_commander": {
+            "description": "With no Commander header, treat the first card as the commander (default true).",
+            "type": "boolean"
+          },
+          "list": {
+            "description": "The list, one card per line.",
+            "maxLength": 65536,
+            "type": "string"
+          }
+        },
+        "required": [
+          "list"
+        ],
+        "type": "object"
+      },
+      "name": "check_deck_list",
+      "title": "Check a deck list"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "detail": {
+            "description": "summary: fewer fields a row, for a shorter answer. full (default): every field.",
+            "enum": [
+              "summary",
+              "full"
+            ],
+            "type": "string"
+          },
+          "filter": {
+            "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all).",
+            "enum": [
+              "all",
+              "unfinished",
+              "unnamed"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "description": "Games to list (default 10).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "description": "The older way to continue: games to skip. cursor is preferred.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "order": {
+            "enum": [
+              "newest",
+              "oldest"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "description": "A player's or commander's name, or part of one.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_games",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Your game history"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One game from their history by id (from `list_games`): its seats, winner, turns and note. With events true, what happened: a life-counter game's events (life changes, knockouts), or an online game's log as the players saw it, the last 300 lines. Someone else's game is not found.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "events": {
+            "description": "Include what happened: the events, or an online game's log (default false).",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The game's id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "get_game",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "One game"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Their collection as the Collection page totals it: copies, proxies, distinct printings, market value of the copies with a price (with the newest price date), how many have none, and what they paid; then each binder, deck box and list with its copies and market value. Proxies have no market value. A missing price is unknown, never zero, and a market value isn't what a store would pay. Use list_collection_cards for the cards.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_collection_summary",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Collection totals and containers"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "The playgroups they own or are in, with each one's members, as the Playgroup page lists them. With id, that group's stats from its finished games: games played, each player's and commander's record, average turns and minutes, wins by seat, win conditions and head-to-head. Small samples are marked provisional; these are real games, not simulations.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "id": {
+            "description": "A playgroup's id, for its stats; omit to list playgroups.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_playgroups",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Your playgroups and their stats"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Their simulation experiments (\"Try a change\"), newest first, with ids for `get_lab_run`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_lab_runs",
+      "title": "Your lab experiments"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "One simulation experiment: its lists, opponents, engines and limits, live progress, and each engine's result: the paired difference with its interval and verdict, the games that weren't scored and why, and how many more pods would likely settle an unclear answer. For a run on both engines, the ETA and queue position are for Phase; Forge has its own queue.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The experiment id from `list_lab_runs`.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_lab_run",
+      "title": "One lab experiment"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and error. With `game`, that game's schedule line, result line and every seat's list, enough to replay it. For head-to-head and tournament runs, `deck` (a deck's name or entrant id) or `table` gives those tables game by game: who went first, the finish order, each seat's knockout turn or final life.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Head to head and tournaments: only the tables this deck sat at (its name as the run shows it, or its entrant id e0, e1, ...).",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "engine": {
+            "description": "Which engine's games (default: the run's first).",
+            "enum": [
+              "phase",
+              "forge"
+            ],
+            "type": "string"
+          },
+          "game": {
+            "description": "One game id (from this list) for its schedule line, result line and lists.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "only": {
+            "description": "unscored: only pods with a game that wasn't scored (default all).",
+            "enum": [
+              "all",
+              "unscored"
+            ],
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The experiment id from `list_lab_runs`.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "table": {
+            "description": "Head to head and tournaments: only this table (1-based, as the run's pages number them).",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_lab_games",
+      "title": "A lab experiment's games"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "A Commander precon from Yama's catalog, by name (or part of it) or id: its list, real results from playgroup.gg with their dated history, the simulated rating and matchups, and source-backed upgradeability grades (1 to 5) with card examples and named reviews. Each commander configuration has its own grade and list: compare them as separate lists. An unsupported grade is null. Commander win rates mix stock and modified lists, so never read an upgrade gain from them.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "precon": {
+            "description": "The precon's name, part of it, or its id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "precon"
+        ],
+        "type": "object"
+      },
+      "name": "get_precon",
+      "title": "A precon"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "The changes you (or another Claude) staged that they haven't applied or discarded yet, with ids, newest first, 25 at a time (next_cursor continues; after a change is applied or discarded, start again without a cursor). A long summary is cut in the list: id gives one change whole, with its details and status, which is the way to check exactly what apply_change would apply. Check here before staging the same change twice.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the page before.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "id": {
+            "description": "One change's id, for that change whole instead of the list.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Changes to list (default 25).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_changes",
+      "title": "Changes waiting for review"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Change one of their Yama decks: add cards to the main deck and remove cards from it, one copy per name (name a card twice for two copies). Applying saves a new version of the deck, with your note; the old version stays in its history. If the deck changes before they apply it, it won't apply. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "add": {
+            "description": "Card names to add.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deck": {
+            "description": "The deck's name or id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why, in a sentence; saved with the version.",
+            "maxLength": 6000,
+            "type": "string"
+          },
+          "remove": {
+            "description": "Card names to remove.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deck"
+        ],
+        "type": "object"
+      },
+      "name": "edit_deck",
+      "title": "Change a deck's list"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Delete one of their decks, or one configuration of a deck (name the configuration's own deck). Its share link stops working; games played with it keep their record. A deck's configurations become decks of their own unless configurations is true, which deletes them too. It can't be undone in Yama: only when they asked to delete that deck. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "configurations": {
+            "description": "For a main deck: delete its configurations too (default false: they become decks of their own).",
+            "type": "boolean"
+          },
+          "deck": {
+            "description": "The deck's (or configuration's) name or id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deck"
+        ],
+        "type": "object"
+      },
+      "name": "delete_deck",
+      "title": "Delete a deck or configuration"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version waiting for their OK. Once approved (in Yama, or approve_plan), the shopping list, prints, marks and the plan tools work on it, and it replaces any other plan for the same deck. Another build of the same deck switches to it; build null stops it. Give the note id and deck key from `get_overview` or `get_research`. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "build": {
+            "description": "The build's id; null to stop tracking this deck.",
+            "maxLength": 300,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deck": {
+            "description": "The deck's key in the note.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "note": {
+            "description": "The note's id.",
+            "maxLength": 6000,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "yama_deck": {
+            "description": "Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "note",
+          "deck",
+          "build"
+        ],
+        "type": "object"
+      },
+      "name": "track_build",
+      "title": "Make a note's build the deck's plan"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Approve a deck's waiting plan version whole: every change in it goes into the plan except those in skip, and the open questions get_plan lists need their answers first. action keep keeps the version before it instead. Nothing is bought or printed by approving: buys go on their shopping list and prints on the next print order. Only when they have said to. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "approve (default) or keep the version before it.",
+            "enum": [
+              "approve",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "answers": {
+            "description": "Their answer to each open question, the question exactly as get_plan lists it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                "question": {
+                  "maxLength": 2000,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question",
+                "answer"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key or deck name from `get_overview`.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "skip": {
+            "description": "Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "type": "object"
+      },
+      "name": "approve_plan",
+      "title": "Approve a deck's plan"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Suggest a swap for one of their upgrade plans: a card to put in and, usually, the card it replaces. Applying saves it as an idea in the plan, where it goes through their usual review. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card_in": {
+            "description": "The card to put in.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "card_out": {
+            "description": "The card it replaces, if any.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key or deck name from `get_overview`.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why, in a sentence or two.",
+            "maxLength": 2000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "card_in"
+        ],
+        "type": "object"
+      },
+      "name": "propose_swap",
+      "title": "Suggest a swap for a plan"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Answer a swap in one of their plans the way they would on the Review page: want, unsure or no, with an optional note and a different card to cut. Only when they've told you their answer. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card_in": {
+            "description": "The card the swap puts in.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "card_out": {
+            "description": "The card it takes out, when several swaps put in the same card.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "cut": {
+            "description": "A different card to cut instead.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "want",
+              "unsure",
+              "no"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 6000,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key or deck name.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "card_in",
+          "decision"
+        ],
+        "type": "object"
+      },
+      "name": "answer_review",
+      "title": "Answer a proposal in Review"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Mark a swap's card as bought in one of their plans, as \"Bought it\" does: when, how many, the price and the store. It's their claim, not an order. value false clears the mark. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card_in": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "card_out": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "on": {
+            "description": "YYYY-MM-DD; today if left out.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "price_paid": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "qty": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "store": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "value": {
+            "description": "true (the default) marks it, false clears it.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plan",
+          "card_in"
+        ],
+        "type": "object"
+      },
+      "name": "mark_bought",
+      "title": "Mark a plan card bought"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "When their printed proxies have arrived and are sleeved into a deck: move that plan deck from its now list to its after-prints list. The linked deck gets the new list as a version, the prints go into the deck's box as proxies, each card coming out goes to the deck or box that takes it next, and the swaps are ticked installed. The reply previews exactly what applying does. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan key or deck name from `get_overview`.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan"
+        ],
+        "type": "object"
+      },
+      "name": "swap_in_prints",
+      "title": "Swap a plan deck's prints in"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Mark a swap in one of their plans as installed in the real deck (value false clears it). This only decides for a plan deck with no Yama deck: with one, installed is read from that deck's current list, so change the deck instead. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card_in": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "card_out": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "plan": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "value": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plan",
+          "card_in"
+        ],
+        "type": "object"
+      },
+      "name": "mark_installed",
+      "title": "Mark a plan swap installed"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Simulate in the lab, under their lab allowance; results arrive over time (get_lab_run). Modes: change (default: a list against itself with cards added and cut, in paired games), compare (two lists in the same pods), solo (one list's win rate), versus (2 to 4 lists head to head) and tournament (one large field in balanced four-player pods). Lists are their decks or precons by name, or pasted. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "add": {
+            "description": "change: cards to add.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ai": {
+            "description": "phase's AI level (default Easy).",
+            "enum": [
+              "Easy",
+              "Medium"
+            ],
+            "type": "string"
+          },
+          "cut": {
+            "description": "change: cards to cut.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deck": {
+            "description": "change, solo: the list to start from; compare: the first list. One of their decks or a precon, by name or id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "engine": {
+            "description": "phase (the default), forge, or both side by side (each engine plays every pod; costs both).",
+            "enum": [
+              "phase",
+              "forge",
+              "both"
+            ],
+            "type": "string"
+          },
+          "entrant_lists": {
+            "description": "versus/tournament: labelled pasted lists, including distinct commander configurations. Combined with named entrants; never creates saved decks.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "list": {
+                  "maxLength": 65536,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "list"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "entrants": {
+            "description": "versus: 2 to 4 decks; tournament: a large shared field, up to 256 distinct lists including optional benchmark opponents.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "type": "array"
+          },
+          "forge_ai": {
+            "description": "Forge's AI profile (default Default).",
+            "enum": [
+              "Default",
+              "Cautious",
+              "Reckless",
+              "Experimental"
+            ],
+            "type": "string"
+          },
+          "games": {
+            "description": "Games per engine, or appearances per deck per engine for tournament: 100 (default), 200 or 400 (admins up to 2,000). Tournament total games scale with field size and are charged in full.",
+            "type": "integer"
+          },
+          "label": {
+            "description": "A name for a pasted list.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "list": {
+            "description": "Or a whole list instead of deck, one card per line, commander first.",
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "change",
+              "compare",
+              "solo",
+              "versus",
+              "tournament"
+            ],
+            "type": "string"
+          },
+          "near": {
+            "description": "similar: the precon whose power level to match.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "opponents": {
+            "description": "strongest (the default): the 20 strongest precons; similar: the 20 precons nearest in strength to `near` (or to the list, when it's a precon); all_precons; my_decks: their other decks.",
+            "enum": [
+              "strongest",
+              "similar",
+              "all_precons",
+              "my_decks"
+            ],
+            "type": "string"
+          },
+          "other": {
+            "description": "compare: the second list, one of their decks or a precon.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "other_label": {
+            "description": "A name for the second pasted list.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "other_list": {
+            "description": "compare: or a whole second list.",
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "pod": {
+            "description": "versus: 4 players (the default; precons fill empty seats) or 2 (1v1, two lists).",
+            "enum": [
+              4,
+              2
+            ],
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "start_lab_run",
+      "title": "Start a lab run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add games to one of their finished runs (not versus) so its answer gets clearer: the new pods continue the run's schedule and pool with the results so far. Without `games`, enough to reach the run's own estimate of what would settle it. A run whose engine has changed since can't take more games: use rerun_lab_run. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "games": {
+            "description": "Games per engine to add: 100, 200 or 400 (admins up to 2,000).",
+            "type": "integer"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The experiment id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "add_lab_games",
+      "title": "Add games to a lab run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Run one of their experiments again as a new run: the same frozen lists, opponents, engines and AI, a new seed. Use it when the engine has changed since, or for a fresh sample. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "games": {
+            "description": "Games per engine (default: as many as the run had).",
+            "type": "integer"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The experiment id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "rerun_lab_run",
+      "title": "Run a lab experiment again"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Stop one of their queued or running experiments: games already playing finish and count, no new ones start. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The experiment id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "cancel_lab_run",
+      "title": "Cancel a lab run"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add copies of a card to their collection, in a binder, deck box or list they already have (or loose). Without a set, Yama's default printing. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "container": {
+            "description": "Their binder, deck box or list, by name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "finish": {
+            "enum": [
+              "nonfoil",
+              "foil",
+              "etched"
+            ],
+            "type": "string"
+          },
+          "number": {
+            "description": "Collector number in that set.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "proxy": {
+            "type": "boolean"
+          },
+          "qty": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "set": {
+            "description": "Set code, such as \"cmm\".",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "card"
+        ],
+        "type": "object"
+      },
+      "name": "add_to_collection",
+      "title": "Add cards to the collection"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Move copies of a card from one of their binders, deck boxes or lists to another. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "from": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "qty": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "to": {
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "card",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "name": "move_cards",
+      "title": "Move cards between binders and boxes"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set the condition of every copy in one of their binders, deck boxes or lists, or only the copies of one card there: NM (near mint), LP (lightly played), MP (moderately played), HP (heavily played) or DMG (damaged). Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "description": "Only this card's copies; every card there if left out.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "condition": {
+            "enum": [
+              "NM",
+              "LP",
+              "MP",
+              "HP",
+              "DMG"
+            ],
+            "type": "string"
+          },
+          "container": {
+            "description": "Their binder, deck box or list, by name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "container",
+          "condition"
+        ],
+        "type": "object"
+      },
+      "name": "set_condition",
+      "title": "Set the condition of cards"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Apply one staged change. Call it only after they have said yes to that exact change in this conversation; otherwise let them apply it in Yama. If the deck or plan moved on, it fails with the reason and stays waiting.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The change id from staging or `list_changes`.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "apply_change",
+      "title": "Apply a staged change"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Discard one staged change, when they say no to it or you staged it by mistake.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The change id.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "discard_change",
+      "title": "Discard a staged change"
+    },
+    {
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Search Scryfall's complete current syntax, beyond Yama's offline subset. Public query only; no deck or collection is uploaded. Results include per-format legality, Oracle text, image URLs and dated price observations, enriched with only this person's ownership. Follow the returned next page/offset to exhaust a provider page without skipping cards.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Cards to return",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "description": "Offset within that provider page",
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "order": {
+            "default": "name",
+            "enum": [
+              "name",
+              "cmc",
+              "edhrec",
+              "usd",
+              "released"
+            ],
+            "type": "string"
+          },
+          "page": {
+            "default": 1,
+            "description": "The older way to continue: provider page, with offset. cursor is preferred.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Full Scryfall query",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_scryfall",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Full online card search"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Find a card's paper printings by exact name, from Yama's own copy of Scryfall's card data (no outside request): each with its latest TCGplayer, Cardmarket and Cardhoarder market prices, the date of those prices and their source, and original Scryfall image URLs. Images are never downloaded or bundled. A market price is a dated reference, not a store quote; a missing price is unknown.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "description": "Exact card name",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Printings to show",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "description": "The older way to continue: printings to skip. cursor is preferred.",
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "order": {
+            "description": "Cheapest US price first (default) or newest first",
+            "enum": [
+              "usd",
+              "released"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "card"
+        ],
+        "type": "object"
+      },
+      "name": "list_card_printings",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Printings and image links"
+    },
+    {
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Read EDHREC's community recommendations and sample sizes. Optionally exclude cards already in your saved deck or filter to owned cards, locally. Only the public commander/theme is sent to EDHREC. Synergy and popularity are research signals, not proof a swap improves a deck.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "enum": [
+              "budget",
+              "expensive"
+            ],
+            "type": "string"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "commander": {
+            "description": "Commander name",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Optional own saved deck to exclude its cards",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Suggestions",
+            "maximum": 60,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "owned_only": {
+            "default": false,
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "Optional exact EDHREC commander slug, for unusual names or partners",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "theme": {
+            "description": "Optional EDHREC theme/tag slug",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "commander"
+        ],
+        "type": "object"
+      },
+      "name": "get_commander_recommendations",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Commander recommendations"
+    },
+    {
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Search Commander Spellbook with query, or find combos in a deck/list. Deck mode requires share_list=true and deck checks enabled: it sends card names and quantities to Spellbook, never the name, notes or inventory. Keeps quantities, zones, commander/face requirements, prerequisites and steps. Included cards do not establish that a combo can execute; provider bracket tags are not a declared bracket.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Your saved deck's name or id; give deck or list, exactly one.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "first_is_commander": {
+            "default": true,
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 10,
+            "description": "Results per category",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "list": {
+            "description": "A pasted list with Commander and Deck sections.",
+            "maxLength": 30000,
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "description": "The older way to continue a public search: results to skip. cursor is preferred.",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Spellbook syntax for public combo search, instead of deck/list.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "share_list": {
+            "description": "Must be true to send the selected list's card names and quantities to Commander Spellbook. No collection, notes or deck name are sent.",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "Optional historical version of your saved deck.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "search_combos",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Combos and missing pieces"
+    },
+    {
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Fetch a public Moxfield or Archidekt list by URL and return an importable list and source timestamp. Nothing is saved. Only supported HTTPS deck hosts are accepted; never private credentials. Automated access may be blocked; failure stays explicit.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "url": {
+            "description": "https://moxfield.com/decks/... or https://archidekt.com/decks/... ",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "name": "get_public_deck",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Read a public deck URL"
+    },
+    {
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Look up a numbered Comprehensive Rule with its subrules, a glossary term, or a keyword. Discovers the current official document on Wizards' rules page at runtime. Includes its effective edition and source. No rules document is shipped, and unknown rule numbers are never invented.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "description": "Matches",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Rule number such as 702.19, a glossary term, or search text",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_rules",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Current official rules"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Analyze their saved deck or a pasted list without saving: Commander checks, curve, land access, role hints, Game Changers, Reserve List cards, an unofficial power level with its margin, themes, combos from the saved version's stored check, what they own and still need, and the cheapest dated market references. Missing names and prices stay unknown. Nothing leaves Yama. Role and mana counts describe the list; they are not a power or castability score.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "budget_usd": {
+            "description": "Optional total singles budget; unknown prices prevent a within-budget claim.",
+            "minimum": 0,
+            "type": "number"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Your saved deck's name or id; give deck or list, exactly one.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "first_is_commander": {
+            "default": true,
+            "type": "boolean"
+          },
+          "list": {
+            "description": "A pasted list with Commander and Deck sections.",
+            "maxLength": 30000,
+            "type": "string"
+          },
+          "version": {
+            "description": "Optional historical version of your saved deck.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_deck_analysis",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Deck health, ownership and budget"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Compare any two of your saved decks/versions or pasted proposals: exact additions and cuts, structural stats, ownership and dated budget. No invented win-rate or power prediction. Each side takes deck or list, and optionally version and first_is_commander.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "left": {
+            "additionalProperties": false,
+            "properties": {
+              "deck": {
+                "description": "Your saved deck's name or id; give deck or list, exactly one.",
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "first_is_commander": {
+                "default": true,
+                "type": "boolean"
+              },
+              "list": {
+                "description": "A pasted list with Commander and Deck sections.",
+                "maxLength": 30000,
+                "type": "string"
+              },
+              "version": {
+                "description": "Optional historical version of your saved deck.",
+                "maxLength": 1000,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "right": {
+            "additionalProperties": false,
+            "properties": {
+              "deck": {
+                "description": "Your saved deck's name or id; give deck or list, exactly one.",
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "first_is_commander": {
+                "default": true,
+                "type": "boolean"
+              },
+              "list": {
+                "description": "A pasted list with Commander and Deck sections.",
+                "maxLength": 30000,
+                "type": "string"
+              },
+              "version": {
+                "description": "Optional historical version of your saved deck.",
+                "maxLength": 1000,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "left",
+          "right"
+        ],
+        "type": "object"
+      },
+      "name": "compare_decks",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Compare two lists"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Draw seeded sample hands from a saved or pasted library, commanders excluded, without changing it. London mulligans say how many cards to bottom, leaving the choice to the caller. No keep/ship verdict or game simulation is inferred.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Your saved deck's name or id; give deck or list, exactly one.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "draw": {
+            "default": 7,
+            "description": "Cards to draw",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "first_is_commander": {
+            "default": true,
+            "type": "boolean"
+          },
+          "hands": {
+            "default": 5,
+            "description": "Independent samples",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "list": {
+            "description": "A pasted list with Commander and Deck sections.",
+            "maxLength": 30000,
+            "type": "string"
+          },
+          "mulligans": {
+            "default": 0,
+            "description": "Cards the caller must choose to bottom after a London mulligan",
+            "maximum": 6,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seed": {
+            "default": 1,
+            "description": "Reproducible shuffle seed",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Optional historical version of your saved deck.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "sample_hands",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Reproducible hands and mulligans"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Exact hypergeometric probability of seeing a caller-defined number of qualifying sources. The caller specifies which cards qualify; source counts alone do not model casting, overlapping colors, ramp, tapped lands or mulligans.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "at_least": {
+            "default": 1,
+            "description": "Required qualifying copies",
+            "maximum": 250,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "library": {
+            "default": 99,
+            "description": "Library size",
+            "maximum": 250,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "seen": {
+            "default": 7,
+            "description": "Cards seen",
+            "maximum": 250,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sources": {
+            "default": 0,
+            "description": "Qualifying copies in that library",
+            "maximum": 250,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "type": "object"
+      },
+      "name": "get_mana_probability",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Exact source-draw probability"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Test a saved or pasted library against a mana cost under an explicit lands-only model. Shuffles without replacement, draws and plays at most one land each turn, respects modeled tapped lands and assigns each source to at most one mana symbol. Reports coverage, unsupported sources, policy and sampling intervals. No acceleration, fetches, filters, life payments, mulligans or spell availability are modeled; these rates are not actual castability probabilities.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cost": {
+            "description": "Target cost using generic integers and W/U/B/R/G/C, e.g. {2}{W}{W}. Target is assumed available.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Your saved deck's name or id; give deck or list, exactly one.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "draw_on_turn_one": {
+            "default": true,
+            "type": "boolean"
+          },
+          "first_is_commander": {
+            "default": true,
+            "type": "boolean"
+          },
+          "list": {
+            "description": "A pasted list with Commander and Deck sections.",
+            "maxLength": 30000,
+            "type": "string"
+          },
+          "seed": {
+            "default": 1,
+            "description": "Seed",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trials": {
+            "default": 1000,
+            "description": "Seeded trials",
+            "maximum": 5000,
+            "minimum": 100,
+            "type": "integer"
+          },
+          "turns": {
+            "default": 7,
+            "description": "Turns",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "description": "Optional historical version of your saved deck.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "cost"
+        ],
+        "type": "object"
+      },
+      "name": "test_mana",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Seeded early land sequencing"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List your deck's saved versions. Inspect/export one with get_deck_analysis, compare two with compare_decks, or stage a historical list with save_deck. Other users' versions are not accessible.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "deck": {
+            "description": "Your deck name or id",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "deck"
+        ],
+        "type": "object"
+      },
+      "name": "list_deck_versions",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Saved versions"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "cursor": {
+            "description": "next_cursor from the answer before, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "detail": {
+            "description": "summary: fewer fields a row, for a shorter answer. full (default): every field.",
+            "enum": [
+              "summary",
+              "full"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Rows",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "outside_decks": {
+            "default": false,
+            "type": "boolean"
+          },
+          "page": {
+            "default": 1,
+            "description": "The older way to continue: page number. cursor is preferred.",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Optional card-name substring",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_collection_cards",
+      "outputSchema": {
+        "properties": {
+          "next_cursor": {
+            "description": "Pass as cursor, with the same other arguments, for the next page. Absent or null on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "title": "Owned cards and locations"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Stage creating a deck or replacing one of your own decks with a complete proposed list. Nothing changes until reviewed and applied. Requires a resolvable Commander-legal 100-card list. Replacement records the current version and refuses stale application. New decks and version saves are atomic with the change record. Use this after construction, get_public_deck, or restoring a historical list.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deck": {
+            "description": "Optional existing deck to replace; absent means create a new deck.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "first_is_commander": {
+            "default": true,
+            "type": "boolean"
+          },
+          "list": {
+            "description": "A pasted list with Commander and Deck sections.",
+            "maxLength": 30000,
+            "type": "string"
+          },
+          "name": {
+            "description": "A name when creating a new deck; omit deck to create, give deck to replace its current list.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why this list, including its public source when applicable.",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "source_url": {
+            "description": "Optional public deck URL to record as provenance; this argument never causes a fetch.",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "list"
+        ],
+        "type": "object"
+      },
+      "name": "save_deck",
+      "title": "Stage a complete deck list"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Show local card/import freshness, source attribution, public research capabilities and limitations. This does not contact providers or claim that every provider is currently reachable.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk": {
+            "description": "Continues an answer that was cut for length: the chunk it gave, with the same other arguments.",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_research_sources",
+      "outputSchema": {
+        "type": "object"
+      },
+      "title": "Sources and freshness"
+    }
+  ]
+}

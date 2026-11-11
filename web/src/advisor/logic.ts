@@ -202,57 +202,85 @@ export function pausedText(owner: string | null | undefined, until: string): str
 export function toolActivity(name: string): string {
   switch (name) {
     case "overview":
+    case "get_overview":
       return "Looking at your decks and plans…";
     case "deck":
+    case "get_deck":
       return "Reading a deck…";
     case "plan_deck":
+    case "get_plan":
       return "Reading a plan…";
     case "review_queue":
+    case "get_review_queue":
       return "Reading your proposals…";
     case "shopping_trip":
+    case "get_shopping_trip":
       return "Planning a store trip…";
     case "find_cards":
+    case "search_cards":
     case "search_scryfall":
       return "Searching cards…";
     case "card":
+    case "get_cards":
     case "card_printings":
+    case "list_card_printings":
       return "Looking up cards…";
     case "price_history":
+    case "get_price_history":
       return "Reading price history…";
     case "commander_recommendations":
+    case "get_commander_recommendations":
       return "Reading community recommendations…";
     case "find_combos":
+    case "search_combos":
       return "Looking up combos and prerequisites…";
     case "public_deck":
+    case "get_public_deck":
       return "Reading a public deck list…";
     case "rules_lookup":
+    case "search_rules":
       return "Reading the official rules…";
     case "deck_analysis":
+    case "get_deck_analysis":
     case "compare_decks":
       return "Checking the list, cards and costs…";
     case "mana_probability":
+    case "get_mana_probability":
     case "mana_test":
+    case "test_mana":
     case "sample_hands":
       return "Checking hands and mana…";
     case "collection_cards":
+    case "list_collection_cards":
     case "deck_history":
+    case "list_deck_versions":
       return "Reading your cards and saved lists…";
     case "check_list":
+    case "check_deck_list":
       return "Checking a list…";
     case "lab_runs":
+    case "list_lab_runs":
     case "lab_run":
+    case "get_lab_run":
     case "lab_games":
+    case "list_lab_games":
       return "Reading lab results…";
     case "games":
+    case "list_games":
     case "game":
+    case "get_game":
       return "Reading your game history…";
     case "playgroups":
+    case "list_playgroups":
       return "Reading your playgroups…";
     case "collection_summary":
+    case "get_collection_summary":
       return "Reading your collection's totals…";
     case "precon":
+    case "get_precon":
       return "Reading a precon…";
     case "changes":
+    case "list_changes":
       return "Checking changes waiting for you…";
     case "edit_deck":
     case "delete_deck":
@@ -263,7 +291,9 @@ export function toolActivity(name: string): string {
     case "mark_installed":
     case "start_lab_run":
     case "more_lab_games":
+    case "add_lab_games":
     case "run_lab_again":
+    case "rerun_lab_run":
     case "cancel_lab_run":
     case "add_to_collection":
     case "move_cards":

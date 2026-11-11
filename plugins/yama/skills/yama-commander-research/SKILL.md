@@ -7,13 +7,13 @@ description: Research Magic Commander cards, interactions, precons, upgrade alte
 
 Use the available Yama tools and their current schemas. If tools or authentication
 are missing, follow `../yama-setup/SKILL.md`. For personal deck work, begin with
-`overview`, the chosen `deck`/`plan_deck` and existing `research`; retain stated
+`get_overview`, the chosen `get_deck`/`get_plan` and existing `get_research`; retain stated
 constraints and review answers. For a general rules question, read the relevant
 cards directly without fetching unrelated private decks.
 
-Use `card` for current Oracle text, legality and official rulings, `find_cards`
-or `search_scryfall` for candidates, `commander_recommendations` for community
-evidence, and `rules_lookup` for the current numbered rules. Use `research_sources`
+Use `get_cards` for current Oracle text, legality and official rulings, `search_cards`
+or `search_scryfall` for candidates, `get_commander_recommendations` for community
+evidence, and `search_rules` for the current numbered rules. Use `get_research_sources`
 to inspect source coverage and freshness. For combos, distinguish discovery from
 verified prerequisites and steps. Do not send a private full list for combo
 matching unless the person explicitly consents; only then use `share_list=true`.
@@ -27,8 +27,8 @@ engine results need sample sizes, paired comparisons and their limitations.
 Do not start simulations automatically.
 
 For a build or upgrade plan, supply complete named alternatives, exact additions
-and cuts, gameplay goals and tradeoffs. Validate lists with `check_list` and
-`deck_analysis`. Use current owned real copies and proxy coverage when relevant;
+and cuts, gameplay goals and tradeoffs. Validate lists with `check_deck_list` and
+`get_deck_analysis`. Use current owned real copies and proxy coverage when relevant;
 a saved deck is not proof of ownership. Keep market estimates, buylist evidence
 and actual dated store quotes distinct. Missing prices stay unknown.
 
@@ -39,11 +39,11 @@ Read the existing full report before refreshing it. Preserve its stable report,
 deck and build IDs and unrelated content, including allocations and sources.
 `save_research` saves directly and idempotently; a plan tracking a refreshed build
 follows its updated advice. A document that drops a deck or build a plan tracks is
-refused: keep it, or pass `stop_plans: true` only when the person asked to drop that plan. Read back the saved report with `research` and report
+refused: keep it, or pass `stop_plans: true` only when the person asked to drop that plan. Read back the saved report with `get_research` and report
 what was stored. Do not claim persistence from a local document alone.
 
 Use `review_research` only for a choice the person actually stated, using the
-fresh target hash and expected version from `research`. Reuse the same op ID
+fresh target hash and expected version from `get_research`. Reuse the same op ID
 unchanged for retries; never invent their review answers. A saved preference
 does not approve deck edits, planner promotion, inventory, purchases, prints,
 installation, sharing or games. Those use their own requested staged actions;
