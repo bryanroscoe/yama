@@ -6,6 +6,8 @@
 interface Entry {
   copies: number;
   pending?: { error?: string; fix: unknown };
+  /** A fix is looking its row up, before its write is planned. */
+  checking?: string;
 }
 
 export interface Unsaved {
@@ -20,9 +22,9 @@ export function unsavedScans(added: Entry[]): Unsaved {
   let failed = 0;
   let sending = 0;
   for (const a of added) {
-    if (!a.pending) continue;
-    if (a.pending.error) failed++;
-    else sending++;
+    if (a.pending?.error) failed++;
+    // A fix still finding its row hasn't a write yet, but is about to: it could fail after the close too.
+    else if (a.pending || a.checking) sending++;
   }
   return { failed, sending };
 }

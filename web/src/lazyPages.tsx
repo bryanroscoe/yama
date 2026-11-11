@@ -31,8 +31,9 @@ export function area<M>(load: () => Promise<M>) {
 }
 
 /**
- * Which try at showing the page this is: the page's boundary gives each one its own name (the
- * address, and a count that goes up with Try again or the connection coming back).
+ * Which try at showing the page this is: the page's boundary gives each one its own name (this
+ * visit to the address, and a count that goes up with Try again or the connection coming back).
+ * A page that failed, was left and is opened again is a new visit, so it asks for its code again.
  */
 const Try = createContext("");
 
@@ -72,6 +73,8 @@ interface BoundaryProps {
   children: ReactNode;
   /** The address this page was opened at: another address gets a fresh try. */
   at: string;
+  /** This visit to it (the location's key): coming back to an address that failed is a new try. */
+  visit: string;
 }
 
 interface BoundaryState {
@@ -105,7 +108,7 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     window.removeEventListener("online", this.retry);
   }
   render() {
-    if (this.state.error == null) return <Try.Provider value={`${this.props.at}#${this.state.tries}`}>{this.props.children}</Try.Provider>;
+    if (this.state.error == null) return <Try.Provider value={`${this.props.visit}#${this.state.tries}`}>{this.props.children}</Try.Provider>;
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
     return (
       <main className="page">
@@ -128,8 +131,8 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
 
 /** A page inside the app's frame: if it fails to render, the nav stays and the page says so. */
 export function Framed({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
-  return <Boundary at={pathname}>{children}</Boundary>;
+  const { pathname, key } = useLocation();
+  return <Boundary at={pathname} visit={key}>{children}</Boundary>;
 }
 
 /** A page with its stand-in while its code loads, and a way back if that fails. */

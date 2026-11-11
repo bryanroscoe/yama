@@ -19,6 +19,10 @@ describe("closing the collection scanner", () => {
     expect(closeQuestion({ failed: 3, sending: 2 })).toBe("3 changes from this scan aren't saved to your collection. Closing the scanner drops them.");
   });
 
+  it("counts a fix that is still finding its row as on its way", () => {
+    expect(unsavedScans([saved, { copies: 1, checking: "lookup-1" }])).toEqual({ failed: 0, sending: 1 });
+  });
+
   it("waits for saves still on their way", () => {
     expect(closeQuestion({ failed: 0, sending: 1 })).toBe("Still saving the last card. The scanner closes once it's saved.");
     expect(closeQuestion({ failed: 0, sending: 4 })).toBe("Still saving 4 cards. The scanner closes once they're saved.");

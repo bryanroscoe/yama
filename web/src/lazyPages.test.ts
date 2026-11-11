@@ -67,6 +67,17 @@ describe("a page whose code didn't arrive", () => {
     expect(attempt("/collection#0")).toBe(second);
   });
 
+  it("asks again when a page that failed is left and opened again", async () => {
+    // Each visit has its own name (the location's key), even at the same address: opened offline,
+    // left for the Table, opened again with the connection back.
+    const factories: (() => Promise<{ default: ComponentType }>)[] = [];
+    const attempt = retryingLazy(async () => { throw new TypeError("Failed to fetch"); }, (factory) => factories.push(factory) - 1);
+    const first = attempt("visit-1#0");
+    await expect(factories[first]!()).rejects.toThrow();
+    expect(attempt("visit-1#0")).toBe(first);
+    expect(attempt("visit-2#0")).not.toBe(first);
+  });
+
   it("starts afresh at another address after a failure", async () => {
     const factories: (() => Promise<{ default: ComponentType }>)[] = [];
     const attempt = retryingLazy(async () => { throw new TypeError("Failed to fetch"); }, (factory) => factories.push(factory) - 1);

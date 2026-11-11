@@ -1,6 +1,7 @@
 import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
+import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -293,6 +294,7 @@ export function CollectionPage() {
 
       {open && (
         <CollectionItemSheet
+          key={open.id}
           item={open}
           containers={containers.data ?? []}
           onClose={(done) => {
@@ -655,6 +657,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const unsaved = unsavedScans(added);
   const question = closeQuestion(unsaved);
   const close = () => (closeQuestion(unsavedScans(listRef.current)) ? setClosing(true) : onClose());
+  // The scanner's own Close asks above; Back, a link, a reload or closing the tab ask through the
+  // unsaved-work guard, since any of them takes the scanner away with what it couldn't save.
+  const guard = useUnsavedChanges(question !== null);
   useEffect(() => {
     // Asked to close while saves were out, and they have all gone through since.
     if (closing && !question) onClose();
@@ -731,6 +736,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
             <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} />
           </Dialog>
         )}
+        <UnsavedPrompt guard={guard} what="the scans that aren't saved yet" />
         {closing && question && (
           <Dialog centered title="Not saved yet" onClose={() => setClosing(false)}>
             <div className="stack">

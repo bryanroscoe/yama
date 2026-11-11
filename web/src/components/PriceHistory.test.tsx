@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PriceHistory } from "./PriceHistory";
+import { historyView, PriceHistory } from "./PriceHistory";
 
 function history(state: "failed" | "empty" | "one") {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: false } } });
@@ -27,5 +27,16 @@ describe("a printing's price history", () => {
   it("says no price is recorded only when the server answered with none", () => {
     expect(history("empty")).toContain("No market price recorded for Commander Masters.");
     expect(history("one")).toContain("$1.50 on 2026-11-10");
+  });
+
+  it("keeps the failure on screen while it tries again", () => {
+    const failed = new Error("Server unavailable");
+    // Try again: the query reads as loading with no error for the length of the attempt.
+    expect(historyView({ hasData: false, loading: true }, failed)).toBe("failed");
+    expect(historyView({ hasData: false, loading: false }, failed)).toBe("failed");
+    // First load: nothing yet. An answer: the prices.
+    expect(historyView({ hasData: false, loading: true }, null)).toBe("wait");
+    expect(historyView({ hasData: true, loading: false }, null)).toBe("show");
+    expect(historyView({ hasData: true, loading: false }, failed)).toBe("show");
   });
 });
