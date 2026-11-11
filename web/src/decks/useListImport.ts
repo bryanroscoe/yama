@@ -65,6 +65,32 @@ export function dropPlan({ files, boxHasText, overBox }: { files: boolean; boxHa
 }
 
 /**
+ * Fetches something to put in the box (the clipboard, chosen files), asks whether it may replace
+ * what is there, and gives it back only if the box hasn't changed hands meanwhile: typing or
+ * another list arriving while the clipboard is read, or while the question is up, wins, and this
+ * one is dropped. `turn()` is the box's turn counter. Nothing is counted here, so a list still
+ * loading keeps loading until the replacement really goes in.
+ */
+export async function ifStillWanted<T>(turn: () => number, get: () => Promise<T | null>, may: (value: T) => Promise<boolean>): Promise<T | null> {
+  const asked = turn();
+  const value = await get();
+  if (value === null || asked !== turn()) return null;
+  if (!(await may(value)) || asked !== turn()) return null;
+  return value;
+}
+
+/** Whether replacing the whole list has to ask first: there is unsaved work in it, and a way to ask. */
+export function needsReplaceQuestion(unsaved: boolean, canAsk: boolean): boolean {
+  return unsaved && canAsk;
+}
+
+/** The question before a whole list replaces unsaved work in the box. `what` is "what's on the clipboard", a file's name or "3 files". */
+export function replaceQuestion(what: string): { title: string; body: string; confirm: string; danger: true } {
+  // Destructive: Cancel takes focus first, so Enter keeps the list.
+  return { title: `Replace the list with ${what}?`, body: "What you typed or changed in the box will be lost.", confirm: "Replace the list", danger: true };
+}
+
+/**
  * Whether the box holds work that leaving would lose: a list the person typed, pasted, chose or
  * sent from the share sheet (several files read at once leave the box empty and their decks
  * below), or a fix they made to the reading. A list Yama put there itself (a precon, a shared
@@ -82,7 +108,19 @@ export function unsavedList({ text, given, drafts, draftEdited }: { text: string
  * Every way in (typing, a paste, a file, a drop, a loaded list) cancels a slower answer still on
  * its way, so a late response never replaces newer text.
  */
-export function useListImport({ initialText, makeDraft }: { initialText: () => string; makeDraft: (deck: PreviewDeck, source: Source) => Draft }) {
+export function useListImport({
+  initialText,
+  makeDraft,
+  confirmReplace,
+}: {
+  initialText: () => string;
+  makeDraft: (deck: PreviewDeck, source: Source) => Draft;
+  /**
+   * Asked before Paste, a chosen file or a dropped file replaces a list that holds unsaved work
+   * (`replaceQuestion` words it); false keeps the list. Without it they replace at once.
+   */
+  confirmReplace?: (what: string) => Promise<boolean>;
+}) {
   const [text, setText] = useState(initialText);
   /**
    * The text Yama put in the box itself (a precon, a shared deck, a loaded list): not the person's
@@ -197,6 +235,25 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
     return () => clearTimeout(t);
   }, [text, runCheck, sourceLoading]);
 
+  /**
+   * Paste, Choose a file and a dropped file put a whole list in the box. Over work that isn't
+   * saved they ask first (11 Nov 2026: they replaced it without a word, and unlike a paste into
+   * the box there is no undo).
+   */
+  /** Moves on whenever the box changes hands: typing, a paste, a file, a loaded list. */
+  const turn = () => sourceRequest.current;
+  // Leaving the page takes the box's turn too: a clipboard or file still being read then asks
+  // nothing (the question would open over the next page) and puts nothing anywhere.
+  useEffect(
+    () => () => {
+      sourceRequest.current++;
+    },
+    [],
+  );
+  /** Whether the box holds unsaved work as of the latest render (a Paste asks about the list as it is when its answer comes, not as it was when tapped). */
+  const unsavedNow = useRef(false);
+  const mayReplace = async (what: string): Promise<boolean> => !needsReplaceQuestion(unsavedNow.current, !!confirmReplace) || (await confirmReplace!(what));
+
   const readFiles = async (files: FileList | File[]) => {
     const list = [...files];
     if (!list.length) return;
@@ -205,6 +262,7 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
       setNotice(`${big.name} is too big for a deck list (2 MB at most).`);
       return;
     }
+    if (!(await ifStillWanted(turn, async () => list, () => mayReplace(list.length === 1 ? list[0]!.name : `${list.length} files`)))) return;
     const request = ++sourceRequest.current;
     const sources = await Promise.all(list.map(async (f) => ({ text: await f.text(), fileName: f.name })));
     if (request !== sourceRequest.current) return;
@@ -215,14 +273,19 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
   };
 
   const pasteFromClipboard = async () => {
-    const request = ++sourceRequest.current;
     try {
-      const t = await navigator.clipboard.readText();
-      if (request !== sourceRequest.current) return;
-      if (!t.trim()) {
-        setNotice("The clipboard is empty. Copy the list first, then tap Paste.");
-        return;
-      }
+      const t = await ifStillWanted(
+        turn,
+        // Read first: the browser only allows it straight from the tap.
+        () => navigator.clipboard.readText(),
+        // Reached only if the box is still as it was: a paste that lost its turn says nothing.
+        async (read) => {
+          if (read.trim()) return mayReplace("what's on the clipboard");
+          setNotice("The clipboard is empty. Copy the list first, then tap Paste.");
+          return false;
+        },
+      );
+      if (t === null) return;
       setUserText(t);
       runCheck([{ text: t }]);
     } catch {
@@ -264,6 +327,7 @@ export function useListImport({ initialText, makeDraft }: { initialText: () => s
     setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
   };
   const unsaved = unsavedList({ text, given, drafts: drafts.length, draftEdited });
+  unsavedNow.current = unsaved;
 
   return {
     text, setUserText, prefill, loadList, sourceLoading,
