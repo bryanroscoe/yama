@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { diffDecks, exportDeck, exportFileName, type DiffCard, type ExportCard } from "./deckExport";
+import { diffDecks, EXPORT_FORMATS, exportDeck, exportFileName, exportMime, type DiffCard, type ExportCard } from "./deckExport";
+import { parseDeckList } from "./decklist";
 
 const cards: ExportCard[] = [
   { name: "Sol Ring", qty: 1, board: "main", setCode: "cmm", collectorNumber: "410", finish: "foil", layout: "normal" },
@@ -44,10 +45,113 @@ describe("exports", () => {
     expect(text.startsWith("Commander\n1 Éowyn, Shieldmaiden\n\nDeck\n")).toBe(true);
   });
 
+  it("Archidekt: 1x lines with lower-case set codes, the board as a category, no headings", () => {
+    expect(exportDeck(cards, "archidekt")).toBe(
+      [
+        "1x Éowyn, Shieldmaiden (ltc) 2 [Commander{top}]",
+        "1x Agadeem's Awakening // Agadeem, the Undercrypt (znr) 90 *E*",
+        "1x Fire // Ice",
+        "10x Plains (ltr) 263",
+        "1x Sol Ring (cmm) 410 *F*",
+        "1x Lightning Bolt (m10) 146 [Sideboard{noDeck}{noPrice}]",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("Magic Online .dek: the main deck, then the commander in the sideboard, by front face; the deck's sideboard left out", () => {
+    const text = exportDeck(cards, "mtgo");
+    expect(text.startsWith('<?xml version="1.0" encoding="utf-8"?>\n<Deck ')).toBe(true);
+    expect(text.endsWith("</Deck>\n")).toBe(true);
+    const rows = [...text.matchAll(/<Cards CatID="0" Quantity="(\d+)" Sideboard="(true|false)" Name="([^"]*)" Annotation="0" \/>/g)].map((m) => `${m[1]} ${m[3]} ${m[2]}`);
+    expect(rows).toEqual([
+      "1 Agadeem's Awakening false",
+      "1 Fire // Ice false",
+      "10 Plains false",
+      "1 Sol Ring false",
+      "1 Éowyn, Shieldmaiden true",
+    ]);
+    expect(text).not.toContain("Lightning Bolt");
+  });
+
+  it("Cockatrice .cod: the deck's name, the main zone, and the commander in the side zone", () => {
+    expect(exportDeck(cards, "cockatrice", "Riders of Rohan")).toBe(
+      [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<cockatrice_deck version="1">',
+        "    <deckname>Riders of Rohan</deckname>",
+        "    <comments></comments>",
+        '    <zone name="main">',
+        '        <card number="1" name="Agadeem\'s Awakening"/>',
+        '        <card number="1" name="Fire // Ice"/>',
+        '        <card number="10" name="Plains"/>',
+        '        <card number="1" name="Sol Ring"/>',
+        "    </zone>",
+        '    <zone name="side">',
+        '        <card number="1" name="Éowyn, Shieldmaiden"/>',
+        "    </zone>",
+        "</cockatrice_deck>",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("escapes names and a deck's name in the XML files", () => {
+    const odd: ExportCard[] = [{ name: 'Ach! Hans, Run! <"&">', qty: 1, board: "main" }];
+    expect(exportDeck(odd, "mtgo")).toContain('Name="Ach! Hans, Run! &lt;&quot;&amp;&quot;&gt;"');
+    const cod = exportDeck(odd, "cockatrice", "Tom & Jerry <3");
+    expect(cod).toContain("<deckname>Tom &amp; Jerry &lt;3</deckname>");
+    expect(cod).toContain('name="Ach! Hans, Run! &lt;&quot;&amp;&quot;&gt;"');
+  });
+
+  it("CSV: a header, then a row a card with its board and printing; names with commas quoted", () => {
+    expect(exportDeck(cards, "csv")).toBe(
+      [
+        "Quantity,Name,Board,Set code,Collector number,Finish",
+        '1,"Éowyn, Shieldmaiden",Commander,LTC,2,nonfoil',
+        `1,"Agadeem's Awakening // Agadeem, the Undercrypt",Main,ZNR,90,etched`,
+        "1,Fire // Ice,Main,,,",
+        "10,Plains,Main,LTR,263,nonfoil",
+        "1,Sol Ring,Main,CMM,410,foil",
+        "1,Lightning Bolt,Sideboard,M10,146,",
+        "",
+      ].join("\n"),
+    );
+    expect(exportDeck([{ name: 'Say "Cheese"', qty: 2, board: "main" }], "csv")).toContain('2,"Say ""Cheese""",Main,,,\n');
+  });
+
+  it("leaves out cards with no copies, in every format", () => {
+    const none: ExportCard[] = [{ name: "Sol Ring", qty: 0, board: "main" }, { name: "Plains", qty: 1, board: "main" }];
+    for (const f of EXPORT_FORMATS) expect(exportDeck(none, f.value, "Deck")).not.toContain("Sol Ring");
+  });
+
+  it("the text formats read back as the same list", () => {
+    const want = (boards: string[]) => cards.filter((c) => boards.includes(c.board)).map((c) => `${c.qty} ${c.name} ${c.board}`).sort();
+    const read = (format: "names" | "moxfield") => parseDeckList(exportDeck(cards, format)).map((l) => `${l.qty} ${l.name} ${l.board}`).sort();
+    expect(read("moxfield")).toEqual(want(["commander", "main", "side"]));
+    expect(read("names")).toEqual(want(["commander", "main"]));
+  });
+
   it("file names", () => {
     expect(exportFileName("Riders of Rohan Upgraded 100", "moxfield")).toBe("riders-of-rohan-upgraded-100-moxfield.txt");
     expect(exportFileName("Éowyn!", "names")).toBe("eowyn-names.txt");
     expect(exportFileName("???", "arena")).toBe("deck-arena.txt");
+    expect(exportFileName("Riders of Rohan", "archidekt")).toBe("riders-of-rohan-archidekt.txt");
+    expect(exportFileName("Riders of Rohan", "mtgo")).toBe("riders-of-rohan.dek");
+    expect(exportFileName("Riders of Rohan", "cockatrice")).toBe("riders-of-rohan.cod");
+    expect(exportFileName("???", "csv")).toBe("deck.csv");
+  });
+
+  it("media types", () => {
+    expect(exportMime("moxfield")).toBe("text/plain;charset=utf-8");
+    expect(exportMime("csv")).toBe("text/csv;charset=utf-8");
+    expect(exportMime("mtgo")).toBe("application/xml;charset=utf-8");
+    expect(exportMime("cockatrice")).toBe("application/xml;charset=utf-8");
+  });
+
+  it("offers each format once, with a label and a hint", () => {
+    expect(EXPORT_FORMATS.map((f) => f.value)).toEqual(["names", "moxfield", "arena", "archidekt", "mtgo", "cockatrice", "csv"]);
+    expect(EXPORT_FORMATS.every((f) => f.label && f.hint.endsWith("."))).toBe(true);
   });
 });
 
