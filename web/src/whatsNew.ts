@@ -26,6 +26,16 @@ export const NEWS: NewsEntry[] = [
     link: { to: "/decks", label: "Open your decks" },
   },
   {
+    id: "2026-11-11-add-cards-search",
+    date: "2026-11-11",
+    title: "Search for cards while you edit a deck",
+    items: [
+      "Edit the list has a card search: type a name or a search like t:instant o:counter, then Add or Remove with one press.",
+      "Each result says whether it's legal in the deck's colors and whether you own it. The list is still text you can type in or paste over.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
     id: "2026-11-11-log-a-game-more",
     date: "2026-11-11",
     title: "Log a game with knockouts, a note and its format",

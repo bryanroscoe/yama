@@ -37,6 +37,9 @@ describe("Edit the list", () => {
     const html = page();
     expect(html).toContain("<h1>Edit the list</h1>");
     expect(html).toContain("The list in the box");
+    // The card search sits above the list, with nothing under it until something is typed.
+    expect(html).toContain(">Add cards</h2>");
+    expect(html).toContain('aria-label="Search cards to add"');
     expect(html).not.toContain("Couldn&#x27;t refresh");
   });
 
