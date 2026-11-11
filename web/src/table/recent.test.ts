@@ -60,6 +60,8 @@ describe("recent game text", () => {
     expect(t.title).toBe("Mister Fantastic won");
     expect(t.with).toBeNull();
     expect(t.sub).toBe("Over Mister Fantastic (Bryan), Éowyn (seat 2) and Éowyn (seat 4)");
+    // The rules engine counts every player's turn, which isn't the table's rounds.
+    expect(t.short).toBe("Mister Fantastic, 34 player turns");
   });
 
   it("uses player names when two people play the same commander", () => {

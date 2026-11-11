@@ -48,6 +48,14 @@ export function seatLabels(seats: GameSeat[], clash: (string | null | undefined)
   });
 }
 
+/**
+ * "9 turns" for a game at the table (rounds), "34 player turns" for an online one, where the
+ * rules engine counts every player's turn. Never the same word for both.
+ */
+export function turnsText(g: Pick<GameRow, "mode" | "turns">): string | null {
+  return g.turns ? `${g.turns} ${g.mode === "online" ? "player turns" : "turns"}` : null;
+}
+
 export interface RecentText {
   /** "Sam won", "Draw" or "In progress". */
   title: string;
@@ -69,6 +77,6 @@ export function recentGameText(g: GameRow & { note?: string | null }): RecentTex
   const others = winner ? g.seats.filter((s) => s.seat !== winner.seat) : g.seats;
   const people = winner ? (others.length ? `Over ${listNames(seatLabels(others, [cmdr]))}` : null) : listNames(seatLabels(g.seats));
   const sub = [how, people, g.note].filter(Boolean).join(". ");
-  const short = [cmdr && shortName(cmdr), g.turns ? `${g.turns} turns` : null].filter(Boolean).join(", ") || sub;
+  const short = [cmdr && shortName(cmdr), turnsText(g)].filter(Boolean).join(", ") || sub;
   return { title, with: withCmdr, sub, short };
 }

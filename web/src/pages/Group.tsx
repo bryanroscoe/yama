@@ -151,7 +151,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
           <section className="grp-section" aria-labelledby="grp-players">
             <div className="grp-section-head">
               <h2 id="grp-players">Players</h2>
-              <span className="grp-wide grp-hint">The line marks an even share: 25% at a 4-player table. Fewer than {under} games is too few to say. The computer's seats and games against only the computer aren't counted.</span>
+              <span className="grp-wide grp-hint">The line marks an even share: 25% at a 4-player table. Fewer than {under} games is too few to say. The computer isn't listed, and a game it wins is a loss for everyone.</span>
             </div>
             <ul className="grp-players">
               {s.players.map((p) => {
@@ -192,7 +192,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                 );
               })}
             </ul>
-            <p className="grp-narrow grp-hint">The line marks an even share. Under {under} games is too few to say. Games against only the computer aren't counted.</p>
+            <p className="grp-narrow grp-hint">The line marks an even share. Under {under} games is too few to say. The computer isn't listed.</p>
           </section>
 
           <div className="grp-pair">

@@ -35,6 +35,7 @@ export function GroupStats({ s }: { s: PlaygroupStats }) {
     <div className="stack group-stats">
       <p className="computed">
         Computed {fmtDateTime(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
+        {!!s.solo_games && ` ${s.solo_games} ${s.solo_games === 1 ? "game" : "games"} against only the computer ${s.solo_games === 1 ? "is" : "are"} in the history and not counted here.`}
       </p>
       {/* One column on phones; side by side as the window allows on laptops. */}
       <div className="group-stats-grid">

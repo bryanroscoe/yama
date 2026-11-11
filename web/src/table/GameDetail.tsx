@@ -12,6 +12,7 @@ import { artCredits } from "../components/ArtPanel";
 import { ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
+import { turnsText } from "./recent";
 import { isLoggedGame, splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
 import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
@@ -183,7 +184,7 @@ export function GameDetailPage() {
   const facts = [
     `${fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
     `${formatLabel(setup.format)}, ${g.seats.length} players at ${setup.startingLife} life.`,
-    g.turns ? `${g.turns} ${g.mode === "online" ? "player turns" : "turns"}.` : null,
+    g.turns ? `${turnsText(g)}.` : null,
     how ? `Won by ${how.toLowerCase()}.` : null,
     first ? `${seatName(first)} went first.` : null,
     g.note ? `${g.note}.` : null,

@@ -665,7 +665,10 @@ export interface PodSeats {
 }
 
 export interface PlaygroupStats {
+  /** Finished games between people: what every figure is computed from. */
   games: number;
+  /** Finished games against only the computer, left out of every figure. Absent from older servers. */
+  solo_games?: number;
   players: PlayerStat[];
   commanders: { commander: string; games: number; wins: number; expected: number }[];
   /** Rounds, from games at the table and logged ones. */

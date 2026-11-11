@@ -228,6 +228,9 @@ export function GameOver(props: {
     }
   };
   const ai = seats.some((s) => s.ai);
+  // A playgroup's stats compare its people: a game one person played against the computer is
+  // kept in the group's history and left out of its figures.
+  const counted = !view.abandoned && !!game?.playgroup && seats.filter((s) => !s.ai).length >= 2;
   const credits = list([...new Set(rows.map((r) => art(r.seat)).filter((a) => a.art && a.artist).map((a) => a.artist!))]);
   return (
     <div className={`go${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
@@ -284,8 +287,12 @@ export function GameOver(props: {
             ))}
           </div>
           <div className="go-group">
-            <b>{!view.abandoned && game?.playgroup ? `Counts toward ${game.playgroup}'s stats` : "Not counted toward a group's stats"}</b>
-            <span className="dim small">Chosen when the game was made{ai ? "; a computer played in it" : ""}.</span>
+            <b>{counted ? `Counts toward ${game!.playgroup}'s stats` : "Not counted toward a group's stats"}</b>
+            <span className="dim small">
+              {!view.abandoned && game?.playgroup && !counted
+                ? `A game against only the computer stays in ${game.playgroup}'s history and out of its stats.`
+                : `Chosen when the game was made${ai ? "; a computer played in it" : ""}.`}
+            </span>
           </div>
           <ErrorText small error={error} />
           <div className="go-buttons">

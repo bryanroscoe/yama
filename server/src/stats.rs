@@ -8,10 +8,13 @@
 //! instead of being folded into a guess.
 //!
 //! Unlike things stay apart (2026-11-11):
-//! - The computer isn't a player. Its seats take no row and no share of a game: N counts the
-//!   people at the table, and a game with fewer than two people (solo against the computer) is
-//!   in nobody's record. A deck's games against only the computer are counted separately
-//!   (`results_against_computer`).
+//! - The computer isn't a player. Its seats take no row, and nobody's rivalry is with it. It can
+//!   still win, so the share a person would win by chance stays 1/N over every seat at the
+//!   table: at a table of two people and two computers that is one in four, and a game the
+//!   computer wins is a loss for everyone. A game with fewer than two people (solo against the
+//!   computer, or a table of one) is in nobody's record, and the playgroup's page leaves it out
+//!   of every figure (`playgroups::stats_for`). A deck's games against only the computer are
+//!   counted separately (`results_against_computer`).
 //! - `games.turns` counts rounds at the table and every player's turn online (the engine's turn
 //!   number), so the two are averaged separately (`average_turns`, `average_online_turns`).
 //! - Commander stats come from Commander games only; a Constructed game has no commander.
@@ -448,8 +451,9 @@ pub fn players(games: &[GameFacts]) -> Vec<PlayerStat> {
     let mut expected_sum: HashMap<String, f64> = HashMap::new();
     let mut fun: HashMap<String, (i64, i64)> = HashMap::new();
     for g in games.iter().filter(|g| g.between_people()) {
-        // An even share among the people at the table: the computer's seats take none.
-        let n = g.people().count() as f64;
+        // The chance of winning if every seat were equally likely to: the computer has no row
+        // here, but it can win the game.
+        let n = g.seats.len() as f64;
         let first_out = g.first_out();
         let last_out = g.last_out();
         let knockout_game = g.seats.iter().any(|s| s.eliminated_turn.is_some());
@@ -561,7 +565,7 @@ pub fn knockout_games(games: &[GameFacts]) -> i64 {
 pub fn commanders(games: &[GameFacts]) -> Vec<CommanderStat> {
     let mut map: BTreeMap<String, (i64, i64, f64)> = BTreeMap::new();
     for g in games.iter().filter(|g| g.format == "commander" && g.between_people()) {
-        let n = g.people().count() as f64;
+        let n = g.seats.len() as f64;
         for s in g.people() {
             let name = s.commander_name.clone().or(s.deck_label.clone()).unwrap_or_else(|| "Unknown".into());
             let e = map.entry(name).or_default();
@@ -829,8 +833,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_computer_is_not_a_player_and_takes_no_share() {
-        // Two people and two computers: an even share is one in two, whoever wins.
+    fn the_computer_is_not_a_player_but_can_still_win() {
+        // Two people and two computers: four seats could win, so an even share is one in four.
         let mut mixed = online("1", &["a", "b", "x", "y"], &[2, 3], Some(2));
         out(&mut mixed, 0, 6, Some(2)); // the computer knocks a out
         out(&mut mixed, 1, 8, Some(0)); // a (already out, but recorded so) knocks b out
@@ -842,7 +846,9 @@ pub(crate) mod tests {
         assert_eq!(ps.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
         let a = ps.iter().find(|p| p.key == "a").unwrap();
         assert_eq!((a.games, a.wins), (2, 1), "the solo win isn't in the record");
-        assert!((a.expected - 0.5).abs() < 1e-9);
+        assert!((a.expected - (0.25 + 0.5) / 2.0).abs() < 1e-9);
+        // The game the computer won is a loss for both people.
+        assert_eq!(ps.iter().map(|p| p.wins).sum::<i64>(), 1);
         // The computer's knockout of a is nobody's rivalry; a's knockout of b is.
         assert_eq!(a.archnemesis, None);
         assert_eq!(a.knockouts, 1);

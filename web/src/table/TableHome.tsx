@@ -16,7 +16,7 @@ import { isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
 import { panelArt, useShowArt } from "./art";
-import { recentGameText, winningSeat } from "./recent";
+import { recentGameText, turnsText, winningSeat } from "./recent";
 import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
@@ -648,7 +648,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
                   <span className="rg-weekday">{fmtWeekday(g.started_at)}, </span>
                   {shortDate(g.started_at)}
                 </span>
-                {g.turns ? <span className="rg-turns">{g.turns} turns</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">Still going</span> : null}
+                {g.turns ? <span className="rg-turns">{turnsText(g)}</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">Still going</span> : null}
               </span>
               </Link>
             </li>
