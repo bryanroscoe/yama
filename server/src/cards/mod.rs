@@ -181,7 +181,7 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
         Some("color") => "length(cards.colors), cards.colors, cards.name".to_string(),
         // By price and by first release. These sort every match (no index gives the order): the
         // price is one lookup per card, the first release one seek in `printings_oracle_released`
-        // (migration 0077). Cards with no price, or no dated printing, go last whichever way the
+        // (migration 0079). Cards with no price, or no dated printing, go last whichever way the
         // order runs.
         Some("usd") => format!("{0} IS NULL, {0} DESC, cards.name COLLATE NOCASE", search::PRICE_SQL),
         Some("usd_asc") => format!("{0} IS NULL, {0}, cards.name COLLATE NOCASE", search::PRICE_SQL),
