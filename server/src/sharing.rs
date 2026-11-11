@@ -518,10 +518,25 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     .ok_or(AppError::NotFound("deck"))?;
     let sharer: Sharer =
         sqlx::query_as("SELECT id, handle, collection_public, wants_public, wants_include_pending FROM users WHERE id = ?").bind(&row.owner_id).fetch_one(pool).await?;
-    let list: Vec<DeckCard> = match &row.current_version_id {
+    let mut list: Vec<DeckCard> = match &row.current_version_id {
         Some(v) => crate::decks::load_version_cards(pool, v).await?,
         None => vec![],
     };
+    // A shared page names each card as Yama's card data does, by its oracle id, like everything
+    // else it shows about the card. Saves check this now (`decks::checked_cards`); this covers a
+    // list stored before they did. A card Yama's data no longer has keeps its stored name.
+    let ids: Vec<&str> = list.iter().map(|c| c.oracle_id.as_str()).collect();
+    let canonical: HashMap<String, String> = sqlx::query_as("SELECT oracle_id, name FROM cards WHERE oracle_id IN (SELECT value FROM json_each(?))")
+        .bind(serde_json::to_string(&ids).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
+    for c in &mut list {
+        if let Some(name) = canonical.get(&c.oracle_id) {
+            c.name.clone_from(name);
+        }
+    }
     let chosen = crate::deck_import::deck_prints(pool, &row.id).await?;
     // The owner's copies of just these cards (for the printing their exports name), each card's
     // facts, and the printings of cards with neither: one query each, however long the list.
@@ -639,16 +654,19 @@ pub(crate) async fn deck_face(pool: &SqlitePool, version: Option<&str>) -> AppRe
     };
     let (mut commanders, mut identity, mut art) = (vec![], String::new(), None);
     for c in cards.iter().filter(|c| c.board == Board::Commander) {
-        commanders.push(c.name.clone());
-        let row: Option<(String, Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?").bind(&c.oracle_id).fetch_optional(pool).await?;
-        if let Some((ci, crop, artist)) = row {
+        let row: Option<(String, String, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT name, color_identity, image_art_crop, artist FROM cards WHERE oracle_id = ?").bind(&c.oracle_id).fetch_optional(pool).await?;
+        // Named from card data by its id, as the deck's own page is (`shared_deck`); a card
+        // that data no longer has keeps its stored name.
+        let name = row.as_ref().map_or_else(|| c.name.clone(), |r| r.0.clone());
+        commanders.push(name.clone());
+        if let Some((_, ci, crop, artist)) = row {
             identity.push_str(&ci);
             if art.is_none()
                 && let Some(url) = crop.filter(|u| u.starts_with("https://cards.scryfall.io/"))
                 && artist.is_some()
             {
-                art = Some((url, artist, c.name.clone()));
+                art = Some((url, artist, name));
             }
         }
     }
@@ -916,7 +934,7 @@ async fn collection_text(State(st): State<AppState>, address: ClientAddress, hea
 }
 
 fn csv_field(s: &str) -> String {
-    if s.contains([',', '"', '\n']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
+    if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
 }
 
 async fn collection_csv(State(st): State<AppState>, address: ClientAddress, headers: HeaderMap, Path(handle): Path<String>) -> AppResult<Response> {
@@ -936,8 +954,12 @@ async fn collection_csv(State(st): State<AppState>, address: ClientAddress, head
             csv_field(&l.set_code),
             csv_field(&l.collector_number),
             foil,
-            csv_field(&l.condition),
-            csv_field(&l.lang)
+            // Condition and language are what the owner's client or file stored. Ops are checked
+            // against Yama's lists now; an older row or an imported file can still hold anything,
+            // so text a spreadsheet would run as a formula is defused, as the game export does.
+            // The name, set and number come from card data and are written as they are.
+            csv_field(&crate::game_export::cell(&l.condition)),
+            csv_field(&crate::game_export::cell(&l.lang))
         ));
     }
     let res = fresh(&headers, body, "text/csv; charset=utf-8");
