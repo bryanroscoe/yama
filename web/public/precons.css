@@ -1493,7 +1493,7 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .evidence-heading > a,
 .section-heading > a,
 .filter-fields > a { display:inline-flex; align-items:center; min-height:24px; }
-details > p > a:only-child { display:inline-block; min-height:24px; align-content:center; }
+.standalone-link { display:inline-block; min-height:24px; align-content:center; }
 @media (max-width:900px), (pointer:coarse) {
   .back-link,
   .source-strip > a,
@@ -1501,7 +1501,7 @@ details > p > a:only-child { display:inline-block; min-height:24px; align-conten
   .evidence-heading > a,
   .section-heading > a,
   .filter-fields > a,
-  details > p > a:only-child,
+  .standalone-link,
   a.result-value { min-height:44px; }
   a.result-value { align-content:center; }
   /* The taller link carries the space the margins used to. */

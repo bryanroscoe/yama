@@ -174,7 +174,7 @@ fn rating_v2(v: &v2::Row, detailed: bool) -> String {
             }
             write!(out, ". Snapshot of {}.</p>", when(&r.as_of.format("%Y-%m-%d").to_string())).unwrap();
         }
-        out.push_str("<p><a href=\"/precons/methodology#v2\">How rating v2 works ↗</a></p></details>");
+        out.push_str("<p><a class=\"standalone-link\" href=\"/precons/methodology#v2\">How rating v2 works ↗</a></p></details>");
     }
     out
 }
@@ -586,7 +586,7 @@ fn real(p: &Precon, detailed: bool) -> String {
             )
             .unwrap();
         }
-        out.push_str("<p><a href=\"/precons/methodology#real\">Real-game sources ↗</a></p></details>");
+        out.push_str("<p><a class=\"standalone-link\" href=\"/precons/methodology#real\">Real-game sources ↗</a></p></details>");
     }
     out
 }

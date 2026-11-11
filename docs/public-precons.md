@@ -47,7 +47,7 @@ In particular, do not publish a private tournament by filtering its output down 
 6. **Inexpensive reads.** Public requests read imported caches, use ETags and `public, max-age=60, must-revalidate`, and count against 120 reads/minute per client address. They never fetch an outside site, start a simulation or change an account. Account/view-as cookies do not affect these responses. The service worker leaves public pages, exports and the sitemap out of the private app-shell cache.
 7. **Release verification.** On deployment, confirm the public hostname and any proxy/Cloudflare Access policy permit the public paths without Google sign-in while private APIs still enforce auth. Public About/privacy/terms wording now distinguishes reference data from private user data. No live policy change has been made by implementation.
 
-The Rust Docker build stage copies `web/src/styles.css`, `web/public/precons.css` and `web/public/site-notice.html`, since the public renderer embeds them with `include_str!`. They must be present during server compilation, independently of the frontend build stage.
+The Rust Docker build stage copies `web/src/styles.css`, `web/public/precons.css`, `web/public/site-frame-v1.css` and `web/public/site-notice.html`, since the public renderer embeds them with `include_str!`. They must be present during server compilation, independently of the frontend build stage.
 
 ## Publishing a ranking
 

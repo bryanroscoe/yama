@@ -57,12 +57,19 @@ pub(crate) const SITE_NAV: [(&str, &str); 4] = [("/precons", "Precons"), ("/comm
 pub(crate) const SITE_FOOT: [(&str, &str); 5] =
     [("/about/", "About"), ("/precons/methodology", "How we rank"), ("/about/#contact", "Help and contact"), ("/privacy/", "Privacy"), ("/tos/", "Terms")];
 
-/// Whether the page at `path` belongs to the header place `href`: the place itself or a page
-/// under it (`/precons/veloci-ramp-tor` under `/precons`).
-fn in_place(path: &str, href: &str) -> bool {
+/// How the page at `path` relates to the header place `href`, as an `aria-current` attribute:
+/// "page" for the place itself, "true" for a page under it (`/precons/veloci-ramp-tor` under
+/// `/precons`), nothing otherwise.
+fn in_place(path: &str, href: &str) -> &'static str {
     let place = href.trim_end_matches('/');
     let path = path.trim_end_matches('/');
-    path == place || path.strip_prefix(place).is_some_and(|rest| rest.starts_with('/'))
+    if path == place {
+        " aria-current=\"page\""
+    } else if path.strip_prefix(place).is_some_and(|rest| rest.starts_with('/')) {
+        " aria-current=\"true\""
+    } else {
+        ""
+    }
 }
 
 /// The header of every public page (styled by web/public/site-frame-v1.css): the wordmark, the
@@ -71,8 +78,7 @@ fn in_place(path: &str, href: &str) -> bool {
 pub(crate) fn site_header(path: &str) -> String {
     let mut s = format!("<a class=\"site-frame-skip\" href=\"#content\">Skip to content</a><header class=\"site-frame-header\"><a class=\"site-frame-wordmark\" href=\"/\" aria-label=\"Yama home\">{WORDMARK}</a><nav aria-label=\"Yama\">");
     for (href, label) in SITE_NAV {
-        let current = if in_place(path, href) { " aria-current=\"page\"" } else { "" };
-        write!(s, "<a href=\"{href}\"{current}>{label}</a>").unwrap();
+        write!(s, "<a href=\"{href}\"{}>{label}</a>", in_place(path, href)).unwrap();
     }
     s.push_str("</nav><a class=\"site-frame-open\" href=\"/\">Open Yama</a></header>");
     s
@@ -576,10 +582,14 @@ mod frame_tests {
 
     #[test]
     fn the_header_marks_the_place_a_page_belongs_to() {
-        let current = |path: &str| -> Vec<&str> { SITE_NAV.iter().filter(|(href, _)| in_place(path, href)).map(|(_, label)| *label).collect() };
+        let current = |path: &str| -> Vec<&str> { SITE_NAV.iter().filter(|(href, _)| !in_place(path, href).is_empty()).map(|(_, label)| *label).collect() };
         assert_eq!(current("/precons"), ["Precons"]);
         assert_eq!(current("/precons/methodology"), ["Precons"]);
         assert_eq!(current("/precons/veloci-ramp-tor"), ["Precons"]);
+        // Only the place itself is the current page; a page under it marks the place, so one
+        // document never claims two current pages (the methodology page is in the footer too).
+        assert!(site_header("/precons/methodology").contains("<a href=\"/precons\" aria-current=\"true\">Precons</a>"));
+        assert!(site_footer("/precons/methodology").contains("<a href=\"/precons/methodology\" aria-current=\"page\">How we rank</a>"));
         assert_eq!(current("/commanders"), ["Commanders"]);
         assert_eq!(current("/docs/mcp/"), ["MCP guide"]);
         assert_eq!(current("/about/"), ["About"]);

@@ -1390,7 +1390,7 @@ Bryan (2026-11-02): "React lazy, showing placards right there before they do, an
 | `/`, `/index.html` and every app route (the shell) | `no-cache` | With `ETag` or `Last-Modified`, so a check is a `304` |
 | `/sw.js` | `no-cache` | Registered as `/sw.js?v=<hash of its source>` |
 | `/manifest.webmanifest`, `/icon*.svg`, `/icon-*.png`, `/apple-touch-icon.png` | `no-cache` | Fixed names; the shell asks for them with `?v=2` |
-| `/select-chevron-v1.svg`, `/card-preview-v1.js`, `/share-copy-v1.js`, `/public-list-v1.js`, `/precons.css`, `/site-notice.html`, `/precon-fonts/*` | `no-cache` | Fixed names used by the server-rendered pages. Later: content-address them as `/precons/assets/` already does for the stylesheet and list script |
+| `/select-chevron-v1.svg`, `/card-preview-v1.js`, `/share-copy-v1.js`, `/public-list-v1.js`, `/precons.css`, `/site-frame-v1.css`, `/site-prose-v1.css`, `/site-notice.html`, `/precon-fonts/*` | `no-cache` | Fixed names used by the server-rendered pages. Later: content-address them as `/precons/assets/` already does for the stylesheet and list script |
 | `/about/`, `/privacy/`, `/tos/`, `/delete-account/`, `/docs/mcp/*` | `no-cache` | Static pages |
 
 - Only addresses that aren't files fall back to `index.html`; a missing file anywhere (a last segment ending in an extension the build ships, such as `.js`, `.css`, `.woff2`, `.png` or `.json`, and everything under `/assets/` and `/ocr/`) is a `404` with `no-store`. Other dots are routes: a plan's deck key may be `deck.v1` (`web_files::FILE_EXTENSIONS`). On 2026-11-02 Cloudflare kept a fallback `index.html` served for a `.js` address for 4 hours.
