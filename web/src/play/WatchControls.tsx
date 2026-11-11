@@ -6,7 +6,7 @@ import { Link, useNavigate } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { ArtPanel } from "../components/ArtPanel";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Segmented } from "../components/ui";
 import { SPEEDS, seatName } from "./watch";
 import type { SeatInfo, Speed, View, WatchStatus } from "./types";
 import { count } from "@yama/core";
@@ -81,13 +81,13 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
           Next move
         </button>
       </div>
-      <div className="segmented watch-speed" role="group" aria-label="Speed">
-        {SPEEDS.map((s) => (
-          <button key={s.speed} type="button" aria-pressed={status.speed === s.speed && !paused} aria-label={s.long} onClick={() => send({ type: "speed", speed: s.speed })}>
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        className="watch-speed"
+        label="Speed"
+        value={paused ? undefined : status.speed}
+        onChange={(speed) => send({ type: "speed", speed })}
+        options={SPEEDS.map((s) => ({ value: s.speed, label: s.label, title: s.long }))}
+      />
       <label className="pb-check watch-reveal">
         <input type="checkbox" checked={status.reveal} onChange={(e) => send({ type: "reveal", on: e.target.checked })} />
         Show every hand

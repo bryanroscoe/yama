@@ -29,7 +29,7 @@ import {
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { Pips, Sheet } from "../components/ui";
+import { Pips, Sheet, Segmented } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
@@ -157,10 +157,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   return (
     <>
       <div className="table-view-switch">
-        <div className="segmented" role="group" aria-label="View">
-          <button aria-pressed={personal} onClick={() => chooseView("mine")}>My seat</button>
-          <button aria-pressed={!personal} onClick={() => chooseView("table")}>Whole table</button>
-        </div>
+        <Segmented label="View" value={personal ? "mine" : "table"} onChange={chooseView} options={[["mine", "My seat"], ["table", "Whole table"]]} />
         <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
         <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
       </div>

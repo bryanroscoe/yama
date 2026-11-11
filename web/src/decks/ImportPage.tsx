@@ -6,7 +6,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from "react-route
 import { api, type DeckSummary, type DeckView, type PreconList, type PublicDeck } from "../api";
 import { AreaHead } from "../components/DeckTabs";
 import { hasDeckNamed } from "../components/calendar";
-import { CardImage, ErrorText, Pips, Loading } from "../components/ui";
+import { CardImage, ErrorText, Pips, Loading, Segmented } from "../components/ui";
 import {
   checks,
   commanderChoices,
@@ -404,14 +404,7 @@ function SaveBar({
         Save
       </h2>
       {decks.length > 0 && (
-        <div className="segmented import-mode" role="tablist" aria-label="New deck or new version">
-          <button type="button" role="tab" aria-selected={mode === "new"} onClick={() => setMode("new")}>
-            New deck
-          </button>
-          <button type="button" role="tab" aria-selected={mode === "update"} onClick={() => setMode("update")}>
-            Update one of your decks
-          </button>
-        </div>
+        <Segmented className="import-mode" label="New deck or new version" value={mode} onChange={setMode} options={[["new", "New deck"], ["update", "Update one of your decks"]]} />
       )}
       {mode === "update" && (
         <div className="stack">

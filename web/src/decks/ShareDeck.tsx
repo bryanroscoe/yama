@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Sheet, Segmented } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 import "./share.css";
 
@@ -142,13 +142,14 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
                   </span>
                 </div>
                 {changing === c.id && (
-                  <div className="segmented share-row-choice" role="group" aria-label={`Who can see ${c.label}`}>
-                    {VISIBILITY_CHOICES.map((v) => (
-                      <button key={v.value} type="button" aria-pressed={c.visibility === v.value} disabled={set.isPending} onClick={() => set.mutate({ id: c.id, visibility: v.value })}>
-                        {v.value === "link" ? "With the link" : v.value === "public" ? "Public" : v.label}
-                      </button>
-                    ))}
-                  </div>
+                  <Segmented
+                    className="share-row-choice"
+                    label={`Who can see ${c.label}`}
+                    value={c.visibility}
+                    disabled={set.isPending}
+                    onChange={(visibility) => set.mutate({ id: c.id, visibility })}
+                    options={VISIBILITY_CHOICES.map((v) => [v.value, v.value === "link" ? "With the link" : v.value === "public" ? "Public" : v.label] as const)}
+                  />
                 )}
               </div>
             ))}

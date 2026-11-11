@@ -1,5 +1,5 @@
 import { identityKeys, MANA } from "@yama/core";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { errorMessage } from "../api";
 
@@ -113,6 +113,60 @@ export function Loading({ children = "Loading…", small = false, page = false, 
     </p>
   );
   return page ? <main className="page">{line}</main> : line;
+}
+
+export interface Segment<T> {
+  value: T;
+  label: ReactNode;
+  disabled?: boolean;
+  /** A longer name for a short label ("3" is "3, Upgraded"): the tooltip and the accessible name. */
+  title?: string;
+}
+
+/**
+ * A pill track for choosing one of two to five views or values of the same thing. Each segment
+ * is a button with `aria-pressed`, in a labelled group: one model for every segmented control.
+ * Options are `{ value, label }` or `[value, label]`. `value` may match none (nothing pressed).
+ * Name the group with `label`, or `labelledBy` when its label is already on the page.
+ */
+export function Segmented<T extends string | number | boolean | null>({
+  label,
+  labelledBy,
+  value,
+  options,
+  onChange,
+  className,
+  disabled = false,
+  compact = false,
+  as: Tag = "div",
+  segmentProps,
+}: {
+  label?: string;
+  labelledBy?: string;
+  value: T | undefined;
+  options: readonly (Segment<T> | readonly [T, ReactNode])[];
+  onChange: (value: T) => void;
+  className?: string;
+  /** Every segment off, while a save is on its way. */
+  disabled?: boolean;
+  /** The smaller track for a toolbar: 13 px labels, tighter padding. */
+  compact?: boolean;
+  as?: "div" | "span";
+  /** Extra attributes for every segment (a picker keeping its field focused, say). */
+  segmentProps?: Pick<ButtonHTMLAttributes<HTMLButtonElement>, "tabIndex" | "onPointerDown">;
+}) {
+  return (
+    <Tag className={cx("segmented", compact && "is-compact", className)} role="group" aria-label={label} aria-labelledby={labelledBy}>
+      {options.map((o) => {
+        const s: Segment<T> = "value" in o ? o : { value: o[0], label: o[1] };
+        return (
+          <button key={String(s.value)} type="button" {...segmentProps} title={s.title} aria-label={s.title} aria-pressed={s.value === value} disabled={disabled || s.disabled} onClick={() => onChange(s.value)}>
+            {s.label}
+          </button>
+        );
+      })}
+    </Tag>
+  );
 }
 
 /**

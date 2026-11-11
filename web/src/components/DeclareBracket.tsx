@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { BRACKETS } from "./Bracket";
-import { ErrorText } from "./ui";
+import { ErrorText, Segmented } from "./ui";
 import "./declare-bracket.css";
 
 export function DeclareBracket({ deckId, declared }: { deckId: string; declared: number | null }) {
@@ -24,13 +24,7 @@ export function DeclareBracket({ deckId, declared }: { deckId: string; declared:
   return (
     <div className="declare-bracket">
       <span className="declare-bracket-label" id={`declare-${deckId}`}>Your bracket</span>
-      <div className="segmented declare-bracket-choices" role="group" aria-labelledby={`declare-${deckId}`}>
-        {choices.map((c) => (
-          <button key={c.label} type="button" title={c.title} aria-label={c.title} aria-pressed={shown === c.value} disabled={set.isPending} onClick={() => shown !== c.value && set.mutate(c.value)}>
-            {c.label}
-          </button>
-        ))}
-      </div>
+      <Segmented className="declare-bracket-choices" labelledBy={`declare-${deckId}`} value={shown} disabled={set.isPending} onChange={(v) => shown !== v && set.mutate(v)} options={choices} />
       <ErrorText error={set.error} />
     </div>
   );

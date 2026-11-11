@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
 import { saveFile } from "../download";
-import { Details, ErrorText, Sheet, EmptyState } from "../components/ui";
+import { Details, ErrorText, Sheet, EmptyState, Segmented } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
 import { shortDate, usd, count, plural } from "@yama/core";
 
@@ -90,11 +90,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           From {from}. To choose cards by hand, move them into a list (New, then List) and open it here. Proxies are never included.
         </p>
 
-        <div className="segmented sell-formats" role="group" aria-label="Format">
-          {(Object.keys(SELL_FORMATS) as SellFormat[]).map((f) => (
-            <button key={f} aria-pressed={format === f} onClick={() => setFormat(f)}>{SELL_FORMATS[f].label}</button>
-          ))}
-        </div>
+        <Segmented className="sell-formats" label="Format" value={format} onChange={setFormat} options={(Object.keys(SELL_FORMATS) as SellFormat[]).map((f) => [f, SELL_FORMATS[f].label] as const)} />
         <p className="small">{info.how}</p>
 
         <div className="sell-filters">

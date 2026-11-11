@@ -6,7 +6,7 @@ import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameR
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Pips, Sheet, Loading } from "../components/ui";
+import { ErrorText, Pips, Sheet, Loading, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
@@ -550,11 +550,7 @@ function Choice<T extends string | number>({ label, options, value, onChange, na
   return (
     <div className="setup-choice">
       <span id={id} className="field-label">{label}</span>
-      <div className="segmented" role="group" aria-labelledby={id}>
-        {options.map((n) => (
-          <button key={n} type="button" aria-pressed={n === value} onClick={() => onChange(n)}>{name(n)}</button>
-        ))}
-      </div>
+      <Segmented labelledBy={id} value={value} onChange={onChange} options={options.map((n) => [n, name(n)] as const)} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Sheet, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import "./deck-settings.css";
 
@@ -111,11 +111,7 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
         {!parent && (
           <div className="deck-settings-field">
             <span className="deck-settings-label" id="own-label">This deck is</span>
-            <div className="segmented deck-settings-own" role="group" aria-labelledby="own-label">
-              {OWNERSHIP.map((o) => (
-                <button key={o.value} type="button" aria-pressed={ownership === o.value} onClick={() => setOwnership(o.value)}>{o.label}</button>
-              ))}
-            </div>
+            <Segmented className="deck-settings-own" labelledBy="own-label" value={ownership} onChange={setOwnership} options={OWNERSHIP} />
           </div>
         )}
         <div className="deck-settings-field">

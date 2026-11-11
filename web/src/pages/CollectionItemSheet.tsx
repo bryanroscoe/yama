@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
-import { CardImage, ErrorText, Sheet, Loading } from "../components/ui";
+import { CardImage, ErrorText, Sheet, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, printingLabel, reprintOps, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -149,10 +149,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         <section className="coll-printing stack" aria-label="Printing">
           <h3>Wrong printing?</h3>
           {item.qty > 1 && (
-            <div className="segmented" role="group" aria-label="Which copies">
-              <button aria-pressed={scope === "all"} onClick={() => setScope("all")}>All {item.qty} copies</button>
-              <button aria-pressed={scope === "one"} onClick={() => setScope("one")}>Just one</button>
-            </div>
+            <Segmented label="Which copies" value={scope} onChange={setScope} options={[["all", `All ${item.qty} copies`], ["one", "Just one"]]} />
           )}
           <div className="row">
             <button aria-expanded={picking} onClick={() => setPicking(!picking)}>Change printing</button>

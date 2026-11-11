@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Sheet, Loading, EmptyState } from "../components/ui";
+import { ErrorText, Sheet, Loading, EmptyState, Segmented } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -301,10 +301,7 @@ function EditList({ id }: { id: string }) {
 
           <section className="edit-list-panel" aria-labelledby="edit-save">
             <h2 id="edit-save">Save it</h2>
-            <div className="segmented edit-list-save-as" role="group" aria-label="Save as">
-              <button type="button" aria-pressed={mode === "box"} onClick={() => setMode("box")}>{ownLabel}</button>
-              <button type="button" aria-pressed={mode === "new"} onClick={() => setMode("new")}>A new list</button>
-            </div>
+            <Segmented className="edit-list-save-as" label="Save as" value={mode} onChange={setMode} options={[["box", ownLabel], ["new", "A new list"]]} />
             {mode === "new" && (
               <label>
                 Name of the new list

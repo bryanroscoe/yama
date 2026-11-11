@@ -1,7 +1,7 @@
 import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
-import { CardImage } from "../components/ui";
+import { CardImage, Segmented } from "../components/ui";
 import { CopyButton } from "../plan/parts";
 import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
@@ -244,10 +244,7 @@ export function CardViews({ cards }: { cards: ListCard[] }) {
   });
   return (
     <div className="note-cards">
-      <div className="segmented note-layout" role="group" aria-label="View">
-        <button type="button" aria-pressed={layout === "stacks"} onClick={() => setLayout("stacks")}>Stacks</button>
-        <button type="button" aria-pressed={layout === "list"} onClick={() => setLayout("list")}>List</button>
-      </div>
+      <Segmented className="note-layout" label="View" value={layout} onChange={setLayout} options={[["stacks", "Stacks"], ["list", "List"]]} />
       {layout === "stacks" ? (
         <div className="deck-stacks note-stacks">
           {groups.map(([group, rows]) => {

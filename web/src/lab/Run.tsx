@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { ErrorText, Pips, Loading } from "../components/ui";
+import { ErrorText, Pips, Loading, Segmented } from "../components/ui";
 import { engineLine, enginesOf, halfOf } from "./engines";
 import type { HalfEngine } from "./logic";
 import type { ComparePrefill, ExperimentDetail, ExperimentItem, ExperimentMode, ExperimentStatus, FieldChoice, PodView, Summary, TryPrefill } from "./api";
@@ -103,13 +103,7 @@ function Again({ e }: { e: ExperimentDetail }) {
   return (
     <div className="lab-again">
       <span className="lab-games-label">Run again</span>
-      <div className="segmented" role="radiogroup" aria-label="Games">
-        {choices.map((g) => (
-          <button key={g} type="button" role="radio" aria-checked={pick === g} aria-pressed={pick === g} onClick={() => setGames(g)}>
-            {g}
-          </button>
-        ))}
-      </div>
+      <Segmented label="Games" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
       <button className="primary" onClick={() => again.mutate()} disabled={again.isPending}>
         {again.isPending ? "Starting…" : pick > perEngine ? `Run again with ${pick} games` : `Run again (${pick} games)`}
       </button>
@@ -155,13 +149,7 @@ function MoreGames({ e }: { e: ExperimentDetail }) {
       </p>
       <div className="lab-again">
         <span className="lab-games-label">Add</span>
-        <div className="segmented" role="radiogroup" aria-label="Games to add">
-          {choices.map((g) => (
-            <button key={g} type="button" role="radio" aria-checked={pick === g} aria-pressed={pick === g} onClick={() => setGames(g)}>
-              {g}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Games to add" value={pick} onChange={setGames} options={choices.map((g) => [g, g] as const)} />
         <button className="primary" onClick={() => more.mutate()} disabled={more.isPending}>
           {more.isPending ? "Adding…" : `Add ${pick} games${each}`}
         </button>

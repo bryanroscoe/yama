@@ -7,7 +7,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { CardImage, Details, ErrorText, Sheet, Loading, EmptyState } from "../components/ui";
+import { CardImage, Details, ErrorText, Sheet, Loading, EmptyState, Segmented } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -202,16 +202,9 @@ export function CollectionPage() {
           <h2 id="coll-cards-h">{heading}</h2>
           {chosen && <button className="outline small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</button>}
           {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
-          <div className="segmented coll-sort" role="group" aria-label="Order">
-            <button aria-pressed={sort === "value"} onClick={() => setSort("value")}>By value</button>
-            <button aria-pressed={sort === "name"} onClick={() => setSort("name")}>By name</button>
-          </div>
+          <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
           {(proxies > 0 || kind !== "all") && (
-            <div className="segmented coll-kind" role="group" aria-label="Real cards or proxies">
-              <button aria-pressed={kind === "all"} onClick={() => setKind("all")}>All</button>
-              <button aria-pressed={kind === "real"} onClick={() => setKind("real")}>Real</button>
-              <button aria-pressed={kind === "proxy"} onClick={() => setKind("proxy")}>Proxies</button>
-            </div>
+            <Segmented className="coll-kind" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
           )}
           {!!items.data?.length && !items.isPlaceholderData && filter.trim() === query && (
             <button className="outline coll-sell" onClick={() => setSelling(true)}>Sell list</button>
