@@ -34,6 +34,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::RwLock;
 
@@ -831,6 +832,10 @@ async fn start_session(st: &AppState, jar: CookieJar, user: User) -> AppResult<(
         .await?;
     // Signing in counts as being seen.
     sqlx::query("UPDATE users SET last_seen_at = ? WHERE id = ?").bind(now()).bind(&user.id).execute(&st.pool).await?;
+    // Housekeeping never fails a sign-in.
+    if let Err(err) = sweep_sessions(&st.pool).await {
+        tracing::warn!(error = %err, "couldn't delete expired sessions");
+    }
     let cookie = Cookie::build((SESSION_COOKIE, token.clone()))
         .path("/")
         .http_only(true)
@@ -839,6 +844,26 @@ async fn start_session(st: &AppState, jar: CookieJar, user: User) -> AppResult<(
         .max_age(time_days(SESSION_DAYS))
         .build();
     Ok((jar.add(cookie), Json(LoginResponse { user, token })))
+}
+
+static LAST_SESSION_SWEEP: AtomicI64 = AtomicI64::new(0);
+const SESSION_SWEEP_EVERY_SECONDS: i64 = 600;
+
+/// Delete expired sessions, at most every ten minutes, when someone signs in (the way `oauth`
+/// sweeps its codes and tokens). A session past its 90 days signs nobody in (`user_for_token`
+/// checks the date), but each sign-in adds a row and nothing ever took one away.
+async fn sweep_sessions(pool: &SqlitePool) -> sqlx::Result<()> {
+    let at = Utc::now().timestamp();
+    let last = LAST_SESSION_SWEEP.load(Ordering::Relaxed);
+    if at - last < SESSION_SWEEP_EVERY_SECONDS || LAST_SESSION_SWEEP.compare_exchange(last, at, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        return Ok(());
+    }
+    delete_expired_sessions(pool).await.map(|_| ())
+}
+
+/// Delete every session whose time is up. Returns how many went.
+async fn delete_expired_sessions(pool: &SqlitePool) -> sqlx::Result<u64> {
+    Ok(sqlx::query("DELETE FROM sessions WHERE expires_at <= ?").bind(now()).execute(pool).await?.rows_affected())
 }
 
 fn time_days(days: i64) -> time::Duration {
@@ -1252,6 +1277,27 @@ mod tests {
         assert!(status.is_success(), "{status}");
         let (status, _) = crate::testutil::send(&app, Method::POST, "/api/auth/logout", None, None).await;
         assert!(status.is_success(), "{status}");
+    }
+
+    #[tokio::test]
+    async fn expired_sessions_are_deleted_and_live_ones_kept() {
+        let (app, pool) = crate::testutil::app().await;
+        let (pat, live) = crate::testutil::user(&pool, "pat@example.com").await;
+        let short = cli_session(&pool, "pat@example.com", 1).await.unwrap();
+        for (hash, expires) in [("old-1", "2020-01-01T00:00:00Z"), ("old-2", "2026-01-01T00:00:00Z")] {
+            sqlx::query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, '2019-10-01T00:00:00Z', ?)")
+                .bind(hash).bind(&pat).bind(expires).execute(&pool).await.unwrap();
+        }
+        assert_eq!(delete_expired_sessions(&pool).await.unwrap(), 2);
+        assert_eq!(delete_expired_sessions(&pool).await.unwrap(), 0);
+        let left: Vec<String> = sqlx::query_scalar("SELECT token_hash FROM sessions ORDER BY token_hash").fetch_all(&pool).await.unwrap();
+        let mut expected = vec![sha256_hex(&live), sha256_hex(&short)];
+        expected.sort();
+        assert_eq!(left, expected);
+        for token in [&live, &short] {
+            let (status, _) = crate::testutil::send(&app, axum::http::Method::GET, "/api/me", Some(token), None).await;
+            assert_eq!(status, axum::http::StatusCode::OK);
+        }
     }
 
     #[tokio::test]

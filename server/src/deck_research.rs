@@ -787,7 +787,9 @@ pub async fn review(pool: &SqlitePool, owner: &str, id: &str, op: &ReviewOp) -> 
         "{id}|{}",
         serde_json::to_string(op).map_err(anyhow::Error::from)?
     ));
-    let mut tx = pool.begin().await?;
+    // Immediate: it reads the op, the note and the answer's version before it writes, and a
+    // deferred transaction that has read can't become a write once another commit lands.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let prior: Option<(String, String)> = sqlx::query_as(
         "SELECT payload_hash,receipt FROM research_review_ops WHERE owner_id=? AND op_id=?",
     )
@@ -1001,6 +1003,8 @@ struct CopyRequest {
 }
 
 async fn copy_route(State(st): State<AppState>, CurrentUser(u): CurrentUser, Json(r): Json<CopyRequest>) -> AppResult<Json<Value>> {
+    // Each copy reads and stores a document of up to MAX_BYTES; tries are counted right or wrong.
+    st.limits.research_copies.check_user(&u)?;
     Ok(Json(copy_shared(&st.pool, &u.id, &r.token, r.op.as_deref()).await?))
 }
 

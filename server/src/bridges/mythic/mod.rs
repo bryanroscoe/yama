@@ -920,7 +920,8 @@ struct Sync<'a> {
 }
 
 async fn sync_game(pool: &SqlitePool, owner: &str, s: Sync<'_>) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
+    // Immediate (here and in `save_game`): the link is read before it is written.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     sync_in(&mut tx, owner, s).await?;
     tx.commit().await?;
     Ok(())
@@ -930,7 +931,7 @@ async fn sync_game(pool: &SqlitePool, owner: &str, s: Sync<'_>) -> AppResult<()>
 /// the game, link and note all as they were, so importing the file again finishes the job.
 async fn save_game(pool: &SqlitePool, owner: &str, game: NewGame, seen: Option<&str>, s: Sync<'_>) -> AppResult<()> {
     crate::games::check_game(pool, owner, &game).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(seen) = seen
         && yama_print(&mut *tx, &game.id).await? != seen
     {
