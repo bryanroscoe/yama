@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeOrAsk, losesAnyWork, losesWork, tabStop, warnBeforeUnload } from "./unsaved";
+import { closeOrAsk, losesAnyWork, losesWork, warnBeforeUnload } from "./unsaved";
 
 describe("leaving with unsaved work", () => {
   it("asks only while there is unsaved work that hasn't just been saved", () => {
@@ -44,21 +44,5 @@ describe("several guards on screen at once", () => {
     expect(losesAnyWork([])).toBe(false);
     // The page's own save lets its navigation through; an untouched sheet doesn't hold it back.
     expect(losesAnyWork([{ ...page, allowed: true }, sheet])).toBe(false);
-  });
-});
-
-describe("Tab inside the question", () => {
-  it("goes round its two buttons and never out to the page behind", () => {
-    expect(tabStop(1, 2, false)).toBe(0);
-    expect(tabStop(0, 2, true)).toBe(1);
-    // In between, the browser's own move is right.
-    expect(tabStop(0, 2, false)).toBeNull();
-    expect(tabStop(1, 2, true)).toBeNull();
-  });
-
-  it("brings focus in when it was somewhere else", () => {
-    expect(tabStop(-1, 2, false)).toBe(0);
-    expect(tabStop(-1, 2, true)).toBe(1);
-    expect(tabStop(-1, 0, false)).toBeNull();
   });
 });

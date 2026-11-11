@@ -11,12 +11,17 @@ import { createContext, useContext, useEffect, useId, useRef, type KeyboardEvent
 /** Open layers, bottom to top. */
 const layers: HTMLElement[] = [];
 let lockedOverflow: string | null = null;
+/** What the open layers made inert. Anything inert for its own reasons isn't here, and is left alone. */
+let madeInert: HTMLElement[] = [];
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
+/** The controls Tab can land on. Where the browser can say (not in jsdom), what CSS hides is left out: focusing it would do nothing and strand Tab. */
 function focusable(root: HTMLElement): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !el.closest("[inert], [hidden]"));
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (el) => !el.closest("[inert], [hidden]") && (typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true })),
+  );
 }
 
 /** Whether `b` comes after `a` in the page, and isn't inside it. */
@@ -33,6 +38,23 @@ function outside(layer: HTMLElement): HTMLElement[] {
     }
   }
   return found;
+}
+
+/**
+ * Only the top layer, and what holds it, stay reachable: Tab, a switch control or a screen reader
+ * can't get to the page or to a layer underneath (aria-modal alone doesn't keep focus in). Worked
+ * out afresh whenever a layer opens or closes, so layers can be siblings and close in any order.
+ */
+function syncInert(): void {
+  for (const el of madeInert) el.inert = false;
+  madeInert = [];
+  const top = layers[layers.length - 1];
+  if (!top) return;
+  for (const el of outside(top)) {
+    if (el.inert) continue;
+    el.inert = true;
+    madeInert.push(el);
+  }
 }
 
 /**
@@ -57,10 +79,7 @@ export function useModalLayer(root: RefObject<HTMLElement | null>, onClose: () =
     else layers.splice(under, 0, layer);
     const top = () => layers[layers.length - 1] === layer;
 
-    // Tab, a switch control or a screen reader can't reach the page under the layer
-    // (aria-modal alone doesn't keep focus in).
-    const madeInert = outside(layer).filter((el) => !el.inert);
-    for (const el of madeInert) el.inert = true;
+    syncInert();
 
     // The page under it stays put.
     if (lockedOverflow === null) {
@@ -105,7 +124,7 @@ export function useModalLayer(root: RefObject<HTMLElement | null>, onClose: () =
       window.removeEventListener("keydown", onWindowKey, true);
       const at = layers.indexOf(layer);
       if (at >= 0) layers.splice(at, 1);
-      for (const el of madeInert) el.inert = false;
+      syncInert();
       if (layers.length === 0 && lockedOverflow !== null) {
         document.body.style.overflow = lockedOverflow;
         lockedOverflow = null;

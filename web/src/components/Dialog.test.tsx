@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useState, type ReactNode } from "react";
+import { act, StrictMode, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dialog, openLayers } from "./Dialog";
@@ -265,6 +265,70 @@ describe("Dialog", () => {
     expect(document.body.style.overflow).toBe("hidden");
     press("Escape");
     expect(first).toHaveBeenCalledTimes(1);
+  });
+
+  it("with two side by side, only the later one is reachable, and they can close in either order", () => {
+    function Side({ a, b }: { a: boolean; b: boolean }) {
+      return (
+        <>
+          <p id="page">Page</p>
+          {a && (
+            <Dialog title="First" onClose={() => {}}>
+              <button id="in-first">One</button>
+            </Dialog>
+          )}
+          {b && (
+            <Dialog title="Second" onClose={() => {}}>
+              <button id="in-second">Two</button>
+            </Dialog>
+          )}
+        </>
+      );
+    }
+    // jsdom keeps `inert` as a property without reflecting the attribute, so walk up by hand.
+    const reachable = (id: string) => {
+      for (let el: HTMLElement | null = document.getElementById(id); el; el = el.parentElement) if (el.inert) return false;
+      return true;
+    };
+    // Both at once: the second is on top and usable, the first is out of reach.
+    show(<Side a b />);
+    expect(openLayers()).toBe(2);
+    expect(reachable("in-second")).toBe(true);
+    expect(reachable("in-first")).toBe(false);
+    expect(reachable("page")).toBe(false);
+    // The one underneath closes first: the page stays out of reach, the top one stays usable.
+    show(<Side a={false} b />);
+    expect(reachable("in-second")).toBe(true);
+    expect(reachable("page")).toBe(false);
+    expect(document.body.style.overflow).toBe("hidden");
+    show(<Side a={false} b={false} />);
+    expect(reachable("page")).toBe(true);
+    // The top one closes first: the one underneath is usable again.
+    show(<Side a b />);
+    show(<Side a b={false} />);
+    expect(reachable("in-first")).toBe(true);
+    expect(reachable("page")).toBe(false);
+    show(<Side a={false} b={false} />);
+    expect(reachable("page")).toBe(true);
+    expect(openLayers()).toBe(0);
+  });
+
+  it("sets itself up once more under StrictMode and leaves nothing behind", () => {
+    show(
+      <StrictMode>
+        <Page />
+      </StrictMode>,
+    );
+    const opener = document.getElementById("opener")!;
+    opener.focus();
+    act(() => opener.click());
+    expect(openLayers()).toBe(1);
+    expect(document.getElementById("nav")!.inert).toBe(true);
+    press("Escape");
+    expect(openLayers()).toBe(0);
+    expect(document.getElementById("nav")!.inert).toBe(false);
+    expect(document.body.style.overflow).toBe("");
+    expect(document.activeElement).toBe(opener);
   });
 
   it("doesn't let a page's own Escape handler run for a dialog's Escape", () => {

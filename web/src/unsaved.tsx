@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBlocker } from "react-router";
+import { Dialog, DialogHead } from "./components/Dialog";
 
 export interface UnsavedGuard {
   /** A way out is waiting for the person's answer. */
@@ -145,60 +146,27 @@ const PROMPT_LAYER = 90;
 /**
  * The question itself, over whatever is open. `what` names the work in the page's own words
  * ("your changes to this list"). Escape and the scrim keep editing: the safe answer. Tab stays
- * within its two buttons; Keep editing puts focus back where it was (the hook's `stay`).
+ * within its two buttons (components/Dialog.tsx); Keep editing puts focus back where it was (the
+ * hook's `stay`).
  */
 export function UnsavedPrompt({ guard, what = "your changes" }: { guard: UnsavedGuard; what?: string }) {
   const { asking, stay } = guard;
-  const dialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!asking) return;
-    // In the capture phase, and stopped there: the sheet underneath has its own Escape listener,
-    // and this Escape answers the question only.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        stay();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const buttons = [...(dialog.current?.querySelectorAll("button") ?? [])];
-      const next = tabStop(buttons.indexOf(document.activeElement as HTMLButtonElement), buttons.length, e.shiftKey);
-      if (next === null) return;
-      e.preventDefault();
-      buttons[next]?.focus();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-    // `stay` is a new function each render and closes over the blocker; the latest is wanted.
-  });
   if (!asking) return null;
+  // The shared Dialog is the top modal layer while it is up: its Escape answers this question
+  // only (not the sheet underneath), and Tab stays within its two buttons.
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: PROMPT_LAYER }}>
-      <div className="scrim" onClick={stay} />
-      <div ref={dialog} className="sheet sheet-centered" role="alertdialog" aria-modal="true" aria-labelledby="unsaved-title" aria-describedby="unsaved-text">
+      <Dialog label="Leave without saving?" alert centered onClose={stay}>
         <div className="stack">
-          <h2 id="unsaved-title">Leave without saving?</h2>
-          <p id="unsaved-text">If you leave now, {what} will be lost.</p>
+          <DialogHead close={false}>Leave without saving?</DialogHead>
+          <p>If you leave now, {what} will be lost.</p>
           <div className="row">
             <button type="button" className="primary" autoFocus onClick={stay}>Keep editing</button>
             <button type="button" onClick={guard.leave}>Leave without saving</button>
           </div>
         </div>
-      </div>
+      </Dialog>
     </div>,
     document.body,
   );
-}
-
-/**
- * Where Tab goes inside the question: round its `count` buttons from the one focused (`at`; -1
- * when focus is somewhere else, which brings it in). Null leaves the browser's own move alone.
- */
-export function tabStop(at: number, count: number, back: boolean): number | null {
-  if (count === 0) return null;
-  if (at < 0) return back ? count - 1 : 0;
-  if (!back && at === count - 1) return 0;
-  if (back && at === 0) return count - 1;
-  return null;
 }
