@@ -3,10 +3,25 @@
 
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { publicOrigin } from "../api";
 import { useMe } from "../auth";
 
 /** Why a power-user page or control isn't there, in a sentence. */
-export const POWER_NOTE = "Simulations, watched AI games and Ask Claude are open to admins and power users for now.";
+export const POWER_NOTE = "Starting simulations, watching AI games and Ask Claude need access that an admin turns on for an account.";
+
+/** Where to ask: the contact on the About page (a server page, so the Android app opens it on the site). */
+export function contactHref(): string {
+  return `${publicOrigin()}/about/#contact`;
+}
+
+/** The note, with what to do about it. */
+export function PowerNote() {
+  return (
+    <>
+      {POWER_NOTE} <a href={contactHref()}>Ask for access</a>.
+    </>
+  );
+}
 
 /** `children` for admins and power users; for anyone else, `head` and a short note. */
 export function PowerOnly({ head, children }: { head?: ReactNode; children: ReactNode }) {
@@ -17,7 +32,7 @@ export function PowerOnly({ head, children }: { head?: ReactNode; children: Reac
     <>
       {head}
       <p className="empty power-only" role="note">
-        {POWER_NOTE} Results stay open to everyone: see the <Link to="/lab">simulated precon rankings</Link>.
+        <PowerNote /> Results stay open to everyone: see the <Link to="/lab">simulated precon rankings</Link>.
       </p>
     </>
   );

@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { usePower } from "../auth";
-import { POWER_NOTE } from "../components/PowerOnly";
+import { PowerNote } from "../components/PowerOnly";
 import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
@@ -63,7 +63,7 @@ export function WatchHome() {
         {power ? (
           status.data?.enabled && decks.data && precons.data && <WatchSetup decks={decks.data} precons={precons.data.precons} />
         ) : (
-          <p className="empty power-only" role="note">{POWER_NOTE}</p>
+          <p className="empty power-only" role="note"><PowerNote /></p>
         )}
         <div className="ph-side">
           <section className="ph-games" aria-labelledby="wh-games-h">

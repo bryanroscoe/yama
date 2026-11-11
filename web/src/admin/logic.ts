@@ -117,7 +117,7 @@ export function sharedSummary(o: SharedOverview): string {
   const parts = [`Spent this month (UTC): ${usd(o.spent_this_month)} of ${usd(o.monthly_usd)}.`];
   if (o.spent_this_month >= o.monthly_usd) parts.push(`Shared questions are paused until ${fmtDate(o.next_month, { month: "long", year: false, utc: true })}.`);
   parts.push(`Models: ${o.models.join(", ")}.`);
-  if (o.key_on_sidecar === false) parts.push("The advisor doesn't hold a shared key yet: run deploy/advisor-shared-key.sh on the Mac.");
+  if (o.key_on_sidecar === false) parts.push("The advisor doesn't hold a shared key yet: run deploy/advisor-shared-key.sh.");
   else if (o.key_on_sidecar == null) parts.push("The advisor didn't say whether it holds the key.");
   return parts.join(" ");
 }

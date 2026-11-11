@@ -312,7 +312,7 @@ export function saveGuestGames() {
         outbox = [...outbox, adopted];
       } catch {
         remaining.push(game);
-        syncState = { ...syncState, error: "Some games are still on this phone. Keep Yama open and try saving them again." };
+        syncState = { ...syncState, error: "Some games are still on this device. Keep Yama open and try saving them again." };
       }
     }
     guestGames = remaining;
@@ -324,7 +324,7 @@ export function saveGuestGames() {
       waitingGuest = null;
     }
   } catch {
-    syncState = { ...syncState, error: "Some games are still on this phone. Keep Yama open and try saving them again." };
+    syncState = { ...syncState, error: "Some games are still on this device. Keep Yama open and try saving them again." };
   } finally {
     // A later adoption can hit quota after an earlier one succeeded. Reconcile those
     // durable account copies and upload them now; keep the remaining guest records.
@@ -623,7 +623,7 @@ export function sync(): Promise<void> {
         }
         if (finished && stillCurrent()) {
           // A tap still settling wasn't in this upload: keep it here rather than retire the game.
-          if (current!.log !== snapshot.log || snapshot.log.some((l) => l.seq > through)) throw new Error("This game has finished on Yama. Your newer changes are kept on this phone; check Game history before continuing.");
+          if (current!.log !== snapshot.log || snapshot.log.some((l) => l.seq > through)) throw new Error("This game has finished on Yama. Your newer changes are kept on this device; check Game history before continuing.");
           current = null;
           derived = null;
           emit(); // Free the obsolete counter before retaining its small ended marker.

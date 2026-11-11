@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useAuthConfig, useLogout, useMe } from "../auth";
+import { contactHref } from "../components/PowerOnly";
 import { ErrorText } from "../components/ui";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { keepStorage } from "../storage";
@@ -40,6 +41,7 @@ export function AccountSettings() {
         <div className="grp-you-row grp-you-actions">
           <button className="outline" onClick={() => logout().catch(setSignOutError)}>Sign out</button>
           <Link className="grp-new" to="/new">What's new in Yama</Link>
+          <a className="grp-new" href={contactHref()}>Help and contact</a>
         </div>
         <ErrorText error={signOutError} />
         {/* Not while an admin views as you (read only), nor for an admin or behind Cloudflare Access, which would make the account again. */}
@@ -57,7 +59,7 @@ function OfflineCardsSetting() {
     <div className="grp-you-row grp-you-stack">
       <div className="grp-you-line">
         <span className="grp-you-text">
-          <b>Cards on this phone</b>
+          <b>Cards on this device</b>
           <span>
             {s.count
               ? `${count(s.count)} cards saved ${saved}, so search works offline`

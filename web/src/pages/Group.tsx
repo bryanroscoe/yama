@@ -347,7 +347,7 @@ function Members({ group }: { group: Playgroup }) {
   );
 }
 
-/** Game history as JSON (shaped for commander-decks' data/games.json) or CSV, one row per seat. */
+/** Game history as JSON (one record per game) or CSV, one row per seat. */
 function ExportGames({ group }: { group?: Playgroup }) {
   // The browser's time zone, so each game's date is the local day it was played, with daylight
   // saving as it was that day. The offset is the fallback if the server doesn't know the zone.
@@ -361,7 +361,7 @@ function ExportGames({ group }: { group?: Playgroup }) {
         <h2 style={{ margin: 0 }}>Export games</h2>
         <HelpPopover label="Export contents and formats">
           <p>Finished games with seats, players, deck versions, who went first, the winner and how, knockouts and fun ratings.</p>
-          <p>The JSON fits commander-decks' data/games.json; the CSV has one row per seat.</p>
+          <p>The JSON has one record per game with its seats; the CSV has one row per seat.</p>
         </HelpPopover>
       </div>
       {/* One grid for both rows, so the JSON and CSV buttons line up in columns. */}

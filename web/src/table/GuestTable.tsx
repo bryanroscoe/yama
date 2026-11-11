@@ -107,7 +107,7 @@ function GuestGame({ gameId }: { gameId: string }) {
         // The relay says why: joining by code is switched off (don't keep trying), or too many
         // tries from this network (wait a minute).
         if (e.code === 4403 || e.code === 4429) {
-          setTurnedAway(e.reason || "The table's relay turned this phone away.");
+          setTurnedAway(e.reason || "The table's relay turned this device away.");
           if (e.code === 4403) return;
           if (!closed) timer = window.setTimeout(open, 60_000);
           return;

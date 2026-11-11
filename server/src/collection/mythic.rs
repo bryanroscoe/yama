@@ -164,9 +164,10 @@ async fn import_mythic(State(st): State<AppState>, CurrentUser(user): CurrentUse
     st.limits.imports.check_user(&user)?;
     if user.limited && body.len() > OPEN_MYTHIC_MAX_BYTES {
         return Err(AppError::bad(format!(
-            "That file is {} KB. Accounts that joined without an invite can import up to {} KB at a time.",
+            "That file is {} KB. Your account can import up to {} KB at a time. {}",
             body.len() / 1024,
-            OPEN_MYTHIC_MAX_BYTES / 1024
+            OPEN_MYTHIC_MAX_BYTES / 1024,
+            crate::auth::ASK_FOR_MORE
         )));
     }
     Ok(Json(import_mythic_csv(&st.pool, &user.id, &body, opts).await?))

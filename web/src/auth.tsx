@@ -149,7 +149,7 @@ export function useDeleteAccount() {
         if (!(e instanceof ApiError)) {
           answerLost.current = true;
           await clearPlans();
-          throw new Error("Couldn't reach Yama. Try again when you're online; if your account was already deleted, that finishes signing this phone out.");
+          throw new Error("Couldn't reach Yama. Try again when you're online; if your account was already deleted, that finishes signing this device out.");
         }
         if (e.status !== 401) throw e;
         if (!answerLost.current) throw new Error("Your sign-in has run out. Sign in again to delete your account.");

@@ -393,7 +393,7 @@ async fn routes_check_seats_decks_and_owners() {
     // Watched AI games are for admins and power users only (2026-10-31).
     let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&kim_token), Some(json!({"seats": [seat(&deck), seat(&deck)]}))).await;
     assert_eq!(code, StatusCode::FORBIDDEN, "{body}");
-    assert!(body.to_string().contains("power users"), "{body}");
+    assert_eq!(body["error"], crate::auth::POWER_ONLY, "{body}");
     // Seat counts, levels and LLM seats.
     let (code, body) = testutil::send(&app, Method::POST, "/api/watch", Some(&ann_token), Some(json!({"seats": [seat(&deck)]}))).await;
     assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");

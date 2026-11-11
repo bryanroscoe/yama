@@ -268,7 +268,7 @@ function Report({ report: r, view, applied }: { report: ImportReport; view: Plan
       )}
       {r.existing_decks.length > 0 && (
         <p className="small dim">
-          Your Yama decks in the folder "commander-decks" ({r.existing_decks.map((d) => d.name).join(", ")}) aren't changed by an import.
+          An import doesn't change these Yama decks: {r.existing_decks.map((d) => d.name).join(", ")}.
         </p>
       )}
     </div>
