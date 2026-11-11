@@ -5,11 +5,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useModalLayer } from "../components/Dialog";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, ApiError, type DeckView } from "../api";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Dialog, Loading } from "../components/ui";
+import { Button, ButtonLink, Details, Dialog, ErrorText, Loading } from "../components/ui";
 import { NameEntry } from "../scanner/NameEntry";
 import type { ScanCatalog } from "../scanner";
 import {
@@ -67,16 +67,16 @@ export function DeckScanPage() {
           </p>
           <ScanProgress draft={draft} setDraft={setDraft} />
           <div className="row deck-scan-start">
-            <button className="primary" onClick={() => setCamera(true)}>{p.count ? "Scan more cards" : "Scan with the camera"}</button>
+            <Button variant="primary" onClick={() => setCamera(true)}>{p.count ? "Scan more cards" : "Scan with the camera"}</Button>
             <NameEntry placeholder="Or type a card's name" onPick={(name) => setDraft((x) => addCard(x, name, { typed: true }))} />
           </div>
           <ScannedList draft={draft} setDraft={setDraft} />
           <div className="row">
-            <button className="primary" disabled={!p.count} onClick={() => setStep("review")}>Check the changes</button>
+            <Button variant="primary" disabled={!p.count} onClick={() => setStep("review")}>Check the changes</Button>
             {p.count > 0 && (
-              <button className="quiet" onClick={async () => (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
+              <Button variant="quiet" onClick={async () => (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
                 Start over
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -131,9 +131,9 @@ function ScanProgress({ draft, setDraft }: { draft: ScanDraft; setDraft: SetDraf
         // The commander often lives outside the box, in a sleeve on the table.
         <div className="row">
           {p.missingCommanders.map((n) => (
-            <button key={n} className="outline small" onClick={() => setDraft((x) => addCard(x, n, { typed: true }))}>
+            <Button key={n} variant="outline" size="small" onClick={() => setDraft((x) => addCard(x, n, { typed: true }))}>
               Add {n} without scanning
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -162,12 +162,12 @@ function ScannedList({ draft, setDraft }: { draft: ScanDraft; setDraft: SetDraft
                 {g.duplicate && <span className="deck-scan-tag is-warn">{g.count} copies</span>}
               </span>
               <span className="deck-scan-actions">
-                <button className="quiet small" onClick={() => setFixing(fixing === last ? null : last)} aria-expanded={fixing === last} aria-label={`Change ${g.name}`}>
+                <Button variant="quiet" size="small" onClick={() => setFixing(fixing === last ? null : last)} aria-expanded={fixing === last} aria-label={`Change ${g.name}`}>
                   Change
-                </button>
-                <button className="quiet small" onClick={() => setDraft((x) => removeCard(x, last))} aria-label={g.count > 1 ? `Remove one ${g.name}` : `Remove ${g.name}`}>
+                </Button>
+                <Button variant="quiet" size="small" onClick={() => setDraft((x) => removeCard(x, last))} aria-label={g.count > 1 ? `Remove one ${g.name}` : `Remove ${g.name}`}>
                   {g.count > 1 ? "Remove one" : "Remove"}
-                </button>
+                </Button>
               </span>
             </div>
             {fixing === last && (
@@ -180,15 +180,15 @@ function ScannedList({ draft, setDraft }: { draft: ScanDraft; setDraft: SetDraft
                     setFixing(null);
                   }}
                 />
-                <button
-                  className="outline small"
+                <Button
+                  variant="outline" size="small"
                   onClick={() => {
                     setDraft((x) => toggleCommander(x, g.name));
                     setFixing(null);
                   }}
                 >
                   {g.commander ? "It's not the commander" : "Make it the commander"}
-                </button>
+                </Button>
               </div>
             )}
           </li>
@@ -285,7 +285,7 @@ function Camera({ deck, draft, setDraft, onClose }: { deck: DeckView; draft: Sca
       ) : (
         <div className="sheet stack">
           <p>{error ?? "Starting the scanner…"}</p>
-          <button onClick={onClose}>Close</button>
+          <Button onClick={onClose}>Close</Button>
         </div>
       )}
     </div>
@@ -366,7 +366,7 @@ function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: 
           )}
           {stale && (
             <p className="error">
-              The deck's list changed since this check, so nothing was saved. <button className="quiet small" onClick={() => { save.reset(); void check.refetch(); }}>Check again</button>
+              The deck's list changed since this check, so nothing was saved. <Button variant="quiet" size="small" onClick={() => { save.reset(); void check.refetch(); }}>Check again</Button>
             </p>
           )}
           {!stale && <ErrorText error={save.error} />}
@@ -374,11 +374,11 @@ function Review({ deck, draft, ops, onBack, onSaved }: { deck: DeckView; draft: 
       )}
       <div className="row">
         {c && !c.same && (
-          <button className="primary" disabled={!c || c.unknown.length > 0 || save.isPending || stale} onClick={() => save.mutate()}>
+          <Button variant="primary" disabled={!c || c.unknown.length > 0 || save.isPending || stale} onClick={() => save.mutate()}>
             {save.isPending ? "Saving…" : makeCurrent ? "Save as the deck's new list" : "Save in History"}
-          </button>
+          </Button>
         )}
-        <button onClick={onBack}>Back to the scan</button>
+        <Button onClick={onBack}>Back to the scan</Button>
       </div>
     </section>
   );
@@ -441,8 +441,8 @@ function Saved({ deck, saved }: { deck: DeckView; saved: ScanSaved }) {
         </p>
       )}
       <div className="row">
-        <Link className="button primary" to={`/decks/${deck.id}`}>Open the deck</Link>
-        {saved.changed && saved.current && <Link className="button" to={`/decks/${deck.id}?collect=1`}>Add to my collection</Link>}
+        <ButtonLink variant="primary" to={`/decks/${deck.id}`}>Open the deck</ButtonLink>
+        {saved.changed && saved.current && <ButtonLink to={`/decks/${deck.id}?collect=1`}>Add to my collection</ButtonLink>}
       </div>
     </section>
   );

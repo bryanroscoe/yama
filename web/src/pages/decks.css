@@ -348,8 +348,6 @@
 .deck-delete-choice { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .deck-delete-choice legend { padding: 0 4px; font-weight: 700; overflow-wrap: anywhere; }
 .deck-delete-choice label { display: flex; align-items: center; gap: 8px; min-height: var(--target); font-weight: 400; }
-.deck-delete-sheet button.deck-danger { background: var(--bad); border-color: var(--bad); color: var(--ground); }
-.deck-delete-sheet button.deck-danger:disabled { background: var(--raised); border-color: var(--raised); color: var(--dim); opacity: 1; }
 .deck-sources { margin-top: 24px; }
 .deck-page .hero-title { overflow-wrap: anywhere; line-height: .9; }
 @media (max-width: 899px) {

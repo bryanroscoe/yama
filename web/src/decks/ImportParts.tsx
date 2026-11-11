@@ -1,7 +1,7 @@
 // Pieces Add a deck (/decks/import) and Edit the list (/decks/:id/edit) share.
 import { useState } from "react";
 import { CardHover } from "../components/CardRef";
-import { CardImage } from "../components/ui";
+import { Button, CardImage } from "../components/ui";
 import { GUIDES, guideFor } from "./guides";
 import { dropUnknown, fixUnknown, type Draft, type ImportCard, type ImportPreview } from "./importLogic";
 
@@ -12,16 +12,15 @@ export function GuideTabs({ guideKey, setGuideKey }: { guideKey: string | null; 
     <>
       <div className="import-sources" role="tablist" aria-label="Where your deck is">
         {GUIDES.map((g) => (
-          <button
+          <Button
             key={g.key}
-            type="button"
             role="tab"
             aria-selected={guideKey === g.key}
             className={`import-source${guideKey === g.key ? " active" : ""}`}
             onClick={() => setGuideKey(guideKey === g.key ? null : g.key)}
           >
             {g.name}
-          </button>
+          </Button>
         ))}
       </div>
       {guide && (
@@ -53,13 +52,13 @@ export function UnknownLines({ draft, setDraft }: { draft: Draft; setDraft: (d: 
             </p>
             <div className="import-suggest">
               {u.suggestions.map((s) => (
-                <button key={s.oracle_id} type="button" onClick={() => setDraft(fixUnknown(draft, i, s))}>
+                <Button key={s.oracle_id} onClick={() => setDraft(fixUnknown(draft, i, s))}>
                   {s.name}
-                </button>
+                </Button>
               ))}
-              <button type="button" className="quiet" onClick={() => setDraft(dropUnknown(draft, i))}>
+              <Button variant="quiet" onClick={() => setDraft(dropUnknown(draft, i))}>
                 Leave it out
-              </button>
+              </Button>
             </div>
           </li>
         ))}
@@ -79,15 +78,15 @@ export function CommanderPicker({ choices, current, onPick }: { choices: ImportC
       <p className="small dim">Who leads this deck? Pick one, or two partners.</p>
       <div className="import-picker-grid">
         {choices.map((k) => (
-          <button key={k.oracle_id} type="button" className={`import-pick${picked.includes(k.oracle_id) ? " active" : ""}`} aria-pressed={picked.includes(k.oracle_id)} onClick={() => toggle(k.oracle_id)}>
+          <Button key={k.oracle_id} className={`import-pick${picked.includes(k.oracle_id) ? " active" : ""}`} aria-pressed={picked.includes(k.oracle_id)} onClick={() => toggle(k.oracle_id)}>
             <CardImage src={k.print_image ?? k.image_small} name={k.name} />
             <span><CardHover name={k.name}/></span>
-          </button>
+          </Button>
         ))}
       </div>
-      <button type="button" className="primary" disabled={!picked.length} onClick={() => onPick(picked)}>
+      <Button variant="primary" disabled={!picked.length} onClick={() => onPick(picked)}>
         {picked.length === 2 ? "Use these two" : "Use this commander"}
-      </button>
+      </Button>
     </div>
   );
 }

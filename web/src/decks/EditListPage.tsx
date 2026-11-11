@@ -11,7 +11,7 @@ import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
-import { ErrorText, Dialog, Loading, EmptyState, Segmented } from "../components/ui";
+import { Button, Dialog, EmptyState, ErrorText, Loading, Segmented } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
 import { usePlan } from "../plan/store";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
@@ -258,18 +258,18 @@ function EditList({ id }: { id: string }) {
             <h2 id="edit-start">Start from</h2>
             <div className="edit-list-starts">
               {buttons.map((s) => (
-                <button key={s.id} type="button" aria-pressed={current?.id === s.id} onClick={() => pick(s)}>{s.label}</button>
+                <Button key={s.id} aria-pressed={current?.id === s.id} onClick={() => pick(s)}>{s.label}</Button>
               ))}
             </div>
-            <button type="button" className="outline edit-list-another" aria-pressed={!!current && !buttons.some((b) => b.id === current.id)} onClick={() => setAnother(true)}>
+            <Button variant="outline" className="edit-list-another" aria-pressed={!!current && !buttons.some((b) => b.id === current.id)} onClick={() => setAnother(true)}>
               {current && !buttons.some((b) => b.id === current.id) ? current.label : "Another list"}
-            </button>
+            </Button>
             {replacing && (
               <div className="edit-list-confirm" role="alert">
                 <span>Replace your edits with {replacing.label}?</span>
                 <span className="row">
-                  <button type="button" onClick={() => load(replacing)}>Replace</button>
-                  <button type="button" className="quiet" onClick={() => setReplacing(null)}>Keep editing</button>
+                  <Button onClick={() => load(replacing)}>Replace</Button>
+                  <Button variant="quiet" onClick={() => setReplacing(null)}>Keep editing</Button>
                 </span>
               </div>
             )}
@@ -285,8 +285,8 @@ function EditList({ id }: { id: string }) {
               <textarea {...list.boxProps} aria-busy={list.sourceLoading} spellCheck={false} autoCapitalize="off" autoCorrect="off" />
             </label>
             <div className="edit-list-tools" role="toolbar" aria-label="Get a list">
-              <button type="button" onClick={() => void list.pasteFromClipboard()}>Paste</button>
-              <button type="button" onClick={() => fileInput.current?.click()}>Choose a file</button>
+              <Button onClick={() => void list.pasteFromClipboard()}>Paste</Button>
+              <Button onClick={() => fileInput.current?.click()}>Choose a file</Button>
               <input
                 ref={fileInput}
                 type="file"
@@ -297,9 +297,9 @@ function EditList({ id }: { id: string }) {
                   e.target.value = "";
                 }}
               />
-              <button type="button" onClick={() => setGuides(true)}>From another site</button>
+              <Button onClick={() => setGuides(true)}>From another site</Button>
               {edited && startText !== null && (
-                <button type="button" className="quiet" onClick={() => list.setUserText(startText)}>Reset to the start list</button>
+                <Button variant="quiet" onClick={() => list.setUserText(startText)}>Reset to the start list</Button>
               )}
             </div>
             {list.sourceLoading && <Loading small>Loading the list…</Loading>}
@@ -346,7 +346,7 @@ function EditList({ id }: { id: string }) {
               </ul>
             )}
             {pairs.length > shown.length && (
-              <button type="button" className="quiet edit-list-all" onClick={() => setAll(true)}>Show all {pairs.length}</button>
+              <Button variant="quiet" className="edit-list-all" onClick={() => setAll(true)}>Show all {pairs.length}</Button>
             )}
             {c && (
               c.problems.length ? (
@@ -359,7 +359,7 @@ function EditList({ id }: { id: string }) {
             )}
             {c && c.considering > 0 && <p className="small dim edit-list-considering">{plural(c.considering, "card")} under Considering, kept with the deck but not in it.</p>}
             {draft && cmdrs.length > 0 && !choosing && commanderChoices(draft).length > cmdrs.length && (
-              <button type="button" className="quiet edit-list-all" onClick={() => setChoosing(true)}>Choose a different commander</button>
+              <Button variant="quiet" className="edit-list-all" onClick={() => setChoosing(true)}>Choose a different commander</Button>
             )}
             <Skipped preview={preview} />
           </section>
@@ -381,16 +381,16 @@ function EditList({ id }: { id: string }) {
               <div className="edit-list-confirm" role="alert">
                 <span>This list changed somewhere else since you opened it.</span>
                 <span className="row">
-                  <button type="button" onClick={() => void restart()}>Start again from it</button>
-                  <button type="button" className="quiet" onClick={() => setMode("new")}>Save as a new list</button>
+                  <Button onClick={() => void restart()}>Start again from it</Button>
+                  <Button variant="quiet" onClick={() => setMode("new")}>Save as a new list</Button>
                 </span>
               </div>
             )}
             {!(mode === "box" && moved) && <ErrorText error={save.error} />}
             <div className="edit-list-save-row">
-              <button type="button" className="primary" disabled={blocked} onClick={() => save.mutate()}>
+              <Button variant="primary" disabled={blocked} onClick={() => save.mutate()}>
                 {save.isPending ? "Saving…" : mode === "new" ? "Save as a new list" : d.parent_id ? `Save ${ownLabel}` : "Save the list in the box"}
-              </button>
+              </Button>
               {mode === "box" && <span className="small dim">The current list stays in History.</span>}
             </div>
           </section>

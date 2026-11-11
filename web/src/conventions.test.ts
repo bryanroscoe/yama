@@ -148,7 +148,7 @@ describe("choosing one of a few uses the shared control", () => {
 describe("buttons use the shared components", () => {
   const BUTTON = "web/src/components/Button.tsx";
   // The areas still to move over, one pull request each. This list only shrinks: don't add to it.
-  const NOT_YET = /^web\/src\/(admin|advisor|bridges|datasets|decks|lab|oauth|pages|plan|play|research|scanner|table)\//;
+  const NOT_YET = /^web\/src\/(admin|advisor|bridges|datasets|lab|oauth|pages|plan|play|research|scanner|table)\//;
 
   it("no page writes a raw <button>", () => {
     // Use <Button> from components/ui: variant="primary", "outline", "quiet" or "destructive"
