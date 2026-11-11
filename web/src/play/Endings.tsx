@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { WIN_CONDITIONS, type WinCondition } from "@yama/core";
 import { api } from "../api";
+import { useMe } from "../auth";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
 import type { OnlineGame, Out, SeatInfo, Stats, View } from "./types";
@@ -155,7 +156,10 @@ export function GameOver(props: {
   // What this player has answered on this screen. Until they do, the saved answers show: the
   // engine's reading of how the game was won, and a rating given earlier.
   const [answers, setAnswers] = useState<{ how?: WinCondition | null; fun?: number | null }>({});
-  const host = names.you === 0;
+  // The host by account, not by seat: a table whose host chose who goes first is numbered from
+  // that player, so the host isn't always seat 1.
+  const me = useMe();
+  const host = !!game && !!me.data && game.host === me.data.id;
   // The game's record: its group, when it started and ended, and a rematch once the host starts one.
   useEffect(() => {
     let stop = false;

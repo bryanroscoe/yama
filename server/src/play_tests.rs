@@ -1929,3 +1929,115 @@ async fn a_seated_player_answers_the_end_of_game_questions() {
     assert_eq!(post("drawn", &friend_token, serde_json::json!({ "fun": 5 })).await.0, StatusCode::OK);
     assert_eq!(stored("drawn").await, (None, vec![None, Some(5), None]));
 }
+
+#[tokio::test]
+async fn the_host_chooses_who_goes_first_and_seats_a_precon_for_the_computer() {
+    use crate::testutil::{deck as make_deck, send as request, user};
+    use axum::http::{Method, StatusCode};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let hub = st.play.clone();
+    let pool = st.pool.clone();
+    let app = crate::routes::app(st);
+    let (host, token) = user(&pool, "setup-host@example.com").await;
+    let (deck_id, version) = make_deck(&pool, &host, "Host's deck").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(serde_json::to_string(&cards).unwrap()).bind(&version).execute(&pool).await.unwrap();
+    // A stock precon the engine's small card fixture can play.
+    let stock = vec![
+        crate::lab::PreconCard { name: "Combat Celebrant".into(), oracle_id: None, qty: 1, board: crate::decks::Board::Commander },
+        crate::lab::PreconCard { name: "Mountain".into(), oracle_id: None, qty: 99, board: crate::decks::Board::Main },
+    ];
+    sqlx::query("INSERT INTO precons (id, lab_id, name, set_code, commanders, color_identity, cards, source, content_sha256, imported_at) VALUES ('test-precon','precons/test-precon','Test Precon','TST','[\"Combat Celebrant\"]','R',?,'fixture','hash','2026-11-11')")
+        .bind(serde_json::to_string(&stock).unwrap()).execute(&pool).await.unwrap();
+
+    let seats = serde_json::json!([
+        { "kind": "me", "deck_id": deck_id },
+        { "kind": "ai", "precon_id": "test-precon", "difficulty": "Easy" },
+        { "kind": "ai", "deck_id": deck_id, "difficulty": "Easy" },
+    ]);
+    // The first player must be a seat, and the precon must exist.
+    let (status, _) = request(&app, Method::POST, "/api/play", Some(&token), Some(serde_json::json!({ "seats": seats, "first": 3 }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut unknown = seats.clone();
+    unknown[1]["precon_id"] = serde_json::json!("no-such-precon");
+    let (status, _) = request(&app, Method::POST, "/api/play", Some(&token), Some(serde_json::json!({ "seats": unknown }))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Seat 2 (the precon) goes first. No friend to wait for, so the game starts at once.
+    let (status, made) = request(&app, Method::POST, "/api/play", Some(&token), Some(serde_json::json!({ "seats": seats, "first": 1 }))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
+    let r = load_row(&pool, &id).await.unwrap();
+    assert_eq!(r.stage, "live");
+    // The table is numbered from the first player, in the same order round the table.
+    let now = r.seats();
+    assert_eq!(now.iter().map(|s| s.seat).collect::<Vec<_>>(), vec![0, 1, 2]);
+    assert_eq!((now[0].kind.as_str(), now[0].deck_id.as_deref(), now[0].deck_version_id.as_deref(), now[0].deck_name.as_deref()), ("ai", Some("precon:test-precon"), None, Some("Test Precon")));
+    assert_eq!((now[1].kind.as_str(), now[1].deck_id.as_deref()), ("ai", Some(deck_id.as_str())));
+    assert_eq!((now[2].kind.as_str(), now[2].user_id.as_deref()), ("human", Some(host.as_str())));
+    let (first_seat, replay): (Option<i64>, String) =
+        sqlx::query_as("SELECT g.first_seat, o.replay FROM games g JOIN online_games o ON o.game_id = g.id WHERE g.id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+    let replay: serde_json::Value = serde_json::from_str(&replay).unwrap();
+    assert_eq!((first_seat, replay["header"]["first_player"].as_u64()), (Some(0), Some(0)));
+    // The precon's seat is on the game record without a deck version: it's on no deck's record.
+    let stored: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT seat, user_id, ai_kind, deck_version_id, deck_label FROM game_seats WHERE game_id = ? ORDER BY seat").bind(&id).fetch_all(&pool).await.unwrap();
+    assert_eq!(stored[0], (0, None, Some("phase-ai Easy".into()), None, Some("Test Precon".into())));
+    assert_eq!((stored[2].0, stored[2].1.as_deref(), stored[2].3.as_deref()), (2, Some(host.as_str()), Some(version.as_str())));
+    hub.stop(&id);
+
+    // A rematch starts from the host again, with the precon still in the computer's seat, and
+    // rolls for first.
+    sqlx::query("UPDATE online_games SET stage = 'over' WHERE game_id = ?").bind(&id).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE games SET status = 'finished' WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    let (status, again) = request(&app, Method::POST, &format!("/api/play/{id}/rematch"), Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    let lobby = load_row(&pool, again["id"].as_str().unwrap()).await.unwrap();
+    let seats = lobby.seats();
+    assert_eq!((lobby.stage.as_str(), lobby.first_seat), ("lobby", None));
+    assert_eq!(seats[0].user_id.as_deref(), Some(host.as_str()));
+    assert_eq!((seats[1].deck_id.as_deref(), seats[1].deck_version_id.as_deref()), (Some("precon:test-precon"), None));
+    assert_eq!(seats[2].deck_id.as_deref(), Some(deck_id.as_str()));
+    // The lobby's page says the seat is ready and that first is rolled for.
+    let (_, page) = request(&app, Method::GET, &format!("/api/play/{}", lobby.game_id), Some(&token), None).await;
+    assert_eq!((&page["seats"][1]["ready"], page.get("first")), (&serde_json::json!(true), None));
+}
+
+#[tokio::test]
+async fn a_table_without_a_chosen_first_player_records_the_engines_roll() {
+    use crate::testutil::{deck as make_deck, user};
+    let mut st = crate::testutil::state().await;
+    st.play = ready_hub(None);
+    let pool = st.pool.clone();
+    let (host, _) = user(&pool, "roll-host@example.com").await;
+    let (friend, _) = user(&pool, "roll-friend@example.com").await;
+    let cards = vec![
+        crate::decks::DeckCard { oracle_id: "commander".into(), name: "Combat Celebrant".into(), qty: 1, board: crate::decks::Board::Commander },
+        crate::decks::DeckCard { oracle_id: "land".into(), name: "Island".into(), qty: 99, board: crate::decks::Board::Main },
+    ];
+    let mut seats = Vec::new();
+    for (n, account) in [&host, &friend].into_iter().enumerate() {
+        let (deck, version) = make_deck(&pool, account, "Deck").await;
+        sqlx::query("UPDATE deck_versions SET cards=? WHERE id=?").bind(serde_json::to_string(&cards).unwrap()).bind(&version).execute(&pool).await.unwrap();
+        let mut s = seat(n as u8, "Player");
+        s.user_id = Some(account.to_string());
+        s.deck_id = Some(deck);
+        s.deck_version_id = Some(version);
+        seats.push(s);
+    }
+    sqlx::query("INSERT INTO games(id,mode,created_by,status,started_at) VALUES('rolled','online',?,'in_progress','2026-11-11T00:00:00Z')").bind(&host).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games(game_id,code,host_id,stage,seats,created_at,updated_at) VALUES('rolled','ROLLED',?,'lobby',?,'t','t')")
+        .bind(&host).bind(serde_json::to_string(&seats).unwrap()).execute(&pool).await.unwrap();
+    start_game(&st, "rolled", &host).await.unwrap();
+    // Nobody chose: the seats keep their places and the record says who the engine picked.
+    let r = load_row(&pool, "rolled").await.unwrap();
+    assert_eq!(r.seats().iter().map(|s| s.user_id.clone().unwrap()).collect::<Vec<_>>(), vec![host.clone(), friend.clone()]);
+    let replay: String = sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id='rolled'").fetch_one(&pool).await.unwrap();
+    assert!(serde_json::from_str::<serde_json::Value>(&replay).unwrap()["header"]["first_player"].is_null());
+    assert!(matches!(r.first_seat, Some(0 | 1)), "the engine's pick is one of the two seats: {:?}", r.first_seat);
+    st.play.stop("rolled");
+}

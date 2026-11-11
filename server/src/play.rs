@@ -747,6 +747,58 @@ pub(crate) struct SeatCfg {
     pub(crate) bracket: Option<i64>,
 }
 
+/// The stock precon a computer's seat plays (`deck_id` "precon:<id>", as Watch seats them),
+/// if it plays one rather than one of the host's decks.
+fn precon_of(s: &SeatCfg) -> Option<&str> {
+    s.deck_id.as_deref().filter(|_| s.kind == "ai")?.strip_prefix("precon:")
+}
+
+/// The seat has a player and a deck: a saved deck version, or a precon for the computer.
+fn seated(s: &SeatCfg) -> bool {
+    s.deck_version_id.is_some() || precon_of(s).is_some()
+}
+
+/// A stock precon in a computer's seat. Its list is read from the precon catalog when the game
+/// starts; no deck version is involved, so the game is on no deck's record.
+async fn precon_seat(pool: &SqlitePool, seat: u8, id: &str, difficulty: Option<&str>) -> AppResult<SeatCfg> {
+    let (name, commanders, identity): (String, String, String) = sqlx::query_as("SELECT name, commanders, color_identity FROM precons WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AppError::NotFound("precon"))?;
+    let commanders: Vec<String> = serde_json::from_str(&commanders).unwrap_or_default();
+    let commander = (!commanders.is_empty()).then(|| commanders.join(" and "));
+    Ok(SeatCfg {
+        seat,
+        kind: "ai".into(),
+        user_id: None,
+        name: commander.clone().unwrap_or_else(|| name.clone()),
+        deck_id: Some(format!("precon:{id}")),
+        deck_version_id: None,
+        deck_name: Some(name),
+        color_identity: identity,
+        commander,
+        difficulty: Some(difficulty.unwrap_or("Medium").into()),
+        bracket: None,
+    })
+}
+
+/// A precon's stock list as deck cards, for the engine.
+async fn precon_cards(pool: &SqlitePool, id: &str) -> AppResult<Vec<DeckCard>> {
+    let cards: String = sqlx::query_scalar("SELECT cards FROM precons WHERE id = ?").bind(id).fetch_optional(pool).await?.ok_or(AppError::NotFound("precon"))?;
+    let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(&cards).map_err(anyhow::Error::from)?;
+    Ok(cards.into_iter().map(|c| DeckCard { oracle_id: c.oracle_id.unwrap_or_default(), name: c.name, qty: i64::from(c.qty), board: c.board }).collect())
+}
+
+/// The cards a seat brings to the game: its saved deck version, or its precon's stock list.
+async fn seat_cards(pool: &SqlitePool, s: &SeatCfg) -> AppResult<Vec<DeckCard>> {
+    match (precon_of(s), &s.deck_version_id) {
+        (Some(precon), _) => precon_cards(pool, precon).await,
+        (None, Some(version)) => Ok(load_version_cards(pool, version).await?),
+        (None, None) => Err(AppError::Conflict("every seat needs a player and a deck".into())),
+    }
+}
+
 fn ai_seats(seats: &[SeatCfg]) -> Vec<(u8, Difficulty)> {
     seats
         .iter()
@@ -792,7 +844,7 @@ pub(crate) fn seat_infos(seats: &[SeatCfg], estimates: &HashMap<String, Estimate
                 commander_art,
                 commander_artist,
                 color_identity: s.color_identity.clone(),
-                ready: s.deck_version_id.is_some(),
+                ready: seated(s),
                 bracket: s.bracket,
                 estimate: s.deck_version_id.as_ref().and_then(|v| estimates.get(v)).cloned(),
             }
@@ -851,6 +903,10 @@ struct OnlineGame {
     turns: Option<i64>,
     /// The playgroup whose stats the game counts toward.
     playgroup: Option<String>,
+    /// A table that hasn't started: the seat the host chose to go first. None means the engine
+    /// rolls for it when the game starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first: Option<u8>,
     /// How a finished game was won (`crate::stats::WIN_CONDITIONS`): read from the knockouts that
     /// ended it, or what a player said on the game-over screen.
     win_condition: Option<String>,
@@ -918,12 +974,13 @@ struct Row {
     engine_version: Option<String>,
     game_status: Option<String>,
     win_condition: Option<String>,
+    first_seat: Option<i64>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
 const ROW_SELECT: &str =
     "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
-     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status, g.win_condition
+     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status, g.win_condition, g.first_seat
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -1041,6 +1098,7 @@ fn summarize(
         winner: if r.stage == "over" { r.winner_seat.and_then(|w| u8::try_from(w).ok()) } else { None },
         turns: if r.stage == "over" { r.turns } else { None },
         playgroup: r.playgroup.clone(),
+        first: if r.stage == "lobby" { r.first_seat.and_then(|f| u8::try_from(f).ok()) } else { None },
         win_condition: if r.stage == "over" { r.win_condition.clone() } else { None },
         fun: None,
         missing_cards,
@@ -1070,8 +1128,8 @@ async fn detail(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path
     let mut missing = HashMap::new();
     if r.stage == "lobby" && let Ok(engine) = st.play.engine() {
         for s in r.seats() {
-            if let (Some(v), Some(name)) = (&s.deck_version_id, &s.deck_name) {
-                let (_, report) = resolve(&engine, &load_version_cards(&st.pool, v).await?);
+            if let (true, Some(name)) = (seated(&s), &s.deck_name) {
+                let (_, report) = resolve(&engine, &seat_cards(&st.pool, &s).await?);
                 if !report.missing.is_empty() {
                     missing.insert(name.clone(), report.missing);
                 }
@@ -1266,6 +1324,10 @@ struct SeatRequest {
     kind: String,
     deck_id: Option<String>,
     difficulty: Option<String>,
+    /// A computer's seat only: a stock precon (`precons.id`) to play, instead of one of the
+    /// host's decks.
+    #[serde(default)]
+    precon_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1273,6 +1335,10 @@ struct CreateRequest {
     seats: Vec<SeatRequest>,
     /// Count the game in this playgroup's stats.
     playgroup_id: Option<String>,
+    /// The seat (from 0, in the order given) that takes the first turn. Left out, the engine rolls
+    /// for it, as a table would.
+    #[serde(default)]
+    first: Option<u8>,
 }
 
 /// Unfinished games (lobbies and live ones) anyone but an admin may host.
@@ -1424,25 +1490,34 @@ async fn rematch(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
     if let Some(existing) = &r.rematch_id {
         return Ok(Json(serde_json::json!({ "id": existing })));
     }
-    let seats = r
-        .seats()
+    // A game whose host chose who goes first was seated from that player on (`start_game`): the
+    // new table starts from the host again, in the same order round the table.
+    let mut old = r.seats();
+    if let Some(mine) = old.iter().position(|s| s.user_id.as_deref() == Some(user.id.as_str())) {
+        old.rotate_left(mine);
+    }
+    let seats = old
         .into_iter()
-        .map(|s| SeatRequest {
-            kind: if s.kind == "ai" {
-                "ai".into()
-            } else if s.user_id.as_deref() == Some(user.id.as_str()) {
-                "me".into()
-            } else {
-                "friend".into()
-            },
-            deck_id: (s.kind == "ai" || s.user_id.as_deref() == Some(user.id.as_str())).then_some(s.deck_id).flatten(),
-            difficulty: s.difficulty,
+        .map(|s| {
+            let precon = precon_of(&s).map(str::to_string);
+            SeatRequest {
+                kind: if s.kind == "ai" {
+                    "ai".into()
+                } else if s.user_id.as_deref() == Some(user.id.as_str()) {
+                    "me".into()
+                } else {
+                    "friend".into()
+                },
+                deck_id: (precon.is_none() && (s.kind == "ai" || s.user_id.as_deref() == Some(user.id.as_str()))).then_some(s.deck_id).flatten(),
+                difficulty: s.difficulty,
+                precon_id: precon,
+            }
         })
         .collect();
     let playgroup_id: Option<String> =
         sqlx::query_scalar("SELECT playgroup_id FROM games WHERE id = ?").bind(&id).fetch_optional(&st.pool).await?.flatten();
-    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id, },
-        false,).await?;
+    // Who goes first is rolled again unless the host says otherwise.
+    let new = create_game(&st, &user, &CreateRequest { seats, playgroup_id, first: None }, false).await?;
     // Two quick taps make one rematch: the first one recorded wins.
     let set = sqlx::query("UPDATE online_games SET rematch_id = ? WHERE game_id = ? AND rematch_id IS NULL",)
         .bind(&new)
@@ -1474,6 +1549,9 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     {
         return Err(AppError::NotFound("playgroup"));
     }
+    if body.first.is_some_and(|f| usize::from(f) >= body.seats.len()) {
+        return Err(AppError::bad("the first player must be one of the seats"));
+    }
     let mut seats = Vec::new();
     for (i, s) in body.seats.iter().enumerate() {
         let seat = i as u8;
@@ -1491,6 +1569,7 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
                 difficulty: None,
                 bracket: None,
             },
+            "ai" if s.precon_id.is_some() => precon_seat(&st.pool, seat, s.precon_id.as_deref().unwrap(), s.difficulty.as_deref()).await?,
             "me" | "ai" => {
                 let deck_id = s.deck_id.as_deref().ok_or_else(|| AppError::bad(format!("seat {} needs a deck", i + 1)))?;
                 let d = deck_for_seat(&st.pool, &user.id, deck_id).await?;
@@ -1516,11 +1595,13 @@ async fn create_game(st: &AppState, user: &User, body: &CreateRequest,
     let id = new_id();
     let stamp = now();
     let mut tx = st.pool.begin().await?;
-    sqlx::query("INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at) VALUES (?, 'online', ?, ?, 'commander', 'in_progress', 40, ?)")
+    // Until the game starts, `first_seat` is the host's choice of who goes first (none: roll).
+    sqlx::query("INSERT INTO games (id, mode, playgroup_id, created_by, format, status, starting_life, started_at, first_seat) VALUES (?, 'online', ?, ?, 'commander', 'in_progress', 40, ?, ?)")
         .bind(&id)
         .bind(&body.playgroup_id)
         .bind(&user.id)
         .bind(&stamp)
+        .bind(body.first.map(i64::from))
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO online_games (game_id, code, host_id, stage, seats, created_at, updated_at) VALUES (?,?,?,?,?,?,?)")
@@ -1615,15 +1696,23 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     if r.stage != "lobby" {
         return Ok(());
     }
-    let seats = r.seats();
-    if seats.iter().any(|s| s.deck_version_id.is_none()) {
+    let mut seats = r.seats();
+    if seats.iter().any(|s| !seated(s)) {
         return Err(AppError::Conflict("every seat needs a player and a deck".into()));
     }
+    // The host's choice of who goes first. phase starts only seat 0 or 1 on request, so (as Watch
+    // does) the table is numbered from that player: the order round the table is the same cycle.
+    let first = r.first_seat.and_then(|f| usize::try_from(f).ok()).filter(|f| *f < seats.len()).map(|f| {
+        seats.rotate_left(f);
+        for (i, s) in seats.iter_mut().enumerate() {
+            s.seat = i as u8;
+        }
+        0u8
+    });
     let engine = st.play.engine()?;
     let mut decks = Vec::new();
     for s in &seats {
-        let cards = load_version_cards(&st.pool, s.deck_version_id.as_deref().unwrap()).await?;
-        decks.push(resolve(&engine, &cards).0);
+        decks.push(resolve(&engine, &seat_cards(&st.pool, s).await?).0);
     }
     let prefs = seat_prefs(&st.pool, &seats).await;
     let seed: u64 = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
@@ -1631,14 +1720,15 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     // Setup can fault cold engine pages in from disk. It must neither block an async
     // worker nor hold SQLite's one writer while constructing the match and replay.
     let (m, replay, permit) = prepare_match(move || {
-        let m = engine.new_match_with(seed, decks, &ai, Setup { first: None, loops: yama_play::PLAY_LOOPS })?;
+        let m = engine.new_match_with(seed, decks, &ai, Setup { first, loops: yama_play::PLAY_LOOPS })?;
         let replay = m.replay_json();
         Ok((m, replay, permit))
     }).await?;
     // Claim and save atomically after preparation. A concurrent start or join can
     // invalidate this candidate; only the request still owning these seats publishes it.
     let mut tx = st.pool.begin().await?;
-    let claimed = sqlx::query("UPDATE online_games SET stage = 'live', updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
+    let claimed = sqlx::query("UPDATE online_games SET stage = 'live', seats = ?, updated_at = ? WHERE game_id = ? AND stage = 'lobby' AND seats = ?")
+        .bind(serde_json::to_string(&seats).map_err(anyhow::Error::from)?)
         .bind(now())
         .bind(id)
         .bind(&r.seats)
@@ -1648,10 +1738,12 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
     if claimed == 0 {
         return Ok(());
     }
-    sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ? WHERE id = ?")
+    // From here `first_seat` is who took the first turn: the host's choice or the engine's roll.
+    sqlx::query("UPDATE games SET engine_version = ?, seed = ?, started_at = ?, first_seat = ? WHERE id = ?")
         .bind(yama_play::ENGINE_VERSION)
         .bind(seed as i64) // u64 stored bit-for-bit
         .bind(now())
+        .bind(i64::from(m.starting_seat()))
         .bind(id)
         .execute(&mut *tx)
         .await?;

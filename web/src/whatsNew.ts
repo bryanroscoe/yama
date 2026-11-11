@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-online-setup",
+    date: "2026-11-11",
+    title: "Choose who goes first online, and play against precons",
+    items: [
+      "A new online game can say who goes first, or roll for it as a table would.",
+      "The computer can play a stock precon in its seat instead of one of your decks.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
     id: "2026-11-11-online-finish-questions",
     date: "2026-11-11",
     title: "Say how an online game went",

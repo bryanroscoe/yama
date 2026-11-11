@@ -93,6 +93,15 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
     }
   };
   const title = open === 0 ? "Everyone's in" : open === 1 ? "Waiting for one more" : `Waiting for ${open} more`;
+  // Who takes the first turn: the host's choice when the table was made, or the engine's roll.
+  const firstSeat = game.first != null ? game.seats.find((s) => s.seat === game.first) : undefined;
+  const goesFirst = !firstSeat
+    ? "The first player is rolled for when the game starts."
+    : firstSeat.ai
+      ? `The computer in seat ${firstSeat.seat + 1} goes first.`
+      : firstSeat.deck_name
+        ? `${firstSeat.seat === game.you ? "You go" : `${firstSeat.name} goes`} first.`
+        : `Whoever takes seat ${firstSeat.seat + 1} goes first.`;
   const missing = Object.entries(game.missing_cards);
   return (
     <main className="page lobby">
@@ -108,7 +117,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
             {title}
             <AlphaTag />
           </h1>
-          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here. {ALPHA_NOTE}</p>
+          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here. {goesFirst} {ALPHA_NOTE}</p>
         </div>
         <div className="lobby-code" role="group" aria-label="Table code">
           <span className="lobby-code-text">
