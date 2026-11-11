@@ -216,7 +216,7 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
            EXISTS (SELECT 1 FROM advisor_keys k WHERE k.user_id = u.id) AS advisor_own_key,
            EXISTS (SELECT 1 FROM advisor_shared_access g WHERE g.user_id = u.id) AS advisor_shared,
            (SELECT g.daily_limit FROM advisor_shared_access g WHERE g.user_id = u.id) AS advisor_shared_limit
-         FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500",
+         FROM users u WHERE u.guest = 0 ORDER BY u.created_at DESC, u.email LIMIT 500",
         limited = limited_sql!(),
         power = power_sql!()
     )))
@@ -237,7 +237,7 @@ async fn usage(State(st): State<AppState>, AdminUser(_): AdminUser) -> AppResult
     };
     let mut t = UsageTotals::default();
     for a in &mut accounts {
-        let user = User { id: a.id.clone(), email: a.email.clone(), display_name: a.display_name.clone(), is_admin: a.is_admin, limited: a.limited, power: a.power };
+        let user = User { id: a.id.clone(), email: a.email.clone(), display_name: a.display_name.clone(), is_admin: a.is_admin, limited: a.limited, power: a.power, guest: false };
         a.watch_running = watching.get(&a.id).copied().unwrap_or(0);
         let shared = if a.advisor_shared {
             crate::advisor::SharedGrant::Granted { key_on_sidecar: shared_key }

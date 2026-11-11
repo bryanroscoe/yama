@@ -53,6 +53,7 @@ pub fn app(state: AppState) -> Router {
     let mut router = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .merge(crate::auth::router())
+        .merge(crate::guests::router())
         .merge(crate::admin::router())
         .merge(crate::view_as::router())
         .merge(crate::cards::router())
@@ -245,6 +246,8 @@ pub async fn serve(cfg: Config, pool: SqlitePool) -> anyhow::Result<()> {
         limits: Arc::default(),
         research,
     };
+    // Guests past their week go, with everything they made (guests.rs).
+    crate::guests::spawn_sweeper(state.clone());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!("listening on http://{bind}");
     // The peer address feeds per-address limits (`limits::ClientAddress`).

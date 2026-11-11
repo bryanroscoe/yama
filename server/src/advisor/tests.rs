@@ -14,7 +14,7 @@ const KEY_SECRET: &str = "advisor-key-secret-0123456789abcdefgh";
 const KEY: &str = "sk-ant-api03-userkey-abcdefghijklmnopqrstuvwxyz0123";
 
 fn u(email: &str, admin: bool, limited: bool) -> User {
-    User { id: "id".into(), email: email.into(), display_name: "x".into(), is_admin: admin, limited, power: true }
+    User { id: "id".into(), email: email.into(), display_name: "x".into(), is_admin: admin, limited, power: true, guest: false }
 }
 
 fn cfg(url: Option<&str>, emails: &[&str], key_secret: bool) -> AdvisorConfig {

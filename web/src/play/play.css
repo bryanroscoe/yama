@@ -1048,3 +1048,66 @@
   .ph-seat-fields > .ph-kind { min-height: 44px; flex: none; }
   .ph-seat-fields:not(:has(> .ph-kind))::before { content: ""; height: 44px; flex: none; }
 }
+
+/* Play online signed out (GuestPlay.tsx): a game against the computer as a guest beside the way
+   in, each on a raised card; stacked on phones. */
+.gp-ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  align-items: stretch;
+}
+.gp-guest {
+  flex: 1 1 320px;
+  max-width: 440px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gp-guest h2 {
+  font-size: 2rem;
+}
+.gp-guest p {
+  margin: 0;
+  line-height: 1.5;
+}
+.gp-ways .gp-signin.account-gate-signin {
+  flex: 1 1 320px;
+}
+.gp-start {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+.gp-check:empty {
+  display: none;
+}
+/* A guest's Play page: what being a guest means, over the new game. */
+.gp-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 18px;
+  margin-bottom: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.gp-note p {
+  margin: 0;
+  flex: 1 1 280px;
+  line-height: 1.5;
+}
+@media (max-width: 480px) {
+  .gp-guest,
+  .gp-ways .gp-signin.account-gate-signin {
+    padding: 20px;
+  }
+}

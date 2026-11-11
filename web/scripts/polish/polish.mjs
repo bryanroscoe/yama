@@ -27,6 +27,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../..");
 const STATE_DIR = join(homedir(), ".config", "yama-polish");
 const SESSION_COOKIE = "yama_session";
+/** The only host that gets the bot-check header and the session as a header (sessionHeader). */
+const PRODUCTION_HOST = "yama.ing";
 
 export const VIEWPORTS = {
   laptop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, minTarget: 24, edgePad: 0 },
@@ -206,8 +208,35 @@ function saveState(state) {
   chmodSync(statePath, 0o600);
 }
 
+/**
+ * Headers that get a run past Cloudflare's Super Bot Fight Mode on production, which challenges a
+ * headless browser: this machine's agent check header (`x-yama-check`, from
+ * ~/.config/yama/edge-check-header, which a WAF rule skips the check for) and the saved session as
+ * `Authorization` (also skipped; the server takes the session from it as from the cookie). Only
+ * ever sent to the host itself.
+ */
+function sessionHeader() {
+  // Production over HTTPS only: never another host, which could be anyone's.
+  if (base.protocol !== "https:" || base.hostname !== PRODUCTION_HOST) return {};
+  const check = join(homedir(), ".config", "yama", "edge-check-header");
+  const edge = existsSync(check) ? { "x-yama-check": readFileSync(check, "utf8").trim() } : {};
+  if (!existsSync(statePath)) return edge;
+  try {
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    // The cookie must be the host's own: its domain, or a parent domain at a dot boundary.
+    const ownCookie = (c) => {
+      const domain = c.domain.replace(/^\./, "");
+      return base.hostname === domain || base.hostname.endsWith(`.${domain}`);
+    };
+    const cookie = (state.cookies ?? []).find((c) => c.name === SESSION_COOKIE && ownCookie(c));
+    return cookie ? { ...edge, authorization: `Bearer ${cookie.value}` } : edge;
+  } catch {
+    return edge;
+  }
+}
+
 async function whoAmI(request) {
-  const res = await request.get(new URL("/api/me", base).href, { failOnStatusCode: false });
+  const res = await request.get(new URL("/api/me", base).href, { failOnStatusCode: false, headers: sessionHeader() });
   if (res.status() !== 200) return null;
   const me = await res.json().catch(() => null);
   return me ? { name: me.name ?? me.user?.name ?? null, email: me.email ?? me.user?.email ?? null } : null;
@@ -834,13 +863,20 @@ async function shoot() {
         for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);
       }, items);
     }
-    if (!args["allow-writes"]) {
+    const auth = sessionHeader();
+    if (!args["allow-writes"] || Object.keys(auth).length) {
       await context.route("**/*", (route) => {
         const req = route.request();
-        if (["GET", "HEAD", "OPTIONS"].includes(req.method())) return route.continue();
-        run.blocked.push({ method: req.method(), url: req.url().slice(0, 200), viewport: vp });
-        return route.abort("blockedbyclient");
+        if (!args["allow-writes"] && !["GET", "HEAD", "OPTIONS"].includes(req.method())) {
+          run.blocked.push({ method: req.method(), url: req.url().slice(0, 200), viewport: vp });
+          return route.abort("blockedbyclient");
+        }
+        // The session as a header past Cloudflare's bot check, to the host only (sessionHeader).
+        if (Object.keys(auth).length && new URL(req.url()).origin === base.origin) return route.continue({ headers: { ...req.headers(), ...auth } });
+        return route.continue();
       });
+    }
+    if (!args["allow-writes"]) {
       // context.route doesn't see WebSocket traffic, and Yama's sockets write (a game's stop
       // preferences on connect, a shared table's state). Answer them here, never connecting to
       // the server: live pages show as disconnected, which is the price of a read-only run.

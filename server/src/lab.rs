@@ -807,7 +807,7 @@ async fn encoded_precon_list(pool: SqlitePool) -> AppResult<Bytes> {
     Ok(Bytes::from(serde_json::to_vec(&precon_list(&pool).await?).map_err(anyhow::Error::from)?))
 }
 
-async fn list_precons(State(st): State<AppState>, _u: CurrentUser) -> AppResult<axum::response::Response> {
+async fn list_precons(State(st): State<AppState>, _u: crate::guests::Player) -> AppResult<axum::response::Response> {
     use axum::response::IntoResponse;
     let key = precon_list_key(&st.pool).await?;
     let body = PRECON_LIST.get(&st.pool, key, encoded_precon_list).await?;

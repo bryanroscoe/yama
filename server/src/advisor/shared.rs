@@ -206,7 +206,7 @@ async fn overview(st: &AppState) -> AppResult<Overview> {
     let health = if cfg.enabled() { super::sidecar_health(st).await } else { None };
     let key_on_sidecar = health.map(|h| h.shared == Some(true));
     for g in &mut grants {
-        let user = User { id: g.user_id.clone(), email: g.email.clone(), display_name: g.display_name.clone(), is_admin: g.is_admin, limited: g.limited, power: g.power };
+        let user = User { id: g.user_id.clone(), email: g.email.clone(), display_name: g.display_name.clone(), is_admin: g.is_admin, limited: g.limited, power: g.power, guest: false };
         g.mode = match access(cfg, &user, g.has_key, SharedGrant::Granted { key_on_sidecar: key_on_sidecar != Some(false) }) {
             Access::Ready(m) => Some(m),
             _ => None,

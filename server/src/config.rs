@@ -2,6 +2,19 @@ use crate::limits::Cidr;
 use anyhow::Context;
 use std::path::PathBuf;
 
+/// A Cloudflare Turnstile widget: its public site key and the secret the server checks tokens with.
+#[derive(Clone)]
+pub struct Turnstile {
+    pub site_key: String,
+    pub secret: String,
+}
+
+impl std::fmt::Debug for Turnstile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Turnstile").field("site_key", &self.site_key).field("secret", &"…").finish()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub database_url: String,
@@ -50,6 +63,11 @@ pub struct Config {
     /// commanders, per address (`/api/guest/cards/search`). On unless YAMA_GUEST_MODE=0, which is
     /// the switch to turn it off if it's abused; their phones then keep counting with typed names.
     pub guest_mode: bool,
+    /// Cloudflare Turnstile for guest play (YAMA_TURNSTILE_SITE_KEY and YAMA_TURNSTILE_SECRET,
+    /// both needed): someone with no account may play the computer online once a Turnstile check
+    /// passes (`guests.rs`). Without them, or with guest mode or open sign-up off, play needs an
+    /// account as before.
+    pub turnstile: Option<Turnstile>,
     /// Peers whose `CF-Connecting-IP` header is believed (YAMA_TRUSTED_PROXIES: addresses or
     /// CIDR ranges, comma-separated). Set it to the Cloudflare tunnel connector's Docker network;
     /// without it, per-address limits count the connector's address (see `limits.rs`).
@@ -330,6 +348,12 @@ impl Config {
             open_signup: flag("YAMA_OPEN_SIGNUP"),
             password_login: !off("YAMA_PASSWORD_LOGIN"),
             guest_mode: !off("YAMA_GUEST_MODE"),
+            turnstile: match (std::env::var("YAMA_TURNSTILE_SITE_KEY"), std::env::var("YAMA_TURNSTILE_SECRET")) {
+                (Ok(site_key), Ok(secret)) if !site_key.trim().is_empty() && !secret.trim().is_empty() => {
+                    Some(Turnstile { site_key: site_key.trim().into(), secret: secret.trim().into() })
+                }
+                _ => None,
+            },
             trusted_proxies,
             lab_quota,
             advisor,

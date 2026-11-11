@@ -18,7 +18,9 @@ import { useMe, usePower } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
 import type { PreconList } from "../lab/api";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
-import { playRequest, playsPrecon, seatWho, type SeatPlan } from "./setup";
+import { playRequest, playsPrecon, seatWho, withPrecons, type SeatPlan } from "./setup";
+import type { GuestSession } from "../guestPlay";
+import { GuestNote } from "./GuestPlay";
 import "./play.css";
 import { ago } from "@yama/core";
 
@@ -45,17 +47,19 @@ function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } 
   return { text: `${wonText(who)}${g.turns ? ` on turn ${g.turns}` : ""}`, tone: "dim" };
 }
 
-export function PlayHome() {
-  const power = usePower();
+/** Play online. `guest`: someone playing without an account (GuestPlay.tsx), on precons only. */
+export function PlayHome({ guest }: { guest?: GuestSession } = {}) {
+  const power = usePower() && !guest;
   const games = useQuery({
-    queryKey: ["play"],
+    queryKey: guest ? ["play", "guest"] : ["play"],
     queryFn: ({ signal }) => api<OnlineGame[]>("/api/play", { signal }),
     // Every 10 s while one of your tables waits for players, otherwise every 30 s (only while the
     // page is on screen), and again on coming back to it. It was every 5 s.
     refetchInterval: (q) => (q.state.data?.some((g) => g.status === "lobby") ? 10_000 : 30_000),
     refetchOnWindowFocus: "always",
   });
-  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks") });
+  // A guest has no decks (and asking would only be refused).
+  const decks = useQuery({ queryKey: ["decks"], queryFn: () => api<DeckSummary[]>("/api/decks"), enabled: !guest });
   const status = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null }>("/api/play/status") });
   const current = games.data?.find((g) => g.status === "in_progress" && g.you !== null);
   const others = games.data?.filter((g) => g !== current) ?? [];
@@ -70,12 +74,13 @@ export function PlayHome() {
         </h1>
         <p className="dim">{ALPHA_NOTE}</p>
       </div>
+      {guest && <GuestNote session={guest} />}
       {status.data && !status.data.enabled && <p className="dim">Online play isn't running on this server: {status.data.reason}</p>}
       {current && <ContinueHero game={current} />}
       <div className="ph-cols">
-        {status.data?.enabled && <NewGame decks={decks.data ?? []} />}
+        {status.data?.enabled && <NewGame decks={decks.data ?? []} guest={!!guest} />}
         <div className="ph-side">
-          {status.data?.enabled && <JoinGame decks={decks.data ?? []} />}
+          {status.data?.enabled && !guest && <JoinGame decks={decks.data ?? []} />}
           {status.data?.enabled && power && (
             <section className="ph-watch" aria-labelledby="ph-watch-h">
               <h2 id="ph-watch-h">Watch AIs play</h2>
@@ -151,24 +156,27 @@ function ContinueHero({ game }: { game: OnlineGame }) {
   );
 }
 
-function NewGame({ decks }: { decks: DeckSummary[] }) {
+function NewGame({ decks, guest }: { decks: DeckSummary[]; guest: boolean }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const me = useMe();
   const first = decks[0]?.id ?? "";
-  const [seats, setSeats] = useState<SeatPlan[]>([
+  const [planned, setSeats] = useState<SeatPlan[]>([
     { kind: "me", deckId: "", difficulty: "Medium" },
     { kind: "ai", deckId: "", difficulty: "Medium" },
     { kind: "ai", deckId: "", difficulty: "Medium" },
     { kind: "ai", deckId: "", difficulty: "Medium" },
   ]);
   const [editing, setEditing] = useState<number | null>(null);
-  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups") });
+  const groups = useQuery({ queryKey: ["playgroups"], queryFn: () => api<Playgroup[]>("/api/playgroups"), enabled: !guest });
   // Stock precons for the computer's seats, as Watch offers them. Without the catalog the
   // computer plays your decks.
   const precons = useQuery({ queryKey: ["precons"], queryFn: () => api<PreconList>("/api/precons") });
   // Repeats of an earlier list are left out; sorted by name.
   const preconChoices = (precons.data?.precons ?? []).filter((p) => !p.same_list_as).sort((a, b) => a.name.localeCompare(b.name));
+  // Without decks of your own (a guest, or a new account), every seat plays a precon.
+  const noDecks = decks.length === 0;
+  const seats = withPrecons(planned, preconChoices.map((p) => p.id), noDecks);
   const [groupId, setGroupId] = useState("");
   /** The seat that takes the first turn, or null to roll for it as a table would. */
   const [goesFirst, setGoesFirst] = useState<number | null>(null);
@@ -182,7 +190,9 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
     },
   });
 
-  if (!decks.length) {
+  if (noDecks && !preconChoices.length) {
+    // A guest waits for the precons; an account can add a deck meanwhile.
+    if (guest) return <section className="ph-new"><h2>New game</h2><ErrorText error={precons.error} /></section>;
     return (
       <section className="ph-new">
         <h2>New game</h2>
@@ -216,11 +226,16 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
         )}
       </div>
       <p className="small dim">Rules engine: Phase. Choose Easy, Medium or Hard for each computer below before starting.</p>
+      {noDecks && !guest && (
+        <p className="small dim">
+          No decks yet, so every seat plays a precon. <Link to="/decks/import">Add a deck</Link> to play your own.
+        </p>
+      )}
       <ol className="ph-seats">
         {seats.map((s, i) => {
           const deck = shown[i];
           const seatArt = art[i];
-          const who = i === 0 ? me.data?.display_name ?? "You" : s.kind === "friend" ? "A friend" : "Computer";
+          const who = i === 0 ? (guest ? "You" : me.data?.display_name ?? "You") : s.kind === "friend" ? "A friend" : "Computer";
           return (
             <li key={i} className={`ph-seat${s.kind === "friend" ? " open" : ""}${editing === i ? " editing" : ""}`}>
               <ArtPanel className="ph-seat-head" art={seatArt?.image} artist={seatArt?.artist} wash="bottom" empty={!seatArt} credit={false}>
@@ -241,13 +256,13 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                 </button>
               </div>
               <div className="ph-seat-fields">
-                {i > 0 && (
+                {i > 0 && !guest && (
                   <Segmented className="ph-kind" label={`Who plays seat ${i + 1}`} value={s.kind} onChange={(kind) => update(i, { kind })} options={[["ai", "Computer"], ["friend", "A friend"]]} />
                 )}
-                {s.kind === "ai" && preconChoices.length > 0 && (
+                {s.kind !== "friend" && !noDecks && preconChoices.length > 0 && (
                   <Segmented
                     className="ph-kind"
-                    label={`Deck for the computer in seat ${i + 1}`}
+                    label={i === 0 ? "Your deck" : `Deck for the computer in seat ${i + 1}`}
                     value={playsPrecon(s) ? "precon" : "deck"}
                     onChange={(source) => update(i, source === "precon" ? { source, preconId: s.preconId || preconChoices[(i * 37 + 11) % preconChoices.length]!.id } : { source })}
                     options={[["deck", "Your decks"], ["precon", "Precons"]]}

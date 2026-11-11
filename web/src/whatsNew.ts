@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-guest-play",
+    date: "2026-11-11",
+    title: "Play the computer without an account",
+    items: [
+      "Play online is open to everyone: play the computer as a guest, on precons, after a quick check that you're a person. Guest games are kept for a week.",
+      "Your own seat can play a precon too, and an account with no decks yet plays precons instead of stopping at Add a deck.",
+    ],
+    link: { to: "/play", label: "Open Play online" },
+  },
+  {
     id: "2026-11-11-plays-like",
     date: "2026-11-11",
     title: "Power level says what a deck plays like",

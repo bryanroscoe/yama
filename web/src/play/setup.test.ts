@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { playRequest, playsPrecon, seatWho, type SeatPlan } from "./setup";
+import { playRequest, playsPrecon, seatWho, withPrecons, type SeatPlan } from "./setup";
 
 const me: SeatPlan = { kind: "me", deckId: "", difficulty: "Medium" };
 const friend: SeatPlan = { kind: "friend", deckId: "", difficulty: "Medium" };
@@ -27,7 +27,24 @@ describe("a new online game's request", () => {
     expect(playRequest([me, computer], null, "", "d1").playgroup_id).toBeNull();
   });
 
-  it("only the computer plays a precon, and only once one is picked", () => {
+  it("your seat can play a precon too, as a guest's always does", () => {
+    const mine: SeatPlan = { ...me, source: "precon", preconId: "counterpunch" };
+    expect(playsPrecon(mine)).toBe(true);
+    expect(playRequest([mine, precon], null, "", "").seats[0]).toEqual({ kind: "me", deck_id: null, precon_id: "counterpunch", difficulty: null });
+  });
+
+  it("with no decks of your own, every seat but a friend's gets a precon", () => {
+    const filled = withPrecons([me, friend, computer, { ...precon, preconId: "kept" }], ["a", "b", "c"], true);
+    expect(filled.map((s) => s.preconId ?? null)).toEqual(["c", null, "b", "kept"]);
+    expect(filled.every((s) => s.kind === "friend" || playsPrecon(s))).toBe(true);
+    // With decks, a seat stays on its deck until it is set to precons.
+    expect(withPrecons([me, computer], ["a"], false)).toEqual([me, computer]);
+    expect(withPrecons([me, { ...computer, source: "precon" }], ["a", "b"], false)[1]!.preconId).toBe("a");
+    // Before the precon list arrives nothing changes.
+    expect(withPrecons([me], [], true)).toEqual([me]);
+  });
+
+  it("only a seat that isn't a friend's plays a precon, and only once one is picked", () => {
     expect(playsPrecon(precon)).toBe(true);
     expect(playsPrecon({ ...precon, preconId: "" })).toBe(false);
     expect(playsPrecon({ ...precon, kind: "friend" })).toBe(false);

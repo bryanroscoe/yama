@@ -149,7 +149,7 @@ fn build(rows: Vec<CardRow>) -> serde_json::Map<String, serde_json::Value> {
 /// The built map, gzipped, with the card table's last change it was built from.
 static SCRYFALL_DATA: OnceLock<tokio::sync::Mutex<Option<(String, Arc<[u8]>)>>> = OnceLock::new();
 
-async fn scryfall_data(State(st): State<AppState>, _u: CurrentUser) -> AppResult<Response> {
+async fn scryfall_data(State(st): State<AppState>, _u: Player) -> AppResult<Response> {
     let changed = crate::cards::import::cards_changed_at(&st.pool).await?;
     let changed = changed.unwrap_or_default();
     let mut cached = SCRYFALL_DATA.get_or_init(Default::default).lock().await;
@@ -184,7 +184,7 @@ async fn scryfall_data(State(st): State<AppState>, _u: CurrentUser) -> AppResult
     Ok(res)
 }
 
-async fn card_data(State(st): State<AppState>, _u: CurrentUser, req: axum::extract::Request) -> AppResult<Response> {
+async fn card_data(State(st): State<AppState>, _u: Player, req: axum::extract::Request) -> AppResult<Response> {
     let Some(path) = st.cfg.engine_card_data.clone().filter(|p| p.exists()) else {
         return Err(AppError::NotFound("card data"));
     };
