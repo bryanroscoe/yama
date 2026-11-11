@@ -17,6 +17,16 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 - **One toolset, in the yama server** (`server/src/mcp/`). Each tool is a Rust function that takes
   the asking account and JSON arguments and calls the same code as the pages, with the same owner
   checks (another person's deck or plan is "not found", never a hint that it exists).
+- **One definition per tool** (`mcp/registry.rs`, 2026-11-11). A `Tool` holds its name, the older
+  names it still answers to (`aliases`, never listed), title, description, kind (read, outside,
+  stage or write, which decides its annotations), who is offered it, its argument schema, its
+  handler and, for a staging tool, the kind it stores and the function that applies it.
+  `tools/list`, `tools/call` and applying a staged change all read that entry; before, a tool was
+  spread over two tables and three `match`es. The entries live beside their code
+  (`tools::TOOLS`, `research::TOOLS`). To add a tool: write its handler, add its entry, add the
+  stored kind to the `assistant_changes` CHECK in a migration if it stages a new one, add it to
+  the public guide, and regenerate the catalog snapshot. Arguments are read with `mcp/args.rs`,
+  one set of helpers with one set of messages.
 - **One endpoint:** `POST /mcp`, MCP's Streamable HTTP transport, stateless, answering with plain
   JSON (no server-sent events, no session id). Methods: `initialize`, `notifications/initialized`,
   `ping`, `tools/list`, `tools/call`. `GET /mcp` is 405, as the spec allows for a server that never

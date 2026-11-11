@@ -938,3 +938,29 @@ async fn a_flood_of_tool_calls_is_refused_as_a_tool_error() {
     let (err, text) = call(&app, &other, "changes", json!({})).await;
     assert!(!err, "{text}");
 }
+
+#[tokio::test]
+async fn a_retired_store_is_not_one_of_their_stores_for_any_tool() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "bryan@example.com").await;
+    for (id, store, name, retired) in [("s1", "pats", "Pat's Games", None), ("s2", "gone", "Gone Games", Some("2026-11-01T00:00:00Z"))] {
+        sqlx::query("INSERT INTO plan_stores (id, owner_id, key, name, kind, origin, retired_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'local', 'yama', ?, 't', 't')")
+            .bind(id)
+            .bind(&a)
+            .bind(store)
+            .bind(name)
+            .bind(retired)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let mcp = key(&app, &session, Some("mcp")).await;
+    let (err, text) = call(&app, &mcp, "store_stock", json!({"store": "pats", "cards": ["Sol Ring"]})).await;
+    assert!(!err && text.contains("Pat's Games"), "{text}");
+    // store_stock had its own copy of the store lookup, without the retired check: it still found
+    // a store their plan no longer has. Every store tool now uses the one lookup.
+    for (tool, args) in [("store_stock", json!({"store": "gone", "cards": ["Sol Ring"]})), ("set_store_preference", json!({"store": "gone", "preference": "never"}))] {
+        let (err, text) = call(&app, &mcp, tool, args).await;
+        assert!(err && text.contains("No store \"gone\"") && !text.contains("Gone Games"), "{tool}: {text}");
+    }
+}

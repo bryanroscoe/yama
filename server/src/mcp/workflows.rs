@@ -31,7 +31,7 @@ pub fn prompt(params: &Value) -> AppResult<Value> {
     for a in definition["arguments"].as_array().unwrap() {
         let key = a["name"].as_str().unwrap();
         if a["required"] == true || args.get(key).is_some() {
-            super::research::required_text(&args, key, 2000)?;
+            super::args::text_max(&args, key, 2000)?;
         }
     }
     let context = serde_json::to_string(&args).map_err(anyhow::Error::from)?;
@@ -67,7 +67,7 @@ pub fn templates() -> Vec<Value> {
 }
 
 pub async fn read(st: &AppState, user: &User, via: &Via, params: &Value) -> AppResult<Value> {
-    let uri = super::research::required_text(params, "uri", 400)?;
+    let uri = super::args::text_max(params, "uri", 400)?;
     if uri == "yama://shopping/workflow" {
         return Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":include_str!("../../../docs/local-shopping-workflow.md") }]}));
     }

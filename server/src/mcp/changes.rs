@@ -15,7 +15,9 @@
 //! fails with the reason and stays pending.
 
 use super::Via;
-use super::tools::{card_info, checks, deck_id, near_names, precon_id, text_arg};
+use super::args as arg;
+use super::registry::{Pending, Staging};
+use super::tools::{card_info, checks, deck_id, near_names, precon_id};
 use crate::auth::{CurrentUser, User};
 use crate::decks::{Board, DeckCard};
 use crate::error::{AppError, AppResult};
@@ -285,35 +287,6 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
     Ok(out)
 }
 
-// ── arguments ───────────────────────────────────────────────────────────────
-
-/// A list of card names (at most `MAX_CARDS`); missing means none.
-fn names_arg(args: &Value, key: &str) -> AppResult<Vec<String>> {
-    names_arg_max(args, key, MAX_CARDS)
-}
-
-/// A list of card names, at most `max`; missing means none.
-fn names_arg_max(args: &Value, key: &str, max: usize) -> AppResult<Vec<String>> {
-    let Some(v) = args.get(key).filter(|v| !v.is_null()) else { return Ok(vec![]) };
-    let arr = v.as_array().ok_or_else(|| AppError::bad(format!("{key} must be a list of card names")))?;
-    if arr.len() > max {
-        return Err(AppError::bad(format!("{key}: at most {max} cards at a time")));
-    }
-    arr.iter()
-        .map(|n| n.as_str().map(str::trim).filter(|n| !n.is_empty() && n.len() <= 200).map(String::from).ok_or_else(|| AppError::bad(format!("{key} must be a list of card names"))))
-        .collect()
-}
-
-fn opt_text(args: &Value, key: &str, max: usize) -> AppResult<Option<String>> {
-    match args.get(key).filter(|v| !v.is_null()) {
-        None => Ok(None),
-        Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
-        Some(Value::String(s)) if s.chars().count() > max => Err(AppError::bad(format!("{key}: at most {max} characters"))),
-        Some(Value::String(s)) => Ok(Some(s.trim().to_string())),
-        Some(_) => Err(AppError::bad(format!("{key} must be text"))),
-    }
-}
-
 /// Names to oracle ids and canonical names. Any name Yama doesn't know is an error naming close
 /// ones, so Claude can correct it.
 async fn known_cards(pool: &SqlitePool, names: &[String]) -> AppResult<HashMap<String, (String, String)>> {
@@ -391,11 +364,11 @@ fn edit_summary(deck: &str, add: &[CardRef], remove: &[CardRef]) -> String {
 
 pub async fn edit_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let id = deck_id(pool, &user.id, text_arg(args, "deck")?).await?;
+    let id = deck_id(pool, &user.id, arg::text(args, "deck")?).await?;
     let (name, version): (String, Option<String>) =
         sqlx::query_as("SELECT name, current_version_id FROM decks WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).fetch_one(pool).await?;
     let version = version.ok_or_else(|| AppError::bad(format!("{name} has no list yet")))?;
-    let (add, remove) = (names_arg(args, "add")?, names_arg(args, "remove")?);
+    let (add, remove) = (arg::names(args, "add", MAX_CARDS)?, arg::names(args, "remove", MAX_CARDS)?);
     if add.is_empty() && remove.is_empty() {
         return Err(AppError::bad("Name at least one card to add or remove."));
     }
@@ -411,7 +384,7 @@ pub async fn edit_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
     if !new.is_empty() {
         return Err(AppError::bad(format!("That would break the deck: {}. Nothing was staged.", new.join("; "))));
     }
-    let note = opt_text(args, "note", 500)?;
+    let note = arg::opt_string(args, "note", 500)?;
     let mut detail = String::new();
     if let Some(n) = &note {
         let _ = writeln!(detail, "Why: {n}");
@@ -471,7 +444,7 @@ async fn configurations_of(pool: &SqlitePool, owner: &str, deck: &str) -> AppRes
 
 pub async fn delete_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let id = deck_id(pool, &user.id, text_arg(args, "deck")?).await?;
+    let id = deck_id(pool, &user.id, arg::text(args, "deck")?).await?;
     let with_configurations = match args.get("configurations") {
         None | Some(Value::Null) => false,
         Some(Value::Bool(b)) => *b,
@@ -544,14 +517,14 @@ async fn apply_delete_deck(st: &AppState, user: &User, p: &Value) -> AppResult<V
 /// payload distinguishes it from add/remove edits, so no migration or second review queue is
 /// needed. The list is pinned at staging, never fetched again during Apply.
 pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    use super::research::{analysis, optional_text, required_text};
+    use super::research::analysis;
     if args.get("version").is_some() {
         return Err(AppError::bad(
             "Inspect the historical version first, then pass its complete list to save_deck.",
         ));
     }
-    let text = required_text(args, "list", 30000)?;
-    let first = super::research::boolean(args, "first_is_commander", true)?;
+    let text = arg::text_max(args, "list", 30000)?;
+    let first = arg::flag(args, "first_is_commander", true)?;
     let list = analysis::load(st, user, &json!({"list":text,"first_is_commander":first})).await?;
     if !list.unknown.is_empty() {
         return Err(AppError::bad(format!(
@@ -567,7 +540,7 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
             [validation.errors, validation.warnings].concat().join("; ")
         )));
     }
-    let (target, base, name) = if let Some(deck) = optional_text(args, "deck", 200)? {
+    let (target, base, name) = if let Some(deck) = arg::opt_text(args, "deck", 200)? {
         let id = deck_id(&st.pool, &user.id, deck).await?;
         let (name, version): (String, Option<String>) = sqlx::query_as(
             "SELECT name,current_version_id FROM decks WHERE id = ? AND owner_id = ?",
@@ -578,12 +551,12 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         .await?;
         (Some(id), version, name)
     } else {
-        (None, None, required_text(args, "name", 200)?.into())
+        (None, None, arg::text_max(args, "name", 200)?.into())
     };
-    let note = optional_text(args, "note", 1000)?
+    let note = arg::opt_text(args, "note", 1000)?
         .unwrap_or("Complete list proposed through Yama")
         .to_string();
-    let source = optional_text(args, "source_url", 1000)?
+    let source = arg::opt_text(args, "source_url", 1000)?
         .map(|raw| super::research::deck_url(raw).map(|(_, _, url)| url))
         .transpose()?;
     let summary = format!(
@@ -714,9 +687,9 @@ impl SwapRef {
 }
 
 async fn find_swap(pool: &SqlitePool, owner: &str, args: &Value) -> AppResult<SwapRef> {
-    let (deck_key, deck) = plan_deck(pool, owner, text_arg(args, "plan")?).await?;
-    let card_in = text_arg(args, "card_in")?;
-    let card_out = opt_text(args, "card_out", 200)?;
+    let (deck_key, deck) = plan_deck(pool, owner, arg::text(args, "plan")?).await?;
+    let card_in = arg::text(args, "card_in")?;
+    let card_out = arg::opt_string(args, "card_out", 200)?;
     let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
         "SELECT s.ext_key, s.in_name, s.out_name FROM plan_swaps s JOIN plan_decks d ON d.id = s.plan_deck_id AND d.owner_id = s.owner_id
          WHERE s.owner_id = ? AND d.key = ? AND s.retired_at IS NULL AND lower(s.in_name) = lower(?)
@@ -745,10 +718,10 @@ async fn find_swap(pool: &SqlitePool, owner: &str, args: &Value) -> AppResult<Sw
 
 pub async fn propose_swap(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let (deck_key, deck) = plan_deck(pool, &user.id, text_arg(args, "plan")?).await?;
-    let card_in = text_arg(args, "card_in")?.to_string();
-    let card_out = opt_text(args, "card_out", 200)?;
-    let why = opt_text(args, "why", 2000)?;
+    let (deck_key, deck) = plan_deck(pool, &user.id, arg::text(args, "plan")?).await?;
+    let card_in = arg::text(args, "card_in")?.to_string();
+    let card_out = arg::opt_string(args, "card_out", 200)?;
+    let why = arg::opt_string(args, "why", 2000)?;
     let mut names = vec![card_in.clone()];
     names.extend(card_out.clone());
     let known = known_cards(pool, &names).await?;
@@ -772,10 +745,10 @@ const DECISIONS: [(&str, &str); 3] = [("want", "Want"), ("unsure", "Not sure"), 
 
 pub async fn answer_review(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let swap = find_swap(&st.pool, &user.id, args).await?;
-    let decision = text_arg(args, "decision")?;
+    let decision = arg::text(args, "decision")?;
     let label = DECISIONS.iter().find(|(d, _)| *d == decision).map(|(_, l)| *l).ok_or_else(|| AppError::bad("decision must be want, unsure or no"))?;
-    let note = opt_text(args, "note", 2000)?;
-    let cut = opt_text(args, "cut", 300)?;
+    let note = arg::opt_string(args, "note", 2000)?;
+    let cut = arg::opt_string(args, "cut", 300)?;
     let mut detail = String::new();
     if let Some(c) = &cut {
         let _ = writeln!(detail, "Cut {c} instead.");
@@ -796,7 +769,7 @@ pub async fn answer_review(st: &AppState, user: &User, via: &Via, args: &Value) 
 pub async fn mark_bought(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let swap = find_swap(&st.pool, &user.id, args).await?;
     let value = args.get("value").and_then(Value::as_bool).unwrap_or(true);
-    let on = opt_text(args, "on", 10)?.unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string());
+    let on = arg::opt_string(args, "on", 10)?.unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string());
     if !crate::plan::model::is_date(&on) {
         return Err(AppError::bad(format!("on: \"{on}\" isn't a YYYY-MM-DD date")));
     }
@@ -805,7 +778,7 @@ pub async fn mark_bought(st: &AppState, user: &User, via: &Via, args: &Value) ->
         return Err(AppError::bad("qty must be from 1 to 100"));
     }
     let price = args.get("price_paid").and_then(Value::as_f64).filter(|p| p.is_finite() && *p >= 0.0);
-    let store = opt_text(args, "store", 200)?;
+    let store = arg::opt_string(args, "store", 200)?;
     let summary = if value {
         format!("Bought, {}: {}", swap.deck, swap.label())
     } else {
@@ -842,7 +815,7 @@ pub async fn mark_installed(st: &AppState, user: &User, via: &Via, args: &Value)
 }
 
 pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    let (key, name) = plan_deck(&st.pool, &user.id, text_arg(args, "plan")?).await?;
+    let (key, name) = plan_deck(&st.pool, &user.id, arg::text(args, "plan")?).await?;
     let preview = crate::plan::swap_in::run(&st.pool, &user.id, &key, true).await?;
     if preview.done {
         return Ok(preview.text());
@@ -862,8 +835,8 @@ pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value)
 pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     use crate::plan::notes::{find_build, find_deck, note_document};
     let pool = &st.pool;
-    let note_id = text_arg(args, "note")?.to_string();
-    let deck_key = text_arg(args, "deck")?.to_string();
+    let note_id = arg::text(args, "note")?.to_string();
+    let deck_key = arg::text(args, "deck")?.to_string();
     let build_id = match args.get("build") {
         None | Some(Value::Null) => None,
         Some(Value::String(b)) if !b.trim().is_empty() => Some(b.trim().to_string()),
@@ -951,7 +924,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
 /// changed since, so what they approve is what they saw.
 pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let (key, name) = plan_deck(pool, &user.id, text_arg(args, "plan")?).await?;
+    let (key, name) = plan_deck(pool, &user.id, arg::text(args, "plan")?).await?;
     let action = args.get("action").and_then(Value::as_str).unwrap_or("approve");
     if !["approve", "keep"].contains(&action) {
         return Err(AppError::bad("action is approve (the default) or keep (keep the version before it)"));
@@ -1187,10 +1160,10 @@ async fn list_choice(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<
 
 /// A list from `deck` (their deck or a precon) or `list` (pasted, named by `label`).
 async fn list_arg(pool: &SqlitePool, owner: &str, args: &Value, deck: &str, list: &str, label: &str, what: &str) -> AppResult<(Value, String)> {
-    match (opt_text(args, deck, 300)?, opt_text(args, list, crate::lab::experiments::MAX_TEXT_BYTES)?) {
+    match (arg::opt_string(args, deck, 300)?, arg::opt_string(args, list, crate::lab::experiments::MAX_TEXT_BYTES)?) {
         (Some(d), None) => list_choice(pool, owner, &d).await,
         (None, Some(text)) => {
-            let label = opt_text(args, label, 120)?.unwrap_or_else(|| "A pasted list".into());
+            let label = arg::opt_string(args, label, 120)?.unwrap_or_else(|| "A pasted list".into());
             Ok((json!({"kind": "list", "text": text, "label": label}), label))
         }
         _ => Err(AppError::bad(format!("Give {what}: either {deck} (one of their decks or a precon) or {list} (a whole list), not both."))),
@@ -1228,21 +1201,21 @@ fn engine_words(engine: &str, ai: &str, forge_ai: &str) -> String {
 pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     user.require_power()?;
     let pool = &st.pool;
-    let mode = opt_text(args, "mode", 20)?.unwrap_or_else(|| "change".into());
+    let mode = arg::opt_string(args, "mode", 20)?.unwrap_or_else(|| "change".into());
     let games = games_arg(user, args, None)?;
-    let engine = opt_text(args, "engine", 10)?.unwrap_or_else(|| "phase".into());
+    let engine = arg::opt_string(args, "engine", 10)?.unwrap_or_else(|| "phase".into());
     crate::lab::forge::EngineMode::parse(Some(&engine)).map_err(AppError::bad)?;
-    let ai = opt_text(args, "ai", 10)?.unwrap_or_else(|| "Easy".into());
+    let ai = arg::opt_string(args, "ai", 10)?.unwrap_or_else(|| "Easy".into());
     if !["Easy", "Medium"].contains(&ai.as_str()) && !user.is_admin {
         return Err(AppError::bad("ai must be Easy or Medium"));
     }
-    let forge_ai = opt_text(args, "forge_ai", 20)?.unwrap_or_else(|| crate::lab::forge::DEFAULT_PROFILE.into());
+    let forge_ai = arg::opt_string(args, "forge_ai", 20)?.unwrap_or_else(|| crate::lab::forge::DEFAULT_PROFILE.into());
     if !crate::lab::forge::FORGE_PROFILES.contains(&forge_ai.as_str()) {
         return Err(AppError::bad(format!("forge_ai must be one of {}", crate::lab::forge::FORGE_PROFILES.join(", "))));
     }
-    let (field, against) = match opt_text(args, "opponents", 20)?.as_deref() {
+    let (field, against) = match arg::opt_string(args, "opponents", 20)?.as_deref() {
         None | Some("strongest") => (json!({"kind": "precons_top", "n": crate::lab::experiments::DEFAULT_FIELD}), "the strongest precons".to_string()),
-        Some("similar") => match opt_text(args, "near", 300)? {
+        Some("similar") => match arg::opt_string(args, "near", 300)? {
             Some(near) => {
                 let (id, name) = precon_id(pool, &near).await?;
                 (json!({"kind": "precons_near", "n": crate::lab::experiments::DEFAULT_FIELD, "ids": [id]}), format!("the precons nearest in strength to {name}"))
@@ -1262,7 +1235,7 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
         "change" | "solo" => {
             let (base, base_label) = list_arg(pool, &user.id, args, "deck", "list", "label", "the list to start from").await?;
             request["base"] = base;
-            let (add, cut) = (names_arg(args, "add")?, names_arg(args, "cut")?);
+            let (add, cut) = (arg::names(args, "add", MAX_CARDS)?, arg::names(args, "cut", MAX_CARDS)?);
             if mode == "solo" {
                 if !add.is_empty() || !cut.is_empty() {
                     return Err(AppError::bad("A solo run plays the list as it is: leave out add and cut, or use mode change."));
@@ -1312,8 +1285,8 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
                 labels.push(label);
             }
             for input in pasted {
-                let text = opt_text(input, "list", crate::lab::experiments::MAX_TEXT_BYTES)?.ok_or_else(|| AppError::bad("Each pasted entrant needs list text"))?;
-                let label = opt_text(input, "label", 120)?.filter(|s| !s.trim().is_empty()).ok_or_else(|| AppError::bad("Each pasted entrant needs a label"))?;
+                let text = arg::opt_string(input, "list", crate::lab::experiments::MAX_TEXT_BYTES)?.ok_or_else(|| AppError::bad("Each pasted entrant needs list text"))?;
+                let label = arg::opt_string(input, "label", 120)?.filter(|s| !s.trim().is_empty()).ok_or_else(|| AppError::bad("Each pasted entrant needs a label"))?;
                 entrants.push(json!({"kind": "list", "text": text, "label": label}));
                 labels.push(label);
             }
@@ -1392,7 +1365,7 @@ fn per_pod(mode: &str) -> usize {
 
 pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     user.require_power()?;
-    let id = text_arg(args, "id")?;
+    let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     if matches!(run.mode.as_str(), "versus" | "tournament") {
         return Err(AppError::bad("A head-to-head run can't take more games; use run_lab_again."));
@@ -1436,7 +1409,7 @@ async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Va
 
 pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     user.require_power()?;
-    let id = text_arg(args, "id")?;
+    let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     let had = if run.mode == "tournament" {
         let target: Option<i64> = sqlx::query_scalar("SELECT json_extract(spec, '$.games_per_deck') FROM lab_experiments WHERE id=? AND owner_id=?")
@@ -1464,7 +1437,7 @@ async fn apply_again(st: &AppState, user: &User, change: &str, p: &Value) -> App
 }
 
 pub async fn cancel_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    let id = text_arg(args, "id")?;
+    let id = arg::text(args, "id")?;
     let run = run_info(&st.pool, &user.id, id).await?;
     if !matches!(run.status.as_str(), "queued" | "running") {
         return Err(AppError::bad(format!("This run is {}, so there's nothing to cancel.", run.status)));
@@ -1503,15 +1476,15 @@ async fn container(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(S
 
 pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let wanted = text_arg(args, "card")?.to_string();
+    let wanted = arg::text(args, "card")?.to_string();
     let known = known_cards(pool, std::slice::from_ref(&wanted)).await?;
     let (oracle_id, name) = known[&wanted].clone();
     let qty = args.get("qty").and_then(Value::as_i64).unwrap_or(1);
     if !(1..=100).contains(&qty) {
         return Err(AppError::bad("qty must be from 1 to 100"));
     }
-    let set = opt_text(args, "set", 10)?;
-    let number = opt_text(args, "number", 20)?;
+    let set = arg::opt_string(args, "set", 10)?;
+    let number = arg::opt_string(args, "number", 20)?;
     let printing: Option<(String, String, String)> = match &set {
         Some(set) => {
             sqlx::query_as(
@@ -1540,12 +1513,12 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
             None => format!("Yama has no printing of {name} to add."),
         })
     })?;
-    let place = match opt_text(args, "container", 200)? {
+    let place = match arg::opt_string(args, "container", 200)? {
         Some(c) => Some(container(pool, &user.id, &c).await?),
         None => None,
     };
     let proxy = args.get("proxy").and_then(Value::as_bool).unwrap_or(false);
-    let finish = opt_text(args, "finish", 10)?.unwrap_or_else(|| "nonfoil".into());
+    let finish = arg::opt_string(args, "finish", 10)?.unwrap_or_else(|| "nonfoil".into());
     if !["nonfoil", "foil", "etched"].contains(&finish.as_str()) {
         return Err(AppError::bad("finish must be nonfoil, foil or etched"));
     }
@@ -1594,15 +1567,15 @@ async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &s
 
 pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let wanted = text_arg(args, "card")?.to_string();
+    let wanted = arg::text(args, "card")?.to_string();
     let known = known_cards(pool, std::slice::from_ref(&wanted)).await?;
     let (oracle_id, name) = known[&wanted].clone();
     let qty = args.get("qty").and_then(Value::as_i64).unwrap_or(1);
     if !(1..=100).contains(&qty) {
         return Err(AppError::bad("qty must be from 1 to 100"));
     }
-    let from = container(pool, &user.id, text_arg(args, "from")?).await?;
-    let to = container(pool, &user.id, text_arg(args, "to")?).await?;
+    let from = container(pool, &user.id, arg::text(args, "from")?).await?;
+    let to = container(pool, &user.id, arg::text(args, "to")?).await?;
     if from.0 == to.0 {
         return Err(AppError::bad("from and to are the same place"));
     }
@@ -1637,12 +1610,12 @@ async fn rows_to_grade(conn: &mut sqlx::SqliteConnection, owner: &str, container
 
 pub async fn set_condition(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
-    let condition = text_arg(args, "condition")?.to_uppercase();
+    let condition = arg::text(args, "condition")?.to_uppercase();
     let Some((_, said)) = CONDITIONS.iter().find(|(c, _)| *c == condition) else {
         return Err(AppError::bad("condition must be NM, LP, MP, HP or DMG"));
     };
-    let place = container(pool, &user.id, text_arg(args, "container")?).await?;
-    let card = match opt_text(args, "card", 200)? {
+    let place = container(pool, &user.id, arg::text(args, "container")?).await?;
+    let card = match arg::opt_string(args, "card", 200)? {
         Some(wanted) => Some(known_cards(pool, std::slice::from_ref(&wanted)).await?[&wanted].clone()),
         None => None,
     };
@@ -1779,7 +1752,7 @@ async fn apply_swap_in(st: &AppState, user: &User, p: &Value) -> AppResult<Value
 // ── shopping settings (docs/shopping-design.md) ─────────────────────────────
 
 /// A store of theirs by key or name (case-insensitive), not retired.
-async fn their_store(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
+pub(super) async fn their_store(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, name FROM plan_stores WHERE owner_id = ? AND retired_at IS NULL AND kind != 'printer' ORDER BY sort, key")
         .bind(owner)
         .fetch_all(pool)
@@ -1798,13 +1771,6 @@ async fn their_store(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<
         })
 }
 
-fn opt_number(args: &Value, key: &str) -> AppResult<Option<Option<f64>>> {
-    match args.get(key) {
-        None => Ok(None),
-        Some(Value::Null) => Ok(Some(None)),
-        Some(v) => v.as_f64().filter(|x| x.is_finite()).map(|x| Some(Some(x))).ok_or_else(|| AppError::bad(format!("{key} must be a number or null"))),
-    }
-}
 
 /// The parts of a buy-rule change Claude named, checked for type. Only these are applied, over
 /// whatever rule is in force when the person applies it, so a staged change never reverts an edit
@@ -1812,7 +1778,7 @@ fn opt_number(args: &Value, key: &str) -> AppResult<Option<Option<f64>>> {
 fn rules_changes(args: &Value) -> AppResult<Value> {
     let mut out = serde_json::Map::new();
     for key in ["max_usd", "always_ok_usd", "sealed_max_usd"] {
-        if let Some(v) = opt_number(args, key)? {
+        if let Some(v) = arg::opt_number(args, key)? {
             out.insert(key.into(), json!(v));
         }
     }
@@ -1862,7 +1828,7 @@ pub async fn set_shopping_rules(st: &AppState, user: &User, via: &Via, args: &Va
     if !found.is_empty() {
         return Err(AppError::bad(format!("{} Nothing was staged.", found.join(" "))));
     }
-    let note = opt_text(args, "note", 500)?;
+    let note = arg::opt_string(args, "note", 500)?;
     let text = crate::plan::trip::rule_text(&lb.rule());
     let summary = "Change the buy rule".to_string();
     let detail = format!(
@@ -1900,11 +1866,11 @@ fn pref_changes(args: &Value) -> AppResult<Value> {
             out.insert("hassle".into(), json!(v.as_i64().ok_or_else(|| AppError::bad("hassle must be a whole number from 1 (easiest to get to)"))?));
         }
     }
-    if let Some(v) = opt_number(args, "premium_usd")? {
+    if let Some(v) = arg::opt_number(args, "premium_usd")? {
         out.insert("premium_usd".into(), json!(v.filter(|x| *x > 0.0)));
     }
     if args.get("note").is_some() {
-        out.insert("note".into(), json!(opt_text(args, "note", 500)?));
+        out.insert("note".into(), json!(arg::opt_string(args, "note", 500)?));
     }
     if out.is_empty() {
         return Err(AppError::bad("Name at least one of preference, hassle, premium_usd or note. Nothing was staged."));
@@ -1937,7 +1903,7 @@ async fn pref_with(pool: &SqlitePool, owner: &str, key: &str, changes: &Value) -
 /// `set_store_preference`: one store's level, place in their order and premium. Only the parts
 /// named change, over the setting as it is when they apply it.
 pub async fn set_store_preference(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
-    let (key, name) = their_store(&st.pool, &user.id, text_arg(args, "store")?).await?;
+    let (key, name) = their_store(&st.pool, &user.id, arg::text(args, "store")?).await?;
     let changes = pref_changes(args)?;
     let p = pref_with(&st.pool, &user.id, &key, &changes).await?;
     let level = crate::plan::trip::preference_text(&p.preference);
@@ -1979,7 +1945,7 @@ async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppRes
 /// named (default: every card the trip plans for).
 pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     use crate::plan::stock;
-    let cards = names_arg_max(args, "cards", stock::MAX_CARDS)?;
+    let cards = arg::names(args, "cards", stock::MAX_CARDS)?;
     let mut stores: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.get("stores").filter(|v| !v.is_null()) {
         let list = v.as_array().ok_or_else(|| AppError::bad("stores must be a list of store keys or names"))?;
@@ -2049,19 +2015,19 @@ async fn apply_check_stores(st: &AppState, user: &User, change: &str, p: &Value)
 /// `add_wish`: a card or sealed product on their shopping list (`plan/wants.rs`), when they apply it.
 pub async fn add_wish(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
     let mut w = crate::plan::wants::NewWant {
-        kind: opt_text(args, "kind", 10)?,
-        name: text_arg(args, "name")?.to_string(),
+        kind: arg::opt_string(args, "kind", 10)?,
+        name: arg::text(args, "name")?.to_string(),
         qty: match args.get("qty").filter(|v| !v.is_null()) {
             None => None,
             Some(v) => Some(v.as_i64().ok_or_else(|| AppError::bad("qty must be a whole number from 1 to 99"))?),
         },
-        priority: opt_text(args, "priority", 10)?,
+        priority: arg::opt_string(args, "priority", 10)?,
         deck_id: None,
         deck_name: None,
-        why: opt_text(args, "why", 500)?,
+        why: arg::opt_string(args, "why", 500)?,
     };
     // A deck by name: one of their Yama decks when it matches, else a label (a deck not in Yama yet).
-    if let Some(d) = opt_text(args, "deck", 200)? {
+    if let Some(d) = arg::opt_string(args, "deck", 200)? {
         let by_id: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE owner_id = ? AND archived = 0 AND id = ?").bind(&user.id).bind(&d).fetch_optional(&st.pool).await?;
         // Two decks with the name is refused (with their ids), so the wish never lands on the wrong one.
         let found = match by_id {
@@ -2137,24 +2103,9 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
         return Err(AppError::Conflict(format!("This change was already {}.", row.status)));
     }
     let p: Value = serde_json::from_str(&row.payload).map_err(anyhow::Error::from)?;
-    let done = match row.kind.as_str() {
-        "edit_deck" if p["complete_list"] == true => apply_complete_deck(st, user, &row.id, &p).await,
-        "edit_deck" => apply_edit_deck(st, user, &row.summary, &p).await,
-        "delete_deck" => apply_delete_deck(st, user, &p).await,
-        "propose_swap" | "answer_review" | "mark_bought" | "mark_installed" => apply_plan(st, user, &row.kind, &row.id, &p).await,
-        "start_lab_run" => apply_lab_run(st, user, &row.id, &p).await,
-        "more_lab_games" => apply_more_games(st, user, &p).await,
-        "run_lab_again" => apply_again(st, user, &row.id, &p).await,
-        "cancel_lab_run" => apply_cancel(st, user, &p).await,
-        "add_to_collection" | "move_cards" | "set_condition" => apply_collection(st, user, &row.kind, &row.id, &p).await,
-        "swap_in_prints" => apply_swap_in(st, user, &p).await,
-        "track_build" => apply_track_build(st, user, &row.id, &p).await,
-        "approve_plan" => apply_approve_plan(st, user, &row.id, &p).await,
-        "set_shopping_rules" => apply_shopping_rules(st, user, &p).await,
-        "set_store_preference" => apply_store_preference(st, user, &p).await,
-        "check_stores" => apply_check_stores(st, user, &row.id, &p).await,
-        "add_wish" => apply_add_wish(st, user, &row.id, &p).await,
-        other => Err(AppError::Other(anyhow::anyhow!("unknown change kind {other}"))),
+    let done = match super::registry::applier(&row.kind) {
+        Some(apply) => apply(st, user, Pending { id: &row.id, summary: &row.summary }, &p).await,
+        None => Err(AppError::Other(anyhow::anyhow!("unknown change kind {}", row.kind))),
     };
     let at = now();
     match done {
@@ -2195,6 +2146,42 @@ pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<Chan
         .execute(pool)
         .await?;
     load_view(pool, owner, id).await
+}
+
+// ── what each staging tool stores, and how it is applied ────────────────────
+
+/// One `Staging` per staging tool, for its entry in the tool table (`tools::TOOLS`): the kind
+/// stored in `assistant_changes` and the function that applies it. Applying looks the kind up
+/// there (`registry::applier`), so a tool can't stage a kind nothing applies.
+pub(super) mod staging {
+    use super::*;
+
+    /// `edit_deck` and `save_deck` both store an `edit_deck` change; a complete list says so.
+    pub const EDIT_DECK: Staging = Staging {
+        kind: "edit_deck",
+        apply: |st, user, change, p| {
+            Box::pin(async move { if p["complete_list"] == true { apply_complete_deck(st, user, change.id, p).await } else { apply_edit_deck(st, user, change.summary, p).await } })
+        },
+    };
+    pub const DELETE_DECK: Staging = Staging { kind: "delete_deck", apply: |st, user, _, p| Box::pin(apply_delete_deck(st, user, p)) };
+    pub const PROPOSE_SWAP: Staging = Staging { kind: "propose_swap", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "propose_swap", change.id, p)) };
+    pub const ANSWER_REVIEW: Staging = Staging { kind: "answer_review", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "answer_review", change.id, p)) };
+    pub const MARK_BOUGHT: Staging = Staging { kind: "mark_bought", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "mark_bought", change.id, p)) };
+    pub const MARK_INSTALLED: Staging = Staging { kind: "mark_installed", apply: |st, user, change, p| Box::pin(apply_plan(st, user, "mark_installed", change.id, p)) };
+    pub const TRACK_BUILD: Staging = Staging { kind: "track_build", apply: |st, user, change, p| Box::pin(apply_track_build(st, user, change.id, p)) };
+    pub const APPROVE_PLAN: Staging = Staging { kind: "approve_plan", apply: |st, user, change, p| Box::pin(apply_approve_plan(st, user, change.id, p)) };
+    pub const SWAP_IN_PRINTS: Staging = Staging { kind: "swap_in_prints", apply: |st, user, _, p| Box::pin(apply_swap_in(st, user, p)) };
+    pub const START_LAB_RUN: Staging = Staging { kind: "start_lab_run", apply: |st, user, change, p| Box::pin(apply_lab_run(st, user, change.id, p)) };
+    pub const MORE_LAB_GAMES: Staging = Staging { kind: "more_lab_games", apply: |st, user, _, p| Box::pin(apply_more_games(st, user, p)) };
+    pub const RUN_LAB_AGAIN: Staging = Staging { kind: "run_lab_again", apply: |st, user, change, p| Box::pin(apply_again(st, user, change.id, p)) };
+    pub const CANCEL_LAB_RUN: Staging = Staging { kind: "cancel_lab_run", apply: |st, user, _, p| Box::pin(apply_cancel(st, user, p)) };
+    pub const ADD_TO_COLLECTION: Staging = Staging { kind: "add_to_collection", apply: |st, user, change, p| Box::pin(apply_collection(st, user, "add_to_collection", change.id, p)) };
+    pub const MOVE_CARDS: Staging = Staging { kind: "move_cards", apply: |st, user, change, p| Box::pin(apply_collection(st, user, "move_cards", change.id, p)) };
+    pub const SET_CONDITION: Staging = Staging { kind: "set_condition", apply: |st, user, change, p| Box::pin(apply_collection(st, user, "set_condition", change.id, p)) };
+    pub const SET_SHOPPING_RULES: Staging = Staging { kind: "set_shopping_rules", apply: |st, user, _, p| Box::pin(apply_shopping_rules(st, user, p)) };
+    pub const SET_STORE_PREFERENCE: Staging = Staging { kind: "set_store_preference", apply: |st, user, _, p| Box::pin(apply_store_preference(st, user, p)) };
+    pub const CHECK_STORES: Staging = Staging { kind: "check_stores", apply: |st, user, change, p| Box::pin(apply_check_stores(st, user, change.id, p)) };
+    pub const ADD_WISH: Staging = Staging { kind: "add_wish", apply: |st, user, change, p| Box::pin(apply_add_wish(st, user, change.id, p)) };
 }
 
 // ── routes (the pages, signed in) ───────────────────────────────────────────

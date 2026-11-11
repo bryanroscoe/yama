@@ -653,7 +653,7 @@ async fn live_public_research_contracts() {
         ("rules_lookup", json!({"query":"702.19","limit":2})),
     ];
     for (name, args) in cases {
-        let result = call(&st, &me, &Via::Key, name, &args)
+        let result = tools::call(&st, &me, &Via::Key, name, &args)
             .await
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         let result: Value = serde_json::from_str(&result).unwrap();
@@ -708,7 +708,7 @@ async fn public_decks_are_fetched_only_from_enabled_sites() {
     let st = testutil::state().await;
     let (me, _) = account(&st, "me@example.com").await;
     for (url, why) in [("https://moxfield.com/decks/8BVBQ928j0a76CqAbdmZYg", "robots.txt"), ("https://archidekt.com/decks/1", "terms")] {
-        let err = call(&st, &me, &Via::Key, "public_deck", &json!({"url": url})).await.unwrap_err();
+        let err = tools::call(&st, &me, &Via::Key, "public_deck", &json!({"url": url})).await.unwrap_err();
         assert!(matches!(err, AppError::Forbidden(_)), "{err}");
         assert!(err.to_string().contains(why), "{err}");
     }
@@ -725,7 +725,7 @@ async fn card_printings_come_from_local_data_with_dated_prices() {
             .bind(id).bind(set).bind(digital).execute(&st.pool).await.unwrap();
         sqlx::query("INSERT INTO price_snapshots (scryfall_id,date,usd) VALUES (?,'2026-10-28',?)").bind(id).bind(usd).execute(&st.pool).await.unwrap();
     }
-    let out: Value = serde_json::from_str(&call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring"})).await.unwrap()).unwrap();
+    let out: Value = serde_json::from_str(&tools::call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring"})).await.unwrap()).unwrap();
     assert_eq!(out["card"]["oracle_id"], "ring");
     assert_eq!(out["card"]["game_changer"], false);
     assert_eq!(out["total_printings"], 2);
@@ -738,7 +738,7 @@ async fn card_printings_come_from_local_data_with_dated_prices() {
     assert_eq!(out["price_sources"]["usd"], "TCGplayer market via Scryfall");
     assert_eq!(out["price_sources"]["eur_etched"], "Cardmarket via Scryfall");
     assert_eq!(out["provenance"]["provider"], "Yama");
-    let paged: Value = serde_json::from_str(&call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring","limit":1})).await.unwrap()).unwrap();
+    let paged: Value = serde_json::from_str(&tools::call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Sol Ring","limit":1})).await.unwrap()).unwrap();
     assert_eq!(paged["next"], json!({"offset": 1}));
-    assert!(call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Not A Card"})).await.is_err());
+    assert!(tools::call(&st, &me, &Via::Key, "card_printings", &json!({"name":"Not A Card"})).await.is_err());
 }

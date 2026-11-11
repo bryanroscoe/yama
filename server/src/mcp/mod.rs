@@ -24,9 +24,11 @@
 //! pushes. A browser `Origin` other than the server's own is refused (DNS rebinding). Logs carry the
 //! tool name and outcome only, never arguments or results.
 
+mod args;
 pub mod changes;
 mod overview;
 mod page;
+mod registry;
 pub(crate) mod tools;
 pub(crate) mod research;
 mod workflows;

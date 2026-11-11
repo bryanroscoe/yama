@@ -10,6 +10,8 @@ use crate::auth::User;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::deck_import::links::Site;
+use super::args as arg;
+use super::registry::{Ctx, Kind, Offer, Tool, run};
 use client::Provider;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -27,159 +29,215 @@ fn schema(properties: Value, required: &[&str]) -> Value {
 fn selector() -> Value {
     json!({"deck":string("Your saved deck's name or id; give deck or list, exactly one."),"list":{"type":"string","maxLength":30000,"description":"A pasted list with Commander and Deck sections."},"version":string("Optional historical version of your saved deck."),"first_is_commander":{"type":"boolean","default":true}})
 }
-fn tool(
-    name: &str,
-    title: &str,
-    description: &str,
-    input: Value,
-    network: bool,
-    stage: bool,
-) -> Value {
-    json!({"name":name,"title":title,"description":description,"inputSchema":input,
-        "annotations":{"readOnlyHint":!stage,"destructiveHint":false,"idempotentHint":!stage,"openWorldHint":network}})
-}
-
-pub fn catalog() -> Vec<Value> {
+fn analyze_schema() -> Value {
     let mut analyze = selector();
     analyze["budget_usd"] = json!({"type":"number","minimum":0,"description":"Optional total singles budget; unknown prices prevent a within-budget claim."});
+    analyze
+}
+fn combos_schema() -> Value {
     let mut combos = selector();
     combos["query"] = string("Spellbook syntax for public combo search, instead of deck/list.");
     combos["share_list"] = json!({"type":"boolean","description":"Must be true to send the selected list's card names and quantities to Commander Spellbook. No collection, notes or deck name are sent."});
     combos["limit"] = number("Results per category", 10, 1, 20);
     combos["offset"] = number("Public search offset", 0, 0, 10000);
+    combos
+}
+fn hands_schema() -> Value {
     let mut hands = selector();
     for (k, d, v, min, max) in [
         ("seed", "Reproducible shuffle seed", 1, 0, i64::MAX),
         ("hands", "Independent samples", 5, 1, 10),
         ("draw", "Cards to draw", 7, 1, 20),
-        (
-            "mulligans",
-            "Cards the caller must choose to bottom after a London mulligan",
-            0,
-            0,
-            6,
-        ),
+        ("mulligans", "Cards the caller must choose to bottom after a London mulligan", 0, 0, 6),
     ] {
         hands[k] = number(d, v, min, max);
     }
+    hands
+}
+/// A save takes a replacement list and optional target deck, unlike a read selector.
+fn save_schema() -> Value {
     let mut save = selector();
-    save["name"] = string(
-        "A name when creating a new deck; omit deck to create, give deck to replace its current list.",
-    );
+    save["name"] = string("A name when creating a new deck; omit deck to create, give deck to replace its current list.");
     save["note"] = string("Why this list, including its public source when applicable.");
-    save["source_url"] = string(
-        "Optional public deck URL to record as provenance; this argument never causes a fetch.",
-    );
-    // A save takes a replacement list and optional target deck, unlike a read selector.
+    save["source_url"] = string("Optional public deck URL to record as provenance; this argument never causes a fetch.");
     save["deck"] = string("Optional existing deck to replace; absent means create a new deck.");
     save.as_object_mut().unwrap().remove("version");
-    save["op_id"] = super::tools::op_id_schema();
-    vec![
-        tool(
-            "search_scryfall",
-            "Full online card search",
-            "Search Scryfall's complete current syntax, beyond Yama's offline subset. Public query only; no deck or collection is uploaded. Results include per-format legality, Oracle text, image URLs and dated price observations, enriched with only this person's ownership. Follow the returned next page/offset to exhaust a provider page without skipping cards.",
+    save
+}
+
+/// The research tools, one `registry::Tool` each, listed after `tools::TOOLS`. Every one counts
+/// against the card-search rate limit.
+pub(super) const TOOLS: &[Tool] = &[
+    Tool {
+        name: "search_scryfall",
+        aliases: &[],
+        title: "Full online card search",
+        description: "Search Scryfall's complete current syntax, beyond Yama's offline subset. Public query only; no deck or collection is uploaded. Results include per-format legality, Oracle text, image URLs and dated price observations, enriched with only this person's ownership. Follow the returned next page/offset to exhaust a provider page without skipping cards.",
+        kind: Kind::Outside,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"query":string("Full Scryfall query"),"page":number("Provider page",1,1,1000),"offset":number("Offset within that provider page",0,0,1000),"limit":number("Cards to return",20,1,60),"order":{"type":"string","enum":["name","cmc","edhrec","usd","released"],"default":"name"}}),
                 &["query"],
-            ),
-            true,
-            false,
-        ),
-        tool(
-            "card_printings",
-            "Printings and image links",
-            "Find a card's paper printings by exact name, from Yama's own copy of Scryfall's card data (no outside request): each with its latest TCGplayer, Cardmarket and Cardhoarder market prices, the date of those prices and their source, and original Scryfall image URLs. Images are never downloaded or bundled. A market price is a dated reference, not a store quote; a missing price is unknown.",
+            )
+        },
+        handler: run!(run_search_scryfall),
+        stages: None,
+    },
+    Tool {
+        name: "card_printings",
+        aliases: &[],
+        title: "Printings and image links",
+        description: "Find a card's paper printings by exact name, from Yama's own copy of Scryfall's card data (no outside request): each with its latest TCGplayer, Cardmarket and Cardhoarder market prices, the date of those prices and their source, and original Scryfall image URLs. Images are never downloaded or bundled. A market price is a dated reference, not a store quote; a missing price is unknown.",
+        kind: Kind::Outside,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"name":string("Exact card name"),"order":{"type":"string","enum":["usd","released"],"description":"Cheapest US price first (default) or newest first"},"offset":number("Printings to skip",0,0,1000),"limit":number("Printings to show",20,1,60)}),
                 &["name"],
-            ),
-            true,
-            false,
-        ),
-        tool(
-            "commander_recommendations",
-            "Commander recommendations",
-            "Read EDHREC's community recommendations and sample sizes. Optionally exclude cards already in your saved deck or filter to owned cards, locally. Only the public commander/theme is sent to EDHREC. Synergy and popularity are research signals, not proof a swap improves a deck.",
+            )
+        },
+        handler: run!(run_card_printings),
+        stages: None,
+    },
+    Tool {
+        name: "commander_recommendations",
+        aliases: &[],
+        title: "Commander recommendations",
+        description: "Read EDHREC's community recommendations and sample sizes. Optionally exclude cards already in your saved deck or filter to owned cards, locally. Only the public commander/theme is sent to EDHREC. Synergy and popularity are research signals, not proof a swap improves a deck.",
+        kind: Kind::Outside,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"commander":string("Commander name"),"slug":string("Optional exact EDHREC commander slug, for unusual names or partners"),"theme":string("Optional EDHREC theme/tag slug"),"budget":{"type":"string","enum":["budget","expensive"]},"deck":string("Optional own saved deck to exclude its cards"),"owned_only":{"type":"boolean","default":false},"limit":number("Suggestions",20,1,60)}),
                 &["commander"],
-            ),
-            true,
-            false,
-        ),
-        tool(
-            "find_combos",
-            "Combos and missing pieces",
-            "Search Commander Spellbook with query, or find combos in a deck/list. Deck mode requires share_list=true and deck checks enabled: it sends card names and quantities to Spellbook, never the name, notes or inventory. Keeps quantities, zones, commander/face requirements, prerequisites and steps. Included cards do not establish that a combo can execute; provider bracket tags are not a declared bracket.",
-            schema(combos, &[]),
-            true,
-            false,
-        ),
-        tool(
-            "public_deck",
-            "Read a public deck URL",
-            "Fetch a public Moxfield or Archidekt list by URL and return an importable list and source timestamp. Nothing is saved. Only supported HTTPS deck hosts are accepted; never private credentials. Automated access may be blocked; failure stays explicit.",
+            )
+        },
+        handler: run!(run_commander_recommendations),
+        stages: None,
+    },
+    Tool {
+        name: "find_combos",
+        aliases: &[],
+        title: "Combos and missing pieces",
+        description: "Search Commander Spellbook with query, or find combos in a deck/list. Deck mode requires share_list=true and deck checks enabled: it sends card names and quantities to Spellbook, never the name, notes or inventory. Keeps quantities, zones, commander/face requirements, prerequisites and steps. Included cards do not establish that a combo can execute; provider bracket tags are not a declared bracket.",
+        kind: Kind::Outside,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
+            schema(combos_schema(), &[])
+        },
+        handler: run!(run_find_combos),
+        stages: None,
+    },
+    Tool {
+        name: "public_deck",
+        aliases: &[],
+        title: "Read a public deck URL",
+        description: "Fetch a public Moxfield or Archidekt list by URL and return an importable list and source timestamp. Nothing is saved. Only supported HTTPS deck hosts are accepted; never private credentials. Automated access may be blocked; failure stays explicit.",
+        kind: Kind::Outside,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"url":string("https://moxfield.com/decks/... or https://archidekt.com/decks/... ")}),
                 &["url"],
-            ),
-            true,
-            false,
-        ),
-        tool(
-            "rules_lookup",
-            "Current official rules",
-            "Look up a numbered Comprehensive Rule with its subrules, a glossary term, or a keyword. Discovers the current official document on Wizards' rules page at runtime. Includes its effective edition and source. No rules document is shipped, and unknown rule numbers are never invented.",
+            )
+        },
+        handler: run!(run_public_deck),
+        stages: None,
+    },
+    Tool {
+        name: "rules_lookup",
+        aliases: &[],
+        title: "Current official rules",
+        description: "Look up a numbered Comprehensive Rule with its subrules, a glossary term, or a keyword. Discovers the current official document on Wizards' rules page at runtime. Includes its effective edition and source. No rules document is shipped, and unknown rule numbers are never invented.",
+        kind: Kind::Outside,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"query":string("Rule number such as 702.19, a glossary term, or search text"),"limit":number("Matches",10,1,20)}),
                 &["query"],
-            ),
-            true,
-            false,
-        ),
-        tool(
-            "deck_analysis",
-            "Deck health, ownership and budget",
-            "Analyze your saved deck or a proposed list without saving: Commander validation, curve, land access, role hints, Game Changers, Reserve List cards, the deck page's deck analysis (an unofficial 1-10 power level with its margin, five 0-100 vectors with every card's points, themes, and Spellbook combos from a saved version's stored check), quantities owned and needed, and cheapest eligible dated nonfoil market references. Missing names/prices stay unknown. No deck or inventory leaves Yama. Role and mana-access counts are descriptive, not a power or castability score.",
-            schema(analyze, &[]),
-            false,
-            false,
-        ),
-        tool(
-            "compare_decks",
-            "Compare two lists",
-            "Compare any two of your saved decks/versions or pasted proposals: exact additions and cuts, structural stats, ownership and dated budget. No invented win-rate or power prediction. Each side takes deck or list, and optionally version and first_is_commander.",
+            )
+        },
+        handler: run!(run_rules_lookup),
+        stages: None,
+    },
+    Tool {
+        name: "deck_analysis",
+        aliases: &[],
+        title: "Deck health, ownership and budget",
+        description: "Analyze your saved deck or a proposed list without saving: Commander validation, curve, land access, role hints, Game Changers, Reserve List cards, the deck page's deck analysis (an unofficial 1-10 power level with its margin, five 0-100 vectors with every card's points, themes, and Spellbook combos from a saved version's stored check), quantities owned and needed, and cheapest eligible dated nonfoil market references. Missing names/prices stay unknown. No deck or inventory leaves Yama. Role and mana-access counts are descriptive, not a power or castability score.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
+            schema(analyze_schema(), &[])
+        },
+        handler: run!(run_deck_analysis),
+        stages: None,
+    },
+    Tool {
+        name: "compare_decks",
+        aliases: &[],
+        title: "Compare two lists",
+        description: "Compare any two of your saved decks/versions or pasted proposals: exact additions and cuts, structural stats, ownership and dated budget. No invented win-rate or power prediction. Each side takes deck or list, and optionally version and first_is_commander.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"left":schema(selector(),&[]),"right":schema(selector(),&[])}),
                 &["left", "right"],
-            ),
-            false,
-            false,
-        ),
-        tool(
-            "sample_hands",
-            "Reproducible hands and mulligans",
-            "Draw seeded sample hands from a saved or pasted library, commanders excluded, without changing it. London mulligans say how many cards to bottom, leaving the choice to the caller. No keep/ship verdict or game simulation is inferred.",
-            schema(hands, &[]),
-            false,
-            false,
-        ),
-        tool(
-            "mana_probability",
-            "Exact source-draw probability",
-            "Exact hypergeometric probability of seeing a caller-defined number of qualifying sources. The caller specifies which cards qualify; source counts alone do not model casting, overlapping colors, ramp, tapped lands or mulligans.",
+            )
+        },
+        handler: run!(run_compare_decks),
+        stages: None,
+    },
+    Tool {
+        name: "sample_hands",
+        aliases: &[],
+        title: "Reproducible hands and mulligans",
+        description: "Draw seeded sample hands from a saved or pasted library, commanders excluded, without changing it. London mulligans say how many cards to bottom, leaving the choice to the caller. No keep/ship verdict or game simulation is inferred.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
+            schema(hands_schema(), &[])
+        },
+        handler: run!(run_sample_hands),
+        stages: None,
+    },
+    Tool {
+        name: "mana_probability",
+        aliases: &[],
+        title: "Exact source-draw probability",
+        description: "Exact hypergeometric probability of seeing a caller-defined number of qualifying sources. The caller specifies which cards qualify; source counts alone do not model casting, overlapping colors, ramp, tapped lands or mulligans.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"library":number("Library size",99,1,250),"sources":number("Qualifying copies in that library",0,0,250),"seen":number("Cards seen",7,0,250),"at_least":number("Required qualifying copies",1,0,250)}),
                 &["sources"],
-            ),
-            false,
-            false,
-        ),
-        tool(
-            "mana_test",
-            "Seeded early land sequencing",
-            "Test a saved or pasted library against a mana cost under an explicit lands-only model. Shuffles without replacement, draws and plays at most one land each turn, respects modeled tapped lands and assigns each source to at most one mana symbol. Reports coverage, unsupported sources, policy and sampling intervals. No acceleration, fetches, filters, life payments, mulligans or spell availability are modeled; these rates are not actual castability probabilities.",
+            )
+        },
+        handler: run!(run_mana_probability),
+        stages: None,
+    },
+    Tool {
+        name: "mana_test",
+        aliases: &[],
+        title: "Seeded early land sequencing",
+        description: "Test a saved or pasted library against a mana cost under an explicit lands-only model. Shuffles without replacement, draws and plays at most one land each turn, respects modeled tapped lands and assigns each source to at most one mana symbol. Reports coverage, unsupported sources, policy and sampling intervals. No acceleration, fetches, filters, life payments, mulligans or spell availability are modeled; these rates are not actual castability probabilities.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             {
                 let mut p = selector();
                 p["cost"] = string(
@@ -190,132 +248,197 @@ pub fn catalog() -> Vec<Value> {
                 p["seed"] = number("Seed", 1, 0, i64::MAX);
                 p["draw_on_turn_one"] = json!({"type":"boolean","default":true});
                 schema(p, &["cost"])
-            },
-            false,
-            false,
-        ),
-        tool(
-            "deck_history",
-            "Saved versions",
-            "List your deck's saved versions. Inspect/export one with deck_analysis, compare two with compare_decks, or stage a historical list with save_deck. Other users' versions are not accessible.",
-            schema(json!({"deck":string("Your deck name or id")}), &["deck"]),
-            false,
-            false,
-        ),
-        tool(
-            "collection_cards",
-            "Owned cards and locations",
-            "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+            }
+        },
+        handler: run!(run_mana_test),
+        stages: None,
+    },
+    Tool {
+        name: "deck_history",
+        aliases: &[],
+        title: "Saved versions",
+        description: "List your deck's saved versions. Inspect/export one with deck_analysis, compare two with compare_decks, or stage a historical list with save_deck. Other users' versions are not accessible.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
+            schema(json!({"deck":string("Your deck name or id")}), &["deck"])
+        },
+        handler: run!(run_deck_history),
+        stages: None,
+    },
+    Tool {
+        name: "collection_cards",
+        aliases: &[],
+        title: "Owned cards and locations",
+        description: "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
             schema(
                 json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("Page",1,1,10000),"limit":number("Rows",20,1,100)}),
                 &[],
-            ),
-            false,
-            false,
-        ),
-        tool(
-            "save_deck",
-            "Stage a complete deck list",
-            "Stage creating a deck or replacing one of your own decks with a complete proposed list. Nothing changes until reviewed and applied. Requires a resolvable Commander-legal 100-card list. Replacement records the current version and refuses stale application. New decks and version saves are atomic with the change record. Use this after construction, public_deck, or restoring a historical list.",
-            schema(save, &["list"]),
-            false,
-            true,
-        ),
-        tool(
-            "research_sources",
-            "Sources and freshness",
-            "Show local card/import freshness, source attribution, public research capabilities and limitations. This does not contact providers or claim that every provider is currently reachable.",
-            schema(json!({}), &[]),
-            false,
-            false,
-        ),
-    ]
+            )
+        },
+        handler: run!(run_collection_cards),
+        stages: None,
+    },
+    Tool {
+        name: "save_deck",
+        aliases: &[],
+        title: "Stage a complete deck list",
+        description: "Stage creating a deck or replacing one of your own decks with a complete proposed list. Nothing changes until reviewed and applied. Requires a resolvable Commander-legal 100-card list. Replacement records the current version and refuses stale application. New decks and version saves are atomic with the change record. Use this after construction, public_deck, or restoring a historical list.",
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
+            schema(save_schema(), &["list"])
+        },
+        handler: run!(run_save_deck),
+        stages: Some(super::changes::staging::EDIT_DECK),
+    },
+    Tool {
+        name: "research_sources",
+        aliases: &[],
+        title: "Sources and freshness",
+        description: "Show local card/import freshness, source attribution, public research capabilities and limitations. This does not contact providers or claim that every provider is currently reachable.",
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        schema: || {
+            schema(json!({}), &[])
+        },
+        handler: run!(run_research_sources),
+        stages: None,
+    },
+];
+
+/// A research tool's arguments are always an object.
+fn object(args: &Value) -> AppResult<&Value> {
+    if args.is_object() { Ok(args) } else { Err(AppError::bad("arguments must be an object")) }
 }
 
-pub fn offered(name: &str) -> bool {
-    catalog().iter().any(|t| t["name"] == name)
+/// A research tool's answer: compact JSON, refused above Yama's size limit.
+fn answer(value: Value) -> AppResult<String> {
+    let result = serde_json::to_string(&value).map_err(anyhow::Error::from)?;
+    if result.len() > 100_000 {
+        return Err(AppError::bad("The result exceeded Yama's tool limit. Request fewer results or a narrower query."));
+    }
+    Ok(result)
 }
 
-pub fn optional_text<'a>(args: &'a Value, key: &str, max: usize) -> AppResult<Option<&'a str>> {
-    match args.get(key) {
-        None => Ok(None),
-        Some(Value::String(s)) if !s.trim().is_empty() && s.chars().count() <= max => {
-            Ok(Some(s.trim()))
-        }
-        _ => Err(AppError::bad(format!(
-            "{key} must be nonempty text of at most {max} characters"
-        ))),
-    }
-}
-pub fn required_text<'a>(args: &'a Value, key: &str, max: usize) -> AppResult<&'a str> {
-    optional_text(args, key, max)?.ok_or_else(|| AppError::bad(format!("{key} is missing")))
-}
-pub fn integer(args: &Value, key: &str, default: i64, min: i64, max: i64) -> AppResult<i64> {
-    let n = match args.get(key) {
-        None => default,
-        Some(v) => v
-            .as_i64()
-            .ok_or_else(|| AppError::bad(format!("{key} must be an integer")))?,
-    };
-    if !(min..=max).contains(&n) {
-        return Err(AppError::bad(format!(
-            "{key} must be between {min} and {max}"
-        )));
-    }
-    Ok(n)
-}
-pub fn boolean(args: &Value, key: &str, default: bool) -> AppResult<bool> {
-    args.get(key)
-        .map(|v| {
-            v.as_bool()
-                .ok_or_else(|| AppError::bad(format!("{key} must be true or false")))
-        })
-        .unwrap_or(Ok(default))
+#[allow(unused_variables)]
+async fn run_search_scryfall(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(search(st, user, args).await?)
 }
 
-pub async fn call(
-    st: &AppState,
-    user: &User,
-    via: &super::Via,
-    name: &str,
-    args: &Value,
-) -> AppResult<String> {
-    if !args.is_object() {
-        return Err(AppError::bad("arguments must be an object"));
-    }
-    let value = match name {
-        "search_scryfall" => search(st, user, args).await?,
-        "card_printings" => printings(st, user, args).await?,
-        "commander_recommendations" => recommendations(st, user, args).await?,
-        "find_combos" => combos(st, user, args).await?,
-        "public_deck" => public_deck(st, user, required_text(args, "url", 1000)?).await?,
-        "rules_lookup" => {
+#[allow(unused_variables)]
+async fn run_card_printings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(printings(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_commander_recommendations(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(recommendations(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_find_combos(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(combos(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_public_deck(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(public_deck(st, user, arg::text_max(args, "url", 1000)?).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_rules_lookup(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer({
             rules::lookup(
                 &st.research,
                 Some(&user.id),
-                required_text(args, "query", 200)?,
-                integer(args, "limit", 10, 1, 20)? as usize,
+                arg::text_max(args, "query", 200)?,
+                arg::int(args, "limit", 10, 1, 20)? as usize,
             )
             .await?
-        }
-        "deck_analysis" => analysis::analyze(st, user, args).await?,
-        "compare_decks" => analysis::compare(st, user, args).await?,
-        "sample_hands" => analysis::hands(st, user, args).await?,
-        "mana_probability" => analysis::mana_probability(args)?,
-        "mana_test" => mana::test(st, user, args).await?,
-        "deck_history" => analysis::history(st, user, args).await?,
-        "collection_cards" => collection(st, user, args).await?,
-        "research_sources" => sources(st).await?,
-        "save_deck" => return super::changes::save_deck(st, user, via, args).await,
-        _ => return Err(AppError::bad(format!("unknown tool \"{name}\""))),
-    };
-    let result = serde_json::to_string(&value).map_err(anyhow::Error::from)?;
-    if result.len() > 100_000 {
-        return Err(AppError::bad(
-            "The result exceeded Yama's tool limit. Request fewer results or a narrower query.",
-        ));
-    }
-    Ok(result)
+        })
+}
+
+#[allow(unused_variables)]
+async fn run_deck_analysis(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(analysis::analyze(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_compare_decks(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(analysis::compare(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_sample_hands(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(analysis::hands(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_mana_probability(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(analysis::mana_probability(args)?)
+}
+
+#[allow(unused_variables)]
+async fn run_mana_test(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(mana::test(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_deck_history(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(analysis::history(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_collection_cards(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(collection(st, user, args).await?)
+}
+
+#[allow(unused_variables)]
+async fn run_save_deck(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    super::changes::save_deck(st, user, via, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_research_sources(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let args = object(args)?;
+    answer(sources(st).await?)
 }
 
 async fn ownership(st: &AppState, user: &User) -> AppResult<HashMap<String, (i64, i64)>> {
@@ -366,11 +489,11 @@ pub fn card_summary(card: &Value) -> Value {
 }
 
 async fn search(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
-    let query = required_text(args, "query", 1000)?.to_string();
-    let page = integer(args, "page", 1, 1, 1000)?;
-    let limit = integer(args, "limit", 20, 1, 60)? as usize;
-    let offset = integer(args, "offset", 0, 0, 1000)? as usize;
-    let order = optional_text(args, "order", 20)?.unwrap_or("name");
+    let query = arg::text_max(args, "query", 1000)?.to_string();
+    let page = arg::int(args, "page", 1, 1, 1000)?;
+    let limit = arg::int(args, "limit", 20, 1, 60)? as usize;
+    let offset = arg::int(args, "offset", 0, 0, 1000)? as usize;
+    let order = arg::opt_text(args, "order", 20)?.unwrap_or("name");
     if !["name", "cmc", "edhrec", "usd", "released"].contains(&order) {
         return Err(AppError::bad("unsupported search order"));
     }
@@ -431,10 +554,10 @@ async fn search(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
 /// A card's paper printings from Yama's own copy of Scryfall's default cards, with each one's
 /// latest prices (`price_latest`), their date and their source. Nothing is fetched.
 async fn printings(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
-    let name = required_text(args, "name", 200)?;
-    let limit = integer(args, "limit", 20, 1, 60)? as usize;
-    let offset = integer(args, "offset", 0, 0, 1000)? as usize;
-    let order = match optional_text(args, "order", 20)?.unwrap_or("usd") {
+    let name = arg::text_max(args, "name", 200)?;
+    let limit = arg::int(args, "limit", 20, 1, 60)? as usize;
+    let offset = arg::int(args, "offset", 0, 0, 1000)? as usize;
+    let order = match arg::opt_text(args, "order", 20)?.unwrap_or("usd") {
         "usd" => "ps.usd IS NULL, ps.usd, p.released_at DESC, p.scryfall_id",
         "released" => "p.released_at DESC, p.scryfall_id",
         _ => return Err(AppError::bad("card_printings orders by usd or released")),
@@ -528,17 +651,17 @@ fn segment(s: &str) -> AppResult<&str> {
 }
 
 async fn recommendations(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
-    let commander = required_text(args, "commander", 200)?;
-    let commander_slug = optional_text(args, "slug", 120)?
+    let commander = arg::text_max(args, "commander", 200)?;
+    let commander_slug = arg::opt_text(args, "slug", 120)?
         .map(String::from)
         .unwrap_or_else(|| slug(commander));
     segment(&commander_slug)?;
     let mut path = format!("/pages/commanders/{commander_slug}");
-    if let Some(theme) = optional_text(args, "theme", 120)? {
+    if let Some(theme) = arg::opt_text(args, "theme", 120)? {
         path.push('/');
         path.push_str(segment(theme)?);
     }
-    if let Some(budget) = optional_text(args, "budget", 20)? {
+    if let Some(budget) = arg::opt_text(args, "budget", 20)? {
         if !["budget", "expensive"].contains(&budget) {
             return Err(AppError::bad("budget must be budget or expensive"));
         }
@@ -546,9 +669,9 @@ async fn recommendations(st: &AppState, user: &User, args: &Value) -> AppResult<
         path.push_str(budget);
     }
     path.push_str(".json");
-    let limit = integer(args, "limit", 20, 1, 60)? as usize;
-    let only_owned = boolean(args, "owned_only", false)?;
-    let excluded = if let Some(deck) = optional_text(args, "deck", 200)? {
+    let limit = arg::int(args, "limit", 20, 1, 60)? as usize;
+    let only_owned = arg::flag(args, "owned_only", false)?;
+    let excluded = if let Some(deck) = arg::opt_text(args, "deck", 200)? {
         analysis::load(st, user, &json!({"deck":deck}))
             .await?
             .cards
@@ -650,12 +773,12 @@ fn combo_summary(combo: &Value) -> Value {
 }
 
 async fn combos(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
-    let limit = integer(args, "limit", 10, 1, 20)? as usize;
-    if let Some(query) = optional_text(args, "query", 1000)? {
+    let limit = arg::int(args, "limit", 10, 1, 20)? as usize;
+    if let Some(query) = arg::opt_text(args, "query", 1000)? {
         if args.get("deck").is_some() || args.get("list").is_some() {
             return Err(AppError::bad("Use query or deck/list, not both."));
         }
-        let offset = integer(args, "offset", 0, 0, 10000)?;
+        let offset = arg::int(args, "offset", 0, 0, 10000)?;
         let doc = st
             .research
             .get(
@@ -684,7 +807,7 @@ async fn combos(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
             "Resolve unknown names before searching this list's combos.",
         ));
     }
-    if !boolean(args, "share_list", false)? {
+    if !arg::flag(args, "share_list", false)? {
         return Err(AppError::bad(
             "Deck combo lookup sends the card list to Commander Spellbook. Set share_list=true only when the person requested that lookup.",
         ));
@@ -924,12 +1047,12 @@ pub async fn public_deck(st: &AppState, user: &User, raw: &str) -> AppResult<Val
 }
 
 async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
-    let query = optional_text(args, "query", 200)?
+    let query = arg::opt_text(args, "query", 200)?
         .unwrap_or("")
         .to_lowercase();
-    let outside = boolean(args, "outside_decks", false)?;
-    let limit = integer(args, "limit", 20, 1, 100)? as usize;
-    let page = integer(args, "page", 1, 1, 10000)? as usize;
+    let outside = arg::flag(args, "outside_decks", false)?;
+    let limit = arg::int(args, "limit", 20, 1, 100)? as usize;
+    let page = arg::int(args, "page", 1, 1, 10000)? as usize;
     let mut rows = crate::collection::items_for_owner(&st.pool, &user.id).await?;
     rows.retain(|i| {
         i.name
