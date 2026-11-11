@@ -458,8 +458,7 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &["find_cards"],
         title: "Search cards",
         description: "Search Magic cards with Yama's Scryfall-style syntax: o:\"draw a card\", t:artifact, id<=rw \
-                      (fits a Boros commander), mv<=3, f:commander (legal), is:gamechanger, is:reserved, is:partner, set:cmm, \
-                      a:\"rebecca guay\" (artist), year>=2020, usd<5 (a card with no price never matches), -t:creature, or, \
+                      (fits a Boros commander), mv<=3, f:commander (legal), is:gamechanger, -t:creature, or, \
                       parentheses, !\"Exact Name\". 60 cards at a time (next_cursor continues), each with cost, type, color \
                       identity, Commander legality, Game Changer, a dated market price (null when none is recorded) and how \
                       many copies they own.",
@@ -467,7 +466,7 @@ pub(super) const TOOLS: &[Tool] = &[
             json!({
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander"},
+                    "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander. Also set:cmm, a:\"rebecca guay\" (artist), year>=2020, usd<5 (a card with no price never matches a price), is:reserved, is:partner, is:mdfc."},
                     "order": {"type": "string", "enum": ["name", "mv", "edhrec", "color", "usd", "usd_asc", "released", "released_asc"], "description": "name (default), mv (mana value), edhrec (most played first), color, usd (dearest first; usd_asc cheapest first; no price last) or released (newest first; released_asc oldest first)."},
                     "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "The older way to continue: page number, from 1. cursor is preferred."},
                     "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},

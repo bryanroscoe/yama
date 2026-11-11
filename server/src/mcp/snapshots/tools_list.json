@@ -799,12 +799,16 @@
             "type": "string"
           },
           "order": {
-            "description": "name (default), mv (mana value), edhrec (most played first) or color.",
+            "description": "name (default), mv (mana value), edhrec (most played first), color, usd (dearest first; usd_asc cheapest first; no price last) or released (newest first; released_asc oldest first).",
             "enum": [
               "name",
               "mv",
               "edhrec",
-              "color"
+              "color",
+              "usd",
+              "usd_asc",
+              "released",
+              "released_asc"
             ],
             "type": "string"
           },
@@ -815,7 +819,7 @@
             "type": "integer"
           },
           "query": {
-            "description": "The search, for example: id<=rw t:artifact o:treasure f:commander",
+            "description": "The search, for example: id<=rw t:artifact o:treasure f:commander. Also set:cmm, a:\"rebecca guay\" (artist), year>=2020, usd<5 (a card with no price never matches a price), is:reserved, is:partner, is:mdfc.",
             "maxLength": 1000,
             "type": "string"
           }

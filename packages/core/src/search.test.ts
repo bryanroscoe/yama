@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSearch, GAME_CHANGERS_NOT_LOADED, namePhrase, nameRank, needsConnection, searchOffline, type OfflineCard } from "./search";
+import { compileSearch, GAME_CHANGERS_NOT_LOADED, namePhrase, nameRank, needsConnection, orderUsed, searchOffline, type OfflineCard } from "./search";
 
 const card = (o: Partial<OfflineCard> & { n: string }): OfflineCard => ({
   i: o.n, m: null, v: 0, t: "", o: "", c: "", ci: "", p: null, th: null, l: null, r: "common", k: [],
@@ -50,24 +50,37 @@ describe("offline search", () => {
       card({ n: "Fire // Ice", t: "Instant // Instant", y: "split" }),
       card({ n: "The Eldest Reborn", t: "Enchantment — Saga", y: "saga" }),
       card({ n: "Forest", t: "Basic Land — Forest", m: null, y: null }),
+      card({ n: "Spellskite", t: "Artifact Creature — Phyrexian Horror", m: "{2}", o: "{U/P}: Change a target of target spell or ability to Spellskite." }),
+      card({ n: "Diviner's Wand", t: "Kindred Artifact — Wizard Equipment", m: "{3}", o: "Equipped creature has a draw ability." }),
+      card({ n: "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", t: "Enchantment — Saga // Enchantment Creature — Goblin Shaman", y: "transform", o: "Read ahead." }),
+      card({ n: "Bonecrusher Giant // Stomp", t: "Creature — Giant // Instant — Adventure", y: "adventure", o: "Stomp deals 2 damage." }),
+      card({ n: "Marang River Regent // Coil and Catch", t: "Creature — Dragon // Instant — Omen", y: "adventure", o: "Draw three cards." }),
     ];
     const is = (q: string) => searchOffline(more, q).map((c) => c.n);
     expect(is("is:partner")).toEqual(["Tymna the Weaver", "Wilson, Refined Grizzly"]);
     expect(is("is:companion")).toEqual(["Lurrus of the Dream-Den"]);
     expect(is("is:hybrid")).toEqual(["Lurrus of the Dream-Den"]);
-    expect(is("is:phyrexian")).toEqual(["Gitaxian Probe"]);
+    // Phyrexian mana in the cost or in the text.
+    expect(is("is:phyrexian")).toEqual(["Gitaxian Probe", "Spellskite"]);
     expect(is("is:vanilla")).toEqual(["Grizzly Bears"]);
     expect(is("is:mdfc")).toEqual(["Valakut Awakening // Valakut Stoneforge"]);
-    expect(is("is:transform")).toEqual(["Delver of Secrets // Insectile Aberration"]);
-    expect(is("is:dfc")).toEqual(["Delver of Secrets // Insectile Aberration", "Valakut Awakening // Valakut Stoneforge"]);
+    expect(is("is:transform")).toEqual(["Delver of Secrets // Insectile Aberration", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki"]);
+    expect(is("is:dfc")).toEqual(["Delver of Secrets // Insectile Aberration", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "Valakut Awakening // Valakut Stoneforge"]);
     expect(is("is:Split")).toEqual(["Fire // Ice"]);
-    expect(is("is:saga")).toEqual(["The Eldest Reborn"]);
-    expect(is("is:historic")).toEqual(["Lurrus of the Dream-Den", "The Eldest Reborn", "Tymna the Weaver", "Wilson, Refined Grizzly"]);
+    // A Saga by its type line, whatever its layout; an Omen isn't an Adventure.
+    expect(is("is:saga")).toEqual(["Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "The Eldest Reborn"]);
+    expect(is("is:adventure")).toEqual(["Bonecrusher Giant // Stomp"]);
+    expect(is("is:historic")).toEqual([
+      "Diviner's Wand", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "Lurrus of the Dream-Den", "Spellskite", "The Eldest Reborn", "Tymna the Weaver", "Wilson, Refined Grizzly",
+    ]);
+    // A party is creatures: the Wizard's wand isn't in it.
     expect(is("is:party")).toEqual(["Delver of Secrets // Insectile Aberration", "Tymna the Weaver", "Wilson, Refined Grizzly"]);
     expect(is("is:outlaw")).toEqual([]);
     // A card with no mana cost or layout isn't hybrid or a split card, and is found by the negation.
     expect(is("-is:hybrid -is:split t:basic")).toEqual(["Forest"]);
     expect(() => is("is:nonsense")).toThrow("unsupported is:nonsense");
+    // A word every object has isn't an is: value (the server refuses these too).
+    for (const word of ["constructor", "__proto__", "toString", "hasOwnProperty"]) expect(() => is(`is:${word}`), word).toThrow(`unsupported is:${word}`);
   });
 
   it("refuses what needs printings or prices with a reason, after reading it as the server does", () => {
@@ -81,10 +94,21 @@ describe("offline search", () => {
     expect(() => searchOffline(cards, "year:94")).toThrow("94 isn't a year");
     expect(() => searchOffline(cards, "year>2020.5")).toThrow("2020.5 isn't a year");
     expect(() => searchOffline(cards, "usd<cheap")).toThrow("cheap isn't a price");
+    // Only what the server's parser reads as a number: no hex, no spaces.
+    expect(() => searchOffline(cards, "year:0x7e4")).toThrow("0x7e4 isn't a year");
+    expect(() => searchOffline(cards, 'year:" 2020 "')).toThrow("isn't a year");
+    expect(() => searchOffline(cards, "usd:0x10")).toThrow("0x10 isn't a price");
+    // A set or an artist is or isn't: another comparison is refused, as on the server.
+    for (const q of ["set!=cmm", "set>cmm", "e<lea"]) expect(() => searchOffline(cards, q), q).toThrow("takes : or =");
+    expect(() => searchOffline(cards, "a!=guay")).toThrow("a takes : or =, not !=");
+    // The Reserve List isn't a printing or a price: its reason says what is missing.
+    expect(needsConnection("the Reserve List")).toBe("Searching by the Reserve List needs a connection: the copy on this device doesn't say which cards are on it.");
     // The device has no prices or dates to sort by: those orders are the order by name.
     for (const order of ["usd", "usd_asc", "released", "released_asc"] as const) {
       expect(searchOffline(cards, "t:artifact", order).map((c) => c.n)).toEqual(["Jeweled Lotus", "Sol Ring"]);
+      expect(orderUsed(order)).toBe("name");
     }
+    expect(["name", "edhrec", "mv", "color", "anything"].map(orderUsed)).toEqual(["name", "edhrec", "mv", "color", "name"]);
   });
 
   it("hides tokens unless asked", () => {

@@ -3,17 +3,22 @@
 //! Supported: bare words and "quoted phrases" (name), `!"exact name"`, `o:` `t:` `kw:`,
 //! `c:` / `id:` with `= != < <= > >=` (colors as letters, names, guilds, shards, wedges,
 //! `c`/colorless, `m`/multicolor), `mv`/`cmc`, `pow`, `tou`, `loy`, `r:`, `f:`/`legal:`,
-//! `banned:`, `set:` / `s:` / `e:` (a set code, any printing), `a:` (artist, any printing), `year`
-//! (the year of any printing), `usd` (the price the results show: the default printing's latest
-//! market price; a card with no price never matches a price comparison, negated or not), `is:`
-//! (`commander`, `legendary`, `gamechanger` or `gc`, `reserved`, `partner`, `companion`, `dfc`,
-//! `mdfc`, `transform`, `split`, `flip`, `meld`, `adventure`, `saga`, `leveler`, `vanilla`,
-//! `historic`, `party`, `outlaw`, `hybrid`, `phyrexian`, `permanent`, `spell`, `multicolor`),
-//! negation `-`, `or`, and parentheses.
+//! `banned:`, `set:` / `s:` / `e:` (a set code), `a:` (artist), `year` (release year), `usd` (the
+//! price the results show; a card with no price never matches a price comparison, negated or
+//! not), `is:` (`commander`, `legendary`, `gamechanger` or `gc`, `reserved`, `partner`,
+//! `companion`, `dfc`, `mdfc`, `transform`, `split`, `flip`, `meld`, `adventure`, `saga`,
+//! `leveler`, `vanilla`, `historic`, `party`, `outlaw`, `hybrid`, `phyrexian`, `permanent`,
+//! `spell`, `multicolor`), negation `-`, `or`, and parentheses.
+//!
+//! `set:`, `a:` and `year` are about a printing. The ones side by side in one group are about
+//! the same printing: `set:lea year<1995` is a card with a 1993 Alpha printing, and
+//! `year>=2000 year<=2005` a card printed in those years, not one printed before and after.
+//! Negated, a printing term means the card has no such printing at all (`-set:cmm`: never
+//! printed in CMM).
+//!
 //! The same grammar runs offline in the app (`packages/core/src/search.ts`), so keep them in
 //! step. The device keeps no printings or prices, so there `set:`, `a:`, `year`, `usd` and
 //! `is:reserved` are read and then refused with a reason.
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Bind {
@@ -31,12 +36,17 @@ pub struct Compiled {
     pub uses_reserved: bool,
 }
 
-/// The price a search compares, sorts by and shows: the default printing's latest market price,
-/// regular, else foil, else etched. NULL when there is none, so a comparison with it is never
-/// true (and neither is its negation): a missing price is unknown, not 0.
-pub const PRICE_SQL: &str = "(SELECT COALESCE(ps.usd, ps.usd_foil, ps.usd_etched) FROM price_latest ps WHERE ps.scryfall_id = cards.default_printing)";
+/// The price a search compares, sorts by and shows (`cards::with_price_and_ownership` shows the
+/// same): the default printing's latest market price, regular, else foil, else etched; when that
+/// printing has none (a set not out yet), the lowest price among the card's other printings.
+/// NULL when no printing has one, so a comparison with it is never true (and neither is its
+/// negation): a missing price is unknown, not 0.
+pub const PRICE_SQL: &str = "COALESCE(\
+    (SELECT COALESCE(ps.usd, ps.usd_foil, ps.usd_etched) FROM price_latest ps WHERE ps.scryfall_id = cards.default_printing), \
+    (SELECT MIN(COALESCE(ps.usd, ps.usd_foil, ps.usd_etched)) FROM printings p JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id WHERE p.oracle_id = cards.oracle_id))";
 
-/// When a card first came out: its earliest dated printing (YYYY-MM-DD), for sorting.
+/// When a card first came out: its earliest dated printing (YYYY-MM-DD), for sorting. Read from
+/// the `printings_oracle_released` index.
 pub const FIRST_RELEASE_SQL: &str = "(SELECT MIN(p.released_at) FROM printings p WHERE p.oracle_id = cards.oracle_id)";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,8 +210,27 @@ struct Parser {
 }
 
 /// `is:` values that are a card layout (Scryfall's `layout`), by the layout they name.
-const IS_LAYOUTS: [(&str, &str); 8] =
-    [("mdfc", "modal_dfc"), ("transform", "transform"), ("split", "split"), ("flip", "flip"), ("meld", "meld"), ("adventure", "adventure"), ("saga", "saga"), ("leveler", "leveler")];
+const IS_LAYOUTS: [(&str, &str); 6] = [("mdfc", "modal_dfc"), ("transform", "transform"), ("split", "split"), ("flip", "flip"), ("meld", "meld"), ("leveler", "leveler")];
+
+/// One term of a search: a condition on the card, or on one of its printings (`p`).
+enum Part {
+    Card(String),
+    Printing(String),
+}
+
+/// A card that has a printing these conditions are all true of.
+fn has_printing(conditions: &str) -> String {
+    format!("cards.oracle_id IN (SELECT p.oracle_id FROM printings p WHERE {conditions})")
+}
+
+impl Part {
+    fn sql(self) -> String {
+        match self {
+            Part::Card(sql) => sql,
+            Part::Printing(condition) => has_printing(&condition),
+        }
+    }
+}
 
 /// Keywords that let two cards share the command zone (`is:partner`), lowercased.
 const PARTNER_KEYWORDS: &str = "('partner','partner with','friends forever','choose a background','doctor''s companion')";
@@ -227,28 +256,55 @@ impl Parser {
     }
 
     fn and_expr(&mut self) -> Result<String, String> {
-        let mut parts = Vec::new();
+        // Each term with the binds it pushed (a slice of `self.binds`, in order).
+        let first_bind = self.binds.len();
+        let mut terms: Vec<(Part, usize)> = Vec::new();
         while let Some(t) = self.peek() {
             if matches!(t, Tok::Or | Tok::RParen) {
                 break;
             }
-            parts.push(self.unary()?);
+            let part = self.unary()?;
+            terms.push((part, self.binds.len()));
         }
-        if parts.is_empty() {
+        if terms.is_empty() {
             return Err("empty expression".into());
+        }
+        // The printing terms of one group are about one printing: they go into one subquery,
+        // after the card terms. The binds move with them, so each `?` still gets its own value.
+        let mut binds = self.binds.split_off(first_bind).into_iter();
+        let (mut parts, mut conditions, mut later) = (Vec::new(), Vec::new(), Vec::new());
+        let mut from = first_bind;
+        for (part, to) in terms {
+            let own: Vec<Bind> = binds.by_ref().take(to - from).collect();
+            from = to;
+            match part {
+                Part::Card(sql) => {
+                    parts.push(sql);
+                    self.binds.extend(own);
+                }
+                Part::Printing(condition) => {
+                    conditions.push(condition);
+                    later.extend(own);
+                }
+            }
+        }
+        if !conditions.is_empty() {
+            parts.push(has_printing(&conditions.join(" AND ")));
+            self.binds.extend(later);
         }
         Ok(if parts.len() == 1 { parts.pop().unwrap() } else { format!("({})", parts.join(" AND ")) })
     }
 
-    fn unary(&mut self) -> Result<String, String> {
+    fn unary(&mut self) -> Result<Part, String> {
         if self.peek() == Some(&Tok::Neg) {
             self.pos += 1;
-            return Ok(format!("NOT {}", self.atom()?));
+            // Negated, a printing term is "no printing like this at all".
+            return Ok(Part::Card(format!("NOT {}", self.atom()?.sql())));
         }
         self.atom()
     }
 
-    fn atom(&mut self) -> Result<String, String> {
+    fn atom(&mut self) -> Result<Part, String> {
         match self.toks.get(self.pos).cloned() {
             Some(Tok::LParen) => {
                 self.pos += 1;
@@ -257,11 +313,14 @@ impl Parser {
                     return Err("missing ')'".into());
                 }
                 self.pos += 1;
-                Ok(format!("({inner})"))
+                Ok(Part::Card(format!("({inner})")))
             }
             Some(Tok::Term { key, op, value, exact }) => {
                 self.pos += 1;
-                self.term(key.as_deref(), &op, &value, exact)
+                match self.printing_term(key.as_deref(), &op, &value)? {
+                    Some(condition) => Ok(Part::Printing(condition)),
+                    None => self.term(key.as_deref(), &op, &value, exact).map(Part::Card),
+                }
             }
             _ => Err("unexpected token".into()),
         }
@@ -275,6 +334,32 @@ impl Parser {
     fn like(&mut self, column: &str, v: &str) -> String {
         self.binds.push(Bind::Text(format!("%{}%", escape_like(v))));
         format!("{column} LIKE ? ESCAPE '\\'")
+    }
+
+    /// A term about a printing, as a condition on `p` (a row of `printings`): a set, an artist
+    /// or a release year. `None` for any other term.
+    fn printing_term(&mut self, key: Option<&str>, op: &str, value: &str) -> Result<Option<String>, String> {
+        let is = |op: &str, key: &str| if matches!(op, ":" | "=") { Ok(()) } else { Err(format!("{key} takes : or =, not {op}")) };
+        Ok(Some(match key {
+            Some(key @ ("set" | "s" | "e" | "edition")) => {
+                is(op, key)?;
+                let p = self.text(value.to_lowercase());
+                format!("p.set_code = {p}")
+            }
+            Some(key @ ("a" | "artist")) => {
+                is(op, key)?;
+                self.like("p.artist", value)
+            }
+            Some("year") => {
+                let n: f64 = value.parse().map_err(|_| format!("{value} isn't a year"))?;
+                if !(1990.0..=2200.0).contains(&n) || n.fract() != 0.0 {
+                    return Err(format!("{value} isn't a year"));
+                }
+                self.binds.push(Bind::Num(n));
+                format!("CAST(substr(p.released_at, 1, 4) AS INTEGER) {} ?", compare(op))
+            }
+            _ => return Ok(None),
+        }))
     }
 
     fn term(&mut self, key: Option<&str>, op: &str, value: &str, exact: bool) -> Result<String, String> {
@@ -354,35 +439,22 @@ impl Parser {
                 "dfc" => Ok("IFNULL(cards.layout, '') IN ('transform','modal_dfc','meld','reversible_card')".into()),
                 "vanilla" => Ok("(cards.type_line LIKE '%Creature%' AND cards.oracle_text = '')".into()),
                 "historic" => Ok(any_type(&["Legendary", "Artifact", "Saga"])),
-                "party" => Ok(any_type(&["Cleric", "Rogue", "Warrior", "Wizard"])),
+                // A party is made of creatures: a Wizard's staff isn't one.
+                "party" => Ok(format!("(cards.type_line LIKE '%Creature%' AND {})", any_type(&["Cleric", "Rogue", "Warrior", "Wizard"]))),
+                // By the type line, not the layout: a Saga that transforms is still a Saga, and an
+                // Omen shares the Adventure layout without being one.
+                "saga" => Ok("cards.type_line LIKE '%Saga%'".into()),
+                "adventure" => Ok("(IFNULL(cards.layout, '') = 'adventure' AND cards.type_line LIKE '%Adventure%')".into()),
                 "outlaw" => Ok(any_type(&["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"])),
                 // A hybrid symbol is two halves that aren't Phyrexian: {W/U}, {2/W}, not {W/P}.
                 "hybrid" => Ok("IFNULL(cards.mana_cost, '') GLOB '*{[WUBRGC2]/[WUBRGC]*'".into()),
-                "phyrexian" => Ok("IFNULL(cards.mana_cost, '') LIKE '%/P}%'".into()),
+                // Phyrexian mana in the cost or in the text (Spellskite's ability).
+                "phyrexian" => Ok("(IFNULL(cards.mana_cost, '') LIKE '%/P}%' OR cards.oracle_text LIKE '%/P}%')".into()),
                 other => match IS_LAYOUTS.iter().find(|(name, _)| *name == other) {
                     Some((_, layout)) => Ok(format!("IFNULL(cards.layout, '') = '{layout}'")),
                     None => Err(format!("unsupported is:{other}")),
                 },
             },
-            "set" | "s" | "e" | "edition" => {
-                let p = self.text(value.to_lowercase());
-                Ok(format!("cards.oracle_id IN (SELECT oracle_id FROM printings WHERE set_code = {p})"))
-            }
-            "a" | "artist" => {
-                self.binds.push(Bind::Text(format!("%{}%", escape_like(value))));
-                Ok("EXISTS (SELECT 1 FROM printings p WHERE p.oracle_id = cards.oracle_id AND p.artist LIKE ? ESCAPE '\\')".into())
-            }
-            "year" => {
-                let n: f64 = value.parse().map_err(|_| format!("{value} isn't a year"))?;
-                if !(1990.0..=2200.0).contains(&n) || n.fract() != 0.0 {
-                    return Err(format!("{value} isn't a year"));
-                }
-                self.binds.push(Bind::Num(n));
-                Ok(format!(
-                    "EXISTS (SELECT 1 FROM printings p WHERE p.oracle_id = cards.oracle_id AND CAST(substr(p.released_at, 1, 4) AS INTEGER) {} ?)",
-                    compare(op)
-                ))
-            }
             "usd" => {
                 let n: f64 = value.trim_start_matches('$').parse().map_err(|_| format!("{value} isn't a price"))?;
                 if !n.is_finite() {
@@ -538,7 +610,7 @@ mod tests {
     fn sets_artists_years_and_prices() {
         // A set is matched by its code, in lower case, over every printing.
         let c = compile("set:CMM").unwrap();
-        assert_eq!(c.sql, "cards.oracle_id IN (SELECT oracle_id FROM printings WHERE set_code = ?)");
+        assert_eq!(c.sql, "cards.oracle_id IN (SELECT p.oracle_id FROM printings p WHERE p.set_code = ?)");
         assert_eq!(c.binds, vec![Bind::Text("cmm".into())]);
         for alias in ["s:cmm", "e:cmm", "edition:cmm"] {
             assert_eq!(compile(alias).unwrap().sql, c.sql, "{alias}");
@@ -565,6 +637,32 @@ mod tests {
     }
 
     #[test]
+    fn printing_terms_side_by_side_are_about_one_printing() {
+        // Both years and the set are asked of the same printing, after the card term, and every
+        // `?` still gets its own value.
+        let c = compile("year>=2000 t:artifact year<=2005 set:MRD").unwrap();
+        assert_eq!(
+            c.sql,
+            "(cards.type_line LIKE ? ESCAPE '\\' AND cards.oracle_id IN (SELECT p.oracle_id FROM printings p WHERE \
+             CAST(substr(p.released_at, 1, 4) AS INTEGER) >= ? AND CAST(substr(p.released_at, 1, 4) AS INTEGER) <= ? AND p.set_code = ?))"
+        );
+        assert_eq!(c.binds, vec![Bind::Text("%artifact%".into()), Bind::Num(2000.0), Bind::Num(2005.0), Bind::Text("mrd".into())]);
+        // Each side of an "or", and each group in parentheses, is about a printing of its own.
+        let c = compile("set:lea or (set:leb sol) year<1995").unwrap();
+        assert_eq!(c.sql.matches("FROM printings p").count(), 3, "{}", c.sql);
+        assert_eq!(c.binds, vec![Bind::Text("lea".into()), Bind::Text("%sol%".into()), Bind::Text("leb".into()), Bind::Num(1995.0)]);
+        // Negated: the card has no such printing at all.
+        assert_eq!(compile("-set:cmm").unwrap().sql, "NOT cards.oracle_id IN (SELECT p.oracle_id FROM printings p WHERE p.set_code = ?)");
+        let c = compile("-year<2000 a:guay").unwrap();
+        assert_eq!(c.sql.matches("FROM printings p").count(), 2, "{}", c.sql);
+        assert_eq!(c.binds, vec![Bind::Num(2000.0), Bind::Text("%guay%".into())]);
+        // A printing is or isn't from a set or by an artist: no other comparison is read.
+        for bad in ["set!=cmm", "set>cmm", "e<lea", "a!=guay", "artist>=guay"] {
+            assert!(compile(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn more_is_values() {
         let c = compile("is:reserved").unwrap();
         assert_eq!(c.sql, "cards.reserved = 1");
@@ -572,16 +670,19 @@ mod tests {
         assert!(c.uses_reserved && !c.uses_game_changer);
         assert!(!compile("is:gc").unwrap().uses_reserved);
         assert_eq!(compile("is:mdfc").unwrap().sql, "IFNULL(cards.layout, '') = 'modal_dfc'");
-        assert_eq!(compile("is:Saga").unwrap().sql, "IFNULL(cards.layout, '') = 'saga'");
+        assert_eq!(compile("is:Split").unwrap().sql, "IFNULL(cards.layout, '') = 'split'");
+        // By the type line: a Saga that transforms is still one, and an Omen isn't an Adventure.
+        assert_eq!(compile("is:saga").unwrap().sql, "cards.type_line LIKE '%Saga%'");
+        assert_eq!(compile("is:adventure").unwrap().sql, "(IFNULL(cards.layout, '') = 'adventure' AND cards.type_line LIKE '%Adventure%')");
         assert!(compile("is:dfc").unwrap().sql.contains("'transform','modal_dfc','meld','reversible_card'"));
         assert!(compile("is:partner").unwrap().sql.contains("'choose a background'"));
         assert!(compile("is:companion").unwrap().sql.contains("= 'companion'"));
         assert_eq!(compile("is:vanilla").unwrap().sql, "(cards.type_line LIKE '%Creature%' AND cards.oracle_text = '')");
         assert_eq!(compile("is:historic").unwrap().sql, "(cards.type_line LIKE '%Legendary%' OR cards.type_line LIKE '%Artifact%' OR cards.type_line LIKE '%Saga%')");
-        assert!(compile("is:party").unwrap().sql.contains("'%Cleric%'"));
+        assert!(compile("is:party").unwrap().sql.starts_with("(cards.type_line LIKE '%Creature%' AND (cards.type_line LIKE '%Cleric%' OR"));
         assert!(compile("is:outlaw").unwrap().sql.contains("'%Warlock%'"));
         assert_eq!(compile("is:hybrid").unwrap().sql, "IFNULL(cards.mana_cost, '') GLOB '*{[WUBRGC2]/[WUBRGC]*'");
-        assert_eq!(compile("is:phyrexian").unwrap().sql, "IFNULL(cards.mana_cost, '') LIKE '%/P}%'");
+        assert_eq!(compile("is:phyrexian").unwrap().sql, "(IFNULL(cards.mana_cost, '') LIKE '%/P}%' OR cards.oracle_text LIKE '%/P}%')");
         // None of them binds anything, so none can carry what was typed into the SQL.
         assert!(compile("is:reserved is:partner is:hybrid is:historic").unwrap().binds.is_empty());
         assert!(compile("is:nonsense").is_err());

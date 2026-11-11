@@ -13,7 +13,7 @@ const COMPARE: Record<string, string> = { "<=": "at most", ">=": "at least", "<"
 const NUMBERS: Record<string, string> = { mv: "Mana value", cmc: "Mana value", manavalue: "Mana value", pow: "Power", power: "Power", tou: "Toughness", toughness: "Toughness", loy: "Loyalty", loyalty: "Loyalty" };
 const IS: Record<string, string> = {
   commander: "Can be your commander", gamechanger: "Game Changers", gc: "Game Changers", legendary: "Legendary", reserved: "On the Reserve List",
-  partner: "Has partner", companion: "Can be a companion", dfc: "Double-faced", mdfc: "Modal double-faced", transform: "Transforms",
+  partner: "Partners or pairs with a Background", companion: "Can be a companion", dfc: "Double-faced", mdfc: "Modal double-faced", transform: "Transforms",
   vanilla: "No rules text", hybrid: "Hybrid mana", phyrexian: "Phyrexian mana",
 };
 /** "year>=2020" → "Printed in 2020 or later". */

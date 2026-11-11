@@ -12,7 +12,7 @@ describe("queryChips", () => {
     expect(queryChips('set:cmm a:"rebecca guay" year>=2020').map((c) => c.label)).toEqual(["From CMM", "Art by rebecca guay", "Printed in 2020 or later"]);
     expect(queryChips("year:1994 year<2000 -year>2020").map((c) => c.label)).toEqual(["Printed in 1994", "Printed before 2000", "Not printed after 2020"]);
     expect(queryChips("usd<5 usd>=$2.50 usd:1").map((c) => c.label)).toEqual(["Price under $5", "Price at least $2.50", "Price $1"]);
-    expect(queryChips("is:reserved is:partner -is:mdfc is:saga").map((c) => c.label)).toEqual(["On the Reserve List", "Has partner", "Not modal double-faced", "Saga"]);
+    expect(queryChips("is:reserved is:partner -is:mdfc is:saga").map((c) => c.label)).toEqual(["On the Reserve List", "Partners or pairs with a Background", "Not modal double-faced", "Saga"]);
   });
 
   it("leaves a query with or or parentheses whole", () => {

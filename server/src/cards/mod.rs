@@ -113,7 +113,9 @@ pub struct SearchCard {
     #[serde(flatten)]
     pub card: Card,
     /// Market price of the default printing from the latest snapshot: regular, else foil, else
-    /// etched. `None` means Scryfall had no price; it is never 0 for "unknown".
+    /// etched; when that printing has none (a set not out yet), the lowest among the card's other
+    /// printings, with that printing's date (`search::PRICE_SQL`, which a search compares and
+    /// sorts by). `None` means no printing had a price; it is never 0 for "unknown".
     pub usd: Option<f64>,
     pub price_date: Option<String>,
     /// Copies of this card (any printing) in the caller's collection.
@@ -177,9 +179,10 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
         Some("mv" | "cmc") => "cards.cmc, cards.name".to_string(),
         Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name".to_string(),
         Some("color") => "length(cards.colors), cards.colors, cards.name".to_string(),
-        // By price and by first release. These read a price or the printings of every match and
-        // sort them all (no index to walk); cards with no price, or no dated printing, go last
-        // whichever way the order runs.
+        // By price and by first release. These sort every match (no index gives the order): the
+        // price is one lookup per card, the first release one seek in `printings_oracle_released`
+        // (migration 0077). Cards with no price, or no dated printing, go last whichever way the
+        // order runs.
         Some("usd") => format!("{0} IS NULL, {0} DESC, cards.name COLLATE NOCASE", search::PRICE_SQL),
         Some("usd_asc") => format!("{0} IS NULL, {0}, cards.name COLLATE NOCASE", search::PRICE_SQL),
         Some("released") => format!("{0} IS NULL, {0} DESC, cards.name COLLATE NOCASE", search::FIRST_RELEASE_SQL),
@@ -249,6 +252,26 @@ async fn with_price_and_ownership(pool: &SqlitePool, owner: &str, cards: Vec<Car
             prices.insert(id, (usd, date));
         }
     }
+    // A default printing with no price (a set that isn't out yet): the lowest price among the
+    // card's other printings, as the search compares and sorts by.
+    let unpriced: Vec<&str> =
+        cards.iter().filter(|c| c.default_printing.as_deref().and_then(|id| prices.get(id)).is_none_or(|(usd, _)| usd.is_none())).map(|c| c.oracle_id.as_str()).collect();
+    let mut lowest: HashMap<String, (f64, String)> = HashMap::new();
+    if !unpriced.is_empty() {
+        let rows: Vec<(String, Option<f64>, String)> = sqlx::query_as(
+            "SELECT p.oracle_id, MIN(COALESCE(ps.usd, ps.usd_foil, ps.usd_etched)), ps.date FROM printings p
+             JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
+             WHERE p.oracle_id IN (SELECT value FROM json_each(?)) GROUP BY p.oracle_id",
+        )
+        .bind(serde_json::to_string(&unpriced).map_err(anyhow::Error::from)?)
+        .fetch_all(pool)
+        .await?;
+        for (oracle_id, usd, date) in rows {
+            if let Some(usd) = usd {
+                lowest.insert(oracle_id, (usd, date));
+            }
+        }
+    }
     let marks = vec!["?"; cards.len()].join(",");
     let sql = format!(
         "SELECT p.oracle_id, SUM(i.qty), COUNT(DISTINCT IFNULL(i.container_id, '')), MIN(ct.name), MIN(i.container_id IS NULL)
@@ -270,12 +293,18 @@ async fn with_price_and_ownership(pool: &SqlitePool, owner: &str, cards: Vec<Car
     Ok(cards
         .into_iter()
         .map(|card| {
-            let (usd, price_date) = card
+            let (mut usd, mut price_date) = card
                 .default_printing
                 .as_deref()
                 .and_then(|id| prices.get(id))
                 .map(|(usd, date)| (*usd, Some(date.clone())))
                 .unwrap_or((None, None));
+            if usd.is_none()
+                && let Some((other, date)) = lowest.get(&card.oracle_id)
+            {
+                usd = Some(*other);
+                price_date = Some(date.clone());
+            }
             let (owned, owned_in) = owned.remove(&card.oracle_id).unwrap_or((0, None));
             SearchCard { card, usd, price_date, owned, owned_in }
         })
@@ -894,11 +923,13 @@ mod tests {
         let pool = crate::db::test_pool().await;
         let printing = "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, released_at, artist, updated_at)
                         VALUES (?, ?, ?, ?, 'Set', '1', 'en', '[\"nonfoil\"]', ?, ?, 'now')";
-        // (oracle id, name, default printing, set, artist, released, price). Mana Crypt has no price.
+        // (oracle id, name, default printing, set, artist, released, price). Mana Crypt has no
+        // price. Swiftfoot Boots' default printing is from a set that isn't out and has none.
         for (oid, name, pid, set, artist, released, usd) in [
             ("o-ring", "Sol Ring", "p-ring", "cmm", "Mike Bierek", "2023-08-04", Some(1.5)),
             ("o-lotus", "Black Lotus", "p-lotus", "lea", "Christopher Rush", "1993-08-05", Some(50000.0)),
             ("o-crypt", "Mana Crypt", "p-crypt", "cmm", "Matt Stewart", "2023-08-04", None),
+            ("o-boots", "Swiftfoot Boots", "p-boots-new", "trk", "Svetlin Velinov", "2026-11-13", None),
         ] {
             sqlx::query("INSERT INTO cards (oracle_id, name, type_line, default_printing, updated_at) VALUES (?, ?, 'Artifact', ?, 'now')")
                 .bind(oid)
@@ -912,11 +943,15 @@ mod tests {
                 sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES (?, '2026-11-01', ?)").bind(pid).bind(usd).execute(&pool).await.unwrap();
             }
         }
-        // Sol Ring's first printing: another set, another artist, thirty years earlier.
+        // Sol Ring's first printing: another set, another artist, thirty years earlier. The
+        // Boots' older printing, which has a price.
         sqlx::query(printing).bind("p-ring-lea").bind("o-ring").bind("Sol Ring").bind("lea").bind("1993-08-05").bind("Mark Tedin").execute(&pool).await.unwrap();
+        sqlx::query(printing).bind("p-boots-old").bind("o-boots").bind("Swiftfoot Boots").bind("c21").bind("2021-04-23").bind("Svetlin Velinov").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES ('p-boots-old', '2026-10-30', 1.87)").execute(&pool).await.unwrap();
         async fn names(pool: &SqlitePool, query: &str, order: Option<&str>) -> Vec<String> {
             search(pool, "", query, order, 1).await.unwrap().cards.into_iter().map(|c| c.card.name).collect()
         }
+        let none: [&str; 0] = [];
 
         // A set or an artist is matched over every printing, not only the one shown.
         assert_eq!(names(&pool, "set:lea", None).await, ["Black Lotus", "Sol Ring"]);
@@ -925,17 +960,32 @@ mod tests {
         assert_eq!(names(&pool, r#"a:"christopher rush""#, None).await, ["Black Lotus"]);
         assert_eq!(names(&pool, "year<2000", None).await, ["Black Lotus", "Sol Ring"]);
         assert_eq!(names(&pool, "year=2023", None).await, ["Mana Crypt", "Sol Ring"]);
-        // A card with no price is neither under nor over anything, negated or not.
-        assert_eq!(names(&pool, "usd<5", None).await, ["Sol Ring"]);
+        // Printing terms side by side are about one printing. Sol Ring was printed in Alpha
+        // and in 2023, but its Alpha printing isn't from 2023, and nothing of it is from between.
+        assert_eq!(names(&pool, "set:lea year>=2020", None).await, none);
+        assert_eq!(names(&pool, "year>=2000 year<=2022", None).await, ["Swiftfoot Boots"]);
+        assert_eq!(names(&pool, "set:cmm a:tedin", None).await, none);
+        assert_eq!(names(&pool, "set:lea a:tedin t:artifact", None).await, ["Sol Ring"]);
+        // Negated: no printing like it at all.
+        assert_eq!(names(&pool, "-set:cmm", None).await, ["Black Lotus", "Swiftfoot Boots"]);
+        assert_eq!(names(&pool, "-year<2000", None).await, ["Mana Crypt", "Swiftfoot Boots"]);
+        // A card with no price is neither under nor over anything, negated or not. A card whose
+        // default printing has none is priced by its cheapest other printing.
+        assert_eq!(names(&pool, "usd<5", None).await, ["Sol Ring", "Swiftfoot Boots"]);
         assert_eq!(names(&pool, "usd>=5", None).await, ["Black Lotus"]);
         assert_eq!(names(&pool, "-usd<5", None).await, ["Black Lotus"]);
-        assert_eq!(names(&pool, "usd>0 or usd<=0", None).await, ["Black Lotus", "Sol Ring"]);
+        assert_eq!(names(&pool, "usd>0 or usd<=0", None).await, ["Black Lotus", "Sol Ring", "Swiftfoot Boots"]);
+        // The price shown is the one compared, with the date of the printing it came from.
+        let boots = search(&pool, "", "boots", None, 1).await.unwrap().cards.remove(0);
+        assert_eq!((boots.usd, boots.price_date.as_deref()), (Some(1.87), Some("2026-10-30")));
+        let crypt = search(&pool, "", "crypt", None, 1).await.unwrap().cards.remove(0);
+        assert_eq!((crypt.usd, crypt.price_date), (None, None));
         // By price either way, and by first release either way: no price goes last both times.
-        assert_eq!(names(&pool, "t:artifact", Some("usd")).await, ["Black Lotus", "Sol Ring", "Mana Crypt"]);
-        assert_eq!(names(&pool, "t:artifact", Some("usd_asc")).await, ["Sol Ring", "Black Lotus", "Mana Crypt"]);
-        assert_eq!(names(&pool, "t:artifact", Some("released")).await, ["Mana Crypt", "Black Lotus", "Sol Ring"]);
-        assert_eq!(names(&pool, "t:artifact", Some("released_asc")).await, ["Black Lotus", "Sol Ring", "Mana Crypt"]);
-        assert_eq!(search(&pool, "", "t:artifact", Some("usd"), 1).await.unwrap().total, 3);
+        assert_eq!(names(&pool, "t:artifact", Some("usd")).await, ["Black Lotus", "Swiftfoot Boots", "Sol Ring", "Mana Crypt"]);
+        assert_eq!(names(&pool, "t:artifact", Some("usd_asc")).await, ["Sol Ring", "Swiftfoot Boots", "Black Lotus", "Mana Crypt"]);
+        assert_eq!(names(&pool, "t:artifact", Some("released")).await, ["Mana Crypt", "Swiftfoot Boots", "Black Lotus", "Sol Ring"]);
+        assert_eq!(names(&pool, "t:artifact", Some("released_asc")).await, ["Black Lotus", "Sol Ring", "Swiftfoot Boots", "Mana Crypt"]);
+        assert_eq!(search(&pool, "", "t:artifact", Some("usd"), 1).await.unwrap().total, 4);
 
         // The Reserve List isn't loaded: say so, rather than find nothing.
         assert!(matches!(search(&pool, "", "is:reserved", None, 1).await, Err(AppError::Conflict(_))));
@@ -945,7 +995,52 @@ mod tests {
             .unwrap();
         sqlx::query("UPDATE cards SET reserved = (oracle_id = 'o-lotus')").execute(&pool).await.unwrap();
         assert_eq!(names(&pool, "is:reserved", None).await, ["Black Lotus"]);
-        assert_eq!(names(&pool, "-is:reserved", None).await, ["Mana Crypt", "Sol Ring"]);
+        assert_eq!(names(&pool, "-is:reserved", None).await, ["Mana Crypt", "Sol Ring", "Swiftfoot Boots"]);
+    }
+
+    #[tokio::test]
+    async fn the_new_is_values_run_in_sqlite_and_keep_cards_with_nothing_to_read() {
+        let pool = crate::db::test_pool().await;
+        // (name, type line, mana cost, rules text, layout, keywords)
+        for (name, type_line, cost, text, layout, keywords) in [
+            ("Boros Reckoner", "Creature — Minotaur Wizard", Some("{R/W}{R/W}{R/W}"), "Whenever Boros Reckoner is dealt damage, it deals that much damage to any target.", Some("normal"), "[]"),
+            ("Gitaxian Probe", "Sorcery", Some("{U/P}"), "Look at target player's hand.", Some("normal"), "[]"),
+            ("Spellskite", "Artifact Creature — Phyrexian Horror", Some("{2}"), "{U/P}: Change a target of target spell or ability to Spellskite.", Some("normal"), "[]"),
+            ("Grizzly Bears", "Creature — Bear", Some("{1}{G}"), "", Some("normal"), "[]"),
+            ("Tymna the Weaver", "Legendary Creature — Human Cleric", Some("{1}{W}{B}"), "Lifelink\nPartner", Some("normal"), "[\"Lifelink\",\"Partner\"]"),
+            ("Diviner's Wand", "Kindred Artifact — Wizard Equipment", Some("{3}"), "Equipped creature has a draw ability.", Some("normal"), "[\"Equip\"]"),
+            ("Fable of the Mirror-Breaker // Reflection of Kiki-Jiki", "Enchantment — Saga // Enchantment Creature — Goblin Shaman", Some("{2}{R}"), "Read ahead.", Some("transform"), "[]"),
+            ("Forest", "Basic Land — Forest", None, "({T}: Add {G}.)", None, "[]"),
+        ] {
+            sqlx::query("INSERT INTO cards (oracle_id, name, type_line, mana_cost, oracle_text, layout, keywords, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'now')")
+                .bind(name)
+                .bind(name)
+                .bind(type_line)
+                .bind(cost)
+                .bind(text)
+                .bind(layout)
+                .bind(keywords)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        async fn names(pool: &SqlitePool, query: &str) -> Vec<String> {
+            search(pool, "", query, None, 1).await.unwrap().cards.into_iter().map(|c| c.card.name).collect()
+        }
+        // Hybrid is two halves that aren't Phyrexian; Phyrexian mana counts in the cost or the text.
+        assert_eq!(names(&pool, "is:hybrid").await, ["Boros Reckoner"]);
+        assert_eq!(names(&pool, "is:phyrexian").await, ["Gitaxian Probe", "Spellskite"]);
+        assert_eq!(names(&pool, "is:vanilla").await, ["Grizzly Bears"]);
+        assert_eq!(names(&pool, "is:partner").await, ["Tymna the Weaver"]);
+        // A party is creatures: the Wizard's wand isn't in it.
+        assert_eq!(names(&pool, "is:party").await, ["Boros Reckoner", "Tymna the Weaver"]);
+        // A Saga by its type line, whatever its layout; the same card is double-faced.
+        assert_eq!(names(&pool, "is:saga").await, ["Fable of the Mirror-Breaker // Reflection of Kiki-Jiki"]);
+        assert_eq!(names(&pool, "is:dfc").await, ["Fable of the Mirror-Breaker // Reflection of Kiki-Jiki"]);
+        assert_eq!(names(&pool, "is:transform").await, ["Fable of the Mirror-Breaker // Reflection of Kiki-Jiki"]);
+        // A card with no mana cost or no layout isn't hybrid or double-faced, and the negation finds it.
+        assert_eq!(names(&pool, "-is:hybrid -is:phyrexian -is:dfc t:land").await, ["Forest"]);
+        assert_eq!(names(&pool, "-is:transform t:basic").await, ["Forest"]);
     }
 
     #[tokio::test]
