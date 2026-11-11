@@ -24,9 +24,10 @@ describe("sourcing cap controls",()=>{
    let complete!: (value: unknown) => void;mock.save.mockReturnValueOnce(new Promise(resolve => { complete=resolve; }));
    await act(async()=>{button("Save cap as default").click();});
    expect(input.disabled).toBe(true);await act(async()=>complete({}));
+   await vi.waitFor(async()=>{await act(async()=>{});expect(input.disabled).toBe(false);});
    expect(mock.save).toHaveBeenCalledWith({effective_from:"2026-11-11",local_buy:{max_usd:3,always_ok_usd:0.5,tiers:[{market_under:null,max_multiple:1.1}]},sealed_max_usd:65,note:"Local per-card cap set from sourcing"});
    expect(input.value).toBe("3");
-   await enter("4");mock.fetch.mockRejectedValueOnce(new Error("Could not read fresh rules"));await act(async()=>button("Save cap as default").click());expect(mock.save).toHaveBeenCalledTimes(1);expect(host.textContent).toContain("Could not read fresh rules");
+   await enter("4");mock.fetch.mockRejectedValueOnce(new Error("Could not read fresh rules"));await act(async()=>button("Save cap as default").click());expect(mock.save).toHaveBeenCalledTimes(1);await vi.waitFor(async()=>{await act(async()=>{});expect(host.textContent).toContain("Could not read fresh rules");});
    await enter("1");expect(host.querySelectorAll('.source-card')).toHaveLength(0);expect(host.textContent).toContain("0 selected copies");
   }finally{await act(async()=>root.unmount());host.remove();client.clear();}
  });
