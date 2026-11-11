@@ -122,7 +122,8 @@ export function RunDeckPage() {
   const pod = podOf(e);
   const record = useMemo(() => deckRecord(all, deck, pod), [all, deck, pod]);
   const met = useMemo(() => rivals(all, deck, label), [all, deck, label]);
-  if (!e || run.error) return <Wait id={id} error={run.error} />;
+  // A failed refresh of a run already on screen keeps the page.
+  if (!e) return <Wait id={id} error={run.error} />;
   const me = data?.decks.find((d) => d.id === deck);
   const display = me?.entrant != null ? e.entrants?.[me.entrant] : undefined;
   const shown = filterTables(all, deck, filter, vs);
@@ -311,7 +312,7 @@ export function RunTablePage() {
   const engine = useEngine(e);
   const n = Number(table);
   const tables = useTables(id, engine, { table: n }, e?.progress.done, !!e && Number.isInteger(n) && n > 0);
-  if (!e || run.error) return <Wait id={id} error={run.error} />;
+  if (!e) return <Wait id={id} error={run.error} />;
   const data = tables.data;
   const t = data?.tables[0];
   const decks = new Map((data?.decks ?? []).map((d) => [d.id, d]));

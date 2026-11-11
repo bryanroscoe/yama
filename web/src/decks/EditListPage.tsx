@@ -9,6 +9,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, ApiError, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel } from "../components/ArtPanel";
+import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
 import { SearchPicker } from "../components/SearchPicker";
 import { ErrorText, Sheet } from "../components/ui";
 import { SwapPair, Thumb } from "../plan/parts";
@@ -159,8 +160,9 @@ function EditList({ id }: { id: string }) {
     load(startButtons(family, fresh)[0]!);
   };
 
-  // The guard is live on these too: without its question a stopped navigation would show nothing.
-  if (deck.error) return <main className="page"><ErrorText error={deck.error} /><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
+  // Only with no deck to show: a refresh that failed mid-edit leaves the editor and what's typed in it.
+  // The guard is live on these branches too: without its question a stopped navigation would show nothing.
+  if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
   if (!d) return <main className="page"><p className="dim">Loading…</p><UnsavedPrompt guard={guard} what="your changes to this list" /></main>;
 
   const commander = d.cards.find((e) => e.board === "commander")?.card ?? null;
@@ -189,6 +191,7 @@ function EditList({ id }: { id: string }) {
 
       <div className="edit-list-body">
         <div className="edit-list-main">
+          <RefreshFailed query={deck} what="this deck" />
           <section aria-labelledby="edit-start" className="edit-list-start">
             <h2 id="edit-start">Start from</h2>
             <div className="edit-list-starts">

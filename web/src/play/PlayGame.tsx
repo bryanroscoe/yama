@@ -25,7 +25,8 @@ export function PlayGame() {
     refetchInterval: (q) => (q.state.data?.runtime_error ? 15_000 : q.state.data?.status === "lobby" ? 4000 : false),
     refetchOnWindowFocus: "always",
   });
-  if (game.error) return <main className="page"><ErrorText error={game.error} /></main>;
+  // Only with no game to show: one failed check (the lobby asks every 4 s) leaves the lobby or board up.
+  if (game.error && !game.data) return <main className="page"><ErrorText error={game.error} /></main>;
   if (!game.data) return <main className="page" />;
   if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
   if (game.data.status === "lobby") return <Lobby game={game.data} />;

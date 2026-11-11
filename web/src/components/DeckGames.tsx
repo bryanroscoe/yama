@@ -14,7 +14,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function DeckGames({ deckId, versionId }: { deckId: string; versionId: string | null }) {
   const q = useQuery({ queryKey: ["deck-results", deckId, versionId], queryFn: ({ signal }) => api<DeckResults>(`/api/decks/${deckId}/results`, { signal }) });
-  if (q.error) return <ErrorText error={q.error} />;
+  if (q.error && !q.data) return <ErrorText error={q.error} />;
   if (!q.data) return null;
   const total = gamesTotal(q.data.versions);
   const now = q.data.versions.find((v) => v.current);

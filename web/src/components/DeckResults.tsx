@@ -14,7 +14,7 @@ type VersionResult = Results["versions"][number];
 export function DeckResults({ deckId, versionId }: { deckId: string; versionId: string | null }) {
   const q = useQuery({ queryKey: ["deck-results", deckId, versionId], queryFn: ({ signal }) => api<Results>(`/api/decks/${deckId}/results`, { signal }) });
   const r = q.data;
-  if (q.error) return <ErrorText error={q.error} />;
+  if (q.error && !r) return <ErrorText error={q.error} />;
   if (!r) return null;
   const current = r.versions.find((v) => v.current);
   const earlier = r.versions.filter((v) => !v.current);

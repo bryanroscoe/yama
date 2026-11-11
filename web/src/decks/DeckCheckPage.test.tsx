@@ -10,7 +10,7 @@ const entry = (name: string, board: "commander" | "main", qty = 1, owned = 1) =>
   ({ oracle_id: name, name, qty, board, owned, proxies: 0, locations: owned ? { "Prismari box": owned } : {} }) as unknown as DeckView["cards"][number];
 
 /** `research`: the notes' builds; null leaves them still loading. */
-function page(saved?: object, research?: object[] | null, { decksFail = false } = {}) {
+function page(saved?: object, research?: object[] | null, { decksFail = false, deckRefreshFails = false } = {}) {
   const mem = new Map<string, string>();
   if (saved) mem.set("yama.deckCheck.d1", JSON.stringify(saved));
   vi.stubGlobal("localStorage", { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) });
@@ -19,9 +19,11 @@ function page(saved?: object, research?: object[] | null, { decksFail = false } 
     cards: [entry("Rootha, Mastering the Moment", "commander"), entry("Sol Ring", "main"), entry("Ancient Tomb", "main"), entry("Island", "main", 2)],
   } as unknown as DeckView;
   // A failed query stays failed on render (no refetch on mount), as after a real failure.
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: !decksFail } } });
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, retryOnMount: !decksFail && !deckRefreshFails } } });
   client.setQueryData(["me"], { id: "u1" });
   client.setQueryData(["deck", "d1"], deck);
+  // The deck is on screen and its background refresh failed.
+  if (deckRefreshFails) client.getQueryCache().build(client, { queryKey: ["deck", "d1"] }).setState({ status: "error", fetchStatus: "idle", error: new Error("Server unavailable") });
   if (decksFail) client.getQueryCache().build(client, { queryKey: ["decks"] }).setState({ status: "error", fetchStatus: "idle", error: new Error("Server unavailable") });
   else client.setQueryData(["decks"], [{ id: "d1", name: "Prismari Artistry", parent_id: null, configuration: null, bracket: 4, updated_at: "2026-10-31T00:00:00Z" }]);
   if (research !== null) client.setQueryData(buildNotesKey("u1"), research ?? []);
@@ -55,6 +57,14 @@ afterEach(() => vi.unstubAllGlobals());
 const card = (key: string, name: string, at: number) => ({ key, name, at });
 
 describe("Check this deck", () => {
+  it("keeps the check on screen when a refresh of the deck fails, with a way to retry", () => {
+    const html = page(undefined, [], { deckRefreshFails: true });
+    expect(html).toContain("Check Prismari Artistry");
+    expect(html).toContain("Check with the camera");
+    expect(html).toContain("Couldn&#x27;t refresh this deck: Server unavailable");
+    expect(html).toContain(">Retry</button>");
+  });
+
   it("starts against the deck's current list and offers its versions and plan builds", () => {
     const html = page();
     expect(html).toContain("Check Prismari Artistry");

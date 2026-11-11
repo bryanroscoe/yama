@@ -46,8 +46,8 @@ export function ReleaseCalendar() {
   const calendar = useCalendar();
   const groups = calendar.data ? watchedPrecons(calendar.data.upcoming) : [];
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: groups.length > 0 });
-  if (calendar.error && isNetworkError(calendar.error)) return null;
-  if (calendar.error) return <ErrorText error={calendar.error} />;
+  // A calendar already on screen stays when its refresh fails.
+  if (calendar.error && !calendar.data) return isNetworkError(calendar.error) ? null : <ErrorText error={calendar.error} />;
   if (!calendar.data) return null;
   const view = calendar.data;
   // Wait for the reader's decks before placing precons, so a set doesn't jump from the top to
