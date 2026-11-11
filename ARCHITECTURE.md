@@ -2059,4 +2059,8 @@ a number range. An unambiguous public control-transfer sequence names the recipi
 and source in the question; other player choices keep a general player/opponent question.
 
 
-Local sourcing shopping rows default to Near Mint and expose deck/bracket recipients, store/condition/card filters, per-printing dated market provenance and same-printing condition minima where saved. Bulk requested carts may include stock-count-unknown listings, explicitly marked unconfirmed; confirmed-only bulk selection remains separate. Neither action orders or marks bought. Search links open storefront searches and do not claim a stock refresh.
+Local sourcing shopping rows default to Near Mint and expose deck/bracket recipients, store/condition/card filters, per-printing dated market provenance and same-printing condition minima where saved. Bulk requested carts may include stock-count-unknown listings, explicitly marked unconfirmed; a stock-count filter excludes unknown counts using the same bulk-add action. Neither action orders or marks bought. Search links open storefront searches and do not claim a stock refresh.
+
+Sourcing exposes a per-card dollar ceiling initialized from the current account rule. Changing it recalculates row/manual/bulk-cart eligibility against retained quotes and the remaining market limits, without rewriting research. Explicit Save persists a dated account rule through the existing settings API, preserving market tiers and sealed limits (an always-okay threshold above a lowered ceiling is narrowed to that ceiling). Generic or non-price rejections remain excluded.
+
+Sourcing has one bulk-add action. Exclude unknown stock counts is a filter on offers and all cart calculations, rather than a second Add button with different hidden eligibility. Missing count is distinct from no stock; quantities and quote dates remain visible.
