@@ -449,25 +449,37 @@ async fn card_detail(
 #[derive(Serialize, sqlx::FromRow)]
 struct DeckUse {
     deck_id: String,
+    /// The deck's name; a configuration's already says which ("Omo (stock)").
     name: String,
-    /// The label of a deck that is a configuration of another ("stock").
-    configuration: Option<String>,
     /// Copies in the list, over every board.
     qty: i64,
     /// Where the list has it: "commander" if it is in the command zone, else "main", else "side".
     board: String,
+    /// Whether Yama has Commander Spellbook's answer for this list. Without one, no combos
+    /// shown for the deck means "not checked yet", not "none".
+    #[sqlx(skip)]
+    checked: bool,
     #[serde(skip)]
     version_id: String,
+    /// The card's name as this list writes it (Spellbook's answer names cards the same way).
+    #[serde(skip)]
+    listed_name: Option<String>,
 }
 
-/// A combo Commander Spellbook found in one of those decks' lists that the card is part of, as
-/// that deck's page shows it. Nothing is asked of Spellbook here: these are the answers Yama
-/// already keeps for each deck version (`deck_checks`).
+/// A deck a combo was found in.
+#[derive(Serialize)]
+struct ComboDeck {
+    deck_id: String,
+    name: String,
+}
+
+/// A combo Commander Spellbook found in those decks' lists that the card is part of, once,
+/// with every deck it was found in. Nothing is asked of Spellbook here: these are the answers
+/// Yama already keeps for each deck version (`deck_checks`).
 #[derive(Serialize)]
 struct DeckCombo {
-    deck_id: String,
-    deck_name: String,
-    /// When Spellbook answered for that list.
+    decks: Vec<ComboDeck>,
+    /// When Spellbook answered for the first of those lists.
     checked_at: String,
     #[serde(flatten)]
     combo: crate::deck_checks::Combo,
@@ -477,6 +489,8 @@ struct DeckCombo {
 struct CardInDecks {
     decks: Vec<DeckUse>,
     combos: Vec<DeckCombo>,
+    /// Combos left out of `combos` (it holds the first [`MAX_CARD_COMBOS`]).
+    more_combos: usize,
 }
 
 /// The most combos one card page lists.
@@ -488,24 +502,26 @@ async fn card_in_my_decks(State(st): State<AppState>, CurrentUser(user): Current
 }
 
 /// `owner`'s live decks whose current list has the card, by name, and the kept Spellbook combos
-/// of those lists that name it. Every query is bound to the owner: nobody else's decks, lists or
-/// combos are read.
+/// of those lists that name it. Every query is bound to the owner, and a deck's list is read
+/// only if that version is the deck's own: nobody else's decks, lists or combos are read.
 async fn card_in_decks(pool: &SqlitePool, owner: &str, oracle_id: &str) -> AppResult<CardInDecks> {
     let name: String = sqlx::query_scalar("SELECT name FROM cards WHERE oracle_id = ?").bind(oracle_id).fetch_optional(pool).await?.ok_or(AppError::NotFound("card"))?;
-    let decks: Vec<DeckUse> = sqlx::query_as(
-        "SELECT d.id AS deck_id, d.name, d.configuration, v.id AS version_id,
+    let mut decks: Vec<DeckUse> = sqlx::query_as(
+        "SELECT d.id AS deck_id, d.name, v.id AS version_id,
                 SUM(json_extract(je.value, '$.qty')) AS qty,
                 CASE WHEN SUM(json_extract(je.value, '$.board') = 'commander') > 0 THEN 'commander'
-                     WHEN SUM(json_extract(je.value, '$.board') = 'main') > 0 THEN 'main' ELSE 'side' END AS board
-         FROM decks d JOIN deck_versions v ON v.id = d.current_version_id JOIN json_each(v.cards) je
+                     WHEN SUM(json_extract(je.value, '$.board') = 'main') > 0 THEN 'main' ELSE 'side' END AS board,
+                MIN(json_extract(je.value, '$.name')) AS listed_name
+         FROM decks d JOIN deck_versions v ON v.id = d.current_version_id AND v.deck_id = d.id JOIN json_each(v.cards) je
          WHERE d.owner_id = ?1 AND d.archived = 0 AND json_extract(je.value, '$.oracle_id') = ?2
-         GROUP BY d.id ORDER BY d.name COLLATE NOCASE, d.configuration",
+         GROUP BY d.id ORDER BY d.name COLLATE NOCASE, d.id",
     )
     .bind(owner)
     .bind(oracle_id)
     .fetch_all(pool)
     .await?;
-    let mut combos = Vec::new();
+    let mut combos: Vec<DeckCombo> = Vec::new();
+    let mut more_combos = 0;
     if !decks.is_empty() {
         let versions: Vec<&str> = decks.iter().map(|d| d.version_id.as_str()).collect();
         let checks: Vec<(String, String, String)> = sqlx::query_as(
@@ -516,19 +532,26 @@ async fn card_in_decks(pool: &SqlitePool, owner: &str, oracle_id: &str) -> AppRe
         .bind(serde_json::to_string(&versions).map_err(anyhow::Error::from)?)
         .fetch_all(pool)
         .await?;
-        // Spellbook names a card by its full name; a deck may name one face.
-        let is_card = |n: &str| n.eq_ignore_ascii_case(&name) || name.split(" // ").any(|face| face.eq_ignore_ascii_case(n));
-        for d in &decks {
+        for d in decks.iter_mut() {
             let Some((_, json, checked_at)) = checks.iter().find(|(version, _, _)| *version == d.version_id) else { continue };
+            d.checked = true;
+            // Spellbook's answer names a card as the deck's list does; a list may name one face.
+            let listed = d.listed_name.as_deref().unwrap_or(&name);
+            let is_card = |n: &str| n.eq_ignore_ascii_case(&name) || n.eq_ignore_ascii_case(listed) || name.split(" // ").any(|face| face.eq_ignore_ascii_case(n));
             let found: Vec<crate::deck_checks::Combo> = serde_json::from_str(json).unwrap_or_default();
             for combo in found.into_iter().filter(|c| c.cards.iter().any(|n| is_card(n))) {
-                if combos.len() < MAX_CARD_COMBOS {
-                    combos.push(DeckCombo { deck_id: d.deck_id.clone(), deck_name: d.name.clone(), checked_at: checked_at.clone(), combo });
+                let deck = ComboDeck { deck_id: d.deck_id.clone(), name: d.name.clone() };
+                // The same combo in another deck (a configuration of the same list, say): once, with both.
+                let seen = combos.iter().position(|c| c.combo.id == combo.id);
+                match seen {
+                    Some(i) => combos[i].decks.push(deck),
+                    None if combos.len() < MAX_CARD_COMBOS => combos.push(DeckCombo { decks: vec![deck], checked_at: checked_at.clone(), combo }),
+                    None => more_combos += 1,
                 }
             }
         }
     }
-    Ok(CardInDecks { decks, combos })
+    Ok(CardInDecks { decks, combos, more_combos })
 }
 
 #[derive(Deserialize)]
@@ -1158,9 +1181,23 @@ mod tests {
                 .unwrap();
             sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, created_at) VALUES (?, ?, ?, 'now')").bind(format!("v-{id}")).bind(id).bind(cards).execute(&pool).await.unwrap();
         }
+        // A deck of mine that points at their version (it can't through Yama, but nothing in the
+        // schema stops it) reads nothing of theirs.
+        sqlx::query("INSERT INTO decks (id, owner_id, name, current_version_id, archived, created_at, updated_at) VALUES ('d6', ?, 'Borrowed', 'v-d5', 0, 'now', 'now')")
+            .bind(&me)
+            .execute(&pool)
+            .await
+            .unwrap();
+        // A configuration of Zeta with the same list, checked like alpha's.
+        sqlx::query("INSERT INTO decks (id, owner_id, name, current_version_id, archived, created_at, updated_at) VALUES ('d7', ?, 'Zeta (stock)', 'v-d7', 0, 'now', 'now')")
+            .bind(&me)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO deck_versions (id, deck_id, cards, created_at) VALUES ('v-d7', 'd7', ?, 'now')").bind(format!("[{ring},{reversal}]")).execute(&pool).await.unwrap();
         // Spellbook's kept answers: alpha's list has a combo with the ring and one without; so has their deck.
         let found = r#"[{"id":"1-2","cards":["Sol Ring","Dramatic Reversal"],"results":["Infinite colorless mana"]},{"id":"3-4","cards":["Dramatic Reversal","Isochron Scepter"],"results":["Infinite untaps"]}]"#;
-        for version in ["v-d2", "v-d5"] {
+        for version in ["v-d2", "v-d5", "v-d7"] {
             sqlx::query("INSERT INTO deck_version_checks (version_id, source, requested_at, checked_at, bracket_tag, combos) VALUES (?, 'commander_spellbook', '2026-11-01T00:00:00Z', '2026-11-01T00:00:05Z', 'C', ?)")
                 .bind(version)
                 .bind(found)
@@ -1174,25 +1211,33 @@ mod tests {
 
         let (status, body) = send(&app, Method::GET, "/api/cards/o1/mine", Some(&token), None).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        // By name whatever its case. Not the archived deck, the deck without the card, or anyone else's.
-        assert_eq!(decks(&body), vec![("alpha".to_string(), "commander".to_string(), 3), ("Zeta".to_string(), "main".to_string(), 1)]);
+        // By name whatever its case. Not the archived deck, the deck without the card, the deck
+        // pointing at someone else's version, or anyone else's.
+        assert_eq!(
+            decks(&body),
+            vec![("alpha".to_string(), "commander".to_string(), 3), ("Zeta".to_string(), "main".to_string(), 1), ("Zeta (stock)".to_string(), "main".to_string(), 1)]
+        );
         assert_eq!(body["decks"][0]["deck_id"], "d2");
-        assert!(body["decks"][0].get("version_id").is_none(), "{body}");
-        // Only the combo the card is part of, from the caller's own deck, with when it was found.
+        assert!(body["decks"][0].get("version_id").is_none() && body["decks"][0].get("listed_name").is_none(), "{body}");
+        // Which lists Spellbook has answered for: Zeta's hasn't been checked, which isn't "no combos".
+        assert_eq!(body["decks"].as_array().unwrap().iter().map(|d| d["checked"].as_bool().unwrap()).collect::<Vec<_>>(), [true, false, true]);
+        // Only the combo the card is part of, once, with both of the caller's decks it is in.
         let combos = body["combos"].as_array().unwrap();
         assert_eq!(combos.len(), 1, "{body}");
-        assert_eq!((combos[0]["deck_id"].as_str(), combos[0]["deck_name"].as_str(), combos[0]["id"].as_str()), (Some("d2"), Some("alpha"), Some("1-2")));
+        assert_eq!(combos[0]["id"], "1-2");
+        assert_eq!(combos[0]["decks"], serde_json::json!([{"deck_id": "d2", "name": "alpha"}, {"deck_id": "d7", "name": "Zeta (stock)"}]));
         assert_eq!(combos[0]["checked_at"], "2026-11-01T00:00:05Z");
         assert_eq!(combos[0]["results"], serde_json::json!(["Infinite colorless mana"]));
+        assert_eq!(body["more_combos"], 0);
 
         // The other account sees its own deck and combo, and nothing of the caller's.
         let (_, theirs) = send(&app, Method::GET, "/api/cards/o1/mine", Some(&other_token), None).await;
         assert_eq!(decks(&theirs), vec![("Theirs".to_string(), "main".to_string(), 1)]);
         assert_eq!(theirs["combos"].as_array().unwrap().len(), 1);
-        assert_eq!(theirs["combos"][0]["deck_name"], "Theirs");
+        assert_eq!(theirs["combos"][0]["decks"], serde_json::json!([{"deck_id": "d5", "name": "Theirs"}]));
         // A card in none of their decks: two empty lists.
         let (status, none) = send(&app, Method::GET, "/api/cards/o2/mine", Some(&other_token), None).await;
-        assert_eq!((status, none), (StatusCode::OK, serde_json::json!({"decks": [], "combos": []})));
+        assert_eq!((status, none), (StatusCode::OK, serde_json::json!({"decks": [], "combos": [], "more_combos": 0})));
         // A card Yama doesn't have, and a caller who isn't signed in.
         assert_eq!(send(&app, Method::GET, "/api/cards/nope/mine", Some(&token), None).await.0, StatusCode::NOT_FOUND);
         assert_eq!(send(&app, Method::GET, "/api/cards/o1/mine", None, None).await.0, StatusCode::UNAUTHORIZED);

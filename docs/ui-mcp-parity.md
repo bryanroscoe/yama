@@ -34,6 +34,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 |---|---|---|---|
 | Search Yama's card catalog (local grammar) | Cards | `search_cards` | Both |
 | One card: Oracle text, legality, rulings, owned copies | Card view | `get_cards` | Both |
+| One card: which of your decks run it, and its combos in them (kept Commander Spellbook checks) | Card view | — (`get_deck` per deck) | **Gap (MCP)** for the across-decks view |
 | Printings and their prices | Card view | `list_card_printings` | Both |
 | Price history over time | Card view (PriceHistory) | `get_price_history` | Both |
 | Add a copy of a printing from the card | Card view | `add_to_collection` (staged) | Both |
