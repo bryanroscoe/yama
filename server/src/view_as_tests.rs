@@ -147,6 +147,7 @@ async fn every_write_is_refused_while_viewing_known_routes_or_not() {
         (Method::POST, "/api/collection/import", Some(json!({}))),
         (Method::POST, "/api/plan/inputs", Some(json!({"ops": []}))),
         (Method::POST, "/api/me/tokens", Some(json!({"name": "x"}))),
+        (Method::PATCH, "/api/me", Some(json!({"display_name": "Renamed by an admin"}))),
         (Method::POST, "/api/advisor/ask", Some(json!({"question": "hi"}))),
         (Method::PUT, "/api/advisor/key", Some(json!({"api_key": "sk-ant-x"}))),
         (Method::POST, "/api/games", Some(json!({}))),

@@ -14,6 +14,13 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-change-your-name",
+    date: "2026-11-11",
+    title: "Change the name you go by",
+    items: ["Your profile, Account settings, Change name: pick the name your playgroup and the people you play with see. It no longer has to be the one from your Google account."],
+    link: { to: "/profile", label: "Your profile" },
+  },
+  {
     id: "2026-11-11-playgroup-members",
     date: "2026-11-11",
     title: "Manage who is in your playgroup",

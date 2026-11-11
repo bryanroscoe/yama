@@ -147,6 +147,8 @@ pub struct Limits {
     pub join_codes: RateLimiter,
     /// New playgroups, guests, renames and new join codes, per account.
     pub playgroup_writes: RateLimiter,
+    /// Changes to your own account's details (the name you go by), per account.
+    pub profile_writes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
     /// Collection changes (batches of ops, and making, renaming and deleting containers), per
@@ -200,6 +202,7 @@ impl Default for Limits {
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
             playgroup_writes: RateLimiter::new("playgroup changes", 60, 10 * MINUTE),
+            profile_writes: RateLimiter::new("account changes", 30, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
             collection_writes: RateLimiter::new("collection changes", 600, 10 * MINUTE),
             scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
