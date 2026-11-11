@@ -19,6 +19,7 @@ import { isViewing } from "../viewingFlag";
 import { isGuest } from "../guest";
 import { keepStorage } from "../storage";
 import { acknowledgeFinished, finishedRecords, hasEnded, isFinishedStorageKey, rejectFinished, rememberServerFinish, saveFinished } from "./finished";
+import { flushLogged, hasLoggedToSend } from "./loggedQueue";
 
 export interface LocalGame {
   /** Durable finished-result record; bulk queues may be rebuilt from it after a stale write. */
@@ -404,6 +405,11 @@ async function settle() {
   if (deletes.some(mine) || current || outbox.length) await sync();
 }
 
+/** A logged game was queued while offline: try to send it now, and again on the usual triggers. */
+export function syncLogged(): Promise<void> {
+  return sync();
+}
+
 async function pushDeletes() {
   // Another account's deletes wait until it signs in here again.
   for (const { id } of deletes.filter(mine)) {
@@ -616,6 +622,15 @@ export function sync(): Promise<void> {
         emit();
       }
       if (!canWriteShared()) return;
+      // Games logged while Yama couldn't be reached ride the same uploads (loggedQueue.ts). One
+      // that can't go up now mustn't hold back the game on the table: its failure is reported
+      // once everything else has had its turn.
+      let loggedFailure: unknown = null;
+      try {
+        await flushLogged();
+      } catch (e) {
+        loggedFailure = e;
+      }
       await pushDeletes();
       if (current && mayEditCurrent() && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
@@ -658,6 +673,7 @@ export function sync(): Promise<void> {
           current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };
         }
       }
+      if (loggedFailure) throw loggedFailure;
       syncState = { syncing: false, error: null, lastSyncedAt: new Date().toISOString() };
     } catch (e) {
       // Yama didn't answer (fetch's own error): the games are safe here and upload on their own later.
@@ -695,9 +711,9 @@ if (typeof window !== "undefined") {
   // A game or finished games left on this device from before (a reload, a phone that was off)
   // go up straight away, so sharing and other devices can find them.
   restoreFinished();
-  if (current || outbox.length || deletes.some(mine)) queueMicrotask(() => void sync());
+  if (current || outbox.length || deletes.some(mine) || hasLoggedToSend()) queueMicrotask(() => void sync());
   setInterval(() => {
-    if (navigator.onLine && (current || outbox.length || deletes.some(mine))) void sync();
+    if (navigator.onLine && (current || outbox.length || deletes.some(mine) || hasLoggedToSend())) void sync();
   }, 20_000);
 }
 

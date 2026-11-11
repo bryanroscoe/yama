@@ -21,6 +21,7 @@ export const NEWS: NewsEntry[] = [
     items: [
       "Log a game now asks the game type and starting life, and who was knocked out: the turn and who did it are each optional.",
       "Every game can carry a note: write one on the table's finish sheet, in Log a game, or (as the host) on the online game-over screen.",
+      "Log a game works without a connection: the game is kept on the device and uploads on its own once Yama can be reached.",
     ],
     link: { to: "/", label: "Open Table" },
   },
