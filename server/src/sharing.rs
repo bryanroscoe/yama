@@ -499,6 +499,23 @@ struct DeckRow {
     parent_id: Option<String>,
 }
 
+/// Whether a printing a deck names is fit to show on a public page or write into a download as
+/// it stands. `deck_prints` holds what a client sent with the list, trimmed but never checked
+/// against Yama's printings, and its owner may have sent anything: a line break or a comma there
+/// would add rows to a download, and a leading `=` would be a formula in a spreadsheet. So only
+/// a set code of letters and digits, a collector number without spaces, control characters or
+/// the characters the list formats and CSV give meaning, and a finish Yama knows are used. A
+/// printing that isn't is left out, and the card names the printing Yama would pick.
+fn plain_print(p: &crate::deck_import::DeckPrint) -> bool {
+    let plain_number = |n: &str| {
+        !n.is_empty() && n.chars().all(|c| !c.is_control() && !c.is_whitespace() && !matches!(c, ',' | '"' | '(' | ')' | '[' | ']' | '*' | '^' | '<' | '>' | '&' | '=' | '+' | '@'))
+    };
+    !p.set_code.is_empty()
+        && p.set_code.chars().all(|c| c.is_ascii_alphanumeric())
+        && p.collector_number.as_deref().is_none_or(plain_number)
+        && matches!(p.finish.as_str(), "nonfoil" | "foil" | "etched")
+}
+
 /// A deck shared by link or on a profile, by its token. Private, archived and unknown decks,
 /// and decks of disabled accounts, are all the same "not found".
 pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<SharedDeck> {
@@ -559,7 +576,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     .into_iter()
     .map(|(id, t, cmc, layout, image, ci, art, artist)| (id, (t, cmc, layout, image, ci, art, artist)))
     .collect();
-    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).and_then(|p| p.collector_number.as_ref()).is_some();
+    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| p.collector_number.as_ref()).is_some();
     let unprinted: Vec<&str> = list
         .iter()
         .filter(|c| !has_chosen(c) && crate::decks::owned_printing(by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default(), row.container_id.as_deref()).is_none())
@@ -583,7 +600,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         // As the owner's own exports name it: the printing the deck names, a copy of theirs (real
         // before proxy, the one in the deck's box first), else a paper printing.
         let mine: &[&crate::collection::Item] = by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default();
-        let chosen_print = chosen.get(&c.oracle_id).and_then(|p| {
+        let chosen_print = chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| {
             p.collector_number.clone().map(|n| PrintRef { set_code: p.set_code.clone(), collector_number: n, finish: p.finish.clone(), from: "chosen" })
         });
         let printing = match chosen_print.or_else(|| crate::decks::owned_printing(mine, row.container_id.as_deref())) {
@@ -960,7 +977,8 @@ fn xml(s: &str) -> String {
 }
 
 /// A shared deck in one of [`FILE_FORMATS`], written as the deck page's export writes it (the
-/// same lines, in the same order). The commander goes in the sideboard of a Magic Online or
+/// same lines; within a board the order is by code point here and by the browser's collation
+/// there, as in [`export`]). The commander goes in the sideboard of a Magic Online or
 /// Cockatrice file, where those programs keep it, and the deck's own sideboard is left out of
 /// them. Cards go by name: Yama has no Magic Online catalog numbers. Any other format is
 /// [`export`]'s.
@@ -1007,7 +1025,9 @@ pub(crate) fn export_file(cards: &[SharedCard], format: &str, deck_name: &str) -
             for (board, label) in [(Board::Commander, "Commander"), (Board::Main, "Main"), (Board::Side, "Sideboard")] {
                 for c in board_cards(cards, board) {
                     let (set, number, finish) = match &c.printing {
-                        Some(p) => (p.set_code.to_uppercase(), csv_field(&p.collector_number), p.finish.as_str()),
+                        // Card data, or a printing `plain_print` let through; a spreadsheet still never
+                        // gets a cell it would run (a collector number may start with a minus sign).
+                        Some(p) => (csv_field(&crate::game_export::cell(&p.set_code.to_uppercase())), csv_field(&crate::game_export::cell(&p.collector_number)), p.finish.as_str()),
                         None => (String::new(), String::new(), ""),
                     };
                     out.push_str(&format!("{},{},{label},{set},{number},{finish}\n", c.qty, csv_field(&c.name)));

@@ -457,6 +457,47 @@ async fn exports_match_the_deck_pages_formats() {
     }
 }
 
+/// A deck's printings are what a client sent with the list. They reach public downloads, so one
+/// that isn't a plain set code, number and finish is never written into them.
+#[tokio::test]
+async fn a_printing_the_owner_made_up_never_reaches_a_public_download() {
+    let (app, pool) = app().await;
+    let (_, bt) = user(&pool, "bryan@example.com").await;
+    card(&pool, "o-sol", "Sol Ring", "Artifact", "p-sol", "cmm", "410").await;
+    card(&pool, "o-bolt", "Lightning Bolt", "Instant", "p-bolt", "lea", "161").await;
+    card(&pool, "o-opt", "Opt", "Instant", "p-opt", "eld", "59").await;
+    let prints = json!([
+        { "oracle_id": "o-sol", "set_code": "a\n=2+5", "collector_number": "1", "finish": "nonfoil" },
+        { "oracle_id": "o-bolt", "set_code": "lea", "collector_number": "1,=7*7", "finish": "foil" },
+        { "oracle_id": "o-opt", "set_code": "eld", "collector_number": "59", "finish": "foil\n9 Black Lotus" },
+    ]);
+    let text = "Commander\n1 Sol Ring\nDeck\n1 Lightning Bolt\n1 Opt";
+    let (status, made) = send(&app, Method::POST, "/api/decks", Some(&bt), Some(json!({ "name": "Tricks", "text": text, "prints": prints }))).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let id = made["id"].as_str().unwrap().to_string();
+    sqlx::query("UPDATE decks SET visibility = 'link' WHERE id = ?").bind(&id).execute(&pool).await.unwrap();
+    let token = token_of(&pool, &id).await;
+
+    // Each card names the printing Yama picks instead, in every download.
+    let (_, _, csv) = page(&app, &format!("/d/{token}/csv.csv")).await;
+    assert_eq!(csv, "Quantity,Name,Board,Set code,Collector number,Finish\n1,Sol Ring,Commander,CMM,410,nonfoil\n1,Lightning Bolt,Main,LEA,161,nonfoil\n1,Opt,Main,ELD,59,nonfoil\n");
+    let (_, _, archidekt) = page(&app, &format!("/d/{token}/archidekt.txt")).await;
+    assert_eq!(archidekt, "1x Sol Ring (cmm) 410 [Commander{top}]\n1x Lightning Bolt (lea) 161\n1x Opt (eld) 59\n");
+    let (_, _, moxfield) = page(&app, &format!("/d/{token}/moxfield.txt")).await;
+    assert_eq!(moxfield, "Commander\n1 Sol Ring (CMM) 410\n\nDeck\n1 Lightning Bolt (LEA) 161\n1 Opt (ELD) 59\n");
+    let (_, _, html) = page(&app, &format!("/d/{token}")).await;
+    for made_up in ["=2+5", "=7*7", "Black Lotus"] {
+        assert!(!csv.contains(made_up) && !archidekt.contains(made_up) && !moxfield.contains(made_up) && !html.contains(made_up), "{made_up}");
+    }
+}
+
+#[test]
+fn a_csv_cell_a_spreadsheet_would_run_is_defused() {
+    let printing = |number: &str| Some(crate::decks::PrintRef { set_code: "plst".into(), collector_number: number.into(), finish: "nonfoil".into(), from: "default" });
+    let cards = vec![SharedCard { name: "Sol Ring".into(), qty: 1, board: Board::Main, type_line: None, cmc: 0.0, layout: None, image: None, printing: printing("-12") }];
+    assert_eq!(export_file(&cards, "csv", ""), "Quantity,Name,Board,Set code,Collector number,Finish\n1,Sol Ring,Main,PLST,'-12,nonfoil\n");
+}
+
 #[test]
 fn file_exports_escape_names_and_leave_the_sideboard_out_of_program_files() {
     let card = |name: &str, board: Board| SharedCard { name: name.into(), qty: 2, board, type_line: None, cmc: 0.0, layout: None, image: None, printing: None };
@@ -473,6 +514,8 @@ fn file_exports_escape_names_and_leave_the_sideboard_out_of_program_files() {
     // No commander: no side zone at all.
     assert!(!cod.contains("zone name=\"side\"") && !cod.contains("Negate"), "{cod}");
 
+    // An empty deck is an empty file, as the app writes it.
+    assert_eq!(export_file(&[], "archidekt", ""), "");
     // The text formats keep the sideboard; a card with no printing goes by name alone.
     assert_eq!(export_file(&cards, "archidekt", ""), "2x Ach! Hans, Run! <\"&\">\n2x Negate [Sideboard{noDeck}{noPrice}]\n");
     assert_eq!(
