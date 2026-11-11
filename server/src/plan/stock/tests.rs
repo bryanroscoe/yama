@@ -182,6 +182,8 @@ fn titles_and_variants_parse() {
     assert_eq!(found.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["sol-ring-c21-263", "sol-ring-etched-cmm-410"]);
     let l = shopify_product(&product("sol-ring-c21-263.js").unwrap(), "Sol Ring", "https://patsgames.com", "sol-ring-c21-263");
     assert_eq!(l.len(), 4);
+    assert!(l[0].url.as_deref().unwrap().ends_with("?variant=111"));
+    assert!(l[1].url.as_deref().unwrap().ends_with("?variant=112"));
     assert_eq!((l[0].price, l[0].finish, l[0].variant.as_deref(), l[0].set_code.as_deref()), (Some(1.5), Some("nonfoil"), Some("111"), Some("c21")));
     assert_eq!(l[1].finish, Some("foil"));
     let etched = shopify_product(&product("sol-ring-etched-cmm-410.js").unwrap(), "Sol Ring", "https://patsgames.com", "x");
@@ -717,4 +719,24 @@ fn variant_selected_low_stock_counts() {
     assert_eq!(shopify_variant_quantity(&page.replace("Inventory-main", "Inventory-other"), "123"), None);
     assert_eq!(shopify_variant_quantity(r#"<div class="product-card">Only 1 left</div>"#, "123"), None);
     assert_eq!(shopify_variant_quantity(&format!("{page}{page}"), "123"), None);
+}
+
+#[tokio::test]
+async fn cached_prices_keep_their_date_while_new_quantity_checks_take_precedence() {
+    let (_,pool)=app().await;
+    let (owner,_)=user(&pool,"reader@example.com").await;
+    let price_date="2026-11-01T00:00:00Z";
+    for (id,qty,date) in [("z-old",1,"2026-11-10T00:00:00Z"),("a-new",2,"2026-11-11T00:00:00Z")] {
+        snapshot(&pool,&owner,id,"pats","shopify",Some(&["Sol Ring"])).await;
+        let listing=Listing {card:"Sol Ring".into(),qty:Some(qty),quantity_checked_at:Some(date.into()),price:Some(1.75),available:Some(true),..Default::default()};
+        let found=Found {listings:vec![listing],cached_at:Some(price_date.into()),..Default::default()};
+        finish(&pool,&owner,id,&found,Some(1),None).await.unwrap();
+        let completed:String=sqlx::query_scalar("SELECT fetched_at FROM store_snapshots WHERE id=?").bind(id).fetch_one(&pool).await.unwrap();
+        assert_ne!(completed,price_date);
+        sqlx::query("UPDATE store_snapshots SET fetched_at=?,check_id=? WHERE id=?").bind(date).bind(id).bind(id).execute(&pool).await.unwrap();
+    }
+    let quotes=store_quotes(&pool,&owner,&["Sol Ring".into()]).await.unwrap();
+    assert_eq!(quotes[0]["qty"],2);
+    assert_eq!(quotes[0]["checked"],price_date);
+    assert_eq!(quotes[0]["quantity_checked_at"],"2026-11-11T00:00:00Z");
 }

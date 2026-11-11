@@ -2004,7 +2004,7 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
     }
     // Something must actually be read: a whole catalog, or a card search with cards to look for
     // (the trip's when none are named).
-    let cards_now = if cards.is_empty() { stock::trip_cards(&crate::plan::bundle::load_bundle(&st.pool, &user.id).await?) } else { cards.clone() };
+    let cards_now = if cards.is_empty() && refresh_catalog { Vec::new() } else if cards.is_empty() { stock::trip_cards(&crate::plan::bundle::load_bundle(&st.pool, &user.id).await?) } else { cards.clone() };
     let target = |c: &(String, String, Option<(stock::Kind, String)>, Option<String>, String)| {
         matches!(c.2, Some((stock::Kind::Pro, _))) || (refresh_catalog && matches!(c.2, Some((stock::Kind::Shopify, _)))) || (!cards_now.is_empty() && (c.2.is_some() || (yestcg && c.3.is_some())))
     };
@@ -2021,7 +2021,7 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
         stock::DAILY_SNAPSHOTS
     );
     let detail = if refresh_catalog { format!("{detail} Rebuilds complete public Shopify catalogs; other stores use their normal stock checks. No cart or purchase changes.") } else { detail };
-    let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (!cards.is_empty()).then_some(&cards), "yestcg": yestcg, "refresh_catalog":refresh_catalog});
+    let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (refresh_catalog || !cards.is_empty()).then_some(&cards), "yestcg": yestcg, "refresh_catalog":refresh_catalog});
     stage(st, user, via, args, Staged { kind: "check_stores", summary, detail, payload }).await
 }
 

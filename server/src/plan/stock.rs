@@ -146,6 +146,7 @@ pub struct Listing {
     pub price: Option<f64>,
     pub available: Option<bool>,
     pub qty: Option<i64>,
+    pub quantity_checked_at: Option<String>,
     pub from_price: bool,
     pub variant: Option<String>,
     pub url: Option<String>,
@@ -396,9 +397,10 @@ pub fn shopify_product(body: &Value, card: &str, base: &str, handle: &str) -> Ve
                 price: v["price"].as_f64().map(|c| (c / 100.0 * 100.0).round() / 100.0),
                 available: v["available"].as_bool(),
                 qty: None,
+                quantity_checked_at: None,
                 from_price: false,
                 variant: v["id"].as_i64().map(|i| i.to_string()).or_else(|| v["id"].as_str().map(String::from)),
-                url: Some(format!("{base}/products/{handle}")),
+                url: Some(match v["id"].as_i64().map(|i|i.to_string()).or_else(||v["id"].as_str().map(String::from)) { Some(id) if !id.is_empty() && id.bytes().all(|c|c.is_ascii_digit()) => format!("{base}/products/{handle}?variant={id}"), _ => format!("{base}/products/{handle}") }),
             }
         })
         .collect()
@@ -846,6 +848,7 @@ async fn enrich_shopify_quantities(f: &mut Fetcher, base: &str, handle: &str, li
             let url = format!("{base}/products/{handle}?variant={variant}");
             if let Ok(html) = f.page(Kind::Shopify,&url,raw).await {
                 listing.qty = shopify_variant_quantity(&html,variant);
+                if listing.qty.is_some() { listing.quantity_checked_at = Some(now()); }
                 if listing.qty == Some(0) { listing.available = Some(false); }
             }
         }
@@ -1079,10 +1082,11 @@ async fn finish(pool: &SqlitePool, owner: &str, id: &str, found: &Found, asked: 
         save_listing(&mut tx, owner, id, l).await?;
     }
     let store: Option<String> = sqlx::query_scalar("SELECT store_key FROM store_snapshots WHERE id = ? AND owner_id = ?").bind(id).bind(owner).fetch_optional(&mut *tx).await?;
-    sqlx::query("UPDATE store_snapshots SET status = ?, error = ?, fetched_at = ?, failed = ?, raw_gz = ?, item_count = ? WHERE id = ? AND owner_id = ?")
+    sqlx::query("UPDATE store_snapshots SET status = ?, error = ?, fetched_at = ?, catalog_fetched_at = ?, failed = ?, raw_gz = ?, item_count = ? WHERE id = ? AND owner_id = ?")
         .bind(status)
         .bind(error)
-        .bind(found.cached_at.clone().unwrap_or_else(now))
+        .bind(now())
+        .bind(&found.cached_at)
         .bind((!found.failed.is_empty()).then(|| json!(found.failed).to_string()))
         .bind(raw)
         .bind(found.listings.len() as i64)
@@ -1100,8 +1104,8 @@ async fn finish(pool: &SqlitePool, owner: &str, id: &str, found: &Found, asked: 
 async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l: &Listing) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO store_listings (snapshot_id, owner_id, card_name, card_key, title, set_code, set_name, number, finish, condition, language,
-                                     price, available, qty, price_kind, variant, url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                     price, available, qty, quantity_checked_at, price_kind, variant, url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(owner)
@@ -1117,6 +1121,7 @@ async fn save_listing(tx: &mut sqlx::SqliteConnection, owner: &str, id: &str, l:
     .bind(l.price)
     .bind(l.available)
     .bind(l.qty)
+    .bind(&l.quantity_checked_at)
     .bind(if l.from_price { "from" } else { "each" })
     .bind(&l.variant)
     .bind(&l.url)
@@ -1325,6 +1330,7 @@ pub async fn start(st: &AppState, owner: &str, body: &CheckBody, via: &str, chan
     }
     let cards: Vec<String> = match &body.cards {
         Some(c) => c.iter().map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+        None if body.refresh_catalog => Vec::new(),
         None => {
             let bundle = super::bundle::load_bundle(pool, owner).await?;
             trip_cards(&bundle)
@@ -1575,6 +1581,7 @@ pub async fn import(pool: &SqlitePool, owner: &str, f: ImportFile) -> AppResult<
             price: l.price,
             available: l.available,
             qty: l.qty,
+            quantity_checked_at: None,
             from_price: l.price_is_lowest,
             variant: l.variant.as_ref().and_then(|v| v.as_str().map(String::from).or_else(|| v.as_i64().map(|i| i.to_string()))).filter(|v| v.len() <= 40),
             url,
@@ -1625,6 +1632,7 @@ struct SnapRow {
     cards: Option<String>,
     failed: Option<String>,
     fetched_at: String,
+    catalog_fetched_at: Option<String>,
     status: String,
     requested_at: String,
     check_id: Option<String>,
@@ -1644,6 +1652,7 @@ struct ListRow {
     price: Option<f64>,
     available: Option<bool>,
     qty: Option<i64>,
+    quantity_checked_at: Option<String>,
     price_kind: String,
     variant: Option<String>,
     url: Option<String>,
@@ -1668,7 +1677,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
         return Ok(vec![]);
     }
     let mut snaps: Vec<SnapRow> = sqlx::query_as(
-        "SELECT id, store_key, source, cards, failed, fetched_at, status, requested_at, check_id FROM store_snapshots
+        "SELECT id, store_key, source, cards, failed, fetched_at, catalog_fetched_at, status, requested_at, check_id FROM store_snapshots
          WHERE owner_id = ? AND status IN ('ok', 'partial') AND fetched_at IS NOT NULL",
     )
     .bind(owner)
@@ -1719,7 +1728,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
     };
     let keys: Vec<&String> = names.keys().collect();
     let rows: Vec<ListRow> = sqlx::query_as(
-        "SELECT snapshot_id, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, price_kind, variant, url
+        "SELECT snapshot_id, card_key, title, set_code, set_name, number, finish, condition, language, price, available, qty, quantity_checked_at, price_kind, variant, url
          FROM store_listings WHERE owner_id = ? AND snapshot_id IN (SELECT value FROM json_each(?)) AND card_key IN (SELECT value FROM json_each(?))
          ORDER BY snapshot_id, card_key, price IS NULL, price, title",
     )
@@ -1742,10 +1751,10 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             "{} ({}), read {}",
             SOURCE_TEXT.iter().find(|x| x.0 == s.source).map_or(s.source.as_str(), |x| x.1),
             if s.source == "import" { "imported" } else { "fetched by Yama" },
-            s.fetched_at
+            s.catalog_fetched_at.as_deref().unwrap_or(&s.fetched_at)
         );
         let base = json!({
-            "swap": null, "card": card, "kind": "stock_check", "store": store, "store_label": null, "checked": s.fetched_at,
+            "swap": null, "card": card, "kind": "stock_check", "store": store, "store_label": null, "checked": s.catalog_fetched_at.as_deref().unwrap_or(&s.fetched_at),
             "price_from_text": false, "currency": "USD", "printing_from_text": false, "scryfall_id": null,
             "source": source, "origin": format!("snapshot:{}", s.id),
         });
@@ -1774,6 +1783,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             }
             if let Some(n) = r.qty {
                 words.push(format!("{n} in stock"));
+                if let Some(at) = &r.quantity_checked_at { words.push(format!("quantity checked {at}")); }
             }
             if r.price_kind == "from" {
                 words.push("lowest listed price; condition and finish not given".into());
@@ -1792,6 +1802,7 @@ pub async fn store_quotes(pool: &SqlitePool, owner: &str, wanted: &[String]) -> 
             q["variant"] = json!(r.variant);
             q["url"] = json!(r.url);
             q["qty"] = json!(r.qty);
+            if let Some(at) = &r.quantity_checked_at { q["quantity_checked_at"] = json!(at); }
             out.push(q);
         }
     }

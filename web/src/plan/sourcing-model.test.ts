@@ -160,3 +160,8 @@ it("does not exhaust demand on URL aliases for the same stock",()=>{
  const carts=sourceCarts(rows,allChoices(rows),new Map());
  expect(carts[0]!.rows.map(r=>r.offer.variant_id)).toEqual(["123","456"]);
 });
+
+it("keeps quantity and cached price observation dates separate",()=>{
+ const card=sourceCards([{...raw[0]!,offers:[{...offer,checked_at:"2026-11-01",quantity_checked_at:"2026-11-11"}]}])[0]!;
+ expect(card.offers[0]!.checked_at).toBe("2026-11-01");expect(card.offers[0]!.quantity_checked_at).toBe("2026-11-11");
+});

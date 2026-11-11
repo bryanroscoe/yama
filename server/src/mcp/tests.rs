@@ -712,7 +712,20 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
     let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM store_snapshots WHERE owner_id = ? AND source != 'import'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_eq!(running, 0, "nothing is fetched until they apply it");
     let payload: String = sqlx::query_scalar("SELECT payload FROM assistant_changes WHERE owner_id = ? AND kind = 'check_stores'").bind(&a).fetch_one(&pool).await.unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({"stores": ["pats"], "cards": ["Sol Ring"], "yestcg": false}));
+    assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(), json!({"stores": ["pats"], "cards": ["Sol Ring"], "yestcg": false, "refresh_catalog":false}));
+}
+
+#[tokio::test]
+async fn catalog_refresh_keeps_empty_card_scope_instead_of_expanding_the_trip() {
+    let (app,pool)=app().await;
+    let (owner,session)=user(&pool,"reader@example.com").await;
+    let mcp=key(&app,&session,Some("mcp")).await;
+    let (err,text)=call(&app,&mcp,"check_stores",json!({"stores":["pats"],"refresh_catalog":true})).await;
+    assert!(!err,"{text}");
+    let payload:String=sqlx::query_scalar("SELECT payload FROM assistant_changes WHERE owner_id=? AND kind='check_stores'").bind(&owner).fetch_one(&pool).await.unwrap();
+    let payload:Value=serde_json::from_str(&payload).unwrap();
+    assert_eq!(payload["cards"],json!([]));
+    assert_eq!(payload["refresh_catalog"],true);
 }
 
 #[tokio::test]

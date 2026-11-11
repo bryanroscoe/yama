@@ -129,3 +129,5 @@ Catalog availability flags and search badges are not exact variant counts. Mothe
 All filtered source rows are shown. **Add all matching cards** allocates recorded quantities across eligible printings without duplicating a variant's stock. It leaves unknown counts out of automatic selection; explicit quantity requests remain possible and are labelled unconfirmed. Remaining unselected copies stay visible. A saved quote is dated evidence, not a reservation.
 
 Refreshing a catalog does not rewrite a saved research report. To refresh a report, read it first, check its wanted cards against the cache, preserve all builds, reviews and copy allocations, then save and read back the updated source evidence. Keep market references distinct from retailer prices and match condition, finish, language and the account's buying rules.
+
+When fresh variant quantities are read against an older catalog, `checked`/`checked_at` retains the catalog price date and `quantity_checked_at` records the separate stock observation. Preserve both when saving source offers. Do not assign the fresh quantity date to the cached price or vice versa.

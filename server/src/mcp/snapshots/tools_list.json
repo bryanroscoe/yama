@@ -594,7 +594,7 @@
         "additionalProperties": false,
         "properties": {
           "cards": {
-            "description": "Card names, at most 300.",
+            "description": "Card names, at most 300. For catalog-only refresh, omit or pass an empty list.",
             "items": {
               "maxLength": 300,
               "type": "string"
