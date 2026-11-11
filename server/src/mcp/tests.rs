@@ -862,7 +862,19 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
             assert_eq!(t["inputSchema"]["properties"]["op_id"]["type"], "string", "{} has no op_id", t["name"]);
         }
     }
-    assert!(staging >= 19, "{staging} staging tools");
+    // The 20 staging tools less the three that start simulations (this account isn't a power
+    // user), and save_deck.
+    assert_eq!(staging, 18, "staging tools listed for an account that can't start simulations");
+    // A power user is also listed the three that start simulations, with op_id like the rest.
+    let (_, power_session) = power_user(&pool, "power@example.com").await;
+    let power = key(&app, &power_session, Some("mcp")).await;
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
+    let staging: Vec<&Value> = r["result"]["tools"].as_array().unwrap().iter().filter(|t| t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false).collect();
+    assert_eq!(staging.len(), 21);
+    for name in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+        let tool = staging.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} isn't listed for a power user"));
+        assert_eq!(tool["inputSchema"]["properties"]["op_id"]["type"], "string", "{name}");
+    }
 }
 
 #[test]
