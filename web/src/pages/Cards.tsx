@@ -9,7 +9,8 @@ import { isGuest } from "../guest";
 import { CardImage, ErrorText, Dialog } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
-import { queryChips, withoutTerm } from "./cardQuery";
+import { cardNamed, exactNameQuery, nameQuery, queryChips, withoutTerm } from "./cardQuery";
+import { CardSearchBox } from "./CardSearchBox";
 import { CardView } from "./CardView";
 import "./cards.css";
 import { orderUsed, priceSource, usd, plural } from "@yama/core";
@@ -23,15 +24,6 @@ const EXAMPLES = [
 
 /** A search hit with what the grid shows under it. Offline hits have no price or ownership. */
 type Hit = Card & { usd?: number | null; price_date?: string | null; owned?: number; owned_in?: string | null };
-
-function SearchIcon() {
-  return (
-    <svg className="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <circle cx="11" cy="11" r="6" />
-      <path d="m20 20-4.5-4.5" />
-    </svg>
-  );
-}
 
 const ORDERS = [
   { value: "edhrec", label: "Most played" },
@@ -88,6 +80,31 @@ export function CardsPage() {
       setParams(next, { replace: true });
     }
   };
+  // A name picked from the box's suggestions: search for it and open that card. Back from the
+  // card is then the results for the name. The card is found by its exact name, on its own, not
+  // in the results: they may be sorted another way, or run past the first page.
+  const [picked, setPicked] = useState<string | null>(null);
+  const pickName = (name: string) => {
+    setPicked(name);
+    set({ q: nameQuery(name), page: "1" });
+  };
+  const pickedCard = useQuery({
+    queryKey: ["card-named", picked],
+    queryFn: ({ signal }) => api<SearchResult>(`/api/cards/search?q=${encodeURIComponent(exactNameQuery(picked!))}&order=name&page=1`, { signal }),
+    enabled: !!picked,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  useEffect(() => {
+    // Wait for the address to carry the pick's search, so Back from the card lands on it.
+    if (!picked || q !== nameQuery(picked)) return;
+    if (pickedCard.isError) return setPicked(null);
+    if (!pickedCard.data) return;
+    setPicked(null);
+    const card = cardNamed(pickedCard.data.cards, picked);
+    if (card) openCard(card.oracle_id);
+    // Once per pick, when the card is found; openCard reads the address as it is then.
+  }, [picked, q, pickedCard.data, pickedCard.isError]);
   // Closing the card page puts focus back on the card it came from.
   const lastOpen = useRef<string | null>(null);
   useEffect(() => {
@@ -116,22 +133,20 @@ export function CardsPage() {
           role="search"
           onSubmit={(e) => {
             e.preventDefault();
+            setPicked(null);
             set({ q: draft, page: "1" });
           }}
         >
-          <label className="cards-box">
-            <span className="visually-hidden">Search cards</span>
-            <SearchIcon />
-            <input
-              type="search"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Name, or syntax like t:elf id<=gw"
-              autoCapitalize="off"
-              autoCorrect="off"
-              enterKeyHint="search"
-            />
-          </label>
+          <CardSearchBox
+            value={draft}
+            onChange={(v) => {
+              // Typing again is a new search: a name picked a moment ago no longer opens its card.
+              setDraft(v);
+              setPicked(null);
+            }}
+            onPick={pickName}
+            suggest={!guest}
+          />
           <select className="cards-order" value={order} onChange={(e) => set({ order: e.target.value, page: "1" })} aria-label="Sort by">
             {ORDERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>

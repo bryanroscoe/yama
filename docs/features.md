@@ -60,7 +60,7 @@ Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, 
 
 ### Card search
 
-Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses; `set:` `a:` `year` `usd<` `is:reserved` and more `is:` values such as `is:partner` and `is:mdfc`; a card with no price never matches a price comparison). Sorts by name, popularity, mana value, color, price or first release. Works offline from a 5 MB card bundle kept on the device, which has no printings or prices: there, searches by set, artist, year, price and the Reserve List say they need a connection.
+Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses; `set:` `a:` `year` `usd<` `is:reserved` and more `is:` values such as `is:partner` and `is:mdfc`; a card with no price never matches a price comparison). The search box suggests card names as you type, and picking one opens the card. Sorts by name, popularity, mana value, color, price or first release. Works offline from a 5 MB card bundle kept on the device, which has no printings or prices: there, searches by set, artist, year, price and the Reserve List say they need a connection.
 
 ### Card sheet
 
