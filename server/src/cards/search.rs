@@ -3,9 +3,16 @@
 //! Supported: bare words and "quoted phrases" (name), `!"exact name"`, `o:` `t:` `kw:`,
 //! `c:` / `id:` with `= != < <= > >=` (colors as letters, names, guilds, shards, wedges,
 //! `c`/colorless, `m`/multicolor), `mv`/`cmc`, `pow`, `tou`, `loy`, `r:`, `f:`/`legal:`,
-//! `banned:`, `is:commander`, `is:legendary`, `is:gamechanger` (or `is:gc`), negation `-`, `or`,
-//! and parentheses.
-//! The same grammar runs offline in the app (`packages/core`), so keep them in step.
+//! `banned:`, `set:` / `s:` / `e:` (a set code, any printing), `a:` (artist, any printing), `year`
+//! (the year of any printing), `usd` (the price the results show: the default printing's latest
+//! market price; a card with no price never matches a price comparison, negated or not), `is:`
+//! (`commander`, `legendary`, `gamechanger` or `gc`, `reserved`, `partner`, `companion`, `dfc`,
+//! `mdfc`, `transform`, `split`, `flip`, `meld`, `adventure`, `saga`, `leveler`, `vanilla`,
+//! `historic`, `party`, `outlaw`, `hybrid`, `phyrexian`, `permanent`, `spell`, `multicolor`),
+//! negation `-`, `or`, and parentheses.
+//! The same grammar runs offline in the app (`packages/core/src/search.ts`), so keep them in
+//! step. The device keeps no printings or prices, so there `set:`, `a:`, `year`, `usd` and
+//! `is:reserved` are read and then refused with a reason.
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,7 +27,17 @@ pub struct Compiled {
     pub binds: Vec<Bind>,
     /// The query reads the Game Changer flag (`is:gamechanger`), which may not be loaded yet.
     pub uses_game_changer: bool,
+    /// The query reads the Reserve List flag (`is:reserved`), which may not be loaded yet.
+    pub uses_reserved: bool,
 }
+
+/// The price a search compares, sorts by and shows: the default printing's latest market price,
+/// regular, else foil, else etched. NULL when there is none, so a comparison with it is never
+/// true (and neither is its negation): a missing price is unknown, not 0.
+pub const PRICE_SQL: &str = "(SELECT COALESCE(ps.usd, ps.usd_foil, ps.usd_etched) FROM price_latest ps WHERE ps.scryfall_id = cards.default_printing)";
+
+/// When a card first came out: its earliest dated printing (YYYY-MM-DD), for sorting.
+pub const FIRST_RELEASE_SQL: &str = "(SELECT MIN(p.released_at) FROM printings p WHERE p.oracle_id = cards.oracle_id)";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -33,15 +50,15 @@ enum Tok {
 
 pub fn compile(query: &str) -> Result<Compiled, String> {
     let toks = lex(query)?;
-    let mut p = Parser { toks, pos: 0, binds: Vec::new(), uses_game_changer: false };
+    let mut p = Parser { toks, pos: 0, binds: Vec::new(), uses_game_changer: false, uses_reserved: false };
     if p.toks.is_empty() {
-        return Ok(Compiled { sql: "1".into(), binds: vec![], uses_game_changer: false });
+        return Ok(Compiled { sql: "1".into(), binds: vec![], uses_game_changer: false, uses_reserved: false });
     }
     let sql = p.expr()?;
     if p.pos < p.toks.len() {
         return Err("unexpected ')'".into());
     }
-    Ok(Compiled { sql, binds: p.binds, uses_game_changer: p.uses_game_changer })
+    Ok(Compiled { sql, binds: p.binds, uses_game_changer: p.uses_game_changer, uses_reserved: p.uses_reserved })
 }
 
 /// The name a query types, for ordering: its bare words and quoted phrases joined by spaces,
@@ -179,6 +196,20 @@ struct Parser {
     pos: usize,
     binds: Vec<Bind>,
     uses_game_changer: bool,
+    uses_reserved: bool,
+}
+
+/// `is:` values that are a card layout (Scryfall's `layout`), by the layout they name.
+const IS_LAYOUTS: [(&str, &str); 8] =
+    [("mdfc", "modal_dfc"), ("transform", "transform"), ("split", "split"), ("flip", "flip"), ("meld", "meld"), ("adventure", "adventure"), ("saga", "saga"), ("leveler", "leveler")];
+
+/// Keywords that let two cards share the command zone (`is:partner`), lowercased.
+const PARTNER_KEYWORDS: &str = "('partner','partner with','friends forever','choose a background','doctor''s companion')";
+
+/// `cards.type_line LIKE '%A%' OR …` for each of these words.
+fn any_type(words: &[&str]) -> String {
+    let parts: Vec<String> = words.iter().map(|w| format!("cards.type_line LIKE '%{w}%'")).collect();
+    format!("({})", parts.join(" OR "))
 }
 
 impl Parser {
@@ -314,8 +345,52 @@ impl Parser {
                     self.uses_game_changer = true;
                     Ok("cards.game_changer = 1".into())
                 }
-                other => Err(format!("unsupported is:{other}")),
+                "reserved" => {
+                    self.uses_reserved = true;
+                    Ok("cards.reserved = 1".into())
+                }
+                "partner" => Ok(format!("EXISTS (SELECT 1 FROM json_each(cards.keywords) WHERE lower(json_each.value) IN {PARTNER_KEYWORDS})")),
+                "companion" => Ok("EXISTS (SELECT 1 FROM json_each(cards.keywords) WHERE lower(json_each.value) = 'companion')".into()),
+                "dfc" => Ok("IFNULL(cards.layout, '') IN ('transform','modal_dfc','meld','reversible_card')".into()),
+                "vanilla" => Ok("(cards.type_line LIKE '%Creature%' AND cards.oracle_text = '')".into()),
+                "historic" => Ok(any_type(&["Legendary", "Artifact", "Saga"])),
+                "party" => Ok(any_type(&["Cleric", "Rogue", "Warrior", "Wizard"])),
+                "outlaw" => Ok(any_type(&["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"])),
+                // A hybrid symbol is two halves that aren't Phyrexian: {W/U}, {2/W}, not {W/P}.
+                "hybrid" => Ok("IFNULL(cards.mana_cost, '') GLOB '*{[WUBRGC2]/[WUBRGC]*'".into()),
+                "phyrexian" => Ok("IFNULL(cards.mana_cost, '') LIKE '%/P}%'".into()),
+                other => match IS_LAYOUTS.iter().find(|(name, _)| *name == other) {
+                    Some((_, layout)) => Ok(format!("IFNULL(cards.layout, '') = '{layout}'")),
+                    None => Err(format!("unsupported is:{other}")),
+                },
             },
+            "set" | "s" | "e" | "edition" => {
+                let p = self.text(value.to_lowercase());
+                Ok(format!("cards.oracle_id IN (SELECT oracle_id FROM printings WHERE set_code = {p})"))
+            }
+            "a" | "artist" => {
+                self.binds.push(Bind::Text(format!("%{}%", escape_like(value))));
+                Ok("EXISTS (SELECT 1 FROM printings p WHERE p.oracle_id = cards.oracle_id AND p.artist LIKE ? ESCAPE '\\')".into())
+            }
+            "year" => {
+                let n: f64 = value.parse().map_err(|_| format!("{value} isn't a year"))?;
+                if !(1990.0..=2200.0).contains(&n) || n.fract() != 0.0 {
+                    return Err(format!("{value} isn't a year"));
+                }
+                self.binds.push(Bind::Num(n));
+                Ok(format!(
+                    "EXISTS (SELECT 1 FROM printings p WHERE p.oracle_id = cards.oracle_id AND CAST(substr(p.released_at, 1, 4) AS INTEGER) {} ?)",
+                    compare(op)
+                ))
+            }
+            "usd" => {
+                let n: f64 = value.trim_start_matches('$').parse().map_err(|_| format!("{value} isn't a price"))?;
+                if !n.is_finite() {
+                    return Err(format!("{value} isn't a price"));
+                }
+                self.binds.push(Bind::Num(n));
+                Ok(format!("{PRICE_SQL} {} ?", compare(op)))
+            }
             "name" => Ok(self.like("cards.name", value)),
             other => Err(format!("unsupported keyword {other}:")),
         }
@@ -323,13 +398,20 @@ impl Parser {
 
     fn numeric(&mut self, column: &str, op: &str, value: &str) -> Result<String, String> {
         let n: f64 = value.parse().map_err(|_| format!("{value} isn't a number"))?;
-        let op = match op {
-            ":" | "=" => "=",
-            "!=" => "!=",
-            o => o,
-        };
         self.binds.push(Bind::Num(n));
-        Ok(format!("{column} {op} ?"))
+        Ok(format!("{column} {} ?", compare(op)))
+    }
+}
+
+/// A term's operator as SQL: `:` reads as `=`. The lexer only ever gives one of these.
+fn compare(op: &str) -> &'static str {
+    match op {
+        "!=" => "!=",
+        "<" => "<",
+        "<=" => "<=",
+        ">" => ">",
+        ">=" => ">=",
+        _ => "=",
     }
 }
 
@@ -450,6 +532,59 @@ mod tests {
         // The route checks the flags are loaded before running these.
         assert!(compile("t:artifact (is:gc or mv<1)").unwrap().uses_game_changer);
         assert!(!compile("t:artifact").unwrap().uses_game_changer);
+    }
+
+    #[test]
+    fn sets_artists_years_and_prices() {
+        // A set is matched by its code, in lower case, over every printing.
+        let c = compile("set:CMM").unwrap();
+        assert_eq!(c.sql, "cards.oracle_id IN (SELECT oracle_id FROM printings WHERE set_code = ?)");
+        assert_eq!(c.binds, vec![Bind::Text("cmm".into())]);
+        for alias in ["s:cmm", "e:cmm", "edition:cmm"] {
+            assert_eq!(compile(alias).unwrap().sql, c.sql, "{alias}");
+        }
+        let c = compile(r#"a:"rebecca guay""#).unwrap();
+        assert!(c.sql.contains("p.artist LIKE ? ESCAPE '\\'"), "{}", c.sql);
+        assert_eq!(c.binds, vec![Bind::Text("%rebecca guay%".into())]);
+        assert_eq!(compile("artist:guay").unwrap().sql, c.sql);
+        let c = compile("year>=2020").unwrap();
+        assert!(c.sql.ends_with("CAST(substr(p.released_at, 1, 4) AS INTEGER) >= ?)"), "{}", c.sql);
+        assert_eq!(c.binds, vec![Bind::Num(2020.0)]);
+        assert!(compile("year:1994").unwrap().sql.contains("AS INTEGER) = ?"));
+        for bad in ["year:soon", "year:94", "year>2020.5"] {
+            assert!(compile(bad).is_err(), "{bad}");
+        }
+        // The price compared is the one the results show; NULL (no price) is never under or over.
+        let c = compile("usd<5").unwrap();
+        assert_eq!(c.sql, format!("{PRICE_SQL} < ?"));
+        assert_eq!(c.binds, vec![Bind::Num(5.0)]);
+        assert_eq!(compile("usd>=$2.50").unwrap().binds, vec![Bind::Num(2.5)]);
+        assert_eq!(compile("-usd>5").unwrap().sql, format!("NOT {PRICE_SQL} > ?"));
+        assert!(compile("usd<cheap").is_err());
+        assert!(compile("usd<inf").is_err());
+    }
+
+    #[test]
+    fn more_is_values() {
+        let c = compile("is:reserved").unwrap();
+        assert_eq!(c.sql, "cards.reserved = 1");
+        // The route checks the list is loaded before running these.
+        assert!(c.uses_reserved && !c.uses_game_changer);
+        assert!(!compile("is:gc").unwrap().uses_reserved);
+        assert_eq!(compile("is:mdfc").unwrap().sql, "IFNULL(cards.layout, '') = 'modal_dfc'");
+        assert_eq!(compile("is:Saga").unwrap().sql, "IFNULL(cards.layout, '') = 'saga'");
+        assert!(compile("is:dfc").unwrap().sql.contains("'transform','modal_dfc','meld','reversible_card'"));
+        assert!(compile("is:partner").unwrap().sql.contains("'choose a background'"));
+        assert!(compile("is:companion").unwrap().sql.contains("= 'companion'"));
+        assert_eq!(compile("is:vanilla").unwrap().sql, "(cards.type_line LIKE '%Creature%' AND cards.oracle_text = '')");
+        assert_eq!(compile("is:historic").unwrap().sql, "(cards.type_line LIKE '%Legendary%' OR cards.type_line LIKE '%Artifact%' OR cards.type_line LIKE '%Saga%')");
+        assert!(compile("is:party").unwrap().sql.contains("'%Cleric%'"));
+        assert!(compile("is:outlaw").unwrap().sql.contains("'%Warlock%'"));
+        assert_eq!(compile("is:hybrid").unwrap().sql, "IFNULL(cards.mana_cost, '') GLOB '*{[WUBRGC2]/[WUBRGC]*'");
+        assert_eq!(compile("is:phyrexian").unwrap().sql, "IFNULL(cards.mana_cost, '') LIKE '%/P}%'");
+        // None of them binds anything, so none can carry what was typed into the SQL.
+        assert!(compile("is:reserved is:partner is:hybrid is:historic").unwrap().binds.is_empty());
+        assert!(compile("is:nonsense").is_err());
     }
 
     #[test]

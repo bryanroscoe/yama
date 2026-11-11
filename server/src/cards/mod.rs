@@ -125,6 +125,7 @@ pub struct SearchCard {
 const PAGE_SIZE: u32 = 60;
 const GAME_CHANGERS_NOT_LOADED: &str =
     "The Game Changer list isn't loaded on this server yet, so is:gamechanger can't be searched. It comes with the next card data import.";
+const RESERVED_NOT_LOADED: &str = "The Reserve List isn't loaded on this server yet, so is:reserved can't be searched. It comes with the next card data import.";
 const EXTRA_LAYOUTS: &str = "('token','double_faced_token','emblem','vanguard','scheme','planar')";
 
 /// Longest search query accepted: far more than any real search, and it keeps compiled SQL small.
@@ -161,6 +162,10 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
     if compiled.uses_game_changer && import::game_changers_date(pool).await?.is_none() {
         return Err(AppError::Conflict(GAME_CHANGERS_NOT_LOADED.into()));
     }
+    // The same for the Reserve List: NULL until an oracle import that reads it.
+    if compiled.uses_reserved && import::reserved_list_date(pool).await?.is_none() {
+        return Err(AppError::Conflict(RESERVED_NOT_LOADED.into()));
+    }
     let mut filter = compiled.sql;
     if !search::wants_extras(query) {
         filter = format!("({filter}) AND IFNULL(cards.layout, '') NOT IN {EXTRA_LAYOUTS}");
@@ -172,6 +177,13 @@ pub async fn search(pool: &SqlitePool, owner: &str, query: &str, order: Option<&
         Some("mv" | "cmc") => "cards.cmc, cards.name".to_string(),
         Some("edhrec") => "cards.edhrec_rank IS NULL, cards.edhrec_rank, cards.name".to_string(),
         Some("color") => "length(cards.colors), cards.colors, cards.name".to_string(),
+        // By price and by first release. These read a price or the printings of every match and
+        // sort them all (no index to walk); cards with no price, or no dated printing, go last
+        // whichever way the order runs.
+        Some("usd") => format!("{0} IS NULL, {0} DESC, cards.name COLLATE NOCASE", search::PRICE_SQL),
+        Some("usd_asc") => format!("{0} IS NULL, {0}, cards.name COLLATE NOCASE", search::PRICE_SQL),
+        Some("released") => format!("{0} IS NULL, {0} DESC, cards.name COLLATE NOCASE", search::FIRST_RELEASE_SQL),
+        Some("released_asc") => format!("{0} IS NULL, {0}, cards.name COLLATE NOCASE", search::FIRST_RELEASE_SQL),
         // By name. When the query types a name ("sol ring"), the card of exactly that name comes
         // first, then names that start with it, then the rest (which only contain its words:
         // Searing Soloist). That ranks every match instead of walking the name index, which is
@@ -875,6 +887,65 @@ mod tests {
         assert_eq!(names(search(&pool, "", "sol ring", Some("mv"), 1).await.unwrap())[1], "Absolver of Rings");
         // The count is unchanged by the order.
         assert_eq!(search(&pool, "", "sol ring", None, 1).await.unwrap().total, 5);
+    }
+
+    #[tokio::test]
+    async fn searches_by_set_artist_year_and_price_and_sorts_by_price_and_release() {
+        let pool = crate::db::test_pool().await;
+        let printing = "INSERT INTO printings (scryfall_id, oracle_id, name, set_code, set_name, collector_number, lang, finishes, released_at, artist, updated_at)
+                        VALUES (?, ?, ?, ?, 'Set', '1', 'en', '[\"nonfoil\"]', ?, ?, 'now')";
+        // (oracle id, name, default printing, set, artist, released, price). Mana Crypt has no price.
+        for (oid, name, pid, set, artist, released, usd) in [
+            ("o-ring", "Sol Ring", "p-ring", "cmm", "Mike Bierek", "2023-08-04", Some(1.5)),
+            ("o-lotus", "Black Lotus", "p-lotus", "lea", "Christopher Rush", "1993-08-05", Some(50000.0)),
+            ("o-crypt", "Mana Crypt", "p-crypt", "cmm", "Matt Stewart", "2023-08-04", None),
+        ] {
+            sqlx::query("INSERT INTO cards (oracle_id, name, type_line, default_printing, updated_at) VALUES (?, ?, 'Artifact', ?, 'now')")
+                .bind(oid)
+                .bind(name)
+                .bind(pid)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(printing).bind(pid).bind(oid).bind(name).bind(set).bind(released).bind(artist).execute(&pool).await.unwrap();
+            if let Some(usd) = usd {
+                sqlx::query("INSERT INTO price_snapshots (scryfall_id, date, usd) VALUES (?, '2026-11-01', ?)").bind(pid).bind(usd).execute(&pool).await.unwrap();
+            }
+        }
+        // Sol Ring's first printing: another set, another artist, thirty years earlier.
+        sqlx::query(printing).bind("p-ring-lea").bind("o-ring").bind("Sol Ring").bind("lea").bind("1993-08-05").bind("Mark Tedin").execute(&pool).await.unwrap();
+        async fn names(pool: &SqlitePool, query: &str, order: Option<&str>) -> Vec<String> {
+            search(pool, "", query, order, 1).await.unwrap().cards.into_iter().map(|c| c.card.name).collect()
+        }
+
+        // A set or an artist is matched over every printing, not only the one shown.
+        assert_eq!(names(&pool, "set:lea", None).await, ["Black Lotus", "Sol Ring"]);
+        assert_eq!(names(&pool, "e:CMM", None).await, ["Mana Crypt", "Sol Ring"]);
+        assert_eq!(names(&pool, "a:tedin", None).await, ["Sol Ring"]);
+        assert_eq!(names(&pool, r#"a:"christopher rush""#, None).await, ["Black Lotus"]);
+        assert_eq!(names(&pool, "year<2000", None).await, ["Black Lotus", "Sol Ring"]);
+        assert_eq!(names(&pool, "year=2023", None).await, ["Mana Crypt", "Sol Ring"]);
+        // A card with no price is neither under nor over anything, negated or not.
+        assert_eq!(names(&pool, "usd<5", None).await, ["Sol Ring"]);
+        assert_eq!(names(&pool, "usd>=5", None).await, ["Black Lotus"]);
+        assert_eq!(names(&pool, "-usd<5", None).await, ["Black Lotus"]);
+        assert_eq!(names(&pool, "usd>0 or usd<=0", None).await, ["Black Lotus", "Sol Ring"]);
+        // By price either way, and by first release either way: no price goes last both times.
+        assert_eq!(names(&pool, "t:artifact", Some("usd")).await, ["Black Lotus", "Sol Ring", "Mana Crypt"]);
+        assert_eq!(names(&pool, "t:artifact", Some("usd_asc")).await, ["Sol Ring", "Black Lotus", "Mana Crypt"]);
+        assert_eq!(names(&pool, "t:artifact", Some("released")).await, ["Mana Crypt", "Black Lotus", "Sol Ring"]);
+        assert_eq!(names(&pool, "t:artifact", Some("released_asc")).await, ["Black Lotus", "Sol Ring", "Mana Crypt"]);
+        assert_eq!(search(&pool, "", "t:artifact", Some("usd"), 1).await.unwrap().total, 3);
+
+        // The Reserve List isn't loaded: say so, rather than find nothing.
+        assert!(matches!(search(&pool, "", "is:reserved", None, 1).await, Err(AppError::Conflict(_))));
+        sqlx::query("INSERT INTO import_runs (id, kind, started_at, finished_at, rows, importer_version) VALUES ('r1', 'oracle_cards', '2026-11-01T00:00:00Z', '2026-11-01T00:01:00Z', 3, 99)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE cards SET reserved = (oracle_id = 'o-lotus')").execute(&pool).await.unwrap();
+        assert_eq!(names(&pool, "is:reserved", None).await, ["Black Lotus"]);
+        assert_eq!(names(&pool, "-is:reserved", None).await, ["Mana Crypt", "Sol Ring"]);
     }
 
     #[tokio::test]

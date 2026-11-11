@@ -38,6 +38,10 @@ const ORDERS = [
   { value: "name", label: "Name" },
   { value: "mv", label: "Mana value" },
   { value: "color", label: "Color" },
+  { value: "usd", label: "Price, high to low" },
+  { value: "usd_asc", label: "Price, low to high" },
+  { value: "released", label: "Newest" },
+  { value: "released_asc", label: "Oldest" },
 ];
 
 export function CardsPage() {
@@ -104,6 +108,7 @@ export function CardsPage() {
           <h1>Cards</h1>
           <HelpPopover label="Search syntax">
             <p>Search works like Scryfall: <code>o:</code> rules text, <code>t:</code> type, <code>id&lt;=</code> fits a commander, <code>mv</code>, <code>pow</code>, <code>f:commander</code>, <code>is:gamechanger</code>, <code>-</code> to exclude, <code>or</code> and parentheses.</p>
+            <p>Also <code>set:cmm</code>, <code>a:</code> artist, <code>year&gt;=2020</code>, <code>usd&lt;5</code> (a card with no price never matches a price) and <code>is:reserved</code>, <code>is:partner</code>, <code>is:mdfc</code>.</p>
           </HelpPopover>
         </div>
         <form

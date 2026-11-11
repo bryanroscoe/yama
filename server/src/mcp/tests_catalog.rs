@@ -253,7 +253,7 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
     }
     // A closed set of values is checked, not quietly replaced by the default.
     let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "order": "price"})).await;
-    assert!(err && text.contains("isn't name, mv, edhrec or color"), "{text}");
+    assert!(err && text.contains("isn't name, mv, edhrec, color, usd, usd_asc, released or released_asc"), "{text}");
     for order in ["name", "mv", "cmc", "edhrec", "color"] {
         let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "order": order})).await;
         assert!(!err, "{order}: {text}");

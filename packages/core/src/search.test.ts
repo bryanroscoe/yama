@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSearch, GAME_CHANGERS_NOT_LOADED, namePhrase, nameRank, searchOffline, type OfflineCard } from "./search";
+import { compileSearch, GAME_CHANGERS_NOT_LOADED, namePhrase, nameRank, needsConnection, searchOffline, type OfflineCard } from "./search";
 
 const card = (o: Partial<OfflineCard> & { n: string }): OfflineCard => ({
   i: o.n, m: null, v: 0, t: "", o: "", c: "", ci: "", p: null, th: null, l: null, r: "common", k: [],
@@ -36,6 +36,55 @@ describe("offline search", () => {
     expect(() => searchOffline(cards, "is:gc", "name", { gameChangers: false })).toThrow(GAME_CHANGERS_NOT_LOADED);
     expect(() => searchOffline(cards, "t:artifact -is:gamechanger", "name", { gameChangers: false })).toThrow();
     expect(searchOffline(cards, "t:artifact", "name", { gameChangers: false }).map((c) => c.n)).toEqual(["Jeweled Lotus", "Sol Ring"]);
+  });
+
+  it("reads the is: values the card list can answer, as the server does", () => {
+    const more = [
+      card({ n: "Tymna the Weaver", t: "Legendary Creature — Human Cleric", k: ["lifelink", "partner"], o: "Lifelink\nPartner" }),
+      card({ n: "Wilson, Refined Grizzly", t: "Legendary Creature — Bear Warrior", k: ["choose a background", "reach"], o: "Reach, trample, ward {2}\nChoose a Background" }),
+      card({ n: "Lurrus of the Dream-Den", t: "Legendary Creature — Cat Nightmare", m: "{1}{W/B}{W/B}", k: ["companion", "lifelink"], o: "Companion\nLifelink" }),
+      card({ n: "Gitaxian Probe", t: "Sorcery", m: "{U/P}", o: "Look at target player's hand." }),
+      card({ n: "Grizzly Bears", t: "Creature — Bear", m: "{1}{G}" }),
+      card({ n: "Valakut Awakening // Valakut Stoneforge", t: "Instant // Land", y: "modal_dfc", m: "{2}{R}" }),
+      card({ n: "Delver of Secrets // Insectile Aberration", t: "Creature — Human Wizard // Creature — Human Insect", y: "transform", o: "At the beginning of your upkeep, look at the top card of your library." }),
+      card({ n: "Fire // Ice", t: "Instant // Instant", y: "split" }),
+      card({ n: "The Eldest Reborn", t: "Enchantment — Saga", y: "saga" }),
+      card({ n: "Forest", t: "Basic Land — Forest", m: null, y: null }),
+    ];
+    const is = (q: string) => searchOffline(more, q).map((c) => c.n);
+    expect(is("is:partner")).toEqual(["Tymna the Weaver", "Wilson, Refined Grizzly"]);
+    expect(is("is:companion")).toEqual(["Lurrus of the Dream-Den"]);
+    expect(is("is:hybrid")).toEqual(["Lurrus of the Dream-Den"]);
+    expect(is("is:phyrexian")).toEqual(["Gitaxian Probe"]);
+    expect(is("is:vanilla")).toEqual(["Grizzly Bears"]);
+    expect(is("is:mdfc")).toEqual(["Valakut Awakening // Valakut Stoneforge"]);
+    expect(is("is:transform")).toEqual(["Delver of Secrets // Insectile Aberration"]);
+    expect(is("is:dfc")).toEqual(["Delver of Secrets // Insectile Aberration", "Valakut Awakening // Valakut Stoneforge"]);
+    expect(is("is:Split")).toEqual(["Fire // Ice"]);
+    expect(is("is:saga")).toEqual(["The Eldest Reborn"]);
+    expect(is("is:historic")).toEqual(["Lurrus of the Dream-Den", "The Eldest Reborn", "Tymna the Weaver", "Wilson, Refined Grizzly"]);
+    expect(is("is:party")).toEqual(["Delver of Secrets // Insectile Aberration", "Tymna the Weaver", "Wilson, Refined Grizzly"]);
+    expect(is("is:outlaw")).toEqual([]);
+    // A card with no mana cost or layout isn't hybrid or a split card, and is found by the negation.
+    expect(is("-is:hybrid -is:split t:basic")).toEqual(["Forest"]);
+    expect(() => is("is:nonsense")).toThrow("unsupported is:nonsense");
+  });
+
+  it("refuses what needs printings or prices with a reason, after reading it as the server does", () => {
+    for (const [q, what] of [["set:cmm", "set"], ["s:cmm", "set"], ["e:cmm", "set"], ["edition:cmm", "set"], ['a:"rebecca guay"', "artist"], ["artist:guay", "artist"], ["year>=2020", "year"], ["usd<5", "price"], ["usd>=$2.50", "price"], ["is:reserved", "the Reserve List"]] as const) {
+      expect(() => searchOffline(cards, q), q).toThrow(needsConnection(what));
+    }
+    // Inside a longer search too: part of the answer would be a wrong answer.
+    expect(() => searchOffline(cards, "t:artifact (usd<5 or mv<1)")).toThrow(needsConnection("price"));
+    // A value the server refuses is refused the same way here.
+    expect(() => searchOffline(cards, "year:soon")).toThrow("soon isn't a year");
+    expect(() => searchOffline(cards, "year:94")).toThrow("94 isn't a year");
+    expect(() => searchOffline(cards, "year>2020.5")).toThrow("2020.5 isn't a year");
+    expect(() => searchOffline(cards, "usd<cheap")).toThrow("cheap isn't a price");
+    // The device has no prices or dates to sort by: those orders are the order by name.
+    for (const order of ["usd", "usd_asc", "released", "released_asc"] as const) {
+      expect(searchOffline(cards, "t:artifact", order).map((c) => c.n)).toEqual(["Jeweled Lotus", "Sol Ring"]);
+    }
   });
 
   it("hides tokens unless asked", () => {

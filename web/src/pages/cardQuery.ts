@@ -11,7 +11,16 @@ export interface QueryChip {
 const COLORS: Record<string, string> = { w: "white", u: "blue", b: "black", r: "red", g: "green", c: "colorless" };
 const COMPARE: Record<string, string> = { "<=": "at most", ">=": "at least", "<": "under", ">": "over", "=": "", ":": "" };
 const NUMBERS: Record<string, string> = { mv: "Mana value", cmc: "Mana value", manavalue: "Mana value", pow: "Power", power: "Power", tou: "Toughness", toughness: "Toughness", loy: "Loyalty", loyalty: "Loyalty" };
-const IS: Record<string, string> = { commander: "Can be your commander", gamechanger: "Game Changers", gc: "Game Changers", legendary: "Legendary" };
+const IS: Record<string, string> = {
+  commander: "Can be your commander", gamechanger: "Game Changers", gc: "Game Changers", legendary: "Legendary", reserved: "On the Reserve List",
+  partner: "Has partner", companion: "Can be a companion", dfc: "Double-faced", mdfc: "Modal double-faced", transform: "Transforms",
+  vanilla: "No rules text", hybrid: "Hybrid mana", phyrexian: "Phyrexian mana",
+};
+/** "year>=2020" → "Printed in 2020 or later". */
+const YEAR: Record<string, (y: string) => string> = {
+  ":": (y) => `Printed in ${y}`, "=": (y) => `Printed in ${y}`, ">=": (y) => `Printed in ${y} or later`, ">": (y) => `Printed after ${y}`,
+  "<=": (y) => `Printed in ${y} or earlier`, "<": (y) => `Printed before ${y}`, "!=": (y) => `Printed in a year other than ${y}`,
+};
 
 const cap = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const unquote = (v: string) => v.replace(/^"(.*)"$/, "$1");
@@ -60,6 +69,14 @@ function describe(term: string): string {
       label = `${cap(value)} rarity`;
     } else if (["s", "set", "e", "edition"].includes(key)) {
       label = `From ${value.toUpperCase()}`;
+    } else if (["a", "artist"].includes(key)) {
+      label = `Art by ${value}`;
+    } else if (key === "year") {
+      label = (YEAR[op] ?? YEAR[":"]!)(value);
+    } else if (key === "usd") {
+      // The amount as typed, not reformatted: it is the search's own number.
+      const word = COMPARE[op] ?? op;
+      label = `Price ${word ? `${word} ` : ""}${value.startsWith("$") ? value : `$${value}`}`;
     } else {
       label = t;
     }
