@@ -114,6 +114,9 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
         credit(&d.art),
     )
     .unwrap();
+    if let Some(text) = &d.description {
+        write!(body, "<section class=\"share-about\" aria-labelledby=\"about-head\"><h2 id=\"about-head\">About this deck</h2>{}</section>", description_html(text)).unwrap();
+    }
     if d.configurations.len() > 1 {
         body.push_str("<nav class=\"share-configs\" aria-label=\"Configurations of this deck\"><span class=\"dim\">Configurations</span><ul>");
         for c in d.configurations.iter().filter(|c| c.current || !legacy_configuration(&c.label)) {
@@ -196,6 +199,18 @@ pub(super) async fn deck(State(st): State<AppState>, address: ClientAddress, hea
     body.push_str("</div>");
     let description = format!("{}{}, a Commander deck shared on Yama.", d.name, if d.commanders.is_empty() { String::new() } else { format!(" ({})", d.commanders.join(" and ")) });
     Ok(response(&headers, page(&st, &format!("/d/{token}"), &d.name, &description, d.art.as_ref().map(|a| a.0.as_str()), &body)))
+}
+
+/// A deck's description as paragraphs: a blank line starts a new one, a single line break stays
+/// a line break. Everything the owner typed is escaped first, so none of it is markup.
+pub(super) fn description_html(text: &str) -> String {
+    let mut out = String::new();
+    for paragraph in text.split("\n\n").map(str::trim).filter(|p| !p.is_empty()) {
+        out.push_str("<p>");
+        out.push_str(&e(paragraph).replace('\n', "<br>"));
+        out.push_str("</p>");
+    }
+    out
 }
 
 /// A list as the deck page shows it: stacks of card images or a list with thumbnails, picked with

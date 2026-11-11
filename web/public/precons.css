@@ -1549,3 +1549,7 @@ a.source-chip:hover,a.source-chip:focus-visible {
 .more-formats { margin:-28px 0 44px; }
 .more-formats summary { width:fit-content; min-height:36px; display:flex; align-items:center; cursor:pointer; color:var(--dim); font-size:14px; }
 .more-formats .public-actions { margin:8px 0 0; }
+/* What a shared deck's owner wrote about it. */
+.share-about { max-width:70ch; margin:0 0 32px; }
+.share-about h2 { margin:0 0 8px; }
+.share-about p { margin:0 0 8px; overflow-wrap:anywhere; }

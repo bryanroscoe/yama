@@ -52,6 +52,8 @@ pub const MAX_CARD_QTY: i64 = 1_000;
 pub const DECK_NAME_MAX: usize = 120;
 /// A version's note, in characters.
 const NOTE_MAX: usize = 500;
+/// A deck's description, in characters.
+pub const DESCRIPTION_MAX: usize = 2_000;
 
 /// Card rows a client sent, made safe to store. Yama's own readers (`resolve`, the scanner, the
 /// importer) build rows from card data; the editor and the import page send rows back, and a
@@ -639,6 +641,9 @@ struct DeckView {
     configuration: Option<String>,
     visibility: String,
     share_token: Option<String>,
+    /// What the owner wrote about the deck. Not private like a version's note: the deck's shared
+    /// page shows it to anyone who can see the deck.
+    description: Option<String>,
     /// The main deck and every configuration of it, this one included (just this deck when it
     /// has none), main deck first.
     configurations: Vec<ConfigurationRef>,
@@ -1020,8 +1025,8 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
     let game_changers_as_of = crate::cards::import::game_changers_date(&st.pool).await?;
     let reserved_list = reserved_list(&cards, &card_info);
     let reserved_list_as_of = crate::cards::import::reserved_list_date(&st.pool).await?;
-    let (bracket, parent_id, configuration, visibility, share_token): (Option<i64>, Option<String>, Option<String>, String, Option<String>) =
-        sqlx::query_as("SELECT bracket, parent_id, configuration, visibility, share_token FROM decks WHERE id = ?")
+    let (bracket, parent_id, configuration, visibility, share_token, description): (Option<i64>, Option<String>, Option<String>, String, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT bracket, parent_id, configuration, visibility, share_token, description FROM decks WHERE id = ?")
             .bind(&id)
             .fetch_one(&st.pool)
             .await?;
@@ -1149,6 +1154,7 @@ async fn get_deck(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         configuration,
         visibility,
         share_token,
+        description,
         configurations,
         cards: entries,
         validation,
@@ -1226,6 +1232,9 @@ struct UpdateDeck {
     /// The configuration's label ("stock"); null or blank clears it.
     #[serde(default, deserialize_with = "crate::util::double_option")]
     configuration: Option<Option<String>>,
+    /// What the owner writes about the deck, shown on its shared page; null or blank clears it.
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    description: Option<Option<String>>,
 }
 
 async fn update_deck(
@@ -1261,6 +1270,10 @@ async fn update_deck(
     if let Some(v) = &body.visibility {
         crate::sharing::visibility(v)?;
     }
+    let new_description = match body.description {
+        Some(d) => Some(deck_description(d)?),
+        None => None,
+    };
     // Immediate, so two moves at once can't both pass the check and nest or loop.
     let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(Some(parent)) = &body.parent_id {
@@ -1268,9 +1281,9 @@ async fn update_deck(
     }
     // Everything the request leaves alone is read here, inside the write transaction, so a
     // change to another field can't put back a name or box that someone changed meanwhile.
-    type Kept = (String, Option<String>, Option<String>, Option<i64>, String, Option<String>, Option<String>);
-    let (name, container, folder, bracket, visibility, parent_id, configuration): Kept =
-        sqlx::query_as("SELECT name, container_id, folder, bracket, visibility, parent_id, configuration FROM decks WHERE id = ? AND owner_id = ?")
+    type Kept = (String, Option<String>, Option<String>, Option<i64>, String, Option<String>, Option<String>, Option<String>);
+    let (name, container, folder, bracket, visibility, parent_id, configuration, description): Kept =
+        sqlx::query_as("SELECT name, container_id, folder, bracket, visibility, parent_id, configuration, description FROM decks WHERE id = ? AND owner_id = ?")
             .bind(&id)
             .bind(&user.id)
             .fetch_one(&mut *tx)
@@ -1290,7 +1303,7 @@ async fn update_deck(
     }
     sqlx::query(
         "UPDATE decks SET name = ?, folder = ?, container_id = ?, bracket = ?, visibility = ?, parent_id = ?, configuration = ?,
-                share_token = COALESCE(share_token, ?), updated_at = ? WHERE id = ?",
+                description = ?, share_token = COALESCE(share_token, ?), updated_at = ? WHERE id = ?",
     )
     .bind(name)
     .bind(new_folder.unwrap_or(folder))
@@ -1299,6 +1312,7 @@ async fn update_deck(
     .bind(body.visibility.unwrap_or(visibility))
     .bind(body.parent_id.unwrap_or(parent_id))
     .bind(configuration)
+    .bind(new_description.unwrap_or(description))
     .bind(crate::sharing::new_token())
     .bind(now())
     .bind(&id)
@@ -1661,6 +1675,25 @@ pub(crate) fn deck_name(name: &str) -> AppResult<String> {
         return Err(AppError::bad(format!("a deck's name can have at most {DECK_NAME_MAX} characters")));
     }
     Ok(name.to_string())
+}
+
+/// A deck's description as sent: line endings made plain, trimmed, blank meaning none. Plain
+/// text only: the pages that show it escape it, and control characters other than a line break
+/// or a tab are refused.
+pub(crate) fn deck_description(text: Option<String>) -> AppResult<Option<String>> {
+    let Some(text) = text else { return Ok(None) };
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if text.chars().count() > DESCRIPTION_MAX {
+        return Err(AppError::bad(format!("a deck's description can have at most {DESCRIPTION_MAX} characters")));
+    }
+    if text.chars().any(|c| (c.is_control() && c != '\n' && c != '\t') || matches!(c, '\u{2028}' | '\u{2029}')) {
+        return Err(AppError::bad("a deck's description can't hold control characters"));
+    }
+    Ok(Some(text.to_string()))
 }
 
 /// A deck's folder as sent: kept as it is, within the name's length.
@@ -2183,6 +2216,62 @@ mod tests {
                 sqlx::query_as("SELECT name, container_id, bracket FROM decks WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
             assert_eq!((name.as_str(), boxed.as_deref(), bracket), ("New name", Some(container.as_str()), Some(3)), "rename first: {rename_first}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_decks_description_is_plain_text_within_its_cap_and_its_owners_alone() {
+        use crate::testutil::{app, deck, send, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        async fn described(pool: &SqlitePool, id: &str) -> Option<String> {
+            sqlx::query_scalar("SELECT description FROM decks WHERE id = ?").bind(id).fetch_one(pool).await.unwrap()
+        }
+        let (app, pool) = app().await;
+        let (owner, token) = user(&pool, "writer@example.com").await;
+        let (_, other) = user(&pool, "other@example.com").await;
+        let (id, _) = deck(&pool, &owner, "Described").await;
+        let path = format!("/api/decks/{id}");
+        assert_eq!(described(&pool, &id).await, None);
+
+        // Saved trimmed, with plain line endings.
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": "  Lands matter.\r\nSecond line.  " }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(described(&pool, &id).await.as_deref(), Some("Lands matter.\nSecond line."));
+
+        // A change to something else leaves it alone.
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "bracket": 3 }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(described(&pool, &id).await.as_deref(), Some("Lands matter.\nSecond line."));
+
+        // Too long, or holding control characters: refused, and what was there stays.
+        let long = "é".repeat(DESCRIPTION_MAX + 1);
+        for bad in [long.as_str(), "a bell\u{7}", "a separator\u{2028}here"] {
+            let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": bad }))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{:?}", bad.chars().take(20).collect::<String>());
+        }
+        assert_eq!(described(&pool, &id).await.as_deref(), Some("Lands matter.\nSecond line."));
+
+        // Someone else can't write it (or see that the deck exists).
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&other), Some(json!({ "description": "Not mine" }))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(described(&pool, &id).await.as_deref(), Some("Lands matter.\nSecond line."));
+
+        // At the cap, with tabs and blank lines: fine.
+        let at_cap = "é".repeat(DESCRIPTION_MAX);
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": at_cap }))).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": "One.\n\n\tTwo." }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(described(&pool, &id).await.as_deref(), Some("One.\n\n\tTwo."));
+
+        // Blank or null clears it.
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": "  \n " }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(described(&pool, &id).await, None);
+        send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": "Back." }))).await;
+        let (status, _) = send(&app, Method::PATCH, &path, Some(&token), Some(json!({ "description": null }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(described(&pool, &id).await, None);
     }
 
     #[tokio::test]
