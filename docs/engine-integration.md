@@ -341,7 +341,7 @@ So one game per tokio task should be fine, with the CPU-heavy calls (`apply`, AI
   1. The file is already at `/mnt/user/appdata/yama/data/engine/` on saget (99:100).
   2. Point the server at it. Either set `YAMA_ENGINE_CARD_DATA=/data/engine/card-data-2905717cc9fe0f53.json` in saget's `yama.env`, or change the default in `server/src/config.rs`.
   3. Set `ENGINE_VERSION` in `play/src/lib.rs` to end in `/cards-2905717c`. Every game stores it, and a replay only reproduces under the same engine and card data.
-  4. Change `CARD_FILE` in `deploy/lab.sh`, and the `eb309108` defaults in `soak.rs`, `determinism.rs` and the README.
+  4. Change `CARD_FILE` in `deploy/lab.sh`, and the `eb309108` defaults in `soak.rs`, `determinism.rs` and `docs/development.md`.
   5. Deploy. Leave the old file in place for replays of earlier games.
   - **Fresh installs:** `data.phase-rs.dev` doesn't have this file. Proposal: a release asset on `bryanroscoe/yama` (tag `carddata-2905717c`, the `.json.zst` and the inputs bundle).
   - `first-time.sh` would set `CARD_DATA`/`SHA` to the values above. When the server copy fails the check, it would download, decompress, check and copy the file, with `gh release download carddata-2905717c -R bryanroscoe/yama -p "$CARD_DATA.zst"`, then `zstd -d`, `shasum -a 256 -c` and `scp`.
