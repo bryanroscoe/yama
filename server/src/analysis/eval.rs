@@ -215,8 +215,12 @@ async fn list_rows(pool: &SqlitePool, dir: &std::path::Path) -> anyhow::Result<V
 }
 
 /// Spearman's rank correlation with a 95% interval from 2,000 resamples of the decks. The
-/// resampling is seeded, so the same data prints the same interval.
+/// resampling is seeded and the decks are put in a fixed order first, so the same data prints
+/// the same interval whatever order it was read in.
 fn spearman(points: &[(f64, f64)]) -> Option<(f64, f64, f64)> {
+    let mut points = points.to_vec();
+    points.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    let points = &points[..];
     let rho = crate::public_precons::correlation(points)?;
     let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
     let mut next = || {
@@ -499,6 +503,10 @@ mod tests {
         let (rho, lo, hi) = spearman(&points).unwrap();
         assert!(lo <= rho && rho <= hi, "{lo} {rho} {hi}");
         assert_eq!(spearman(&points), Some((rho, lo, hi)));
+        let mut shuffled = points.clone();
+        shuffled.reverse();
+        shuffled.swap(3, 17);
+        assert_eq!(spearman(&shuffled), Some((rho, lo, hi)));
         assert_eq!(spearman(&[(1.0, 1.0); 5]), None);
     }
 }

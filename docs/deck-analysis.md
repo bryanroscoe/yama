@@ -170,8 +170,8 @@ DATABASE_URL=sqlite://data/yama.db YAMA_OFFLINE=1 target/debug/yama-server power
 First run, 11 Nov 2026, method 2026-11-08, 178 stock precons and Bryan's 78 lists (34 built for
 a named bracket):
 
-- Power against the stock list's real win rate: +0.06 (−0.17 to +0.28) over the 85 precons
-  with 40 or more games, +0.30 (−0.01 to +0.58) over the 47 with 200 or more. The commander's
+- Power against the stock list's real win rate: +0.06 (−0.18 to +0.29) over the 85 precons
+  with 40 or more games, +0.30 (−0.01 to +0.55) over the 47 with 200 or more. The commander's
   record over every list gets +0.44 and +0.59 on the same decks. Of the vectors, Threats
   (+0.28) and Speed (+0.19) lean the right way; Consistency (−0.11) and Mana base (−0.18) lean
   the wrong way.
