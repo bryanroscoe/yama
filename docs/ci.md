@@ -67,21 +67,16 @@ the same checks locally on its exact tree and contains `main`, or when they carr
 A newer push to a PR cancels its superseded run. Push CI on main is never cancelled: one main run finishes while only the newest push waits behind it, so main CI completes, deploys and saves the Rust cache. Manual diagnostic CI uses
 a separate concurrency group and cannot cancel the push CI required for deployment. Only
 successful push CI on a main commit authorizes release, while that commit stays on main; a
-newer commit passing CI no longer cancels it. Production never goes back to an older commit. Bryan authorized a dedicated CI runner on
-saget on 2026-10-29 after GitHub-hosted jobs were blocked by account billing. Both jobs default to
-`[self-hosted, Linux, X64, yama-ci]` with read-only repository permissions. Two listeners,
-`saget-yama-ci` and `saget-yama-ci-2`, each execute one job at a time; each has no deployment credential, Docker
-socket, production data/env mounts, or production runner state. Only its own runner state and
-dedicated Cargo/npm cache are mounted. This is a persistent runner for this private
-repository's trusted branches, not a sandbox for arbitrary untrusted code.
-Keep the repository private and its repository-level **Run workflows from fork pull
-requests** setting disabled (verified disabled during installation). This server-side
-setting is the fork boundary: workflow job guards alone can be changed by a PR.
-Recheck it with `gh api repos/bryanroscoe/yama/actions/permissions/fork-pr-workflows-private-repos`
-before registering a replacement runner or changing repository access. Before the repository
-could be made public, unregister every persistent self-hosted runner (this CI worker and the
-production deploy runner) and keep CI on GitHub-hosted Linux; deploys then use the Cloudflare
-backend in [deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
+newer commit passing CI no longer cancels it. Production never goes back to an older commit. CI runs on GitHub-hosted Linux (`CI_LINUX_RUNNER` unset, or `["ubuntu-latest"]`; the
+workflow default), free since the repository went public in November 2026. **Never register a
+self-hosted runner on this repository**: on a public repository a fork pull request can rewrite
+a workflow and target any runner label, and workflow job guards alone can be changed by a PR.
+Every job that could reach one starts with a step that fails on a self-hosted runner of a public
+repository, as a tripwire for a misconfiguration, not a boundary. From 2026-10-29 to the move,
+CI ran on two saget listeners (`saget-yama-ci`, `saget-yama-ci-2`) for the then-private
+repository, now the private `bryanroscoe/yama-archive`; they are retired with its Actions.
+Deploys use the Cloudflare backend in
+[deploy/RUNNER.md](../deploy/RUNNER.md#choose-the-deploy-backend).
 
 - **Web checks:** preinstalled Node 22 (the production web build's major), `npm ci`,
   `npm test`, `npm run typecheck`, and `npm run build`.

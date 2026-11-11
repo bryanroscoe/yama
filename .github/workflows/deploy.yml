@@ -18,14 +18,15 @@ concurrency:
   cancel-in-progress: false
 
 # The repository variable DEPLOY_BACKEND picks how this workflow reaches saget
-# (deploy/RUNNER.md, "Choose the deploy backend"): unset or `runner` uses the
-# self-hosted runner on saget's LAN; `cloudflare` uses a GitHub-hosted job over
-# Cloudflare Access SSH. Both run the same forced host release gate.
+# (deploy/RUNNER.md, "Choose the deploy backend"): unset or `cloudflare` uses a
+# GitHub-hosted job over Cloudflare Access SSH; `runner` uses the self-hosted
+# runner on saget's LAN, for a private repository only. Both run the same forced
+# host release gate.
 jobs:
   deploy:
     name: Deploy (saget runner)
     if: >-
-      vars.DEPLOY_BACKEND != 'cloudflare' &&
+      vars.DEPLOY_BACKEND == 'runner' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.event == 'push' &&
@@ -35,6 +36,11 @@ jobs:
     # Covers the host lock wait (110m), release deadline (105m), and cleanup.
     timeout-minutes: 240
     steps:
+      - name: Refuse a self-hosted runner on a public repository
+        if: runner.environment == 'self-hosted' && github.event.repository.private == false
+        run: |
+          echo "::error::Self-hosted runners must never run jobs of a public repository (AGENTS.md, docs/ci.md)."
+          exit 1
       # No checkout, Docker socket, production env files, persistent PAT, or
       # downloaded PR artifacts. SSH can invoke only the host release gate.
       - name: Deploy the successful main revision
@@ -77,7 +83,7 @@ jobs:
   deploy-cloudflare:
     name: Deploy (Cloudflare Access)
     if: >-
-      vars.DEPLOY_BACKEND == 'cloudflare' &&
+      vars.DEPLOY_BACKEND != 'runner' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.event == 'push' &&
