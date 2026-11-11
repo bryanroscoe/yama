@@ -1,6 +1,8 @@
 // What the Group page reads from the playgroup's games itself (the server's stats cover the rest):
 // each player's most-played commander, who played each commander, and your record against each
-// other player in the games you both sat in.
+// other player in the games you both sat in. The same rules as the server's stats
+// (server/src/stats.rs): the computer isn't a player, a game with fewer than two people is in
+// nobody's record, and commanders come from Commander games only.
 
 import type { GameRow, GameSeat, Member, PlayerStat } from "../api";
 
@@ -33,10 +35,16 @@ export function readGames(games: GameRow[], me: string | undefined, seatKey: (s:
   const rivals = new Map<string, Rival>();
   for (const g of games) {
     if (g.status !== "finished") continue;
-    const winner = g.seats.find((s) => s.seat === g.winner_seat);
-    for (const s of g.seats) {
+    // The people at the table. The computer's seats aren't rivals and its commanders aren't the
+    // playgroup's; a solo game against it has nobody to compare with.
+    const people = g.seats.filter((s) => !s.ai_kind);
+    if (people.length < 2) continue;
+    // The computer winning is a loss for everyone, not a win for anyone here.
+    const winner = people.find((s) => s.seat === g.winner_seat);
+    const commanderGame = (g.format ?? "commander") === "commander";
+    for (const s of people) {
       const k = seatKey(s);
-      if (s.commander_name) {
+      if (s.commander_name && commanderGame) {
         const m = played.get(k) ?? new Map<string, number>();
         m.set(s.commander_name, (m.get(s.commander_name) ?? 0) + 1);
         played.set(k, m);
@@ -45,8 +53,8 @@ export function readGames(games: GameRow[], me: string | undefined, seatKey: (s:
         byCommander.set(s.commander_name, who);
       }
     }
-    if (!me || !g.seats.some((s) => seatKey(s) === me)) continue;
-    for (const s of g.seats) {
+    if (!me || !people.some((s) => seatKey(s) === me)) continue;
+    for (const s of people) {
       const k = seatKey(s);
       if (k === me) continue;
       const r = rivals.get(k) ?? { key: k, name: s.display_name ?? s.guest_name ?? "?", shared: 0, mine: 0, theirs: 0 };
