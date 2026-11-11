@@ -1438,8 +1438,21 @@ a.source-chip:hover,a.source-chip:focus-visible {
 @media(min-width:901px) and (pointer:fine) {
   .commander-table .commander-sources summary { min-height:24px; }
 }
+/* A phone row is the commander with its win rate beside it, then one line for the games with the
+   sources fold at its end: the fold keeps its 44 px target without a band above and below it. */
 @media(max-width:600px) {
-  .commander-table tr { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .commander-table tr { grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; padding:14px 0; }
+  .commander-table th:first-child { grid-column:1; border-bottom:0; }
+  /* The name's column is what the win rate leaves: a long word breaks rather than run under it. */
+  .commander-table .deck-link>span { overflow-wrap:anywhere; }
+  .commander-table .meta-cell { grid-column:2; grid-row:1; text-align:right; }
+  .commander-table .meta-cell small { display:block; }
+  .commander-table td:last-child { grid-column:1/-1; display:flex; flex-wrap:wrap; align-items:center; gap:0 8px; }
+  .commander-table td:last-child::before { margin-bottom:0; }
+  .commander-table td:last-child .result-value { font-size:16px; }
+  .commander-table td:last-child>small { margin:0; }
+  .commander-table .commander-sources { margin:0 0 0 auto; }
+  .commander-table .commander-sources[open] { flex-basis:100%; margin-left:0; }
 }
 
 /* Sortable headings and the per-commander line under a stock list's real games. */
