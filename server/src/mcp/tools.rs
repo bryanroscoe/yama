@@ -466,8 +466,8 @@ pub(super) const TOOLS: &[Tool] = &[
             json!({
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander"},
-                    "order": {"type": "string", "enum": ["name", "mv", "edhrec", "color"], "description": "name (default), mv (mana value), edhrec (most played first) or color."},
+                    "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander. Also set:cmm, a:\"rebecca guay\" (artist), year>=2020, usd<5 (a card with no price never matches a price), is:reserved, is:partner, is:mdfc."},
+                    "order": {"type": "string", "enum": ["name", "mv", "edhrec", "color", "usd", "usd_asc", "released", "released_asc"], "description": "name (default), mv (mana value), edhrec (most played first), color, usd (dearest first; usd_asc cheapest first; no price last) or released (newest first; released_asc oldest first)."},
                     "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "The older way to continue: page number, from 1. cursor is preferred."},
                     "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},
                 },
@@ -2057,8 +2057,8 @@ async fn find_cards(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
     let query = arg::text_max(args, "query", 1000)?;
     let order = arg::opt_text(args, "order", 20)?;
     // "cmc" is Scryfall's word for mv and has always been taken.
-    if let Some(o) = order.filter(|o| !["name", "mv", "cmc", "edhrec", "color"].contains(o)) {
-        return Err(AppError::bad(format!("order: \"{o}\" isn't name, mv, edhrec or color")));
+    if let Some(o) = order.filter(|o| !["name", "mv", "cmc", "edhrec", "color", "usd", "usd_asc", "released", "released_asc"].contains(o)) {
+        return Err(AppError::bad(format!("order: \"{o}\" isn't name, mv, edhrec, color, usd, usd_asc, released or released_asc")));
     }
     // The search pages by sixty. A cursor continues one search; the older page argument still
     // works, and out of range it is the nearest page, as it always was (a page 0 is an easy slip).

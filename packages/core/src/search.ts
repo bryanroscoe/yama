@@ -1,6 +1,12 @@
 // Offline card search: the same subset of Scryfall syntax as server/src/cards/search.rs,
 // compiled to a predicate over the compact card list the app keeps on the device.
 // Keep the two in step.
+//
+// The device keeps each card once, with no printings, no prices and no Reserve List. So `set:`,
+// `a:`, `year`, `usd` and `is:reserved` are read as the server reads them (a bad value or
+// operator is the same error) and then refused with a reason (`needsConnection`), instead of
+// quietly finding nothing. The orders by price and first release fall back to the name order
+// (`orderUsed`), which the page says.
 
 export interface OfflineCard {
   /** oracle_id */
@@ -47,6 +53,15 @@ export interface SearchOptions {
 }
 
 export const GAME_CHANGERS_NOT_LOADED = "The Game Changer list isn't loaded yet, so is:gamechanger can't be searched.";
+
+/** Why a search that needs printings, prices or the Reserve List can't run on the device. */
+export function needsConnection(what: string): string {
+  const why = what === "the Reserve List" ? "the copy on this device doesn't say which cards are on it" : "the copy on this device has each card's rules text, not its printings or prices";
+  return `Searching by ${what} needs a connection: ${why}.`;
+}
+
+/** A number as the server's parser reads one: decimal digits, no hex and no spaces. */
+const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
 
 type Pred = (c: OfflineCard) => boolean;
 
@@ -185,6 +200,13 @@ function numPred(get: (c: OfflineCard) => number | null, op: string, value: stri
 const num = (s: string | null) => (s === null ? null : Number.parseFloat(s));
 const has = (hay: string, needle: string) => hay.toLowerCase().includes(needle.toLowerCase());
 
+/** `is:` values that are a card layout (Scryfall's `layout`), by the layout they name. */
+const IS_LAYOUTS = new Map([["mdfc", "modal_dfc"], ["transform", "transform"], ["split", "split"], ["flip", "flip"], ["meld", "meld"], ["leveler", "leveler"]]);
+const DFC_LAYOUTS = ["transform", "modal_dfc", "meld", "reversible_card"];
+/** Keywords that let two cards share the command zone (`is:partner`), lowercased. */
+const PARTNER_KEYWORDS = ["partner", "partner with", "friends forever", "choose a background", "doctor's companion"];
+const anyType = (words: string[]): Pred => (c) => words.some((w) => c.t.includes(w));
+
 function term(key: string | null, op: string, value: string, exact: boolean, opts: SearchOptions): Pred {
   if (!key) {
     if (exact) {
@@ -267,9 +289,63 @@ function term(key: string | null, op: string, value: string, exact: boolean, opt
         case "gc":
           if (opts.gameChangers === false) throw new Error(GAME_CHANGERS_NOT_LOADED);
           return (c) => c.g === true;
-        default:
-          throw new Error(`unsupported is:${value}`);
+        case "reserved":
+          throw new Error(needsConnection("the Reserve List"));
+        case "partner":
+          return (c) => c.k.some((k) => PARTNER_KEYWORDS.includes(k));
+        case "companion":
+          return (c) => c.k.includes("companion");
+        case "dfc":
+          return (c) => DFC_LAYOUTS.includes(c.y ?? "");
+        case "vanilla":
+          return (c) => c.t.includes("Creature") && c.o === "";
+        case "historic":
+          return anyType(["Legendary", "Artifact", "Saga"]);
+        // A party is made of creatures: a Wizard's staff isn't one.
+        case "party": {
+          const member = anyType(["Cleric", "Rogue", "Warrior", "Wizard"]);
+          return (c) => c.t.includes("Creature") && member(c);
+        }
+        // By the type line, not the layout: a Saga that transforms is still a Saga, and an Omen
+        // shares the Adventure layout without being one.
+        case "saga":
+          return (c) => c.t.includes("Saga");
+        case "adventure":
+          return (c) => (c.y ?? "") === "adventure" && c.t.includes("Adventure");
+        case "outlaw":
+          return anyType(["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"]);
+        // A hybrid symbol is two halves that aren't Phyrexian: {W/U}, {2/W}, not {W/P}.
+        case "hybrid":
+          return (c) => /\{[WUBRGC2]\/[WUBRGC]/.test(c.m ?? "");
+        // Phyrexian mana in the cost or in the text (Spellskite's ability).
+        case "phyrexian":
+          return (c) => (c.m ?? "").includes("/P}") || c.o.includes("/P}");
+        default: {
+          const layout = IS_LAYOUTS.get(value.toLowerCase());
+          if (!layout) throw new Error(`unsupported is:${value}`);
+          return (c) => (c.y ?? "") === layout;
+        }
       }
+    case "set":
+    case "s":
+    case "e":
+    case "edition":
+      if (op !== ":" && op !== "=") throw new Error(`${key} takes : or =, not ${op}`);
+      throw new Error(needsConnection("set"));
+    case "a":
+    case "artist":
+      if (op !== ":" && op !== "=") throw new Error(`${key} takes : or =, not ${op}`);
+      throw new Error(needsConnection("artist"));
+    case "year": {
+      const n = Number(value);
+      if (!DECIMAL.test(value) || !Number.isInteger(n) || n < 1990 || n > 2200) throw new Error(`${value} isn't a year`);
+      throw new Error(needsConnection("year"));
+    }
+    case "usd": {
+      const amount = value.replace(/^\$+/, "");
+      if (!DECIMAL.test(amount) || !Number.isFinite(Number(amount))) throw new Error(`${value} isn't a price`);
+      throw new Error(needsConnection("price"));
+    }
     default:
       throw new Error(`unsupported keyword ${key}:`);
   }
@@ -362,10 +438,21 @@ export function nameRank(name: string, phrase: string): 0 | 1 | 2 {
   return n === phrase ? 0 : n.startsWith(phrase) ? 1 : 2;
 }
 
+/**
+ * The server also orders by price and by first release ("usd", "usd_asc", "released",
+ * "released_asc"). The device has neither, so those fall back to the order by name.
+ */
+export type SearchOrder = "name" | "edhrec" | "mv" | "color" | "usd" | "usd_asc" | "released" | "released_asc";
+
+/** The order an offline search really runs in: the name order for the ones the device can't do. */
+export function orderUsed(order: string): "name" | "edhrec" | "mv" | "color" {
+  return order === "edhrec" || order === "mv" || order === "color" ? order : "name";
+}
+
 export function searchOffline(
   cards: OfflineCard[],
   query: string,
-  order: "name" | "edhrec" | "mv" | "color" = "name",
+  order: SearchOrder = "name",
   opts: SearchOptions = {},
 ): OfflineCard[] {
   const pred = compileSearch(query, opts);
