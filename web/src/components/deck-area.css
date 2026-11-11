@@ -244,35 +244,6 @@
   height: 36px;
 }
 
-/* Small status pills: "To buy", "Stand-in now", "Proposed". */
-.pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--raised);
-  color: var(--text);
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-.pill.good {
-  background: var(--good-tint);
-  color: var(--good);
-}
-.pill.warn {
-  background: var(--warn-tint);
-  color: var(--warn);
-}
-.pill.bad {
-  background: var(--bad-tint);
-  color: var(--bad);
-}
-.pill.quiet {
-  color: var(--dim);
-}
-
 /* A raised note above a page's content ("Planned in commander-decks..."). */
 .area-note {
   margin: 0 0 16px;

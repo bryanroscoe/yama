@@ -17,7 +17,7 @@ import { Link } from "react-router";
 import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { fmtDateTime } from "@yama/core";
-import { Button, EmptyState } from "../components/ui";
+import { Button, EmptyState, StatusPill } from "../components/ui";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
 export interface MpcImages {
@@ -107,7 +107,7 @@ function Choice({ label, card, images, chosen, onPick }: { label: string; card: 
         </span>
         {!images.length && (
           <span className="small">
-            <span className="pill warn">Check</span> MPC Autofill has no image for {card}.
+            <StatusPill tone="warn">Check</StatusPill> MPC Autofill has no image for {card}.
           </span>
         )}
         {images.length > 1 && (
@@ -208,7 +208,7 @@ export function MpcPrint() {
           {images.isPending && <p className="small dim">Finding images on MPC Autofill.</p>}
           {images.isError && (
             <p className="small">
-              <span className="pill warn">Check</span> {images.error instanceof Error ? errorMessage(images.error) : "Couldn't reach MPC Autofill."}{" "}
+              <StatusPill tone="warn">Check</StatusPill> {images.error instanceof Error ? errorMessage(images.error) : "Couldn't reach MPC Autofill."}{" "}
               <Button variant="quiet" size="small" onClick={() => void images.refetch()}>
                 Try again
               </Button>
@@ -220,7 +220,7 @@ export function MpcPrint() {
               <section className="plan-section" aria-label="Send">
                 {build.problem && (
                   <p className="small">
-                    <span className="pill warn">Check</span> {build.problem}
+                    <StatusPill tone="warn">Check</StatusPill> {build.problem}
                   </p>
                 )}
                 <div className="row">
@@ -236,7 +236,7 @@ export function MpcPrint() {
                 {helper.reply?.type === "started" && <p className="small">Opened MakePlayingCards in a new tab. Press Fill in on the Yama panel there.</p>}
                 {helper.reply?.type === "refused" && (
                   <p className="small">
-                    <span className="pill warn">Check</span> {helper.reply.error}
+                    <StatusPill tone="warn">Check</StatusPill> {helper.reply.error}
                   </p>
                 )}
                 {!helper.version && (

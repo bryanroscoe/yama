@@ -165,6 +165,16 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("a state is shown with the shared pill", () => {
+  it("no page writes its own status pill or tag", () => {
+    // Use <StatusPill tone="good|warn|bad"> from components/ui for a state ("In the deck",
+    // "Waiting for your OK"), or <Tag> for a label that names a kind ("Foil", "Proxy").
+    // The class written as a string, in braces, in a template or as cx's first name.
+    const found = uses(/className=\{?\s*(cx\()?["'`](tag|pill)[\s"'`]/, (file) => file === "web/src/components/StatusPill.tsx" || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
 describe("formatting goes through @yama/core's format module", () => {
   const FORMAT = "packages/core/src/format.ts";
 

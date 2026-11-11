@@ -6,7 +6,7 @@ import { Link } from "react-router";
 import { usePower } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { ChangesHowTo } from "../plan/howto";
-import { Button, Details, ErrorText, Loading } from "../components/ui";
+import { Button, Details, ErrorText, Loading, StatusPill } from "../components/ui";
 import { applyChange, changesKey, discardChange, stagedChanges, type StagedChange } from "./api";
 import { Proposal, ProposalText } from "./Proposal";
 import "./advisor.css";
@@ -51,7 +51,7 @@ export function ChangeCard({ change, onNavigate, onDecided }: { change: StagedCh
   return (
     <div className={`ask-change is-${shown.status}`}>
       <p className="ask-change-what">
-        {AREA[shown.kind] && <span className="pill quiet ask-change-area">{AREA[shown.kind]}</span>}
+        {AREA[shown.kind] && <StatusPill className="ask-change-area">{AREA[shown.kind]}</StatusPill>}
         <b>{shown.preview?.target ?? shown.summary}</b>
       </p>
       {shown.preview ? <Proposal preview={shown.preview} /> : shown.detail && <ProposalText text={shown.detail} />}

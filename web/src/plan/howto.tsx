@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { ConnectButton, HowTo } from "../components/HowTo";
-import { ButtonLink } from "../components/ui";
+import { ButtonLink, StatusPill } from "../components/ui";
 
 /**
  * What each Plans page is for, where what's on it comes from and what to do there (Bryan,
@@ -12,7 +12,7 @@ import { ButtonLink } from "../components/ui";
 export function AssistantOnly({ what }: { what: string }) {
   return (
     <span className="assistant-only">
-      <span className="pill quiet">Needs your assistant</span> {what} Yama doesn't make them by itself: an AI assistant you connect to Yama through its MCP connection does.
+      <StatusPill>Needs your assistant</StatusPill> {what} Yama doesn't make them by itself: an AI assistant you connect to Yama through its MCP connection does.
     </span>
   );
 }

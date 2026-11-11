@@ -12,7 +12,7 @@ import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { Button, CardImage, ErrorText, Loading, ManaCost, Pips } from "../components/ui";
+import { Button, CardImage, ErrorText, Loading, ManaCost, Pips, StatusPill, Tag } from "../components/ui";
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
@@ -206,7 +206,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
             <div className="cp-chips">
               <Legality status={card.legalities.commander} />
               {canBeCommander(card) && <span className="cp-chip">Can be your commander</span>}
-              {card.game_changer === true && <span className="tag gc" title="On the Commander Game Changers list, per Scryfall">Game Changer</span>}
+              {card.game_changer === true && <Tag className="gc" title="On the Commander Game Changers list, per Scryfall">Game Changer</Tag>}
             </div>
 
             {guest ? (
@@ -289,7 +289,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                             <Button className="cp-set" onClick={() => setChart({ id: p.scryfall_id, finish, set: p.set_name })} aria-label={`${p.set_name} #${p.collector_number}: show its price history`}>
                               <span className="cp-set-name">{p.set_name}</span> <span className="cp-set-num">#{p.collector_number}</span>
                             </Button>
-                            {yours != null && <span className="tag good cp-yours">Yours, {yours}</span>}
+                            {yours != null && <StatusPill tone="good" className="cp-yours">Yours, {yours}</StatusPill>}
                             {/* Phones: one line under the set for the number, your copies' finish, then the foil market price. */}
                             <span className="cp-set-sub">
                               #{p.collector_number}
@@ -333,10 +333,10 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
 }
 
 function Legality({ status }: { status: string | undefined }) {
-  if (status === "legal") return <span className="tag good">Commander: legal</span>;
-  if (status === "banned") return <span className="tag bad">Commander: banned</span>;
+  if (status === "legal") return <StatusPill tone="good">Commander: legal</StatusPill>;
+  if (status === "banned") return <StatusPill tone="bad">Commander: banned</StatusPill>;
   const text = status ? status.replace("_", " ") : "unknown";
-  return <span className="tag">Commander: {text}</span>;
+  return <StatusPill>Commander: {text}</StatusPill>;
 }
 
 function BackIcon() {

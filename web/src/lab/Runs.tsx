@@ -4,7 +4,7 @@ import { usePower } from "../auth";
 import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, Details, EmptyState, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, Details, EmptyState, ErrorText, Loading, StatusPill, toneOf } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
 import {
@@ -165,7 +165,7 @@ export function RunsPage() {
                     <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
                     <span>{runSubtitle(e)}</span>
                   </span>
-                  <span className={`pill ${tag.tone}`}>{tag.text}</span>
+                  <StatusPill tone={toneOf(tag.tone)}>{tag.text}</StatusPill>
                 </div>
                 {live && (
                   <span className="lab-progress" role="progressbar" aria-label="Games played" aria-valuemin={0} aria-valuemax={e.progress.total} aria-valuenow={e.progress.done}>
@@ -235,7 +235,7 @@ export function RunsPage() {
                         Field of {r.ranked} decks, {c.pods} paired pods, {fmtDate(r.analysed_at ?? r.created_at)}
                       </span>
                     </span>
-                    <span className={`pill ${tag.tone}`}>{tag.text}</span>
+                    <StatusPill tone={toneOf(tag.tone)}>{tag.text}</StatusPill>
                   </div>
                   <span className="lab-runcard-result">
                     {c.delta_win_rate != null && c.delta_ci

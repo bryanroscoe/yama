@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, ApiError } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading, StatusPill } from "../components/ui";
 import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
@@ -104,7 +104,7 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
   return (
     <section className="note-track" aria-label="Archived plan">
       <p>
-        <span className="tag plain">Archived</span> <b>{deck.name}: {build.label}</b>. This note is kept for reference. Nothing in it is on your shopping list.
+        <StatusPill>Archived</StatusPill> <b>{deck.name}: {build.label}</b>. This note is kept for reference. Nothing in it is on your shopping list.
       </p>
       {thisBuild ? (
         <div className="row">

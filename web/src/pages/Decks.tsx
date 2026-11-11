@@ -8,7 +8,7 @@ import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips } from "../components/ui";
+import { Button, ButtonLink, CardImage, EmptyState, ErrorText, Pips, StatusPill, toneOf } from "../components/ui";
 import { pct } from "../lab/logic";
 import { pairedFor, simShort, useRuns } from "../lab/paired";
 import { outbox, useOutbox } from "../plan/outbox";
@@ -328,7 +328,7 @@ export function DeckPage() {
             </span>
             <h1 className="hero-title">{d.parent_id ? d.configurations.find((c) => c.id === d.parent_id)?.name ?? d.name : d.name}</h1>
             <span className="hero-status">
-              <span className={`pill ${status.tone}`}>{status.pill}</span>
+              <StatusPill tone={toneOf(status.tone)}>{status.pill}</StatusPill>
               <span>{status.line}</span>
             </span>
           </div>

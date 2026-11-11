@@ -16,7 +16,7 @@ import {
 } from "@yama/core/plan";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Button, Dialog } from "../components/ui";
+import { Button, Dialog, StatusPill } from "../components/ui";
 import { deviceId, outbox } from "./outbox";
 import type { PlanView } from "./view";
 import { fmtDate, usd, NO_PRICE } from "@yama/core";
@@ -42,9 +42,9 @@ export function InstalledTick({ swap, view, userId, compact = false, short = fal
     const card = swap.role === "standin" ? swap.in : "This swap";
     return (
       <div className={`plan-tick plan-tick-deck${compact ? " small" : ""}${short ? " plan-tick-short" : ""}`}>
-        <span className={`tag ${on || swap.deck_superseded ? "good" : "plain"}`}>
+        <StatusPill tone={on || swap.deck_superseded ? "good" : "neutral"}>
           {on ? "In the deck" : swap.deck_superseded ? "Its print is in" : st.skipped ? "Skipped" : "Not in the deck yet"}
-        </span>
+        </StatusPill>
         {!short && (
           <span className="faint small">
             {on

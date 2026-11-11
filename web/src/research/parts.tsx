@@ -1,7 +1,7 @@
 import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
-import { Button, CardImage, CopyButton, Segmented } from "../components/ui";
+import { Button, CardImage, CopyButton, Segmented, Tag } from "../components/ui";
 import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
 /**
@@ -69,11 +69,11 @@ export function ShoppingTotals({ s }: { s: ShoppingData }) {
   return (
     <>
       <div className="note-pills">
-        <span className="pill">{cardsWord(t.cards)}</span>
-        {(t.buy > 0 || s.get === "split") && <span className="pill">{t.buy} to buy locally: {buyMoney(t)}</span>}
-        {(t.print > 0 || s.get === "split") && <span className="pill">{t.print} to print: about {usd(t.print_cost)}</span>}
-        <span className="pill">{t.worth == null ? "Worth unknown" : `Worth ${usd(t.worth)}`}</span>
-        <span className="pill">{t.cost == null ? "Cost unknown" : `About ${usd(t.cost)} to get`}</span>
+        <Tag>{cardsWord(t.cards)}</Tag>
+        {(t.buy > 0 || s.get === "split") && <Tag>{t.buy} to buy locally: {buyMoney(t)}</Tag>}
+        {(t.print > 0 || s.get === "split") && <Tag>{t.print} to print: about {usd(t.print_cost)}</Tag>}
+        <Tag>{t.worth == null ? "Worth unknown" : `Worth ${usd(t.worth)}`}</Tag>
+        <Tag>{t.cost == null ? "Cost unknown" : `About ${usd(t.cost)} to get`}</Tag>
       </div>
       <p className="small dim note-how">
         Market price is each card's cheapest paper printing at TCGplayer market, from Scryfall{asOf(s)}. {s.explain} Worth is what the cards sell for. The cost is an

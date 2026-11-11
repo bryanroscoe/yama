@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { ConnectButton } from "../components/HowTo";
-import { Button, ButtonLink, EmptyState, Pips } from "../components/ui";
+import { Button, ButtonLink, EmptyState, Pips, StatusPill } from "../components/ui";
 import { ImportSheet } from "./ImportSheet";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -328,7 +328,7 @@ function ProgressTile({ row, view }: { row: Row; view: PlanView }) {
           <span style={{ width: `${pct}%` }} />
         </span>
         {next && <span className="small">Next: {next}</span>}
-        {plan.next && <span className="tag warn small">New version waiting for your OK</span>}
+        {plan.next && <StatusPill tone="warn">New version waiting for your OK</StatusPill>}
       </span>
     </Link>
   );

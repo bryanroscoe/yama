@@ -533,7 +533,7 @@ label > span.hint {
 .how-to-steps q {
   font-style: italic;
 }
-.assistant-only .pill {
+.assistant-only .tag {
   margin-right: 4px;
 }
 .how-to-actions {
@@ -1230,6 +1230,8 @@ button.list-row:hover {
   border-radius: var(--r-pill);
   border: 1px solid var(--line);
   color: var(--dim);
+  /* A pill is one line: a few words, never a sentence. */
+  white-space: nowrap;
 }
 /* Online play is in alpha (components/AlphaTag.tsx). */
 .alpha-tag {
@@ -1279,6 +1281,19 @@ button.list-row:hover {
   color: var(--bad);
   background: var(--bad-tint);
   border-color: transparent;
+}
+/* On art (a deck's or a plan's header) a pill sits on a near-solid chip, as all small text does. */
+:is(.plans-hero-meta, .hero-status) .tag {
+  background: var(--art-chip);
+}
+:is(.plans-hero-meta, .hero-status) .tag.good {
+  background: color-mix(in srgb, var(--ground) 70%, var(--good) 20%);
+}
+:is(.plans-hero-meta, .hero-status) .tag.warn {
+  background: color-mix(in srgb, var(--ground) 70%, var(--warn) 20%);
+}
+:is(.plans-hero-meta, .hero-status) .tag.bad {
+  background: color-mix(in srgb, var(--ground) 70%, var(--bad) 20%);
 }
 
 table.plain {
@@ -2098,7 +2113,7 @@ fieldset.seat > legend:not(.visually-hidden) + * {
   color: var(--on-art);
   text-shadow: var(--art-shadow);
 }
-.hero-status .pill {
+.hero-status .tag {
   text-shadow: none;
 }
 .deck-hero.art-none .hero-status {

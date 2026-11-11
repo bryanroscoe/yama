@@ -7,7 +7,7 @@ import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
 import { AreaHead, BackButton } from "../components/DeckTabs";
-import { Button, ButtonLink, ErrorText, Loading, Pips } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Loading, Pips, StatusPill } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -106,9 +106,9 @@ const openLabel = (c: BuildChoice) => (c.savedDeck ? "Open the deck" : c.id.star
 /** Where a build's cards come from, as the pill under its builds says it. */
 function trackPill(c: BuildChoice) {
   if (c.savedDeck) return null;
-  if (c.track === "owned_now") return <span className="pill good">Built from cards you have</span>;
-  if (c.track === "aspirational") return <span className="pill warn">Needs cards bought or printed</span>;
-  return <span className="pill quiet">Whether you have its cards isn't checked</span>;
+  if (c.track === "owned_now") return <StatusPill tone="good">Built from cards you have</StatusPill>;
+  if (c.track === "aspirational") return <StatusPill tone="warn">Needs cards bought or printed</StatusPill>;
+  return <StatusPill>Whether you have its cards isn't checked</StatusPill>;
 }
 /** The builds as rows of chips: the deck's own lists, then each plan's, as a plan's page shows a
  *  deck's builds. Older snapshots fold away. */
@@ -203,7 +203,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
         <BuildChips choices={all} value={to.id} onChange={(id) => pick("to", id)} />
         <div className="note-pills">
           {trackPill(to)}
-          {swaps && <a className="pill note-pill-link" href="#bc-changes">{swaps.length} in, {swaps.length} out from {from.label}</a>}
+          {swaps && <StatusPill className="note-pill-link" href="#bc-changes">{swaps.length} in, {swaps.length} out from {from.label}</StatusPill>}
         </div>
         <p className="small dim bc-source">{to.source}. <Link to={to.href}>{openLabel(to)}</Link></p>
         {to.warnings.length > 0 && <details className="note-fold"><summary>Notes and limits for this build ({to.warnings.length})</summary><ul className="small">{to.warnings.map((w, j) => <li key={j}>{w}</li>)}</ul></details>}

@@ -222,3 +222,29 @@ Every button in the app is a `Button`; every link that looks like one is a `Butt
   them to their button.
 - Don't write `<button>` or `className="button"` in a page: `conventions.test.ts` fails on
   either, everywhere but the online board's `Board.tsx` and `Decide.tsx`.
+
+### StatusPill and Tag (`components/StatusPill.tsx`)
+
+The one way to show a state: a small pill of status text on its own tint
+(`components/StatusPill/README.md`).
+
+```tsx
+<StatusPill tone="good">In the deck</StatusPill>
+<StatusPill tone="warn">Waiting for your OK</StatusPill>
+<StatusPill tone="bad">Commander: banned</StatusPill>
+<StatusPill>Archived</StatusPill>                              // neutral: dim words, a hairline
+<StatusPill tone={toneOf(status.tone)}>{status.pill}</StatusPill>  // a tone that arrives as a word
+<StatusPill href="#changes">3 in, 3 out</StatusPill>           // a link to what it counts
+<Tag>Foil</Tag>                                                // a label that names a kind, not a state
+```
+
+- The color always comes with a word that says what. It is plain text to a screen reader: no
+  role and no live region (a status that changes while you watch is announced where it changes).
+- One pill per thing, on one line: a few words, never a sentence (it doesn't wrap). A version,
+  a date or a source is plain text, not a pill.
+- `Tag` is never a link; a pill that goes somewhere is a `StatusPill` with `href`.
+- On art (a deck's or a plan's header) a pill sits on a near-solid chip; the stylesheet does
+  that for `.hero-status` and `.plans-hero-meta`.
+- Don't write `className="tag"` or `className="pill"`; the old raised `.pill` look is gone.
+- Not this: a count on a tab or a card (`deck-tab-badge`, `qty-badge`), a toggle chip in a
+  filter row, and the online board's own tags.
