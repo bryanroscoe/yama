@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot } from "./sourcing-model";
+import { sourceCards, portfolioRows, sourceCarts, knownStockChoices, sourceSnapshot, allChoices, nearMint, offerRows, offerId } from "./sourcing-model";
 import type { ResearchDocument } from "../research/api";
 
 const offer = { store:"Mothership",price:0.5,qty:1,condition:"Near Mint",url:"https://mothershipatx.com/products/ring",variant_id:"123",checked_at:"2026-11-10",qualifies:true };
@@ -88,4 +88,51 @@ describe("portfolio sourcing",()=>{
     const no=sourceCards([{...raw[0]!,best_offer_per_store:[{...offer,qualifies:false}]}]);
     expect(sourceCarts(no,selected,new Map())).toEqual([]);
   });
+});
+
+describe("shopping clarity",()=>{
+ it("labels each recipient with the brackets that actually contain the card",()=>{
+  const rows=portfolioRows(sourceCards(raw),doc,new Set(["a","b"]),"","all");
+  expect(rows[0]!.uses.map(u=>u.brackets)).toEqual([[2,3],[4]]);
+  expect(portfolioRows(sourceCards(raw),doc,new Set(["a","b"]),"3","all")[0]!.uses[0]!.brackets).toEqual([3]);
+ });
+ it("defaults NM filtering without treating LP or unknown conditions as NM",()=>{
+  expect(nearMint("NM")).toBe(true);expect(nearMint("Near Mint / English")).toBe(true);expect(nearMint("Lightly Played")).toBe(false);expect(nearMint("")).toBe(false);
+  const rows=sourceCards([{...raw[0]!,offers:[offer,{...offer,condition:"Lightly Played",url:"https://other.test/card"}]}]);
+  expect(offerRows(rows,"nm","")[0]!.offers).toHaveLength(1);
+  expect(offerRows(rows,"any","")[0]!.offers).toHaveLength(2);
+ });
+ it("bulk fills unknown quantities as requested copies, while confirmed-only stays empty",()=>{
+  const rows=sourceCards([{...raw[0]!,offers:[{...offer,qty:null}]}]);
+  expect(knownStockChoices(rows)["Sol Ring"]).toEqual([]);
+  const selected=allChoices(rows);expect(selected["Sol Ring"]![0]!.qty).toBe(2);
+  expect(sourceCarts(rows,selected,new Map())[0]!.rows[0]!.offer.qty).toBeNull();
+ });
+ it("preserves exact printing market provenance and all saved variants",()=>{
+  const rows=sourceCards([{...raw[0]!,offers:[{...offer,title:"Sol Ring [C21]",market:1.25,market_source:"https://scryfall.com/card/c21/263/sol-ring",market_evidence:{scryfall_id:"id",matching:"retailer image ID",checked_at:"2026-11-10"}},{...offer,url:"https://store.test/nm"}]}]);
+  expect(rows[0]!.offers).toHaveLength(2);expect(rows[0]!.offers[0]!.market).toBe(1.25);expect(rows[0]!.offers[0]!.printing_id).toBe("id");
+ });
+});
+
+it("keeps same-product Shopify variants distinct across NM/LP and carts the chosen variant",()=>{
+ const lp={...offer,condition:"Lightly Played",variant_id:"111",price:0.25};
+ const nm={...offer,condition:"Near Mint",variant_id:"222",price:0.50};
+ const cards=sourceCards([{...raw[0]!,offers:[lp,nm]}]);
+ const rows=portfolioRows(cards,doc,new Set(["a"]),"2","all");
+ expect(rows[0]!.offers).toHaveLength(2);
+ const filtered=offerRows(rows,"nm","");expect(filtered[0]!.offers[0]!.variant_id).toBe("222");
+ const carts=sourceCarts(filtered,allChoices(filtered),new Map([["https://mothershipatx.com","https://mothershipatx.com/cart/{items}"]]));
+ expect(carts[0]!.url).toBe("https://mothershipatx.com/cart/222:1");
+ expect(sourceCarts(rows,{"Sol Ring":[{offer:offer.url,qty:1}]},new Map())).toEqual([]);
+ expect(offerId(lp)).not.toBe(offerId(nm));
+});
+
+it("retains non-Shopify condition/printing variants when SKU IDs are missing",()=>{
+ const lp={...offer,variant_id:"",condition:"Lightly Played",title:"Ring [A]",price:0.25};
+ const nm={...offer,variant_id:"",condition:"Near Mint",title:"Ring [B]",price:0.50};
+ const rows=portfolioRows(sourceCards([{...raw[0]!,offers:[lp,nm]}]),doc,new Set(["a","b"]),"","all");
+ expect(rows[0]!.offers).toHaveLength(2);expect(offerId(lp)).not.toBe(offerId(nm));
+ const carts=sourceCarts(rows,allChoices(rows),new Map());
+ expect(carts[0]!.rows.map(r=>r.offer.condition)).toEqual(["Near Mint","Lightly Played"]);
+ expect(sourceCarts(rows,{"Sol Ring":[{offer:offer.url,qty:2}]},new Map())).toEqual([]);
 });
