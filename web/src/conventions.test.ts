@@ -177,6 +177,33 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("paging and showing the rest use the shared controls", () => {
+  it("no page writes its own Previous and Next", () => {
+    // Use <Pager label="…" page={n} pages={total} onPrevious={…} onNext={…} /> from components/ui.
+    // Read whole files: the words are often on a line of their own inside the button.
+    const found = sources(WEB)
+      .map((path) => relative(ROOT, path))
+      .filter((file) => file !== "web/src/components/Pager.tsx" && !BOARD.test(file))
+      .filter((file) => />\s*(Previous|Next)\s*<\/(Button|ButtonLink|button|a|Link)>/.test(readFileSync(join(ROOT, file), "utf8")));
+    expect(found).toEqual([]);
+  });
+
+  it("no list writes its own Show all and Show fewer toggle", () => {
+    // Use <ShowMore total={n} onToggle={…} /> (with expanded={…} when it folds back) from
+    // components/ui. A list that names what it shows ("Show the slowest 12") keeps its own words.
+    const found = uses(/"Show fewer"|>\s*Show fewer\s*</, (file) => file === "web/src/components/Pager.tsx" || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+    // "Show all 42" written out: these four keep theirs (a link-styled line on the import page,
+    // the scanner's printing tiles, the admin tables that name what they show). Don't add to them.
+    const own = new Set(["web/src/decks/ImportPage.tsx", "web/src/scanner/AddedList.tsx", "web/src/scanner/ScannerView.tsx", "web/src/admin/Server.tsx"]);
+    const written = sources(WEB)
+      .map((path) => relative(ROOT, path))
+      .filter((file) => file !== "web/src/components/Pager.tsx" && !own.has(file) && !BOARD_FILES.test(file))
+      .filter((file) => /(>|`)\s*Show all (\$?\{)/.test(readFileSync(join(ROOT, file), "utf8")));
+    expect(written).toEqual([]);
+  });
+});
+
 describe("the way back uses the shared link", () => {
   it("no page draws its own back link", () => {
     // Use <BackLink to="…" label="Back to …" text="…"> from components/ui (onArt on an art

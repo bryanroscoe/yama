@@ -15,6 +15,7 @@ import "../plan/plans.css";
 import "../decks/deckTabs.css";
 import { fmtDate } from "@yama/core";
 import { Button } from "./Button";
+import { ShowMore } from "./Pager";
 
 /** Pairs shown before "Show all". */
 const PAIRS_SHOWN = 8;
@@ -136,9 +137,7 @@ function VersionChanges({ deckId, version, base, current, onRestored }: { deckId
         </ul>
       )}
       {pairs.length > shown.length && (
-        <Button variant="quiet" size="small" className="deck-tab-more" onClick={() => setAll(true)}>
-          Show all {pairs.length}
-        </Button>
+        <ShowMore className="deck-tab-more" total={pairs.length} onToggle={() => setAll(true)} />
       )}
       {!current &&
         (confirming ? (

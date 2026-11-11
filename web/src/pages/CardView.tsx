@@ -12,7 +12,7 @@ import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { Button, CardImage, ErrorText, Loading, ManaCost, Pips, StatusPill, Tag } from "../components/ui";
+import { Button, CardImage, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag } from "../components/ui";
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
@@ -318,7 +318,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                   </tbody>
                 </table>
                 {printings.length > 12 && !allPrintings && (
-                  <Button variant="quiet" size="small" onClick={() => setAllPrintings(true)}>Show all {printings.length} printings</Button>
+                  <ShowMore total={printings.length} noun="printings" onToggle={() => setAllPrintings(true)} />
                 )}
                 <p className="cp-note">
                   Tap a set to see its price history.{readOnly ? "" : " +1 adds a regular copy, +F a foil, +E an etched foil."} Prices are {priceSource(priceDate)}. Market prices aren't a quote from any store. A missing price says so.

@@ -1,7 +1,7 @@
 import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
-import { Button, CardImage, CopyButton, Segmented, Tag } from "../components/ui";
+import { Button, CardImage, CopyButton, Segmented, ShowMore, Tag } from "../components/ui";
 import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
 /**
@@ -265,19 +265,7 @@ export function CardViews({ cards }: { cards: ListCard[] }) {
                   ))}
                 </div>
                 {rows.length > STACK_PEEK + 1 && (
-                  <Button
-                    size="small" className="stack-more"
-                    onClick={() =>
-                      setExpanded((cur) => {
-                        const next = new Set(cur);
-                        if (next.has(group)) next.delete(group);
-                        else next.add(group);
-                        return next;
-                      })
-                    }
-                  >
-                    {expanded.has(group) ? "Show fewer" : `Show all ${rows.length}`}
-                  </Button>
+                  <ShowMore total={rows.length} expanded={expanded.has(group)} onToggle={() => setExpanded((cur) => { const next = new Set(cur); if (next.has(group)) next.delete(group); else next.add(group); return next; })} />
                 )}
               </section>
             );

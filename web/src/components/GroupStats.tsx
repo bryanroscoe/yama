@@ -6,7 +6,7 @@ import { winConditionLabel, count, fmtDate, fmtDateTime, percent } from "@yama/c
 import { useState } from "react";
 import type { PlaygroupStats, PodSeats } from "../api";
 import "./stats.css";
-import { Button } from "./Button";
+import { ShowMore } from "./Pager";
 
 const PLACES = ["Went first", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
 const names = (list: string[]) => (list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`);
@@ -181,9 +181,7 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
                 ))}
               </ul>
               {s.head_to_head.length > H2H_PEEK && (
-                <Button variant="quiet" size="small" className="h2h-more" aria-expanded={allH2h} onClick={() => setAllH2h((v) => !v)}>
-                  {allH2h ? "Show fewer" : `Show all ${s.head_to_head.length}`}
-                </Button>
+                <ShowMore className="h2h-more" total={s.head_to_head.length} expanded={allH2h} onToggle={() => setAllH2h((v) => !v)} />
               )}
             </div>
           )}

@@ -25,7 +25,7 @@ import { Link, useParams } from "react-router";
 import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { useScrollToHash } from "../components/useScrollToHash";
-import { BackLink, Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented, StatusPill } from "../components/ui";
+import { BackLink, Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented, ShowMore, StatusPill } from "../components/ui";
 import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -512,9 +512,7 @@ function InProgress({ deck, plan, view, userId }: { deck: PlanDeck; plan: DeckPl
                 ))}
               </ul>
               {inDeck.length > shownIn.length && (
-                <Button variant="quiet" size="small" className="plans-show-all" onClick={() => setAllIn(true)}>
-                  Show all {inDeck.length}
-                </Button>
+                <ShowMore className="plans-show-all" total={inDeck.length} onToggle={() => setAllIn(true)} />
               )}
             </section>
           )}

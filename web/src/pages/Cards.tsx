@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router";
 import { api, type Card, type SearchResult } from "../api";
 import { isNetworkError } from "../cardDetail";
 import { isGuest } from "../guest";
-import { Button, CardImage, Dialog, ErrorText } from "../components/ui";
+import { Button, CardImage, Dialog, ErrorText, Pager } from "../components/ui";
 import { offlineSearch } from "../offline/cards";
 import { ReleaseCalendar } from "../components/Upcoming";
 import { cardNamed, exactNameQuery, nameQuery, queryChips, withoutTerm } from "./cardQuery";
@@ -212,11 +212,7 @@ export function CardsPage() {
               })}
             </ul>
             {pages > 1 && (
-              <nav className="cards-pages" aria-label="Pages">
-                <Button disabled={page <= 1} onClick={() => set({ page: String(page - 1) })}>Previous</Button>
-                <span className="dim num">Page {page} of {pages}</span>
-                <Button disabled={page >= pages} onClick={() => set({ page: String(page + 1) })}>Next</Button>
-              </nav>
+              <Pager label="Card search pages" page={page} pages={pages} onPrevious={page > 1 ? () => set({ page: String(page - 1) }) : undefined} onNext={page < pages ? () => set({ page: String(page + 1) }) : undefined} />
             )}
           </>
         )}

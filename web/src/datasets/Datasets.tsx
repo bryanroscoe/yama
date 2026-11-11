@@ -5,7 +5,7 @@ import { api } from "../api";
 import { saveExport } from "../download";
 import { useMe } from "../auth";
 import { LabHead } from "../lab/LabLayout";
-import { Button, Details, ErrorText, Field, Loading } from "../components/ui";
+import { Button, Details, ErrorText, Field, Loading, Pager } from "../components/ui";
 import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
 import { fmtDate } from "@yama/core";
@@ -220,11 +220,13 @@ function DatasetDetail({ id }: { id: string }) {
       {data?.records?.map((r) => <RecordCard key={r.id} record={r} explore={(record) => update({ entity: record.entity, label: recordName(record), search: "", kind: "", section: "" })} />)}
       {!sources && data?.records?.length === 0 && <p>No matching records. Try another name or evidence type.</p>}
       {sources && data?.sources?.length === 0 && <p>No source documents on this page.</p>}
-      <nav className="dataset-actions" aria-label="Evidence pages">
-        <Button disabled={offset <= 0 || read.isFetching} onClick={() => update({ offset: String(Math.max(0, offset - 25)) }, true)}>Previous</Button>
-        <span>Page {Math.floor(offset / 25) + 1}</span>
-        <Button disabled={data?.next_offset == null || read.isFetching} onClick={() => update({ offset: String(data?.next_offset) }, true)}>Next</Button>
-      </nav>
+      <Pager
+        label="Evidence pages"
+        page={Math.floor(offset / 25) + 1}
+        busy={read.isFetching}
+        onPrevious={offset > 0 ? () => update({ offset: String(Math.max(0, offset - 25)) }, true) : undefined}
+        onNext={data?.next_offset != null ? () => update({ offset: String(data.next_offset) }, true) : undefined}
+      />
     </>}
   </div>;
 }

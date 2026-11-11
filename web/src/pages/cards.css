@@ -187,18 +187,6 @@
   flex: none;
   color: var(--dim);
 }
-.cards-pages {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 8px;
-}
-.cards-pages button:disabled {
-  opacity: 1;
-  background: var(--surface);
-  color: var(--dim);
-}
 @media (min-width: 900px) {
   .cards-page {
     gap: 22px;

@@ -316,3 +316,26 @@ The way back to the page above this one: one chevron, one wording.
   screen shows (keep the words on screen in it). `inline` needs `text`. No "←" anywhere.
 - `AreaHead` and `LabHead` draw their own from `back={{ to, label }}`.
 - It is a link. The card page's Back is a `Button`: it goes back in history, wherever that was.
+
+### Pager and ShowMore (`components/Pager.tsx`)
+
+```tsx
+<Pager label="Game history pages" page={page} pages={pages}
+  onPrevious={page > 1 ? () => go(page - 1) : undefined}
+  onNext={page < pages ? () => go(page + 1) : undefined} busy={query.isFetching} />
+<ShowMore total={pairs.length} onToggle={() => setAll(true)} />                       // "Show all 42", then gone
+<ShowMore total={rows.length} expanded={open} onToggle={() => setOpen(!open)} />      // "Show all 42" / "Show fewer"
+<ShowMore total={printings.length} noun="printings" onToggle={showAll} />
+```
+
+- `Pager` is a `<nav>` with a name that says which list (`label="Game history pages"`),
+  centered under its list, reading "Page 2 of 14" (no total when it isn't known); the page
+  number is announced when it changes. Leave out `onPrevious` or `onNext` when there is no
+  page that way: the button is off and flat, not faded. `busy` turns both off while a page
+  loads. A button that is off stays focusable (`aria-disabled`), so the keyboard keeps its
+  place when Next turns itself off on the last page.
+- `ShowMore` is a quiet row action. With `expanded` it is a toggle and carries
+  `aria-expanded`. Without it the button is gone once pressed and focus goes with it, so
+  prefer the toggle for a list people tab through. A list that says what it is showing ("Show the slowest 12") keeps its own
+  words.
+- A list that adds a screen at a time ("Show more cards") is a plain quiet `Button`.
