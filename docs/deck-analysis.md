@@ -63,10 +63,14 @@ until the person pastes it and presses Analyze there.
    - average nonland mana value over 4: 6;
    - 8.5 without a compact combo, three good tutors and three fast mana;
    - 9.4 without two compact families, five tutors, five fast mana and four counterspells.
-6. **Margin and confidence.** The margin starts at ±0.3. It widens by 0.1 per card missing
-   from the card data (up to 0.5), by 0.2 with no Spellbook check, and by the share of nonland
-   cards that earned no points beyond 35%. Confidence is high up to 0.4, medium up to 0.6, low
-   beyond.
+6. **Margin and confidence.** The margin starts at ±0.7 (±0.3 before 2026-11-11). That
+   figure is measured, not chosen: on the reference lists built for a named bracket, power
+   ± 0.7 reaches that bracket for 91% and ± 0.5 for 76%, and lists built for the same bracket
+   spread about 0.7 around their median ("Measuring the method"). It widens by 0.1 per card
+   missing from the card data (up to 0.5), by 0.2 with no Spellbook check, and by the share of
+   nonland cards that earned no points beyond 35%. Confidence says how complete those inputs
+   were, not how right the score is: high up to 0.8 ("every card read"), medium up to 1.0,
+   low beyond.
 7. **Themes** (`themes.rs`). A theme counts the cards whose text joins in: 15 or more is core,
    10 major, 6 minor. Themes include tokens, counters, graveyard, artifacts, enchantments,
    spells, lands, equipment, sacrifice, life gain, flicker, energy, draw and go-wide. The two
@@ -128,6 +132,39 @@ because its 0-100 is a ceiling only optimized decks approach, not anchored on pr
 - Not yet built: a win-turn estimate (ScryCheck anchors it on Playgroup.gg), "popular in
   similar decks" suggestions, and an upgrade path tied to the weakest vector.
 
+## Bracket reading (2026-11-11)
+
+Bryan, 11 Nov 2026, on whether one Game Changer makes a precon Bracket 3: "I don't think game
+changers are a perfect representation... I challenge you on that." The numbers agree with
+him. The 8 stock precons that hold a Game Changer and have 40 or more recorded games won
+21.6% of them; the 77 without won 20.8%. And his own builds for Brackets 2 and 3 are the same
+deck give or take three Game Changers, half a point of power apart.
+
+So a list gets two readings, kept apart, and neither overrides the other (`Reading`, the
+analysis's `bracket` field):
+
+- **Plays like.** The bracket whose usual power range holds the score (2 up to 5, 3 up to 7,
+  4 above), read with the margin: "Bracket 2", or "Bracket 2 to 3" when power ± margin
+  reaches the next band. This is the headline on the deck page, the shared deck page and
+  `/precons`. Game Changers count here only as the strong cards they are, through their
+  points. Never 1 or 5: those depend on intent and the cEDH metagame.
+- **Card rules.** The least bracket Wizards' rules allow the list: none of the Game Changers
+  in Bracket 2, up to three in Bracket 3, and with a Commander Spellbook check at least the
+  bracket its tag names (mass land denial, chained extra turns, early two-card combos). It
+  comes with what it found, in words. `/precons` shows it only when it asks for more than
+  the list plays like ("Bracket 3 by the card rules: 1 Game Changer: Narset, Parter of
+  Veils"); the deck page's Bracket panel already lists the same things.
+
+ScryCheck and ScrollVault both let a rule marker set a floor under the power reading. Yama
+doesn't, on the evidence above; it shows the rule beside the reading. `power_bracket` stays in
+the API as the band the score falls in.
+
+Stock precon lists get their own Commander Spellbook check (`precon_checks`,
+`deck_checks/precons.rs`): the deck-check worker asks about one stock list at a time when no
+person's deck is waiting, through the same pacer, and again after 30 days. A stock list is
+public catalog data, so nothing of anyone's is sent. These answers are apart from people's deck
+checks in both directions.
+
 ## Measuring the method (2026-11-11)
 
 Bryan, 11 Nov 2026: "we should measure before changing the score. Ideally we could do this
@@ -185,15 +222,23 @@ a named bracket):
 - Power ± margin reaches that bracket for 71% of them at today's margins, 91% at ±0.7 and 94%
   at ±1.0.
 
+After the bracket reading and the ±0.7 margin (method 2026-11-11), same data: every power
+score and correlation is unchanged, the lists' own margins reach the bracket they were built
+for 91% of the time, and the 178 precons read as 133 that play like Bracket 2 with nothing the
+card rules object to, 27 that play like Bracket 2 to 3, and 18 that play like Bracket 2 but are
+Bracket 3 by the card rules (a Game Changer). No stock list had a stored combo check yet.
+
 ## Precon comparison (2026-11-09)
 
 The public `/precons` table and stock detail pages show computed power (1–10), its
-margin and the estimated bracket from the same Rust analysis. The public API's `power`
-object includes the method date, level, margin, bracket and unknown-card count. This
-is card-text scoring, not game simulation or an official bracket assignment. It does
-not replace a bracket legality check. Public stock lists have no stored Spellbook
-check; the estimate uses no combo bonus and widens its margin accordingly. No private
-checks or saved versions are read. Completely missing card data stays unassessed.
+margin and what the list plays like, from the same Rust analysis, and the card rules'
+reading when it asks for a higher bracket ("Bracket reading" above). The public API's
+`power` object includes the method date, level, margin, `bracket` (the band the score
+falls in), `plays_like`, `rules`, `flags`, whether a combo check was read, and the
+unknown-card count. This is card-text scoring, not game simulation or an official bracket
+assignment. Each stock list reads its own stored Spellbook check once the worker has asked
+(since 2026-11-11); until then the estimate uses no combo bonus and widens its margin. No
+person's checks or saved versions are read. Completely missing card data stays unassessed.
 
 The page compares power with each published engine's model win rate and with stock-list
 real games separately. Charts use the full catalog before filtering/pagination,

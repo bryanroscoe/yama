@@ -796,7 +796,7 @@ pub(super) async fn index(
     .chain(commander_label.as_deref().map(|l| ("commander", l)))
     .chain([
         ("power", "Computed power"),
-        ("bracket", "Estimated bracket"),
+        ("bracket", "Plays like bracket"),
         ("upgradeability", "Upgradeability"),
         ("name", "Deck name"),
         ("year", "Newest first"),
@@ -885,7 +885,7 @@ pub(super) async fn index(
                 write!(body, "<th scope=\"col\">{}</th>", e(&label)).unwrap();
             }
         }
-        body.push_str(&sort_heading(&filters, "power", "Computed power", "1–10 / estimated bracket"));
+        body.push_str(&sort_heading(&filters, "power", "Computed power", "1–10 / plays like bracket"));
         body.push_str(&sort_heading(&filters, "real", "Real games", if by_commander.is_empty() { "Stock lists" } else { "Stock lists, then any list" }));
         body.push_str("<th scope=\"col\"><a href=\"/precons/methodology#upgradeability\">Upgradeability</a></th><th scope=\"col\">Sealed market</th></tr></thead><tbody>");
         for p in data.precons.iter().skip(start).take(24) {
@@ -982,7 +982,7 @@ pub(super) async fn detail(
     body.push_str(&meta(p, true));
     body.push_str("</section><section class=\"public-panel\"><h3>Computed power</h3>");
     body.push_str(&power::cell(p));
-    body.push_str("<p>Card-text estimate, not simulated play. Estimated bracket is a power range, not an official assignment. No stock-list combo check.</p>");
+    body.push_str("<p>Card-text estimate, not simulated play. “Plays like” is the bracket whose usual power range holds the score, give or take its margin; it is not an official assignment. The card rules (Game Changers, and what Commander Spellbook flags) are read separately and shown when they ask for a higher bracket.</p>");
     body.push_str("</section><section class=\"public-panel\"><h3>Real games</h3>");
     body.push_str(&real(p, true));
     body.push_str("</section>");

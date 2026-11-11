@@ -61,14 +61,14 @@ function render(view = analysisView(5.4)) {
 }
 
 describe("DeckStatsTab", () => {
-  it("shows the power level on a dial with its margin, bracket range and confidence", () => {
+  it("shows the power level on a dial with its margin, what it plays like and how complete the inputs were", () => {
     const html = render();
-    expect(html).toContain('aria-label="Power 5.4 of 10, give or take 0.4, in Bracket 3&#x27;s usual range"');
+    expect(html).toContain('aria-label="Power 5.4 of 10, give or take 0.7, in Bracket 3&#x27;s usual range"');
     expect(html).toContain("<b>5.4</b>");
-    expect(html).toContain("±0.4");
-    expect(html).toContain("Bracket 3 range");
+    expect(html).toContain("±0.7");
+    expect(html).toContain("Plays like Bracket 2 to 3");
     expect(html).toContain("Focused casual");
-    expect(html).toContain("High confidence");
+    expect(html).toContain("Every card read");
     expect(html).toContain('aria-label="Help: how power is measured"');
     expect(html).not.toContain("·");
   });
@@ -166,7 +166,7 @@ describe("PowerDial", () => {
 describe("confidenceText", () => {
   it("says why confidence is lower", () => {
     const a = analysis(5.4, { confidence: "medium", combos: { checked: false, lines: [], score: 0, families: 0, compact: 0, unrecognized: 0 } });
-    expect(confidenceText(a)).toContain("Medium confidence: Commander Spellbook hasn't checked this list for combos yet");
+    expect(confidenceText(a)).toContain("Some inputs missing: Commander Spellbook hasn't checked this list for combos yet");
   });
 
   it("names cards Spellbook didn't know", () => {

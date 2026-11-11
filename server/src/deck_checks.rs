@@ -18,6 +18,8 @@
 //! 429, credit and link to commanderspellbook.com. The card-list signals are theirs; Yama
 //! interprets them as a dated starting suggestion, never replacing the owner's declared bracket.
 
+pub mod precons;
+
 use crate::decks::{Board, DeckCard, load_version_cards};
 use crate::error::{AppError, AppResult};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -920,8 +922,24 @@ pub async fn backfill(pool: &SqlitePool) -> sqlx::Result<u64> {
     .rows_affected())
 }
 
+/// With no person's deck due: ask about one public stock list (precons.rs). True when it got an
+/// answer, so the worker looks again at once; a failure or nothing to ask lets it rest.
+async fn stock_list_turn(pool: &SqlitePool, http: &reqwest::Client, url: &str, research: &Research) -> bool {
+    match precons::run_next(pool, http, url, Some(research)).await {
+        Ok(asked) => asked,
+        Err(CheckError::RateLimited(wait)) => {
+            tracing::warn!(secs = wait.as_secs(), "Commander Spellbook rate limit; pausing stock list checks");
+            false
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "stock list check failed");
+            false
+        }
+    }
+}
+
 /// Run checks in the background for as long as the server runs, pacing Spellbook with
-/// `research`.
+/// `research`. People's decks go first; public stock lists fill the idle time.
 pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String, research: Arc<Research>) {
     tokio::spawn(async move {
         match backfill(&pool).await {
@@ -946,12 +964,16 @@ pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String, resear
                     }
                 }
                 Ok(Next::Later(wait)) => {
-                    let _ = tokio::time::timeout(wait.max(Duration::from_secs(1)), wake.notified()).await;
+                    if !stock_list_turn(&pool, &http, &url, &research).await {
+                        let _ = tokio::time::timeout(wait.max(Duration::from_secs(1)), wake.notified()).await;
+                    }
                 }
                 // Also look again now and then: the command line (import-decks) queues checks
                 // from another process, which can't wake this one.
                 Ok(Next::Idle) => {
-                    let _ = tokio::time::timeout(IDLE_POLL, wake.notified()).await;
+                    if !stock_list_turn(&pool, &http, &url, &research).await {
+                        let _ = tokio::time::timeout(IDLE_POLL, wake.notified()).await;
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "couldn't read the deck check queue");
@@ -1201,7 +1223,7 @@ mod tests {
         assert!(!shown.pending && shown.result.is_some());
     }
 
-    async fn fake_spellbook(status: u16) -> String {
+    pub(super) async fn fake_spellbook(status: u16) -> String {
         use axum::{Router, http::StatusCode, routing::post};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/estimate-bracket", listener.local_addr().unwrap());

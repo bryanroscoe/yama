@@ -15,6 +15,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-plays-like",
+    date: "2026-11-11",
+    title: "Power level says what a deck plays like",
+    items: [
+      "A deck's power level now reads \"Plays like Bracket 2\", or \"Bracket 2 to 3\" when the margin reaches the next bracket. What Wizards' card rules allow (Game Changers, mass land denial, early combos) stays a separate line: one Game Changer doesn't make a precon play like Bracket 3.",
+      "The margin is wider and honest: ±0.7 at best, which is how far the score was measured to be off. The old ±0.3 was a guess.",
+      "The precon pages check each stock list for combos with Commander Spellbook, and say when the card rules put a precon above what it plays like.",
+    ],
+    link: { to: "/decks", label: "Open your decks" },
+  },
+  {
     id: "2026-11-11-log-a-game-more",
     date: "2026-11-11",
     title: "Log a game with knockouts, a note and its format",
@@ -135,7 +146,7 @@ export const NEWS: NewsEntry[] = [
       "The score now counts your lands by what they do, and it no longer needs a Commander Spellbook check to appear (combos count once there is one).",
       "Check it on ScryCheck copies the list and opens ScryCheck, so you can paste it there and compare.",
     ],
-    link: { to: "/decks", label: "Open Decks" },
+    link: { to: "/decks", label: "Open your decks" },
   },
   {
     id: "2026-11-08-shared-power-estimate",
@@ -154,7 +165,7 @@ export const NEWS: NewsEntry[] = [
       "On a deck's page, More now ends with Delete deck, or Delete configuration when you're on one. Deleting a deck with configurations asks whether to keep them as decks of their own or delete them too.",
       "Your assistant can delete one for you as well; it waits in Suggested changes with a Delete button until you press it.",
     ],
-    link: { to: "/decks", label: "Open Decks" },
+    link: { to: "/decks", label: "Open your decks" },
   },
   {
     id: "2026-11-05-plans-by-deck",
@@ -876,7 +887,7 @@ export const NEWS: NewsEntry[] = [
       "Export a deck for EDHbots, Moxfield or MTG Arena.",
       "History lists every saved version and shows what changed between any two.",
     ],
-    link: { to: "/decks", label: "Open Decks" },
+    link: { to: "/decks", label: "Open your decks" },
   },
   {
     id: "2026-10-19-cards",

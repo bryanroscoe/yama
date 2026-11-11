@@ -1,4 +1,5 @@
-//! Card-text estimates for public stock lists. Never reads private versions or checks.
+//! Card-text estimates for public stock lists. Never reads private versions or checks: the
+//! combo check read here is the stock list's own (deck_checks/precons.rs).
 use super::*;
 use crate::analysis::{self, Cache, Entry};
 use crate::decks::DeckCard;
@@ -8,8 +9,27 @@ pub struct Power {
     pub method: &'static str,
     pub level: f64,
     pub margin: f64,
+    /// The band the power number falls in (2-4). Kept for older readers; `plays_like` is
+    /// the same reading with the margin counted.
     pub bracket: i64,
+    /// The lowest and highest bracket power ± margin reaches.
+    pub plays_like: [i64; 2],
+    /// The least bracket Wizards' card rules allow the list, when it can be read.
+    pub rules: Option<i64>,
+    /// What the rules look at that the list holds: Game Changers, and from a combo check mass
+    /// land denial, extra turns and two-card combos.
+    pub flags: Vec<String>,
+    /// Whether the stock list's Commander Spellbook answer was there to read.
+    pub combo_check: bool,
     pub unknown_cards: usize,
+}
+
+impl Power {
+    /// "Bracket 2" or "Bracket 2 to 3".
+    pub(super) fn plays(&self) -> String {
+        let [low, high] = self.plays_like;
+        if low == high { format!("Bracket {low}") } else { format!("Bracket {low} to {high}") }
+    }
 }
 
 pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<()> {
@@ -18,16 +38,19 @@ pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<
     let info = crate::decks::card_info(pool, &all).await?;
     let produced = crate::decks::produced_mana(pool, &all.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
     let facts = analysis::facts_for(&all, &info, &produced);
+    let checks = crate::deck_checks::precons::results(pool).await?;
     let scores = tokio::task::spawn_blocking(move || {
         let mut cache = Cache::default();
         cache.skip_themes = true;
         lists.iter().map(|cards| {
             let entries: Vec<_> = cards.iter().map(|c| Entry { card: c, facts: facts.get(&c.oracle_id) }).collect();
             if !entries.iter().any(|e| e.card.board != crate::decks::Board::Side && e.facts.is_some()) { return None; }
-            // No private Spellbook result is reused for a public stock list.
-            let a = analysis::analyze(&entries, None, &mut cache);
+            // The stock list's own answer, by its cards. No person's check is read for it.
+            let check = checks.get(&crate::deck_checks::list_hash(cards));
+            let a = analysis::analyze(&entries, check, &mut cache);
             Some(Power { method: a.method, level: a.power, margin: a.margin,
-                bracket: a.power_bracket, unknown_cards: a.unknown_cards.len() })
+                bracket: a.power_bracket, plays_like: a.bracket.plays_like, rules: a.bracket.rules,
+                flags: a.bracket.flags, combo_check: a.combos.checked, unknown_cards: a.unknown_cards.len() })
         }).collect::<Vec<_>>()
     }).await.map_err(anyhow::Error::from)?;
     for (p, score) in rows.iter_mut().zip(scores) { p.power = score; }
@@ -36,9 +59,18 @@ pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<
 
 pub(super) fn cell(p: &Precon) -> String {
     match &p.power {
-        Some(a) => format!("<strong>{:.1}/10</strong><small>±{:.1} / Estimated bracket {}</small>{}", a.level, a.margin, a.bracket,
+        Some(a) => format!("<strong>{:.1}/10</strong><small>±{:.1} / Plays like {}</small>{}{}", a.level, a.margin, a.plays(), rules_line(a),
             if a.unknown_cards > 0 { format!("<small>{} unknown cards</small>", a.unknown_cards) } else { String::new() }),
         None => "<span class=\"dim\">Not assessed</span>".into(),
+    }
+}
+
+/// The card rules' reading, shown only when it asks for more than the list plays like: one
+/// Game Changer makes a precon a Bracket 3 list by the rules without making it play like one.
+fn rules_line(a: &Power) -> String {
+    match a.rules {
+        Some(rules) if rules > a.plays_like[1] => format!("<small>Bracket {rules} by the card rules: {}</small>", html::e(&a.flags.join("; "))),
+        _ => String::new(),
     }
 }
 
@@ -61,7 +93,7 @@ pub(crate) fn correlation(points: &[(f64, f64)]) -> Option<f64> {
 /// Full catalog, before search and pagination; never mixes commander aggregates with stock.
 pub(super) fn comparison(data: &Catalog) -> String {
     use std::fmt::Write;
-    let mut out = String::from("<section class=\"public-panel\"><h2>Power and win rates</h2><details><summary>About this comparison</summary><p>Computed power reads card text using Yama’s deck-analysis method. It is not a game simulation. The estimated bracket is the score’s usual range, not an official assignment or a full bracket legality check. No stock-list combo check is available, so uncertainty is wider. These estimates do not change the rankings.</p><p>Each chart uses the full catalog, with complete card data and at least 20 games per source. Spearman ρ compares ordering, with ties averaged; it is descriptive, not held-out validation. Stock precons already helped calibrate the power scale. Different fields and engine limitations can explain disagreement.</p></details><div class=\"power-charts\">");
+    let mut out = String::from("<section class=\"public-panel\"><h2>Power and win rates</h2><details><summary>About this comparison</summary><p>Computed power reads card text using Yama’s deck-analysis method. It is not a game simulation. “Plays like” is the bracket whose usual range holds the score, give or take its margin. It is not an official assignment. Wizards’ card rules are read separately: a list with a Game Changer is a Bracket 3 list by those rules even when it plays like Bracket 2, and the precons with one have not won more than the rest. Stock lists are checked for combos with Commander Spellbook; until a list’s answer is in, its margin is wider. These estimates do not change the rankings.</p><p>Each chart uses the full catalog, with complete card data and at least 20 games per source. Spearman ρ compares ordering, with ties averaged; it is descriptive, not held-out validation. Stock precons already helped calibrate the power scale. Different fields and engine limitations can explain disagreement.</p></details><div class=\"power-charts\">");
     let sources: Vec<_> = data.publication.iter().chain(data.comparisons.iter()).map(|s| (Some(s.id.as_str()), format!("{} model", consensus::engine_family(&s.engine)))).chain(std::iter::once((None, "Real games, stock lists".into()))).collect();
     for (id, label) in sources {
         let points: Vec<_> = data.precons.iter().filter_map(|p| {

@@ -11,7 +11,7 @@
 //!   `bracket-N` is a list built for Bracket N. Reported: each rule against those labels, how
 //!   often power ± margin reaches the label, and whether the same deck's next bracket up scores
 //!   higher.
-use super::{Cache, DeckAnalysis, Entry, METHOD, add_unresolved, analyze, facts_for};
+use super::{Cache, DeckAnalysis, Entry, METHOD, add_unresolved, analyze, band_of, facts_for};
 use crate::decks::{Board, DeckCard};
 use anyhow::{Context, anyhow};
 use serde::Serialize;
@@ -50,6 +50,9 @@ pub struct Row {
     pub margin: f64,
     /// `power_bracket`: the band the power number falls in.
     pub band: i64,
+    /// The brackets power ± margin reaches, and the least the card rules allow (`bracket`).
+    pub plays_like: [i64; 2],
+    pub rules: Option<i64>,
     /// `None` when the card data has no Game Changer flags yet.
     pub game_changers: Option<Vec<String>>,
     pub unscored_share: f64,
@@ -70,17 +73,6 @@ pub fn floor(game_changers: usize) -> i64 {
         0 => 2,
         1..=3 => 3,
         _ => 4,
-    }
-}
-
-/// The band a power number falls in, as `analyze` cuts it.
-fn band_of(power: f64) -> i64 {
-    if power <= 5.0 {
-        2
-    } else if power <= 7.0 {
-        3
-    } else {
-        4
     }
 }
 
@@ -152,6 +144,8 @@ async fn score(pool: &SqlitePool, inputs: Vec<Input>) -> anyhow::Result<Vec<Row>
                 power: a.power,
                 margin: a.margin,
                 band: a.power_bracket,
+                plays_like: a.bracket.plays_like,
+                rules: a.bracket.rules,
                 unscored_share: if a.nonland > 0 { a.unscored as f64 / a.nonland as f64 } else { 0.0 },
                 unknown_cards: a.unknown_cards.len(),
                 combo_check: a.combos.checked,
@@ -166,6 +160,8 @@ async fn score(pool: &SqlitePool, inputs: Vec<Input>) -> anyhow::Result<Vec<Row>
 
 async fn precon_rows(pool: &SqlitePool) -> anyhow::Result<Vec<Row>> {
     let catalog = crate::public_precons::catalog(pool).await.map_err(|e| anyhow!("{e}"))?;
+    // The stock lists' own stored answers, as the public pages read them.
+    let checks = crate::deck_checks::precons::results(pool).await?;
     let mut inputs = Vec::new();
     for p in &catalog.precons {
         let cards = p.stock_list()?;
@@ -173,10 +169,10 @@ async fn precon_rows(pool: &SqlitePool) -> anyhow::Result<Vec<Row>> {
             continue;
         }
         let real = p.stock_real();
-        // No combo check: none is stored for a stock list yet, as on the public pages.
         inputs.push(Input {
             name: p.name.clone(),
             kind: "precon".into(),
+            check: checks.get(&crate::deck_checks::list_hash(&cards)).cloned(),
             real_rate: real.as_ref().map(|r| r.rate),
             real_games: real.as_ref().map_or(0, |r| r.games),
             commander_rate: p.commander_rate(),
@@ -325,6 +321,17 @@ pub fn report(precons: &[Row], lists: &[Row]) -> String {
             Some(n) => writeln!(out, "  {:<22} {:>9} {:>9} {:>9}", rule.label(), n[0], n[1], n[2]).unwrap(),
             None => writeln!(out, "  {:<22} needs Game Changer flags the card data lacks", rule.label()).unwrap(),
         }
+    }
+
+    let mut read: BTreeMap<String, usize> = BTreeMap::new();
+    for r in precons {
+        let plays = if r.plays_like[0] == r.plays_like[1] { format!("plays like {}", r.plays_like[0]) } else { format!("plays like {} to {}", r.plays_like[0], r.plays_like[1]) };
+        let rules = r.rules.map_or("rules unknown".to_string(), |b| format!("rules {b}"));
+        *read.entry(format!("{plays}, {rules}")).or_default() += 1;
+    }
+    writeln!(out, "  bracket reading (what power ± margin plays like, and the least bracket the card rules allow)").unwrap();
+    for (reading, n) in &read {
+        writeln!(out, "    {reading:<34} {n:>4}").unwrap();
     }
 
     writeln!(out, "\nStock precons against real games (rank correlation with the stock list's win rate, 95% interval)").unwrap();

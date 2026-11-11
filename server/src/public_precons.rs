@@ -198,8 +198,7 @@ impl Precon {
 
     /// The stock list as deck cards. A card Yama's data doesn't know has an empty id.
     pub(crate) fn stock_list(&self) -> anyhow::Result<Vec<crate::decks::DeckCard>> {
-        let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(&self.stock_cards)?;
-        Ok(cards.into_iter().map(|c| crate::decks::DeckCard { oracle_id: c.oracle_id.unwrap_or_default(), name: c.name, qty: i64::from(c.qty), board: c.board }).collect())
+        deck_cards(&self.stock_cards)
     }
 
     /// Games-weighted win share over every list under the commander, across the sources that have one.
@@ -207,6 +206,19 @@ impl Precon {
         let games: u64 = self.commander_games.iter().map(|f| f.games).sum();
         (games > 0).then(|| self.commander_games.iter().map(|f| f.rate * f.games as f64).sum::<f64>() / games as f64)
     }
+}
+
+fn deck_cards(stock_cards: &str) -> anyhow::Result<Vec<crate::decks::DeckCard>> {
+    let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(stock_cards)?;
+    Ok(cards.into_iter().map(|c| crate::decks::DeckCard { oracle_id: c.oracle_id.unwrap_or_default(), name: c.name, qty: i64::from(c.qty), board: c.board }).collect())
+}
+
+/// Every public precon's id and stock list, as the catalog reads them ([`Precon::stock_list`]):
+/// what the stock list checks ask Commander Spellbook about (deck_checks/precons.rs). A list
+/// that doesn't read is left out.
+pub(crate) async fn stock_lists(pool: &SqlitePool) -> sqlx::Result<Vec<(String, Vec<crate::decks::DeckCard>)>> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, cards FROM precons ORDER BY id").fetch_all(pool).await?;
+    Ok(rows.into_iter().filter(|(id, _)| valid_slug(id)).filter_map(|(id, cards)| Some((id, deck_cards(&cards).ok()?))).collect())
 }
 
 #[derive(sqlx::FromRow)]
@@ -475,7 +487,8 @@ struct Built {
 static BUILT: crate::derived::Kept<Built> = crate::derived::Kept::new("public precons rebuild");
 
 /// Cheap evidence of a change to anything [`build`] reads: the catalog rows, the published
-/// snapshot, sealed prices, each price day read (prices/) and card data imports (names, art).
+/// snapshot, sealed prices, each price day read (prices/), card data imports (names, art) and
+/// the stock lists' Commander Spellbook answers.
 pub(crate) async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
     let inputs: String = sqlx::query_scalar(
         "SELECT (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT id || ':' || imported_at || ':' || length(cards) || ':' || IFNULL(length(engine_support), 0)
@@ -483,7 +496,8 @@ pub(crate) async fn fingerprint(pool: &SqlitePool) -> AppResult<String> {
              || '#' || IFNULL((SELECT publication_id FROM precon_publication_head WHERE singleton = 1), '')
              || '#' || (SELECT IFNULL(group_concat(k, '|'), '') FROM (SELECT precon_id || ':' || product_id || ':' || IFNULL(usd, '') || ':' || price_date AS k FROM sealed_deck_prices ORDER BY precon_id))
              || '#' || (SELECT IFNULL(max(observed_at), '') FROM price_observation)
-             || '#' || (SELECT IFNULL(max(finished_at), '') FROM import_runs)",
+             || '#' || (SELECT IFNULL(max(finished_at), '') FROM import_runs)
+             || '#' || (SELECT COUNT(*) || ':' || IFNULL(max(checked_at), '') FROM precon_checks WHERE checked_at IS NOT NULL)",
     )
     .fetch_one(pool)
     .await?;
