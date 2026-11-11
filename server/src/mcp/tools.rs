@@ -238,7 +238,7 @@ const TOOLS: &[Tool] = &[
              price, and with yestcg true also YesTCG's Austin search (condition and quantity) for the stores it covers. \
              Each store's answer is a dated snapshot the trip and store_stock read. Default stores: every store they'll \
              go to that Yama can read; default cards: every card the trip plans for. For an unapproved research build, \
-             supply its exact cards explicitly (at most 300 per check); saving research does not refresh trip stock. \
+             supply its exact cards explicitly (at most 300 per check); saving research does not fetch live stock. \
              See yama://shopping/workflow."
         ),
         schema: || {

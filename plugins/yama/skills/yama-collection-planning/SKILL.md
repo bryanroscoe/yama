@@ -14,7 +14,9 @@ calling those copies spare; being outside a deck box does not mean unreserved.
 Read `shopping_settings` before applying a buy rule or store preference.
 Read `yama://shopping/workflow` for the complete local-buying handoff. Match the
 latest exact deck/build and research revision before reusing a shopping report.
-Archived research and active trip stock are separate; disclose differing dates.
+Archived research and live trip snapshots are separate; disclose differing dates.
+Refreshing a tracked build can rederive recognized offers and lists, but does not
+fetch fresh store stock. State which evidence was updated.
 Preview unapproved builds without approving them or treating an empty trip as no
 local availability. Supply explicit cards to `check_stores` for those previews.
 Return clickable listing/search links for every applicable store, dated quotes,

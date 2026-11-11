@@ -28,7 +28,9 @@ trip. An empty trip does not mean no local store sells the cards.
 Saving research does not itself activate a plan or refresh the trip's stock
 snapshots. Research can contain acquisition evidence the active trip is not using.
 Compare the trip's check dates with the research's dates and disclose a mismatch.
-Never describe a research-only save as a refreshed shopping list.
+For an already tracked build, recognized acquisition offers and lists are rederived
+when its research is refreshed. That can update recorded plan quotes, but does not
+fetch fresh store stock. State which path was updated; do not claim a live refresh.
 
 To make a build the active plan, use `track_build` and the normal staged review,
 then the person's whole-plan approval with `approve_plan`. A shopping question is
