@@ -34,6 +34,8 @@ import { NewConfiguration, ShareDeck } from "../decks/ShareDeck";
 import { MythicSend, MythicSendButton } from "../bridges/mythic/MythicDeck";
 import { placesText } from "../decks/checkTargets";
 import { groupConfigurations } from "../decks/configurations";
+import { arrangeDecks, folderOf, foldersOf, isFiltered, readFilter, writeFilter, type DeckFilter } from "../decks/deckIndex";
+import { CLEARED, DeckIndexTools } from "../decks/DeckIndexTools";
 import { DeckSettings } from "../decks/DeckSettings";
 import { DeckTiles, deckStatus, ListPicker, SavedListBar } from "../decks/DeckHeader";
 import { DeckCardsTab, useCardControls } from "../decks/DeckCardsTab";
@@ -81,9 +83,27 @@ function record(d: Pick<DeckSummary, "games" | "wins" | "draws">): string | null
 export function DecksPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }) });
   // "Start a deck" on a precon (older links to /decks?precon=…) opens the import page with its stock list.
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const precon = params.get("precon");
+  // Folder, colors, bracket, search and sort (decks/deckIndex.ts), kept in the address.
+  // By the address's own string, so a new params object for the same address isn't a new filter.
+  const address = params.toString();
+  const filter = useMemo(() => readFilter(new URLSearchParams(address)), [address]);
+  const groups = useMemo(() => groupConfigurations(decks.data ?? []), [decks.data]);
+  const mains = useMemo(() => groups.map((g) => g.main), [groups]);
+  const folders = useMemo(() => foldersOf(mains), [mains]);
+  const shown = useMemo(() => arrangeDecks(groups, filter), [groups, filter]);
   if (precon) return <Navigate to={`/decks/import?precon=${encodeURIComponent(precon)}`} replace />;
+  // Once shown the tools stay, so clearing the search of a one-deck list doesn't take the box away mid-typing.
+  const tools = useRef(false);
+  if (groups.length > 1 || isFiltered(filter)) tools.current = true;
+  // The router moves the address before React renders it. One change is laid over the filter the
+  // address holds now, not the one last rendered, so quick typing never drops a letter and a
+  // second change never puts back what the first one changed.
+  const change = (patch: Partial<DeckFilter>, typing = false) => {
+    const now = new URLSearchParams(window.location.search);
+    setParams(writeFilter(now, { ...readFilter(now), ...patch }), { replace: typing });
+  };
   return (
     <main className="page">
       <AreaHead
@@ -110,11 +130,21 @@ export function DecksPage() {
           No decks yet.
         </EmptyState>
       )}
-      <ul className="deck-tiles">
+      {decks.data && tools.current && (
+        <DeckIndexTools filter={filter} onChange={change} folders={folders} hasUnfiled={mains.some((d) => folderOf(d) === null)} shown={shown.length} total={groups.length} />
+      )}
+      {groups.length > 0 && shown.length === 0 && (
+        <EmptyState variant="boxed" action={<button type="button" onClick={() => change(CLEARED)}>Clear filters</button>}>
+          No decks match.
+        </EmptyState>
+      )}
+      {/* Sorted by record, every tile shows its record, on a phone too. */}
+      <ul className={`deck-tiles${filter.sort === "record" ? " by-record" : ""}`}>
         {/* Configurations and bracket builds live on the deck's own page, not under its tile. */}
-        {groupConfigurations(decks.data ?? []).map(({ main }) => (
+        {shown.map(({ main }) => (
           <li key={main.id}>
-            <DeckTile d={main} />
+            {/* The folder shows on each tile unless the list is already down to one folder. */}
+            <DeckTile d={main} folder={filter.folder === null ? folderOf(main) : null} />
           </li>
         ))}
       </ul>
@@ -127,7 +157,7 @@ export function DecksPage() {
 
 const SHARED_LABEL: Record<string, string> = { link: "Shared by link", public: "Public" };
 
-function DeckTile({ d }: { d: DeckSummary }) {
+function DeckTile({ d, folder = null }: { d: DeckSummary; folder?: string | null }) {
   const own = d.acquisition_status === "planned" ? null : ownership(d.owned, d.card_count, d.proxies ?? 0);
   const played = record(d);
   return (
@@ -153,6 +183,7 @@ function DeckTile({ d }: { d: DeckSummary }) {
             <span>{cardCount(d.card_count)}</span>
           )}
           {played && <span className="deck-record">{played}</span>}
+          {folder && <span className="deck-folder">In {folder}</span>}
           {SHARED_LABEL[d.visibility] && <span className="deck-shared">{SHARED_LABEL[d.visibility]}</span>}
         </span>
       </ArtPanel>

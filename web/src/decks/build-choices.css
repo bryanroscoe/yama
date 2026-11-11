@@ -1,5 +1,9 @@
 /* Swap cards: a plan's deck page (plan.css, research.css) with the print sheet under it. */
 .build-choices.page { display: grid; gap: var(--gap); align-content: start; }
+/* In a grid, margins add to the gap instead of collapsing: the help fold's 24 px and the tiles'
+   24 px made a 64 px band between them. The gap spaces the page; the tiles keep 24 px above. */
+.build-choices > .how-to { margin-bottom: 0; }
+.build-choices > .note-decks { margin-top: 8px; }
 .bc-intro { max-width: 72ch; line-height: 1.5; margin: 0; }
 .bc-builds { display: grid; gap: 0; margin: 4px 0 8px; }
 .bc-builds .choice-chips { margin: 6px 0; }
