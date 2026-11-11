@@ -5,7 +5,7 @@
 # ${XDG_CONFIG_HOME:-$HOME/.config}/yama/deploy.env. Within a file the first occurrence wins.
 # The caller sets DEPLOY_DIR to this directory first. Never put saget's address in a tracked file.
 yama_read_target_env() {
-  [ -f "$1" ] || return 0
+  [ -f "$1" ] && [ -r "$1" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       YAMA_DEPLOY_HOST=*|YAMA_DEPLOY_USER=*) ;;

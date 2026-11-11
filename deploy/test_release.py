@@ -157,7 +157,17 @@ exit 97
         (deploy / ".env").write_text("YAMA_DEPLOY_HOST=192.0.2.40\n")
         self.assertEqual(host(), "deployer@192.0.2.40")
         self.assertEqual(host(YAMA_DEPLOY_HOST="192.0.2.43", YAMA_DEPLOY_USER="root"), "root@192.0.2.43")
+        # An empty value in the checkout's file leaves the machine's value in place.
+        (deploy / ".env").write_text("YAMA_DEPLOY_HOST=\n")
+        self.assertEqual(host(), "deployer@192.0.2.41")
         (deploy / ".env").unlink()
+        # A machine file that can't be read is skipped, so an explicit target still works.
+        machine.chmod(0o000)
+        try:
+            if not os.access(machine, os.R_OK):
+                self.assertEqual(host(YAMA_DEPLOY_HOST="192.0.2.43"), "root@192.0.2.43")
+        finally:
+            machine.chmod(0o600)
 
     def test_tracked_files_hold_no_lan_addresses(self):
         # saget's address and other LAN details live in the gitignored deploy/.env and the
@@ -376,7 +386,8 @@ else:
 ''')
             move.chmod(0o755)
         self.env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'],
-                        FAKE_SERVER=str(self.remote), YAMA_DEPLOY_HOST='test.invalid', YAMA_DEPLOY_USER='root')
+                        FAKE_SERVER=str(self.remote), YAMA_DEPLOY_HOST='test.invalid', YAMA_DEPLOY_USER='root',
+                        YAMA_DEPLOY_ENV=os.devnull)  # never this machine's ~/.config/yama/deploy.env
 
     def run_setup(self):
         return subprocess.run(['sh', str(self.script)], env=self.env, capture_output=True, text=True)

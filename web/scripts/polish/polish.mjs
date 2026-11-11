@@ -225,7 +225,8 @@ function sshHost() {
     if (!existsSync(envPath) || !statSync(envPath).isFile()) continue;
     for (const line of readFileSync(envPath, "utf8").split("\n")) {
       const m = /^(YAMA_DEPLOY_HOST|YAMA_DEPLOY_USER)=(.*)$/.exec(line.trim());
-      if (m && !(m[1] in file)) file[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+      // An empty value doesn't count, as in target.sh: the next file may still name it.
+      if (m && !file[m[1]]) file[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
     }
   }
   const host = process.env.YAMA_DEPLOY_HOST || file.YAMA_DEPLOY_HOST;
