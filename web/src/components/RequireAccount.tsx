@@ -5,6 +5,7 @@ import { accountPageOpen, releaseSession, useKeptAccount } from "../session";
 import { ALPHA_NOTE } from "./AlphaTag";
 import { Dialog } from "./Dialog";
 import { Button } from "./Button";
+import { PageHeader } from "./PageHeader";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
@@ -65,9 +66,7 @@ export function RequireAccount({ children }: { children?: ReactNode }) {
   const section = SECTIONS[`${first}/${second}`] ?? SECTIONS[first] ?? { title: "Sign in", lede: "Sign in to continue." };
   return (
     <main className="page account-gate">
-      <div className="page-head">
-        <h1>{section.title}</h1>
-      </div>
+      <PageHeader title={section.title} />
       <p className="account-gate-lede">{section.lede}</p>
       {section.extra}
       <section className="account-gate-signin login-side" aria-label="Sign in">

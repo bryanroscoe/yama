@@ -6,7 +6,7 @@ import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } 
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, CheckRow, Dialog, ErrorText, Loading, Pips, Segmented } from "../components/ui";
+import { Button, ButtonLink, CheckRow, Dialog, ErrorText, Loading, PageHeader, Pips, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay } from "./versions";
@@ -104,11 +104,15 @@ export function TableHome() {
       <SharedTables localGameId={game?.setup.id} />
       {game && state ? (
         <section className="stack" style={{ marginBottom: "2rem" }}>
-          <div className="page-head">
-            <h1>Saved game on this device</h1>
-            <p className="small dim">Started {fmtDateTime(game.setup.startedAt)}. Resume it only if this is the game you’re playing.</p>
-            <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
-          </div>
+          <PageHeader
+            title="Saved game on this device"
+            sub={
+              <>
+                <p className="small dim">Started {fmtDateTime(game.setup.startedAt)}. Resume it only if this is the game you’re playing.</p>
+                <p className="dim" style={{ margin: 0 }}>{gameSummary(state)}</p>
+              </>
+            }
+          />
           <ol className="ip-rows" aria-label="Choose a player to go back to the table">
             {state.players.map((p) => {
               const art = showArt ? panelArt(p) : null;

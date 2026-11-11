@@ -177,6 +177,15 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("a page's title row uses the shared header", () => {
+  it("no page writes its own page-head", () => {
+    // Use <PageHeader title="…" sub={…} actions={…} /> from components/ui. The stand-in drawn
+    // while a page's code loads has no title yet, so it keeps the bare row.
+    const found = uses(/className="page-head\b/, (file) => file === "web/src/components/PageHeader.tsx" || file === "web/src/components/StandIn.tsx");
+    expect(found).toEqual([]);
+  });
+});
+
 describe("paging and showing the rest use the shared controls", () => {
   it("no page writes its own Previous and Next", () => {
     // Use <Pager label="…" page={n} pages={total} onPrevious={…} onNext={…} /> from components/ui.

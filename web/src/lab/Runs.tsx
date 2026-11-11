@@ -4,7 +4,7 @@ import { usePower } from "../auth";
 import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, Details, EmptyState, ErrorText, Loading, StatusPill, toneOf } from "../components/ui";
+import { Button, ButtonLink, Details, EmptyState, ErrorText, Loading, PageHeader, StatusPill, toneOf } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
 import {
@@ -335,12 +335,7 @@ export function BatchPage() {
     <>
       <LabHead slim back={{ to: "/lab/runs", label: "Back to my runs" }} />
       <RefreshFailed query={run} what="this run" />
-      <div className="page-head">
-        <div>
-          <h1>{r.name}</h1>
-          <SimLine details={simDetails(r.card_data)}>{simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}.</SimLine>
-        </div>
-      </div>
+      <PageHeader title={r.name} sub={<SimLine details={simDetails(r.card_data)}>{simLabel({ engine: r.engine, difficulty: r.difficulty, games: r.games, pod: r.pod, date: r.analysed_at ?? r.created_at })}.</SimLine>} />
       <p className="lab-caveat">{caveat(r.engine)}</p>
       {conf && conf.level !== "ok" && (
         <ConfidenceNote level={conf.level} reasons={conf.reasons}>

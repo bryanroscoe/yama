@@ -339,3 +339,18 @@ The way back to the page above this one: one chevron, one wording.
   prefer the toggle for a list people tab through. A list that says what it is showing ("Show the slowest 12") keeps its own
   words.
 - A list that adds a screen at a time ("Show more cards") is a plain quiet `Button`.
+
+### PageHeader (`components/PageHeader.tsx`)
+
+A page's title row: the `h1`, an optional line under it, and the page's actions at the end.
+
+```tsx
+<PageHeader title="What's new" />
+<PageHeader title={run.name} sub={<SimLine …/>} actions={<ButtonLink variant="primary" to="/lab/try">Try a change</ButtonLink>} />
+```
+
+- One per page, first in `<main>`; it holds the page's only `h1`.
+- The actions wrap under the title on a narrow screen. More than a primary and three
+  secondaries go in a `MoreMenu` (see ActionBar).
+- The Decks, Plans and Lab areas draw theirs with `AreaHead`, `PlansHead` and `LabHead`, which
+  add the area's sections and its `BackLink`.
