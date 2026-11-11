@@ -1211,11 +1211,15 @@ summary, .more-filters summary { min-height:44px; align-content:center; }
 .share-profile-head h1 { font-size:64px; line-height:1.04; margin:6px 0 16px; overflow-wrap:anywhere; }
 .share-decks { list-style:none; margin:24px 0 16px; padding:0; display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
 .share-deck { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--surface); overflow:hidden; }
-/* flex:1: in a row where another deck has build links, the art fills the height instead of leaving an empty band. */
-.share-deck-main { position:relative; isolation:isolate; display:flex; flex:1 0 auto; align-items:end; min-height:200px; color:inherit; text-decoration:none; }
+/* The art is the same height on every tile, so the line under it and the build links line up across a row.
+   A deck with no build links has only the art, which fills the tile instead of leaving an empty band. */
+.share-deck-main { position:relative; isolation:isolate; display:flex; flex:none; align-items:end; min-height:200px; color:inherit; text-decoration:none; }
+.share-deck-main:only-child { flex:1 0 auto; }
 .share-deck-main>img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:-2; }
 .share-deck-copy { display:flex; flex-direction:column; gap:4px; padding:18px; }
 .share-deck-copy b { font-family:var(--display); font-weight:800; font-size:26px; line-height:1; }
+/* A long name or a pair of commanders stops at two lines, so it can't make one tile's art taller than its neighbors'. */
+.share-deck-copy b, .share-deck-copy b + span { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; padding-bottom:.1em; }
 .share-deck-copy small { color:var(--dim); }
 .share-deck-main:hover b, .share-deck-main:focus-visible b { text-decoration:underline; text-underline-offset:3px; }
 .share-deck-configs { border-top:1px solid var(--line); padding:0 18px; font-size:14px; }
