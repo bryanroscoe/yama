@@ -655,6 +655,33 @@ fn snapshot(m: &Match, seats: &[SeatCfg]) -> Snapshot {
     snap
 }
 
+/// Store the game's knockouts on its seats, in the caller's transaction.
+async fn write_knockouts(tx: &mut sqlx::SqliteConnection, game_id: &str, found: &[results::Knockout]) -> anyhow::Result<()> {
+    // A rewind can take a knockout back: seats still in the game have none.
+    sqlx::query(
+        "UPDATE game_seats SET eliminated_turn = NULL, eliminated_by_seat = NULL
+         WHERE game_id = ? AND eliminated_turn IS NOT NULL AND seat NOT IN (SELECT value FROM json_each(?))",
+    )
+    .bind(game_id)
+    .bind(serde_json::to_string(&found.iter().map(|k| k.seat).collect::<Vec<_>>())?)
+    .execute(&mut *tx)
+    .await?;
+    for k in found {
+        // Read from the moment it happened while the feed holds it; a name stored for this same
+        // knockout stays if the hit behind it has since left the feed. Once the feed has let the
+        // knockout go, what was stored when it happened stands.
+        let sql = if k.seen {
+            "UPDATE game_seats SET eliminated_by_seat = COALESCE(?1, CASE WHEN eliminated_turn = ?2 THEN eliminated_by_seat END), eliminated_turn = ?2
+             WHERE game_id = ?3 AND seat = ?4"
+        } else {
+            "UPDATE game_seats SET eliminated_by_seat = COALESCE(eliminated_by_seat, ?1), eliminated_turn = COALESCE(eliminated_turn, ?2)
+             WHERE game_id = ?3 AND seat = ?4"
+        };
+        sqlx::query(sql).bind(k.by.map(i64::from)).bind(i64::from(k.turn)).bind(game_id).bind(i64::from(k.seat)).execute(&mut *tx).await?;
+    }
+    Ok(())
+}
+
 /// Save the game as it stands. `knockouts` also writes each seat's knockout to the game record
 /// (always done once the game is over): the caller asks for it when the knockouts have changed.
 async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -> anyhow::Result<()> {
@@ -671,29 +698,7 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -
     // The spectator's feed says who dealt a knockout's damage; nobody is out in most saves.
     let events = if (knockouts || m.is_over()) && !m.outs().is_empty() { m.events(None) } else { vec![] };
     if knockouts || m.is_over() {
-        let found = results::knockouts(m.outs(), &events);
-        // A rewind can take a knockout back: seats still in the game have none.
-        sqlx::query(
-            "UPDATE game_seats SET eliminated_turn = NULL, eliminated_by_seat = NULL
-             WHERE game_id = ? AND eliminated_turn IS NOT NULL AND seat NOT IN (SELECT value FROM json_each(?))",
-        )
-        .bind(game_id)
-        .bind(serde_json::to_string(&found.iter().map(|k| k.seat).collect::<Vec<_>>())?)
-        .execute(&mut *tx)
-        .await?;
-        for k in &found {
-            // Read from the moment it happened while the feed holds it; a name stored for this
-            // same knockout stays if the hit behind it has since left the feed. Once the feed has
-            // let the knockout go, what was stored when it happened stands.
-            let sql = if k.seen {
-                "UPDATE game_seats SET eliminated_by_seat = COALESCE(?1, CASE WHEN eliminated_turn = ?2 THEN eliminated_by_seat END), eliminated_turn = ?2
-                 WHERE game_id = ?3 AND seat = ?4"
-            } else {
-                "UPDATE game_seats SET eliminated_by_seat = COALESCE(eliminated_by_seat, ?1), eliminated_turn = COALESCE(eliminated_turn, ?2)
-                 WHERE game_id = ?3 AND seat = ?4"
-            };
-            sqlx::query(sql).bind(k.by.map(i64::from)).bind(i64::from(k.turn)).bind(game_id).bind(i64::from(k.seat)).execute(&mut *tx).await?;
-        }
+        write_knockouts(&mut tx, game_id, &results::knockouts(m.outs(), &events)).await?;
     }
     if m.is_over() {
         let view = m.view(None);

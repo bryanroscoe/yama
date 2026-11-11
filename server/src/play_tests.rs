@@ -1609,9 +1609,12 @@ async fn a_finished_game_saves_its_knockouts_and_how_it_was_won() {
     for seat in 0..3 {
         sqlx::query("INSERT INTO game_seats (game_id,seat,guest_name) VALUES ('results',?,'Someone')").bind(seat).execute(&pool).await.unwrap();
     }
-    let seats = || async {
-        sqlx::query_as::<_, (i64, Option<i64>, Option<i64>)>("SELECT seat, eliminated_turn, eliminated_by_seat FROM game_seats WHERE game_id='results' ORDER BY seat")
-            .fetch_all(&pool).await.unwrap()
+    let seats = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (i64, Option<i64>, Option<i64>)>("SELECT seat, eliminated_turn, eliminated_by_seat FROM game_seats WHERE game_id='results' ORDER BY seat")
+                .fetch_all(&pool).await.unwrap()
+        }
     };
 
     // A save that isn't asked for knockouts leaves the seats alone while the game is going.
@@ -1736,4 +1739,46 @@ async fn the_member_backfill_fills_only_online_seats_whose_account_is_in_the_gam
     let filled: Vec<(String, i64, String)> =
         sqlx::query_as("SELECT game_id, seat, member_id FROM game_seats WHERE member_id IS NOT NULL ORDER BY game_id, seat").fetch_all(&pool).await.unwrap();
     assert_eq!(filled, vec![("online".to_string(), 0, "m-ana".to_string())]);
+}
+
+#[tokio::test]
+async fn a_knockout_the_feed_has_let_go_keeps_what_was_stored_when_it_happened() {
+    use results::Knockout;
+    let pool = crate::db::test_pool().await;
+    sqlx::query("INSERT INTO users (id, email, display_name, created_at) VALUES ('ana','ana@x.y','Ana','t')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO games (id,mode,created_by,status,started_at) VALUES ('long','online','ana','in_progress','t')").execute(&pool).await.unwrap();
+    for seat in 0..4 {
+        sqlx::query("INSERT INTO game_seats (game_id,seat,guest_name) VALUES ('long',?,'Someone')").bind(seat).execute(&pool).await.unwrap();
+    }
+    let seats = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (i64, Option<i64>, Option<i64>)>("SELECT seat, eliminated_turn, eliminated_by_seat FROM game_seats WHERE game_id='long' ORDER BY seat")
+                .fetch_all(&pool).await.unwrap()
+        }
+    };
+    let write = |found: Vec<Knockout>| {
+        let pool = pool.clone();
+        async move {
+            let mut tx = pool.begin().await.unwrap();
+            write_knockouts(&mut tx, "long", &found).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+    };
+    // Seat 1 goes out on turn 5 to seat 0's attack, while the feed holds it.
+    write(vec![Knockout { seat: 1, turn: 5, by: Some(0), seen: true }]).await;
+    assert_eq!(seats().await[1], (1, Some(5), Some(0)));
+    // Much later seat 2 goes out. The feed has dropped seat 1's knockout: all that's left of it
+    // is the engine's turn after that action (6) and nobody to name. What was stored stands.
+    write(vec![Knockout { seat: 1, turn: 6, by: None, seen: false }, Knockout { seat: 2, turn: 40, by: None, seen: true }]).await;
+    assert_eq!(seats().await, vec![(0, None, None), (1, Some(5), Some(0)), (2, Some(40), None), (3, None, None)]);
+    // The feed still has the knockout but no longer the hit behind it: the name stays.
+    write(vec![Knockout { seat: 1, turn: 5, by: None, seen: true }, Knockout { seat: 2, turn: 40, by: None, seen: true }]).await;
+    assert_eq!(seats().await[1], (1, Some(5), Some(0)));
+    // A knockout never stored (the server restarted before its save) takes what's left to tell.
+    write(vec![Knockout { seat: 1, turn: 5, by: None, seen: false }, Knockout { seat: 2, turn: 40, by: None, seen: false }, Knockout { seat: 3, turn: 44, by: None, seen: false }]).await;
+    assert_eq!(seats().await[3], (3, Some(44), None));
+    // A rewind took every knockout back.
+    write(vec![]).await;
+    assert_eq!(seats().await, vec![(0, None, None), (1, None, None), (2, None, None), (3, None, None)]);
 }
