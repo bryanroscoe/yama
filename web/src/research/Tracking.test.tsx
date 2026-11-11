@@ -92,7 +92,7 @@ describe("a note's build as a deck's plan", () => {
       return <p>{r ? `${r.upto}|${r.text}` : "none"}</p>;
     }
     const set = { effective_from: "2026-10-01", origin: "yama", rules: { local_buy: { max_usd: 3, tiers: [] } } };
-    expect(render(<Rule />, planBundle([], [], [set]))).toContain("3.00|Starting at your shopping rule from 1 Oct 2026: buy cards up to $3.00.");
+    expect(render(<Rule />, planBundle([], [], [set]))).toContain("3.00|Starting at your shopping rule from Oct 1, 2026: buy cards up to $3.00.");
     expect(render(<Rule />, planBundle([]))).toContain("none");
   });
 });

@@ -1,10 +1,10 @@
 import { SinglesPrice } from "../components/DeckPrices";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { bottom, draw, expandDeck, newHand, rng, type Goldfish } from "@yama/core";
+import { bottom, draw, expandDeck, newHand, rng, type Goldfish, priceSource } from "@yama/core";
 import { deckCounts, deckLogs, swapSource, swapStatus, type PlanDeck, type Swap } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, priceSource, type DeckEntry, type DeckSummary, type DeckView } from "../api";
+import { api, type DeckEntry, type DeckSummary, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
 import { CardImage, ErrorText, Pips } from "../components/ui";

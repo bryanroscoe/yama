@@ -50,9 +50,9 @@ describe("private evidence browser", () => {
     const render = (r: EvidenceRecord) => renderToStaticMarkup(<RecordCard record={r} explore={() => {}} />);
     const zero = render(observation({ kind: "rolling_window", lookback_days: 180, source_as_of: "2026-10-28T12:00:00Z" }));
     expect(zero).toContain("0.00%"); expect(zero).toContain("100 source-reported games");
-    expect(zero).toContain("180-day window as of 2026-10-28"); expect(zero).not.toContain("Complete month");
+    expect(zero).toContain("180-day window as of Oct 28, 2026"); expect(zero).not.toContain("Complete month");
     expect(render(observation({ kind: "cumulative_snapshot", source_as_of: "2026-06-26T00:00:00Z" }, null))).toContain("Unknown");
-    expect(render(observation({ kind: "calendar_month", start: "2026-09-01", end: "2026-10-01" }))).toContain("Complete month 2026-09-01 to 2026-10-01");
+    expect(render(observation({ kind: "calendar_month", start: "2026-09-01", end: "2026-10-01" }))).toContain("Complete month Sep 1, 2026 to Oct 1, 2026");
   });
   it("shows monthly weighting limits and keeps no eligible months distinct from a zero average", () => {
     const data: DatasetRead = { dataset: head, next_offset: null, monthly_summaries: [{ cohort: "https://playgroup.gg/monthly", months: 2, excluded_months: 1, source_reported_games: 436, weighted_source_rate_percent: null, half_life_days: 180, as_of: "2026-10-28" }] };

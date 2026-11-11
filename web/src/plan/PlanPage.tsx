@@ -1,4 +1,4 @@
-import { identityName } from "@yama/core";
+import { identityName, fmtDate, NO_PRICE, usd } from "@yama/core";
 import {
   KIND_ORDER,
   KIND_TITLE,
@@ -6,7 +6,6 @@ import {
   STEP_LABEL,
   countChanges,
   exportText,
-  fmtDate,
   inForce,
   opTime,
   planChange,
@@ -38,7 +37,6 @@ import { planHref, progressSteps } from "./Plans";
 import type { PlanView } from "./view";
 import "./plans.css";
 
-const money = (n: number) => `$${n.toFixed(2)}`;
 const changesWord = (n: number) => (n === 1 ? "1 change" : `${n} changes`);
 
 /** Send a whole-plan decision; the outbox keeps it until the server has it. */
@@ -231,7 +229,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
                   const kept = rows.filter((c) => !skipped.has(c.swap.key));
                   const total = kept.filter((c) => c.price).reduce((t, c) => t + c.price!.usd, 0);
                   const note =
-                    k === "have" ? "In your collection, not in a deck" : k === "move" ? "Moved when you put this deck together" : k === "buy" ? (kept.some((c) => c.price) ? `${money(total)} listed` : "No prices yet") : "Goes on your next print order";
+                    k === "have" ? "In your collection, not in a deck" : k === "move" ? "Moved when you put this deck together" : k === "buy" ? (kept.some((c) => c.price) ? `${usd(total)} listed` : "No prices") : "Goes on your next print order";
                   return (
                     <div key={k} className="plans-group">
                       <div className="plans-group-head">
@@ -299,7 +297,7 @@ function Approve({ deck, plan, view, userId, first = false }: { deck: PlanDeck; 
               <dt>To buy</dt>
               <dd>
                 {counts.buy}
-                {counts.buyUsd != null ? `, ${money(counts.buyUsd)}` : ""}
+                {counts.buyUsd != null ? `, ${usd(counts.buyUsd)}` : ""}
               </dd>
             </div>
             <div>
@@ -346,8 +344,8 @@ function ChangeRow({ change, view, skipped, problem, cut, onToggle }: { change: 
   const meta =
     change.kind === "buy"
       ? change.price
-        ? `${money(change.price.usd)}${change.price.store ? ` at ${change.price.store}` : " market"}`
-        : "No price yet"
+        ? `${usd(change.price.usd)}${change.price.store ? ` at ${change.price.store}` : " market"}`
+        : NO_PRICE
       : change.kind === "move"
         ? `From ${change.from}`
         : change.kind === "print"

@@ -3,8 +3,9 @@ import { createContext, useContext, useState } from "react";
 import { useMe } from "../auth";
 import { CardRef, CardText } from "../components/CardRef";
 import { ErrorText } from "../components/ui";
-import { changedAnswer, money, safeUrl, saveReview, type Combo, type Item, type ResearchBundle, type ReviewOp, type Scenario, type Source } from "./api";
+import { changedAnswer, safeUrl, saveReview, type Combo, type Item, type ResearchBundle, type ReviewOp, type Scenario, type Source } from "./api";
 import { planSummariesKey } from "./view";
+import { usd, fmtDate } from "@yama/core";
 
 /**
  * What only a note's owner sees: their answers for the agent, and the agent's own evidence
@@ -73,13 +74,13 @@ export function AcquisitionItem({ item, showCard = true }: { item: Item; showCar
       {(quote.store || item.kind === "buy") && (
         <p className="small">
           <b>
-            {quote.store || "Store unverified"}: {money(quote.price)}
+            {quote.store || "Store unverified"}: {usd(quote.price)}
           </b>{" "}
           before tax{quote.printing && `, ${quote.printing}`}
           {quote.condition && `, ${quote.condition}`}
           <br />
-          {item.kind === "sealed_purchase" ? "Sealed market reference" : "Matched market"}: {money(quote.market)}
-          {quote.checked && `; checked ${quote.checked}`}
+          {item.kind === "sealed_purchase" ? "Sealed market reference" : "Matched market"}: {usd(quote.market)}
+          {quote.checked && `; checked ${fmtDate(quote.checked)}`}
           {safeUrl(quote.url) && (
             <>
               .{" "}
@@ -98,7 +99,7 @@ export function AcquisitionItem({ item, showCard = true }: { item: Item; showCar
           <ul>
             {check.local_checks?.map((s, i) => (
               <li key={i}>
-                {s.store}, checked {s.checked ?? check.checked ?? "date unknown"}
+                {s.store}, checked {fmtDate(s.checked ?? check.checked) || "date unknown"}
                 {s.search_may_be_truncated ? "; search may be incomplete" : ""}
                 {!!s.errors?.length && `; unresolved: ${s.errors.join("; ")}`}
               </li>
@@ -106,7 +107,7 @@ export function AcquisitionItem({ item, showCard = true }: { item: Item; showCar
           </ul>
           {check.market_reference && (
             <p>
-              Cheapest priced market reference: {money(check.market_reference.market)}
+              Cheapest priced market reference: {usd(check.market_reference.market)}
               {check.market_reference.set && `, ${check.market_reference.set.toUpperCase()} #${check.market_reference.num}`}
               {safeUrl(check.market_reference.url) && (
                 <>
@@ -121,7 +122,7 @@ export function AcquisitionItem({ item, showCard = true }: { item: Item; showCar
           )}
           {check.rejected_offers?.map((r, i) => (
             <p key={i}>
-              {r.store}: {money(r.price)}, {r.printing}. {r.reason}
+              {r.store}: {usd(r.price)}, {r.printing}. {r.reason}
               {safeUrl(r.url) && (
                 <>
                   {" "}
@@ -356,7 +357,7 @@ export function AgentShopping({ scenarios: allScenarios = [], defaultId }: { sce
       )}
       <p className="research-shopping-total">
         <b>
-          {singles} local singles; {money(scenario.buy_total)} before tax; {scenario.print_count ?? scenario.prints?.length ?? 0} proposed prints
+          {singles} local singles; {scenario.buy_total == null ? "total unknown" : `${usd(scenario.buy_total)} before tax`}; {scenario.print_count ?? scenario.prints?.length ?? 0} proposed prints
         </b>
       </p>
       <div className="research-acquisition-grid">

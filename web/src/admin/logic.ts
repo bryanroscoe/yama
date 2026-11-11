@@ -2,24 +2,7 @@
 
 import type { AccountInfo } from "../api";
 import type { DeleteReport, SharedGrant, SharedOverview, UsageRow } from "./api";
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
-
-/** "just now", "12 minutes ago", "3 hours ago", "yesterday", "5 days ago", or the date. */
-export function ago(iso: string | null | undefined, now: Date = new Date()): string {
-  if (!iso) return "never";
-  const t = new Date(iso);
-  const minutes = Math.floor((now.getTime() - t.getTime()) / 60000);
-  if (Number.isNaN(minutes)) return "unknown";
-  if (minutes < 2) return "just now";
-  if (minutes < 60) return `${minutes} minutes ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${plural(hours, "hour")} ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "yesterday";
-  if (days < 14) return `${days} days ago`;
-  return t.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+import { count, fmtDate, plural, usd as dollars } from "@yama/core";
 
 /** A duration in milliseconds: "4 ms", "180 ms", "1.4 s", "25 s", "3 min 20 s". */
 export function duration(ms: number): string {
@@ -72,7 +55,7 @@ export function nearLimits(a: UsageRow): string[] {
   const check = (used: number, limit: number | null, say: (used: number, limit: number) => string) => {
     if (limit != null && limit > 0 && used >= limit * NEAR) out.push(say(used, limit));
   };
-  check(a.lab_games_today, a.limits.lab_games_per_day, (u, l) => `Lab: ${u.toLocaleString("en-US")} of ${plural(l, "game")} today`);
+  check(a.lab_games_today, a.limits.lab_games_per_day, (u, l) => `Lab: ${count(u)} of ${plural(l, "game")} today`);
   check(a.lab_runs_unfinished, a.limits.lab_runs_at_a_time, (u, l) => `Lab: ${u} of ${plural(l, "run")} at a time`);
   check(a.advisor_today, a.limits.advisor_per_day, (u, l) => `Ask Claude: ${u} of ${plural(l, "question")} today`);
   check(a.watch_running, a.limits.watch_at_a_time, (u, l) => `Watching: ${u} of ${plural(l, "game")} at a time`);
@@ -82,7 +65,7 @@ export function nearLimits(a: UsageRow): string[] {
 /** What the account has in Yama, in one line. */
 export function holdings(a: UsageRow): string {
   const parts = [plural(a.decks, "deck"), plural(a.games_logged, "game") + " logged", plural(a.games_played, "game") + " played"];
-  if (a.collection_cards) parts.push(`${a.collection_cards.toLocaleString("en-US")} cards in the collection`);
+  if (a.collection_cards) parts.push(`${count(a.collection_cards)} cards in the collection`);
   if (a.has_plan) parts.push("a deck plan");
   return `${parts.join(", ")}.`;
 }
@@ -114,7 +97,7 @@ export function advisorLine(a: UsageRow): string {
 /** "$0.42", "$10.00": dollars to the cent (a fraction of a cent shows as "under $0.01"). */
 export function usd(n: number): string {
   if (n > 0 && n < 0.005) return "under $0.01";
-  return `$${n.toFixed(2)}`;
+  return dollars(n);
 }
 
 /**
@@ -132,7 +115,7 @@ export function parseDailyCap(text: string): number | null | "invalid" {
 /** The shared key, for the top of People: the month's spend against its cap, the models and whether the advisor holds it. */
 export function sharedSummary(o: SharedOverview): string {
   const parts = [`Spent this month (UTC): ${usd(o.spent_this_month)} of ${usd(o.monthly_usd)}.`];
-  if (o.spent_this_month >= o.monthly_usd) parts.push(`Shared questions are paused until ${new Date(o.next_month).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })}.`);
+  if (o.spent_this_month >= o.monthly_usd) parts.push(`Shared questions are paused until ${fmtDate(o.next_month, { month: "long", year: false, utc: true })}.`);
   parts.push(`Models: ${o.models.join(", ")}.`);
   if (o.key_on_sidecar === false) parts.push("The advisor doesn't hold a shared key yet: run deploy/advisor-shared-key.sh on the Mac.");
   else if (o.key_on_sidecar == null) parts.push("The advisor didn't say whether it holds the key.");

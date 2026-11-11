@@ -1,4 +1,4 @@
-import { fmtDate, sourceText } from "@yama/core/plan";
+import { sourceText } from "@yama/core/plan";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { ErrorText } from "../components/ui";
@@ -6,6 +6,7 @@ import { planSummaries, planSummariesKey } from "../research/view";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { planHref } from "./Plans";
 import "./plans.css";
+import { fmtDate } from "@yama/core";
 
 /** A research note's page among the archived plans. */
 export const archivedNoteHref = (id: string, deck?: string) =>

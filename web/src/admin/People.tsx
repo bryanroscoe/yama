@@ -6,7 +6,8 @@ import { useAuthConfig, useMe } from "../auth";
 import { ErrorText, Sheet } from "../components/ui";
 import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from "./api";
 import { startViewing } from "../viewing";
-import { ago, confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
+import { confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
+import { ago } from "@yama/core";
 
 const signInWays = (a: AccountInfo) => {
   const ways = [a.google && "Google", a.password && "a password"].filter(Boolean);

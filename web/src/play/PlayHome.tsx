@@ -16,6 +16,7 @@ import { useMe, usePower } from "../auth";
 import type { OnlineGame, SeatInfo } from "./types";
 import { SavedDeckPicker } from "../components/DeckPicker";
 import "./play.css";
+import { ago } from "@yama/core";
 
 const SKILLS = ["Easy", "Medium", "Hard"] as const;
 
@@ -34,16 +35,6 @@ export function tableWho(seats: SeatInfo[], you: number | null): string {
   const parts = [...(you !== null ? ["You"] : []), ...people, ...(ai ? [ai === 1 ? "a computer" : `${ai} computers`] : [])];
   const list = parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return open ? `${list}, ${open} open ${open === 1 ? "seat" : "seats"}` : list;
-}
-
-export function ago(iso: string | undefined): string {
-  if (!iso) return "";
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} ${mins === 1 ? "minute" : "minutes"} ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /** What a game in the list says first: who won, that it's waiting, or that it's under way. */
@@ -153,7 +144,7 @@ function ContinueHero({ game }: { game: OnlineGame }) {
         <span className="ph-hero-kicker">Continue</span>
         <span className="ph-hero-title">{headline}</span>
         <span className="ph-hero-who">
-          {tableWho(game.seats, game.you)}. Last move {ago(game.updated_at)}.
+          {tableWho(game.seats, game.you)}.{game.updated_at ? ` Last move ${ago(game.updated_at)}.` : ""}
         </span>
       </span>
       <span className="ph-hero-go"><span className="ph-go-long">Open the board</span><span className="ph-go-short">Open</span></span>

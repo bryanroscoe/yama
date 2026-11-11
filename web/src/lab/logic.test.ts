@@ -25,7 +25,6 @@ import {
   engineFamily,
   expectedSeconds,
   filterPrecons,
-  fmtDate,
   gameText,
   grouped,
   hasResults,
@@ -45,6 +44,7 @@ import {
   verdictText,
   yearsOf,
 } from "./logic";
+
 
 const precon = (id: string, over: Partial<PreconItem> = {}): PreconItem => ({
   id,
@@ -83,12 +83,7 @@ describe("wording", () => {
     expect(moreOften(0.002)).toBe("about as often as");
   });
 
-  it("formats dates day month year and keeps unreadable ones", () => {
-    expect(fmtDate("2026-10-19T04:15:40Z")).toBe("19 Oct 2026");
-    expect(fmtDate("2026-10-19")).toBe("19 Oct 2026");
-    expect(fmtDate("soon")).toBe("soon");
-    expect(fmtDate(null)).toBe("");
-  });
+
 
   it("gives rough durations", () => {
     expect(durationText(30)).toBe("under a minute");
@@ -107,8 +102,8 @@ describe("wording", () => {
   });
 
   it("labels simulated numbers with engine, AI level, games and date, no middle dots", () => {
-    const s = simLabel({ engine: "phase-rs v0.113.0", difficulty: "Easy", games: 1234, pod: 4, date: "2026-10-19T04:15:40Z", run: "pilot-2" });
-    expect(s).toBe("Simulated on phase-rs v0.113.0, Easy AI, 1,234 games in 4-player pods, run pilot-2, 19 Oct 2026");
+    const s = simLabel({ engine: "phase-rs v0.113.0", difficulty: "Easy", games: 1234, pod: 4, date: "2026-10-19", run: "pilot-2" });
+    expect(s).toBe("Simulated on phase-rs v0.113.0, Easy AI, 1,234 games in 4-player pods, run pilot-2, Oct 19, 2026");
     expect(s).not.toContain("·");
   });
 
@@ -120,8 +115,8 @@ describe("wording", () => {
 
   it("labels a run that stopped early with the games behind its numbers", () => {
     const l = { engine: "phase-rs v0.113.0", difficulty: "Easy", pod: 4, date: "2026-10-19" };
-    expect(simLabel({ ...l, games: 1, planned: 100 })).toBe("Simulated on phase-rs v0.113.0, Easy AI, 1 of 100 planned games in 4-player pods, 19 Oct 2026");
-    expect(simLabel({ ...l, games: 100, planned: 100 })).toBe("Simulated on phase-rs v0.113.0, Easy AI, 100 games in 4-player pods, 19 Oct 2026");
+    expect(simLabel({ ...l, games: 1, planned: 100 })).toBe("Simulated on phase-rs v0.113.0, Easy AI, 1 of 100 planned games in 4-player pods, Oct 19, 2026");
+    expect(simLabel({ ...l, games: 100, planned: 100 })).toBe("Simulated on phase-rs v0.113.0, Easy AI, 100 games in 4-player pods, Oct 19, 2026");
   });
 
   it("names the run's engine in the caveat", () => {
@@ -139,7 +134,7 @@ describe("wording", () => {
     expect(hasResults(null)).toBe(false);
     const some = { ...empty, base: { games: 3 } } as unknown as Summary;
     expect(hasResults(some)).toBe(true);
-    expect(verdictText("cancelled", some)).toBe("Can't tell from the games played before it was cancelled");
+    expect(verdictText("cancelled", some)).toBe("Can't tell from the games played before it was canceled");
     expect(verdictText("running", some)).toBe("Can't tell yet: run more games");
     const better = { ...some, verdict: { kind: "better", text: "Probably better (+4 points, 90% interval +1 to +7)", final: true } } as unknown as Summary;
     expect(verdictText("cancelled", better)).toBe(better.verdict.text);

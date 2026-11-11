@@ -1,8 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, useLocation } from "react-router";
-import { day } from "../components/Rulings";
 import { NEWS, SEEN_KEY, noticeLine, unseen } from "../whatsNew";
 import "../components/calendar.css";
+import { fmtDate } from "@yama/core";
 
 const SEEN_EVENT = "yama-news-seen";
 
@@ -75,7 +75,7 @@ export function WhatsNewPage() {
               {e.title}
               {freshIds.has(e.id) && before !== null && <span className="news-new">New</span>}
             </h2>
-            <p className="news-date">{day(e.date)}</p>
+            <p className="news-date">{fmtDate(e.date)}</p>
             <ul>
               {e.items.map((item) => (
                 <li key={item}>{item}</li>

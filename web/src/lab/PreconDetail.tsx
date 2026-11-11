@@ -2,16 +2,16 @@ import { CardHover } from "../components/CardRef";
 import { UpgradeabilitySection } from "./Upgradeability";
 import { DeckPrices } from "../components/DeckPrices";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { identityName } from "@yama/core";
+import { identityName, usd, priceSource, fmtDate } from "@yama/core";
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
-import { api, usd, priceSource } from "../api";
+import { api } from "../api";
 import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
 import { ConfidenceNote } from "./confidence";
-import { cantJudge, caveat, fmtDate, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
+import { cantJudge, caveat, grouped, linScale, logScale, pct, pctRange, strengthDomain, strengthText } from "./logic";
 import { ArtPanel, IntervalBar } from "./parts";
 import { RunLine, usePrecons } from "./Precons";
 import { AskClaude } from "../advisor/AskClaude";
@@ -273,7 +273,7 @@ function Matchups({ rows, run, unjudged }: { rows: Matchup[]; run: RunLabel; unj
   );
   return (
     <section>
-      <h2>Modelled one-on-one odds</h2>
+      <h2>Modeled one-on-one odds</h2>
       {unjudged && <p className="lab-note">Engine caution: these matchups share the simulation’s limitations.</p>}
       <Details label="How matchups are estimated"><p>
         The chance of beating each precon in a game of two, implied by the model from the 4-player games of run {run.name}. They aren't head-to-head

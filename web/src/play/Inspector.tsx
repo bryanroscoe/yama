@@ -7,10 +7,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { cardDetailQuery } from "../cardDetail";
-import { day } from "../components/Rulings";
 import { Sheet } from "../components/ui";
 import { faceOf, inspectorFacts, inspectorTabs, type InspectorTab, type Names } from "./feed";
 import type { CardMeta, CardView, OptionView, View } from "./types";
+import { fmtDate } from "@yama/core";
 
 const SOURCES: Record<string, string> = { wotc: "Wizards of the Coast", scryfall: "Scryfall" };
 
@@ -174,7 +174,7 @@ function RulingsList({ oracleId }: { oracleId?: string }) {
         <li key={i}>
           <p>{r.comment}</p>
           <span className="dim small">
-            {day(r.published_at)}, {SOURCES[r.source] ?? r.source}
+            {fmtDate(r.published_at)}, {SOURCES[r.source] ?? r.source}
           </span>
         </li>
       ))}

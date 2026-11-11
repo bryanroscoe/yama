@@ -5,6 +5,7 @@ import { api } from "../api";
 import { useMe } from "../auth";
 import { forgetTable, rememberTable, useFollowedTable } from "./following";
 import { joinFragment, type Relay } from "./share";
+import { fmtTime } from "@yama/core";
 
 interface ActiveTable {
   id: string;
@@ -61,7 +62,7 @@ export function SharedTables({ localGameId }: { localGameId?: string }) {
         <div key={t.id} className="guest-banner">
           <div>
             <h2>{t.group_name ? `${t.group_name} is playing` : "Your table is live"}</h2>
-            <p className="dim">{t.host_name} started a game at {new Date(t.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</p>
+            <p className="dim">{t.host_name} started a game at {fmtTime(t.started_at)}.</p>
             <Link className="button primary" to={`/table/join/${t.id}${t.key ? joinFragment(t.key, t.relay) : ""}`}>Join the table</Link>
           </div>
         </div>

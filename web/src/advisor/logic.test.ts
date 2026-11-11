@@ -118,7 +118,7 @@ describe("the shared key", () => {
 
   it("says when the month's cap is reached and when it's back", () => {
     expect(pausedText("Bryan", "2026-11-01T00:00:00Z")).toBe(
-      "Bryan's shared key has reached this month's limit. It's back on 1 November. Until then you can add your own Anthropic API key in Settings.",
+      "Bryan's shared key has reached this month's limit. It's back on November 1. Until then you can add your own Anthropic API key in Settings.",
     );
   });
 

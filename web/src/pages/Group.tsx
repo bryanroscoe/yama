@@ -5,13 +5,14 @@ import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type Playg
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { GroupStats, pct } from "../components/GroupStats";
+import { GroupStats } from "../components/GroupStats";
 import { streakText } from "../components/statsText";
 import { useCardArt } from "../components/useCardArt";
 import "./group.css";
 import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 import { HelpPopover } from "../components/HelpPopover";
 import { exportLink } from "../download";
+import { percent, fmtMonth } from "@yama/core";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
@@ -124,7 +125,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
   const commanderFloor = Math.max(5, s?.provisional_under ?? 0);
   // The first game the list goes back to, when it holds every game (the server sends up to 200).
   const first = games.data && games.data.length < 200 ? games.data.filter((g) => g.status === "finished").at(-1)?.started_at : undefined;
-  const since = first ? new Date(first).toLocaleDateString("en-US", { month: "long", ...(new Date(first).getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) }) : null;
+  const since = first ? fmtMonth(first) : null;
   const credited = [
     ...[...favourites.values()].map(artOf),
     ...(s?.commanders ?? []).map((c) => artOf(c.commander)),
@@ -197,7 +198,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                 const guest = !p.member_id || !group.members.find((m) => m.id === p.member_id)?.user_id;
                 const record = `${p.games} ${p.games === 1 ? "game" : "games"}, ${p.wins} ${p.wins === 1 ? "win" : "wins"}${p.draws ? `, ${p.draws} ${p.draws === 1 ? "draw" : "draws"}` : ""}`;
                 const bar = (
-                  <span className="grp-bar" role="img" aria-label={`${p.name} wins ${pct(rate)} of ${p.games} games; an even share is ${pct(p.expected)}`}>
+                  <span className="grp-bar" role="img" aria-label={`${p.name} wins ${percent(rate)} of ${p.games} games; an even share is ${percent(p.expected)}`}>
                     <span className="grp-bar-fill" style={{ width: `${Math.min(100, (rate / 0.6) * 100)}%` }} />
                     <span className="grp-bar-even" style={{ left: `${Math.min(100, (p.expected / 0.6) * 100)}%` }} />
                   </span>
@@ -206,7 +207,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                   <li key={p.key} className={`grp-player${few ? " few" : ""}`}>
                     <ArtPanel className="grp-player-art" art={a?.art} artist={a?.artist} wash="bottom" credit={false}>
                       <span className="grp-player-name">{p.name}</span>
-                      <span className="grp-player-rate num">{few ? "Too few" : pct(rate)}</span>
+                      <span className="grp-player-rate num">{few ? "Too few" : percent(rate)}</span>
                     </ArtPanel>
                     {/* Phones: the art as a circle beside the name. */}
                     <span className="grp-player-dot">{a?.art && <img src={a.art} alt="" />}</span>
@@ -222,7 +223,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                       </span>
                       {p.streak && <span className="grp-streak">{streakText(p.streak)}</span>}
                     </div>
-                    <span className="grp-player-rate-narrow num">{few ? "Few" : pct(rate)}</span>
+                    <span className="grp-player-rate-narrow num">{few ? "Few" : percent(rate)}</span>
                   </li>
                 );
               })}
@@ -265,8 +266,8 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                         </td>
                         <td className="r num">{c.games}</td>
                         <td className="r num">{c.wins}</td>
-                        <td className="r num">{pct(c.expected)}</td>
-                        <td className="r num grp-cmdr-rate">{few ? "Too few" : pct(c.wins / c.games)}</td>
+                        <td className="r num">{percent(c.expected)}</td>
+                        <td className="r num grp-cmdr-rate">{few ? "Too few" : percent(c.wins / c.games)}</td>
                       </tr>
                     );
                   })}

@@ -7,6 +7,7 @@ import { keepStorage } from "../storage";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
 import { DeleteAccount } from "./DeleteAccount";
 import "./group.css";
+import { count, shortDate } from "@yama/core";
 
 export function AccountSettings() {
   const me = useMe();
@@ -51,7 +52,7 @@ export function AccountSettings() {
 
 function OfflineCardsSetting() {
   const s = useOfflineCards();
-  const saved = s.savedAt ? new Date(s.savedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  const saved = s.savedAt ? shortDate(s.savedAt) : "";
   return (
     <div className="grp-you-row grp-you-stack">
       <div className="grp-you-line">
@@ -59,7 +60,7 @@ function OfflineCardsSetting() {
           <b>Cards on this phone</b>
           <span>
             {s.count
-              ? `${s.count.toLocaleString()} cards saved ${saved}, so search works offline`
+              ? `${count(s.count)} cards saved ${saved}, so search works offline`
               : "Save every card's rules text (a 5 MB download) so card search works without signal."}
           </span>
         </span>

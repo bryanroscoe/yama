@@ -16,7 +16,6 @@ import {
   durationText,
   engineFamily,
   fieldResult,
-  fmtDate,
   hasResults,
   pct,
   pctRange,
@@ -34,6 +33,7 @@ import { IntervalChart, SimLine } from "./parts";
 import { RunWarnings, usePrecons } from "./Precons";
 import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
+import { fmtDate, count } from "@yama/core";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
 export function headline(e: ExperimentItem, name?: (label: string) => string): string {
@@ -48,7 +48,7 @@ export function headline(e: ExperimentItem, name?: (label: string) => string): s
     case "failed":
       return `Failed: ${e.error ?? "no reason recorded"}`;
     case "cancelled":
-      return `Cancelled after ${p.done} of ${p.total} games${s ? `. ${field?.text ?? verdictText(e.status, s)}` : ""}`;
+      return `Canceled after ${p.done} of ${p.total} games${s ? `. ${field?.text ?? verdictText(e.status, s)}` : ""}`;
     default:
       return field?.text ?? s?.verdict.text ?? "Done";
   }
@@ -58,7 +58,7 @@ export function headline(e: ExperimentItem, name?: (label: string) => string): s
 function runSubtitle(e: ExperimentItem): string {
   const f = e.field;
   const mode = e.mode ?? "change";
-  const games = `${e.label.games.toLocaleString("en-GB")} games, started ${fmtDate(e.label.started_at ?? e.label.created_at)}`;
+  const games = `${count(e.label.games)} games, started ${fmtDate(e.label.started_at ?? e.label.created_at)}`;
   // A tournament's field decks are all entrants, scored like the rest: no empty seats to name.
   if (mode === "tournament") return games;
   if (mode === "versus") {
@@ -154,7 +154,7 @@ export function RunsPage() {
                     : { text: "No clear winner", tone: "quiet" }
                   : s
                   ? verdictTag(s.verdict.kind, e.mode ?? "change")
-                  : { text: e.status === "cancelled" ? "Cancelled" : "Done", tone: "quiet" };
+                  : { text: e.status === "cancelled" ? "Canceled" : "Done", tone: "quiet" };
             return (
               <article key={e.id} className="lab-runcard">
                 <div className="lab-runcard-head">

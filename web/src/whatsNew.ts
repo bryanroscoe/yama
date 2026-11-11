@@ -219,10 +219,10 @@ export const NEWS: NewsEntry[] = [
   {
     id: "2026-11-01-shopping-settings",
     date: "2026-11-01",
-    title: "Your buy rule, your favourite store, and lists to paste",
+    title: "Your buy rule, your favorite store, and lists to paste",
     items: [
       "Plan settings has your buy rule: the most a card may cost, the price that's always fine, how far over market you'll go, and the most for a sealed precon. A change applies from today, so older checks keep the rules of their day, and a plan import won't replace it.",
-      "On the Trip page, mark a favourite store you want to support: it's on every trip it has a card for, and you can let it charge a little more. Put your stores in order of how easy they are to get to, and untick the ones you're not going to this time.",
+      "On the Trip page, mark a favorite store you want to support: it's on every trip it has a card for, and you can let it charge a little more. Put your stores in order of how easy they are to get to, and untick the ones you're not going to this time.",
       "Each store has its list to copy and its cart link where the store has one. Stores on TCGplayer Pro get a search link for each card, and what's left has a TCGplayer Mass Entry link to compare online.",
     ],
     link: { to: "/decks/plans/get/trip", label: "Store trip" },
@@ -376,7 +376,7 @@ export const NEWS: NewsEntry[] = [
     title: "Precon pages show real games over time",
     items: [
       "A precon's page now shows its playgroup.gg results over time: the all-time win rate, the rate in the games played since the earliest snapshot, and whether it's rising or falling.",
-      "Precons playgroup.gg doesn't rate show their commander's own figure instead, labelled as every list under that commander.",
+      "Precons playgroup.gg doesn't rate show their commander's own figure instead, labeled as every list under that commander.",
       "An experimental rating v2 combines real games with the simulation, but only gives the simulation weight if it has proved it predicts later real games. Tournaments in the Lab also show each deck's fitted strength, which accounts for who it sat with.",
     ],
     link: { to: "/lab", label: "Open the precons" },
@@ -683,7 +683,7 @@ export const NEWS: NewsEntry[] = [
     title: "Bring your decks in",
     items: [
       "Add a deck has step-by-step help for Moxfield, Archidekt, MTG Arena, MTGO, ManaBox, Mythic Tools, TappedOut, Deckstats, EDHREC and MTGGoldfish.",
-      "Paste a list, choose a file (.txt, .dek, .csv), or on Android share a list straight to Yama. Yama shows the deck before saving: the count, the commander, cards outside its colours, and names it couldn't match, with a likely card to tap.",
+      "Paste a list, choose a file (.txt, .dek, .csv), or on Android share a list straight to Yama. Yama shows the deck before saving: the count, the commander, cards outside its colors, and names it couldn't match, with a likely card to tap.",
       "Set codes and foils from the export are kept, so exports name the printings you chose.",
       "Update from a list (on a deck's page) saves a new version and shows what goes in and out first.",
     ],

@@ -5,11 +5,9 @@ import {
   basisText,
   boughtInfo,
   cheapestMarket,
-  fmtDate,
   installedState,
   markState,
   opTime,
-  usd,
   type BoughtOp,
   type InstalledOp,
   type Mark,
@@ -21,6 +19,7 @@ import { Link } from "react-router";
 import { Sheet } from "../components/ui";
 import { deviceId, outbox } from "./outbox";
 import type { PlanView } from "./view";
+import { fmtDate, usd, NO_PRICE } from "@yama/core";
 
 function stateOf(view: PlanView, s: Swap, m: Mark | undefined) {
   const deck = view.deck(s.deck);
@@ -178,7 +177,7 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
         )}
         <label>
           Paid for one copy (leave empty if you don't know)
-          <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="no price" />
+          <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={NO_PRICE} />
         </label>
         {!priceOk && <p className="error small">A price is a number, like 0.75.</p>}
         <div className="row">

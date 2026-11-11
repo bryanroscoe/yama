@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { ErrorText } from "../components/ui";
 import { adminApi, type PerfSummary, type ServerInfo, type WatchItem } from "./api";
-import { ago, bytes, duration, usd } from "./logic";
+import { bytes, duration, usd } from "./logic";
+import { ago, count, fmtDateTime, plural, fmtDate } from "@yama/core";
 
 const yes = (b: boolean) => (b ? "On" : "Off");
 
@@ -28,7 +29,7 @@ export function ServerPage() {
             <Facts
               rows={[
                 ["Version", s.version],
-                ["Running since", `${ago(s.started_at)} (${new Date(s.started_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })})`],
+                ["Running since", `${ago(s.started_at)} (${fmtDateTime(s.started_at)})`],
                 ["Google sign-in", yes(s.sign_in.google)],
                 ["Open sign-up", yes(s.sign_in.open_signup)],
                 ["Password sign-in", yes(s.sign_in.password)],
@@ -48,7 +49,7 @@ export function ServerPage() {
                   r.error ? (
                     <span className="admin-bad">Failed {ago(r.started_at)}: {r.error}</span>
                   ) : r.finished_at ? (
-                    `${(r.rows ?? 0).toLocaleString("en-US")} rows, imported ${ago(r.finished_at)}${r.source_updated_at ? `; ${r.kind.startsWith("mtgjson_") ? "MTGJSON" : "Scryfall"}'s file from ${ago(r.source_updated_at)}` : ""}`
+                    `${count(r.rows ?? 0)} rows, imported ${ago(r.finished_at)}${r.source_updated_at ? `; ${r.kind.startsWith("mtgjson_") ? "MTGJSON" : "Scryfall"}'s file from ${ago(r.source_updated_at)}` : ""}`
                   ) : (
                     `Started ${ago(r.started_at)}, still running`
                   ),
@@ -90,7 +91,7 @@ export function ServerPage() {
             <Facts
               rows={[
                 ["Experiments", s.lab.unavailable ? <span className="admin-bad">{s.lab.unavailable}</span> : `Running on ${s.lab.threads} game threads`],
-                ["Runs", `${s.lab.running} running, ${s.lab.queued} queued, ${s.lab.games_waiting.toLocaleString("en-US")} games to play`],
+                ["Runs", `${s.lab.running} running, ${s.lab.queued} queued, ${count(s.lab.games_waiting)} games to play`],
                 ["Imported runs everyone sees", String(s.lab.global_runs)],
               ]}
             />
@@ -109,12 +110,12 @@ function priceHistory(p: ServerInfo["prices"]): ReactNode {
   if (!p) return "Not on this server";
   if (!p.newest_day) return "No prices read yet";
   const check = p.newest_check ?? p.backfill;
-  const days = `${p.days.toLocaleString("en-US")} ${p.days === 1 ? "day" : "days"}, newest ${p.newest_day}`;
+  const days = `${plural(p.days, "day")}, newest ${fmtDate(p.newest_day)}`;
   if (!check) return days;
   const bad = check.mismatches + check.stale;
   const missing = check.unobserved_days ?? 0;
-  if (bad) return <span className="admin-bad">{`${days}; ${bad.toLocaleString("en-US")} values differ from the old table`}</span>;
-  if (missing) return <span className="admin-bad">{`${days}; ${missing.toLocaleString("en-US")} ${missing === 1 ? "day" : "days"} of the old table missing`}</span>;
+  if (bad) return <span className="admin-bad">{`${days}; ${count(bad)} values differ from the old table`}</span>;
+  if (missing) return <span className="admin-bad">{`${days}; ${plural(missing, "day")} of the old table missing`}</span>;
   return `${days}; matches the old table`;
 }
 
@@ -169,7 +170,7 @@ function RouteTable({ routes }: { routes: PerfSummary["routes"] }) {
                     {r.method} {r.route}
                   </code>
                 </td>
-                <td className="r">{r.count.toLocaleString("en-US")}</td>
+                <td className="r">{count(r.count)}</td>
                 <td className="r">{duration(r.p50_ms)}</td>
                 <td className="r">{duration(r.p95_ms)}</td>
                 <td className="r">{duration(r.max_ms)}</td>
@@ -255,7 +256,7 @@ function SlowLists({ p }: { p: PerfSummary }) {
           <ul className="admin-plain admin-slow">
             {p.slow_statements.map((q, i) => (
               <li key={`${q.at} ${i}`}>
-                {duration(q.ms)} for {q.rows.toLocaleString("en-US")} {q.rows === 1 ? "row" : "rows"}, {ago(q.at)}
+                {duration(q.ms)} for {plural(q.rows, "row")}, {ago(q.at)}
                 <code className="admin-sql">{q.sql}</code>
               </li>
             ))}
@@ -270,7 +271,7 @@ function EngineSection({ s }: { s: ServerInfo }) {
   const e = s.engine;
   const state =
     e.status === "ready"
-      ? `Ready, ${(e.cards ?? 0).toLocaleString("en-US")} cards`
+      ? `Ready, ${count(e.cards ?? 0)} cards`
       : e.status === "loading"
         ? "Still loading"
         : `${e.status === "off" ? "Off" : "Failed"}: ${e.why ?? "no reason given"}`;
@@ -304,7 +305,7 @@ function ForgeSection({ s }: { s: ServerInfo }) {
           ["Worker build", f.runner ?? "Unknown until it answers"],
           ["Games at once", f.configured ? String(f.slots) : "None"],
           ["Playing now", String(f.playing)],
-          ["Forge games waiting", f.games_waiting.toLocaleString("en-US")],
+          ["Forge games waiting", count(f.games_waiting)],
           ["Last answered", f.last_seen ? ago(f.last_seen) : "Never"],
         ]}
       />
@@ -365,7 +366,7 @@ function WatchSection({ games }: { games: WatchItem[] }) {
                   {g.owner_name ?? "Someone"} ({g.owner_email ?? "unknown"}), started {ago(g.created_at)}.
                 </span>
                 <span>
-                  {g.finished ? (g.stopped ?? "Finished") : g.playing ? "Playing" : "Paused"}, turn {g.turn}, {g.actions.toLocaleString("en-US")} moves,{" "}
+                  {g.finished ? (g.stopped ?? "Finished") : g.playing ? "Playing" : "Paused"}, turn {g.turn}, {count(g.actions)} moves,{" "}
                   {g.viewers === 1 ? "1 person watching" : `${g.viewers} people watching`}.
                 </span>
               </div>

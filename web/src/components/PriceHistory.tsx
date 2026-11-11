@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, usd } from "../api";
+import { api } from "../api";
+import { usd } from "@yama/core";
 
 interface Point {
   date: string;

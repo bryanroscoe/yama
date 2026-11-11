@@ -11,7 +11,7 @@
 // Needs a secure context for the camera (https or localhost). "Use a photo" works anywhere.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, shortDate, usd, type Printing } from "../api";
+import { api, type Printing } from "../api";
 import { loadArtRecognizer, RECOGNIZER_SHORT_SIDE, type ArtRecognizer, type LoadState } from "./artClient";
 import { NameIndex } from "./fuzzy";
 import { rectQuad } from "./image";
@@ -28,6 +28,7 @@ import { createServerCatalog } from "./serverCatalog";
 import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
+import { shortDate, usd } from "@yama/core";
 
 export interface ScannerViewProps {
   /**

@@ -165,7 +165,7 @@ export function checks(draft: Draft): Checks {
   if (!cmdrs.length) problems.push("Choose the commander.");
   if (cmdrs.length > 2) problems.push(`${cmdrs.length} commanders: a deck has one, or two partners.`);
   if (total !== 100 && total > 0) problems.push(`${total} cards with the commander${total < 100 ? `: ${100 - total} short of 100` : `: ${total - 100} over 100`}.`);
-  if (offIdentity.length) problems.push(`${offIdentity.length} ${offIdentity.length === 1 ? "card is" : "cards are"} outside the commander's colours: ${offIdentity.slice(0, 4).map((c) => c.name).join(", ")}${offIdentity.length > 4 ? "…" : ""}.`);
+  if (offIdentity.length) problems.push(`${offIdentity.length} ${offIdentity.length === 1 ? "card is" : "cards are"} outside the commander's colors: ${offIdentity.slice(0, 4).map((c) => c.name).join(", ")}${offIdentity.length > 4 ? "…" : ""}.`);
   if (duplicates.length) problems.push(`More than one copy of ${duplicates.slice(0, 4).map((c) => c.name).join(", ")}${duplicates.length > 4 ? "…" : ""}.`);
   // Count, colours and copies are worth a warning, not a block: people import decks in progress.
   const ready = !!draft.name.trim() && draft.unknown.length === 0 && inDeck.length > 0;

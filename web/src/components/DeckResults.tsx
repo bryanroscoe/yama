@@ -6,10 +6,10 @@ import { api, type DeckResults as Results } from "../api";
 import { Details, ErrorText } from "./ui";
 import { recordText } from "./statsText";
 import "./stats.css";
+import { fmtDate } from "@yama/core";
 
 type VersionResult = Results["versions"][number];
 
-const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
 
 export function DeckResults({ deckId, versionId }: { deckId: string; versionId: string | null }) {
   const q = useQuery({ queryKey: ["deck-results", deckId, versionId], queryFn: ({ signal }) => api<Results>(`/api/decks/${deckId}/results`, { signal }) });
@@ -34,7 +34,7 @@ export function DeckResults({ deckId, versionId }: { deckId: string; versionId: 
               Version {v.number}{v.note ? `, "${v.note}"` : ""}: <span className="num">{recordText(v)}</span>
               {v.games < under && <span className="prov"> provisional</span>}
               <br />
-              <span className="when">Saved {day(v.created_at)}</span>
+              <span className="when">Saved {fmtDate(v.created_at)}</span>
             </li>
           ))}
         </ul>

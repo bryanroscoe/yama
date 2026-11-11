@@ -101,7 +101,7 @@ export function PaymentRail({ p, meta, tapMana, onTapMana, onAct, disabled, summ
       {p.convoke && p.convoke !== "delve" && (
         <p className="small dim">
           {p.convoke === "convoke"
-            ? "Convoke: click your untapped creatures to tap them. Each pays {1} or one mana of its colour."
+            ? "Convoke: click your untapped creatures to tap them. Each pays {1} or one mana of its color."
             : p.convoke === "improvise"
               ? "Improvise: click your untapped artifacts to tap them. Each pays {1}."
               : "Waterbend: click your untapped creatures and artifacts to tap them. Each pays {1}."}

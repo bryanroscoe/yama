@@ -408,7 +408,7 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
       </label>
       <label className="scan-keep">
         <input type="checkbox" checked={muted} onChange={(e) => onMute(e.target.checked)} />
-        <span><strong>Mute.</strong> Colours only, no sounds or buzzing.</span>
+        <span><strong>Mute.</strong> Colors only, no sounds or buzzing.</span>
       </label>
     </div>
   );

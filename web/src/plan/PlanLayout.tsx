@@ -1,4 +1,4 @@
-import { fmtDate, type PlanHead } from "@yama/core/plan";
+import { type PlanHead } from "@yama/core/plan";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Outlet, useLocation, useMatch, useOutletContext } from "react-router";
@@ -9,6 +9,7 @@ import { outbox, useOutbox } from "./outbox";
 import { usePlan } from "./store";
 import { planView, type PlanView } from "./view";
 import "./plan.css";
+import { fmtDate } from "@yama/core";
 
 export interface PlanOutlet {
   view: PlanView;

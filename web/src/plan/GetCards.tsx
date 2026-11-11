@@ -2,14 +2,12 @@ import {
   changeKind,
   changeStep,
   deckLogs,
-  fmtDate,
   inForce,
   inForceBundle,
   inForceSwaps,
   planTrip,
   printPlan,
   spares as sparesOf,
-  usd,
   type PlanDeck,
   type Swap,
 } from "@yama/core/plan";
@@ -21,8 +19,9 @@ import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { planHref } from "./Plans";
 import type { PlanView } from "./view";
 import "./plans.css";
+import { fmtDate, usd, plural } from "@yama/core";
 
-const cardsWord = (n: number) => (n === 1 ? "1 card" : `${n} cards`);
+const cardsWord = (n: number) => plural(n, "card");
 
 /**
  * `/decks/plans/get` (design board "GetCards"): everything your approved plans still need, in the

@@ -1,4 +1,4 @@
-import { fmtDate, localBuyRule, MAX_TIERS, rulesAt, shoppingRulesDraft, shoppingRulesProblems, usd, type ShoppingRulesDraft } from "@yama/core/plan";
+import { localBuyRule, MAX_TIERS, rulesAt, shoppingRulesDraft, shoppingRulesProblems, type ShoppingRulesDraft } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -11,6 +11,7 @@ import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
 import { SettingsHowTo } from "./howto";
 import { CopyButton } from "./parts";
 import { clearPlanData } from "./store";
+import { fmtDate, usd } from "@yama/core";
 
 const VIA: Record<string, string> = { web: "uploaded in the browser", token: "sent by a script", cli: "imported on the server" };
 

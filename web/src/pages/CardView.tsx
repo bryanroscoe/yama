@@ -6,7 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
-import { api, priceSource, shortDate, usd, type Card, type CollectionItem, type Printing } from "../api";
+import { api, type Card, type CollectionItem, type Printing } from "../api";
 import { signInPath } from "../auth";
 import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
@@ -15,6 +15,7 @@ import { Rulings } from "../components/Rulings";
 import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
 import { ownedFinishes } from "./collectionEdit";
 import "./cards.css";
+import { priceSource, shortDate, usd } from "@yama/core";
 
 type Finish = "nonfoil" | "foil" | "etched";
 const CONDITIONS: Record<string, string> = { NM: "near mint", LP: "lightly played", MP: "moderately played", HP: "heavily played", DMG: "damaged" };

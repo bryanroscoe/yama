@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { DeckCheck } from "../api";
-import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter } from "./deckCheck";
+import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, pollAfter } from "./deckCheck";
+
 
 const NOW = new Date("2026-10-19T15:00:00Z");
 
@@ -97,17 +98,3 @@ describe("Game Changer limits", () => {
   });
 });
 
-describe("local dates", () => {
-  const tz = process.env.TZ;
-  afterEach(() => {
-    process.env.TZ = tz;
-  });
-  it("dates a check by the reader's day, not UTC's", () => {
-    // 02:30 UTC on Oct 19 is 9:30 pm on Oct 18 in Chicago.
-    process.env.TZ = "America/Chicago";
-    const shown = localDay("2026-10-19T02:30:00.000Z");
-    expect(shown).toMatch(/18/);
-    expect(shown).not.toMatch(/19/);
-    expect(localDay("not a date")).toBe("not a date");
-  });
-});

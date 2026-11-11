@@ -3,6 +3,7 @@
 // block parsed so the panel can offer to save it as an idea.
 
 import type { AdvisorStatus } from "./api";
+import { fmtDate } from "@yama/core";
 
 export interface StreamEvent {
   event: string;
@@ -168,9 +169,9 @@ export function possessive(name: string): string {
   return `${name.trim() || "the server owner"}'s`;
 }
 
-/** "1 November", the day a paused shared key starts again (UTC, as the server counts months). */
+/** "November 1", the day a paused shared key starts again (UTC, as the server counts months). */
 export function resumeDay(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  return fmtDate(iso, { month: "long", year: false, utc: true });
 }
 
 interface ShareView {

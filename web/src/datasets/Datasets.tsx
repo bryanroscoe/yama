@@ -1,4 +1,3 @@
-import { fmtDate } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -9,6 +8,7 @@ import { LabHead } from "../lab/LabLayout";
 import { Details, ErrorText } from "../components/ui";
 import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
+import { fmtDate } from "@yama/core";
 
 function SourceLink({ url, children }: { url: unknown; children: ReactNode }) {
   const href = sourceUrl(url);

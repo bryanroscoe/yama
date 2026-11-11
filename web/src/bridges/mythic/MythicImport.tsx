@@ -9,6 +9,7 @@ import { applyLabel, initialMatches, parseExport, resultText, statusText, useMyt
 import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
 import "./mythic.css";
+import { fmtDate, shortDate } from "@yama/core";
 
 /**
  * Import games from Mythic Tools (ARCHITECTURE.md, "Mythic Tools bridge"): save them on
@@ -195,7 +196,7 @@ export function MythicImportPage() {
 }
 
 function GameLine({ g, choice, onChoose }: { g: MythicGameRow; choice: string | undefined; onChoose: (c: string) => void }) {
-  const day = g.started_at ? new Date(g.started_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "No date";
+  const day = g.started_at ? fmtDate(g.started_at, { weekday: "short" }) : "No date";
   const seats = g.seats.map((s) => `${s.name}${s.commander ? ` (${s.commander})` : s.deck ? ` (${s.deck})` : ""}${s.won ? ", won" : ""}`).join("; ");
   const canChoose = g.status === "match";
   if (g.status === "conflict") {
@@ -240,7 +241,7 @@ function GameLine({ g, choice, onChoose }: { g: MythicGameRow; choice: string | 
             <option value="skip">Skip it for now</option>
             {g.matches.map((m) => (
               <option key={m.id} value={`link:${m.id}`}>
-                It's the game on {new Date(m.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} already in Yama, with {m.players.join(", ") || `${m.seats} players`}
+                It's the game on {fmtDate(m.started_at, { year: false })} already in Yama, with {m.players.join(", ") || `${m.seats} players`}
               </option>
             ))}
             <option value="import">Import it as its own game</option>

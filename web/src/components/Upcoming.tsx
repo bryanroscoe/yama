@@ -7,7 +7,6 @@ import { Link } from "react-router";
 import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSummary, type PreconSummary } from "../api";
 import { useMe } from "../auth";
 import { isNetworkError } from "../cardDetail";
-import { day } from "./Rulings";
 import { Details, ErrorText } from "./ui";
 import {
   daysBetween,
@@ -24,6 +23,7 @@ import {
   type PreconGroup,
 } from "./calendar";
 import "./calendar.css";
+import { fmtDate } from "@yama/core";
 
 export function useCalendar() {
   const today = localToday();
@@ -35,10 +35,10 @@ export function useCalendar() {
   });
 }
 
-/** "checked 19 Oct 2026" in the reader's own date. */
+/** "checked Oct 19, 2026", on the reader's own calendar. */
 function checked(run: CalendarRun): string | null {
   if (!run.checked_at) return null;
-  return new Date(run.checked_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return fmtDate(run.checked_at);
 }
 
 /** Release calendar and precon watch, for the Cards page with no search. Quiet when offline. */
@@ -93,7 +93,7 @@ function PastPrecons({ group: g, names }: { group: PreconGroup; names: string[] 
         <span className="precons-past-title">{g.setName} precons</span>
         <span className="cal-note">
           {g.precons.length === 1 ? "1 deck" : `${g.precons.length} decks`}
-          {g.released ? `, out since ${day(g.released)}` : ""}
+          {g.released ? `, out since ${fmtDate(g.released)}` : ""}
         </span>
       </summary>
       <div className="precons-past-body">
@@ -196,7 +196,7 @@ function UpcomingSets({ view }: { view: CalendarView }) {
                     <span className="upcoming-name">{s.name}</span>
                   )}
                   <span className="upcoming-meta">
-                    {setTypeLabel(s.set_type)}, {releaseLine(s.released_at, view.today, day, true)}
+                    {setTypeLabel(s.set_type)}, {releaseLine(s.released_at, view.today, fmtDate, true)}
                   </span>
                   <span className="upcoming-meta">{previewLine(s, out)}</span>
                   {s.printed_size != null && s.printed_size > s.card_count && (

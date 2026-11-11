@@ -6,6 +6,7 @@
 import type { GameRow } from "../api";
 import { splitPair } from "./logEdit";
 import { isPlaceholderName } from "./playerNames";
+import { shortDate, fmtDate } from "@yama/core";
 
 /** Lowercase, without accents and outer spaces: "Éowyn " finds eowyn. */
 export const fold = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
@@ -137,7 +138,7 @@ export function decksOf(played: PlayedDeck[], who: DeckOwner): PlayedDeck[] {
 
 /** "Matt, 3 games, last Oct 25". */
 export function playedLine(d: PlayedDeck, whose = true): string {
-  const day = new Date(d.last).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const day = fmtDate(d.last, { year: false });
   const games = d.games === 1 ? `played ${day}` : `${d.games} games, last ${day}`;
   return whose ? `${d.player}, ${games}` : games.charAt(0).toUpperCase() + games.slice(1);
 }

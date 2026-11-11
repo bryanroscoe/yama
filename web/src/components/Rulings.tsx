@@ -2,15 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import type { Ruling } from "../api";
 import { cardDetailQuery } from "../cardDetail";
 import "./cards.css";
+import { fmtDate } from "@yama/core";
 
 const SOURCES: Record<string, string> = { wotc: "Wizards of the Coast", scryfall: "Scryfall" };
-
-/** "2004-10-04" → "Oct 4, 2004" in the reader's locale. The date is a calendar day, so UTC. */
-export function day(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
-}
 
 /** Collapsible rulings list, oldest first as Scryfall lists them. `null` means the server
  *  hasn't loaded rulings yet, which is different from a card with none. */
@@ -25,7 +19,7 @@ export function Rulings({ rulings }: { rulings: Ruling[] | null }) {
           <li key={i}>
             <p>{r.comment}</p>
             <p className="ruling-meta">
-              {day(r.published_at)}, {SOURCES[r.source] ?? r.source}
+              {fmtDate(r.published_at)}, {SOURCES[r.source] ?? r.source}
             </p>
           </li>
         ))}

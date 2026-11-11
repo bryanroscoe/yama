@@ -1,5 +1,6 @@
-import { shortDate, usd, type BuylistValue, type DeckView, type SinglesValue, type SealedPrice } from "../api";
+import { type BuylistValue, type DeckView, type SinglesValue, type SealedPrice } from "../api";
 import { Details } from "./ui";
+import { shortDate, usd } from "@yama/core";
 
 export function SinglesPrice({ value }: { value: SinglesValue | undefined }) {
   if (!value) return null;

@@ -31,7 +31,7 @@ describe("the Trip page", () => {
 
   it("lists the stores, the favourite first, with their preference, cards and totals", () => {
     expect(html).toContain("1. Black Castle Gamez");
-    expect(html).toContain("Favourite, support them. 2 cards, $2.00 before tax. Cedar Park, 3.6 mi");
+    expect(html).toContain("Favorite, support them. 2 cards, $2.00 before tax. Cedar Park, 3.6 mi");
     expect(html).toContain("2. Mothership Books and Games");
     expect(html).toContain("3. Multiverse Hobbies");
     expect(html).toContain("Maybe, one trip. 1 card, $0.75 before tax. Hutto, 13.4 mi");
@@ -54,7 +54,7 @@ describe("the Trip page", () => {
 
   it("shows each store's preference in your order, the stores going this time, and the wishlist by tier", () => {
     expect(html).toMatch(/<option value="never" selected="">Won&#x27;t go<\/option>/);
-    expect(html).toMatch(/<option value="favorite" selected="">Favourite, support them<\/option>/);
+    expect(html).toMatch(/<option value="favorite" selected="">Favorite, support them<\/option>/);
     expect(html).toContain("Has 1 card you need (you won&#x27;t go).");
     expect(html.indexOf("1. Black Castle Gamez</b><span class=\"dim\">")).toBeLessThan(html.indexOf("3. Pat&#x27;s Games</b>"));
     expect(html).toContain("Going this time");

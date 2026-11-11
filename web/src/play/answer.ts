@@ -901,7 +901,7 @@ function payButtons(p: Pending, d: Draft): { primary: string; secondary?: string
       return { primary: n ? (one ? "Sacrifice it" : `Sacrifice ${name}`) : "Choose what to sacrifice", secondary: one ? "Keep it" : "Keep them", secondaryDoes: "keep-mana" };
     }
     case "choose_mana_color":
-      return { primary: n ? `Add ${p.purpose === "combo" ? name : `{${d.ids[0]}}`}` : "Choose a colour" };
+      return { primary: n ? `Add ${p.purpose === "combo" ? name : `{${d.ids[0]}}`}` : "Choose a color" };
     case "pay_mana_ability_mana":
       return { primary: n ? name : "Choose how to pay" };
     case "pay_phyrexian": {

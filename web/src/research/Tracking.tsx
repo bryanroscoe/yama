@@ -1,5 +1,5 @@
 import { planHref } from "../plan/href";
-import { fmtDate, installedState, localBuyRule, rulesAt, type PlanDeck, type RuleSet, type Swap } from "@yama/core/plan";
+import { installedState, localBuyRule, rulesAt, type PlanDeck, type RuleSet, type Swap } from "@yama/core/plan";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -10,6 +10,7 @@ import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
 import type { Build, ResearchBundle, ResearchDeck } from "./api";
+import { fmtDate, usd } from "@yama/core";
 
 /**
  * A note's build as a deck's plan (server/src/plan/notes.rs): using it makes the build a plan
@@ -155,6 +156,6 @@ export function useBuyRule(): { upto: string; text: string } | null {
     // Only a limit the shopping list can take (`uptoOf`: up to $1,000).
     if (max == null || !Number.isFinite(max) || max < 0 || max > 1000 || !found.from) return null;
     const dollars = max.toFixed(2);
-    return { upto: dollars, text: `Starting at your shopping rule from ${fmtDate(found.from)}: buy cards up to $${dollars}.` };
+    return { upto: dollars, text: `Starting at your shopping rule from ${fmtDate(found.from)}: buy cards up to ${usd(max)}.` };
   }, [plan.bundle]);
 }

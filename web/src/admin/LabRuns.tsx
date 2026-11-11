@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ErrorText } from "../components/ui";
 import { adminApi, type LabRun } from "./api";
-import { ago } from "./logic";
+import { ago, count } from "@yama/core";
 
 /** Imported lab runs everyone sees (precon ratings): rename or delete. Adding one stays on the
  *  command line (`yama-server import-lab`). */
@@ -66,7 +66,7 @@ function RunRow({ run }: { run: LabRun }) {
           <b>{run.name}</b>
         )}
         <span>
-          {run.games.toLocaleString("en-US")} games, {run.decks} decks rated, {what}.
+          {count(run.games)} games, {run.decks} decks rated, {what}.
         </span>
         <span>
           {run.engine ?? "Engine not recorded"}

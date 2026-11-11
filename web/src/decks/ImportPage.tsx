@@ -316,7 +316,7 @@ function CardRow({ card, off }: { card: ImportCard; off: boolean }) {
           <span className="import-meta small dim">
             {print}
             {card.print_found === false && " (printing not found, the card's kept)"}
-            {off && <span className="import-warn">{print ? ", " : ""}outside the commander's colours</span>}
+            {off && <span className="import-warn">{print ? ", " : ""}outside the commander's colors</span>}
           </span>
         )}
       </span>

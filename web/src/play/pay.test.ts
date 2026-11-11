@@ -78,7 +78,7 @@ describe("paying by hand", () => {
     expect(penaltyText({ kind: "life", amount: 2 })).toBe("Pay 2 life");
     expect(penaltyText({ kind: "other" })).toBe("Can't be undone");
     expect(manaText(["C", "C"])).toBe("{C}{C}");
-    expect(manaText(["any"])).toBe("any colour");
+    expect(manaText(["any"])).toBe("any color");
   });
 
   it("says what's in the pool, by mana and card", () => {
@@ -111,9 +111,9 @@ describe("paying by hand", () => {
   it("never says cancelling undoes damage or a sacrifice", () => {
     expect(keptNote(payment())).toBeNull();
     const one = payment({ kept: [{ id: 3, name: "Battlefield Forge", penalty: { kind: "damage", amount: 1 } }] });
-    expect(keptNote(one)).toBe("Battlefield Forge's 1 damage to you stays. Cancelling won't undo this.");
+    expect(keptNote(one)).toBe("Battlefield Forge's 1 damage to you stays. Canceling won't undo this.");
     const two = payment({ kept: [...one.kept, { id: 4, name: "Treasure", penalty: { kind: "sacrifice" } }] });
-    expect(keptNote(two)).toBe("Battlefield Forge's 1 damage to you stays. Treasure is gone. Cancelling won't undo these.");
+    expect(keptNote(two)).toBe("Battlefield Forge's 1 damage to you stays. Treasure is gone. Canceling won't undo these.");
   });
 });
 

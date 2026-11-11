@@ -871,20 +871,3 @@ export interface PreconList {
   unknown: string[];
 }
 
-/** A market price, or "No price" when there isn't one (never $0). Grouped like the collection
- *  total beside it: "$1,630.77", not "$1630.77". */
-export const usd = (v: number | null | undefined) =>
-  v == null ? "No price" : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** A price snapshot date ("2026-10-19") as people say it: "Oct 19". Read as a local date, not UTC. */
-export function shortDate(iso: string | null | undefined): string | null {
-  const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-/** Where a market price comes from, with its date: "TCGplayer market via Scryfall, Oct 19". */
-export function priceSource(date: string | null | undefined): string {
-  const d = shortDate(date);
-  return d ? `TCGplayer market via Scryfall, ${d}` : "TCGplayer market via Scryfall, date unknown";
-}

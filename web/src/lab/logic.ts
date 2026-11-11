@@ -1,7 +1,7 @@
 // Pure helpers for the lab pages: number and date wording, chart scales, the precon table's
 // filters and sorts, and the "Try a change" list arithmetic. No React here, so it's tested on its own.
 
-import { GROUP_ORDER, groupOf, identityKeys } from "@yama/core";
+import { count, fmtDate, GROUP_ORDER, groupOf, identityKeys, percent, plural } from "@yama/core";
 import type { Allowance, Confidence, ConfidenceLevel, ExperimentStatus, Pace, PreconItem, Summary } from "./api";
 
 // ── wording ──────────────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ const MINUS = "−";
 /** 0.443 → "44%". */
 export function pct(x: number | null | undefined, digits = 0): string {
   if (x == null || !Number.isFinite(x)) return "no data";
-  return `${(x * 100).toFixed(digits)}%`;
+  return percent(x, digits);
 }
 
 /** A difference in whole percentage points, as the server words it: "+4", "−3" or "0". */
@@ -51,15 +51,6 @@ export function pctRange(lo: number, hi: number): string {
 export function strengthText(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "no data";
   return v >= 10 ? v.toFixed(1) : v.toFixed(2);
-}
-
-const DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-
-/** "2026-10-19T04:15:40Z" or "2026-10-19" → "19 Oct 2026". */
-export function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
-  return Number.isNaN(d.getTime()) ? iso : DATE.format(d);
 }
 
 export function year(iso: string | null | undefined): number | null {
@@ -109,9 +100,8 @@ export function simLabel(l: {
 }): string {
   const parts = [`Simulated on ${l.engine ?? "an unrecorded engine"}`];
   parts.push(`${l.difficulty ?? "unrecorded"} AI`);
-  const n = (x: number) => x.toLocaleString("en-GB");
   const games =
-    l.planned != null && l.planned > l.games ? `${n(l.games)} of ${n(l.planned)} planned games` : `${n(l.games)} ${l.games === 1 ? "game" : "games"}`;
+    l.planned != null && l.planned > l.games ? `${count(l.games)} of ${count(l.planned)} planned games` : `${count(l.games)} ${l.games === 1 ? "game" : "games"}`;
   parts.push(`${games}${l.pod ? ` in ${l.pod}-player pods` : ""}`);
   if (l.run) parts.push(`run ${l.run}`);
   if (l.date) parts.push(fmtDate(l.date));
@@ -257,7 +247,7 @@ export function hasResults(s: Summary | null | undefined): boolean {
 
 /** The verdict as the page says it: a cancelled run that can't tell won't play more games. */
 export function verdictText(status: ExperimentStatus, s: Summary): string {
-  if (status === "cancelled" && s.verdict.kind === "unclear") return "Can't tell from the games played before it was cancelled";
+  if (status === "cancelled" && s.verdict.kind === "unclear") return "Can't tell from the games played before it was canceled";
   return s.verdict.text;
 }
 
@@ -322,10 +312,6 @@ function limitText(seconds: number): string {
   return `${m} ${m === 1 ? "minute" : "minutes"}`;
 }
 
-/** "1 game", "3 games". */
-function count(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /**
  * How a paired run's games count, in plain sentences: how many pods each list played, how many
@@ -337,7 +323,7 @@ export function podCountText(s: Summary, o: { a: string; b: string; finished: bo
   const p = s.paired;
   const out: string[] = [];
   const games = s.pods * 2;
-  out.push(`Both ${noun} played the same ${count(s.pods, "pod")} (${games} games), with the same opponents, seats and shuffles.`);
+  out.push(`Both ${noun} played the same ${plural(s.pods, "pod")} (${games} games), with the same opponents, seats and shuffles.`);
   const pending = s.base.pending + s.variant.pending;
   const left = s.pods - p.pods - p.split_builds;
   const u = s.unscored;
@@ -347,19 +333,19 @@ export function podCountText(s: Summary, o: { a: string; b: string; finished: bo
       u.error ? `${u.error} stopped with an error` : "",
       u.panic ? `${u.panic} crashed` : "",
     ].filter(Boolean);
-    const lead = `${count(u.total, "game")} didn't finish (${why.join(", ")})`;
+    const lead = `${plural(u.total, "game")} didn't finish (${why.join(", ")})`;
     out.push(
       o.finished || pending === 0
         ? `${lead}, so ${left === 1 ? "its pod is" : `${left} pods are`} left out: a pod counts only when both ${noun}' games finished.`
         : `${lead}; a pod counts only when both ${noun}' games finished.`,
     );
   }
-  if (p.split_builds > 0) out.push(`${count(p.split_builds, "pod")} played on two different builds ${p.split_builds === 1 ? "is" : "are"} left out too.`);
+  if (p.split_builds > 0) out.push(`${plural(p.split_builds, "pod")} played on two different builds ${p.split_builds === 1 ? "is" : "are"} left out too.`);
   if (p.pods > 0) {
     const same = p.both_won + p.neither;
     const differ = p.variant_only + p.base_only;
     out.push(
-      `Of the ${count(p.pods, "pod")} that count, both did the same in ${same} (both won ${p.both_won}, neither won ${p.neither}). ` +
+      `Of the ${plural(p.pods, "pod")} that count, both did the same in ${same} (both won ${p.both_won}, neither won ${p.neither}). ` +
         (differ === 0
           ? "No pod went differently, so there is nothing to tell them apart yet."
           : `The answer rests on the other ${differ}: ${o.b} won ${p.variant_only} that ${o.a} lost, and ${o.a} won ${p.base_only} that ${o.b} lost.`),

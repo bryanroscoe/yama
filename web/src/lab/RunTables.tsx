@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { identityName } from "@yama/core";
+import { identityName, fmtDateTime } from "@yama/core";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
@@ -401,7 +401,7 @@ function GameCard({ g, n, of, decks, label }: { g: TableGame; n: number; of: num
         <Details label="Game details">
           <p className="small">
             {g.turns} turns, {Math.round(g.seconds)} s of the engine's CPU time
-            {g.finished_at ? `, finished ${new Date(g.finished_at).toLocaleString("en-US")}` : ""}.
+            {g.finished_at ? `, finished ${fmtDateTime(g.finished_at)}` : ""}.
             {g.error ? ` ${g.error}.` : ""}
           </p>
           <p className="small dim">

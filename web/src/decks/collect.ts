@@ -1,3 +1,4 @@
+import { plural } from "@yama/core";
 // "Add to my collection" for a deck (server/src/collection/deck_box.rs): the preview the server
 // sends (GET /api/decks/{id}/collect?same=) and the sentences the sheet shows for it.
 
@@ -71,13 +72,12 @@ export const SAME_CHOICES: { value: SamePrinting; label: string }[] = [
   { value: "skip", label: "Leave them where they are and don't add those" },
 ];
 
-const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /** What one option does, as its hint: "Moves 3, adds 94 new copies." */
 export function outcomeText(o: CollectOutcome): string {
   const parts: string[] = [];
   if (o.moved) parts.push(`moves ${o.moved}`);
-  if (o.added) parts.push(`adds ${n(o.added, "new copy", "new copies")}`);
+  if (o.added) parts.push(`adds ${plural(o.added, "new copy", "new copies")}`);
   if (o.left_out) parts.push(`leaves out ${o.left_out}`);
   if (!parts.length) return "Nothing to do.";
   const text = parts.join(", ");
@@ -92,8 +92,8 @@ export function boxText(p: Pick<CollectPreview, "box_name" | "box_kind" | "box_e
 
 /** The counts above the choice, one sentence each. */
 export function summary(p: CollectPreview): string[] {
-  const out = [`${n(p.cards, "card")} in the deck, ${p.in_box} already in its box.`];
-  if (p.not_in_list > 0) out.push(`${n(p.not_in_list, "card")} in the box ${p.not_in_list === 1 ? "isn't" : "aren't"} in the list any more. Adding leaves ${p.not_in_list === 1 ? "it" : "them"} there.`);
+  const out = [`${plural(p.cards, "card")} in the deck, ${p.in_box} already in its box.`];
+  if (p.not_in_list > 0) out.push(`${plural(p.not_in_list, "card")} in the box ${p.not_in_list === 1 ? "isn't" : "aren't"} in the list any more. Adding leaves ${p.not_in_list === 1 ? "it" : "them"} there.`);
   if (p.missing === 0) {
     out.push("Nothing to add: the box holds the whole list.");
     return out;
@@ -101,7 +101,7 @@ export function summary(p: CollectPreview): string[] {
   if (p.same_elsewhere > 0) {
     out.push(`You own the same printing of ${p.same_elsewhere} of the ${p.missing} missing in another box or binder.`);
   }
-  if (p.proxies > 0) out.push(`${n(p.proxies, "new copy", "new copies")} will be recorded as ${p.proxies === 1 ? "a proxy" : "proxies"}.`);
+  if (p.proxies > 0) out.push(`${plural(p.proxies, "new copy", "new copies")} will be recorded as ${p.proxies === 1 ? "a proxy" : "proxies"}.`);
   if (p.no_printing.length) out.push(`Yama has no printing of ${p.no_printing.join(", ")}, so ${p.no_printing.length === 1 ? "it's" : "they're"} left out.`);
   return out;
 }
@@ -110,7 +110,7 @@ export function summary(p: CollectPreview): string[] {
 export function buttonText(o: CollectOutcome): string {
   const total = o.added + o.moved;
   if (total === 0) return "Nothing to add";
-  return `Add ${n(total, "card")}${o.moved ? ` (${o.moved} moved)` : ""}`;
+  return `Add ${plural(total, "card")}${o.moved ? ` (${o.moved} moved)` : ""}`;
 }
 
 /** "C21 263, foil, proxy. The deck's printing" for a card's line. */
@@ -134,9 +134,9 @@ export function groups(p: Pick<CollectPreview, "lines">): { add: CollectLine[]; 
 
 /** After applying: "Added 94 cards and moved 3 into Tricky Terrain." */
 export function resultText(p: CollectPreview): string {
-  if (!p.applied) return p.left_out ? `Nothing added. ${n(p.left_out, "card")} left out.` : `Nothing to add: ${p.box_name} already holds the deck's list.`;
+  if (!p.applied) return p.left_out ? `Nothing added. ${plural(p.left_out, "card")} left out.` : `Nothing to add: ${p.box_name} already holds the deck's list.`;
   const parts: string[] = [];
-  if (p.added) parts.push(`added ${n(p.added, "card")}`);
+  if (p.added) parts.push(`added ${plural(p.added, "card")}`);
   if (p.moved) parts.push(`moved ${p.moved}`);
   const text = parts.join(" and ");
   const left = p.left_out ? ` ${p.left_out} left out.` : "";

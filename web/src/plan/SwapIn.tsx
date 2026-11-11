@@ -8,6 +8,7 @@ import { Details, ErrorText, Sheet } from "../components/ui";
 import { isViewing } from "../viewingFlag";
 import "../decks/collect.css";
 import "./swapsheet.css";
+import { plural } from "@yama/core";
 
 interface PutIn {
   name: string;
@@ -41,7 +42,7 @@ export interface SwapInPreview {
   applied: boolean;
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 
 function facts(p: SwapInPreview, done: boolean): string[] {
   const box = p.box_name ?? "the deck's box";

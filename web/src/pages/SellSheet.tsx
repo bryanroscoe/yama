@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { SellOffers } from "./SellOffers";
-import { shortDate, usd } from "../api";
 import { saveFile } from "../download";
 import { Details, ErrorText, Sheet } from "../components/ui";
 import { leftOut, overLimit, SELL_FORMATS, sellable, sellText, special, type SellCard, type SellFormat } from "./sellList";
+import { shortDate, usd, count, plural } from "@yama/core";
 
 /** The last format used, remembered on this device. */
 const FORMAT = "yama.sell.format";
@@ -107,25 +107,25 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           {minimum !== null && noPrice > 0 && (
             <label className="sell-check">
               <input type="checkbox" checked={unpriced} onChange={(e) => setUnpriced(e.target.checked)} />
-              Include {noPrice.toLocaleString()} {noPrice === 1 ? "card" : "cards"} with no price
+              Include {plural(noPrice, "card")} with no price
             </label>
           )}
           {deckCopies > 0 && !inDeckBox && (
             <label className="sell-check">
               <input type="checkbox" checked={decks} onChange={(e) => setDecks(e.target.checked)} />
-              Include {deckCopies.toLocaleString()} {deckCopies === 1 ? "card" : "cards"} in deck boxes
+              Include {plural(deckCopies, "card")} in deck boxes
             </label>
           )}
         </div>
 
         <p className="sell-total">
           <b className="num">
-            {text.copies.toLocaleString()} {text.copies === 1 ? "card" : "cards"}
+            {plural(text.copies, "card")}
           </b>
           {text.copies > 0 && (
             <span className="dim">
               {" "}
-              {valueless < text.copies ? `${usd(value)} market value (TCGplayer market via Scryfall, ${dates})${valueless > 0 ? `, ${valueless.toLocaleString()} with no price` : ""}.` : "No market price for any of them."} Each store sets its own offer.
+              {valueless < text.copies ? `${usd(value)} market value (TCGplayer market via Scryfall, ${dates})${valueless > 0 ? `, ${count(valueless)} with no price` : ""}.` : "No market price for any of them."} Each store sets its own offer.
             </span>
           )}
         </p>
@@ -146,12 +146,12 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
         <ErrorText error={error} />
         {flagged > 0 && (
           <p className="small dim">
-            {flagged === 1 ? "1 card is" : `${flagged.toLocaleString()} cards are`} signed, altered or misprinted
+            {flagged === 1 ? "1 card is" : `${count(flagged)} cards are`} signed, altered or misprinted
             {format === "sortswift" ? ", said in the Notes column" : ", which this format can't say"}. Check {flagged === 1 ? "its" : "their"} offer with the store.
           </p>
         )}
         {out.length > 0 && (
-          <Details label={`Left out: ${out.reduce((n, x) => n + x.card.qty, 0).toLocaleString()}`}>
+          <Details label={`Left out: ${count(out.reduce((n, x) => n + x.card.qty, 0))}`}>
             <ul className="small sell-out">
               {out.map(({ card, why }) => (
                 <li key={card.id}>
@@ -169,7 +169,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
           <>
             <div className="sell-pick">
               <span className="small dim">
-                {chosen.length.toLocaleString()} of {cards.length.toLocaleString()} {cards.length === 1 ? "row" : "rows"} ticked
+                {count(chosen.length)} of {count(cards.length)} {cards.length === 1 ? "row" : "rows"} ticked
               </span>
               <button className="quiet small" onClick={() => all("all")}>Tick all</button>
               <button className="quiet small" onClick={() => all("none")}>Untick all</button>
@@ -205,7 +205,7 @@ export function SellSheet({ items, from, inDeckBox, onClose }: { items: SellItem
             </ul>
             {cards.length > limit && (
               <button className="coll-more" onClick={() => setLimit((l) => l + MORE)}>
-                {cards.length - limit > MORE ? `Show ${MORE} more of ${(cards.length - limit).toLocaleString()}` : `Show the last ${(cards.length - limit).toLocaleString()}`}
+                {cards.length - limit > MORE ? `Show ${MORE} more of ${count(cards.length - limit)}` : `Show the last ${count(cards.length - limit)}`}
               </button>
             )}
           </>

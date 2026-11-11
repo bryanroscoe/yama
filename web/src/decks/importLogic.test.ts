@@ -49,7 +49,7 @@ describe("import checks", () => {
     expect(c.sideboard).toBe(1);
     expect(c.identity).toBe("WUBG");
     expect(c.offIdentity.map((x) => x.name)).toEqual(["Lightning Bolt"]);
-    expect(c.problems.some((p) => p.includes("outside the commander's colours"))).toBe(true);
+    expect(c.problems.some((p) => p.includes("outside the commander's colors"))).toBe(true);
     expect(c.ready).toBe(true);
   });
 

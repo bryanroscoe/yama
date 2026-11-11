@@ -6,7 +6,7 @@
 // plan recorded; every comparison says which one it used and its date. A price older than the rest
 // of Yama's prices is said to be old, never shown as today's.
 
-import { fmtDate, usd } from "./source";
+import { fmtDate, usd } from "../format";
 import type { PlanBundle, Quote, Store } from "./types";
 
 /** Every rule is optional; a rule that isn't set produces no flag. */
@@ -99,7 +99,7 @@ export function isStale(date: string | null | undefined, asOf: string | null | u
   return gap != null && gap > STALE_DAYS;
 }
 
-/** "$0.53 for 2X2 #173, 19 Oct 2026" or "…, last priced 2 Jul 2026", for inside a sentence. */
+/** "$0.53 for 2X2 #173, Oct 19, 2026" or "…, last priced Jul 2, 2026", for inside a sentence. */
 export function basisText(m: MarketBasis): string {
   const what = m.printing ? ` for ${m.printing}` : "";
   const when = m.date ? (m.stale ? `, last priced ${fmtDate(m.date)}` : `, ${fmtDate(m.date)}`) : ", date not recorded";

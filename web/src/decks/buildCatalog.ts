@@ -1,9 +1,10 @@
 import { planHref } from "../plan/href";
 import type { PlanBundle, Slot } from "@yama/core/plan";
-import { bracketBuilds, fmtDate, slotSource, sourceContext, type PlanDeck, type SourceContext } from "@yama/core/plan";
+import { bracketBuilds, slotSource, sourceContext, type PlanDeck, type SourceContext } from "@yama/core/plan";
 import { ownedBuildProblems } from "../research/availability";
 import type { BuildNote, Item } from "../research/api";
 import type { DeckSummary } from "../api";
+import { fmtDate } from "@yama/core";
 
 export type BuildKind = "current" | "original" | "bracket" | "legacy";
 export interface BuildChoice {

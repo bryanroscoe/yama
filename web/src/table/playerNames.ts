@@ -1,5 +1,6 @@
 import type { GameRow, Playgroup, User } from "../api";
 import type { Person } from "./pickers";
+import { shortDate, fmtDate } from "@yama/core";
 
 /** Temporary seat labels are useful in a game, but aren't people to suggest next time. */
 export function isPlaceholderName(name: string): boolean {
@@ -30,7 +31,7 @@ export function suggestedPeople(me: Pick<User, "id" | "display_name"> | null | u
   }
   for (const g of groups ?? []) if (g.id !== group?.id) for (const m of g.members) add({ name: m.display_name, handle: m.handle ?? undefined, sub: g.name });
   for (const g of games ?? []) {
-    const day = new Date(g.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const day = fmtDate(g.started_at, { year: false });
     for (const seat of g.seats) if (seat.display_name && !seat.ai_kind) add({ name: seat.display_name, sub: `Played ${day}` });
   }
   return out;

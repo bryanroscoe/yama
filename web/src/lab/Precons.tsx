@@ -1,10 +1,10 @@
 import { UpgradeabilitySummary } from "./Upgradeability";
 import { SinglesPrice } from "../components/DeckPrices";
 import { useQuery } from "@tanstack/react-query";
-import { identityName, MANA, type ManaKey } from "@yama/core";
+import { identityName, MANA, type ManaKey, usd, shortDate, fmtDate, count } from "@yama/core";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { api, usd, shortDate } from "../api";
+import { api } from "../api";
 import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
 import { Details, ErrorText, Pips } from "../components/ui";
@@ -19,7 +19,6 @@ import {
   DEFAULT_DESC,
   engineName,
   filterPrecons,
-  fmtDate,
   identityMatches,
   pct,
   pctRange,
@@ -212,7 +211,7 @@ export function PreconsPage() {
       {run ? (
         <>
           <p className="lab-note">
-            <b>{rated} precons rated</b> from {run.games.toLocaleString("en-GB")} simulated {run.pod ?? 4}-player games.
+            <b>{rated} precons rated</b> from {count(run.games)} simulated {run.pod ?? 4}-player games.
             {" "}{run.engine ?? "Unrecorded engine"}, {(run.difficulty ?? "unrecorded").toLowerCase()} AI, {fmtDate(run.analysed_at ?? run.created_at)}.
             {" "}<a href="#how-ratings-work">How these ratings work{run.warnings.length ? `, ${run.warnings.length} analysis ${run.warnings.length === 1 ? "note" : "notes"}` : ""}</a>
           </p>
@@ -223,7 +222,7 @@ export function PreconsPage() {
 
       <div className={`lab-filters${moreOpen || filtering ? " open" : ""}`}>
         <input type="search" className="lab-search" value={q} onChange={(e) => set({ q: e.target.value })} placeholder={`Search ${all.length} precons`} aria-label="Search precons by deck, commander or set" />
-        <div className="lab-colors" role="group" aria-label="Colours">
+        <div className="lab-colors" role="group" aria-label="Colors">
           {COLORS.map((k) => (
             <button key={k} type="button" aria-pressed={colors.includes(k)} onClick={() => toggleColor(k)} aria-label={MANA[k].name} title={MANA[k].name}>
               <span className="pip" style={{ background: MANA[k].fill }} />
@@ -231,10 +230,10 @@ export function PreconsPage() {
           ))}
         </div>
         {colors && (
-          <select className="lab-select" value={mode} onChange={(e) => set({ m: e.target.value === "includes" ? null : e.target.value })} aria-label="How colours match">
-            <option value="includes">Includes these colours</option>
-            <option value="exactly">Exactly these colours</option>
-            <option value="within">Within these colours</option>
+          <select className="lab-select" value={mode} onChange={(e) => set({ m: e.target.value === "includes" ? null : e.target.value })} aria-label="How colors match">
+            <option value="includes">Includes these colors</option>
+            <option value="exactly">Exactly these colors</option>
+            <option value="within">Within these colors</option>
           </select>
         )}
         <select className="lab-select" value={yr ?? ""} onChange={(e) => set({ y: e.target.value })} aria-label="Year">
@@ -392,7 +391,7 @@ export function PreconsPage() {
           );
         })}
       </ol>
-      {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a colour.</p>}
+      {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a color.</p>}
 
       {run && (
         <section className="lab-about" id="how-ratings-work" aria-labelledby="how-ratings-work-title">
@@ -470,8 +469,8 @@ export function PreconsPage() {
                 <dt>AI</dt>
                 <dd>{run.difficulty ?? "Unrecorded"}</dd>
                 <dt>Games</dt>
-                <dd>{run.games.toLocaleString("en-GB")}, {run.pod ?? 4}-player pods</dd>
-                <dt>Analysed</dt>
+                <dd>{count(run.games)}, {run.pod ?? 4}-player pods</dd>
+                <dt>Analyzed</dt>
                 <dd>{fmtDate(run.analysed_at ?? run.created_at)}</dd>
                 {run.card_data && (
                   <>

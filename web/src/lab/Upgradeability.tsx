@@ -1,4 +1,5 @@
 import type { Upgradeability } from "./api";
+import { count, fmtDate } from "@yama/core";
 const METHOD = "source-backed-upgradeability-v4";
 
 export function UpgradeabilitySummary({ value, detailed = false }: { value?: Upgradeability; detailed?: boolean }) {
@@ -121,8 +122,8 @@ function Evidence({ value: v }: { value: Upgradeability }) {
           <a href={v.list_url}>
             Download {v.commanders.join(" + ")} comparison list
           </a>
-          . {v.retained_cards}/100 card copies retained. Legality and colours
-          checked {v.list_checked_on}. {v.simulation_note}
+          . {v.retained_cards}/100 card copies retained. Legality and colors
+          checked {fmtDate(v.list_checked_on)}. {v.simulation_note}
         </p>
       )}
       {!!v.commander_cards.length && (
@@ -179,10 +180,10 @@ function Evidence({ value: v }: { value: Upgradeability }) {
               :{" "}
               {c.raw_win_rate_percent == null
                 ? "No recorded games"
-                : `${c.raw_win_rate_percent.toFixed(1)}% raw wins (${c.wins.toLocaleString()} / ${c.games.toLocaleString()} games)`}
+                : `${c.raw_win_rate_percent.toFixed(1)}% raw wins (${count(c.wins)} / ${count(c.games)} games)`}
               {c.games > 0 && c.games < 20 && " — small sample"}.{" "}
               <small>
-                Fetched {c.fetched_at.slice(0, 10)}.{" "}
+                Fetched {fmtDate(c.fetched_at.slice(0, 10))}.{" "}
                 <a href={c.api_url} target="_blank" rel="noreferrer">
                   API observation
                 </a>

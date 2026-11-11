@@ -115,7 +115,7 @@ export function changeProblems(base: BaseLine[], swaps: Swap[], identity: string
       const ci = s.in ? s.inCard?.color_identity : null;
       if (!s.in || ci == null) continue;
       const outside = identityKeys(ci).filter((k) => k !== "C" && !allowed.has(k));
-      if (outside.length) warnings.push(`${s.in} is outside the commander's colours.`);
+      if (outside.length) warnings.push(`${s.in} is outside the commander's colors.`);
     }
   }
   const adds = tally(swaps.flatMap((s) => (s.in ? [s.in] : [])));

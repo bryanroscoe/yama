@@ -4,17 +4,15 @@
 // results, every section open. Explanations sit behind one "?" per section.
 
 import { useQuery } from "@tanstack/react-query";
-import { deckStats, MANA } from "@yama/core";
+import { deckStats, MANA, fmtDate } from "@yama/core";
 import { useMemo, useState } from "react";
 import { api, type AnalysisSummary, type Combo, type DeckAnalysis, type DeckAnalysisView, type DeckEntry, type DeckView } from "../api";
 import { BracketPanel, SPELLBOOK, useDeckCheck } from "../components/Bracket";
 import { DeckPrices } from "../components/DeckPrices";
-import { localDay } from "../components/deckCheck";
 import { DeckResults } from "../components/DeckResults";
 import { statCards } from "../components/DeckStats";
 import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
-import { day } from "../components/Rulings";
 import { CardImage, ErrorText } from "../components/ui";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
 import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
@@ -394,7 +392,7 @@ function CombosSection({ deckId, versionId, images, inDeck, onCard }: { deckId: 
     <section className="stats-combos" aria-labelledby="stats-combos-h">
       <div className="stats-head-line">
         <h2 id="stats-combos-h" className="stats-h">Combos</h2>
-        {r && <span className="dim small"><a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>, {localDay(r.checked_at)}</span>}
+        {r && <span className="dim small"><a href={SPELLBOOK} target="_blank" rel="noreferrer">Commander Spellbook</a>, {fmtDate(r.checked_at)}</span>}
       </div>
       {!c.enabled ? (
         <p className="dim">Combo checks are off on this server.</p>
@@ -455,14 +453,14 @@ function FlagsSection({ deck: d, onCard }: { deck: DeckView; onCard: OnCard }) {
         <div>
           <span className="stats-head-line">
             <b>Game Changers {d.game_changers ? d.game_changers.length : ""}</b>
-            {d.game_changers_as_of && <span className="dim small">Scryfall, {day(d.game_changers_as_of)}</span>}
+            {d.game_changers_as_of && <span className="dim small">Scryfall, {fmtDate(d.game_changers_as_of)}</span>}
           </span>
           {d.game_changers == null ? <span className="dim">Not checked yet</span> : d.game_changers.length > 0 ? <span className="names"><NameList names={d.game_changers} onCard={onCard} /></span> : <span className="dim">None</span>}
         </div>
         <div>
           <span className="stats-head-line">
             <b>Reserve List {d.reserved_list ? d.reserved_list.length : ""}</b>
-            {d.reserved_list_as_of && <span className="dim small">Scryfall, {day(d.reserved_list_as_of)}</span>}
+            {d.reserved_list_as_of && <span className="dim small">Scryfall, {fmtDate(d.reserved_list_as_of)}</span>}
           </span>
           {d.reserved_list == null ? <span className="dim">Not checked yet</span> : d.reserved_list.length > 0 ? <span className="names"><NameList names={d.reserved_list} onCard={onCard} /></span> : <span className="dim">None</span>}
         </div>

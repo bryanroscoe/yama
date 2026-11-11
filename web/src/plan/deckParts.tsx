@@ -1,5 +1,5 @@
 // A plan deck's own parts, on its plan page: the Yama deck it's for, and ideas for the planner.
-import { fmtDate, opTime, type IdeaOp, type PlanDeck } from "@yama/core/plan";
+import { opTime, type IdeaOp, type PlanDeck } from "@yama/core/plan";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -9,6 +9,7 @@ import { ErrorText } from "../components/ui";
 import { linkDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import type { PlanView } from "./view";
+import { fmtDate } from "@yama/core";
 
 // ── The Yama deck this plan is for ──────────────────────────────────────────
 

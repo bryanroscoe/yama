@@ -6,9 +6,10 @@ import { ResearchPage } from "./Research";
 import { AcquisitionItem, AgentShopping as Shopping, PrintedWishlist } from "./owner";
 import { AccountingSummary, Gameplay, buildAccounting, listEntries, resolvedCombos } from "./details";
 import { plainList, uptoOf, type DeckView, type NoteView } from "./view";
-import { changedAnswer, money, safeUrl, targetForSwap, type ResearchBundle } from "./api";
+import { changedAnswer, safeUrl, targetForSwap, type ResearchBundle } from "./api";
 import { changedSince } from "./about";
 import type { DeckSummary } from "../api";
+import { usd } from "@yama/core";
 
 vi.mock("../auth",()=>({useMe:()=>({data:{id:"owner"}})}));
 // The deck page's Track this build reads the plan's device outbox, which needs a browser.
@@ -33,9 +34,9 @@ describe("deck research evidence", () => {
     expect(renderToStaticMarkup(<Shopping scenarios={[wishlist]}/>)).toBe("");
   });
   it("keeps unknown prices unknown and store quotes apart from markets", () => {
-    expect(money(null)).toBe("Unknown");expect(money(undefined)).toBe("Unknown");expect(money(0)).toBe("$0.00");
+    expect(usd(null)).toBe("No price");expect(usd(undefined)).toBe("No price");expect(usd(0)).toBe("$0.00");
     const html=renderToStaticMarkup(<MemoryRouter><AcquisitionItem item={{card:"New Card",kind:"buy",store:"Pat’s",price:1.75,market:null,printing:"SET #1",checked:"2026-10-27",url:"https://example.com/card"}} /></MemoryRouter>);
-    expect(html).toContain("$1.75");expect(html).toContain("Matched market: Unknown");expect(html).toContain("checked 2026-10-27");expect(html).toContain("SET #1");expect(html).not.toContain("$0.00");
+    expect(html).toContain("$1.75");expect(html).toContain("Matched market: No price");expect(html).toContain("checked Oct 27, 2026");expect(html).toContain("SET #1");expect(html).not.toContain("$0.00");
   });
   it("escapes supplied notes and refuses executable links", () => {
     expect(safeUrl("javascript:alert(1)")).toBeUndefined();expect(safeUrl("data:text/html,x")).toBeUndefined();expect(safeUrl("https://example.com")).toBe("https://example.com/");
@@ -100,8 +101,8 @@ describe("deck research evidence", () => {
     client.setQueryData(["research","owner","audit","view",1,{build:null,all:false,get:"split",upto:null}],view);
     const note=renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/decks/research/audit"]}><Routes><Route path="/decks/research/:reportId" element={<ResearchPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
     client.clear();
-    expect(note).toContain("Copied from");expect(note).toContain("@saget&#x27;s shared plan");expect(note).toContain("Saved 27 Oct 2026");
-    expect(note).toContain("1 to buy locally: about $1.50");expect(note).toContain("as of 27 Oct 2026");expect(note).toContain("Shopping list");expect(note).toContain("Deck lists");
+    expect(note).toContain("Copied from");expect(note).toContain("@saget&#x27;s shared plan");expect(note).toContain("Saved Oct 27, 2026");
+    expect(note).toContain("1 to buy locally: about $1.50");expect(note).toContain("as of Oct 27, 2026");expect(note).toContain("Shopping list");expect(note).toContain("Deck lists");
     expect(note).toContain("1 Sol Ring");expect(note).toContain('href="/decks/plans/archived/audit/energy"');expect(note).toContain(">Archived</span>");
     // The split's limit, set from the page: a dollar field under the Get choices.
     expect(note).toContain('<label for="note-upto">Buy cards up to');expect(note).toMatch(/id="note-upto" type="number"[^>]*max="1000"[^>]*value="2.00"/);

@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { api, type Combo, type DeckCheck, type Estimated } from "../api";
 import { useDeckAnalysis } from "../decks/DeckAnalysis";
-import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, localDay, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
+import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
 import { DeclareBracket } from "./DeclareBracket";
 import { NameList } from "./OnlineSupport";
 import { HelpPopover } from "./HelpPopover";
 import { Details, ErrorText } from "./ui";
 import "./decks.css";
+import { fmtDate } from "@yama/core";
 
 /** The Commander brackets, as Wizards names them. */
 export const BRACKETS: { value: number; name: string }[] = [
@@ -38,7 +39,7 @@ export function BracketChips({ declared, estimate }: { declared: number | null |
       {estimate && (
         <span
           className="bracket-chip estimate"
-          title={`${estimateValue(estimate.tag, estimate.bracket).sub(estimate.label)}. ${estimateExplanation(estimate.tag)}${estimate.checked_at ? ` Checked ${localDay(estimate.checked_at)}.` : ""}`}
+          title={`${estimateValue(estimate.tag, estimate.bracket).sub(estimate.label)}. ${estimateExplanation(estimate.tag)}${estimate.checked_at ? ` Checked ${fmtDate(estimate.checked_at)}.` : ""}`}
         >
           Suggested <b>{estimateValue(estimate.tag, estimate.bracket).value.toLowerCase()}</b>
         </span>
@@ -133,7 +134,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
           )}
         </div>
         <div className="bracket-side estimate">
-          <span className="label">Starting suggestion, {r ? `checked ${localDay(r.checked_at)}` : "not checked yet"}</span>
+          <span className="label">Starting suggestion, {r ? `checked ${fmtDate(r.checked_at)}` : "not checked yet"}</span>
           {r && shown ? (
             <>
               <span className="value">{shown.value}</span>

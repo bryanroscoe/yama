@@ -12,7 +12,6 @@ import {
   deckDiff,
   deckLogs,
   exportText,
-  fmtDate,
   gameChangersIn,
   gotText,
   ownedOrStockedLocally,
@@ -22,7 +21,6 @@ import {
   sourceContext,
   swapSource,
   swapStatus,
-  usd,
   type Order,
   type PlanDeck,
   type Quote,
@@ -148,13 +146,13 @@ describe("copy text", () => {
 
 describe("where it came from", () => {
   it("ports got_text's sentences", () => {
-    expect(gotText({ how: "bought", order: "shop-1" }, ctx)).toBe("Bought at Example, ordered 8 Oct 2026.");
+    expect(gotText({ how: "bought", order: "shop-1" }, ctx)).toBe("Bought at Example, ordered Oct 8, 2026.");
     expect(gotText({ how: "pulled", product: "a Bloomburrow collector booster", date: "2026-10-01" }, ctx)).toBe(
-      "Pulled from a Bloomburrow collector booster (1 Oct 2026).",
+      "Pulled from a Bloomburrow collector booster (Oct 1, 2026).",
     );
     expect(gotText({ how: "pulled", product: "a prerelease pack" }, ctx)).toBe("Pulled from a prerelease pack.");
     expect(gotText({ how: "deck", deck: "beta", deck_name: "Beta Deck", origin: "precon" }, ctx)).toBe("From Beta Deck (came in that precon).");
-    expect(gotText({ how: "deck", deck: "beta", origin: "shop-1" }, ctx)).toBe("From Beta Deck (bought at Example, ordered 8 Oct 2026 for that deck).");
+    expect(gotText({ how: "deck", deck: "beta", origin: "shop-1" }, ctx)).toBe("From Beta Deck (bought at Example, ordered Oct 8, 2026 for that deck).");
     // A deck outside the plan keeps its own name.
     expect(gotText({ how: "deck", deck: null, deck_name: "Old Deck", origin: "precon" }, ctx)).toBe("From Old Deck (came in that precon).");
     // A plan tracking a note's build: the note's own words, on owner pages only.
@@ -170,23 +168,10 @@ describe("where it came from", () => {
   });
 
   it("names the order, its date and the price paid, and never turns a missing price into $0", () => {
-    expect(boughtText({ order: "shop-1", line: 1 }, ctx)).toBe("Bought at Example, ordered 8 Oct 2026, $0.50.");
-    expect(boughtText({ order: "shop-1", line: 2 }, ctx)).toBe("Bought at Example, ordered 8 Oct 2026, price not recorded.");
-    expect(printText("proxy-1", ctx)).toBe("Print, on the Example Printer order placed by 15 Oct 2026.");
+    expect(boughtText({ order: "shop-1", line: 1 }, ctx)).toBe("Bought at Example, ordered Oct 8, 2026, $0.50.");
+    expect(boughtText({ order: "shop-1", line: 2 }, ctx)).toBe("Bought at Example, ordered Oct 8, 2026, price not recorded.");
+    expect(printText("proxy-1", ctx)).toBe("Print, on the Example Printer order placed by Oct 15, 2026.");
     expect(printText(null, ctx)).toBe("Print, for the next print order.");
-    expect(usd(null)).toBe("no price");
-    expect(usd(0)).toBe("$0.00");
-    expect(fmtDate("2026-10-08")).toBe("8 Oct 2026");
-    // A moment reads on the reader's calendar, whatever zone the tests run in.
-    const local = (iso: string) => {
-      const at = new Date(iso);
-      return `${at.getDate()} ${at.toLocaleString("en-GB", { month: "short" }).slice(0, 3)} ${at.getFullYear()}`;
-    };
-    expect(fmtDate("2026-11-05T04:30:00Z")).toBe(local("2026-11-05T04:30:00Z"));
-    expect(fmtDate("2026-11-05T04:30:00-06:00")).toBe(local("2026-11-05T10:30:00Z"));
-    // Without a zone it isn't a moment: the date as written.
-    expect(fmtDate("2026-11-05 04:30:00")).toBe("5 Nov 2026");
-    expect(fmtDate(null)).toBe("");
   });
 
   it("leaves out stores, dates and prices for a shared view", () => {
@@ -242,10 +227,10 @@ describe("where it came from", () => {
   });
 
   it("describes swaps and slots from their structured fields", () => {
-    expect(swapSource(swap({ key: "k1", in: "Bought Card", order_item: { order: "shop-1", line: 1 } }), ctx)).toBe("Bought at Example, ordered 8 Oct 2026, $0.50.");
+    expect(swapSource(swap({ key: "k1", in: "Bought Card", order_item: { order: "shop-1", line: 1 } }), ctx)).toBe("Bought at Example, ordered Oct 8, 2026, $0.50.");
     expect(swapSource(swap({ key: "k2", in: "X", store_label: "Example" }), ctx)).toBe("Not bought yet (planned at Example).");
     expect(swapSource(swap({ key: "k3", in: "X", stage: "proposed" }), ctx)).toBe("To buy.");
-    expect(swapSource(swap({ key: "k4", in: "Print Card", src: "print", print_order: "proxy-1" }), ctx)).toBe("Print, on the Example Printer order placed by 15 Oct 2026.");
+    expect(swapSource(swap({ key: "k4", in: "Print Card", src: "print", print_order: "proxy-1" }), ctx)).toBe("Print, on the Example Printer order placed by Oct 15, 2026.");
     expect(slotSource(s("Zap", 1, { kind: "owner" }), ctx, deck())).toBe("The owner's change before the plans.");
     expect(slotSource(s("Island", 1, { kind: "fill" }), ctx)).toBe("Basic land for now, until the print arrives.");
     expect(slotSource(s("Moved Card", 1, { kind: "moved", from_deck: "beta" }), ctx)).toBe("From Beta Deck.");

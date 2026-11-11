@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatLabel, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup } from "@yama/core";
+import { formatLabel, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
@@ -163,7 +163,6 @@ export function GameDetailPage() {
 
   const winner = g.seats.find((s) => s.seat === g.winner_seat);
   const first = g.seats.find((s) => s.seat === g.first_seat);
-  const day = new Date(g.started_at);
   const shown = g.seats.map((s) => art.get(splitPair(s).commander ?? "")).filter((a) => !!a?.art);
   const { setup, log } = setupFromServer(g);
   const lines = history(setup, log);
@@ -178,7 +177,7 @@ export function GameDetailPage() {
   const how = winConditionLabel(g.win_condition);
   const title = going ? "Still going" : winner ? `${seatName(winner)} won` : g.status === "finished" ? "A draw" : "Game";
   const facts = [
-    `${day.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}, ${day.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.`,
+    `${fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
     `${formatLabel(setup.format)}, ${g.seats.length} players at ${setup.startingLife} life.`,
     g.turns ? `${g.turns} turns.` : null,
     how ? `Won by ${how.toLowerCase()}.` : null,
@@ -280,7 +279,7 @@ export function GameDetailPage() {
                 <ul>
                   {t.lines.map((l) => (
                     <li key={l.seq}>
-                      <span className="gd-time num">{new Date(l.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                      <span className="gd-time num">{fmtTime(l.at)}</span>
                       {l.text}
                     </li>
                   ))}

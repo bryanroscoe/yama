@@ -10,6 +10,7 @@ import { caveat, durationText, expectedSeconds, gameChoices } from "./logic";
 import { DeckChooser, defaultField, FieldPicker, fromDeckSummary, GamesPicker, RunBlockers, useField, usePace, type Chosen, type FieldState, EnginePicker, EngineSupportNote, engineFields, engineState, engineText, forgeSeconds, type EngineState } from "./pickers";
 import { usePrecons } from "./Precons";
 import { CreateError, PaceNote, RunningNow } from "./Try";
+import { count } from "@yama/core";
 
 type Mode = "compare" | "versus" | "tournament";
 
@@ -209,7 +210,7 @@ function CompareForm() {
               pace={pace.data}
               label={tournament ? "Games per deck, per engine" : "Games"}
               estimateGames={tournament ? tournamentGames : undefined}
-              note={tournament ? `At least ${games} appearances per unique deck. Up to about ${tournamentGames.toLocaleString()} four-player games per engine before duplicate and unsupported precons are removed. Counts are rounded up for equal seat rotations.` : versus ? `${games} games, every deck in each one.` : `${games / 2} pods, each played by both decks.`}
+              note={tournament ? `At least ${games} appearances per unique deck. Up to about ${count(tournamentGames)} four-player games per engine before duplicate and unsupported precons are removed. Counts are rounded up for equal seat rotations.` : versus ? `${games} games, every deck in each one.` : `${games / 2} pods, each played by both decks.`}
             />
             <p className="lab-note" style={{ margin: 0 }}>
               <PaceNote pace={pace.data} error={pace.error} />

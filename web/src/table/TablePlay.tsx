@@ -24,6 +24,7 @@ import {
   type TableEvent,
   type TableState,
   type WinCondition,
+  fmtTime,
 } from "@yama/core";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
@@ -1438,7 +1439,7 @@ function GameLog({ state, log }: { state: TableState; log: LoggedEvent[] }) {
       <ol className="tm-log-list">
         {lines.slice(0, 60).map((l) => (
           <li key={l.seq}>
-            <span className="tm-log-when num">{new Date(l.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+            <span className="tm-log-when num">{fmtTime(l.at)}</span>
             <span>{l.text}</span>
           </li>
         ))}

@@ -1,5 +1,5 @@
 // Edit the list (/decks/:id/edit): which lists to start from, and the changes as pairs of cards.
-import { GROUP_ORDER, groupOf } from "@yama/core";
+import { GROUP_ORDER, groupOf, fmtDate } from "@yama/core";
 import type { DeckVersionRow } from "../api";
 import { configurationLabel, pairChanges, type BuildChoice, type BuildFamily, type CardCopy, type SwapPair } from "./buildCatalog";
 
@@ -53,7 +53,6 @@ export function startButtons(family: BuildFamily | undefined, deck: DeckRef): St
   return out;
 }
 
-const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 /** Every other list, for the Another list sheet: the remaining build choices, then saved versions, newest first. */
 export function otherLists(family: BuildFamily | undefined, buttons: StartList[], versions: DeckVersionRow[]): StartList[] {
@@ -61,7 +60,7 @@ export function otherLists(family: BuildFamily | undefined, buttons: StartList[]
   const builds = (family?.choices ?? []).filter((c) => !taken.has(c.id)).map((c) => ({ id: c.id, label: c.label, detail: c.source, choice: c }));
   const saved = [...versions]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    .map((v) => ({ id: `version:${v.id}`, label: v.note?.trim() ? v.note.trim() : `Version of ${day(v.created_at)}`, detail: `Saved ${day(v.created_at)}`, version: v.id }));
+    .map((v) => ({ id: `version:${v.id}`, label: v.note?.trim() ? v.note.trim() : `Version of ${fmtDate(v.created_at)}`, detail: `Saved ${fmtDate(v.created_at)}`, version: v.id }));
   return [...builds, ...saved];
 }
 

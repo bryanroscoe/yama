@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { identityName } from "@yama/core";
+import { identityName, count } from "@yama/core";
 import { spares as planSpares } from "@yama/core/plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -741,7 +741,7 @@ function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { i
           {identity != null && (
             <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
               <input type="checkbox" checked={fits} onChange={(e) => setFits(e.target.checked)} style={{ width: "auto", minHeight: 0 }} />
-              <span className="small">Within the commander's colours ({identityName(identity)})</span>
+              <span className="small">Within the commander's colors ({identityName(identity)})</span>
             </label>
           )}
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
@@ -771,7 +771,7 @@ function CardSearch({ identity, onPick, inBase, action, autoFocus = false }: { i
             </div>
           ))}
           {shown.length === 0 && <p className="small dim">No cards match.</p>}
-          {results.data.total > 12 && <p className="small dim">{results.data.total.toLocaleString()} matches; showing the 12 most played.</p>}
+          {results.data.total > 12 && <p className="small dim">{count(results.data.total)} matches; showing the 12 most played.</p>}
         </div>
       )}
     </div>

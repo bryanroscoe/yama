@@ -5,7 +5,7 @@ import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { exportLink } from "../download";
-import { api, API_BASE, priceSource, shortDate, usd, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
+import { api, API_BASE, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
 import "./collection.css";
@@ -16,15 +16,15 @@ const KIND_LABEL: Record<string, string> = { binder: "Binder", box: "Box", deck:
 
 /** "146 cards, $402" for a tile; copies without a price are said, not counted as $0. */
 function tileMeta(copies: number, value: number | undefined, unpriced: number | undefined): string {
-  const cards = `${copies.toLocaleString()} ${copies === 1 ? "card" : "cards"}`;
+  const cards = plural(copies, "card");
   if (value === undefined) return cards;
-  const money = `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-  return `${cards}, ${money}${unpriced ? `, ${unpriced} with no price` : ""}`;
+  return `${cards}, ${usdWhole(value)}${unpriced ? `, ${unpriced} with no price` : ""}`;
 }
 import type { Added, Finish, Fix, ScanCandidate } from "../scanner";
 import { useDebounced } from "../useDebounced";
 // The scan choices and their notes, shown here outside the scanner too.
 import "../scanner/scanner.css";
+import { priceSource, shortDate, usd, count, plural, usdWhole } from "@yama/core";
 
 // The scanner pulls in OCR; load it only when someone opens it.
 const scanner = () => import("../scanner");
@@ -98,7 +98,6 @@ export function CollectionPage() {
   const chosen = containers.data?.find((c) => c.id === container);
   const priced = priceSource(s?.price_date);
   const day = shortDate(s?.price_date) ?? "an unknown date";
-  const money = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const sorted = useMemo(
     () => [...(items.data ?? [])].sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
     [items.data, sort],
@@ -122,23 +121,23 @@ export function CollectionPage() {
           {s && s.copies > 0 && (
             <>
               <span className="coll-value">
-                <b className="num">{money(s.market_value_usd)}</b>
+                <b className="num">{usdWhole(s.market_value_usd)}</b>
                 <span className="coll-wide">
-                  market value of {real.toLocaleString()} {real === 1 ? "card" : "cards"} on {day}.
-                  {s.copies_without_price > 0 ? ` ${s.copies_without_price.toLocaleString()} ${s.copies_without_price === 1 ? "has" : "have"} no price.` : ""}
-                  {proxies > 0 ? ` Your ${proxies.toLocaleString()} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
+                  market value of {plural(real, "card")} on {day}.
+                  {s.copies_without_price > 0 ? ` ${count(s.copies_without_price)} ${s.copies_without_price === 1 ? "has" : "have"} no price.` : ""}
+                  {proxies > 0 ? ` Your ${count(proxies)} ${proxies === 1 ? "proxy isn't" : "proxies aren't"} counted.` : ""}
                 </span>
                 <span className="coll-narrow">
-                  {real.toLocaleString()} {real === 1 ? "card" : "cards"}, {day}
+                  {plural(real, "card")}, {day}
                 </span>
               </span>
               <span className="coll-sub">
                 {s.copies_without_price > 0 && (
                   <span className="coll-narrow">
-                    {s.copies_without_price.toLocaleString()} {s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.{" "}
+                    {count(s.copies_without_price)} {s.copies_without_price === 1 ? "card has no price and isn't" : "cards have no price and aren't"} counted.{" "}
                   </span>
                 )}
-                {s.purchase_total_usd > 0 && <>You paid {money(s.purchase_total_usd)}, where recorded.</>}
+                {s.purchase_total_usd > 0 && <>You paid {usdWhole(s.purchase_total_usd)}, where recorded.</>}
               </span>
             </>
           )}
@@ -272,7 +271,7 @@ export function CollectionPage() {
         </ul>
         {left > 0 && (
           <button className="coll-more" onClick={() => setLimit((n) => n + MORE)}>
-            {left > MORE ? `Show ${MORE} more of ${left.toLocaleString()}` : `Show the last ${left.toLocaleString()}`}
+            {left > MORE ? `Show ${MORE} more of ${count(left)}` : `Show the last ${count(left)}`}
           </button>
         )}
         {!!items.data?.length && (
