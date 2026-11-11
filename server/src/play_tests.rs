@@ -1836,13 +1836,13 @@ async fn the_host_cancels_a_waiting_table_and_deletes_a_finished_game() {
 
 #[test]
 fn the_limit_message_names_what_is_open_and_how_to_close_it() {
-    assert_eq!(open_games_message(1, 0), "You have 1 table waiting for players. Cancel it from its page before opening another.");
-    assert_eq!(open_games_message(2, 0), "You have 2 tables waiting for players. Cancel one from its page before opening another.");
+    assert_eq!(open_games_message(1, 0), "You have 1 table waiting for players. Close it from its page before opening another.");
+    assert_eq!(open_games_message(2, 0), "You have 2 tables waiting for players. Close one from its page before opening another.");
     assert_eq!(open_games_message(0, 1), "You have 1 game being played. Finish it before starting another.");
     assert_eq!(open_games_message(0, 3), "You have 3 games being played. Finish one before starting another.");
     assert_eq!(
         open_games_message(1, 1),
-        "You have 1 table waiting for players and 1 game being played. Cancel a waiting table from its page, or finish a game, before starting another."
+        "You have 1 table waiting for players and 1 game being played. Close a waiting table from its page, or finish a game, before starting another."
     );
 }
 

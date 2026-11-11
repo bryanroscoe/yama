@@ -1435,15 +1435,15 @@ async fn check_open_games(pool: &SqlitePool, user: &User) -> AppResult<()> {
 }
 
 /// Why a new game is refused at the limit, naming what is open and the way out of each kind: a
-/// table that hasn't started is cancelled, a game being played is finished.
+/// table that hasn't started is closed, a game being played is finished.
 fn open_games_message(waiting: i64, playing: i64) -> String {
     let tables = |n: i64| if n == 1 { "1 table waiting for players".to_string() } else { format!("{n} tables waiting for players") };
     let games = |n: i64| if n == 1 { "1 game being played".to_string() } else { format!("{n} games being played") };
     let one = |n: i64| if n == 1 { "it" } else { "one" };
     match (waiting, playing) {
-        (w, 0) => format!("You have {}. Cancel {} from its page before opening another.", tables(w), one(w)),
+        (w, 0) => format!("You have {}. Close {} from its page before opening another.", tables(w), one(w)),
         (0, p) => format!("You have {}. Finish {} before starting another.", games(p), one(p)),
-        (w, p) => format!("You have {} and {}. Cancel a waiting table from its page, or finish a game, before starting another.", tables(w), games(p)),
+        (w, p) => format!("You have {} and {}. Close a waiting table from its page, or finish a game, before starting another.", tables(w), games(p)),
     }
 }
 
@@ -1456,14 +1456,14 @@ async fn create(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// The host cancels a table that hasn't started, or deletes a game that's over: it comes out of
+/// The host closes a table that hasn't started, or deletes a game that's over: it comes out of
 /// everyone's history and stats, as deleting a table game does (`games::remove`). A game being
 /// played isn't deleted from under its players: it ends first (a concession, or End game for a
 /// solo game).
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<serde_json::Value>> {
     let r = load_visible(&st.pool, &id, &user.id).await?;
     if r.host_id != user.id {
-        return Err(AppError::Forbidden(if r.stage == "lobby" { "Only the host can cancel this table." } else { "Only the host can delete this game." }.into()));
+        return Err(AppError::Forbidden(if r.stage == "lobby" { "Only the host can close this table." } else { "Only the host can delete this game." }.into()));
     }
     let playing = || AppError::Conflict("This game is being played. Finish it before deleting it.".into());
     if r.stage == "live" {

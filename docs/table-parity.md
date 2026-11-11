@@ -71,7 +71,7 @@ What each kind of game asks and saves. "Table" is the life counter; "Logged" is 
 | Fun rating | yes | yes | yes, each player their own | no |
 | Notes | finish sheet | yes | the host, at the end | no |
 | Edit a finished game | script only (docs/history-corrections.md) | in app | win condition, fun and note only | n/a |
-| Delete | whoever recorded it | whoever logged it | the host, once it's over; a waiting table can be cancelled | yes |
+| Delete | whoever recorded it | whoever logged it | the host, once it's over; a waiting table can be closed | yes |
 | Offline | yes | yes (waits on the device and uploads on its own) | no | no |
 | Precon opponents | n/a | n/a | yes | yes |
 | Saved to history | yes | yes | yes | no |

@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
+import { ask } from "../components/confirm";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { ErrorText, Pips } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
@@ -34,7 +35,7 @@ export function PlayGame() {
       <main className="page">
         <p><Link to="/play">Play online</Link></p>
         {game.error instanceof ApiError && game.error.status === 404 ? (
-          <p role="alert">This game isn't here any more. Its host may have cancelled the table or deleted the game.</p>
+          <p role="alert">This game isn't here any more. Its host may have closed the table or deleted the game.</p>
         ) : (
           <ErrorText error={game.error} />
         )}
@@ -174,9 +175,9 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
               type="button"
               className="quiet"
               disabled={cancel.isPending || start.isPending}
-              onClick={() => confirm("Cancel this table? Its code stops working, and the table closes for anyone who joined.") && cancel.mutate()}
+              onClick={async () => (await ask({ title: "Close this table?", body: "Its code stops working, and the table closes for anyone who joined.", confirm: "Close the table", danger: true })) && cancel.mutate()}
             >
-              {cancel.isPending ? "Cancelling…" : "Cancel this table"}
+              {cancel.isPending ? "Closing…" : "Close this table"}
             </button>
             <button type="button" className="primary lobby-start" disabled={open > 0 || start.isPending || cancel.isPending} onClick={() => start.mutate()}>
               {open > 0 ? "Start when everyone's in" : "Start the game"}

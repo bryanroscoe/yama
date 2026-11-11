@@ -12,6 +12,7 @@ import { Link, useNavigate } from "react-router";
 import { GAME_WORDS, NOTE_MAX, WIN_CONDITIONS, winConditionLabel, wonText, type WinCondition } from "@yama/core";
 import { api } from "../api";
 import { useMe } from "../auth";
+import { ask } from "../components/confirm";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { serialQueue } from "./saveQueue";
 import { INFERRED, lastOut, list, outText, standings, whyText, type Names } from "./feed";
@@ -234,7 +235,7 @@ export function GameOver(props: {
   // The host may delete a finished game, as whoever recorded a table game may: a test game, or
   // one that shouldn't count.
   const remove = async () => {
-    if (!confirm("Delete this game from Yama? It comes out of the history and stats for everyone who played. This can't be undone.")) return;
+    if (!(await ask({ title: "Delete this game from Yama?", body: "It comes out of the history and stats for everyone who played. This can't be undone.", confirm: "Delete game", danger: true }))) return;
     setBusy(true);
     setError(null);
     try {

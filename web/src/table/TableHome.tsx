@@ -87,7 +87,7 @@ export function TableHome() {
       {!guest && loggedRefused.map((q) => (
         <p key={q.body.id} className="small error">
           A game you logged {q.refused ? "couldn't be saved to Yama" : "hasn't uploaded yet"} ({q.error}). It's kept on this device{q.refused ? "" : " and will be tried again"}.{" "}
-          <button className="quiet small" onClick={() => confirm("Throw away this device's copy of the logged game? Yama doesn't have this save of it.") && discardLogged(q.body.id)}>Discard it</button>
+          <button className="quiet small" onClick={async () => (await ask({ title: "Throw away this logged game?", body: "This device has the only copy of this save of it.", confirm: "Discard it", danger: true })) && discardLogged(q.body.id)}>Discard it</button>
         </p>
       ))}
       {!guest && rejected.length > 0 && (

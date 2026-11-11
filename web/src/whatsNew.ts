@@ -48,9 +48,9 @@ export const NEWS: NewsEntry[] = [
   {
     id: "2026-11-11-cancel-and-delete-online",
     date: "2026-11-11",
-    title: "Cancel a table, delete an online game",
+    title: "Close a table, delete an online game",
     items: [
-      "The host can cancel an online table that hasn't started, from its page. A table nobody joined no longer shows as a game in progress or holds a place among your open games.",
+      "The host can close an online table that hasn't started, from its page. A table nobody joined no longer shows as a game in progress or holds a place among your open games.",
       "The host can delete an online game once it's over, from the game-over screen.",
       "A finished table game keeps its result: a second device with an old copy can no longer change who won. Deleting a game now says so when nothing was deleted.",
     ],

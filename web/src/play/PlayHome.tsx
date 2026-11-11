@@ -245,16 +245,13 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
                   <Segmented className="ph-kind" label={`Who plays seat ${i + 1}`} value={s.kind} onChange={(kind) => update(i, { kind })} options={[["ai", "Computer"], ["friend", "A friend"]]} />
                 )}
                 {s.kind === "ai" && preconChoices.length > 0 && (
-                  <div className="segmented ph-kind" role="group" aria-label={`Deck for the computer in seat ${i + 1}`}>
-                    <button type="button" aria-pressed={!playsPrecon(s)} onClick={() => update(i, { source: "deck" })}>Your decks</button>
-                    <button
-                      type="button"
-                      aria-pressed={playsPrecon(s)}
-                      onClick={() => update(i, { source: "precon", preconId: s.preconId || preconChoices[(i * 37 + 11) % preconChoices.length]!.id })}
-                    >
-                      Precons
-                    </button>
-                  </div>
+                  <Segmented
+                    className="ph-kind"
+                    label={`Deck for the computer in seat ${i + 1}`}
+                    value={playsPrecon(s) ? "precon" : "deck"}
+                    onChange={(source) => update(i, source === "precon" ? { source, preconId: s.preconId || preconChoices[(i * 37 + 11) % preconChoices.length]!.id } : { source })}
+                    options={[["deck", "Your decks"], ["precon", "Precons"]]}
+                  />
                 )}
                 {s.kind !== "friend" && !playsPrecon(s) && (
                   <SavedDeckPicker decks={decks} value={deckOf(s)} onChange={(deckId) => update(i, { deckId })} />
