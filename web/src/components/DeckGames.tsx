@@ -5,7 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type DeckResults } from "../api";
 import { recordText } from "./statsText";
-import { queryFailure } from "./QueryError";
+import { queryFailure, RefreshFailed } from "./QueryError";
 import { ErrorText } from "./ui";
 
 export function gamesTotal(versions: Pick<DeckResults["versions"][number], "games" | "wins" | "losses" | "draws">[]) {
@@ -24,6 +24,7 @@ export function DeckGames({ deckId, versionId }: { deckId: string; versionId: st
   return (
     <section className="deck-tab-section" aria-labelledby="deck-history-games">
       <h2 id="deck-history-games">Games with this deck</h2>
+      <RefreshFailed query={q} what="these results" />
       <span className="num">{cap(recordText(total))}</span>
       {now && now.games > 0 && now.games < total.games && <span className="dim">This list: {recordText(now)}</span>}
       {computer.games > 0 && <span className="dim">Against the computer: {recordText(computer)}</span>}

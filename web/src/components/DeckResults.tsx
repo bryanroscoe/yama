@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, type DeckResults as Results } from "../api";
-import { queryFailure } from "./QueryError";
+import { queryFailure, RefreshFailed } from "./QueryError";
 import { Details, ErrorText } from "./ui";
 import { computerText, recordText } from "./statsText";
 import "./stats.css";
@@ -25,6 +25,7 @@ export function DeckResults({ deckId, versionId }: { deckId: string; versionId: 
   return (
     <section className="deck-results">
       <h2>Results</h2>
+      <RefreshFailed query={q} what="these results" />
       <p className={`this-version ${current ? (faded(current) ?? "") : ""}`}>
         This version: <b className="num">{current ? recordText(current) : "no games yet"}</b>
         {current && current.games > 0 && current.games < under && <span className="prov"> provisional</span>}

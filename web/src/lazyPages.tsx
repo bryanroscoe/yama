@@ -3,8 +3,9 @@
 // comes with it. Until it arrives the page's stand-in shows (components/StandIn.tsx). The
 // service worker keeps every area's code on the device for offline use (public/sw.js).
 
-import { Component, lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { useLocation } from "react-router";
+import { Component, createContext, lazy, Suspense, useContext, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+import { useLocation, useRouteError } from "react-router";
+import { errorMessage } from "./api";
 import { StandIn, type StandInKind } from "./components/StandIn";
 
 /**
@@ -19,12 +20,52 @@ export function area<M>(load: () => Promise<M>) {
     /** Fetch the area's code ahead of time, quietly (a failure shows when the page opens). */
     prefetch: () => void ready().catch(() => undefined),
     page<K extends keyof M>(name: K): ComponentType {
-      const Lazy = lazy(async () => ({ default: (await ready())[name] as ComponentType }));
+      const attempt = retryingLazy(async () => (await ready())[name] as ComponentType);
       return function AreaPage() {
-        const Page = (mod?.[name] as ComponentType | undefined) ?? Lazy;
+        const tryNo = useContext(Try);
+        const Page = (mod?.[name] as ComponentType | undefined) ?? attempt(tryNo);
         return <Page />;
       };
     },
+  };
+}
+
+/**
+ * Which try at showing the page this is: the page's boundary gives each one its own name (this
+ * visit to the address, and a count that goes up with Try again or the connection coming back).
+ * A page that failed, was left and is opened again is a new visit, so it asks for its code again.
+ */
+const Try = createContext("");
+
+/**
+ * A lazy component that can be asked for again. React.lazy keeps a failed load for good, so a page
+ * first opened offline went on failing until the whole app was reloaded (project review,
+ * 11 Nov 2026). Here a failed load is replaced by a fresh one on the next try (`tryNo` differs
+ * from the try that failed). Within the same try the failure stands: React renders a failed
+ * subtree once more before giving up, and a fresh load there would suspend, fail and start over
+ * without end.
+ */
+export function retryingLazy<C = LazyExoticComponent<ComponentType>>(load: () => Promise<ComponentType>, make: (factory: () => Promise<{ default: ComponentType }>) => C = lazy as never): (tryNo: string) => C {
+  let shownIn = "";
+  let failedIn: string | null = null;
+  const fresh = (): C =>
+    make(() =>
+      load().then(
+        (component) => ({ default: component }),
+        (error: unknown) => {
+          failedIn = shownIn;
+          throw error;
+        },
+      ),
+    );
+  let attempt = fresh();
+  return (tryNo) => {
+    if (failedIn !== null && failedIn !== tryNo) {
+      failedIn = null;
+      attempt = fresh();
+    }
+    shownIn = tryNo;
+    return attempt;
   };
 }
 
@@ -32,19 +73,42 @@ interface BoundaryProps {
   children: ReactNode;
   /** The address this page was opened at: another address gets a fresh try. */
   at: string;
+  /** This visit to it (the location's key): coming back to an address that failed is a new try. */
+  visit: string;
 }
 
-class Boundary extends Component<BoundaryProps, { error: unknown; at: string | null }> {
-  state = { error: null as unknown, at: null as string | null };
+interface BoundaryState {
+  error: unknown;
+  at: string | null;
+  /** Goes up with each Try again, so the page under it starts afresh. */
+  tries: number;
+}
+
+/** What the boundary holds as the address changes: an error is for the address it happened at. */
+export function boundaryState(at: string, state: Pick<BoundaryState, "error" | "at">): Partial<BoundaryState> | null {
+  if (state.error == null) return { at };
+  return state.at === at ? null : { error: null, at };
+}
+
+class Boundary extends Component<BoundaryProps, BoundaryState> {
+  state: BoundaryState = { error: null, at: null, tries: 0 };
   static getDerivedStateFromError(error: unknown) {
     return { error };
   }
-  static getDerivedStateFromProps(props: BoundaryProps, state: { error: unknown; at: string | null }) {
-    if (state.error == null) return { at: props.at };
-    return state.at === props.at ? null : { error: null, at: props.at };
+  static getDerivedStateFromProps(props: BoundaryProps, state: BoundaryState) {
+    return boundaryState(props.at, state);
+  }
+  /** Render the page again: a page whose code didn't arrive asks for it afresh (retryingLazy). */
+  retry = () => this.setState((s) => (s.error == null ? null : { error: null, tries: s.tries + 1 }));
+  componentDidMount() {
+    // The connection is back: what failed for want of it gets its chance without a tap.
+    window.addEventListener("online", this.retry);
+  }
+  componentWillUnmount() {
+    window.removeEventListener("online", this.retry);
   }
   render() {
-    if (this.state.error == null) return this.props.children;
+    if (this.state.error == null) return <Try.Provider value={`${this.props.visit}#${this.state.tries}`}>{this.props.children}</Try.Provider>;
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
     return (
       <main className="page">
@@ -54,23 +118,49 @@ class Boundary extends Component<BoundaryProps, { error: unknown; at: string | n
         <p>
           {offline
             ? "You're offline, and this page isn't saved on this device yet. The life counter and card search still work."
-            : "Something went wrong while opening it. Reloading usually fixes it."}
+            : "Something went wrong while opening it. Trying again or reloading usually fixes it."}
         </p>
-        <button className="primary" onClick={() => location.reload()}>Reload</button>
+        <div className="row">
+          <button className="primary" onClick={this.retry}>Try again</button>
+          <button onClick={() => location.reload()}>Reload</button>
+        </div>
       </main>
     );
   }
 }
 
+/** A page inside the app's frame: if it fails to render, the nav stays and the page says so. */
+export function Framed({ children }: { children: ReactNode }) {
+  const { pathname, key } = useLocation();
+  return <Boundary at={pathname} visit={key}>{children}</Boundary>;
+}
+
 /** A page with its stand-in while its code loads, and a way back if that fails. */
 export function Paged({ page: Page, kind, title }: { page: ComponentType; kind?: StandInKind; title?: string }) {
-  const { pathname } = useLocation();
   return (
-    <Boundary at={pathname}>
+    <Framed>
       <Suspense fallback={<StandIn kind={kind} title={title} />}>
         <Page />
       </Suspense>
-    </Boundary>
+    </Framed>
+  );
+}
+
+/**
+ * The last resort, for a failure outside every page's own boundary (the app's frame itself): the
+ * router's error element (main.tsx). Without it the screen went blank.
+ */
+export function AppFailed() {
+  const error = useRouteError();
+  return (
+    <main className="page">
+      <div className="page-head">
+        <h1>Yama hit a problem</h1>
+      </div>
+      <p>Something went wrong showing this screen. Reloading usually fixes it; nothing saved is lost.</p>
+      <p className="small dim">{errorMessage(error)}</p>
+      <button className="primary" onClick={() => location.reload()}>Reload</button>
+    </main>
   );
 }
 

@@ -13,7 +13,7 @@ import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
 import { CardImage, ErrorText, ManaCost, Pips, Loading } from "../components/ui";
-import { ownedFinishes } from "./collectionEdit";
+import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
 import { priceSource, shortDate, usd } from "@yama/core";
 
@@ -102,13 +102,18 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
     enabled: !!card && !guest,
     select: (items) => items.filter((i) => i.oracle_id === oracleId && i.qty > 0),
   });
+  // One op id per add until the server confirms it: tapping again after a failed save (its answer
+  // may only have been lost) sends the same op, never a second copy.
+  const [ids] = useState(() => opIds());
+  const addKey = (v: { p: Printing; finish: string; proxy?: boolean }) => `${v.p.scryfall_id}:${v.finish}:${v.proxy ? "proxy" : "real"}`;
   const add = useMutation({
     mutationFn: (v: { p: Printing; finish: string; proxy?: boolean }) =>
       api("/api/collection/ops", {
         method: "POST",
-        json: [{ op_id: crypto.randomUUID(), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish, proxy: !!v.proxy }],
+        json: [{ op_id: ids.idFor(addKey(v)), kind: "add", scryfall_id: v.p.scryfall_id, qty: 1, finish: v.finish, proxy: !!v.proxy }],
       }),
     onSuccess: (_, v) => {
+      ids.saved(addKey(v));
       setAdded(
         v.proxy
           ? `Added a proxy of ${card!.name} (${v.p.set_name} art) to your collection.`
@@ -297,7 +302,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
                             <td className="r cp-add">
                               <span className="cp-add-row">
                                 {p.finishes.map((f) => (
-                                  <button key={f} onClick={() => add.mutate({ p, finish: f })} aria-label={`Add a ${f === "nonfoil" ? "regular" : f} ${p.set_name} copy to your collection`}>
+                                  <button key={f} disabled={add.isPending} onClick={() => add.mutate({ p, finish: f })} aria-label={`Add a ${f === "nonfoil" ? "regular" : f} ${p.set_name} copy to your collection`}>
                                     {f === "nonfoil" ? "+1" : f === "foil" ? "+F" : "+E"}
                                   </button>
                                 ))}

@@ -1,12 +1,13 @@
-import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
-import { ApiError, type User } from "./api";
+import { type User } from "./api";
 import { App } from "./App";
 import { savedMe } from "./auth";
 import { setGuestActive } from "./guest";
-import { reloadOnStaleCode } from "./lazyPages";
+import { AppFailed, reloadOnStaleCode } from "./lazyPages";
+import { followMe, signInEnded, startSession, watchOtherTabs } from "./session";
 import { keepStorage } from "./storage";
 import { selectSlot } from "./table/store";
 import "@fontsource/big-shoulders-display/500";
@@ -24,16 +25,23 @@ import "./install";
 import { installNative, isNative } from "./native";
 import { ConfirmHost } from "./components/confirm";
 
+// A 401 while the app believes an account is signed in: ask again who is. If the sign-in has
+// ended, an open account page stays, with a sign-in prompt over it (session.ts, RequireAccount).
+const askWhoIsSignedIn = (error: unknown) => {
+  if (!signInEnded(error, !!queryClient.getQueryData(["me"]))) return;
+  void queryClient.invalidateQueries({ queryKey: ["me"] });
+};
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
   queryCache: new QueryCache({
     // The app opens as the account this device last saw (auth.tsx). If its sign-in has ended, the
-    // first page's own requests can come back 401 before /api/me does: ask again who's signed in.
+    // first page's own requests can come back 401 before /api/me does.
     onError: (error, query) => {
-      if (!(error instanceof ApiError) || error.status !== 401 || query.queryKey[0] === "me") return;
-      if (queryClient.getQueryData(["me"])) void queryClient.invalidateQueries({ queryKey: ["me"] });
+      if (query.queryKey[0] !== "me") askWhoIsSignedIn(error);
     },
   }),
+  // A save refused with 401 used to show its error and nothing else (project review, 11 Nov 2026).
+  mutationCache: new MutationCache({ onError: askWhoIsSignedIn }),
 });
 
 // A tab opened before a release asks for code the server no longer has: load it afresh, once.
@@ -50,14 +58,15 @@ const followAccount = (me: User | null | undefined) => {
 };
 const saved = savedMe();
 if (saved) followAccount(saved);
-queryClient.getQueryCache().subscribe((event) => {
-  if (event.type !== "updated" || event.query.queryKey[0] !== "me" || event.query.state.status === "pending") return;
-  followAccount(event.query.state.data as User | null | undefined);
-});
+// The cache holds one account's data: it's emptied when the account changes, here, before any
+// page renders as the new one (session.ts).
+startSession(queryClient, saved?.id ?? null);
+followMe(queryClient, followAccount);
+watchOtherTabs(queryClient);
 
 // One catch-all route around the app's own <Routes>: a data router, which is what lets a page
 // stop a navigation to ask about unsaved work (unsaved.tsx, useBlocker).
-const router = createBrowserRouter([{ path: "*", element: <App /> }]);
+const router = createBrowserRouter([{ path: "*", element: <App />, errorElement: <AppFailed /> }]);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

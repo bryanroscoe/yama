@@ -42,27 +42,99 @@ export function publicOrigin(): string {
  */
 export const FETCH_CREDENTIALS: RequestCredentials = API_BASE ? "omit" : "include";
 
-/** Native apps can't share the web cookie, so they keep the bearer token. Web relies on the cookie. */
+/**
+ * Only the native apps keep the bearer token: they can't share the web cookie. On the web the
+ * HttpOnly session cookie is the sign-in, and a 90-day token readable by any script on the page
+ * has no business in localStorage (project review, 11 Nov 2026).
+ */
+const KEEPS_TOKEN = !!API_BASE;
+
+/**
+ * Drop a token an older web build stored. It did more than sit there: the server reads
+ * `Authorization` before the cookie and doesn't fall back, so a token whose session had ended
+ * turned every request into a 401 even with a good cookie.
+ */
+function dropWebToken() {
+  if (KEEPS_TOKEN) return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // No storage (blocked, or not a browser): nothing is stored there either.
+  }
+}
+dropWebToken();
+
+/** Remember the session token after signing in (native apps only), or forget it (null). */
 export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
+  if (token && KEEPS_TOKEN) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-/** The bearer token, for requests made where localStorage isn't (a worker). */
+/** The bearer token a request carries: the native apps' stored one; none on the web. */
 export function currentToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return KEEPS_TOKEN ? localStorage.getItem(TOKEN_KEY) : null;
+}
+
+/**
+ * Every request still out belongs to the account that was signed in when it was made. When the
+ * account changes (session.ts), they are all stopped: a save made of several requests (adding
+ * many decks one after another) fails at the one in flight instead of carrying on as whoever
+ * signed in next, and nothing of the old account's comes back into the new one's cache.
+ */
+let requests = new AbortController();
+
+export function abortRequests() {
+  const stopped = requests;
+  requests = new AbortController();
+  stopped.abort(new DOMException("The signed-in account changed, so this was stopped.", "AbortError"));
+}
+
+/**
+ * The signal for a request made as the account signed in now, joined with the caller's own. For
+ * the few requests that don't go through `api()` (a streamed answer).
+ */
+export function accountSignal(own?: AbortSignal | null): AbortSignal {
+  return either(requests.signal, own);
+}
+
+/**
+ * The account signed in, as the session knows it (session.ts keeps it in step); undefined until
+ * the session has started. Work kept for one account (the plan outbox) checks it before sending,
+ * so nothing queued for one account goes out under another's sign-in.
+ */
+let signedIn: string | null | undefined;
+
+export function setSignedInAccount(id: string | null) {
+  signedIn = id;
+}
+
+/** Whether `userId`'s own work may be sent now: that account is the one signed in (or the session hasn't said yet). */
+export function isSignedInAs(userId: string): boolean {
+  return signedIn === undefined || signedIn === userId;
+}
+
+/** Stops when either signal does. */
+function either(a: AbortSignal, b: AbortSignal | null | undefined): AbortSignal {
+  if (!b) return a;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([a, b]);
+  const both = new AbortController();
+  for (const s of [a, b]) {
+    if (s.aborted) both.abort(s.reason);
+    else s.addEventListener("abort", () => both.abort(s.reason), { once: true });
+  }
+  return both.signal;
 }
 
 async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   let body = init.body;
   if (init.json !== undefined) {
     headers.set("Content-Type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: FETCH_CREDENTIALS });
+  const res = await fetch(API_BASE + path, { ...init, headers, body, credentials: FETCH_CREDENTIALS, signal: either(requests.signal, init.signal) });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     let data: Record<string, unknown> | undefined;
