@@ -93,9 +93,12 @@ export function DecksPage() {
       <ChangesBanner />
       <ErrorText error={decks.error} />
       {decks.data?.length === 0 && (
-        <div className="empty">
+        <div className="empty stack">
           <p>No decks yet.</p>
-          <Link className="button primary" to="/decks/import">Add a deck</Link>
+          <div className="row">
+            <Link className="button primary" to="/decks/import">Import a list</Link>
+            <Link className="button outline" to="/lab">Start from a precon</Link>
+          </div>
         </div>
       )}
       <ul className="deck-tiles">
