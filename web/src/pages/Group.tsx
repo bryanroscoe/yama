@@ -48,8 +48,9 @@ export function GroupPage() {
       <ExportGames group={group} />
       <MythicImportEntry />
       {/* With no playgroup, starting or joining one sits at the top instead. While the list is
-          still loading the form is in neither place, so it can't move under someone typing. */}
-      {(!!groups.data?.length || groups.isError) && <GroupActions />}
+          still loading the form is in neither place, so it can't move under someone typing; a
+          list that never loaded gets it here. A failed refresh keeps the list it had. */}
+      {(groups.data ? groups.data.length > 0 : groups.isError) && <GroupActions />}
     </main>
   );
 }

@@ -68,4 +68,20 @@ describe("empty pages lead somewhere", () => {
     expect(html.match(/Start or join a playgroup/g)).toHaveLength(1);
     expect(html.indexOf("Export games")).toBeLessThan(html.indexOf("Start or join a playgroup"));
   });
+
+  it("Group shows the form once when a refresh of an empty list fails", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["me"], { id: "u1", email: "new@example.com", display_name: "New", power: false });
+    client.setQueryData(["playgroups"], []);
+    // The refetch fails; the query keeps its empty list and is now in error.
+    await client.fetchQuery({ queryKey: ["playgroups"], queryFn: () => Promise.reject(new Error("offline")), staleTime: 0 }).catch(() => undefined);
+    expect(client.getQueryState(["playgroups"])).toMatchObject({ status: "error", data: [] });
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/group"]}><GroupPage /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(html.match(/Start or join a playgroup/g)).toHaveLength(1);
+    expect(html.indexOf("Start or join a playgroup")).toBeLessThan(html.indexOf("Export games"));
+  });
 });
