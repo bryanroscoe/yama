@@ -46,16 +46,35 @@ export type PlayerPick = Pick<PlayerSetup, "name" | "memberId" | "userId">;
 
 export type TableFormat = "commander" | "standard" | "other";
 
-/** The game types New game offers, with the starting life each one usually uses. */
+/**
+ * The game types New game and Log a game offer, with the starting life each one usually uses.
+ * `label` is the one name a game type goes by: on the picker, on a game's page and in its log.
+ */
 export const FORMATS: { key: TableFormat; label: string; life: number }[] = [
   { key: "commander", label: "Commander", life: 40 },
-  { key: "standard", label: "Constructed (20 life)", life: 20 },
-  { key: "other", label: "Something else", life: 20 },
+  { key: "standard", label: "Constructed", life: 20 },
+  { key: "other", label: "Other", life: 20 },
 ];
 
+/** A game type's name, as the picker shows it (`FORMATS`). */
 export function formatLabel(f: TableFormat): string {
-  return f === "commander" ? "Commander" : f === "standard" ? "Constructed" : "Casual";
+  return FORMATS.find((x) => x.key === f)?.label ?? "Other";
 }
+
+/**
+ * The words the game pages share, so the same thing has one name wherever it shows: a game that
+ * isn't over is "Still going", a game nobody won is "A draw", and a result is told in the past
+ * ("Sam won"). Counts keep "wins" ("3 wins").
+ */
+export const GAME_WORDS = {
+  going: "Still going",
+  draw: "A draw",
+  abandoned: "Abandoned",
+  finished: "Finished",
+} as const;
+
+/** "Sam won" for a result. */
+export const wonText = (name: string) => `${name} won`;
 
 export interface TableSetup {
   id: string;
@@ -90,9 +109,26 @@ export interface FunRating {
   rating: number;
 }
 
+/** The longest note a game keeps (the server refuses more). */
+export const NOTE_MAX = 1000;
+
+/**
+ * "Logged after the game" was the fixed note every logged game got before Log a game had a notes
+ * field. It says nothing the page doesn't already say, so it isn't shown or offered for editing.
+ */
+export const LEGACY_LOGGED_NOTE = "Logged after the game";
+
+/** A game's note as people wrote it: trimmed, or null when there is none worth showing. */
+export function noteText(note: string | null | undefined): string | null {
+  const text = note?.trim();
+  return text && text !== LEGACY_LOGGED_NOTE ? text : null;
+}
+
 export interface FinishDetails {
   winCondition?: WinCondition;
   fun?: FunRating[];
+  /** Anything the table wants to remember about the game. */
+  note?: string;
 }
 
 export type TableEvent =
@@ -527,6 +563,8 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     first_seat: state.firstSeat,
     // A draw has no way it was won.
     win_condition: f.winnerSeat === null ? null : (f.winCondition ?? null),
+    // Cut by character, never through the middle of one: half an emoji isn't valid JSON text.
+    note: f.note?.trim() ? Array.from(f.note.trim()).slice(0, NOTE_MAX).join("") : null,
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,

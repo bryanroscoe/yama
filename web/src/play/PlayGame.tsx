@@ -3,10 +3,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
-import { api, publicOrigin } from "../api";
+import { Link, useNavigate, useParams } from "react-router";
+import { api, ApiError, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
+import { ask } from "../components/confirm";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { ErrorText, Pips } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
@@ -27,8 +28,20 @@ export function PlayGame() {
     refetchOnWindowFocus: "always",
   });
   // Only with no game to show, or when the game is gone or not yours: one failed check (the lobby
-  // asks every 4 s) leaves the lobby or board up.
-  if (queryFailure(game) === "page") return <main className="page"><ErrorText error={game.error} /></main>;
+  // asks every 4 s) leaves the lobby or board up. A table the host cancelled, or a game they
+  // deleted, is gone for everyone who had it open: say so, with the way back.
+  if (queryFailure(game) === "page") {
+    return (
+      <main className="page">
+        <p><Link to="/play">Play online</Link></p>
+        {game.error instanceof ApiError && game.error.status === 404 ? (
+          <p role="alert">This game isn't here any more. Its host may have closed the table or deleted the game.</p>
+        ) : (
+          <ErrorText error={game.error} />
+        )}
+      </main>
+    );
+  }
   if (!game.data) return <main className="page" />;
   if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
   if (game.data.status === "lobby") return <Lobby game={game.data} notice={<RefreshFailed query={game} what="this game" />} />;
@@ -46,9 +59,19 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
   const qc = useQueryClient();
   const me = useMe();
   const [copied, setCopied] = useState(false);
+  const navigate = useNavigate();
   const start = useMutation({
     mutationFn: () => api(`/api/play/${game.id}/start`, { method: "POST" }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["play", game.id] }),
+  });
+  // A table nobody ended up playing at: the host takes it down, which also frees its place
+  // among the games they may have open.
+  const cancel = useMutation({
+    mutationFn: () => api(`/api/play/${game.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["play"] });
+      navigate("/play", { replace: true });
+    },
   });
   const isHost = game.host === me.data?.id;
   const open = game.seats.filter((s) => !s.ai && !s.deck_name).length;
@@ -71,6 +94,15 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
     }
   };
   const title = open === 0 ? "Everyone's in" : open === 1 ? "Waiting for one more" : `Waiting for ${open} more`;
+  // Who takes the first turn: the host's choice when the table was made, or the engine's roll.
+  const firstSeat = game.first != null ? game.seats.find((s) => s.seat === game.first) : undefined;
+  const goesFirst = !firstSeat
+    ? "The first player is rolled for when the game starts."
+    : firstSeat.ai
+      ? `The computer in seat ${firstSeat.seat + 1} goes first.`
+      : firstSeat.deck_name
+        ? `${firstSeat.seat === game.you ? "You go" : `${firstSeat.name} goes`} first.`
+        : `Whoever takes seat ${firstSeat.seat + 1} goes first.`;
   const missing = Object.entries(game.missing_cards);
   return (
     <main className="page lobby">
@@ -86,7 +118,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
             {title}
             <AlphaTag />
           </h1>
-          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here. {ALPHA_NOTE}</p>
+          <p className="dim">Friends open Play online, enter the code and pick a deck. Their seat fills in here. {goesFirst} {ALPHA_NOTE}</p>
         </div>
         <div className="lobby-code" role="group" aria-label="Table code">
           <span className="lobby-code-text">
@@ -134,13 +166,23 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
               </span>
             </p>
           ))}
-          <ErrorText error={start.error} />
+          <ErrorText error={start.error ?? cancel.error} />
           {!isHost && <p className="dim">The host starts the game when everyone's here.</p>}
         </div>
         {isHost && (
-          <button type="button" className="primary lobby-start" disabled={open > 0 || start.isPending} onClick={() => start.mutate()}>
-            {open > 0 ? "Start when everyone's in" : "Start the game"}
-          </button>
+          <div className="lobby-actions">
+            <button
+              type="button"
+              className="quiet"
+              disabled={cancel.isPending || start.isPending}
+              onClick={async () => (await ask({ title: "Close this table?", body: "Its code stops working, and the table closes for anyone who joined.", confirm: "Close the table", danger: true })) && cancel.mutate()}
+            >
+              {cancel.isPending ? "Closing…" : "Close this table"}
+            </button>
+            <button type="button" className="primary lobby-start" disabled={open > 0 || start.isPending || cancel.isPending} onClick={() => start.mutate()}>
+              {open > 0 ? "Start when everyone's in" : "Start the game"}
+            </button>
+          </div>
         )}
       </div>
     </main>

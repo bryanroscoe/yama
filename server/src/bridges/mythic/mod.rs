@@ -386,7 +386,7 @@ fn build(g: &MGame, ctx: &Ctx) -> Result<Built, String> {
         started_at,
         starting_life,
         seats,
-        finish: Finish { winner_seat, turns: None, ended_at, first_seat, win_condition: None, seats: vec![] },
+        finish: Finish { winner_seat, turns: None, ended_at, first_seat, win_condition: None, note: None, seats: vec![] },
         rows,
         note,
         tags,

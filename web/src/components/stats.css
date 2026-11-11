@@ -86,6 +86,31 @@
   border-color: var(--st-accent);
   color: var(--st-ground);
 }
+.capture .knock-row {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--st-line);
+}
+.capture .knock-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+}
+.capture .knock-fields label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.9em;
+  color: var(--st-text-dim);
+}
+.capture .knock-fields input {
+  width: 5rem;
+}
+.capture .capture-note {
+  width: 100%;
+  resize: vertical;
+}
 .capture .first-said {
   margin: 0;
   color: var(--st-text-dim);

@@ -40,7 +40,7 @@ describe("game history", () => {
     expect(html).toContain("Page 2");
     expect(html).toContain("<button>Previous</button>");
     expect(html).toContain("<button>Next</button>");
-    expect(html).toContain("Unfinished, 1 unnamed player");
+    expect(html).toContain("Still going, 1 unnamed player");
   });
 
   it("keeps online replay links and doesn't flag computer seats as unnamed people", () => {

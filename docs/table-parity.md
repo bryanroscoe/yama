@@ -23,7 +23,7 @@ changelogs, mythic.tools, Draftsim's life counter roundup (updated 2026-10-07).
 | Random seating, first player | Done (Shuffle the seats; "Who goes first?" as each game opens, 2026-11-01) |
 | Quick reset / rematch | Done: Save and play again |
 | Turn-by-turn log in the game | Done: "What's happened" in the menu; the full log on the game's page |
-| Game history, win rates, CSV/JSON export | History and stats done; per-user CSV/JSON export from the app missing (games.json export is server-side) |
+| Game history, win rates, CSV/JSON export | Done: Game history, Playgroup stats, and Export games on the Playgroup page (JSON shaped for commander-decks' games.json, or CSV with one row per seat) |
 | Chess clock, timers | Skipped for now: turn counting is an opt-in setting (off by default since 2026-11-01) |
 | Rename a player or swap their deck mid-game | Done 2026-11-01 (Change player or deck on the player sheet) |
 | Install, full screen | Done 2026-11-01 (Install Yama where the browser offers it; Full screen in the menu) |
@@ -53,6 +53,27 @@ changelogs, mythic.tools, Draftsim's life counter roundup (updated 2026-10-07).
 
 ## Our own next steps
 
-- Guests join without a Yama account (server change; needs Bryan's decision).
+- Guests join a shared table without a Yama account (server change; needs Bryan's decision). Counting a game without an account already works on one phone (`web/src/table/GuestTable.tsx`).
 - Show the host who has joined, per seat.
-- Phone apps: docs/mobile.md. The Capacitor config exists; the Android project needs the Android SDK and a JDK, which aren't on the Mac yet.
+- Phone apps: docs/mobile.md. The Android project (`web/android`) is built; the upload key and Google Cloud's Android OAuth clients are still to do.
+
+## The four ways to play, side by side (updated 2026-11-11)
+
+What each kind of game asks and saves. "Table" is the life counter; "Logged" is Log a game; "Online" is Play online on the rules engine; "Watch" is the computer playing every seat.
+
+| | Table | Logged | Online | Watch |
+|---|---|---|---|---|
+| Guests | yes | yes | no | n/a |
+| Choose first player | yes | yes | yes, or roll | yes |
+| Starting life | 40/30/25/20 | 40/30/25/20 | 40 only (the engine wrapper has no option) | 40 |
+| Knockout order and by whom | yes | yes (turn and "by" each optional) | yes, where the engine says | live only |
+| Win condition | yes | yes | from the engine where it can tell, or asked at the end | no |
+| Fun rating | yes | yes | yes, each player their own | no |
+| Notes | finish sheet | yes | the host, at the end | no |
+| Edit a finished game | script only (docs/history-corrections.md) | in app | win condition, fun and note only | n/a |
+| Delete | whoever recorded it | whoever logged it | the host, once it's over; a waiting table can be closed | yes |
+| Offline | yes | yes (waits on the device and uploads on its own) | no | no |
+| Precon opponents | n/a | n/a | yes | yes |
+| Saved to history | yes | yes | yes | no |
+
+One name for each thing, wherever it shows (`GAME_WORDS` in packages/core): a game that isn't over is "Still going", a game nobody won is "A draw", a result is told in the past ("Sam won"), the opponent the server plays is "the computer", the table's verbs are "Start the game" and "Finish the game", and a game type goes by its `FORMATS` label on the picker and everywhere else.

@@ -82,6 +82,23 @@ describe("deleting table games", () => {
     expect(await store.deleteGame("g-never")).toBe(true);
   });
 
+  it("says so when Yama refuses the delete, and doesn't ask again on every sync", async () => {
+    failWith = 403;
+    await expect(store.deleteGame("g-refused")).rejects.toThrow("Yama didn't delete this game");
+    expect(JSON.parse(items.get("yama.table.deletes")!)).not.toContainEqual({ id: "g-refused", owner: "me" });
+  });
+
+  it("says so when nothing was deleted because another window runs the table", async () => {
+    store.setSharedReadOnly("a-shared-table");
+    try {
+      await expect(store.deleteGame("g-blocked")).rejects.toThrow("This game wasn't deleted");
+    } finally {
+      store.setSharedReadOnly(null);
+    }
+    expect(calls).not.toContainEqual({ path: "/api/games/g-blocked", method: "DELETE" });
+    expect(JSON.parse(items.get("yama.table.deletes") ?? "[]")).not.toContainEqual({ id: "g-blocked", owner: "me" });
+  });
+
   it("a game deleted on another device leaves this one too, without an error", async () => {
     store.startGame(setup("g-elsewhere"));
     goneOnPost = true;

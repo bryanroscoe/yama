@@ -35,6 +35,7 @@ export function GroupStats({ s }: { s: PlaygroupStats }) {
     <div className="stack group-stats">
       <p className="computed">
         Computed {fmtDateTime(s.computed_at)} from finished games. Rates from fewer than {under} games are faded and marked provisional.
+        {!!s.solo_games && ` ${s.solo_games} ${s.solo_games === 1 ? "game" : "games"} against only the computer ${s.solo_games === 1 ? "is" : "are"} in the history and not counted here.`}
       </p>
       {/* One column on phones; side by side as the window allows on laptops. */}
       <div className="group-stats-grid">
@@ -132,8 +133,8 @@ function WinConditions({ s }: { s: PlaygroupStats }) {
         {recorded === 0
           ? (w.decided === 1
               ? "The one game with a winner doesn't say how it was won yet."
-              : `None of the ${w.decided} games with a winner say how they were won yet.`) + " The finish sheet and Log a game both ask."
-          : `Shares of the ${recorded} ${recorded === 1 ? "game" : "games"} where someone said how.${w.not_recorded ? ` ${w.not_recorded} more with a winner didn't say.` : ""}`}
+              : `None of the ${w.decided} games with a winner say how they were won yet.`) + " The finish sheet and Log a game both ask, and online games say where the rules engine can tell."
+          : `Shares of the ${recorded} ${recorded === 1 ? "game" : "games"} that say how.${w.not_recorded ? ` ${w.not_recorded} more with a winner don't say.` : ""}`}
       </p>
       {recorded > 0 && (
         <table className="plain">
@@ -162,13 +163,13 @@ function Rivalries({ s }: { s: PlaygroupStats }) {
     <section>
       <h2>Knockouts</h2>
       {kg === 0 ? (
-        <p className="dim">No knockouts recorded yet. On the table, "Knock out" asks who did it, and that's where rivalries come from.</p>
+        <p className="dim">No knockouts recorded yet. On the table, "Knock out" asks who did it, and online games save it where the rules engine can tell; that's where rivalries come from.</p>
       ) : (
         <div className="stack" style={{ gap: "1.25rem" }}>
           {s.head_to_head.length > 0 && (
             <div>
               <h3>Head to head</h3>
-              <p className="lede">Knockouts each way, when the table said who did it.</p>
+              <p className="lede">Knockouts each way, when the game says who did it.</p>
               <ul className="plain-list">
                 {h2h.map((h) => (
                   <li key={`${h.a}|${h.b}`} className="h2h">

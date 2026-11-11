@@ -317,12 +317,15 @@ async fn list_decks(State(st): State<AppState>, CurrentUser(user): CurrentUser) 
     let ids: std::collections::BTreeSet<&str> = cards_by_version.values().flatten().map(|c| c.oracle_id.as_str()).collect();
     let market_prices = crate::deck_prices::prices_for(&st.pool, &ids.into_iter().collect::<Vec<_>>()).await?;
     // Same rule as the deck page's results (stats::results_by_version): only seats where the
-    // owner played the deck themselves, so the computer piloting it online doesn't count.
+    // owner played the deck themselves, so the computer piloting it online doesn't count, and
+    // only games another person played in (solo games against the computer are on the deck's
+    // page, apart).
     let results: HashMap<String, (i64, i64, i64)> = sqlx::query_as::<_, (String, i64, i64, i64)>(
         "SELECT v.deck_id, COUNT(*), IFNULL(SUM(g.winner_seat = s.seat), 0), IFNULL(SUM(g.winner_seat IS NULL), 0)
          FROM game_seats s JOIN games g ON g.id = s.game_id JOIN deck_versions v ON v.id = s.deck_version_id
          JOIN decks d ON d.id = v.deck_id
          WHERE d.owner_id = ?1 AND d.archived = 0 AND g.status = 'finished' AND s.ai_kind IS NULL AND s.user_id = ?1
+           AND EXISTS (SELECT 1 FROM game_seats o WHERE o.game_id = s.game_id AND o.seat != s.seat AND o.ai_kind IS NULL)
          GROUP BY v.deck_id",
     )
     .bind(&user.id)
@@ -1720,8 +1723,11 @@ struct VersionResult {
     note: Option<String>,
     created_at: String,
     current: bool,
+    /// Games against other people.
     #[serde(flatten)]
     record: crate::stats::Record,
+    /// Solo games against the computer alone, kept apart from the record.
+    vs_computer: crate::stats::Record,
 }
 
 #[derive(Serialize)]
@@ -1732,11 +1738,13 @@ struct DeckResults {
     computed_at: String,
 }
 
-/// Finished games played with each version of the deck: wins, losses and draws.
+/// Finished games played with each version of the deck: wins, losses and draws against other
+/// people, and apart from them the games against the computer alone.
 async fn results(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<DeckResults>> {
     let (_, current, _) = owned_deck(&st.pool, &user.id, &id).await?;
     let games = crate::stats::finished_games(&st.pool, crate::stats::Scope::Deck(&id)).await?;
     let mut by_version = crate::stats::results_by_version(&games);
+    let mut vs_computer = crate::stats::results_against_computer(&games);
     let rows: Vec<VersionRow> =
         sqlx::query_as("SELECT id, note, created_at FROM deck_versions WHERE deck_id = ? ORDER BY created_at, rowid").bind(&id).fetch_all(&st.pool).await?;
     let mut versions: Vec<VersionResult> = rows
@@ -1745,12 +1753,13 @@ async fn results(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pat
         .map(|(i, v)| VersionResult {
             current: current.as_deref() == Some(v.id.as_str()),
             record: by_version.remove(&v.id).unwrap_or_default(),
+            vs_computer: vs_computer.remove(&v.id).unwrap_or_default(),
             number: i as i64 + 1,
             id: v.id,
             note: v.note,
             created_at: v.created_at,
         })
-        .filter(|v| v.current || v.record.games > 0)
+        .filter(|v| v.current || v.record.games > 0 || v.vs_computer.games > 0)
         .collect();
     versions.reverse();
     Ok(Json(DeckResults { versions, provisional_under: crate::stats::PROVISIONAL_UNDER, computed_at: now() }))

@@ -19,6 +19,7 @@ import { isViewing } from "../viewingFlag";
 import { isGuest } from "../guest";
 import { keepStorage } from "../storage";
 import { acknowledgeFinished, finishedRecords, hasEnded, isFinishedStorageKey, rejectFinished, rememberServerFinish, saveFinished } from "./finished";
+import { flushLogged, hasLoggedToSend } from "./loggedQueue";
 
 export interface LocalGame {
   /** Durable finished-result record; bulk queues may be rebuilt from it after a stale write. */
@@ -361,12 +362,21 @@ export function usePendingDeletes() {
   });
 }
 
+/** Deletes Yama refused for good (anything but "not found"): its copy of the game is still there. */
+const refusedDeletes = new Map<string, string>();
+
 /**
  * Delete a table game this account recorded: every copy on this device now, and Yama's once the
- * server answers (queued while offline). Resolves true once Yama has removed it.
+ * server answers (queued while offline). Resolves true once Yama has removed it and false while
+ * the delete waits for a connection. It throws when nothing was deleted (another window on this
+ * device runs the table, so this one may not write) and when Yama refused, so the page never
+ * reports a delete that didn't happen.
  */
 export async function deleteGame(gameId: string): Promise<boolean> {
-  if (!canWriteShared()) return false;
+  if (!canWriteShared()) {
+    throw new Error("This game wasn't deleted: another window on this device is running the table. Close that window or reload this page, then try again.");
+  }
+  refusedDeletes.delete(gameId);
   for (const { game } of finishedRecords()) {
     if (game.setup.id === gameId && !game.guest && mineGame(game)) acknowledgeFinished(game, true);
   }
@@ -381,6 +391,11 @@ export async function deleteGame(gameId: string): Promise<boolean> {
   if (!deletes.some((d) => d.id === gameId)) deletes = [...deletes, { id: gameId, owner: signedInUser() }];
   emit();
   await settle();
+  const refused = refusedDeletes.get(gameId);
+  if (refused !== undefined) {
+    refusedDeletes.delete(gameId);
+    throw new Error(`Yama didn't delete this game: ${refused}`);
+  }
   return !deletes.some((d) => d.id === gameId);
 }
 
@@ -388,6 +403,11 @@ export async function deleteGame(gameId: string): Promise<boolean> {
 async function settle() {
   await sync();
   if (deletes.some(mine) || current || outbox.length) await sync();
+}
+
+/** A logged game was queued while offline: try to send it now, and again on the usual triggers. */
+export function syncLogged(): Promise<void> {
+  return sync();
 }
 
 async function pushDeletes() {
@@ -398,7 +418,10 @@ async function pushDeletes() {
       await api(`/api/games/${id}`, { method: "DELETE" });
     } catch (e) {
       // Not found: the server never had it (or it's gone already), which is what we wanted.
-      if (!(e instanceof ApiError && e.status === 404) && !isPermanent(e)) throw e;
+      // Any other refusal is final too (asking again gets the same answer), but the game is
+      // still on Yama: whoever asked for the delete is told (deleteGame).
+      if (!isPermanent(e)) throw e;
+      if (!(e instanceof ApiError && e.status === 404)) refusedDeletes.set(id, errorMessage(e));
     }
     deletes = deletes.filter((d) => d.id !== id);
     emit();
@@ -466,7 +489,8 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   }
   const fun = details.fun?.length ? details.fun : undefined;
   const winCondition = winnerSeat === null ? undefined : details.winCondition;
-  log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
+  const note = details.note?.trim();
+  log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}), ...(note ? { note } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back. One counted
   // without an account waits on this phone instead.
   const saved = saveFinished({ ...current, log, frozenThrough: undefined });
@@ -506,7 +530,10 @@ export function discardGame() {
     forgetPrompts(current.setup.id);
     return setCurrent(null);
   }
-  void deleteGame(current.setup.id);
+  void deleteGame(current.setup.id).catch((e) => {
+    syncState = { ...syncState, error: errorMessage(e) };
+    emit();
+  });
 }
 
 /** The seat's label on the server: its commander, and its partner, so another device can rebuild the pair. */
@@ -595,6 +622,10 @@ export function sync(): Promise<void> {
         emit();
       }
       if (!canWriteShared()) return;
+      // Games logged while Yama couldn't be reached ride the same uploads (loggedQueue.ts). One
+      // that can't go up is the logged queue's to report (it never throws): it doesn't hold back
+      // the game on the table or change what the table says about its own saving.
+      await flushLogged();
       await pushDeletes();
       if (current && mayEditCurrent() && !current.guest && mineGame(current)) {
         // Freeze what we're about to send: later taps start new events instead of changing these.
@@ -674,9 +705,9 @@ if (typeof window !== "undefined") {
   // A game or finished games left on this device from before (a reload, a phone that was off)
   // go up straight away, so sharing and other devices can find them.
   restoreFinished();
-  if (current || outbox.length || deletes.some(mine)) queueMicrotask(() => void sync());
+  if (current || outbox.length || deletes.some(mine) || hasLoggedToSend()) queueMicrotask(() => void sync());
   setInterval(() => {
-    if (navigator.onLine && (current || outbox.length || deletes.some(mine))) void sync();
+    if (navigator.onLine && (current || outbox.length || deletes.some(mine) || hasLoggedToSend())) void sync();
   }, 20_000);
 }
 
