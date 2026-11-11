@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, ConfirmHost, tell } from "./confirm";
@@ -94,8 +94,33 @@ describe("ask", () => {
     await expect(second).resolves.toBe(true);
   });
 
-  it("falls back to the browser's own when nothing is mounted to draw it", async () => {
+  it("answers no to what is still waiting when the host goes away for good", async () => {
+    const { answer } = await raise(() => ask(question));
+    const { answer: notice } = await raise(() => tell({ title: "Couldn't export" }));
+    await act(async () => root.unmount());
+    await expect(answer).resolves.toBe(false);
+    await expect(notice).resolves.toBeUndefined();
+    root = createRoot(host);
+  });
+
+  it("keeps a question through StrictMode's second mount", async () => {
     act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <ConfirmHost />
+        </StrictMode>,
+      ),
+    );
+    const { answer } = await raise(() => ask(question));
+    expect(dialog()).not.toBeNull();
+    click("Delete run");
+    await expect(answer).resolves.toBe(true);
+  });
+
+  it("falls back to the browser's own when nothing is mounted to draw it", async () => {
+    await act(async () => root.unmount());
     root = createRoot(host);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await expect(ask(question)).resolves.toBe(true);
