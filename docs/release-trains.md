@@ -10,12 +10,31 @@ the full gate once on the combined tree and lands it as one merge.
 
 ## When this applies
 
-`~/Developer/.agent-tasks/yama-release-trains/COORDINATOR.json` names the coordinating thread.
-While it exists with `"active": true` and its `review_by` time has not passed, **only the
-coordinator merges to main** and nobody else starts a full `scripts/local-ci.sh`. If the file is
-missing, says `"active": false`, or `review_by` has passed with no newer receipt in `trains/`,
-there is no coordinator: follow the per-PR rule in AGENTS.md, or become the coordinator by writing
-the file when several threads are queueing.
+Only while GitHub CI tests are off (`gh variable get CI_TESTS` says `off`; docs/ci.md). With tests
+on, the per-PR rules in AGENTS.md and the `Local-CI` trailer apply and there are no trains.
+
+`~/Developer/.agent-tasks/yama-release-trains/COORDINATOR.json` names the coordinating thread and
+its lease:
+
+```json
+{ "active": true, "coordinator_thread": "<thread id>", "since": "<UTC time>", "lease_until": "<UTC time>" }
+```
+
+- **A coordinator is active** when the file exists, `active` is true and `lease_until` is in the
+  future. Then **only that thread merges to main** and nobody else starts a full
+  `scripts/local-ci.sh`. Nothing else extends a lease: not a receipt, not an open train.
+- **The coordinator renews** the lease (at most a day ahead) whenever it cuts or lands a train, and
+  sets `active` to false when it stops coordinating.
+- **No coordinator** (file missing, `active` false, or the lease has passed): follow the per-PR
+  rule in AGENTS.md. A receipt still saying `testing` under a lapsed lease is stale and blocks
+  nothing.
+- **Becoming coordinator**, when several threads are queueing and there is none: create the file
+  atomically so two threads cannot both win (`set -o noclobber; echo "$json" > COORDINATOR.json`
+  fails if it exists; over a lapsed file, write `COORDINATOR.json.new` the same way and `mv` it,
+  then re-read the file and continue only if it names you).
+- **Before every merge** the coordinator re-reads the file and continues only if it still names
+  its own thread with a live lease. A thread whose lease lapsed has lost main: it stops, even
+  mid-train, and leaves its receipt saying so.
 
 A train changes who runs the final gate and who merges. It does not change the gate: reviews,
 every local CI check, the compiler guard, owner-only decisions and host installs on saget
@@ -35,6 +54,9 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
      is `testing` (below). If nothing compiled your head, say so: it can be admitted, marked
      unverified, and is the first thing ejected if the train fails there;
    - the Python suites you touched.
+
+   These replace AGENTS.md's "before committing" full `cargo test` while a coordinator is active:
+   the whole Rust suite runs once, on the train.
 2. Write one admission file per PR or stack, `admit/<short-name>.json`:
 
    ```json
@@ -55,8 +77,10 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    ```
 
    A stack is one file: list its PRs bottom to top and give the top head. Mark the PRs ready.
-3. **Freeze** what you admitted. To change it, delete the admission file, push, and write a new
-   one. Build your next work on new branches.
+3. **Freeze** what you admitted. Before the cut you may withdraw: delete the admission file, push,
+   and write a new one. A member listed in a receipt has been cut: do not push to it or withdraw it
+   on your own. Write `admit/withdraw-<short-name>.json` with the reason and wait for the receipt
+   to show it ejected. Build your next work on new branches.
 4. Stop your own full local CI run if it is still waiting for the Cargo target lock; let it finish
    if it is already compiling or testing and put the result in `checks`. Never stop another
    owner's job or touch the lock file.
@@ -75,18 +99,33 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    head stays in main's ancestry and GitHub marks it merged. Small independent members first, wide
    mechanical ones last. Resolve a conflict only when the right answer is obvious and say what you
    did in the merge commit; otherwise eject the member. Renumber colliding migrations on the train
-   branch. Check that every commit is authored and committed as `bryanroscoe@gmail.com`.
+   branch, with every reference to the old name. Check that every commit is authored and committed
+   as `bryanroscoe@gmail.com`. The receipt listing a member is the acknowledgment that it was cut.
 2. **Test.** Write the receipt with `status: testing`, then run
    `CARGO_BUILD_JOBS=1 scripts/local-ci.sh --no-amend` once on the train head, and the Android
    build if a member touched the paths AGENTS.md names. Fix an integration failure on the train
    branch; eject a member whose own code fails; run again on the new head.
-3. **Merge.** Open one PR from `release/train-N` listing the members, the ejected and the evidence.
-   If main moved since the cut, merge it in and rerun the checks its changes can affect. Merge with
-   a merge commit and `--match-head-commit`. Never force-push main.
-4. **Deploy.** One push to main is one deploy (deploy/RELEASING.md). Follow it, and confirm the
+3. **Review what the train added.** Members were reviewed before the cut; the coordinator's own
+   changes were not. Choosing one side of a conflict or keeping both, and a pure file rename, are
+   recorded in the merge commit and need no review. Anything else (a rewritten hunk, a renumbered
+   migration with its references, an integration fix commit) gets a Codex review of exactly those
+   changes before the merge, and an independent review too if it is substantive.
+4. **Merge.** Open one PR from `release/train-N` listing the members, the ejected and the evidence.
+   Immediately before merging:
+   - re-read `COORDINATOR.json` (above);
+   - fetch, and confirm `origin/main` is still the train's base. If main moved, merge it into the
+     train and run the whole of `scripts/local-ci.sh` again on the new head. A partial rerun is not
+     enough;
+   - confirm each member's head on GitHub is still the admitted head and no withdrawal file
+     exists; otherwise rebuild the train without that member and test again.
+
+   Merge with a merge commit and `--match-head-commit <tested commit>`. Then confirm
+   `git rev-parse origin/main^{tree}` equals the tested tree. If it does not, main holds an
+   untested tree: run local CI on it at once and fix forward. Never force-push main.
+5. **Deploy.** One push to main is one deploy (deploy/RELEASING.md). Follow it, and confirm the
    revision production verified is the merge commit: read the deploy log's "Production verified
    at" line, not the run's head, since a run can deploy an older queued revision.
-5. **Receipt.** `trains/train-N.json` records the base, each member's PRs and head, the ejected
+6. **Receipt.** `trains/train-N.json` records the base, each member's PRs and head, the ejected
    and why, the tested commit and tree, the aggregate PR, the merge commit, and the deployed
    revision and time. Comment it on each member PR.
 
