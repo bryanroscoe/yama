@@ -93,7 +93,15 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    if it is already compiling or testing and put the result in `checks`. Never stop another
    owner's job or touch the lock file.
 5. **While a receipt says `testing`, do not hold or queue for the Cargo target lock.** The train's
-   run is on the critical path for everyone; start focused Rust runs when no train is testing.
+   run is on the critical path for everyone. In practice, do not run Rust for a PR at all: admit it
+   with `rust_compiled` false and let the train compile every member once. With nothing else on the
+   compiler a train's whole cycle is about eleven minutes, and a member that fails gets the compiler
+   or test output back and rides the next train.
+   If you need the compiler for longer (an engine build, generating snapshot files for a stack),
+   ask the coordinator for a **window**: when it is granted, write `trains/<NAME>-WINDOW` with your
+   thread id, the start time and what you are building, and delete it when you finish. While a
+   window file exists the coordinator starts no Rust stage. If you cannot proceed (no disk, say),
+   write the reason in the file so the next train can go first.
 6. Wait on the receipt with one bounded wait (at most two hours). Its `status` moves through
    `testing`, `merged` and `deployed`; an ejected member is listed with the reason. After
    `deployed`, do your live check, run `scripts/sync-main.sh`, and clean up as AGENTS.md says.
@@ -109,7 +117,9 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    did in the merge commit; otherwise eject the member. Renumber colliding migrations on the train
    branch, with every reference to the old name. Check that every commit is authored and committed
    as `bryanroscoe@gmail.com`. The receipt listing a member is the acknowledgment that it was cut.
-2. **Test.** Write the receipt with `status: testing`, then run
+2. **Test.** Wait for any `trains/*-WINDOW` file to go, unless the train is web-only: then
+   `scripts/local-ci.sh` skips Rust and needs no compiler, so it can run during a window. Write the
+   receipt with `status: testing`, then run
    `CARGO_BUILD_JOBS=1 scripts/local-ci.sh --no-amend` once on the train head, and the Android
    build if a member touched the paths AGENTS.md names. Fix an integration failure on the train
    branch; eject a member whose own code fails; run again on the new head.
@@ -137,7 +147,12 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
 5. **Deploy.** One push to main is one deploy (deploy/RELEASING.md). Follow it, and confirm the
    revision production verified is the merge commit: read the deploy log's "Production verified
    at" line, not the run's head, since a run can deploy an older queued revision.
-6. **Receipt.** `trains/train-N.json` records the base, each member's PRs and head, the ejected
+6. **Stacked members.** A member PR whose base is its parent PR's branch, not main, stays open after
+   the merge even though its head is in main, and GitHub refuses to retarget it ("no new commits").
+   Confirm the PR's head and its base branch are both ancestors of main, then fast-forward the base
+   branch to main (`git push origin origin/main:refs/heads/<base branch>`); GitHub then marks the
+   PR merged. Check every member's state after each train.
+7. **Receipt.** `trains/train-N.json` records the base, each member's PRs and head, the ejected
    and why, the tested commit and tree, the aggregate PR, the merge commit, and the deployed
    revision and time. Comment it on each member PR.
 
