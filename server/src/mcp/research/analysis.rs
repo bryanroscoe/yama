@@ -2,7 +2,7 @@
 //! neither an EDHREC ranking nor a pip count is treated as a castability or power verdict.
 
 use super::super::tools::{card_info, deck_id};
-use super::{integer, optional_text};
+use super::super::args as arg;
 use crate::auth::User;
 use crate::cards::Card;
 use crate::decks::{Board, DeckCard};
@@ -20,8 +20,8 @@ pub struct List {
 
 pub async fn load(st: &AppState, user: &User, args: &Value) -> AppResult<List> {
     match (
-        optional_text(args, "deck", 200)?,
-        optional_text(args, "list", 30000)?,
+        arg::opt_text(args, "deck", 200)?,
+        arg::opt_text(args, "list", 30000)?,
     ) {
         (Some(wanted), None) => {
             let id = deck_id(&st.pool, &user.id, wanted).await?;
@@ -32,7 +32,7 @@ pub async fn load(st: &AppState, user: &User, args: &Value) -> AppResult<List> {
             .bind(&user.id)
             .fetch_one(&st.pool)
             .await?;
-            if let Some(v) = optional_text(args, "version", 100)? {
+            if let Some(v) = arg::opt_text(args, "version", 100)? {
                 let found: bool = sqlx::query_scalar(
                     "SELECT EXISTS(SELECT 1 FROM deck_versions WHERE id = ? AND deck_id = ?)",
                 )
@@ -69,7 +69,7 @@ pub async fn load(st: &AppState, user: &User, args: &Value) -> AppResult<List> {
             if list.lines().count() > 300 {
                 return Err(AppError::bad("A list may contain at most 300 lines."));
             }
-            let first = super::boolean(args, "first_is_commander", true)?;
+            let first = arg::flag(args, "first_is_commander", true)?;
             let parsed = crate::decks::parse_list(list, first);
             if parsed.iter().any(|c| c.qty < 1 || c.qty > 250)
                 || parsed.iter().map(|c| c.qty).sum::<i64>() > 250
@@ -272,11 +272,11 @@ pub async fn cheapest(
 }
 
 pub async fn history(st: &AppState, user: &User, args: &Value) -> AppResult<Value> {
-    let id = deck_id(&st.pool, &user.id, super::required_text(args, "deck", 200)?).await?;
+    let id = deck_id(&st.pool, &user.id, arg::text_max(args, "deck", 200)?).await?;
     let rows: Vec<(String,Option<String>,String)> = sqlx::query_as("SELECT id,note,created_at FROM deck_versions WHERE deck_id = ? ORDER BY rowid DESC LIMIT 100").bind(&id).fetch_all(&st.pool).await?;
     Ok(
         json!({"deck_id":id,"versions":rows.into_iter().map(|(id,note,at)|json!({"id":id,"note":note,"created_at":at})).collect::<Vec<_>>(),
-        "note":"Use deck_analysis with deck and version to inspect or export a historical list. save_deck stages restoring that list as a new version."}),
+        "note":"Use get_deck_analysis with deck and version to inspect or export a historical list. save_deck stages restoring that list as a new version."}),
     )
 }
 
@@ -344,10 +344,10 @@ pub async fn hands(st: &AppState, user: &User, args: &Value) -> AppResult<Value>
     if !(7..=250).contains(&copies) {
         return Err(AppError::bad("The library must contain 7 to 250 cards."));
     }
-    let count = integer(args, "hands", 5, 1, 10)?;
-    let size = integer(args, "draw", 7, 1, 20)? as usize;
-    let mulligans = integer(args, "mulligans", 0, 0, 6)?;
-    let seed = integer(args, "seed", 1, 0, i64::MAX)? as u64;
+    let count = arg::int(args, "hands", 5, 1, 10)?;
+    let size = arg::int(args, "draw", 7, 1, 20)? as usize;
+    let mulligans = arg::int(args, "mulligans", 0, 0, 6)?;
+    let seed = arg::int(args, "seed", 1, 0, i64::MAX)? as u64;
     let mut random = Random(seed);
     let library: Vec<_> = list
         .cards
@@ -396,10 +396,10 @@ pub fn probability(population: u64, successes: u64, draws: u64, at_least: u64) -
 }
 
 pub fn mana_probability(args: &Value) -> AppResult<Value> {
-    let n = integer(args, "library", 99, 1, 250)? as u64;
-    let s = integer(args, "sources", 0, 0, n as i64)? as u64;
-    let draws = integer(args, "seen", 7, 0, n as i64)? as u64;
-    let need = integer(args, "at_least", 1, 0, 250)? as u64;
+    let n = arg::int(args, "library", 99, 1, 250)? as u64;
+    let s = arg::int(args, "sources", 0, 0, n as i64)? as u64;
+    let draws = arg::int(args, "seen", 7, 0, n as i64)? as u64;
+    let need = arg::int(args, "at_least", 1, 0, 250)? as u64;
     Ok(
         json!({"library":n,"sources":s,"cards_seen":draws,"at_least":need,"probability":probability(n,s,draws,need),
         "model":"Exact draws without replacement. Caller supplies qualifying sources. No mulligans, sequencing, tapped lands, activation costs, ramp, or source-color overlap are modeled; this is not the probability of casting a spell."}),

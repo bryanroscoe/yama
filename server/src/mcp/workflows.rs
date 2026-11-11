@@ -31,19 +31,19 @@ pub fn prompt(params: &Value) -> AppResult<Value> {
     for a in definition["arguments"].as_array().unwrap() {
         let key = a["name"].as_str().unwrap();
         if a["required"] == true || args.get(key).is_some() {
-            super::research::required_text(&args, key, 2000)?;
+            super::args::text_max(&args, key, 2000)?;
         }
     }
     let context = serde_json::to_string(&args).map_err(anyhow::Error::from)?;
     let instructions = match name {
         "review_deck" => {
-            "Read overview and deck_analysis for the named deck; ask about material missing goals. Preserve declared bracket, theme, budget and protected cards. Use commander_recommendations and find_combos(query) as candidate research, verifying every candidate with card. Send a full deck to find_combos only when the person requests it, with share_list=true. Compare a complete proposed list with compare_decks. Show exact additions, cuts, dated costs, owned copies, tradeoffs and uncertainties. Stage accepted proposals with edit_deck, propose_swap or save_deck. Apply only after approval of that exact change; Ask Claude leaves Apply to the person. Use paired lab evidence when requested; do not start games merely to complete a review."
+            "Read get_overview and get_deck_analysis for the named deck; ask about material missing goals. Preserve declared bracket, theme, budget and protected cards. Use get_commander_recommendations and search_combos(query) as candidate research, verifying every candidate with get_cards. Send a full deck to search_combos only when the person requests it, with share_list=true. Compare a complete proposed list with compare_decks. Show exact additions, cuts, dated costs, owned copies, tradeoffs and uncertainties. Stage accepted proposals with edit_deck, propose_swap or save_deck. Apply only after approval of that exact change; Ask Claude leaves Apply to the person. Use paired lab evidence when requested; do not start games merely to complete a review."
         }
         "build_commander" => {
-            "Begin with explicit commander/theme, playgroup intent and declared bracket, budget, protected cards and owned-card preference. Keep unresolved constraints visible. Use collection_cards, find_cards and search_scryfall to find real legal candidates, and commander_recommendations for community evidence. Construct a complete list with explicit Commander and Deck sections. Verify each card with card; deck_analysis/check_list must resolve all names and validate 100 cards, singleton, identity and eligibility. Missing prices prevent a within-budget claim. Explain roles, game plan and supported interactions; descriptive source counts do not prove casting reliability. Preview with deck_analysis, and stage save_deck only when requested. No automatic purchases, collection edits or lab runs."
+            "Begin with explicit commander/theme, playgroup intent and declared bracket, budget, protected cards and owned-card preference. Keep unresolved constraints visible. Use list_collection_cards, search_cards and search_scryfall to find real legal candidates, and get_commander_recommendations for community evidence. Construct a complete list with explicit Commander and Deck sections. Verify each card with get_cards; get_deck_analysis/check_deck_list must resolve all names and validate 100 cards, singleton, identity and eligibility. Missing prices prevent a within-budget claim. Explain roles, game plan and supported interactions; descriptive source counts do not prove casting reliability. Preview with get_deck_analysis, and stage save_deck only when requested. No automatic purchases, collection edits or lab runs."
         }
         "rules_question" => {
-            "Identify the relevant cards and game-state facts. Read their current Oracle text and rulings with card(rulings=true); use rules_lookup for exact current rule numbers, glossary and keyword evidence. Separate quoted evidence from your application of it. Include the effective rules edition, source links and material assumptions. If a rule or card is missing, say so; never invent a number or use a simulation discrepancy as proof of the official rule."
+            "Identify the relevant cards and game-state facts. Read their current Oracle text and rulings with get_cards(rulings=true); use search_rules for exact current rule numbers, glossary and keyword evidence. Separate quoted evidence from your application of it. Include the effective rules edition, source links and material assumptions. If a rule or card is missing, say so; never invent a number or use a simulation discrepancy as proof of the official rule."
         }
         _ => unreachable!(),
     };
@@ -55,6 +55,7 @@ pub fn prompt(params: &Value) -> AppResult<Value> {
 pub fn resources() -> Vec<Value> {
     vec![
         json!({"uri":"yama://shopping/workflow","name":"shopping_workflow","title":"Local shopping from current deck builds","mimeType":"text/markdown"}),
+        json!({"uri":"yama://guide/tool-notes","name":"tool_notes","title":"How to read what the tools return","mimeType":"text/markdown"}),
         json!({"uri":"yama://research/sources","name":"research_sources","title":"Sources and freshness","mimeType":"application/json"}),
         json!({"uri":"yama://research/format","name":"research_format","title":"Private research document and review format","mimeType":"text/markdown"}),
     ]
@@ -67,7 +68,10 @@ pub fn templates() -> Vec<Value> {
 }
 
 pub async fn read(st: &AppState, user: &User, via: &Via, params: &Value) -> AppResult<Value> {
-    let uri = super::research::required_text(params, "uri", 400)?;
+    let uri = super::args::text_max(params, "uri", 400)?;
+    if uri == "yama://guide/tool-notes" {
+        return Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":include_str!("../../../docs/mcp-tool-notes.md") }]}));
+    }
     if uri == "yama://shopping/workflow" {
         return Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":include_str!("../../../docs/local-shopping-workflow.md") }]}));
     }

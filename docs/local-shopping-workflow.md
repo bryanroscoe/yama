@@ -12,7 +12,7 @@ rows are excluded even in the all-brackets view. Explicit permanent real-card
 wishes and packet bonuses remain separately labelled optional wishes outside
 those builds; choosing a specific bracket filters those out.
 
-For MCP clients, `research(id, full=true)` reads the same private `local_sources`
+For MCP clients, `get_research(id, full=true)` reads the same private `local_sources`
 evidence used by this page. Preserve each use's stable id and recipient; do not
 sum overlapping research reports or alternative scenarios. The report's lists,
 copy allocations and quote dates remain a snapshot, not a live ownership claim.
@@ -28,14 +28,14 @@ research evidence and read it back. Keep failed checks unknown and label stale l
 
 ## Start with the right list
 
-Read `overview`, then `plan_deck` for the plan key and `research` for the exact
+Read `get_overview`, then `get_plan` for the plan key and `get_research` for the exact
 deck/build or acquisition scenario. Compare its counted-card list with the latest
-saved configuration (`deck` or `deck_analysis`) and report the research revision
+saved configuration (`get_deck` or `get_deck_analysis`) and report the research revision
 and list date. An archived note may retain useful evidence, but its date or title
 does not establish that it matches today's list. A bracket label or power estimate
 alone does not identify a deck version.
 
-Read `collection_cards` and plan allocations before counting purchases. Separate
+Read `list_collection_cards` and plan allocations before counting purchases. Separate
 real copies, arrived proxies, ordered prints, reserved but unordered prints,
 installed cards and unresolved sources. Check copies outside deck containers with
 `outside_decks=true` and paginate; they may already be reserved. Each physical copy
@@ -45,7 +45,7 @@ playable double-faced card. Do not infer installation or order contents from adv
 
 ## Read the active shopping list and its limits
 
-Read `shopping_settings`, `shopping_list`, `shopping_trip` and `store_stock`.
+Read `get_shopping_settings`, `get_shopping_list`, `get_shopping_trip` and `get_store_stock`.
 The trip uses approved, active plan buys without orders, plus explicit shopping
 wishes. Unapproved builds and archived plans do not become required purchases.
 Real-card wishlist entries only come along from stores already selected for the
@@ -63,7 +63,7 @@ then the person's whole-plan approval with `approve_plan`. A shopping question i
 not permission to approve a plan. To price an unapproved alternative, read its
 exact research build and show its dated listings/searches as a separate preview;
 do not activate the plan merely to produce shopping links. There is currently no
-`shopping_trip` argument for an arbitrary research build.
+`get_shopping_trip` argument for an arbitrary research build.
 
 ## Check stores and show how to order
 
@@ -71,9 +71,9 @@ For a requested refresh, stage `check_stores` with explicit store keys and exact
 card names (at most 300 per check; split larger lists). The check runs only when
 the staged change is applied. Show its review link and scope; call `apply_change`
 only after approval of that exact change. A refresh request alone does not approve
-the staged payload. Read `store_stock` and `shopping_trip` after completion.
+the staged payload. Read `get_store_stock` and `get_shopping_trip` after completion.
 
-Use every applicable store from `shopping_settings`, including TCGplayer Pro
+Use every applicable store from `get_shopping_settings`, including TCGplayer Pro
 stores as well as Shopify. Austin examples include Black Castle
 Gamez in Cedar Park, Multiverse Hobbies in Hutto, Mothership and Pat's Games. Store
 preferences and buy rules belong to the account; do not impose these stores on

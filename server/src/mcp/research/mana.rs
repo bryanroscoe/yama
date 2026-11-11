@@ -1,7 +1,8 @@
 //! A small, explicit lands-only sequencing model. Unknown or conditional sources stay visible;
 //! this is not the Phase engine, a gameplay simulator, or an actual spell-cast probability.
 
-use super::{analysis, boolean, integer, required_text};
+use super::super::args as arg;
+use super::analysis;
 use crate::auth::User;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
@@ -135,12 +136,12 @@ pub async fn test(st: &AppState, user: &User, args: &Value) -> AppResult<Value> 
     }
     let info = super::super::tools::card_info(&st.pool, &list.cards).await?;
     let identity = crate::decks::validate(&list.cards, &info).color_identity;
-    let target = required_text(args, "cost", 100)?;
+    let target = arg::text_max(args, "cost", 100)?;
     let (generic, colored) = cost(target)?;
-    let turns = integer(args, "turns", 7, 1, 10)? as usize;
-    let trials = integer(args, "trials", 1000, 100, 5000)? as usize;
-    let seed = integer(args, "seed", 1, 0, i64::MAX)? as u64;
-    let draw_first = boolean(args, "draw_on_turn_one", true)?;
+    let turns = arg::int(args, "turns", 7, 1, 10)? as usize;
+    let trials = arg::int(args, "trials", 1000, 100, 5000)? as usize;
+    let seed = arg::int(args, "seed", 1, 0, i64::MAX)? as u64;
+    let draw_first = arg::flag(args, "draw_on_turn_one", true)?;
     let (mut deck, mut lands) = (Vec::new(), Vec::new());
     let mut unsupported = BTreeSet::new();
     for c in list

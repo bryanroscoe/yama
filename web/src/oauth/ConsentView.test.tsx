@@ -9,6 +9,8 @@ const info: ConsentInfo = {
   redirect_host: "localhost",
   loopback: true,
   scopes: ["mcp", "offline_access"],
+  access: "apply",
+  access_choices: ["read", "stage", "apply"],
   account: { display_name: "Bryan", email: "bryan@example.com" },
 };
 
@@ -26,6 +28,20 @@ describe("the consent page", () => {
     expect(html).toContain("/mcp in Claude Code");
     expect(html).toMatch(/<button class="primary"[^>]*>Allow<\/button>/);
     expect(html).toMatch(/<button class="outline"[^>]*>Deny<\/button>/);
+  });
+
+  it("offers less than the app asked for, with what it asked for chosen", () => {
+    const html = render(info);
+    expect(html).toContain("Read only");
+    expect(html).toContain("Read and suggest changes");
+    expect(html).toMatch(/<input[^>]*value="apply"[^>]*checked=""|<input[^>]*checked=""[^>]*value="apply"/);
+    expect(html.match(/checked=""/g)).toHaveLength(1);
+    expect(html).toContain("Claude applies one only after you say yes to it");
+    // An app that asked only to read has nothing to choose, and can't be given more.
+    const readOnly = render({ ...info, scopes: ["mcp:read"], access: "read", access_choices: ["read"] });
+    expect(readOnly).not.toContain('type="radio"');
+    expect(readOnly).toContain("Read your decks, plans, Review, collection and lab runs");
+    expect(readOnly).not.toContain("Suggest changes");
   });
 
   it("shows the app's name as text, never as markup", () => {

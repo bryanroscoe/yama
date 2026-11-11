@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { ErrorText } from "../components/ui";
-import { allows, appName, caution, returnsTo, type ConsentInfo } from "./logic";
+import { accessLabel, allows, appName, caution, returnsTo, type Access, type ConsentInfo } from "./logic";
 
 /**
  * What an app asks for, and Allow or Deny. Everything about the app is shown as text: its name is
- * its own unchecked claim, so where it sends you back and which account it gets come first.
+ * its own unchecked claim, so where it sends you back and which account it gets come first. You
+ * choose how much it may do: what it asked for, or less.
  */
 export function ConsentView({
   info,
@@ -15,9 +17,10 @@ export function ConsentView({
   info: ConsentInfo;
   busy: boolean;
   error?: unknown;
-  onAllow: () => void;
+  onAllow: (access: Access) => void;
   onDeny: () => void;
 }) {
+  const [access, setAccess] = useState<Access>(info.access);
   return (
     <section className="oauth-panel" aria-labelledby="oauth-title">
       <h1 id="oauth-title">Connect an app to Yama?</h1>
@@ -37,10 +40,21 @@ export function ConsentView({
           </dd>
         </div>
       </dl>
+      {info.access_choices.length > 1 && (
+        <fieldset className="oauth-access">
+          <legend className="oauth-label">Let it</legend>
+          {info.access_choices.map((choice) => (
+            <label key={choice} className="oauth-choice">
+              <input type="radio" name="oauth-access" value={choice} checked={access === choice} onChange={() => setAccess(choice)} />
+              <span>{accessLabel(choice)}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
       <div>
         <p className="oauth-label">It will be able to</p>
         <ul className="oauth-allows">
-          {allows(info.scopes).map((a) => (
+          {allows(info.scopes, access).map((a) => (
             <li key={a}>{a}</li>
           ))}
         </ul>
@@ -48,7 +62,7 @@ export function ConsentView({
       <p className="oauth-caution">{caution(info.loopback)}</p>
       <ErrorText error={error} />
       <div className="oauth-actions">
-        <button className="primary" disabled={busy} onClick={onAllow}>
+        <button className="primary" disabled={busy} onClick={() => onAllow(access)}>
           Allow
         </button>
         <button className="outline" disabled={busy} onClick={onDeny}>

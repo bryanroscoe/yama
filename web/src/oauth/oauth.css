@@ -64,6 +64,21 @@
   display: grid;
   gap: 4px;
 }
+.oauth-access {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.oauth-access legend {
+  padding: 0;
+}
+.oauth-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
 .oauth-caution {
   padding: 10px 12px;
   border-radius: var(--r-tile);

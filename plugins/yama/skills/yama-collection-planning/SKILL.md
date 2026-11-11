@@ -6,16 +6,16 @@ description: Plan Commander upgrades, card allocation, shopping trips, or collec
 # Plan around the collection
 
 Use the available Yama tools and current schemas. If the connection is missing,
-follow `../yama-setup/SKILL.md`. Start with `overview`, then read the relevant
-`deck_analysis`, `plan_deck`, `collection_cards` and `research`.
-For copies outside deck containers, query `collection_cards` with
+follow `../yama-setup/SKILL.md`. Start with `get_overview`, then read the relevant
+`get_deck_analysis`, `get_plan`, `list_collection_cards` and `get_research`.
+For copies outside deck containers, query `list_collection_cards` with
 `outside_decks=true` and follow pagination. Check saved plan allocations before
 calling those copies spare; being outside a deck box does not mean unreserved.
-Read `shopping_settings` before applying a buy rule or store preference.
+Read `get_shopping_settings` before applying a buy rule or store preference.
 Read `yama://shopping/workflow` for the complete local-buying handoff. Match the
 latest exact deck/build and research revision before reusing a shopping report.
 For all decks at once, link `/decks/plans/get/sourcing`: it reads the private
-`local_sources` snapshot returned by `research(id, full=true)`. Keep stable per-copy
+`local_sources` snapshot returned by `get_research(id, full=true)`. Keep stable per-copy
 use IDs and recipients, count each deck's bracket union once, and never add
 overlapping reports. Known-stock bulk selection leaves unknown quantities out.
 Archived research and live trip snapshots are separate; disclose differing dates.
@@ -34,7 +34,7 @@ not establish ownership, purchase, printing or installation. Check quantities,
 printing, finish and condition where relevant; allocate each physical copy once
 across decks. Report conflicting current Yama state and repository exports.
 
-Use `shopping_list`, `shopping_trip` and `store_stock` to inspect wants, trip
+Use `get_shopping_list`, `get_shopping_trip` and `get_store_stock` to inspect wants, trip
 options and dated snapshots. Distinguish market references from actual store
 quotes; show date, source, currency, stock and condition when known. Missing
 price or availability remains unknown. Refresh stock only when requested:
@@ -50,11 +50,11 @@ For advice, show the exact allocation, cards still needed, purchase/print choice
 and reasons. Save research only when asked, using the format at
 `../yama-commander-research/references/research-format.md` or the current
 `yama://research/format` resource when supported;
-read it back with `research`. Preserve existing choices. Updating a note can
+read it back with `get_research`. Preserve existing choices. Updating a note can
 refresh an already tracked plan, but never records a purchase or installation.
 
 Collection and planner mutations require a requested, specific action. Check
-`changes` first, stage the appropriate tool (`add_to_collection`, `move_cards`,
+`list_changes` first, stage the appropriate tool (`add_to_collection`, `move_cards`,
 `set_condition`, `mark_bought`, `mark_installed` or `swap_in_prints`), and show the
 review link and consequences. Call `apply_change` only after approval of that
 exact staged change. Do not infer a purchase from a wishlist, an installed card

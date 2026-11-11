@@ -1,10 +1,12 @@
-//! The tools (docs/mcp-design.md). Each takes the caller and its JSON arguments and returns text for
+//! The tools (docs/mcp-design.md), one `registry::Tool` each. Each takes the caller and its JSON arguments and returns text for
 //! Claude, built only from the caller's own rows (or shared card and precon data). The read tools
 //! are here; the write tools only stage a change for the person to review (`changes.rs`).
 //!
 //! The longer summaries reuse the advisor's context builders (`advisor::context::build`), so a
 //! plan or a lab run reads the same to Ask Claude and to an outside client.
 
+use super::args as arg;
+use super::registry::{self, Ctx, Kind, Needs, Offer, Tool, run};
 use super::{Via, changes};
 use crate::advisor::context;
 use crate::auth::User;
@@ -17,51 +19,45 @@ use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-/// Names one `card` call may ask about.
+/// Names one `get_cards` call may ask about.
 const MAX_NAMES: usize = 20;
-/// Lines one `check_list` call may send.
+/// Lines one `check_deck_list` call may send.
 const MAX_LIST_LINES: usize = 300;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Does {
-    Read,
-    /// Saves research notes only, never decks, inventory, orders, plans or game state.
-    Research,
-    /// Stores a pending change and changes nothing else.
-    Stage,
-    /// Applies or discards a staged change: outside clients only, never Ask Claude.
-    Decide,
-}
-
-struct Tool {
-    name: &'static str,
-    title: &'static str,
-    description: &'static str,
-    schema: fn() -> Value,
-    does: Does,
+/// A staging tool's handler from one of `changes`' `async fn(st, user, via, args)`.
+macro_rules! stage {
+    ($f:path) => {
+        |c, args| Box::pin($f(c.st, c.user, c.via, args))
+    };
 }
 
 /// Said by every write tool: what staging means.
 macro_rules! staged {
     ($what:literal) => {
-        concat!(
-            $what,
-            " This only stages the change for their review: it shows in Yama with Apply and Discard, and nothing changes until they apply it. \
-              Stage a change when they ask for it or agree to it, not as a guess."
-        )
+        concat!($what, " Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.")
     };
 }
 
-const TOOLS: &[Tool] = &[
+pub(super) const TOOLS: &[Tool] = &[
     Tool {
-        name: "datasets",
+        name: "list_datasets",
+        aliases: &["datasets"],
         title: "Your evidence datasets",
-        description: "List your private imported evidence datasets, active revisions, sources and record counts. Imported aggregates, overlapping windows and ELO points are not independent game records. Use dataset to inspect dated evidence.",
+        description: "List your private imported evidence datasets, active revisions, sources and record counts. Imported aggregates, overlapping windows and ELO points are not independent game records. Use get_dataset to inspect dated evidence.",
         schema: no_args,
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_datasets),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Datasets,
     },
     Tool {
-        name: "dataset",
+        name: "get_dataset",
+        aliases: &["dataset"],
         title: "Read dated dataset evidence",
         description: "Read one private evidence dataset by id. Filter records by kind, entity id or name search; use section=sources for source provenance. Pages are bounded. An exact entity also gets descriptive monthly source-rate averages with a default 180-day exponential half-life; cumulative snapshots, overlapping rolling windows, flagged and undated data are excluded from that average. ELO sequence indices are not dates. This never imports, publishes or changes decks/games.",
         schema: || json!({"type":"object","properties":{
@@ -72,35 +68,72 @@ const TOOLS: &[Tool] = &[
             "search":{"type":"string","description":"Case-insensitive name search."},
             "offset":{"type":"integer","minimum":0,"maximum":200000},"limit":{"type":"integer","minimum":1,"maximum":50},
             "as_of":{"type":"string","description":"Optional YYYY-MM-DD evaluation date."},
-            "half_life_days":{"type":"integer","minimum":1,"maximum":3650}},"required":["id"],"additionalProperties":false}),
-        does: Does::Read,
+            "half_life_days":{"type":"integer","minimum":1,"maximum":3650},
+            "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."}},"required":["id"],"additionalProperties":false}),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_dataset),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
+        renamed: &[("search", "query")],
+        needs: Needs::Datasets,
     },
     Tool {
-        name: "research",
+        name: "get_research",
+        aliases: &["research"],
         title: "Your saved deck research and review choices",
         description: "Read private research and review choices. No id lists reports; id alone gives a compact overview with build power and scenario totals. deck retrieves one full deck audit, optionally narrowed by build; scenario retrieves one exact global shopping/print allocation. full=true returns the complete potentially large document. Research is advice, not installed decks or approved purchases.",
-        schema: || obj(&[("id", "string", "Report id; omit to list reports."), ("deck", "string", "Optional deck key within the report."), ("build", "string", "Optional build id, with deck."), ("scenario", "string", "One global acquisition scenario, instead of deck."), ("full", "boolean", "Return the complete document instead of a compact overview; can be large.")], &[]),
-        does: Does::Read,
+        schema: || obj(&[("id", "string", "Report id; omit to list reports."), ("deck", "string", "Optional deck key within the report."), ("build", "string", "Optional build id, with deck."), ("scenario", "string", "One global acquisition scenario, instead of deck."), ("full", "boolean", "Return the complete document instead of a compact overview; can be large."), ("detail", "string", "summary (default) or full: full is the same as full=true.")], &[]),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_research),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "save_research",
+        aliases: &[],
         title: "Save private research for review in Yama",
-        description: "Store or refresh a yama-research/1 document: a deck plan's content (builds, swaps with reasons, acquisition evidence), private to the caller. This saves directly and idempotently, replacing the note's earlier revision; review choices survive refreshes and changed targets are flagged. A plan already tracking one of the note's builds follows the refreshed note (its swaps, store offers and lists are derived again). A document that drops a deck or build a plan tracks would stop that plan, so it is refused and nothing is saved unless stop_plans is true. It never installs or saves a playable deck, changes inventory, approves a purchase, orders prints or starts games. To make a build the deck's plan, stage track_build afterwards. Use when asked to store research or a plan in Yama. Owner comes from sign-in, never the document.",
+        description: "Store or refresh a yama-research/1 document (a note): a deck's builds, swaps with reasons and acquisition evidence, private to the caller. It saves directly, replacing the note's earlier revision; their review choices are kept and changed targets flagged. A plan tracking one of the note's builds follows the refreshed note. A document that drops a deck or build a plan tracks is refused unless stop_plans is true. It never changes a deck, the collection, an order or a game. To make a build the deck's plan, stage track_build.",
         schema: || json!({"type":"object","properties":{
             "document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."},
             "stop_plans":{"type":"boolean","description":"Only when they asked to drop the plan: also archive each plan tracking a deck or build this document no longer has, and retire its swaps (default false: such a save is refused and names those plans)."}
         },"required":["document"],"additionalProperties":false}),
-        does: Does::Research,
+        kind: Kind::Write { destroys: true },
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_save_research),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "review_research",
+        aliases: &[],
         title: "Record their research choice or note",
         description: "Save a research preference only when the person states that choice or asks to save the note. Read research first for the exact target, target_hash and review version. This records a preferred build or want/unsure/no, not an installed deck, purchase approval or planner promotion. Use a fresh UUID op_id for each new answer; reuse it unchanged to retry a failed request.",
         schema: || json!({"type":"object","properties":{"id":{"type":"string"},"op_id":{"type":"string"},"target":{"type":"string"},"decision":{"type":["string","null"]},"note":{"type":["string","null"]},"expected_version":{"type":"integer","minimum":0},"target_hash":{"type":"string"}},"required":["id","op_id","target","decision","note","expected_version","target_hash"],"additionalProperties":false}),
-        does: Does::Research,
+        kind: Kind::Write { destroys: false },
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_review_research),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "overview",
+        name: "get_overview",
+        aliases: &["overview"],
         title: "Your decks and deck plans",
         description: "Start here. This person's Yama account at a glance: how many decks, deck plans and saved notes they have, and the \
                       first few of each, with which note build each plan tracks and its plan key. A deck's configurations (other builds of \
@@ -118,72 +151,103 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_overview),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "deck",
+        name: "get_deck",
+        aliases: &["deck"],
         title: "One deck",
         description: "One of their Yama decks: the current list, the bracket they declared, Commander legality problems \
                       (size, singleton, color identity, banned cards), Game Changers and real game results. \
-                      Give the deck's name (as `overview` lists it) or its id.",
+                      Give the deck's name (as `get_overview` lists it) or its id.",
         schema: || obj(&[("deck", "string", "The deck's name or id.")], &["deck"]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_deck),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "plan_deck",
+        name: "get_plan",
+        aliases: &["plan_deck"],
         title: "One deck plan",
         description: "One deck plan: the stock list and the now and after lists as differences, every planned and \
                       proposed swap with its reasons and their review answers, whether each planned swap is installed \
                       (read from their Yama deck's current list when the plan has one), their shopping rules, the newest \
-                      paired lab run, and real games. Give the plan key from `overview`. A note deck that has no \
+                      paired lab run, and real games. Give the plan key from `get_overview`. A note deck that has no \
                       tracked build yet answers with its builds and how to track one.",
         schema: || obj(&[("key", "string", "The plan key, for example \"riders-of-rohan\".")], &["key"]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_plan_deck),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[("key", "plan")],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "shopping_trip",
+        name: "get_shopping_trip",
+        aliases: &["shopping_trip"],
         title: "Which stores to visit",
-        description: "Plan a trip to their stores for the cards they want to buy: the fewest stores that cover the most \
-                      cards under their local buy rule (the rule set in force that day), honoring their store preferences \
-                      (a favourite to support is on every trip it has a card for; fine; maybe; won't go) and their order of how easy stores are to get to. Needed cards are the buys in their approved plans with no order \
-                      yet (a plan waiting for their OK adds nothing); their real-card wishlist only comes along from stores \
-                      already on the trip. Gives each store's cards, listed total and cart link (or card search links on a TCGplayer Pro store), the best choice with fewer stores, \
-                      what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not \
-                      purchases; a missing price is unknown, never $0. Read yama://shopping/workflow before using research \
-                      as a shopping list: arbitrary research builds and archived evidence are not automatically trip inputs. \
-                      Compare exact build revisions and stock dates; provide listing/search links for an unapproved build preview without approving it.",
+        description: "Plan a trip to their stores for the cards they want to buy: the fewest stores covering the most cards under their buy rule and store preferences. Needed cards are the buys in their approved plans with no order yet; their wishlist only comes along from stores already on the trip. Gives each store's cards, total and cart or search links, what to print instead and why, and the wishlist by price tier. Listings are dated quotes, not purchases; a missing price is unknown, never $0. For a build that isn't approved, read yama://shopping/workflow first.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "today": {"type": "string", "description": "Optional YYYY-MM-DD the trip is for; picks the rule set. Default: today (UTC)."},
-                    "stores": {"type": "array", "items": {"type": "string"}, "description": "Optional store keys they're going to this time (see shopping_settings); the rest are left off. Default: every store they'll go to."},
+                    "stores": {"type": "array", "items": {"type": "string"}, "description": "Optional store keys they're going to this time (see get_shopping_settings); the rest are left off. Default: every store they'll go to."},
                 },
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_shopping_trip),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[("today", "as_of")],
+        needs: Needs::Stores,
     },
     Tool {
-        name: "shopping_settings",
+        name: "get_shopping_settings",
+        aliases: &["shopping_settings"],
         title: "Shopping rules and stores",
         description: "Their shopping rules and stores: the local buy rule in force today (and the dated rule set it comes from, \
                       made in Yama or imported), every dated rule set, the most they'll pay for a sealed precon, and each store's \
                       level (favourite to support, fine, maybe, won't go), its place in their order of how easy stores are to get \
-                      to, and a favourite's premium. Use the store keys with shopping_trip and set_store_preference.",
+                      to, and a favourite's premium. Use the store keys with get_shopping_trip and set_store_preference.",
         schema: || obj(&[], &[]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_shopping_settings),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
         name: "set_shopping_rules",
+        aliases: &[],
         title: "Change the buy rule",
-        description: staged!(
-            "Change their local buy rule and sealed precon limit. It becomes a new rule set from the day they apply it, \
-             so older checks keep the rules of their own day. Parts left out keep the rule in force. A listing qualifies at \
-             or under always_ok_usd whatever the market; otherwise at most max_usd and at most max_multiple times market for \
-             the first tier whose market_under is above the market (null: any market); with tiers, an unknown market \
-             qualifies only at or under always_ok_usd."
-        ),
+        description: staged!("Change their buy rule and sealed precon limit, as a new rule set from the day they apply it; parts left out keep the rule in force. A listing qualifies at or under always_ok_usd whatever the market; otherwise it may cost at most max_usd and at most max_multiple times market, by the first tier whose market_under is above the market."),
         schema: || {
             json!({
                 "type": "object",
@@ -199,22 +263,26 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::set_shopping_rules),
+        stages: Some(changes::staging::SET_SHOPPING_RULES),
+        output: None,
+        untrusted: None,
+        renamed: &[("note", "reason")],
+        needs: Needs::Stores,
     },
     Tool {
         name: "set_store_preference",
+        aliases: &[],
         title: "Set how they feel about a store",
-        description: staged!(
-            "Set one of their stores' level: favorite (a store they want to support: on every trip it has a card for, and it \
-             gets a card when it's at most premium_usd above the cheapest), ok, maybe (only for cards no other store has) or \
-             never; its place in their order of how easy stores are to get to (hassle, 1 is the easiest); and a note. Parts \
-             left out stay as they are."
-        ),
+        description: staged!("Set how they feel about one of their stores: favorite (on every trip it has a card for, and it gets a card when it costs at most premium_usd more than the cheapest), ok, maybe (only for cards no other store has) or never; its place in their order of how easy stores are to get to (hassle, 1 is easiest); and a note. Parts left out stay as they are."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
-                    "store": {"type": "string", "description": "The store's key or name, from shopping_settings."},
+                    "store": {"type": "string", "description": "The store's key or name, from get_shopping_settings."},
                     "preference": {"type": "string", "enum": ["favorite", "ok", "maybe", "never"]},
                     "hassle": {"type": ["integer", "null"], "description": "Place in their order, 1 = easiest to get to; null clears it."},
                     "premium_usd": {"type": ["number", "null"], "description": "How much more a card may cost at a favourite, $0 to $10; null clears it."},
@@ -224,10 +292,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::set_store_preference),
+        stages: Some(changes::staging::SET_STORE_PREFERENCE),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
-        name: "store_stock",
+        name: "get_store_stock",
+        aliases: &["store_stock"],
         title: "A store's stock",
         description: "One of their stores' newest stock answers for cards: each listing's price, condition, finish and \
                       quantity where the store gives them, or not in stock, with the time it was read. Default cards: every card \
@@ -237,54 +314,68 @@ const TOOLS: &[Tool] = &[
             json!({
                 "type": "object",
                 "properties": {
-                    "store": {"type": "string", "description": "The store's key or name, from shopping_settings."},
+                    "store": {"type": "string", "description": "The store's key or name, from get_shopping_settings."},
                     "cards": {"type": "array", "items": {"type": "string"}, "description": "Card names; default every card the trip plans for."},
                 },
                 "required": ["store"],
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_store_stock),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
         name: "check_stores",
+        aliases: &[],
         title: "Read stores' stock",
-        description: staged!(
-            "Read their stores' stock now, when they apply it: Shopify stores Yama knows (Pat's Games, Mothership) card by \
-             card, TCGplayer Pro storefronts (Black Castle, Multiverse) as a whole catalog with each product's lowest \
-             price, and with yestcg true also YesTCG's Austin search (condition and quantity) for the stores it covers. \
-             Each store's answer is a dated snapshot the trip and store_stock read. Default stores: every store they'll \
-             go to that Yama can read; default cards: every card the trip plans for. For an unapproved research build, \
-             supply its exact cards explicitly (at most 300 per check); saving research does not fetch live stock. \
-             See yama://shopping/workflow."
-        ),
+        description: staged!("Read their stores' stock when they apply it, as a dated snapshot for each store that the trip and get_store_stock then read. A store Yama can't read is refused by name. yestcg true also asks YesTCG, a stock search covering some local stores. Default stores: every store they'll go to that Yama can read. Default cards: every card the trip plans for; for a build that isn't approved, give its cards (at most 300). See yama://shopping/workflow."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
-                    "stores": {"type": "array", "items": {"type": "string"}, "description": "Store keys or names, from shopping_settings."},
+                    "stores": {"type": "array", "items": {"type": "string"}, "description": "Store keys or names, from get_shopping_settings."},
                     "cards": {"type": "array", "items": {"type": "string"}, "description": "Card names, at most 300."},
-                    "yestcg": {"type": "boolean", "description": "Also ask YesTCG (Austin) about the stores it covers."},
+                    "yestcg": {"type": "boolean", "description": "Also ask YesTCG, a stock search for some local stores, about the stores it covers."},
                 },
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::StageOutside,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::check_stores),
+        stages: Some(changes::staging::CHECK_STORES),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Stores,
     },
     Tool {
-        name: "shopping_list",
+        name: "get_shopping_list",
+        aliases: &["shopping_list"],
         title: "Their shopping list",
-        description: "Everything on their one shopping list and where the store trip puts each card: planned buys with no \
-                      order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), \
-                      and a count of their real-card wishlist. Each card says the store and price the trip picks, or why it \
-                      isn't on the trip (print it, ask the store, no check). Sealed products show each store's newest price \
-                      against their sealed cap, the sealed market and the singles inside at market. Listings are dated quotes, \
-                      not purchases.",
+        description: "Everything on their shopping list and where the store trip puts each card: planned buys with no order yet, proposals they want or haven't decided on, cards and sealed products they added (add_wish), and a count of their wishlist. Each card says the store and price the trip picks, or why it isn't on the trip. Sealed products show each store's newest price against their sealed limit. Listings are dated quotes, not purchases.",
         schema: || obj(&[("today", "string", "Optional YYYY-MM-DD; picks the rule set. Default: today (UTC).")], &[]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_shopping_list),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[("today", "as_of")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "compare_with_friend",
+        aliases: &[],
         title: "Compare with a friend's profile",
         description: "What they could trade with a friend on Yama, by the friend's profile handle: the cards on the friend's \
                       shared want list (\"looking for\") they own real copies of, with how many are in deck boxes, and the \
@@ -292,16 +383,21 @@ const TOOLS: &[Tool] = &[
                       Only what the friend shares is read: a list or collection they haven't shared is reported as not \
                       shared. Market prices are dated, not offers.",
         schema: || obj(&[("handle", "string", "The friend's profile handle, with or without @ (yama.ing/u/<handle>).")], &["handle"]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_compare_with_friend),
+        stages: None,
+        output: None,
+        untrusted: Some("another person's shared profile"),
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "add_wish",
+        aliases: &[],
         title: "Add to their shopping list",
-        description: staged!(
-            "Add a card (or a sealed product) to their shopping list. priority need (default): a reason to go to a \
-             store; along: only from a store already on the trip. deck: one of their Yama decks by name, or a label for \
-             a deck not in Yama yet. Each copy is its own want, also when a plan already buys the card for another deck."
-        ),
+        description: staged!("Add a card or a sealed product to their shopping list. priority need (default) is a reason to go to a store; along means only from a store already on the trip. deck is one of their decks by name, or a label for a deck not in Yama yet. Each copy is its own want."),
         schema: || {
             json!({
                 "type": "object",
@@ -317,10 +413,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::add_wish),
+        stages: Some(changes::staging::ADD_WISH),
+        output: None,
+        untrusted: None,
+        renamed: &[("why", "reason")],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "review_queue",
+        name: "get_review_queue",
+        aliases: &["review_queue"],
         title: "Proposals to review",
         description: "Proposed swaps waiting for their answer: every plan deck's count of waiting and answered proposals, then the \
                       waiting ones with their reasons, 15 at a time, deck by deck. plan narrows it to one deck; answered true also \
@@ -330,7 +435,7 @@ const TOOLS: &[Tool] = &[
             json!({
                 "type": "object",
                 "properties": {
-                    "plan": {"type": "string", "maxLength": 300, "description": "Only this plan: its key or deck name from `overview`."},
+                    "plan": {"type": "string", "maxLength": 300, "description": "Only this plan: its key or deck name from `get_overview`."},
                     "answered": {"type": "boolean", "description": "Also list the proposals they already answered (default false: only counted)."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Swaps to list (default 15)."},
                     "cursor": {"type": "string", "maxLength": 600, "description": "next_cursor from the page before, with the same plan and answered."},
@@ -338,29 +443,51 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_review_queue),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "find_cards",
+        name: "search_cards",
+        aliases: &["find_cards"],
         title: "Search cards",
         description: "Search Magic cards with Yama's Scryfall-style syntax: o:\"draw a card\", t:artifact, id<=rw \
                       (fits a Boros commander), mv<=3, f:commander (legal), is:gamechanger, -t:creature, or, \
-                      parentheses, !\"Exact Name\". 60 results a page, each with cost, type, color identity, Commander \
-                      legality, Game Changer, a dated market price and how many copies they own.",
+                      parentheses, !\"Exact Name\". 60 cards at a time (next_cursor continues), each with cost, type, color \
+                      identity, Commander legality, Game Changer, a dated market price (null when none is recorded) and how \
+                      many copies they own.",
         schema: || {
-            obj(
-                &[
-                    ("query", "string", "The search, for example: id<=rw t:artifact o:treasure f:commander"),
-                    ("order", "string", "name (default), mv, edhrec (most played first) or color."),
-                    ("page", "integer", "Page number, from 1."),
-                ],
-                &["query"],
-            )
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander"},
+                    "order": {"type": "string", "enum": ["name", "mv", "edhrec", "color"], "description": "name (default), mv (mana value), edhrec (most played first) or color."},
+                    "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "The older way to continue: page number, from 1. cursor is preferred."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},
+                },
+                "required": ["query"],
+                "additionalProperties": false,
+            })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        handler: run!(run_find_cards),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "card",
+        name: "get_cards",
+        aliases: &["card"],
         title: "Card details",
         description: "Full details for up to 20 cards by name: Oracle text, cost, type, color identity, Commander legality, \
                       Game Changer, EDHREC rank, the latest market price with its date, and the copies they own (where, \
@@ -376,17 +503,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        handler: run!(run_card),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[("names", "cards")],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "price_history",
+        name: "get_price_history",
+        aliases: &["price_history"],
         title: "Price history",
-        description: "One printing's price over time from one source, on the days Yama read it: the first and last price, \
-                      the low and high, and each change, each with its date. Give a card name (its default printing, or with \
-                      cheapest the cheapest playable printing), or a printing by Scryfall id, or set and collector number. \
-                      Sources: TCGplayer market via Scryfall (default), Card Kingdom retail or buylist, Mana Pool's lowest \
-                      listing (via MTGJSON), in USD; none is a store quote, and a buylist price is what Card Kingdom was paying \
-                      for near-mint copies, not what you'll get. A missing price is null, and days Yama didn't read are gaps.",
+        description: "One printing's price over time from one source, on the days Yama read it: first and last price, low and high, and each change with its date. Give a card name (its default printing, or with cheapest the cheapest playable one), a Scryfall printing id, or set and collector number. Sources: TCGplayer market (default), Card Kingdom retail or buylist, Mana Pool's lowest listing, in USD. None is a store quote. A missing price is null; days Yama didn't read are gaps.",
         schema: || {
             json!({
                 "type": "object",
@@ -403,10 +534,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: true,
+        handler: run!(run_price_history),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "check_list",
+        name: "check_deck_list",
+        aliases: &["check_list"],
         title: "Check a deck list",
         description: "Check a proposed Commander list without saving it: the 100-card count, singleton, color identity, \
                       commander eligibility, cards banned in Commander, Game Changers, and names Yama doesn't know. \
@@ -423,15 +563,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_check_list),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "games",
+        name: "list_games",
+        aliases: &["games"],
         title: "Your game history",
-        description: "Games they played in person with Yama's life counter or online, newest first, as the Game history page lists \
-                      them: 10 at a time (limit, up to 50), each with its seats (player, commander, final life, knockout turn), winner seat, \
-                      turns, status and note; next_offset continues the list. search matches a player's or commander's name; filter unfinished or unnamed finds games \
-                      to tidy up. These are real games, unlike lab results. Use `game` for one game's events.",
+        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
         schema: || {
             json!({
                 "type": "object",
@@ -440,73 +586,119 @@ const TOOLS: &[Tool] = &[
                     "filter": {"type": "string", "enum": ["all", "unfinished", "unnamed"], "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all)."},
                     "order": {"type": "string", "enum": ["newest", "oldest"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Games to list (default 10)."},
-                    "offset": {"type": "integer", "minimum": 0, "description": "Games to skip: next_offset from the answer before."}
+                    "offset": {"type": "integer", "minimum": 0, "description": "The older way to continue: games to skip. cursor is preferred."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the answer before, with the same other arguments."},
+                    "detail": {"type": "string", "enum": ["summary", "full"], "description": "summary: fewer fields a row, for a shorter answer. full (default): every field."}
                 },
                 "additionalProperties": false
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_games),
+        stages: None,
+        output: Some(registry::paged),
+        untrusted: Some("other players as well as the account owner (names, deck labels and notes)"),
+        renamed: &[("search", "query")],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "game",
+        name: "get_game",
+        aliases: &["game"],
         title: "One game",
-        description: "One game from their history by id (from `games`): its seats, winner, turns and note, and with events=true its \
-                      event log (life changes, knockouts and the like, up to 500 events). Someone else's game is not found.",
-        schema: || obj(&[("id", "string", "The game's id."), ("events", "boolean", "Include the event log (default false).")], &["id"]),
-        does: Does::Read,
+        description: "One game from their history by id (from `list_games`): its seats, winner, turns and note. With events true, what happened: a life-counter game's events (life changes, knockouts), or an online game's log as the players saw it, the last 300 lines. Someone else's game is not found.",
+        schema: || obj(&[("id", "string", "The game's id."), ("events", "boolean", "Include what happened: the events, or an online game's log (default false).")], &["id"]),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_game),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: Some("other players as well as the account owner (names, deck labels and notes)"),
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "collection_summary",
+        name: "get_collection_summary",
+        aliases: &["collection_summary"],
         title: "Collection totals and containers",
         description: "Their collection as the Collection page totals it: copies, proxies, distinct printings, market value of the \
                       copies with a price (with the newest price date), how many have none, and what they paid; then each binder, \
                       deck box and list with its copies and market value. Proxies have no market value. A missing price is \
-                      unknown, never zero, and a market value isn't what a store would pay. Use collection_cards for the cards.",
+                      unknown, never zero, and a market value isn't what a store would pay. Use list_collection_cards for the cards.",
         schema: no_args,
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_collection_summary),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "playgroups",
+        name: "list_playgroups",
+        aliases: &["playgroups"],
         title: "Your playgroups and their stats",
         description: "The playgroups they own or are in, with each one's members, as the Playgroup page lists them. With id, that \
                       group's stats from its finished games: games played, each player's and commander's record, average turns and \
                       minutes, wins by seat, win conditions and head-to-head. Small samples are marked provisional; these are real \
                       games, not simulations.",
         schema: || obj(&[("id", "string", "A playgroup's id, for its stats; omit to list playgroups.")], &[]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_playgroups),
+        stages: None,
+        output: Some(registry::object),
+        untrusted: Some("other players as well as the account owner (names)"),
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "lab_runs",
+        name: "list_lab_runs",
+        aliases: &["lab_runs"],
         title: "Your lab experiments",
-        description: "Their simulation experiments (\"Try a change\"), newest first, with ids for `lab_run`.",
+        description: "Their simulation experiments (\"Try a change\"), newest first, with ids for `get_lab_run`.",
         schema: no_args,
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_lab_runs),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::LabRuns,
     },
     Tool {
-        name: "lab_run",
+        name: "get_lab_run",
+        aliases: &["lab_run"],
         title: "One lab experiment",
-        description: "One simulation experiment: its lists, opponents, engines and limits, live progress, and each engine's result: the \
-                      paired difference with its interval and verdict, the games that weren't scored and why, and how many \
-                      pods would likely settle an unclear answer. Admins also see the number of earlier Phase games ahead \
-                      in the shared queue. For runs using both engines, the ETA and queue position are Phase-only; Forge \
-                      is queued separately. Other accounts' run and deck details stay private.",
-        schema: || obj(&[("id", "string", "The experiment id from `lab_runs`.")], &["id"]),
-        does: Does::Read,
+        description: "One simulation experiment: its lists, opponents, engines and limits, live progress, and each engine's result: the paired difference with its interval and verdict, the games that weren't scored and why, and how many more pods would likely settle an unclear answer. For a run on both engines, the ETA and queue position are for Phase; Forge has its own queue.",
+        schema: || obj(&[("id", "string", "The experiment id from `list_lab_runs`.")], &["id"]),
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_lab_run),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[("id", "run_id")],
+        needs: Needs::LabRuns,
     },
     Tool {
-        name: "lab_games",
+        name: "list_lab_games",
+        aliases: &["lab_games"],
         title: "A lab experiment's games",
-        description: "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and \
-                      error. With `game`, that one game's schedule line, result line and every seat's list, enough to \
-                      replay it with the lab runner (games replay move for move from their schedule line on the same \
-                      engine build). Head-to-head and tournament runs: with `deck` (a deck's name or entrant id) or \
-                      `table`, those tables game by game, as the run's deck and table pages show them: who went first, \
-                      the finish order, each seat's knockout turn or final life.",
+        description: "An experiment's games pod by pod on one engine: each game's end, turns, CPU seconds, place and error. With `game`, that game's schedule line, result line and every seat's list, enough to replay it. For head-to-head and tournament runs, `deck` (a deck's name or entrant id) or `table` gives those tables game by game: who went first, the finish order, each seat's knockout turn or final life.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string", "description": "The experiment id from `lab_runs`."},
+                    "id": {"type": "string", "description": "The experiment id from `list_lab_runs`."},
                     "engine": {"type": "string", "enum": ["phase", "forge"], "description": "Which engine's games (default: the run's first)."},
                     "only": {"type": "string", "enum": ["all", "unscored"], "description": "unscored: only pods with a game that wasn't scored (default all)."},
                     "game": {"type": "string", "description": "One game id (from this list) for its schedule line, result line and lists."},
@@ -517,18 +709,35 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_lab_games),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[("id", "run_id")],
+        needs: Needs::LabRuns,
     },
     Tool {
-        name: "precon",
+        name: "get_precon",
+        aliases: &["precon"],
         title: "A precon",
-        description: "A Commander precon from Yama's catalog: list, real results from playgroup.gg with their dated history (all-time rate, approximate recent rate between snapshots and trend, or the commander's own figure when the list isn't rated; evidence.all_lists adds Mythic Tools' wins over every list under the exact commanders, which count toward rating v2 only for a precon without stock games that passed the leave-one-out test), the simulated rating and matchups, and source-backed upgradeability assessments with the 1–5 rubric, concrete card examples, named reviews and separately scoped raw commander wins/game counts. Commander configurations have separate grades and comparison-list URLs. On-theme swaps are eligible; replacing the strategy is a separate build. Use each prepared list separately when comparing commanders. Unsupported grades are null. Commander rates mix stock and modified lists; do not infer upgrade gains from them. \
-                      Give its name (or part of it) or id.",
+        description: "A Commander precon from Yama's catalog, by name (or part of it) or id: its list, real results from playgroup.gg with their dated history, the simulated rating and matchups, and source-backed upgradeability grades (1 to 5) with card examples and named reviews. Each commander configuration has its own grade and list: compare them as separate lists. An unsupported grade is null. Commander win rates mix stock and modified lists, so never read an upgrade gain from them.",
         schema: || obj(&[("precon", "string", "The precon's name, part of it, or its id.")], &["precon"]),
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_precon),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "changes",
+        name: "list_changes",
+        aliases: &["changes"],
         title: "Changes waiting for review",
         description: "The changes you (or another Claude) staged that they haven't applied or discarded yet, with ids, newest first, \
                       25 at a time (next_cursor continues; after a change is applied or discarded, start again without a cursor). A \
@@ -545,10 +754,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Read,
+        kind: Kind::Read,
+        offer: Offer::Everyone,
+        search: false,
+        handler: run!(run_changes),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "edit_deck",
+        aliases: &[],
         title: "Change a deck's list",
         description: staged!(
             "Change one of their Yama decks: add cards to the main deck and remove cards from it, one copy per name \
@@ -568,17 +786,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::edit_deck),
+        stages: Some(changes::staging::EDIT_DECK),
+        output: None,
+        untrusted: None,
+        renamed: &[("note", "reason")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "delete_deck",
+        aliases: &[],
         title: "Delete a deck or configuration",
-        description: staged!(
-            "Delete one of their Yama decks, or one configuration of a deck (name the configuration's own deck). \
-             It leaves their decks and its share link stops working; games already played with it keep their record. \
-             A main deck's configurations become decks of their own unless configurations is true, which deletes them too. \
-             It can't be undone from Yama, so only stage it when they asked to delete that deck."
-        ),
+        description: staged!("Delete one of their decks, or one configuration of a deck (name the configuration's own deck). Its share link stops working; games played with it keep their record. A deck's configurations become decks of their own unless configurations is true, which deletes them too. It can't be undone in Yama: only when they asked to delete that deck."),
         schema: || {
             json!({
                 "type": "object",
@@ -590,18 +812,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::delete_deck),
+        stages: Some(changes::staging::DELETE_DECK),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "track_build",
+        aliases: &[],
         title: "Make a note's build the deck's plan",
-        description: staged!(
-            "Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version \
-             waiting for their OK (\"Use a deck from it\" on the plan pages). Once they approve it (in Yama, or \
-             `approve_plan`), Buy, prints, installed and bought marks and the plan tools (plan_deck, mark_bought, \
-             mark_installed, swap_in_prints) work on it, and it replaces any other plan for the same deck. Another build \
-             of the same deck switches to it; build null stops it. Give the note id and deck key from `overview` or `research`."
-        ),
+        description: staged!("Use one build of a deck in one of their saved notes as that deck's plan: its swaps become a plan version waiting for their OK. Once approved (in Yama, or approve_plan), the shopping list, prints, marks and the plan tools work on it, and it replaces any other plan for the same deck. Another build of the same deck switches to it; build null stops it. Give the note id and deck key from `get_overview` or `get_research`."),
         schema: || {
             json!({"type":"object","properties":{
                 "note":{"type":"string","description":"The note's id."},
@@ -610,31 +835,43 @@ const TOOLS: &[Tool] = &[
                 "yama_deck":{"type":"string","description":"Optional: the Yama deck (name or id) the plan is for. Default: the one already linked, else their only deck with the note deck's name."}
             },"required":["note","deck","build"],"additionalProperties":false})
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::track_build),
+        stages: Some(changes::staging::TRACK_BUILD),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "approve_plan",
+        aliases: &[],
         title: "Approve a deck's plan",
-        description: staged!(
-            "Approve a deck's plan version whole, as the plan page's Approve plan does: every change waiting in it goes into \
-             the plan except the ones in skip, and the open questions plan_deck lists need their answers first. Only stage \
-             it when they have said to. action keep instead keeps the version before it (for a new version of a plan in \
-             progress). Nothing is bought or printed by approving: buys go on their shopping list and prints on the next \
-             print order."
-        ),
+        description: staged!("Approve a deck's waiting plan version whole: every change in it goes into the plan except those in skip, and the open questions get_plan lists need their answers first. action keep keeps the version before it instead. Nothing is bought or printed by approving: buys go on their shopping list and prints on the next print order. Only when they have said to."),
         schema: || {
             json!({"type":"object","properties":{
-                "plan":{"type":"string","description":"The plan key or deck name from `overview`."},
+                "plan":{"type":"string","description":"The plan key or deck name from `get_overview`."},
                 "action":{"type":"string","enum":["approve","keep"],"description":"approve (default) or keep the version before it."},
                 "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one."},
-                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string"},"answer":{"type":"string"}},"required":["question","answer"],"additionalProperties":false},
-                           "description":"Their answer to each open question, the question exactly as plan_deck lists it."}
+                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","maxLength":2000},"answer":{"type":"string","maxLength":2000}},"required":["question","answer"],"additionalProperties":false},
+                           "description":"Their answer to each open question, the question exactly as get_plan lists it."}
             },"required":["plan"],"additionalProperties":false})
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::approve_plan),
+        stages: Some(changes::staging::APPROVE_PLAN),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "propose_swap",
+        aliases: &[],
         title: "Suggest a swap for a plan",
         description: staged!(
             "Suggest a swap for one of their upgrade plans: a card to put in and, usually, the card it replaces. \
@@ -643,7 +880,7 @@ const TOOLS: &[Tool] = &[
         schema: || {
             obj(
                 &[
-                    ("plan", "string", "The plan key or deck name from `overview`."),
+                    ("plan", "string", "The plan key or deck name from `get_overview`."),
                     ("card_in", "string", "The card to put in."),
                     ("card_out", "string", "The card it replaces, if any."),
                     ("why", "string", "Why, in a sentence or two."),
@@ -651,10 +888,19 @@ const TOOLS: &[Tool] = &[
                 &["plan", "card_in"],
             )
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::propose_swap),
+        stages: Some(changes::staging::PROPOSE_SWAP),
+        output: None,
+        untrusted: None,
+        renamed: &[("why", "reason")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "answer_review",
+        aliases: &[],
         title: "Answer a proposal in Review",
         description: staged!(
             "Answer a swap in one of their plans the way they would on the Review page: want, unsure or no, with an \
@@ -675,10 +921,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::answer_review),
+        stages: Some(changes::staging::ANSWER_REVIEW),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "mark_bought",
+        aliases: &[],
         title: "Mark a plan card bought",
         description: staged!(
             "Mark a swap's card as bought in one of their plans, as \"Bought it\" does: when, how many, the price and \
@@ -701,30 +956,42 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::mark_bought),
+        stages: Some(changes::staging::MARK_BOUGHT),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "swap_in_prints",
+        aliases: &[],
         title: "Swap a plan deck's prints in",
-        description: staged!(
-            "When their printed proxies have arrived and they have sleeved them into a deck: take that plan deck from its now list to its \
-             after-prints list in Yama. The linked Yama deck gets the after list as a new version; the prints go into the deck's box as \
-             proxies; cards moving in from another deck come out of that deck's box; each card leaving goes to the deck that takes it next, \
-             the deck's swap bag box (cards that go back in at a lower bracket) or a box called Spares; and the swaps are ticked installed. \
-             The reply previews exactly what applying does."
-        ),
+        description: staged!("When their printed proxies have arrived and are sleeved into a deck: move that plan deck from its now list to its after-prints list. The linked deck gets the new list as a version, the prints go into the deck's box as proxies, each card coming out goes to the deck or box that takes it next, and the swaps are ticked installed. The reply previews exactly what applying does."),
         schema: || {
             json!({
                 "type": "object",
-                "properties": {"plan": {"type": "string", "description": "The plan key or deck name from `overview`."}},
+                "properties": {"plan": {"type": "string", "description": "The plan key or deck name from `get_overview`."}},
                 "required": ["plan"],
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::swap_in_prints),
+        stages: Some(changes::staging::SWAP_IN_PRINTS),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "mark_installed",
+        aliases: &[],
         title: "Mark a plan swap installed",
         description: staged!("Mark a swap in one of their plans as installed in the real deck (value false clears it). This only decides for a plan deck with no Yama deck: with one, installed is read from that deck's current list, so change the deck instead."),
         schema: || {
@@ -740,17 +1007,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::mark_installed),
+        stages: Some(changes::staging::MARK_INSTALLED),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "start_lab_run",
+        aliases: &[],
         title: "Start a lab run",
-        description: staged!(
-            "Simulate in the lab, under their lab allowance; results come in over the next while (see lab_run). Modes: \
-             change (the default: a list against the same list with cards added and cut, in paired games), compare (two \
-             lists in the same pods), solo (one list's win rate as it is), versus (2 to 4 lists head to head), and tournament (one large field in balanced randomized four-player pods). Lists \
-             are their decks or precons by name, or a pasted list. Applying runs every check the lab's pages run."
-        ),
+        description: staged!("Simulate in the lab, under their lab allowance; results arrive over time (get_lab_run). Modes: change (default: a list against itself with cards added and cut, in paired games), compare (two lists in the same pods), solo (one list's win rate), versus (2 to 4 lists head to head) and tournament (one large field in balanced four-player pods). Lists are their decks or precons by name, or pasted."),
         schema: || {
             json!({
                 "type": "object",
@@ -781,17 +1052,21 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Power,
+        search: false,
+        handler: stage!(changes::start_lab_run),
+        stages: Some(changes::staging::START_LAB_RUN),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "more_lab_games",
+        name: "add_lab_games",
+        aliases: &["more_lab_games"],
         title: "Add games to a lab run",
-        description: staged!(
-            "Add games to one of their finished runs (not versus) so its answer gets clearer: the new pods continue the \
-             run's schedule and pool with the results so far, on each of its engines. Without `games`, enough to reach \
-             the run's estimate of the pods that would settle it, where it has one. A run whose engine has changed since \
-             can't take more games; use run_lab_again."
-        ),
+        description: staged!("Add games to one of their finished runs (not versus) so its answer gets clearer: the new pods continue the run's schedule and pool with the results so far. Without `games`, enough to reach the run's own estimate of what would settle it. A run whose engine has changed since can't take more games: use rerun_lab_run."),
         schema: || {
             json!({
                 "type": "object",
@@ -803,10 +1078,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Power,
+        search: false,
+        handler: stage!(changes::more_lab_games),
+        stages: Some(changes::staging::MORE_LAB_GAMES),
+        output: None,
+        untrusted: None,
+        renamed: &[("id", "run_id")],
+        needs: Needs::Nothing,
     },
     Tool {
-        name: "run_lab_again",
+        name: "rerun_lab_run",
+        aliases: &["run_lab_again"],
         title: "Run a lab experiment again",
         description: staged!(
             "Run one of their experiments again as a new run: the same frozen lists, opponents, engines and AI, a new seed. \
@@ -823,17 +1107,35 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Power,
+        search: false,
+        handler: stage!(changes::run_lab_again),
+        stages: Some(changes::staging::RUN_LAB_AGAIN),
+        output: None,
+        untrusted: None,
+        renamed: &[("id", "run_id")],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "cancel_lab_run",
+        aliases: &[],
         title: "Cancel a lab run",
         description: staged!("Stop one of their queued or running experiments: games already playing finish and count, no new ones start."),
         schema: || obj(&[("id", "string", "The experiment id.")], &["id"]),
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::cancel_lab_run),
+        stages: Some(changes::staging::CANCEL_LAB_RUN),
+        output: None,
+        untrusted: None,
+        renamed: &[("id", "run_id")],
+        needs: Needs::LabRuns,
     },
     Tool {
         name: "add_to_collection",
+        aliases: &[],
         title: "Add cards to the collection",
         description: staged!(
             "Add copies of a card to their collection, in a binder, deck box or list they already have (or loose). \
@@ -855,10 +1157,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::add_to_collection),
+        stages: Some(changes::staging::ADD_TO_COLLECTION),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "move_cards",
+        aliases: &[],
         title: "Move cards between binders and boxes",
         description: staged!("Move copies of a card from one of their binders, deck boxes or lists to another."),
         schema: || {
@@ -874,10 +1185,19 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::move_cards),
+        stages: Some(changes::staging::MOVE_CARDS),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "set_condition",
+        aliases: &[],
         title: "Set the condition of cards",
         description: staged!(
             "Set the condition of every copy in one of their binders, deck boxes or lists, or only the copies of one card there: \
@@ -895,22 +1215,48 @@ const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        does: Does::Stage,
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::set_condition),
+        stages: Some(changes::staging::SET_CONDITION),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "apply_change",
+        aliases: &[],
         title: "Apply a staged change",
         description: "Apply one staged change. Call it only after they have said yes to that exact change in this conversation; \
                       otherwise let them apply it in Yama. If the deck or plan moved on, it fails with the reason and stays waiting.",
-        schema: || obj(&[("id", "string", "The change id from staging or `changes`.")], &["id"]),
-        does: Does::Decide,
+        schema: || obj(&[("id", "string", "The change id from staging or `list_changes`.")], &["id"]),
+        kind: Kind::Write { destroys: true },
+        offer: Offer::Appliers,
+        search: false,
+        handler: run!(run_apply_change),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
     Tool {
         name: "discard_change",
+        aliases: &[],
         title: "Discard a staged change",
         description: "Discard one staged change, when they say no to it or you staged it by mistake.",
         schema: || obj(&[("id", "string", "The change id.")], &["id"]),
-        does: Does::Decide,
+        kind: Kind::Write { destroys: true },
+        offer: Offer::Appliers,
+        search: false,
+        handler: run!(run_discard_change),
+        stages: None,
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
     },
 ];
 
@@ -926,87 +1272,61 @@ fn obj(props: &[(&str, &str, &str)], required: &[&str]) -> Value {
     json!({"type": "object", "properties": p, "required": required, "additionalProperties": false})
 }
 
-/// Tools that start simulations: admins and power users only (`User::power`, 2026-10-31).
-/// Everyone else can still read their runs and cancel one.
-const SIMULATIONS: [&str; 3] = ["start_lab_run", "more_lab_games", "run_lab_again"];
-
-/// The tools this caller gets: Ask Claude can stage changes but not apply them, and only power
-/// users get the tools that start simulations.
-fn for_caller(user: &User, via: &Via) -> impl Iterator<Item = &'static Tool> {
-    let decide = via.may_apply();
-    let power = user.power;
-    TOOLS.iter().filter(move |t| (decide || t.does != Does::Decide) && (power || !SIMULATIONS.contains(&t.name)))
-}
-
-/// The `op_id` argument every staging tool takes (`changes::op_id`).
-pub(super) fn op_id_schema() -> Value {
-    json!({"type": "string", "minLength": 8, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$",
-           "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused."})
-}
-
+/// `tools/list` for this caller (`registry::list`).
 pub fn list(user: &User, via: &Via) -> Vec<Value> {
-    for_caller(user, via)
-        .map(|t| {
-            let annotations = match t.does {
-                Does::Read => json!({"readOnlyHint": true, "openWorldHint": false}),
-                // Saving a note replaces its earlier revision and, with stop_plans, archives the
-                // plans the new document no longer describes.
-                Does::Research if t.name == "save_research" => json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}),
-                Does::Research => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}),
-                // Staging adds a pending row and nothing else: never destructive. A repeat stages
-                // a second change unless the call carries an op_id.
-                Does::Stage => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}),
-                Does::Decide => json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}),
-            };
-            let mut schema = (t.schema)();
-            if t.does == Does::Stage {
-                schema["properties"]["op_id"] = op_id_schema();
-            }
-            json!({
-                "name": t.name,
-                "title": t.title,
-                "description": t.description,
-                "inputSchema": schema,
-                "annotations": annotations,
-            })
-        })
-        .chain(super::research::catalog())
-        .collect()
+    registry::list(user, via)
 }
 
+/// Whether this caller may call the tool, by its name or an older name.
 pub fn offered(name: &str, user: &User, via: &Via) -> bool {
-    for_caller(user, via).any(|t| t.name == name) || super::research::offered(name)
+    registry::find(name).is_some_and(|t| registry::offered_to(t, user, via))
 }
 
-/// What a staging tool stores as the change's kind: its own name, except `save_deck`, whose
-/// complete list is an `edit_deck` change.
-fn staged_kind(name: &str) -> Option<&'static str> {
-    if name == "save_deck" {
-        return Some("edit_deck");
-    }
-    TOOLS.iter().find(|t| t.name == name && t.does == Does::Stage).map(|t| t.name)
-}
-
+/// `tools/call` (`registry::call`).
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
+    registry::call(st, user, via, name, args).await
+}
+
+// ── handlers: one per tool that isn't a staged write (those are in `changes.rs`) ─────────────
+
+#[allow(unused_variables)]
+async fn run_datasets(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
     let pool = &st.pool;
-    // A staging call repeated with its op_id answers with the change it staged the first time,
-    // before any check that would now fail because that change was applied.
-    if let Some(kind) = staged_kind(name) {
-        if let Some(op) = changes::op(kind, args)? {
-            if let Some(again) = changes::staged_before(st, user, via, &op).await? {
-                return Ok(again);
-            }
-        }
-    }
-    match name {
-        "datasets" => Ok(serde_json::to_string(&crate::datasets::list(pool,&user.id).await?).map_err(anyhow::Error::from)?),
-        "dataset" => {
+    let _ = via;
+    Ok(serde_json::to_string(&crate::datasets::list(pool,&user.id).await?).map_err(anyhow::Error::from)?)
+}
+
+#[allow(unused_variables)]
+async fn run_dataset(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             let mut query=args.as_object().cloned().ok_or_else(||AppError::bad("arguments must be an object"))?;
             let id=query.remove("id").and_then(|v|v.as_str().map(str::to_owned)).filter(|s|!s.is_empty()).ok_or_else(||AppError::bad("id is required"))?;
+            // A cursor continues one read; the older offset argument still works.
+            let part = |k: &str| query.get(k).map(|v| v.to_string()).unwrap_or_default();
+            let scope = super::page::scope("dataset", &[&id, &part("revision"), &part("section"), &part("kind"), &part("entity"), &part("search")]);
+            let older = query.get("offset").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+            let offset = super::page::start(args, &scope, older)?;
+            query.remove("cursor");
+            query.insert("offset".into(), json!(offset));
             let q:crate::datasets::ReadQuery=serde_json::from_value(Value::Object(query)).map_err(|e|AppError::bad(format!("invalid dataset query: {e}")))?;
-            Ok(serde_json::to_string(&crate::datasets::read(pool,&user.id,&id,q).await?).map_err(anyhow::Error::from)?)
-        },
-        "save_research" => {
+            let mut out = crate::datasets::read(pool,&user.id,&id,q).await?;
+            if let Some(next) = out["next_offset"].as_u64().and_then(|n| usize::try_from(n).ok()) {
+                out["next_cursor"] = json!(super::page::cursor(&scope, next));
+            }
+            Ok(out.to_string())
+        }
+}
+
+#[allow(unused_variables)]
+async fn run_save_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             let document = args.get("document").ok_or_else(|| AppError::bad("Missing document."))?;
             let stop_plans = match args.get("stop_plans") {
                 None | Some(Value::Null) => false,
@@ -1019,12 +1339,26 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             }
             Ok(crate::deck_research::save_guarded(pool, &user.id, document, stop_plans).await?.to_string())
         }
-        "review_research" => {
-            let id=text_arg(args,"id")?;
+}
+
+#[allow(unused_variables)]
+async fn run_review_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
+            let id=arg::text(args,"id")?;
             let op:crate::deck_research::ReviewOp=serde_json::from_value(args.clone()).map_err(|e|AppError::bad(format!("Invalid research review: {e}")))?;
             Ok(serde_json::to_string(&crate::deck_research::review(pool,&user.id,id,&op).await?).map_err(anyhow::Error::from)?)
         }
-        "research" => {
+}
+
+#[allow(unused_variables)]
+async fn run_research(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             let Some(id) = args.get("id").and_then(Value::as_str) else { return Ok(crate::deck_research::list(pool, &user.id).await?.to_string()); };
             if args.get("build").is_some() && args.get("deck").is_none() { return Err(AppError::bad("build requires deck.")); }
             if args.get("scenario").is_some() && args.get("deck").is_some() { return Err(AppError::bad("Choose a deck or a global scenario.")); }
@@ -1056,7 +1390,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
                 report["document"]["decks"]=json!([]);
                 report["document"]["local_checks"]=json!({});
                 report["target_hashes"]=json!({});report["reviews"]=json!([]);
-            } else if args.get("full").and_then(Value::as_bool)!=Some(true) {
+            } else if args.get("full").and_then(Value::as_bool)!=Some(true) && !matches!(arg::opt_text(args, "detail", 20)?, Some("full")) {
                 for deck in report["document"]["decks"].as_array_mut().unwrap() {
                     if let Some(o)=deck.as_object_mut(){o.retain(|k,_|["key","name","commander","ownership","installed_state","recommended_build","summary","builds"].contains(&k.as_str()));}
                     for build in deck["builds"].as_array_mut().unwrap(){if let Some(o)=build.as_object_mut(){o.retain(|k,_|["id","label","bracket","gameplay_profile","accounting","why","game_changers","prospective"].contains(&k.as_str()));}}
@@ -1072,43 +1406,65 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             }
             Ok(report.to_string())
         }
-        "changes" => changes_text(pool, user, args).await,
-        "edit_deck" => changes::edit_deck(st, user, via, args).await,
-        "delete_deck" => changes::delete_deck(st, user, via, args).await,
-        "propose_swap" => changes::propose_swap(st, user, via, args).await,
-        "track_build" => changes::track_build(st, user, via, args).await,
-        "approve_plan" => changes::approve_plan(st, user, via, args).await,
-        "answer_review" => changes::answer_review(st, user, via, args).await,
-        "mark_bought" => changes::mark_bought(st, user, via, args).await,
-        "mark_installed" => changes::mark_installed(st, user, via, args).await,
-        "swap_in_prints" => changes::swap_in_prints(st, user, via, args).await,
-        "start_lab_run" => changes::start_lab_run(st, user, via, args).await,
-        "more_lab_games" => changes::more_lab_games(st, user, via, args).await,
-        "run_lab_again" => changes::run_lab_again(st, user, via, args).await,
-        "cancel_lab_run" => changes::cancel_lab_run(st, user, via, args).await,
-        "add_to_collection" => changes::add_to_collection(st, user, via, args).await,
-        "move_cards" => changes::move_cards(st, user, via, args).await,
-        "set_condition" => changes::set_condition(st, user, via, args).await,
-        "set_shopping_rules" => changes::set_shopping_rules(st, user, via, args).await,
-        "set_store_preference" => changes::set_store_preference(st, user, via, args).await,
-        "check_stores" => changes::check_stores(st, user, via, args).await,
-        "add_wish" => changes::add_wish(st, user, via, args).await,
-        "apply_change" => {
-            let c = changes::apply(st, user, text_arg(args, "id")?).await?;
+}
+
+#[allow(unused_variables)]
+async fn run_changes(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    changes_text(pool, user, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_apply_change(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
+            let c = changes::apply(st, user, arg::text(args, "id")?).await?;
             match (c.status.as_str(), c.error) {
                 ("applied", _) => Ok(format!("Applied: {}. {}", c.summary, c.result.and_then(|r| r["label"].as_str().map(String::from)).unwrap_or_default())),
                 (_, Some(e)) => Err(AppError::Conflict(format!("Not applied: {e}"))),
                 (status, None) => Err(AppError::Conflict(format!("Not applied; the change is {status}."))),
             }
         }
-        "discard_change" => {
-            let c = changes::discard(pool, &user.id, text_arg(args, "id")?).await?;
+}
+
+#[allow(unused_variables)]
+async fn run_discard_change(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
+            let c = changes::discard(pool, &user.id, arg::text(args, "id")?).await?;
             Ok(format!("Discarded: {}", c.summary))
         }
-        "overview" => super::overview::overview(pool, &user.id, args).await,
-        "deck" => deck(pool, user, text_arg(args, "deck")?).await,
-        "plan_deck" => {
-            let key = text_arg(args, "key")?;
+}
+
+#[allow(unused_variables)]
+async fn run_overview(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    super::overview::overview(pool, &user.id, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_deck(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    deck(pool, user, arg::text(args, "deck")?).await
+}
+
+#[allow(unused_variables)]
+async fn run_plan_deck(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
+            let key = arg::text(args, "key")?;
             match context::build(pool, user, "plan_deck", Some(key)).await {
                 // A note deck with no tracked build yet is still a deck plan: say what it has.
                 Err(AppError::NotFound(_)) => {
@@ -1118,8 +1474,22 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
                 other => other,
             }
         }
-        "review_queue" => review_queue(pool, user, args).await,
-        "shopping_trip" => {
+}
+
+#[allow(unused_variables)]
+async fn run_review_queue(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    review_queue(pool, user, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_shopping_trip(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             let today = match args.get("today").and_then(Value::as_str) {
                 Some(d) if crate::plan::model::is_date(d) => d.to_string(),
                 Some(d) => return Err(AppError::bad(format!("today: \"{d}\" isn't a YYYY-MM-DD date"))),
@@ -1145,11 +1515,25 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             }
             Ok(crate::plan::trip::text(&crate::plan::trip::plan(&bundle, &today, going.as_deref())))
         }
-        "shopping_settings" => {
+}
+
+#[allow(unused_variables)]
+async fn run_shopping_settings(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             let bundle = crate::plan::bundle::load_bundle(pool, &user.id).await?;
             Ok(crate::plan::shopping::settings_text(&bundle, &chrono::Utc::now().format("%Y-%m-%d").to_string()))
         }
-        "shopping_list" => {
+}
+
+#[allow(unused_variables)]
+async fn run_shopping_list(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             let today = match args.get("today").and_then(Value::as_str) {
                 Some(d) if crate::plan::model::is_date(d) => d.to_string(),
                 Some(d) => return Err(AppError::bad(format!("today: \"{d}\" isn't a YYYY-MM-DD date"))),
@@ -1164,20 +1548,26 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             text.push_str(&crate::plan::sealed::text(&crate::plan::sealed::view(pool, &user.id, &today, &scope).await?));
             Ok(text)
         }
-        "compare_with_friend" => {
-            let handle = text_arg(args, "handle")?;
+}
+
+#[allow(unused_variables)]
+async fn run_compare_with_friend(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
+            let handle = arg::text(args, "handle")?;
             Ok(crate::sharing::wants::text(&crate::sharing::wants::compare(pool, &user.id, &handle).await?))
         }
-        "store_stock" => {
-            let wanted = text_arg(args, "store")?;
-            let w = wanted.trim().to_lowercase();
-            let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, name FROM plan_stores WHERE owner_id = ? AND kind != 'printer' ORDER BY sort, key").bind(&user.id).fetch_all(pool).await?;
-            let Some((key, name)) = rows.iter().find(|(k, n)| k.to_lowercase() == w || n.to_lowercase() == w).or_else(|| {
-                let hits: Vec<&(String, String)> = rows.iter().filter(|(_, n)| n.to_lowercase().contains(&w)).collect();
-                (hits.len() == 1).then(|| hits[0])
-            }) else {
-                return Err(AppError::bad(format!("No store \"{wanted}\". Their stores: {}.", rows.iter().map(|(k, n)| format!("{n} ({k})")).collect::<Vec<_>>().join(", "))));
-            };
+}
+
+#[allow(unused_variables)]
+async fn run_store_stock(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
+            let (key, name) = changes::their_store(pool, &user.id, arg::text(args, "store")?).await?;
             let cards: Vec<String> = match args.get("cards").filter(|v| !v.is_null()) {
                 Some(v) => v
                     .as_array()
@@ -1186,42 +1576,113 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
                     .ok_or_else(|| AppError::bad("cards must be a list of at most 300 card names"))?,
                 None => crate::plan::stock::trip_cards(&crate::plan::bundle::load_bundle(pool, &user.id).await?),
             };
-            crate::plan::stock::stock_text(pool, &user.id, key, name, &cards).await
+            crate::plan::stock::stock_text(pool, &user.id, &key, &name, &cards).await
         }
-        "find_cards" => {
-            st.limits.search.check_user(user)?;
+}
+
+#[allow(unused_variables)]
+async fn run_find_cards(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             find_cards(pool, user, args).await
         }
-        "card" => {
-            st.limits.search.check_user(user)?;
+}
+
+#[allow(unused_variables)]
+async fn run_card(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             card(pool, user, args).await
         }
-        "price_history" => {
-            st.limits.search.check_user(user)?;
+}
+
+#[allow(unused_variables)]
+async fn run_price_history(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    {
             price_history(pool, args).await
         }
-        "check_list" => check_list(pool, args).await,
-        "collection_summary" => collection_summary(pool, user).await,
-        "playgroups" => playgroups(pool, user, args).await,
-        "games" => games(pool, user, args).await,
-        "game" => game(pool, user, args).await,
-        "lab_runs" => lab_runs(pool, user).await,
-        "lab_run" => context::build(pool, user, "experiment", Some(text_arg(args, "id")?)).await,
-        "lab_games" => lab_games(pool, user, args).await,
-        "precon" => precon(pool, user, text_arg(args, "precon")?).await,
-        other if super::research::offered(other) => {
-            st.limits.search.check_user(user)?;
-            super::research::call(st, user, via, other, args).await
-        }
-        other => Err(AppError::bad(format!("unknown tool \"{other}\""))),
-    }
 }
 
-pub(super) fn text_arg<'a>(args: &'a Value, key: &str) -> AppResult<&'a str> {
-    args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 300).ok_or_else(|| AppError::bad(format!("{key} is missing")))
+#[allow(unused_variables)]
+async fn run_check_list(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    check_list(pool, args).await
 }
 
-/// The printing a `price_history` call names: (Scryfall id, name, set code, collector number).
+#[allow(unused_variables)]
+async fn run_collection_summary(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    collection_summary(pool, user).await
+}
+
+#[allow(unused_variables)]
+async fn run_playgroups(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    playgroups(pool, user, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_games(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    games(pool, user, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_game(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    game(pool, user, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_lab_runs(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    lab_runs(pool, user).await
+}
+
+#[allow(unused_variables)]
+async fn run_lab_run(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    context::build(pool, user, "experiment", Some(arg::text(args, "id")?)).await
+}
+
+#[allow(unused_variables)]
+async fn run_lab_games(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    lab_games(pool, user, args).await
+}
+
+#[allow(unused_variables)]
+async fn run_precon(c: Ctx<'_>, args: &Value) -> AppResult<String> {
+    let Ctx { st, user, via } = c;
+    let pool = &st.pool;
+    let _ = via;
+    precon(pool, user, arg::text(args, "precon")?).await
+}
+
+/// The printing a `get_price_history` call names: (Scryfall id, name, set code, collector number).
 async fn history_printing(pool: &SqlitePool, args: &Value) -> AppResult<(String, String, String, String)> {
     const COLUMNS: &str = "p.scryfall_id, p.name, p.set_code, p.collector_number";
     let arg = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
@@ -1237,7 +1698,7 @@ async fn history_printing(pool: &SqlitePool, args: &Value) -> AppResult<(String,
         let ids = crate::cards::resolve_names(pool, &[name.to_string()]).await?;
         let Some(oid) = ids.values().next() else { return Err(AppError::bad(format!("Yama doesn't know a card called {name:?}"))) };
         if args.get("cheapest").and_then(Value::as_bool).unwrap_or(false) {
-            // As `card` picks it: playable printings only.
+            // As `get_cards` picks it: playable printings only.
             sqlx::query_as(AssertSqlSafe(format!(
                 "SELECT {COLUMNS} FROM printings p JOIN price_latest ps ON ps.scryfall_id = p.scryfall_id
                   WHERE p.oracle_id = ? AND ps.usd IS NOT NULL AND IFNULL(p.digital, 0) = 0
@@ -1259,7 +1720,7 @@ async fn history_printing(pool: &SqlitePool, args: &Value) -> AppResult<(String,
     found.ok_or(AppError::NotFound("printing"))
 }
 
-/// A printing's market price over time (the `price_history` tool): change points, not every day.
+/// A printing's market price over time (the `get_price_history` tool): change points, not every day.
 async fn price_history(pool: &SqlitePool, args: &Value) -> AppResult<String> {
     let finish = args.get("finish").and_then(Value::as_str).unwrap_or("nonfoil");
     let offset = match finish {
@@ -1315,7 +1776,7 @@ fn price(usd: Option<f64>, date: Option<&str>) -> String {
     match (usd, date) {
         (Some(p), Some(d)) => format!("${p:.2} market ({d})"),
         (Some(p), None) => format!("${p:.2} market"),
-        _ => "no price".into(),
+        _ => "price unknown".into(),
     }
 }
 
@@ -1433,42 +1894,48 @@ async fn check_list(pool: &SqlitePool, args: &Value) -> AppResult<String> {
 
 // ── cards ───────────────────────────────────────────────────────────────────
 
-fn search_line(c: &SearchCard) -> String {
+/// One card of a search as data. A price that isn't recorded is null, never 0, beside the date
+/// Yama read it and found none (null too when the printing was never read).
+fn search_row(c: &SearchCard) -> Value {
     let card = &c.card;
-    let owned = match (c.owned, &c.owned_in) {
-        (0, _) => String::new(),
-        (n, Some(place)) => format!(", they own {n} (in {place})"),
-        (n, None) => format!(", they own {n}"),
-    };
-    format!(
-        "- {} {} | {} | {} | {}{} | {}{}",
-        card.name,
-        card.mana_cost.as_deref().unwrap_or(""),
-        card.type_line,
-        identity(&card.color_identity),
-        legality(card),
-        game_changer(card),
-        price(c.usd, c.price_date.as_deref()),
-        owned
-    )
+    json!({
+        "name": card.name,
+        "mana_cost": card.mana_cost,
+        "type_line": card.type_line,
+        "color_identity": card.color_identity,
+        "commander": card.legalities.get("commander"),
+        "game_changer": card.game_changer,
+        "price_usd": c.usd,
+        "price_date": c.price_date,
+        "owned": c.owned,
+        "owned_in": c.owned_in,
+    })
 }
 
 async fn find_cards(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
-    let query = args.get("query").and_then(Value::as_str).map(str::trim).filter(|q| !q.is_empty()).ok_or_else(|| AppError::bad("query is missing"))?;
-    let order = args.get("order").and_then(Value::as_str);
-    let page = args.get("page").and_then(Value::as_u64).unwrap_or(1).clamp(1, 1000) as u32;
+    let query = arg::text_max(args, "query", 1000)?;
+    let order = arg::opt_text(args, "order", 20)?;
+    // "cmc" is Scryfall's word for mv and has always been taken.
+    if let Some(o) = order.filter(|o| !["name", "mv", "cmc", "edhrec", "color"].contains(o)) {
+        return Err(AppError::bad(format!("order: \"{o}\" isn't name, mv, edhrec or color")));
+    }
+    // The search pages by sixty. A cursor continues one search; the older page argument still
+    // works, and out of range it is the nearest page, as it always was (a page 0 is an easy slip).
+    const PAGE: usize = 60;
+    let scope = super::page::scope("find_cards", &[query, order.unwrap_or("name")]);
+    let older = (args.get("page").and_then(Value::as_u64).unwrap_or(1).clamp(1, 1000) as usize - 1) * PAGE;
+    let page = u32::try_from(super::page::start(args, &scope, older)? / PAGE + 1).ok().filter(|p| *p <= 1000).ok_or_else(|| AppError::bad("cursor is out of range"))?;
     let r = crate::cards::search(pool, &user.id, query, order, page).await?;
-    let mut out = format!("{} cards match `{query}`", r.total);
-    let first = (r.page - 1) * r.page_size;
-    if r.total > r.page_size as i64 {
-        let _ = write!(out, "; this is page {} ({} to {})", r.page, first + 1, first + r.cards.len() as u32);
-    }
-    out.push_str(":\n");
-    for c in &r.cards {
-        out.push_str(&search_line(c));
-        out.push('\n');
-    }
-    Ok(out)
+    let shown = (r.page as usize - 1) * r.page_size as usize + r.cards.len();
+    let more = usize::try_from(r.total).is_ok_and(|total| shown < total) && !r.cards.is_empty();
+    let out = json!({
+        "query": query,
+        "total": r.total,
+        "cards": r.cards.iter().map(search_row).collect::<Vec<_>>(),
+        "next_cursor": more.then(|| super::page::cursor(&scope, shown)),
+        "note": "price_usd is a market reference dated by price_date, not a store quote. A null price is unknown, never zero; a date beside it is the day Yama read the price and found none. commander is Scryfall's Commander legality as of Yama's last card import. owned counts their copies.",
+    });
+    Ok(out.to_string())
 }
 
 /// Close names for one Yama doesn't know, for "did you mean": the whole name inside a longer one,
@@ -1560,7 +2027,7 @@ async fn card(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
                     }
                 }
             }
-            None => out.push_str("Price: none known\n"),
+            None => out.push_str("Price: unknown (none recorded)\n"),
         }
         if let Some((usd, date, set, num)) = cheapest {
             let _ = writeln!(out, "Cheapest printing: {set} #{num}, {}", price(Some(usd), Some(&date)));
@@ -1715,7 +2182,7 @@ async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
     Ok(serde_json::to_string(&out).map_err(anyhow::Error::from)?)
 }
 
-/// Games one `games` answer lists unless `limit` asks for more (the page itself holds 50).
+/// Games one `list_games` answer lists unless `limit` asks for more (the page itself holds 50).
 const GAMES_PAGE: usize = 10;
 
 /// The Game history page's list (`games::history_page`), same search and filter.
@@ -1742,6 +2209,10 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
         Some(v) => v.as_u64().filter(|n| (1..=50).contains(n)).ok_or_else(|| AppError::bad("limit is a whole number from 1 to 50"))? as usize,
     };
     let q = word("search").unwrap_or("").to_string();
+    // A cursor continues one search; the older offset argument still works.
+    let scope = super::page::scope("games", &[word("filter").unwrap_or("all"), word("order").unwrap_or("newest"), &q]);
+    let offset = u32::try_from(super::page::start(args, &scope, offset as usize)?).map_err(|_| AppError::bad("cursor is out of range"))?;
+    let summary = arg::summary(args)?;
     let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset }).await?;
     // The page holds up to 50 games; a smaller limit hands out part of it and says where to go on.
     let more = page.has_more || page.games.len() > limit;
@@ -1762,9 +2233,29 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
             }
         }
     }
+    if summary {
+        // One short row a game: when, how it ended, who won and who played what.
+        for game in out["games"].as_array_mut().into_iter().flatten() {
+            let seats = game["seats"].as_array().cloned().unwrap_or_default();
+            let name = |seat: &Value| seat["display_name"].as_str().unwrap_or("?").to_string();
+            let winner = game["winner_seat"].as_i64().and_then(|w| seats.iter().find(|s| s["seat"].as_i64() == Some(w))).map(name);
+            let players: Vec<String> = seats.iter().map(|s| match s["commander_name"].as_str() {
+                Some(commander) => format!("{} ({commander})", name(s)),
+                None => name(s),
+            }).collect();
+            *game = json!({"id": game["id"], "started_at": game["started_at"], "status": game["status"], "turns": game["turns"], "winner": winner, "players": players});
+        }
+        without_nulls(&mut out);
+    }
+    // A page of full rows that would be too long is a shorter page; the cursor says where it stopped.
+    let mut rows = out["games"].take().as_array().cloned().unwrap_or_default();
+    let more = super::page::fit(&mut rows, super::page::PAGE_BUDGET) || more;
+    let listed = rows.len();
+    out["games"] = Value::Array(rows);
     out["has_more"] = json!(more);
     if more {
-        out["next_offset"] = json!(u64::from(offset) + limit as u64);
+        out["next_offset"] = json!(u64::from(offset) + listed as u64);
+        out["next_cursor"] = json!(super::page::cursor(&scope, offset as usize + listed));
     }
     if page.games.is_empty() {
         out["note"] = json!("No games match. Games logged on a phone that hasn't synced yet aren't here.");
@@ -1775,7 +2266,9 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
 /// One game as its page shows it (`games::game_detail`); the event log only when asked.
 async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     const MAX_EVENTS: usize = 500;
-    let id = text_arg(args, "id")?;
+    /// An online game's log can run to thousands of lines; the end is what a question is about.
+    const MAX_LOG: usize = 300;
+    let id = arg::text(args, "id")?;
     let detail = crate::games::game_detail(pool, &user.id, id).await?;
     let mut out = serde_json::to_value(&detail).map_err(anyhow::Error::from)?;
     without_people_ids(&mut out, &user.id);
@@ -1788,6 +2281,29 @@ async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
             }
             o.insert("events".into(), Value::Array(events.into_iter().take(MAX_EVENTS).collect()));
         }
+        // An online game has no life-counter events: what happened is the rules engine's log.
+        // `game_detail` above has already refused a game the caller can't see.
+        let online: Option<(Option<String>, String)> = sqlx::query_as("SELECT log, seats FROM online_games WHERE game_id = ?").bind(id).fetch_optional(pool).await?;
+        if let Some((log, seats)) = online {
+            let seats: Vec<Value> = serde_json::from_str(&seats).unwrap_or_default();
+            let mine = seats.iter().find(|s| s["user_id"].as_str() == Some(user.id.as_str())).and_then(|s| s["seat"].as_u64());
+            let lines: Vec<Value> = log.and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
+            // A line marked for one seat was shown to that player alone: theirs if they sat
+            // there, nobody else's.
+            let lines: Vec<Value> = lines
+                .into_iter()
+                .filter(|l| l.get("seat").is_none_or(|seat| seat.is_null() || (mine.is_some() && seat.as_u64() == mine)))
+                .map(|l| json!({"turn": l["turn"], "text": l["text"]}))
+                .collect();
+            o.insert("log_lines".into(), json!(lines.len()));
+            if args.get("events").and_then(Value::as_bool).unwrap_or(false) {
+                if lines.len() > MAX_LOG {
+                    o.insert("log_note".into(), json!(format!("The last {MAX_LOG} of {} lines.", lines.len())));
+                }
+                let from = lines.len().saturating_sub(MAX_LOG);
+                o.insert("log".into(), Value::Array(lines.into_iter().skip(from).collect()));
+            }
+        }
     }
     Ok(serde_json::to_string(&out).map_err(anyhow::Error::from)?)
 }
@@ -1795,7 +2311,7 @@ async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
 /// An experiment's games pod by pod on one engine, or one game in full (`game`).
 async fn lab_games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     use crate::lab::experiments::{GameView, pods_for};
-    let id = text_arg(args, "id")?;
+    let id = arg::text(args, "id")?;
     let engine = args.get("engine").and_then(Value::as_str).map(str::trim).filter(|e| !e.is_empty());
     if let Some(game) = args.get("game").and_then(Value::as_str).map(str::trim).filter(|g| !g.is_empty()) {
         return lab_game(pool, user, id, game).await;
@@ -2060,7 +2576,7 @@ pub(super) async fn precon_id(pool: &SqlitePool, wanted: &str) -> AppResult<(Str
 
 // ── staged changes ──────────────────────────────────────────────────────────
 
-/// Changes one `changes` answer lists unless `limit` asks for more.
+/// Changes one `list_changes` answer lists unless `limit` asks for more.
 const CHANGES_PAGE: usize = 25;
 
 /// The longest a change's summary is in the list, and its details when it is read whole.
@@ -2070,7 +2586,7 @@ const CHANGE_DETAIL: usize = 12_000;
 async fn changes_text(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     if args.get("id").is_some_and(|id| !id.is_null()) {
         // One change whole: the list cuts a long summary, and applying needs the exact change.
-        let c = changes::one(pool, &user.id, text_arg(args, "id")?).await?;
+        let c = changes::one(pool, &user.id, arg::text(args, "id")?).await?;
         let mut out = format!("Change {} ({}, staged {}): {}\n", c.id, c.status, c.created_at.get(..10).unwrap_or(&c.created_at), c.summary);
         if let Some(d) = c.detail.as_deref().filter(|d| !d.trim().is_empty()) {
             let _ = writeln!(out, "{}", clip(d.trim(), CHANGE_DETAIL));
@@ -2087,7 +2603,7 @@ async fn changes_text(pool: &SqlitePool, user: &User, args: &Value) -> AppResult
     }
     let mut out = format!("{} change{} waiting for their review, newest first:\n", waiting.len(), if waiting.len() == 1 { " is" } else { "s are" });
     for c in waiting.iter().skip(page.offset).take(page.limit) {
-        let cut = if c.summary.chars().count() > CHANGE_SUMMARY { "; cut here, `changes` with this id shows it whole" } else { "" };
+        let cut = if c.summary.chars().count() > CHANGE_SUMMARY { "; cut here, `list_changes` with this id shows it whole" } else { "" };
         let _ = write!(out, "- {} (id {}, staged {}{cut}", clip(&c.summary, CHANGE_SUMMARY), c.id, c.created_at.get(..10).unwrap_or(&c.created_at));
         if let Some(e) = &c.error {
             let _ = write!(out, "; the last try to apply it failed: {}", clip(e, 240));
@@ -2105,7 +2621,7 @@ async fn changes_text(pool: &SqlitePool, user: &User, args: &Value) -> AppResult
 async fn review_queue(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     let key = match args.get("plan").filter(|v| !v.is_null()) {
         None => None,
-        Some(_) => Some(changes::plan_deck(pool, &user.id, text_arg(args, "plan")?).await?.0),
+        Some(_) => Some(changes::plan_deck(pool, &user.id, arg::text(args, "plan")?).await?.0),
     };
     let answered = match args.get("answered") {
         None | Some(Value::Null) => false,
@@ -2122,7 +2638,7 @@ async fn review_queue(pool: &SqlitePool, user: &User, args: &Value) -> AppResult
     Ok(out)
 }
 
-/// Swaps one `review_queue` answer lists unless `limit` asks for more.
+/// Swaps one `get_review_queue` answer lists unless `limit` asks for more.
 const REVIEW_PAGE: usize = 15;
 
 /// Text people typed, cut to `max` characters for a list line.

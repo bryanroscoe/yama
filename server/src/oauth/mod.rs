@@ -65,8 +65,66 @@ use std::sync::atomic::{AtomicI64, Ordering};
 pub const PREFIX_ACCESS: &str = "yama_oat_";
 pub const PREFIX_REFRESH: &str = "yama_ort_";
 const PREFIX_SECRET: &str = "yama_ocs_";
-/// The one scope: Yama's tools for Claude, as the account (what an `mcp` script key allows).
+/// Everything the tools do, as the account (what an `mcp` script key allows): read, stage
+/// changes and apply them after the person's yes. Every connection made before 2026-11-11 has
+/// this scope and keeps it.
 pub const SCOPE_MCP: &str = "mcp";
+/// The narrower scopes a person may choose on the consent page. Each includes the one before.
+pub const SCOPE_READ: &str = "mcp:read";
+pub const SCOPE_STAGE: &str = "mcp:stage";
+pub const SCOPE_APPLY: &str = "mcp:apply";
+
+/// What a connection may do with the tools. Each level includes the ones before it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Access {
+    /// Read the account's data and search.
+    Read,
+    /// Also stage changes for review and save research notes. Nothing staged is applied.
+    Stage,
+    /// Also apply or discard a staged change, after the person's yes.
+    Apply,
+}
+
+impl Access {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Access::Read => "read",
+            Access::Stage => "stage",
+            Access::Apply => "apply",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<Self> {
+        [Access::Read, Access::Stage, Access::Apply].into_iter().find(|a| a.as_str() == word)
+    }
+
+    /// The most a scope string allows; none when it names no tool scope at all.
+    pub fn of(scope: &str) -> Option<Self> {
+        scope
+            .split_whitespace()
+            .filter_map(|word| match word {
+                SCOPE_MCP | SCOPE_APPLY => Some(Access::Apply),
+                SCOPE_STAGE => Some(Access::Stage),
+                SCOPE_READ => Some(Access::Read),
+                _ => None,
+            })
+            .max()
+    }
+
+    /// The scope a grant of this level carries. Everything is `mcp`, as it always was.
+    fn scope(self) -> &'static str {
+        match self {
+            Access::Read => SCOPE_READ,
+            Access::Stage => SCOPE_STAGE,
+            Access::Apply => SCOPE_MCP,
+        }
+    }
+}
+
+/// The scope string for a level, with `offline_access` when the request had it.
+fn scope_for(access: Access, requested: &str) -> String {
+    if requested.split_whitespace().any(|w| w == SCOPE_OFFLINE) { format!("{} {SCOPE_OFFLINE}", access.scope()) } else { access.scope().to_string() }
+}
 /// Advertised so clients ask for a refresh token (Claude Code and claude.ai add it when listed).
 /// Refresh tokens are issued either way.
 const SCOPE_OFFLINE: &str = "offline_access";
@@ -254,18 +312,15 @@ fn check_resource(urls: &Urls, raw: &str) -> Result<(), OAuthError> {
     }
 }
 
-/// The scope to grant for a requested one: always `mcp`, plus `offline_access` when asked.
-/// `Err` names a scope Yama doesn't have.
+/// The scope a request asks for, in its canonical form: the most its tool scopes allow (`mcp`,
+/// everything, when it names none, as before the narrower scopes existed), plus `offline_access`
+/// when asked. `Err` names a scope Yama doesn't have.
 fn parse_scope(raw: Option<&str>) -> Result<String, String> {
-    let mut offline = false;
-    for word in raw.unwrap_or_default().split_whitespace() {
-        match word {
-            SCOPE_MCP => {}
-            SCOPE_OFFLINE => offline = true,
-            other => return Err(other.chars().take(60).collect()),
-        }
+    let raw = raw.unwrap_or_default();
+    if let Some(other) = raw.split_whitespace().find(|w| ![SCOPE_MCP, SCOPE_READ, SCOPE_STAGE, SCOPE_APPLY, SCOPE_OFFLINE].contains(w)) {
+        return Err(other.chars().take(60).collect());
     }
-    Ok(if offline { format!("{SCOPE_MCP} {SCOPE_OFFLINE}") } else { SCOPE_MCP.to_string() })
+    Ok(scope_for(Access::of(raw).unwrap_or(Access::Apply), raw))
 }
 
 /// A PKCE challenge or verifier: 43 to 128 unreserved characters (RFC 7636 4.1).
@@ -293,7 +348,7 @@ async fn resource_metadata(State(st): State<AppState>) -> Response {
     Json(json!({
         "resource": u.resource(),
         "authorization_servers": [u.issuer()],
-        "scopes_supported": [SCOPE_MCP],
+        "scopes_supported": [SCOPE_MCP, SCOPE_READ, SCOPE_STAGE, SCOPE_APPLY],
         "bearer_methods_supported": ["header"],
         "resource_name": "Yama",
         "resource_documentation": format!("{}/about/", u.base),
@@ -315,7 +370,7 @@ async fn server_metadata(State(st): State<AppState>) -> Response {
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": AUTH_METHODS,
         "revocation_endpoint_auth_methods_supported": AUTH_METHODS,
-        "scopes_supported": [SCOPE_MCP, SCOPE_OFFLINE],
+        "scopes_supported": [SCOPE_MCP, SCOPE_READ, SCOPE_STAGE, SCOPE_APPLY, SCOPE_OFFLINE],
         "authorization_response_iss_parameter_supported": true,
     }))
     .into_response()
@@ -568,12 +623,17 @@ async fn check_route(State(st): State<AppState>, MaybeView(view): MaybeView, Cur
     Ok(Json(match check_request(&st, &urls, &params).await? {
         Checked::Valid(v) => {
             let (host, loopback) = redirect::describe(&v.redirect_uri);
+            let asked = Access::of(&v.scope).unwrap_or(Access::Apply);
+            // What the person may give it: what it asked for, or less.
+            let choices: Vec<&str> = [Access::Read, Access::Stage, Access::Apply].into_iter().filter(|a| *a <= asked).map(Access::as_str).collect();
             json!({
                 "ok": true,
                 "client_name": v.client.name,
                 "redirect_host": host,
                 "loopback": loopback,
                 "scopes": v.scope.split(' ').collect::<Vec<_>>(),
+                "access": asked.as_str(),
+                "access_choices": choices,
                 "account": {"display_name": user.display_name, "email": user.email},
             })
         }
@@ -587,6 +647,10 @@ struct Decision {
     #[serde(flatten)]
     params: AuthParams,
     approve: bool,
+    /// What the person chose to allow: read, stage or apply, no more than the app asked for.
+    /// Left out, the app gets what it asked for.
+    #[serde(default)]
+    access: Option<String>,
 }
 
 /// `POST /api/oauth/authorize`: Allow or Deny, from the consent page. Answers with the URL to
@@ -619,6 +683,13 @@ async fn decide_route(
         let to = back(&urls, &v.redirect_uri, v.state.as_deref(), &[("error", "access_denied"), ("error_description", "The person said no.")]);
         return Ok(Json(json!({"redirect": to})));
     }
+    // The person may give the app less than it asked for, never more.
+    let asked = Access::of(&v.scope).unwrap_or(Access::Apply);
+    let granted = match body.access.as_deref() {
+        None => asked,
+        Some(word) => Access::from_word(word).filter(|a| *a <= asked).ok_or_else(|| AppError::bad("access is read, stage or apply, and no more than the app asked for"))?,
+    };
+    let scope = scope_for(granted, &v.scope);
     // Signing in again with an app already connected replaces that connection, so it doesn't count.
     let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oauth_grants WHERE user_id = ? AND client_id != ? AND revoked_at IS NULL")
         .bind(&user.id)
@@ -639,13 +710,13 @@ async fn decide_route(
     .bind(&user.id)
     .bind(&v.redirect_uri)
     .bind(&v.challenge)
-    .bind(&v.scope)
+    .bind(&scope)
     .bind(&v.resource)
     .bind(stamp(at))
     .bind(stamp(at + Duration::seconds(CODE_SECONDS)))
     .execute(&st.pool)
     .await?;
-    tracing::info!(user = %user.id, client = %v.client.id, "oauth sign-in approved");
+    tracing::info!(user = %user.id, client = %v.client.id, access = granted.as_str(), "oauth sign-in approved");
     Ok(Json(json!({"redirect": back(&urls, &v.redirect_uri, v.state.as_deref(), &[("code", &code)])})))
 }
 
@@ -878,7 +949,10 @@ async fn refresh(st: &AppState, urls: &Urls, client: &Client, form: &HashMap<Str
     }
     if let Some(asked) = form.get("scope") {
         let granted: Vec<&str> = row.scope.split(' ').collect();
-        if let Some(extra) = asked.split_whitespace().find(|s| !granted.contains(s)) {
+        // A client may ask again for what it first asked for (`mcp`) after the person gave it
+        // less: that is not an error and never widens the connection. The new tokens carry
+        // the grant's own scope. A scope Yama doesn't have is still refused.
+        if let Some(extra) = asked.split_whitespace().find(|s| !granted.contains(s) && Access::of(s).is_none()) {
             return Err(OAuthError::bad("invalid_scope", format!("this connection wasn't given \"{}\"", extra.chars().take(60).collect::<String>())));
         }
     }
@@ -944,25 +1018,29 @@ async fn revoke_route(State(st): State<AppState>, ClientAddress(address): Client
 
 /// The account a live access token acts for, recording its grant's last use at most once a
 /// minute. The caller still applies the disabled and open sign-up rules (`auth::user_by_id`).
-pub async fn access_token_user(st: &AppState, token: &str) -> AppResult<Option<String>> {
+/// The account an access token is for and what its connection may do; none when the token is
+/// unknown, expired or its connection ended. A connection made before the narrower scopes has
+/// `mcp`, which is everything.
+pub async fn access_token_user(st: &AppState, token: &str) -> AppResult<Option<(String, Access)>> {
     if urls(st).is_none() {
         return Ok(None);
     }
     let at = now();
-    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT g.id, g.user_id, g.last_used_at FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
+    let row: Option<(String, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT g.id, g.user_id, g.last_used_at, g.scope FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
           WHERE t.token_hash = ? AND t.kind = 'access' AND t.expires_at > ? AND g.revoked_at IS NULL",
     )
     .bind(sha256_hex(token))
     .bind(&at)
     .fetch_optional(&st.pool)
     .await?;
-    let Some((grant, user, last)) = row else { return Ok(None) };
+    let Some((grant, user, last, scope)) = row else { return Ok(None) };
     let minute_ago = stamp(Utc::now() - Duration::seconds(60));
     if last.as_deref().is_none_or(|l| l < minute_ago.as_str()) {
         sqlx::query("UPDATE oauth_grants SET last_used_at = ? WHERE id = ?").bind(&at).bind(&grant).execute(&st.pool).await?;
     }
-    Ok(Some(user))
+    // A scope that names no tool scope allows the least.
+    Ok(Some((user, Access::of(&scope).unwrap_or(Access::Read))))
 }
 
 // ── Connected apps (Decks, Plans, Settings) ─────────────────────────────────
@@ -971,6 +1049,7 @@ pub async fn access_token_user(st: &AppState, token: &str) -> AppResult<Option<S
 struct AppRow {
     id: String,
     name: Option<String>,
+    scope: String,
     redirect_uri: String,
     created_at: String,
     last_used_at: Option<String>,
@@ -983,6 +1062,8 @@ struct ConnectedApp {
     name: Option<String>,
     redirect_host: String,
     loopback: bool,
+    /// read, stage or apply: what it may do with the tools.
+    access: &'static str,
     connected_at: String,
     last_used_at: Option<String>,
 }
@@ -991,7 +1072,7 @@ struct ConnectedApp {
 /// connect to.
 async fn list_apps(State(st): State<AppState>, CurrentUser(user): CurrentUser) -> AppResult<Json<Value>> {
     let rows: Vec<AppRow> = sqlx::query_as(
-        "SELECT g.id, c.name, g.redirect_uri, g.created_at, g.last_used_at FROM oauth_grants g JOIN oauth_clients c ON c.id = g.client_id
+        "SELECT g.id, c.name, g.scope, g.redirect_uri, g.created_at, g.last_used_at FROM oauth_grants g JOIN oauth_clients c ON c.id = g.client_id
           WHERE g.user_id = ? AND g.revoked_at IS NULL
             AND EXISTS (SELECT 1 FROM oauth_tokens t WHERE t.grant_id = g.id AND t.expires_at > ? AND (t.kind = 'access' OR t.used_at IS NULL))
           ORDER BY g.created_at DESC, g.id LIMIT 50",
@@ -1004,7 +1085,7 @@ async fn list_apps(State(st): State<AppState>, CurrentUser(user): CurrentUser) -
         .into_iter()
         .map(|r| {
             let (redirect_host, loopback) = redirect::describe(&r.redirect_uri);
-            ConnectedApp { id: r.id, name: r.name, redirect_host, loopback, connected_at: r.created_at, last_used_at: r.last_used_at }
+            ConnectedApp { id: r.id, name: r.name, redirect_host, loopback, access: Access::of(&r.scope).unwrap_or(Access::Read).as_str(), connected_at: r.created_at, last_used_at: r.last_used_at }
         })
         .collect();
     let u = urls(&st);

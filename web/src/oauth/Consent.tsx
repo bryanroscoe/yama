@@ -4,7 +4,7 @@ import { ApiError } from "../api";
 import { Wordmark } from "../components/Wordmark";
 import { checkAuthorize, decideAuthorize } from "./api";
 import { ConsentView } from "./ConsentView";
-import { authParams } from "./logic";
+import { authParams, type Access } from "./logic";
 import "./oauth.css";
 import { Loading } from "../components/ui";
 
@@ -21,7 +21,7 @@ export function OAuthConsent() {
   const search = window.location.search;
   const check = useQuery({ queryKey: ["oauth-check", search], queryFn: () => checkAuthorize(search), retry: false, staleTime: Infinity, gcTime: 0 });
   const decide = useMutation({
-    mutationFn: (approve: boolean) => decideAuthorize(authParams(search), approve),
+    mutationFn: (answer: { approve: boolean; access?: Access }) => decideAuthorize(authParams(search), answer.approve, answer.access),
     onSuccess: (r) => window.location.assign(r.redirect),
   });
   const bounce = check.data && !check.data.ok ? check.data : null;
@@ -54,8 +54,8 @@ export function OAuthConsent() {
             info={check.data}
             busy={decide.isPending || decide.isSuccess}
             error={decide.error}
-            onAllow={() => decide.mutate(true)}
-            onDeny={() => decide.mutate(false)}
+            onAllow={(access) => decide.mutate({ approve: true, access })}
+            onDeny={() => decide.mutate({ approve: false })}
           />
         )}
         {decide.isSuccess && <Loading small>Taking you back to the app…</Loading>}

@@ -74,6 +74,7 @@ COPY runtime/historical.json runtime/historical-source.json runtime/
 # MCP documentation resources are embedded by the server at compile time.
 COPY docs/research-format.md docs/research-format.md
 COPY docs/local-shopping-workflow.md docs/local-shopping-workflow.md
+COPY docs/mcp-tool-notes.md docs/mcp-tool-notes.md
 # The public Rust renderer embeds these shared web inputs at compile time.
 COPY web/src/styles.css web/src/controls.css web/src/art-framing.css web/src/
 COPY web/public/precons.css web/public/site-frame-v1.css web/public/site-notice.html web/public/public-list-v1.js web/public/

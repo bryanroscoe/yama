@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ErrorText, CopyButton } from "../components/ui";
 import { publicOrigin } from "../api";
 import { disconnectApp, listConnectedApps } from "./api";
-import { appKind, appName, claudeCodeCommand } from "./logic";
+import { accessLabel, appKind, appName, claudeCodeCommand } from "./logic";
 import { fmtDate } from "@yama/core";
 import { ask } from "../components/confirm";
 
@@ -46,7 +46,7 @@ export function ConnectedApps() {
                 <span className="title">{appName(a.name)}</span> <span className="small dim">{appKind(a)}</span>
                 <br />
                 <span className="small dim">
-                  Connected {fmtDate(a.connected_at)}. Last used {a.last_used_at ? fmtDate(a.last_used_at) : "never"}.
+                  {accessLabel(a.access)}. Connected {fmtDate(a.connected_at)}. Last used {a.last_used_at ? fmtDate(a.last_used_at) : "never"}.
                 </span>
               </span>
               <button

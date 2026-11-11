@@ -1,0 +1,477 @@
+## script key, power user: 64 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+save_research	destructive
+review_research	write
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+set_shopping_rules	write
+set_store_preference	write
+get_store_stock	read
+check_stores	write, reaches outside Yama
+get_shopping_list	read
+compare_with_friend	read
+add_wish	write
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+edit_deck	write
+delete_deck	write
+track_build	write
+approve_plan	write
+propose_swap	write
+answer_review	write
+mark_bought	write
+swap_in_prints	write
+mark_installed	write
+start_lab_run	write
+add_lab_games	write
+rerun_lab_run	write
+cancel_lab_run	write
+add_to_collection	write
+move_cards	write
+set_condition	write
+apply_change	destructive
+discard_change	destructive
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+save_deck	write
+get_research_sources	read
+
+## OAuth sign-in, power user: 64 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+save_research	destructive
+review_research	write
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+set_shopping_rules	write
+set_store_preference	write
+get_store_stock	read
+check_stores	write, reaches outside Yama
+get_shopping_list	read
+compare_with_friend	read
+add_wish	write
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+edit_deck	write
+delete_deck	write
+track_build	write
+approve_plan	write
+propose_swap	write
+answer_review	write
+mark_bought	write
+swap_in_prints	write
+mark_installed	write
+start_lab_run	write
+add_lab_games	write
+rerun_lab_run	write
+cancel_lab_run	write
+add_to_collection	write
+move_cards	write
+set_condition	write
+apply_change	destructive
+discard_change	destructive
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+save_deck	write
+get_research_sources	read
+
+## script key: 61 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+save_research	destructive
+review_research	write
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+set_shopping_rules	write
+set_store_preference	write
+get_store_stock	read
+check_stores	write, reaches outside Yama
+get_shopping_list	read
+compare_with_friend	read
+add_wish	write
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+edit_deck	write
+delete_deck	write
+track_build	write
+approve_plan	write
+propose_swap	write
+answer_review	write
+mark_bought	write
+swap_in_prints	write
+mark_installed	write
+cancel_lab_run	write
+add_to_collection	write
+move_cards	write
+set_condition	write
+apply_change	destructive
+discard_change	destructive
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+save_deck	write
+get_research_sources	read
+
+## OAuth sign-in: 61 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+save_research	destructive
+review_research	write
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+set_shopping_rules	write
+set_store_preference	write
+get_store_stock	read
+check_stores	write, reaches outside Yama
+get_shopping_list	read
+compare_with_friend	read
+add_wish	write
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+edit_deck	write
+delete_deck	write
+track_build	write
+approve_plan	write
+propose_swap	write
+answer_review	write
+mark_bought	write
+swap_in_prints	write
+mark_installed	write
+cancel_lab_run	write
+add_to_collection	write
+move_cards	write
+set_condition	write
+apply_change	destructive
+discard_change	destructive
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+save_deck	write
+get_research_sources	read
+
+## Ask Claude, power user: 62 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+save_research	destructive
+review_research	write
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+set_shopping_rules	write
+set_store_preference	write
+get_store_stock	read
+check_stores	write, reaches outside Yama
+get_shopping_list	read
+compare_with_friend	read
+add_wish	write
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+edit_deck	write
+delete_deck	write
+track_build	write
+approve_plan	write
+propose_swap	write
+answer_review	write
+mark_bought	write
+swap_in_prints	write
+mark_installed	write
+start_lab_run	write
+add_lab_games	write
+rerun_lab_run	write
+cancel_lab_run	write
+add_to_collection	write
+move_cards	write
+set_condition	write
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+save_deck	write
+get_research_sources	read
+
+## OAuth sign-in limited to reading and staging, power user: 62 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+save_research	destructive
+review_research	write
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+set_shopping_rules	write
+set_store_preference	write
+get_store_stock	read
+check_stores	write, reaches outside Yama
+get_shopping_list	read
+compare_with_friend	read
+add_wish	write
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+edit_deck	write
+delete_deck	write
+track_build	write
+approve_plan	write
+propose_swap	write
+answer_review	write
+mark_bought	write
+swap_in_prints	write
+mark_installed	write
+start_lab_run	write
+add_lab_games	write
+rerun_lab_run	write
+cancel_lab_run	write
+add_to_collection	write
+move_cards	write
+set_condition	write
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+save_deck	write
+get_research_sources	read
+
+## OAuth sign-in limited to reading, power user: 39 tools
+list_datasets	read
+get_dataset	read
+get_research	read
+get_overview	read
+get_deck	read
+get_plan	read
+get_shopping_trip	read
+get_shopping_settings	read
+get_store_stock	read
+get_shopping_list	read
+compare_with_friend	read
+get_review_queue	read
+search_cards	read
+get_cards	read
+get_price_history	read
+check_deck_list	read
+list_games	read
+get_game	read
+get_collection_summary	read
+list_playgroups	read
+list_lab_runs	read
+get_lab_run	read
+list_lab_games	read
+get_precon	read
+list_changes	read
+search_scryfall	read, reaches outside Yama
+list_card_printings	read
+get_commander_recommendations	read, reaches outside Yama
+search_combos	read, reaches outside Yama
+get_public_deck	read, reaches outside Yama
+search_rules	read, reaches outside Yama
+get_deck_analysis	read
+compare_decks	read
+sample_hands	read
+get_mana_probability	read
+test_mana	read
+list_deck_versions	read
+list_collection_cards	read
+get_research_sources	read
+
+## script key, an account with no stores, datasets or lab runs: 49 tools
+get_research
+save_research
+review_research
+get_overview
+get_deck
+get_plan
+get_shopping_list
+compare_with_friend
+add_wish
+get_review_queue
+search_cards
+get_cards
+get_price_history
+check_deck_list
+list_games
+get_game
+get_collection_summary
+list_playgroups
+get_precon
+list_changes
+edit_deck
+delete_deck
+track_build
+approve_plan
+propose_swap
+answer_review
+mark_bought
+swap_in_prints
+mark_installed
+add_to_collection
+move_cards
+set_condition
+apply_change
+discard_change
+search_scryfall
+list_card_printings
+get_commander_recommendations
+search_combos
+get_public_deck
+search_rules
+get_deck_analysis
+compare_decks
+sample_hands
+get_mana_probability
+test_mana
+list_deck_versions
+list_collection_cards
+save_deck
+get_research_sources

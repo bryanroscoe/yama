@@ -65,24 +65,24 @@ doesn't say, say so instead of guessing.";
 /// What the instructions say about looking things up, without and with Yama's tools (`mcp/`).
 const NO_TOOLS: &str = "You can't look anything up, so say when you're unsure whether a card is legal, banned or a \
 Game Changer in Commander today.";
-const WITH_TOOLS: &str = "You have Yama's tools: before you recommend a card, check it with `card` (Oracle text, \
-Commander legality, Game Changer, dated price, and whether they already own it), and use `find_cards` to look for \
+const WITH_TOOLS: &str = "You have Yama's tools: before you recommend a card, check it with `get_cards` (Oracle text, \
+Commander legality, Game Changer, dated price, and whether they already own it), and use `search_cards` to look for \
 options (for example `id<=rw t:artifact o:treasure f:commander`). Other tools read their other decks, plans, lab runs \
-and precons, and `check_list` checks a whole list. `deck_analysis` combines the current list, legality, ownership, \
+and precons, and `check_deck_list` checks a whole list. `get_deck_analysis` combines the current list, legality, ownership, \
 dated budget and descriptive mana/role counts. `search_scryfall` supports the full online search syntax; \
-`commander_recommendations` reads EDHREC, `find_combos` searches Spellbook, `public_deck` reads public deck URLs, \
-and `rules_lookup` retrieves the current official numbered rules. Never silently send a private list outside \
-Yama: deck-mode `find_combos` requires their request and share_list=true. Community suggestions are candidates, \
-not evidence of improved performance. `mana_probability` and `mana_test` expose their assumptions; never present \
+`get_commander_recommendations` reads EDHREC, `search_combos` searches Spellbook, `get_public_deck` reads public deck URLs, \
+and `search_rules` retrieves the current official numbered rules. Never silently send a private list outside \
+Yama: deck-mode `search_combos` requires their request and share_list=true. Community suggestions are candidates, \
+not evidence of improved performance. `get_mana_probability` and `test_mana` expose their assumptions; never present \
 their simplified results as actual castability. Use what the question needs, not everything. Owned cards may \
 already be in another deck or reserved in a plan; show their locations before suggesting a move.";
 
 const NO_CHANGES: &str = "You can't change anything in Yama.";
 const WITH_CHANGES: &str = "You can't change anything in Yama yourself, but when they ask you to make a change, or say \
 yes to one you suggested, stage it with a write tool (`edit_deck`, `delete_deck`, `propose_swap`, `answer_review`, `mark_bought`, \
-`mark_installed`, `start_lab_run`, `more_lab_games`, `run_lab_again`, `cancel_lab_run`, `add_to_collection`, `move_cards`, `set_condition`, `save_deck`). Use `save_deck` for a complete validated constructed, imported or restored list. A staged change shows under your answer with \
+`mark_installed`, `start_lab_run`, `add_lab_games`, `rerun_lab_run`, `cancel_lab_run`, `add_to_collection`, `move_cards`, `set_condition`, `save_deck`). Use `save_deck` for a complete validated constructed, imported or restored list. A staged change shows under your answer with \
 Apply and Discard, and nothing changes until they apply it: say it's waiting for their review, never that it's done. \
-Don't stage changes they didn't ask for, and check `changes` before staging one that may already be waiting.";
+Don't stage changes they didn't ask for, and check `list_changes` before staging one that may already be waiting.";
 
 pub fn system_prompt(user: &User, data: &str, today: &str, tools: bool) -> String {
     let name = user.display_name.trim();
@@ -484,7 +484,7 @@ pub(crate) async fn plan_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppR
     if let Some((note, deck, build)) = &note {
         let _ = writeln!(
             out,
-            "Made from build {build} of deck {deck} in note {note}: the note holds the reasons and evidence (`research`), \
+            "Made from build {build} of deck {deck} in note {note}: the note holds the reasons and evidence (`get_research`), \
              saving the note updates this plan, and `track_build` switches or stops it. Stock below is the build's list \
              with its swaps undone."
         );
@@ -1080,7 +1080,7 @@ fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::
             });
         }
         if u.error > 0 {
-            why.push(format!("{} failed (a hang, the wall-clock safety net or an engine error; lab_games has each reason)", u.error));
+            why.push(format!("{} failed (a hang, the wall-clock safety net or an engine error; list_lab_games has each reason)", u.error));
         }
         if u.panic > 0 {
             why.push(format!("{} crashed", u.panic));
@@ -1098,7 +1098,7 @@ fn summary_text(sm: &crate::lab::stats::Summary, mode: crate::lab::experiments::
         } else if let Some(add) = crate::lab::stats::pods_to_add(sm) {
             let _ = writeln!(
                 out,
-                "; about {add} more pods ({} more games{}) should get there, and more_lab_games adds them to this run.",
+                "; about {add} more pods ({} more games{}) should get there, and add_lab_games adds them to this run.",
                 add * 2,
                 if both { " on each engine" } else { "" }
             );

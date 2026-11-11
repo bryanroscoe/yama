@@ -1,4 +1,4 @@
-//! `overview`: the account at a glance, small whatever the account's size.
+//! `get_overview`: the account at a glance, small whatever the account's size.
 //!
 //! The default answer counts everything and lists only the first few of each kind. `section`
 //! lists one kind in full, `limit` rows at a time, with `next_cursor` for the page after. A row
@@ -345,7 +345,7 @@ fn notes_heading(notes: &[Vec<&NoteDeck>]) -> String {
     let decks: usize = notes.iter().map(Vec::len).sum();
     let tracked = notes.iter().flatten().filter(|d| d.tracking.is_some()).count();
     format!(
-        "Notes: {} with {}, {} tracked as a plan. Notes are saved research, kept for reference (`research` reads one; `track_build` makes one \
+        "Notes: {} with {}, {} tracked as a plan. Notes are saved research, kept for reference (`get_research` reads one; `track_build` makes one \
          build a deck's next plan version, waiting for their OK).",
         plural(notes.len(), "saved note", "saved notes"),
         plural(decks, "deck", "decks"),
@@ -353,14 +353,14 @@ fn notes_heading(notes: &[Vec<&NoteDeck>]) -> String {
     )
 }
 
-/// What `plan_deck` says for a note deck that no plan tracks yet; empty when no note has one
+/// What `get_plan` says for a note deck that no plan tracks yet; empty when no note has one
 /// with that key.
 pub(super) async fn untracked_note_deck(pool: &SqlitePool, owner: &str, key: &str) -> AppResult<String> {
     let decks = note_decks(pool, owner).await?;
     let mut out = String::new();
     for d in decks.iter().filter(|d| d.key == key && d.tracking.is_none()) {
         if out.is_empty() {
-            out.push_str("Not a plan yet. This deck is in their notes; `research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n");
+            out.push_str("Not a plan yet. This deck is in their notes; `get_research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n");
         }
         full_line(&mut out, &note_line(d));
         let _ = writeln!(out, "{}", clip(&note_deck_line(d, SECTION_BUILDS), NOTE_DECK_LINE));
@@ -436,7 +436,7 @@ pub(super) async fn overview(pool: &SqlitePool, owner: &str, args: &Value) -> Ap
 /// The default answer: counts, and the first few of each kind.
 async fn summary(pool: &SqlitePool, owner: &str, out: &mut String) -> AppResult<()> {
     out.push_str(
-        "Their Yama account at a glance. To list one kind in full, call `overview` again with section \"decks\", \"plans\" or \"notes\" \
+        "Their Yama account at a glance. To list one kind in full, call `get_overview` again with section \"decks\", \"plans\" or \"notes\" \
          (each takes limit and cursor).\n\n",
     );
     let rows = load_decks(pool, owner).await?;
@@ -451,7 +451,7 @@ async fn summary(pool: &SqlitePool, owner: &str, out: &mut String) -> AppResult<
     if groups.len() > SUMMARY_DECKS {
         // The decks section's rows are decks and their configurations: start after the ones listed.
         let listed: usize = groups.iter().take(SUMMARY_DECKS).map(|(_, configurations)| 1 + configurations.len()).sum();
-        let _ = writeln!(out, "({} more: call `overview` with section \"decks\" and cursor \"{}\".)", groups.len() - SUMMARY_DECKS, page::cursor("overview.decks", listed));
+        let _ = writeln!(out, "({} more: call `get_overview` with section \"decks\" and cursor \"{}\".)", groups.len() - SUMMARY_DECKS, page::cursor("overview.decks", listed));
     }
 
     let plans = load_plans(pool, owner).await?;
@@ -465,7 +465,7 @@ async fn summary(pool: &SqlitePool, owner: &str, out: &mut String) -> AppResult<
         }
         let listed = live.min(SUMMARY_PLANS);
         if listed < plans.len() {
-            let _ = writeln!(out, "({} more, archived ones included: call `overview` with section \"plans\".)", plans.len() - listed);
+            let _ = writeln!(out, "({} more, archived ones included: call `get_overview` with section \"plans\".)", plans.len() - listed);
         }
     }
 
@@ -488,7 +488,7 @@ async fn summary(pool: &SqlitePool, owner: &str, out: &mut String) -> AppResult<
             }
         }
         if !complete {
-            let _ = writeln!(out, "(Not every note and note deck is listed: call `overview` with section \"notes\" for all {}.)", notes.len());
+            let _ = writeln!(out, "(Not every note and note deck is listed: call `get_overview` with section \"notes\" for all {}.)", notes.len());
         }
     }
     Ok(())
