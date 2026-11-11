@@ -499,6 +499,23 @@ struct DeckRow {
     parent_id: Option<String>,
 }
 
+/// Whether a printing a deck names is fit to show on a public page or write into a download as
+/// it stands. `deck_prints` holds what a client sent with the list, trimmed but never checked
+/// against Yama's printings, and its owner may have sent anything: a line break or a comma there
+/// would add rows to a download, and a leading `=` would be a formula in a spreadsheet. So only
+/// a set code of letters and digits, a collector number without spaces, control characters or
+/// the characters the list formats and CSV give meaning, and a finish Yama knows are used. A
+/// printing that isn't is left out, and the card names the printing Yama would pick.
+fn plain_print(p: &crate::deck_import::DeckPrint) -> bool {
+    let plain_number = |n: &str| {
+        !n.is_empty() && n.chars().all(|c| !c.is_control() && !c.is_whitespace() && !matches!(c, ',' | '"' | '(' | ')' | '[' | ']' | '*' | '^' | '<' | '>' | '&' | '=' | '+' | '@'))
+    };
+    !p.set_code.is_empty()
+        && p.set_code.chars().all(|c| c.is_ascii_alphanumeric())
+        && p.collector_number.as_deref().is_none_or(plain_number)
+        && matches!(p.finish.as_str(), "nonfoil" | "foil" | "etched")
+}
+
 /// A deck shared by link or on a profile, by its token. Private, archived and unknown decks,
 /// and decks of disabled accounts, are all the same "not found".
 pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<SharedDeck> {
@@ -559,7 +576,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
     .into_iter()
     .map(|(id, t, cmc, layout, image, ci, art, artist)| (id, (t, cmc, layout, image, ci, art, artist)))
     .collect();
-    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).and_then(|p| p.collector_number.as_ref()).is_some();
+    let has_chosen = |c: &DeckCard| chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| p.collector_number.as_ref()).is_some();
     let unprinted: Vec<&str> = list
         .iter()
         .filter(|c| !has_chosen(c) && crate::decks::owned_printing(by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default(), row.container_id.as_deref()).is_none())
@@ -583,7 +600,7 @@ pub(crate) async fn shared_deck(pool: &SqlitePool, token: &str) -> AppResult<Sha
         // As the owner's own exports name it: the printing the deck names, a copy of theirs (real
         // before proxy, the one in the deck's box first), else a paper printing.
         let mine: &[&crate::collection::Item] = by_oracle.get(c.oracle_id.as_str()).map(Vec::as_slice).unwrap_or_default();
-        let chosen_print = chosen.get(&c.oracle_id).and_then(|p| {
+        let chosen_print = chosen.get(&c.oracle_id).filter(|p| plain_print(p)).and_then(|p| {
             p.collector_number.clone().map(|n| PrintRef { set_code: p.set_code.clone(), collector_number: n, finish: p.finish.clone(), from: "chosen" })
         });
         let printing = match chosen_print.or_else(|| crate::decks::owned_printing(mine, row.container_id.as_deref())) {
@@ -887,7 +904,8 @@ pub(crate) async fn shared_collection_page(pool: &SqlitePool, handle: &str, sear
 
 // ── exports ────────────────────────────────────────────────────────────────
 
-/// The same three formats as the deck page's Export (packages/core/src/deckExport.ts).
+/// The three text formats of the deck page's Export (packages/core/src/deckExport.ts) that a
+/// shared page offers as buttons; [`FILE_FORMATS`] has the rest.
 pub(crate) const FORMATS: [(&str, &str); 3] = [("names", "Names only"), ("moxfield", "Moxfield"), ("arena", "MTG Arena")];
 
 const FRONT_FACE_ONLY: [&str; 6] = ["transform", "modal_dfc", "adventure", "flip", "meld", "reversible_card"];
@@ -928,6 +946,110 @@ pub(crate) fn export(cards: &[SharedCard], format: &str) -> String {
         out.push('\n');
     }
     format!("{}\n", out.trim_end())
+}
+
+/// The deck page's other formats (packages/core/src/deckExport.ts): another site's text, or a
+/// file for another program. Each is (format, label, file ending, media type); a shared deck
+/// serves it at `/d/<token>/<format>.<ending>`.
+pub(crate) const FILE_FORMATS: [(&str, &str, &str, &str); 4] = [
+    ("archidekt", "Archidekt", "txt", "text/plain; charset=utf-8"),
+    ("mtgo", "Magic Online (.dek)", "dek", "application/xml; charset=utf-8"),
+    ("cockatrice", "Cockatrice (.cod)", "cod", "application/xml; charset=utf-8"),
+    ("csv", "CSV", "csv", "text/csv; charset=utf-8"),
+];
+
+/// One board's cards that have copies, A to Z.
+fn board_cards(cards: &[SharedCard], board: Board) -> Vec<&SharedCard> {
+    let mut rows: Vec<&SharedCard> = cards.iter().filter(|c| c.board == board && c.qty > 0).collect();
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
+}
+
+/// A card's name as programs that go by the front face write it: double-faced and adventure
+/// cards by their front, split cards whole.
+fn front_name(c: &SharedCard) -> &str {
+    if c.layout.as_deref().is_some_and(|l| FRONT_FACE_ONLY.contains(&l)) { c.name.split(" // ").next().unwrap_or(c.name.as_str()) } else { c.name.as_str() }
+}
+
+/// Text for an XML attribute or element.
+fn xml(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// A shared deck in one of [`FILE_FORMATS`], written as the deck page's export writes it (the
+/// same lines; within a board the order is by code point here and by the browser's collation
+/// there, as in [`export`]). The commander goes in the sideboard of a Magic Online or
+/// Cockatrice file, where those programs keep it, and the deck's own sideboard is left out of
+/// them. Cards go by name: Yama has no Magic Online catalog numbers. Any other format is
+/// [`export`]'s.
+pub(crate) fn export_file(cards: &[SharedCard], format: &str, deck_name: &str) -> String {
+    let mut out = String::new();
+    match format {
+        "archidekt" => {
+            for (board, category) in [(Board::Commander, " [Commander{top}]"), (Board::Main, ""), (Board::Side, " [Sideboard{noDeck}{noPrice}]")] {
+                for c in board_cards(cards, board) {
+                    let printing = c.printing.as_ref().map(|p| format!(" ({}) {}{}", p.set_code.to_lowercase(), p.collector_number, finish_mark(&p.finish))).unwrap_or_default();
+                    out.push_str(&format!("{}x {}{printing}{category}\n", c.qty, c.name));
+                }
+            }
+        }
+        "mtgo" => {
+            out.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+            out.push_str("<Deck xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n");
+            out.push_str("  <NetDeckID>0</NetDeckID>\n  <PreconstructedDeckID>0</PreconstructedDeckID>\n");
+            for (board, side) in [(Board::Main, false), (Board::Commander, true)] {
+                for c in board_cards(cards, board) {
+                    out.push_str(&format!("  <Cards CatID=\"0\" Quantity=\"{}\" Sideboard=\"{side}\" Name=\"{}\" Annotation=\"0\" />\n", c.qty, xml(front_name(c))));
+                }
+            }
+            out.push_str("</Deck>\n");
+        }
+        "cockatrice" => {
+            out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<cockatrice_deck version=\"1\">\n");
+            out.push_str(&format!("    <deckname>{}</deckname>\n    <comments></comments>\n", xml(deck_name)));
+            for (zone, board) in [("main", Board::Main), ("side", Board::Commander)] {
+                let rows = board_cards(cards, board);
+                if rows.is_empty() {
+                    continue;
+                }
+                out.push_str(&format!("    <zone name=\"{zone}\">\n"));
+                for c in rows {
+                    out.push_str(&format!("        <card number=\"{}\" name=\"{}\"/>\n", c.qty, xml(front_name(c))));
+                }
+                out.push_str("    </zone>\n");
+            }
+            out.push_str("</cockatrice_deck>\n");
+        }
+        "csv" => {
+            out.push_str("Quantity,Name,Board,Set code,Collector number,Finish\n");
+            for (board, label) in [(Board::Commander, "Commander"), (Board::Main, "Main"), (Board::Side, "Sideboard")] {
+                for c in board_cards(cards, board) {
+                    let (set, number, finish) = match &c.printing {
+                        // Card data, or a printing `plain_print` let through; a spreadsheet still never
+                        // gets a cell it would run (a collector number may start with a minus sign).
+                        Some(p) => (csv_field(&crate::game_export::cell(&p.set_code.to_uppercase())), csv_field(&crate::game_export::cell(&p.collector_number)), p.finish.as_str()),
+                        None => (String::new(), String::new(), ""),
+                    };
+                    out.push_str(&format!("{},{},{label},{set},{number},{finish}\n", c.qty, csv_field(&c.name)));
+                }
+            }
+        }
+        _ => return export(cards, format),
+    }
+    out
+}
+
+/// "Riders of Rohan" + "cockatrice" → "riders-of-rohan.cod"; a text format keeps [`file_name`]'s
+/// "riders-of-rohan-archidekt.txt".
+pub(crate) fn export_file_name(name: &str, format: &str) -> String {
+    match FILE_FORMATS.iter().find(|(f, ..)| *f == format) {
+        Some((_, _, ending, _)) if *ending != "txt" => {
+            let named = file_name(name, format);
+            // file_name's "<slug>-<format>.txt" without its last two parts.
+            format!("{}.{ending}", named.strip_suffix(&format!("-{format}.txt")).unwrap_or("deck"))
+        }
+        _ => file_name(name, format),
+    }
 }
 
 /// "Riders of Rohan (stock)" + "moxfield" → "riders-of-rohan-stock-moxfield.txt"
@@ -973,10 +1095,18 @@ async fn download(
     Path((token, file)): Path<(String, String)>,
 ) -> AppResult<Response> {
     limit(&st, &address)?;
-    let format = file.strip_suffix(".txt").filter(|f| FORMATS.iter().any(|(x, _)| x == f)).ok_or(AppError::NotFound("export"))?;
+    // "<format>.txt" for the three text formats, "<format>.<its ending>" for the others.
+    let (format, content_type) = match file.strip_suffix(".txt").filter(|f| FORMATS.iter().any(|(x, _)| x == f)) {
+        Some(format) => (format, "text/plain; charset=utf-8"),
+        None => FILE_FORMATS
+            .iter()
+            .find(|(format, _, ending, _)| file.strip_suffix(ending).and_then(|f| f.strip_suffix('.')) == Some(*format))
+            .map(|(format, _, _, content_type)| (*format, *content_type))
+            .ok_or(AppError::NotFound("export"))?,
+    };
     let deck = shared_deck(&st.pool, &token).await?;
-    let res = fresh(&headers, export(&deck.cards, format), "text/plain; charset=utf-8");
-    Ok(attachment(res, &file_name(&deck.name, format)))
+    let res = fresh(&headers, export_file(&deck.cards, format, &deck.name), content_type);
+    Ok(attachment(res, &export_file_name(&deck.name, format)))
 }
 
 #[derive(Serialize)]
