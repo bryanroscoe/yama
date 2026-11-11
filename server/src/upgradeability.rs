@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, sync::LazyLock};
 pub const METHOD: &str = "source-backed-upgradeability-v4";
 pub const BASIS: &str = "Yama's editorial judgment of improvement options for the stated commander configuration while retaining the precon’s main theme. Based on the cited guides, checked card examples and commander restrictions. No upgrade win-rate estimate is available.";
 pub const RUBRIC: &str = "1 Minimal: changing individual cards does little for the main plan; its limiting mechanism remains. 2 Narrow: useful replacements exist, but the same commander or theme restriction blocks most further gains. 3 Workable: a documented upgrade package improves the plan, with a persistent setup, combat or card-pool limit. 4 Broad: several compatible packages improve the plan and its finish; important restrictions still apply. 5 Exceptional: the commander supplies repeatable resources and a direct finish; on-theme additions strengthen both. These are ordinal judgments, not measured power steps. Evidence missing means ungraded, not 1.";
-pub const COMMANDER_CAVEAT: &str = "Playgroup commander results include stock and modified lists, mixed pod sizes and opponents. The raw rate is wins divided by games, not four-player normalised. Partner commanders are separate observations, not a pair's rate. Do not subtract a stock-precon rate to estimate upgrade gain.";
+pub const COMMANDER_CAVEAT: &str = "Playgroup commander results include stock and modified lists, mixed pod sizes and opponents. The raw rate is wins divided by games, not four-player normalized. Partner commanders are separate observations, not a pair's rate. Do not subtract a stock-precon rate to estimate upgrade gain.";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GradeLevel {
@@ -281,7 +281,7 @@ static DATA: LazyLock<Document> = LazyLock::new(|| {
             entry.sources.clear();
             entry.inventory_only = true;
             entry.reviewed_on = None;
-            entry.gap = Some("Included commander option: leadership and colour compatibility checked. Theme fit and upgrade potential have not been assessed; no grade or simulation result is assigned.".into());
+            entry.gap = Some("Included commander option: leadership and color compatibility checked. Theme fit and upgrade potential have not been assessed; no grade or simulation result is assigned.".into());
             if let Some(problem) = &option.list_problem {
                 entry.gap = Some(format!(
                     "This configuration is not ready for simulation: {problem}. No validated simulation download is available."

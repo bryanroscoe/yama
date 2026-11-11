@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { api, type Combo, type DeckCheck, type Estimated } from "../api";
 import { useDeckAnalysis } from "../decks/DeckAnalysis";
+import { playsLike } from "../decks/statsTab";
 import { checkStatus, estimateExplanation, estimateValue, gameChangerFloor, pollAfter, SENDS_LIST, suggestedBracket } from "./deckCheck";
 import { DeclareBracket } from "./DeclareBracket";
 import { NameList } from "./OnlineSupport";
@@ -148,6 +149,7 @@ export function BracketPanel({ deckId, versionId, declared, gameChangers, onCard
           <div className="bracket-side estimate">
             <span className="label">Power level, 1 to 10</span>
             <span className="value">{power.power.toFixed(1)} <span className="sub">±{power.margin.toFixed(1)}</span></span>
+            <span className="sub">{playsLike(power)}</span>
             <span className="sub">{power.label}, unofficial Yama estimate</span>
           </div>
         )}

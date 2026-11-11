@@ -21,8 +21,19 @@ pub(crate) fn pct(n: Option<f64>) -> String {
     n.map(|n| format!("{:.1}%", n * 100.)).unwrap_or_else(|| "—".into())
 }
 
+/// "$1,653.09": dollars and cents with a comma at the thousands, as the app writes them.
 pub(crate) fn usd(n: Option<f64>) -> String {
-    n.map(|n| format!("${n:.2}")).unwrap_or_else(|| "No price".into())
+    n.map(|n| {
+        let s = format!("{n:.2}");
+        let (whole, cents) = s.split_once('.').unwrap_or((s.as_str(), "00"));
+        let (sign, digits) = whole.strip_prefix('-').map_or(("", whole), |d| ("-", d));
+        match digits.parse::<i64>() {
+            Ok(d) => format!("{sign}${}.{cents}", count(d)),
+            // Not a number: say what it is, as before.
+            Err(_) => format!("${s}"),
+        }
+    })
+    .unwrap_or_else(|| "No price".into())
 }
 
 /// "Oct 28, 2026" from a date or a timestamp, the date style the app uses.
@@ -333,8 +344,8 @@ pub(crate) fn analysis_panel(a: &DeckAnalysis) -> String {
     let mut s = String::from("<section class=\"public-panel public-analysis\" aria-labelledby=\"analysis-head\"><h2 id=\"analysis-head\">Power level</h2>");
     write!(
         s,
-        "<p class=\"analysis-power\"><span class=\"result-value\">{:.1}</span> <span class=\"dim\">±{:.1}, {} confidence</span></p><p><b>{}</b>. {}</p>",
-        a.power, a.margin, a.confidence, e(a.label), e(a.description)
+        "<p class=\"analysis-power\"><span class=\"result-value\">{:.1}</span> <span class=\"dim\">±{:.1}, {}</span></p><p>Plays like {}. <b>{}</b>. {}</p>",
+        a.power, a.margin, crate::analysis::inputs_note(a.confidence), a.bracket.plays(), e(a.label), e(a.description)
     )
     .unwrap();
     s.push_str("<ul class=\"analysis-vectors\">");
@@ -569,6 +580,30 @@ pub(crate) fn stats_panel(st: &DeckStats) -> String {
     }
     s.push_str("</section>");
     s
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn dollars_get_a_comma_at_the_thousands() {
+        assert_eq!(usd(Some(1653.09)), "$1,653.09");
+        assert_eq!(usd(Some(1000.0)), "$1,000.00");
+        assert_eq!(usd(Some(1_234_567.5)), "$1,234,567.50");
+        assert_eq!(usd(Some(999.99)), "$999.99");
+        assert_eq!(usd(Some(0.59)), "$0.59");
+        assert_eq!(usd(Some(0.0)), "$0.00");
+        assert_eq!(usd(None), "No price");
+    }
+
+    #[test]
+    fn counts_and_dates_read_as_the_app_writes_them() {
+        assert_eq!(count(11364), "11,364");
+        assert_eq!(count(999), "999");
+        assert_eq!(when("2026-10-30"), "Oct 30, 2026");
+        assert_eq!(when("2026-11-11T08:15:00Z"), "Nov 11, 2026");
+    }
 }
 
 #[cfg(test)]

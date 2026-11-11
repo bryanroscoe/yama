@@ -38,6 +38,18 @@ export const POWER_BANDS: { bracket: number; from: number; to: number }[] = [
   { bracket: 4, from: 7, to: 10 },
 ];
 
+/** "Plays like Bracket 2", or "Plays like Bracket 2 to 3" when the margin reaches the next
+ *  band. An older server sends only the band the score falls in. */
+export function playsLike(a: { power_bracket: number; bracket?: { plays_like: [number, number] } }): string {
+  const [low, high] = a.bracket?.plays_like ?? [a.power_bracket, a.power_bracket];
+  return low === high ? `Plays like Bracket ${low}` : `Plays like Bracket ${low} to ${high}`;
+}
+
+/** What the confidence level means: how complete the inputs were, not how right the score is. */
+export function inputsNote(confidence: "high" | "medium" | "low"): string {
+  return confidence === "high" ? "Every card read" : confidence === "medium" ? "Some inputs missing" : "Many inputs missing";
+}
+
 /** The bracket whose usual range holds a power level. */
 export function bandOf(power: number): number {
   return power <= 5 ? 2 : power <= 7 ? 3 : 4;

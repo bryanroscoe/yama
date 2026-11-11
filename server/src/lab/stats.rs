@@ -798,7 +798,7 @@ pub fn agreement(versus: bool, solo: bool, phase: &Summary, forge: &Summary) -> 
             if let (Some(pr), Some(pc), Some(fr), Some(fc)) = (p.win_rate, p.wilson, f.win_rate, f.wilson)
                 && !overlap(pc, fc)
             {
-                apart.push(format!("{}: {} on phase, {} on Forge", p.label, share_text(pr, pc), share_text(fr, fc)));
+                apart.push(format!("{}: {} on Phase, {} on Forge", p.label, share_text(pr, pc), share_text(fr, fc)));
             }
         }
         if !apart.is_empty() {
@@ -814,7 +814,7 @@ pub fn agreement(versus: bool, solo: bool, phase: &Summary, forge: &Summary) -> 
         return match (phase.base.win_rate, phase.base.wilson, forge.base.win_rate, forge.base.wilson) {
             (Some(pr), Some(pc), Some(fr), Some(fc)) if !overlap(pc, fc) => Agreement {
                 kind: AgreementKind::Disagree,
-                text: format!("The engines disagree: {} on phase, {} on Forge", share_text(pr, pc), share_text(fr, fc)),
+                text: format!("The engines disagree: {} on Phase, {} on Forge", share_text(pr, pc), share_text(fr, fc)),
             },
             (Some(_), Some(_), Some(_), Some(_)) => Agreement { kind: AgreementKind::Agree, text: "The engines' win rates overlap".into() },
             _ => waiting,
@@ -826,7 +826,7 @@ pub fn agreement(versus: bool, solo: bool, phase: &Summary, forge: &Summary) -> 
         if opposite || !overlap(pc, fc) {
             return Agreement {
                 kind: AgreementKind::Disagree,
-                text: format!("The engines disagree: {} on phase, {} on Forge. Treat this result with caution", range_text(pd, pc), range_text(fd, fc)),
+                text: format!("The engines disagree: {} on Phase, {} on Forge. Treat this result with caution", range_text(pd, pc), range_text(fd, fc)),
             };
         }
     }
@@ -1135,7 +1135,7 @@ mod tests {
         assert_eq!(agreement(false, false, &better, &better).kind, AgreementKind::Agree);
         let d = agreement(false, false, &better, &worse);
         assert_eq!(d.kind, AgreementKind::Disagree, "{}", d.text);
-        assert!(d.text.contains("on phase") && d.text.contains("on Forge"), "{}", d.text);
+        assert!(d.text.contains("on Phase") && d.text.contains("on Forge"), "{}", d.text);
         assert_eq!(agreement(false, false, &unclear, &unclear).kind, AgreementKind::Unclear);
         // Intervals that don't overlap are a disagreement even when one engine can't tell...
         assert_eq!(agreement(false, false, &better, &unclear).kind, AgreementKind::Disagree);

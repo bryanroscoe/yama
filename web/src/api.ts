@@ -828,6 +828,10 @@ export interface DeckAnalysis {
   description: string;
   /** The bracket whose usual power range holds the score (2 up to 5, 3 up to 7, 4 above). */
   power_bracket: number;
+  /** Two readings kept apart: the brackets power ± margin reaches, and the least bracket
+   *  Wizards' card rules allow (null when it can't be read), with what the rules look at
+   *  that the list holds. Absent from older servers. */
+  bracket?: { plays_like: [number, number]; rules: number | null; flags: string[] };
   vectors: {
     key: VectorKey;
     label: string;

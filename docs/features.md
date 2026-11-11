@@ -60,7 +60,7 @@ Scryfall bulk import: ~36.5k cards, ~116k printings, daily prices kept by date, 
 
 ### Card search
 
-Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses). Works offline from a 5 MB card bundle kept on the device.
+Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:commander` `is:gamechanger`, `-`, `or`, parentheses; `set:` `a:` `year` `usd<` `is:reserved` and more `is:` values such as `is:partner` and `is:mdfc`; a card with no price never matches a price comparison). Sorts by name, popularity, mana value, color, price or first release. Works offline from a 5 MB card bundle kept on the device, which has no printings or prices: there, searches by set, artist, year, price and the Reserve List say they need a connection.
 
 ### Card sheet
 
@@ -143,7 +143,7 @@ box. Older now/after-prints snapshots stay under Older snapshots.
 
 ### Life counter
 
-1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was, and takes a note (all optional).
+1–6 players, rotated panels with the commander's art behind each life total (artist and copyright credited on each panel; switch to mana colors per device), commander damage and tax, poison and counters, monarch, initiative, day/night, undo, works offline and syncs later. Roll for first or pick who goes first (passing the turn never guesses it); knocking someone out asks who did it; the finish sheet asks how the game was won and how fun it was, and takes a note (all optional). An optional clock (per device, off by default) shows how long the turn and the game have run; it reads the times the game already records, so it works offline and a finished game's page says how long it ran.
 
 ### Shared table
 

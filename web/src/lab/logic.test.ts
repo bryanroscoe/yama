@@ -14,6 +14,7 @@ import {
   cantJudge,
   confidenceMark,
   confidenceSentence,
+  reasonText,
   splitUnjudged,
   worstConfidence,
   caveat,
@@ -423,19 +424,34 @@ describe("deckName", () => {
 describe("a long engine comparison", () => {
   it("shows the first decks and folds the rest", async () => {
     const { agreementParts, AGREEMENT_SHOWN } = await import("./logic");
-    const decks = Array.from({ length: 174 }, (_, i) => `Deck ${i + 1}: 10% (5 to 15) on phase, 20% (15 to 26) on Forge`);
+    const decks = Array.from({ length: 174 }, (_, i) => `Deck ${i + 1}: 10% (5 to 15) on Phase, 20% (15 to 26) on Forge`);
     const long = agreementParts(`The engines disagree. ${decks.join("; ")}`);
     expect(long.shown).toBe(`${decks.slice(0, AGREEMENT_SHOWN).join("; ")}.`);
     expect(long.rest).toHaveLength(174 - AGREEMENT_SHOWN);
-    expect(long.rest.at(-1)).toBe("Deck 174: 10% (5 to 15) on phase, 20% (15 to 26) on Forge");
+    expect(long.rest.at(-1)).toBe("Deck 174: 10% (5 to 15) on Phase, 20% (15 to 26) on Forge");
     // A deck someone named with a semicolon is still one deck.
-    const named = [...decks.slice(0, 5), "Alpha; Beta: 30% (22 to 39) on phase, 9% (5 to 15) on Forge", ...decks.slice(5, 12)];
+    const named = [...decks.slice(0, 5), "Alpha; Beta: 30% (22 to 39) on Phase, 9% (5 to 15) on Forge", ...decks.slice(5, 12)];
     const odd = agreementParts(`The engines disagree. ${named.join("; ")}`);
-    expect(odd.shown.endsWith("Alpha; Beta: 30% (22 to 39) on phase, 9% (5 to 15) on Forge.")).toBe(true);
+    expect(odd.shown.endsWith("Alpha; Beta: 30% (22 to 39) on Phase, 9% (5 to 15) on Forge.")).toBe(true);
     expect(odd.rest).toHaveLength(named.length - AGREEMENT_SHOWN);
     // Text in another shape isn't cut at its semicolons.
     expect(agreementParts("The engines disagree: 40% on phase; 20% on Forge; treat with caution")).toEqual({ shown: "40% on phase; 20% on Forge; treat with caution.", rest: [] });
     // A short one stays whole, with the lead the page says in bold removed.
     expect(agreementParts("The engines agree: both prefer the change.")).toEqual({ shown: "both prefer the change.", rest: [] });
+  });
+});
+
+describe("a reason from a stored analysis", () => {
+  it("names the engine Phase and ends a cut list with a real ellipsis", () => {
+    expect(reasonText("9 cards partly unimplemented in phase (Sol Ring, Arcane Signet, ...)")).toBe("9 cards partly unimplemented in Phase (Sol Ring, Arcane Signet, …)");
+    expect(reasonText("known phase gap: the AI gives Omo's counters away")).toBe("Known Phase gap: the AI gives Omo's counters away");
+    expect(reasonText("real games disagree: 31% on phase, 22% at the table")).toBe("Real games disagree: 31% on Phase, 22% at the table");
+  });
+
+  it("leaves a game's phases and the engine's package name as they are", () => {
+    expect(reasonText("the AI passes its main phase with mana up")).toBe("The AI passes its main phase with mana up");
+    expect(reasonText("known phase gap: the AI stalls in phase two of combat")).toBe("Known Phase gap: the AI stalls in phase two of combat");
+    expect(reasonText("it attacks on phase one")).toBe("It attacks on phase one");
+    expect(reasonText("simulated on phase-rs v0.113.0")).toBe("Simulated on phase-rs v0.113.0");
   });
 });

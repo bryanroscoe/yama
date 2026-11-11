@@ -9,6 +9,7 @@
 //! It reads card text, not how the deck plays.
 
 pub mod classify;
+pub mod eval;
 pub mod history;
 pub mod lands;
 mod text;
@@ -24,7 +25,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 /// Bumped whenever a rule or number changes, so a stored or cached result says which it was.
-pub const METHOD: &str = "2026-11-08";
+pub const METHOD: &str = "2026-11-11";
 
 /// What the analysis reads of a card.
 #[derive(Debug, Clone, Default)]
@@ -37,6 +38,8 @@ pub struct Facts {
     pub power: Option<String>,
     pub color_identity: String,
     pub produced_mana: Option<String>,
+    /// Scryfall's Game Changer flag. `None` when the card data hasn't loaded it.
+    pub game_changer: Option<bool>,
 }
 
 impl Facts {
@@ -50,6 +53,7 @@ impl Facts {
             power: c.power.clone(),
             color_identity: c.color_identity.clone(),
             produced_mana: produced.map(String::from),
+            game_changer: c.game_changer,
         }
     }
 }
@@ -110,13 +114,109 @@ pub struct Cap {
     pub note: &'static str,
 }
 
+/// How a list reads against the Commander brackets. Two separate readings, and neither
+/// overrides the other: the bracket its power plays like, and the least bracket Wizards' card
+/// rules allow it. One Game Changer in a stock precon makes it a Bracket 3 list by the rules
+/// without making it play like one (docs/deck-analysis.md, "Bracket reading").
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Reading {
+    /// The lowest and highest bracket that power ± margin reaches (2-4): the same number twice
+    /// when the margin stays inside one band. Never 1 or 5, as with `power_bracket`.
+    pub plays_like: [i64; 2],
+    /// The least bracket the card rules allow: none of the Game Changers in Bracket 2, up to
+    /// three in Bracket 3, and with a Commander Spellbook check at least the bracket its tag
+    /// names (mass land denial, chained extra turns, early two-card combos). `None` when the
+    /// card data has no Game Changer flags and there is no check, and when nothing was found
+    /// but some of the list couldn't be read (a card missing from the card data, a name that
+    /// matched nothing).
+    pub rules: Option<i64>,
+    /// What the rules look at that this list holds, in words: its Game Changers, and from a
+    /// Spellbook check its mass land denial, extra turns and two-card combos.
+    pub flags: Vec<String>,
+}
+
+/// The band a power number falls in: 2 up to 5, 3 up to 7, 4 above.
+pub fn band_of(power: f64) -> i64 {
+    if power <= 5.0 {
+        2
+    } else if power <= 7.0 {
+        3
+    } else {
+        4
+    }
+}
+
+impl Reading {
+    /// "Bracket 2" or "Bracket 2 to 3".
+    pub fn plays(&self) -> String {
+        let [low, high] = self.plays_like;
+        if low == high { format!("Bracket {low}") } else { format!("Bracket {low} to {high}") }
+    }
+}
+
+/// What a confidence level says in words: how complete the inputs were, not how right the
+/// score is.
+pub fn inputs_note(confidence: &str) -> &'static str {
+    match confidence {
+        "high" => "every card read",
+        "medium" => "some inputs missing",
+        _ => "many inputs missing",
+    }
+}
+
+fn plays_like(power: f64, margin: f64) -> [i64; 2] {
+    [band_of(power - margin), band_of(power + margin)]
+}
+
+/// The bracket reading. `game_changers` are the list's, from Yama's own card data (`None`
+/// when it has no flags yet, and Spellbook's list stands in if there is a check). `incomplete`
+/// when some of the list couldn't be read at all: what was found still stands, since a rule
+/// can only ask for more, but "nothing found" is then no reading.
+fn reading(power: f64, margin: f64, game_changers: Option<&[String]>, check: Option<&CheckResult>, incomplete: bool) -> Reading {
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+    let changers: Option<Vec<String>> = game_changers.map(<[String]>::to_vec).or_else(|| check.map(|c| c.game_changers.clone()));
+    let mut rules = changers.as_ref().map(|g| match g.len() {
+        0 => 2,
+        1..=3 => 3,
+        _ => 4,
+    });
+    let mut flags = vec![];
+    if let Some(g) = changers.as_ref().filter(|g| !g.is_empty()) {
+        flags.push(format!("{} Game Changer{}: {}", g.len(), plural(g.len()), g.join(", ")));
+    }
+    if let Some(c) = check {
+        let found = flags.len();
+        if !c.mld.is_empty() {
+            flags.push(format!("Mass land denial: {}", c.mld.join(", ")));
+        }
+        if !c.extra_turns.is_empty() {
+            flags.push(format!("Extra turns: {}", c.extra_turns.join(", ")));
+        }
+        let two: Vec<String> = c.combos.iter().filter(|x| x.definitely_two_card).map(|x| x.cards.join(" + ")).collect();
+        if !two.is_empty() {
+            let more = if two.len() > 3 { format!(" and {} more", two.len() - 3) } else { String::new() };
+            flags.push(format!("Two-card combo{}: {}{more}", plural(two.len()), two[..two.len().min(3)].join("; ")));
+        }
+        if let Some(b) = c.bracket {
+            // Its tag can come from something not listed above (a combo that is arguably
+            // two cards, a Game Changer Yama's data doesn't flag yet): say whose reading it is.
+            if rules.is_none_or(|r| b > r) && b > 2 && flags.len() == found {
+                flags.push(format!("Commander Spellbook's estimate: {}", c.bracket_label));
+            }
+            rules = Some(rules.map_or(b, |r| r.max(b)));
+        }
+    }
+    Reading { plays_like: plays_like(power, margin), rules: rules.filter(|r| !incomplete || *r > 2), flags }
+}
+
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct DeckAnalysis {
     pub method: &'static str,
     /// 1-10, one decimal.
     pub power: f64,
-    /// The score's ± range, wider with unknown cards, no combo check or many cards the text
-    /// rules don't recognize.
+    /// The score's ± range. It starts at the error measured against reference lists
+    /// (`power-eval`, docs/deck-analysis.md) and widens with unknown cards, no combo check or
+    /// many cards the text rules don't recognize.
     pub margin: f64,
     pub confidence: &'static str,
     pub label: &'static str,
@@ -124,6 +224,8 @@ pub struct DeckAnalysis {
     /// The bracket whose usual power range holds the score: 2 up to 5, 3 up to 7, 4 above.
     /// Never 1 or 5: those depend on intent and the cEDH metagame, not card text.
     pub power_bracket: i64,
+    /// What it plays like with the margin counted, and what the card rules allow.
+    pub bracket: Reading,
     pub vectors: Vec<VectorScore>,
     /// The caps that held the score down.
     pub caps: Vec<Cap>,
@@ -173,7 +275,7 @@ fn band(score: f64) -> &'static str {
 }
 
 const SCALE: [(&str, &str); 10] = [
-    ("Unfocused", "Few cards work together; mana and card quality vary a lot."),
+    ("Light on staples", "Few of the cards this score counts: ramp, card draw, interaction and finishers. A deck built around its own theme can play better than this reads."),
     ("Early build", "The plan is there, but ramp, draw and interaction need work."),
     ("Precon", "About where a stock preconstructed deck plays."),
     ("Upgraded precon", "Clear upgrades over a precon, with gaps left in speed or consistency."),
@@ -407,13 +509,15 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
 
     let (margin, confidence) = spread(unknown_cards.len(), &combos, unscored, nonland);
     let (label, description) = SCALE[(power.floor() as usize).clamp(1, 10) - 1];
-    let power_bracket = if power <= 5.0 {
-        2
-    } else if power <= 7.0 {
-        3
-    } else {
-        4
-    };
+    let power_bracket = band_of(power);
+    // Scryfall's flag for each card, or no count at all when any card lacks one.
+    let game_changers: Option<Vec<String>> = known.iter().map(|(_, f)| f.game_changer.map(|g| g.then(|| f.name.clone()))).collect::<Option<Vec<_>>>().map(|names| {
+        let mut names: Vec<String> = names.into_iter().flatten().collect();
+        names.sort();
+        names.dedup();
+        names
+    });
+    let bracket = reading(power, margin, game_changers.as_deref(), check, !unknown_cards.is_empty());
 
     let mut vectors = vec![];
     for v in [Vector::Speed, Vector::Consistency, Vector::Interaction, Vector::Mana, Vector::Threats] {
@@ -442,6 +546,7 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
         label,
         description,
         power_bracket,
+        bracket,
         vectors,
         caps,
         combos,
@@ -454,11 +559,18 @@ pub fn analyze(entries: &[Entry], check: Option<&CheckResult>, cache: &mut Cache
     }
 }
 
+/// The ± a fully read list gets. Measured, not chosen: on the reference lists built for a
+/// named bracket, power ± 0.7 reaches that bracket for 91% and ± 0.5 for 76% (`power-eval`,
+/// 11 Nov 2026), and lists built for the same bracket spread about 0.7 around their median.
+const BASE_MARGIN: f64 = 0.7;
+
 /// The ± range and its confidence. It widens with cards missing from the card data, with no
 /// Spellbook check or cards Spellbook didn't know (their combos may be missing), and with many
-/// nonland cards the text rules don't score.
+/// nonland cards the text rules don't score. Confidence says how complete the inputs were,
+/// not how right the score is: "high" only when nothing widened the margin (every card read,
+/// a combo check that knew them all).
 fn spread(unknown: usize, combos: &Combos, unscored: i64, nonland: i64) -> (f64, &'static str) {
-    let mut margin = 0.3 + (0.1 * unknown as f64).min(0.5);
+    let mut margin = BASE_MARGIN + (0.1 * unknown as f64).min(0.5);
     if !combos.checked {
         margin += 0.2;
     }
@@ -468,9 +580,10 @@ fn spread(unknown: usize, combos: &Combos, unscored: i64, nonland: i64) -> (f64,
         margin += (share - 0.35).min(0.3);
     }
     let margin = (margin * 10.0).round() / 10.0;
-    let confidence = if margin <= 0.4 {
+    // Margins are tenths: the cut-offs sit between them.
+    let confidence = if margin <= BASE_MARGIN + 0.05 {
         "high"
-    } else if margin <= 0.6 {
+    } else if margin <= BASE_MARGIN + 0.35 {
         "medium"
     } else {
         "low"
@@ -486,6 +599,9 @@ pub fn add_unresolved(a: &mut DeckAnalysis, names: &[String]) {
     }
     a.unknown_cards.extend(names.iter().cloned());
     (a.margin, a.confidence) = spread(a.unknown_cards.len(), &a.combos, a.unscored, a.nonland);
+    a.bracket.plays_like = plays_like(a.power, a.margin);
+    // A name that matched no card could be anything, a Game Changer included.
+    a.bracket.rules = a.bracket.rules.filter(|r| *r > 2);
 }
 
 /// The facts for a list from loaded card data and produced mana.

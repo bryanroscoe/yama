@@ -15,7 +15,7 @@ import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
 import { CardImage, ErrorText, Loading, Segmented } from "../components/ui";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
-import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
+import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, inputsNote, marginSpan, pctWidth, playsLike, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
 
 type OnCard = (name: string) => void;
@@ -104,9 +104,9 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
                 <span className="dim">±{a.margin.toFixed(1)}</span>
               </span>
               <span className="power-pills">
-                <span className="stats-pill on">Bracket {a.power_bracket} range</span>
+                <span className="stats-pill on">{playsLike(a)}</span>
                 <span className="stats-pill">{a.label}</span>
-                <span className={`stats-pill ${a.confidence === "high" ? "good" : "warn"}`}>{a.confidence === "high" ? "High" : a.confidence === "medium" ? "Medium" : "Low"} confidence</span>
+                <span className={`stats-pill ${a.confidence === "high" ? "good" : "warn"}`}>{inputsNote(a.confidence)}</span>
               </span>
               {r && <span className="power-ref">Amber marks: {r.name} on each score</span>}
               {a.caps.length > 0 && (
@@ -215,8 +215,7 @@ export function confidenceText(a: DeckAnalysis): string {
   else if (a.combos.unrecognized) why.push(`Commander Spellbook didn't know ${a.combos.unrecognized} ${a.combos.unrecognized === 1 ? "card" : "cards"}, so combos with ${a.combos.unrecognized === 1 ? "it" : "them"} may be missing`);
   if (a.unknown_cards.length) why.push(`${a.unknown_cards.length} ${a.unknown_cards.length === 1 ? "card isn't" : "cards aren't"} in Yama's card data`);
   if (a.nonland > 0 && a.unscored / a.nonland > 0.35) why.push("many cards do things the text rules don't score");
-  const level = a.confidence === "high" ? "High" : a.confidence === "medium" ? "Medium" : "Low";
-  return `${level} confidence${why.length ? `: ${why.join("; ")}` : ""}. An unofficial Yama estimate from card text, not from how the deck plays.`;
+  return `${inputsNote(a.confidence)}${why.length ? `: ${why.join("; ")}` : ""}. The margin is never narrower than lists built for the same bracket were measured to spread. An unofficial Yama estimate from card text, not from how the deck plays.`;
 }
 
 function PowerHelp({ analysis: a }: { analysis: DeckAnalysis }) {
@@ -226,6 +225,7 @@ function PowerHelp({ analysis: a }: { analysis: DeckAnalysis }) {
       <p>A land's points are its quality for this deck's colors. Points are per copy; every copy counts. Combos Commander Spellbook found add to Threats.</p>
       <p>{a.description}</p>
       <p>{confidenceText(a)}</p>
+      <p>"Plays like" is the bracket whose usual power range holds the score, give or take the margin. Wizards' card rules are a separate question: Game Changers, mass land denial and early combos can put a list in a higher bracket than it plays like, and the deck's Bracket panel lists them.</p>
       <p>Your declared bracket is still yours to choose: intent and the table matter more than a score. Other sites use their own formulas.</p>
       {a.unknown_cards.length > 0 && <p>Not counted: {a.unknown_cards.join(", ")}.</p>}
     </>

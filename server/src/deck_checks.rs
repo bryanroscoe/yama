@@ -18,6 +18,8 @@
 //! 429, credit and link to commanderspellbook.com. The card-list signals are theirs; Yama
 //! interprets them as a dated starting suggestion, never replacing the owner's declared bracket.
 
+pub mod precons;
+
 use crate::decks::{Board, DeckCard, load_version_cards};
 use crate::error::{AppError, AppResult};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -652,6 +654,19 @@ pub async fn results(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<
     Ok(rows.into_iter().filter_map(|r| Some((r.version_id, r.row.result()?))).collect())
 }
 
+/// The newest stored answer for exactly this list, summarized with these cards' names. For the
+/// measuring command (analysis/eval.rs), whose lists are files and not saved decks; like
+/// [`reuse`], it reads only what Spellbook said about the same cards.
+pub async fn stored_for_list(pool: &SqlitePool, cards: &[DeckCard]) -> sqlx::Result<Option<CheckResult>> {
+    let source: Option<(String, String)> =
+        sqlx::query_as("SELECT estimate, checked_at FROM deck_version_checks WHERE source = ? AND list_hash = ? AND estimate IS NOT NULL ORDER BY checked_at DESC LIMIT 1")
+            .bind(SPELLBOOK)
+            .bind(list_hash(cards))
+            .fetch_optional(pool)
+            .await?;
+    Ok(source.and_then(|(raw, at)| Some(summarize(serde_json::from_str::<Estimate>(&raw).ok()?, cards, &at))))
+}
+
 /// The estimated bracket of each version that has an answer: version id → (tag, bracket).
 pub async fn estimates(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<HashMap<String, Estimated>> {
     if version_ids.is_empty() {
@@ -907,8 +922,25 @@ pub async fn backfill(pool: &SqlitePool) -> sqlx::Result<u64> {
     .rows_affected())
 }
 
+/// With no person's deck due: ask about one public stock list (precons.rs). True when the worker
+/// should look again at once (it got an answer, or a person's deck fell due while it waited); a
+/// failure or nothing to ask lets it rest.
+async fn stock_list_turn(pool: &SqlitePool, http: &reqwest::Client, url: &str, research: &Research) -> bool {
+    match precons::run_next(pool, http, url, Some(research)).await {
+        Ok(turn) => turn != precons::Turn::Idle,
+        Err(CheckError::RateLimited(wait)) => {
+            tracing::warn!(secs = wait.as_secs(), "Commander Spellbook rate limit; pausing stock list checks");
+            false
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "stock list check failed");
+            false
+        }
+    }
+}
+
 /// Run checks in the background for as long as the server runs, pacing Spellbook with
-/// `research`.
+/// `research`. People's decks go first; public stock lists fill the idle time.
 pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String, research: Arc<Research>) {
     tokio::spawn(async move {
         match backfill(&pool).await {
@@ -933,12 +965,16 @@ pub fn spawn_worker(pool: SqlitePool, http: reqwest::Client, url: String, resear
                     }
                 }
                 Ok(Next::Later(wait)) => {
-                    let _ = tokio::time::timeout(wait.max(Duration::from_secs(1)), wake.notified()).await;
+                    if !stock_list_turn(&pool, &http, &url, &research).await {
+                        let _ = tokio::time::timeout(wait.max(Duration::from_secs(1)), wake.notified()).await;
+                    }
                 }
                 // Also look again now and then: the command line (import-decks) queues checks
                 // from another process, which can't wake this one.
                 Ok(Next::Idle) => {
-                    let _ = tokio::time::timeout(IDLE_POLL, wake.notified()).await;
+                    if !stock_list_turn(&pool, &http, &url, &research).await {
+                        let _ = tokio::time::timeout(IDLE_POLL, wake.notified()).await;
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "couldn't read the deck check queue");
@@ -1188,7 +1224,7 @@ mod tests {
         assert!(!shown.pending && shown.result.is_some());
     }
 
-    async fn fake_spellbook(status: u16) -> String {
+    pub(super) async fn fake_spellbook(status: u16) -> String {
         use axum::{Router, http::StatusCode, routing::post};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/estimate-bracket", listener.local_addr().unwrap());

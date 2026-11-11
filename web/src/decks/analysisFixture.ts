@@ -3,13 +3,14 @@ import type { DeckAnalysis, DeckAnalysisView } from "../api";
 
 export function analysis(power: number, over: Partial<DeckAnalysis> = {}): DeckAnalysis {
   return {
-    method: "2026-11-08",
+    method: "2026-11-11",
     power,
-    margin: 0.4,
+    margin: 0.7,
     confidence: "high",
     label: "Focused casual",
     description: "A steady plan with chosen cards, at a moderate speed.",
     power_bracket: power <= 5 ? 2 : power <= 7 ? 3 : 4,
+    bracket: { plays_like: [power - 0.7 <= 5 ? 2 : power - 0.7 <= 7 ? 3 : 4, power + 0.7 <= 5 ? 2 : power + 0.7 <= 7 ? 3 : 4], rules: 2, flags: [] },
     vectors: [
       { key: "speed", label: "Speed", score: 51, band: "Average", groups: [{ key: "fast_mana", label: "Fast mana", cards: [{ name: "Sol Ring", points: 9, copies: 1 }] }] },
       { key: "consistency", label: "Consistency", score: 62, band: "Average", groups: [] },
