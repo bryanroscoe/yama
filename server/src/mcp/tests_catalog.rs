@@ -53,6 +53,8 @@ fn every_tool_is_well_formed() {
         for required in schema["required"].as_array().into_iter().flatten() {
             assert!(schema["properties"].get(required.as_str().unwrap()).is_some(), "{name} requires {required}, which it doesn't define");
         }
+        assert!(schema.get("required").is_none_or(|r| r.as_array().is_some_and(|r| !r.is_empty())), "{name}: an empty required list");
+        unbounded_text(schema, name, "");
         assert!(t["annotations"]["readOnlyHint"].is_boolean() && t["annotations"]["openWorldHint"].is_boolean(), "{name} lacks annotations");
         if t["annotations"]["readOnlyHint"] == false {
             assert!(t["annotations"]["destructiveHint"].is_boolean() && t["annotations"]["idempotentHint"].is_boolean(), "{name}: a write says whether it destroys and repeats");
@@ -66,6 +68,44 @@ fn every_tool_is_well_formed() {
         assert_eq!(decides, via.may_apply(), "{label}: only outside clients apply and discard");
         let simulates = ["start_lab_run", "more_lab_games", "run_lab_again"].iter().any(|n| names.contains(n));
         assert_eq!(simulates, user.power, "{label}: only power users start simulations");
+    }
+}
+
+/// Every text argument, at any depth, says how long it may be or which values it takes.
+fn unbounded_text(schema: &Value, tool: &str, path: &str) {
+    let text = match &schema["type"] {
+        Value::String(t) => t == "string",
+        Value::Array(types) => types.iter().any(|t| t == "string"),
+        _ => false,
+    };
+    assert!(!text || schema.get("enum").is_some() || schema["maxLength"].as_u64().is_some_and(|n| n > 0), "{tool}: {path} is text with no maxLength and no enum");
+    for (name, property) in schema["properties"].as_object().into_iter().flatten() {
+        unbounded_text(property, tool, &format!("{path}.{name}"));
+    }
+    if let Some(items) = schema.get("items") {
+        unbounded_text(items, tool, &format!("{path}[]"));
+    }
+}
+
+#[test]
+fn annotations_say_where_a_tool_reaches() {
+    let full = tools::list(&who(true), &Via::Key);
+    let outside = |name: &str| full.iter().find(|t| t["name"] == name).unwrap()["annotations"]["openWorldHint"] == true;
+    // card_printings reads Yama's own printings and prices (since 2026-11-02): no outside request.
+    assert!(!outside("card_printings"));
+    // check_stores only stages, but applying it reads the stores' sites.
+    assert!(outside("check_stores"));
+    for reaches in ["search_scryfall", "commander_recommendations", "find_combos", "public_deck", "rules_lookup"] {
+        assert!(outside(reaches), "{reaches}");
+    }
+    for local in ["find_cards", "card", "deck", "deck_analysis", "edit_deck", "apply_change", "save_research", "store_stock"] {
+        assert!(!outside(local), "{local}");
+    }
+    // A read says nothing about destroying or repeating: those hints are for writes.
+    for t in &full {
+        if t["annotations"]["readOnlyHint"] == true {
+            assert!(t["annotations"].get("destructiveHint").is_none() && t["annotations"].get("idempotentHint").is_none(), "{}", t["name"]);
+        }
     }
 }
 
@@ -134,6 +174,29 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
             clean_call(&app, token, t["name"].as_str().unwrap(), json!({})).await;
         }
     }
+    // A closed set of values is checked, not quietly replaced by the default.
+    let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "order": "price"})).await;
+    assert!(err && text.contains("isn't name, mv, edhrec or color"), "{text}");
+    for order in ["name", "mv", "cmc", "edhrec", "color"] {
+        let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "order": order})).await;
+        assert!(!err, "{order}: {text}");
+    }
+    // An open question can be long, and its answer too: the schema says what the plan takes.
+    let listed_tools = listed(&app, &plain).await;
+    let approve = listed_tools.iter().find(|t| t["name"] == "approve_plan").unwrap();
+    assert_eq!(approve["inputSchema"]["properties"]["answers"]["items"]["properties"]["question"]["maxLength"], 2000);
+    assert_eq!(approve["inputSchema"]["properties"]["answers"]["items"]["properties"]["answer"]["maxLength"], 2000);
+    let (err, text) = clean_call(&app, &plain, "find_cards", json!({"query": "t:artifact", "page": 0})).await;
+    assert!(!err, "page 0 is the first page, as before: {text}");
+    let (err, text) = clean_call(&app, &plain, "deck", json!({"deck": "x".repeat(400)})).await;
+    assert!(err && text == "deck is too long: at most 300 characters", "{text}");
+    // The limit a schema states is the limit applied, also where a handler had none of its own.
+    let (err, text) = clean_call(&app, &plain, "check_list", json!({"list": format!("{}1 Sol Ring", " x".repeat(40_000))})).await;
+    assert!(err && text == "list is too long: at most 65536 characters", "{text}");
+    let (err, text) = clean_call(&app, &plain, "card", json!({"names": ["Sol Ring", "y".repeat(301)]})).await;
+    assert!(err && text == "names: each one is at most 300 characters", "{text}");
+    let (err, text) = clean_call(&app, &plain, "games", json!({"search": "z".repeat(1001)})).await;
+    assert!(err && text == "search is too long: at most 1000 characters", "{text}");
     // Arguments that aren't an object at all.
     for args in [Value::Null, json!([]), json!("text")] {
         clean_call(&app, &plain, "overview", args.clone()).await;

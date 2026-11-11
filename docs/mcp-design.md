@@ -202,6 +202,14 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   no case fails the test.
 - **The public guide.** The names in `web/public/docs/mcp/index.html`, its stated total and each
   group's count must match the real catalog.
+- **Schemas say what the server enforces.** Every text argument has a `maxLength` (its own, or
+  the 300 characters the argument helpers apply; `registry::tidy` fills it in) or an `enum`, and
+  the registry refuses a longer value before the tool runs (`check_lengths`), so the stated limit
+  is the applied one also where a handler had none; a
+  closed set of values is an `enum` and is checked (`find_cards.order` was quietly "name" for
+  anything else); a value that is too long says so instead of "is missing"; an empty `required`
+  list is left out. Annotations say where a tool reaches: `card_printings` is local,
+  `check_stores` reaches the stores' sites when applied.
 
 ## Slices
 

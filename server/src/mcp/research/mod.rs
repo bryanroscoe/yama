@@ -90,7 +90,7 @@ pub(super) const TOOLS: &[Tool] = &[
         aliases: &[],
         title: "Printings and image links",
         description: "Find a card's paper printings by exact name, from Yama's own copy of Scryfall's card data (no outside request): each with its latest TCGplayer, Cardmarket and Cardhoarder market prices, the date of those prices and their source, and original Scryfall image URLs. Images are never downloaded or bundled. A market price is a dated reference, not a store quote; a missing price is unknown.",
-        kind: Kind::Outside,
+        kind: Kind::Read,
         offer: Offer::Everyone,
         search: true,
         schema: || {

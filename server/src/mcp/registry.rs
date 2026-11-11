@@ -51,6 +51,8 @@ pub enum Kind {
     Outside,
     /// Stores a pending change for the person to review, and changes nothing else.
     Stage,
+    /// As `Stage`, and applying it asks a service outside Yama (reading stores' stock).
+    StageOutside,
     /// Changes something directly: a research note or a stated preference, or applying or
     /// discarding a staged change. `destroys` says whether it can replace or remove something.
     Write { destroys: bool },
@@ -87,7 +89,7 @@ pub struct Tool {
     /// The JSON Schema of its arguments. A staging tool's also gets `op_id`.
     pub schema: fn() -> Value,
     pub handler: Handler,
-    /// For `Kind::Stage`: what it stages.
+    /// For a staging tool (`Kind::Stage`, `Kind::StageOutside`): what it stages.
     pub stages: Option<Staging>,
 }
 
@@ -124,6 +126,7 @@ fn annotations(kind: Kind) -> Value {
         // Staging adds a pending row and nothing else: never destructive. A repeat stages a
         // second change unless the call carries an op_id.
         Kind::Stage => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}),
+        Kind::StageOutside => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true}),
         Kind::Write { destroys } => json!({"readOnlyHint": false, "destructiveHint": destroys, "idempotentHint": true, "openWorldHint": false}),
     }
 }
@@ -132,6 +135,60 @@ fn annotations(kind: Kind) -> Value {
 fn op_id_schema() -> Value {
     json!({"type": "string", "minLength": 8, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$",
            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused."})
+}
+
+/// Arguments whose handlers take more text than `args::TEXT`: the longest any tool accepts
+/// under that name. A schema's own `maxLength` wins.
+const LONG_TEXT: [(&str, usize); 7] = [("note", 6000), ("why", 2000), ("list", 65_536), ("other_list", 65_536), ("query", 1000), ("search", 1000), ("target", 500)];
+
+/// Make a schema say what the server enforces anyway: every text argument has a longest length
+/// (its own, or the default the argument helpers apply), and an empty `required` list, which
+/// older JSON Schema drafts refuse, is left out.
+fn tidy(schema: &mut Value, key: &str) {
+    let Some(o) = schema.as_object_mut() else { return };
+    if o.get("required").and_then(Value::as_array).is_some_and(Vec::is_empty) {
+        o.remove("required");
+    }
+    let text = match o.get("type") {
+        Some(Value::String(t)) => t == "string",
+        Some(Value::Array(types)) => types.iter().any(|t| t == "string"),
+        _ => false,
+    };
+    if text && !o.contains_key("enum") && !o.contains_key("maxLength") {
+        let max = LONG_TEXT.iter().find(|(k, _)| *k == key).map_or(super::args::TEXT, |(_, max)| *max);
+        o.insert("maxLength".into(), json!(max));
+    }
+    if let Some(Value::Object(properties)) = o.get_mut("properties") {
+        for (name, property) in properties.iter_mut() {
+            tidy(property, name);
+        }
+    }
+    if let Some(items) = o.get_mut("items") {
+        tidy(items, key);
+    }
+}
+
+/// Refuse a text argument longer than its schema says, so the limit `tools/list` states is the
+/// limit the server applies, for every tool and whatever its handler checks itself: a schema
+/// never promises more than is taken, and never excludes what would have been taken.
+fn check_lengths(tool: &Tool, args: &Value) -> AppResult<()> {
+    let mut schema = (tool.schema)();
+    tidy(&mut schema, "");
+    let Some(properties) = schema["properties"].as_object() else { return Ok(()) };
+    let too_long = |text: &Value, max: &Value| match (text.as_str(), max.as_u64()) {
+        (Some(text), Some(max)) => text.trim().chars().count() as u64 > max,
+        _ => false,
+    };
+    for (name, property) in properties {
+        let Some(value) = args.get(name.as_str()) else { continue };
+        if too_long(value, &property["maxLength"]) {
+            return Err(AppError::bad(format!("{name} is too long: at most {} characters", property["maxLength"])));
+        }
+        if value.as_array().is_some_and(|items| items.iter().any(|item| too_long(item, &property["items"]["maxLength"]))) {
+            return Err(AppError::bad(format!("{name}: each one is at most {} characters", property["items"]["maxLength"])));
+        }
+    }
+    Ok(())
 }
 
 /// `tools/list` for this caller.
@@ -143,6 +200,7 @@ pub fn list(user: &User, via: &Via) -> Vec<Value> {
             if t.stages.is_some() {
                 schema["properties"]["op_id"] = op_id_schema();
             }
+            tidy(&mut schema, "");
             json!({
                 "name": t.name,
                 "title": t.title,
@@ -157,6 +215,7 @@ pub fn list(user: &User, via: &Via) -> Vec<Value> {
 /// `tools/call`. Whether the caller is offered the tool is the route's check (`tools::offered`).
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let tool = find(name).ok_or_else(|| AppError::bad(format!("unknown tool \"{name}\"")))?;
+    check_lengths(tool, args)?;
     // A staging call repeated with its op_id answers with the change it staged the first time,
     // before any check that would now fail because that change was applied.
     if let Some(staging) = &tool.stages {
@@ -190,7 +249,7 @@ mod tests {
             for alias in t.aliases {
                 assert!(names.insert(*alias), "{alias} names two tools");
             }
-            assert_eq!(t.kind == Kind::Stage, t.stages.is_some(), "{}: a staging tool, and only one, says what it stages", t.name);
+            assert_eq!(matches!(t.kind, Kind::Stage | Kind::StageOutside), t.stages.is_some(), "{}: a staging tool, and only one, says what it stages", t.name);
             assert_eq!(find(t.name).map(|f| f.name), Some(t.name));
         }
         // Every kind a staging tool stores can be applied, and nothing else can.

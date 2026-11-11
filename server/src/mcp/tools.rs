@@ -325,7 +325,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "additionalProperties": false,
             })
         },
-        kind: Kind::Stage,
+        kind: Kind::StageOutside,
         offer: Offer::Everyone,
         search: false,
         handler: stage!(changes::check_stores),
@@ -429,14 +429,16 @@ pub(super) const TOOLS: &[Tool] = &[
                       parentheses, !\"Exact Name\". 60 results a page, each with cost, type, color identity, Commander \
                       legality, Game Changer, a dated market price and how many copies they own.",
         schema: || {
-            obj(
-                &[
-                    ("query", "string", "The search, for example: id<=rw t:artifact o:treasure f:commander"),
-                    ("order", "string", "name (default), mv, edhrec (most played first) or color."),
-                    ("page", "integer", "Page number, from 1."),
-                ],
-                &["query"],
-            )
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "maxLength": 1000, "description": "The search, for example: id<=rw t:artifact o:treasure f:commander"},
+                    "order": {"type": "string", "enum": ["name", "mv", "edhrec", "color"], "description": "name (default), mv (mana value), edhrec (most played first) or color."},
+                    "page": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Page number, from 1."},
+                },
+                "required": ["query"],
+                "additionalProperties": false,
+            })
         },
         kind: Kind::Read,
         offer: Offer::Everyone,
@@ -788,7 +790,7 @@ pub(super) const TOOLS: &[Tool] = &[
                 "plan":{"type":"string","description":"The plan key or deck name from `overview`."},
                 "action":{"type":"string","enum":["approve","keep"],"description":"approve (default) or keep the version before it."},
                 "skip":{"type":"array","items":{"type":"string"},"description":"Changes to leave out: a card name skips every change putting that card in; a swap key skips just that one."},
-                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string"},"answer":{"type":"string"}},"required":["question","answer"],"additionalProperties":false},
+                "answers":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","maxLength":2000},"answer":{"type":"string","maxLength":2000}},"required":["question","answer"],"additionalProperties":false},
                            "description":"Their answer to each open question, the question exactly as plan_deck lists it."}
             },"required":["plan"],"additionalProperties":false})
         },
@@ -1794,7 +1796,12 @@ fn search_line(c: &SearchCard) -> String {
 
 async fn find_cards(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     let query = args.get("query").and_then(Value::as_str).map(str::trim).filter(|q| !q.is_empty()).ok_or_else(|| AppError::bad("query is missing"))?;
-    let order = args.get("order").and_then(Value::as_str);
+    let order = arg::opt_text(args, "order", 20)?;
+    // "cmc" is Scryfall's word for mv and has always been taken.
+    if let Some(o) = order.filter(|o| !["name", "mv", "cmc", "edhrec", "color"].contains(o)) {
+        return Err(AppError::bad(format!("order: \"{o}\" isn't name, mv, edhrec or color")));
+    }
+    // Out of range is the nearest page, as it always was: a page 0 is an easy slip.
     let page = args.get("page").and_then(Value::as_u64).unwrap_or(1).clamp(1, 1000) as u32;
     let r = crate::cards::search(pool, &user.id, query, order, page).await?;
     let mut out = format!("{} cards match `{query}`", r.total);
