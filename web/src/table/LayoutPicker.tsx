@@ -4,7 +4,7 @@
 import type { CSSProperties } from "react";
 import { layoutOptions, setLayout, tableLayout, useLayoutChoice, type LayoutKey } from "./layouts";
 import "./layouts.css";
-import { Button } from "../components/ui";
+import { Button, CardThumb } from "../components/ui";
 
 /** The panels in miniature, each with its seat's art and number, turned toward its player. */
 export function LayoutSketch({ n, layout, art, className = "" }: { n: number; layout: LayoutKey; art?: (seat: number) => string | undefined; className?: string }) {
@@ -19,7 +19,7 @@ export function LayoutSketch({ n, layout, art, className = "" }: { n: number; la
         const a = art?.(seat);
         return (
           <span key={seat} className={`sketch-cell${a ? " has-art" : ""}`} style={{ gridArea: area }}>
-            {a && <img src={a} alt="" />}
+            {a && <CardThumb src={a} eager />}
             <span className="sketch-n">
               <span style={{ transform: `rotate(${rot}deg)` }}>{seat + 1}</span>
             </span>

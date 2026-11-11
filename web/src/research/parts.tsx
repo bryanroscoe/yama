@@ -1,7 +1,7 @@
 import { GROUP_ORDER, groupOf, fmtDate, usd, NO_PRICE } from "@yama/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { CardHover, CardRef } from "../components/CardRef";
-import { Button, CardImage, CopyButton, Segmented, ShowMore, Tag } from "../components/ui";
+import { Button, CardImage, CardThumb, CopyButton, Segmented, ShowMore, Tag } from "../components/ui";
 import { cardsWord, smallOf, type ChangeRow, type GetId, type ListCard, type ShopItem, type ShoppingData, type Totals } from "./view";
 
 /**
@@ -95,7 +95,7 @@ function CardLine({ name, n, image, thumb = false }: { name: string; n: number; 
       {thumb &&
         (image ? (
           <CardHover name={name} image={image}>
-            <img className="thumb note-thumb" src={smallOf(image)!} alt="" loading="lazy" decoding="async" crossOrigin="anonymous" />
+            <CardThumb className="thumb note-thumb" src={smallOf(image)!} />
           </CardHover>
         ) : (
           // A card Yama has no picture of keeps the picture's place, so the names line up.

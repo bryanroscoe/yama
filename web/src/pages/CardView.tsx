@@ -12,7 +12,7 @@ import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { Button, CardImage, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag } from "../components/ui";
+import { Button, CardImage, CardThumb, ErrorText, Loading, ManaCost, Pips, ShowMore, StatusPill, Tag } from "../components/ui";
 import { CardInDecks } from "./CardInDecks";
 import { opIds, ownedFinishes } from "./collectionEdit";
 import "./cards.css";
@@ -169,7 +169,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
     <div className="cp">
       {card.image_art_crop && (
         <div className="cp-hero" aria-hidden="true">
-          <img src={card.image_art_crop} alt="" crossOrigin="anonymous" />
+          <CardThumb src={card.image_art_crop} eager />
           <span className="cp-hero-wash" />
         </div>
       )}

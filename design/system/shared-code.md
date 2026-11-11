@@ -369,3 +369,24 @@ There is no `Tabs` component, on purpose. Each thing that looks like tabs is one
 Don't write `role="tablist"` in a page: a tab can't be closed and one is always chosen, and a
 tablist owes its users arrow keys and a `tabpanel` for each tab. The online board's own
 tablists are the exception until it joins these rules.
+
+### CardThumb (`components/CardThumb.tsx`), with CardImage, Crop and ArtPanel
+
+Every picture of a card comes from Scryfall at run time and goes through one of four pieces:
+
+| Want | Use |
+|---|---|
+| A small picture beside a card's or a player's name (a row's thumbnail, a seat's art dot) | `<CardThumb src={…} />` |
+| The full card | `<CardImage src={…} name={…} />`, or `ZoomableCard` to open it larger |
+| An art crop as a tile | `<Crop src={…} size="sm" />` |
+| Art behind a header, a tile or a seat | `<ArtPanel art={…} artist={…}>` |
+
+- `CardThumb` is decoration by default (`alt=""`): the name is beside it. Give `name` when the
+  picture is the only thing that says which card it is. It loads lazily (`eager` for one that
+  is on screen from the start), asks with CORS so the offline image cache can keep it, and
+  draws `fallback` when there is no picture or it fails to load. Pass the placeholder as
+  `fallback` (`<CardThumb src={a?.art} fallback={<span className="cmdr-dot" />} />`), not in a
+  `src ? … : …` around it, which would miss a picture that fails.
+- Never filter, blur or fade a card image, and credit the artist wherever an art crop shows.
+- Don't write `<img>` for a card in a page; `conventions.test.ts` fails on one outside these
+  components and the online board.

@@ -66,6 +66,7 @@ export { Dialog, DialogHead } from "./Dialog";
 export { CopyButton } from "./CopyButton";
 export { ActionBar } from "./ActionBar";
 export { BackLink } from "./BackLink";
+export { CardThumb } from "./CardThumb";
 export { PageHeader } from "./PageHeader";
 export { Pager, ShowMore } from "./Pager";
 export { CheckRow, Field } from "./Field";

@@ -4,7 +4,7 @@ import { usePower } from "../auth";
 import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ButtonLink, Details, EmptyState, ErrorText, Loading, PageHeader, StatusPill, toneOf } from "../components/ui";
+import { Button, ButtonLink, CardThumb, Details, EmptyState, ErrorText, Loading, PageHeader, StatusPill, toneOf } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
 import {
@@ -160,7 +160,7 @@ export function RunsPage() {
             return (
               <article key={e.id} className="lab-runcard">
                 <div className="lab-runcard-head">
-                  {e.base?.art ? <img className="crop crop-sm" src={e.base.art.url} alt="" loading="lazy" /> : <span className="crop crop-sm" aria-hidden="true" />}
+                  <CardThumb className="crop crop-sm" src={e.base?.art?.url} fallback={<span className="crop crop-sm" aria-hidden="true" />} />
                   <span className="lab-runcard-title">
                     <Link to={`/lab/runs/${e.id}`}>{e.name}</Link>
                     <span>{runSubtitle(e)}</span>

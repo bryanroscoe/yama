@@ -29,7 +29,7 @@ import { createTesseractOcr, type TesseractOcr } from "./tesseract";
 import type { OcrEngine, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 import "./scanner.css";
 import { shortDate, usd } from "@yama/core";
-import { Button, ErrorText, Field } from "../components/ui";
+import { Button, CardThumb, ErrorText, Field } from "../components/ui";
 
 export interface ScannerViewProps {
   /**
@@ -1182,7 +1182,7 @@ export function ScannerView({
         {isFound && found && !lockOpen && (
           <>
             <div className="scan-result">
-              {chosen?.image_normal ? <img className="scan-thumb" src={chosen.image_normal} alt={chosen.name} /> : <div className="scan-thumb card-fallback">{found.name}</div>}
+              <CardThumb className="scan-thumb" src={chosen?.image_normal} name={chosen?.name} eager fallback={<div className="scan-thumb card-fallback">{found.name}</div>} />
               <div className="scan-info">
                 <h3>{found.name}</h3>
                 {!identityOnly && chosen && (
@@ -1261,7 +1261,7 @@ export function ScannerView({
                       setFound({ ...found, chosen: p, how: "picked", sure: false, picking: false });
                     }}
                   >
-                    {p.image_small ? <img src={p.image_small} alt="" loading="lazy" /> : <span className="card-fallback">{p.name}</span>}
+                    <CardThumb src={p.image_small} fallback={<span className="card-fallback">{p.name}</span>} />
                     <span className="scan-printing-set">{p.set_name}</span>
                     <span className="dim">
                       #{p.collector_number}

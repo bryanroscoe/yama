@@ -177,6 +177,19 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("card pictures use the shared components", () => {
+  it("no page writes a raw <img> for a card or its art", () => {
+    // Use <CardThumb src={…} /> from components/ui for a small picture beside a name,
+    // <CardImage> for a full card, <Crop> or <ArtPanel> for an art tile. These files are those
+    // components, or show pictures that aren't Scryfall's (MPC Autofill's, the print sheet's).
+    const own = new Set(["ui.tsx", "Crop.tsx", "ArtPanel.tsx", "ArtMosaic.tsx", "CardRef.tsx", "CardThumb.tsx"].map((f) => `web/src/components/${f}`).concat(["web/src/plan/MpcPrint.tsx", "web/src/plan/SwapSheet.tsx"]));
+    const found = uses(/<img\b/, (file) => own.has(file) || BOARD.test(file));
+    expect(found).toEqual([]);
+    // The placeholder goes in `fallback`, so a picture that fails to load gets it too.
+    expect(uses(/\? <CardThumb\b/, (file) => BOARD.test(file))).toEqual([]);
+  });
+});
+
 describe("tabs are one of the shared pieces", () => {
   it("no page builds a tablist", () => {
     // SubNav or DeckTabs for pages, SectionTabs for sections of a page, Segmented for a view,

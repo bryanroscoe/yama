@@ -6,7 +6,7 @@ import { api, type DeckSummary, type GameDetail, type GameRow, type Playgroup } 
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ButtonLink, CheckRow, Dialog, ErrorText, Loading, PageHeader, Pips, Segmented } from "../components/ui";
+import { Button, ButtonLink, CardThumb, CheckRow, Dialog, ErrorText, Loading, PageHeader, Pips, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay } from "./versions";
@@ -612,7 +612,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
               {/* An online game keeps its replay with the online board; a table game has its own page. */}
               <Link className="rg-row" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} aria-label={`${text.title}${text.with ? ` with ${text.with}` : ""}, ${fmtDate(g.started_at, { year: false })}. Details`}>
               {winner ? (
-                <span className="rg-art">{a?.art && <img src={a.art} alt="" loading="lazy" />}</span>
+                <span className="rg-art">{a?.art && <CardThumb src={a.art} />}</span>
               ) : (
                 <ArtMosaic className="rg-art" arts={seatArt(g).map((a) => a!.art)} />
               )}
