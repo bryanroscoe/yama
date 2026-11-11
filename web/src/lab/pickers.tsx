@@ -12,6 +12,7 @@ import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ErrorText, Pips } from "../components/ui";
 import { FORGE_PROFILES, type BaseChoice, type EngineMode, type EngineSupport, type FieldChoice, type Pace } from "./api";
 import { forgeSeconds, type EngineState } from "./engines";
+import { contactHref } from "../components/PowerOnly";
 import { allowanceText, durationText, expectedSeconds, type BaseLine } from "./logic";
 import { usePrecons } from "./Precons";
 
@@ -431,7 +432,11 @@ export function GamesPicker({ choices, games, setGames, pace, note, id, label = 
         {note} More games narrow the uncertainty.
         {eta != null ? ` ${durationText(eta).replace(/^about/, "About")}.` : ""}
       </span>
-      {pace?.allowance && <span className="lab-note">{allowanceText(pace.allowance)}</span>}
+      {pace?.allowance && (
+        <span className="lab-note">
+          {allowanceText(pace.allowance)} <a href={contactHref()}>Ask for a larger allowance</a>.
+        </span>
+      )}
     </div>
   );
 }

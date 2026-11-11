@@ -1,7 +1,7 @@
 {
   "name": "Yama",
   "short_name": "Yama",
-  "description": "Life totals, cards, collection and decks for our playgroup.",
+  "description": "A Commander life counter, card search, decks, collection and playgroup stats for Magic: The Gathering.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b0c0e",

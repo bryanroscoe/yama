@@ -1286,13 +1286,13 @@ async fn accounts_without_an_invite_get_the_smaller_allowance() {
     let first = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     // One at a time: nothing waits behind it.
     let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err();
-    assert!(matches!(&e, AppError::Conflict(m) if m.contains("one experiment at a time")), "{e:?}");
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("one experiment at a time") && m.contains("About page") && !m.contains("invite")), "{e:?}");
     // Deleting a run doesn't hand back the day's games.
     delete(&pool, "newbie", &first.item.id).await.unwrap();
     let second = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap();
     cancel(&pool, "newbie", &second.item.id, &idle).await.unwrap();
     let e = create_with(&pool, &newbie, swap_req(100), sim.as_ref(), &quota, &ForgeAccess::default()).await.unwrap_err();
-    assert!(matches!(&e, AppError::Conflict(m) if m.contains("200 games a day") && m.contains("asked for 200")), "{e:?}");
+    assert!(matches!(&e, AppError::Conflict(m) if m.contains("200 games a day") && m.contains("asked for 200") && !m.contains("invite")), "{e:?}");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lab_experiments WHERE owner_id = 'newbie'").fetch_one(&pool).await.unwrap();
     assert_eq!(n, 1, "refused runs leave nothing behind");
     // The day's count moves on.

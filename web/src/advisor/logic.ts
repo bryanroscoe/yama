@@ -158,7 +158,7 @@ export function unavailableText(reason: string | null | undefined, canSaveKey: b
     case "keys_off":
       return "Ask Claude is only available to this server's owner.";
     case "power_only":
-      return "Ask Claude is open to admins and power users for now.";
+      return "Ask Claude needs access that an admin turns on for an account. To ask for it, use the contact on the About page.";
     default:
       return "Ask Claude isn't set up on this server.";
   }
@@ -282,7 +282,7 @@ export function modeLine(s: AdvisorStatus): string {
   const owner = possessive(s.shared_owner ?? "");
   if (s.mode === "subscription")
     return s.subscription_connected === false
-      ? "Your questions use this server's Claude subscription, which isn't connected yet: run deploy/advisor-token.sh on the Mac."
+      ? "Your questions use this server's Claude subscription, which isn't connected yet: run deploy/advisor-token.sh to connect it."
       : "Your questions use this server's Claude subscription.";
   if (s.mode === "own_key")
     return `Your questions use your own Anthropic API key ending ${s.key_hint ?? "…"}, billed to your Anthropic account.${s.shared_granted ? ` Remove it and they use ${owner} shared key instead.` : ""}`;

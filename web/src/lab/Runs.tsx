@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
-import { POWER_NOTE } from "../components/PowerOnly";
+import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
 import { Details, ErrorText } from "../components/ui";
@@ -135,7 +135,7 @@ export function RunsPage() {
           </p>
         ) : (
           <p className="empty">
-            No runs. {POWER_NOTE} See the <Link to="/lab">simulated precon rankings</Link>.
+            No runs. <PowerNote /> See the <Link to="/lab">simulated precon rankings</Link>.
           </p>
         )
       )}
@@ -438,7 +438,7 @@ export function BatchPage() {
             ))}
             <p className="lab-note">Intervals here come from your planner's own analysis, not the one "Try a change" uses; the verdict wording is the same.</p>
             <Details>
-              <p>A bootstrap over pods, from commander-decks' analyze.py.</p>
+              <p>A bootstrap over pods, computed by the analysis that came with the imported run.</p>
             </Details>
           </section>
         </>

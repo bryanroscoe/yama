@@ -1166,7 +1166,7 @@ pub(crate) fn check_games(user: &User, games: u32) -> AppResult<()> {
     Err(AppError::bad(if user.is_admin {
         format!("games must be an even number from 2 to {ADMIN_MAX_GAMES}")
     } else if user.limited {
-        "games must be 100 for an account that joined without an invite".to_string()
+        format!("games must be {} on your account. {}", OPEN_GAME_CHOICES[0], crate::auth::ASK_FOR_MORE)
     } else {
         "games must be 100, 200 or 400".to_string()
     }))
@@ -2093,14 +2093,15 @@ async fn check_allowance(conn: &mut SqliteConnection, user: &User, games: u32, q
     if user.limited {
         if unfinished >= OPEN_MAX_UNFINISHED {
             return Err(AppError::Conflict(
-                "Accounts that joined without an invite run one experiment at a time. Wait for yours to finish, or cancel it.".into(),
+                format!("Your account runs one experiment at a time. Wait for yours to finish, or cancel it. {}", crate::auth::ASK_FOR_MORE),
             ));
         }
         let used = games_today(&mut *conn, &user.id).await?;
         if used + games > quota.open_daily_games {
             return Err(AppError::Conflict(format!(
-                "Accounts that joined without an invite can run {} games a day, and you've asked for {used} in the last 24 hours. Try again later.",
-                quota.open_daily_games
+                "Your account can run {} games a day, and you've asked for {used} in the last 24 hours. Try again later. {}",
+                quota.open_daily_games,
+                crate::auth::ASK_FOR_MORE
             )));
         }
     } else if unfinished >= MAX_UNFINISHED {

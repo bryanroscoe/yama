@@ -18,7 +18,7 @@ use std::collections::HashMap;
 /// The folder decks made from plan lists go in.
 pub const PLANS_FOLDER: &str = "Plans";
 
-const MANAGED: &str = "This plan is managed by your commander-decks export; change it there.";
+const MANAGED: &str = "This plan comes from an imported plan file; change its order in the file and import it again.";
 
 #[derive(Deserialize)]
 pub struct DeckPatch {

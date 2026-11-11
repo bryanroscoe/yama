@@ -219,7 +219,7 @@ function AskPanel({ context, about, ideasFor, onClose }: { context: AskContext; 
       )}
 
       {s?.mode === "subscription" && s.subscription_connected === false && (
-        <p className="ask-unavailable">Your Claude subscription isn't connected on the server yet. Run deploy/advisor-token.sh on the Mac to connect it.</p>
+        <p className="ask-unavailable">Your Claude subscription isn't connected on the server yet. Run deploy/advisor-token.sh to connect it.</p>
       )}
       {paused && (
         <div className="ask-unavailable stack">

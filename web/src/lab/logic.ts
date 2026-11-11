@@ -630,12 +630,12 @@ export function gameChoices(pace: Pace | null | undefined): number[] {
   return choices.length ? choices : [100, 200, 400];
 }
 
-/** The smaller allowance of an account that joined without an invite, in one plain line. */
+/** The smaller allowance of an account that joined without an invite, in one plain line. The page adds where to ask for more. */
 export function allowanceText(a: Allowance): string {
   const left = Math.max(0, a.games_per_day - a.used_today);
   const atOnce = a.at_a_time === 1 ? "one at a time" : `${a.at_a_time} at a time`;
   return (
-    `Accounts that joined without an invite run ${a.games}-game experiments, ${atOnce}, up to ${a.games_per_day} games a day ` +
-    `(${left} left today). An invite from the host lifts this.`
+    `Your account runs ${a.games}-game experiments, ${atOnce}, up to ${a.games_per_day} games a day ` +
+    `(${left} left today).`
   );
 }

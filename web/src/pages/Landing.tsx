@@ -41,7 +41,7 @@ export function Landing({ children, focused = false }: { children: ReactNode; fo
               {/* The life counter is Yama's home page, signed in or not (guest.ts). */}
               <a className="landing-destination landing-counter" href="/">
                 <h3>Count life at the table</h3>
-                <p>Up to six players. Games stay on this phone.</p>
+                <p>Up to six players. Games stay on this device.</p>
                 <span className="landing-destination-action">Start a game <span aria-hidden="true">→</span></span>
               </a>
               <a className="landing-destination" href="/precons">

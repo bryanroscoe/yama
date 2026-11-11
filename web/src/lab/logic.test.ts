@@ -319,7 +319,7 @@ describe("the smaller lab allowance", () => {
 
   it("says what an account without an invite may run and what's left today", () => {
     expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 100 })).toBe(
-      "Accounts that joined without an invite run 100-game experiments, one at a time, up to 300 games a day (200 left today). An invite from the host lifts this.",
+      "Your account runs 100-game experiments, one at a time, up to 300 games a day (200 left today).",
     );
     expect(allowanceText({ games: 100, at_a_time: 1, games_per_day: 300, used_today: 400 })).toContain("(0 left today)");
   });

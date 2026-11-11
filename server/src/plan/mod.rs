@@ -89,9 +89,10 @@ async fn import_route(State(st): State<AppState>, user: SyncUser, Query(q): Quer
     }
     if user.limited && body.len() > OPEN_IMPORT_LIMIT {
         return Err(AppError::bad(format!(
-            "That plan file is {} KB. Accounts that joined without an invite can import up to {} KB.",
+            "That plan file is {} KB. Your account can import up to {} KB. {}",
             body.len() / 1024,
-            OPEN_IMPORT_LIMIT / 1024
+            OPEN_IMPORT_LIMIT / 1024,
+            crate::auth::ASK_FOR_MORE
         )));
     }
     let via = if user.via == Via::Token { "token" } else { "web" };
