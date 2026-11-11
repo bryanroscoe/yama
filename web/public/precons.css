@@ -1419,7 +1419,8 @@ a.source-chip:hover,a.source-chip:focus-visible {
    commander leads is a line under its name instead of a column that mostly read "None". */
 .commander-table .commander-sources { margin-top:4px; padding:0; border:0; }
 .commander-table .commander-sources[open] { padding-bottom:8px; }
-.commander-precon { margin-top:4px; }
+/* One line each when a commander leads more than one precon. */
+.commander-precon { display:block; margin-top:4px; }
 .commander-precon a { color:var(--text); }
 @media(min-width:901px) and (pointer:fine) {
   .commander-table .commander-sources summary { min-height:24px; }
