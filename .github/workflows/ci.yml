@@ -45,8 +45,8 @@ jobs:
         !github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository))
     # Same backend as the other jobs, so a hosted billing block can't stop it on saget.
-    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 5 }}
     # A gate failure never fails CI: the web and Rust jobs then simply run.
     continue-on-error: true
     permissions:
@@ -57,6 +57,11 @@ jobs:
       skip: ${{ steps.decide.outputs.skip }}
       rust: ${{ steps.decide.outputs.rust }}
     steps:
+      - name: Refuse a self-hosted runner on a public repository
+        if: runner.environment == 'self-hosted' && github.event.repository.private == false
+        run: |
+          echo "::error::Self-hosted runners must never run jobs of a public repository (AGENTS.md, docs/ci.md)."
+          exit 1
       - name: Wait for saget CI capacity
         if: runner.environment == 'self-hosted'
         working-directory: ${{ runner.temp }}
@@ -90,12 +95,17 @@ jobs:
     if: >-
       vars.CI_TESTS != 'on' &&
       github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
     # On saget it may wait for the shared CI pool and the release gate (a running deploy
     # holds it); timing out there would fail push CI and block the deploy.
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 5 }}
     permissions: {}
     steps:
+      - name: Refuse a self-hosted runner on a public repository
+        if: runner.environment == 'self-hosted' && github.event.repository.private == false
+        run: |
+          echo "::error::Self-hosted runners must never run jobs of a public repository (AGENTS.md, docs/ci.md)."
+          exit 1
       - name: Record that CI tests are off
         env:
           CI_TESTS: ${{ vars.CI_TESTS }}
@@ -118,9 +128,14 @@ jobs:
       (github.event_name != 'pull_request' ||
        (!github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository))
-    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 15 }}
     steps:
+      - name: Refuse a self-hosted runner on a public repository
+        if: runner.environment == 'self-hosted' && github.event.repository.private == false
+        run: |
+          echo "::error::Self-hosted runners must never run jobs of a public repository (AGENTS.md, docs/ci.md)."
+          exit 1
       - name: Wait for saget CI capacity
         if: runner.environment == 'self-hosted'
         working-directory: ${{ runner.temp }}
@@ -156,8 +171,8 @@ jobs:
        (!github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository &&
         needs.gate.outputs.rust != 'false'))
-    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["self-hosted","Linux","X64","yama-ci"]') }}
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
+    runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 90 }}
     defaults:
       run:
         working-directory: app
@@ -168,6 +183,11 @@ jobs:
       CARGO_INCREMENTAL: '0'
       RUST_BACKTRACE: '1'
     steps:
+      - name: Refuse a self-hosted runner on a public repository
+        if: runner.environment == 'self-hosted' && github.event.repository.private == false
+        run: |
+          echo "::error::Self-hosted runners must never run jobs of a public repository (AGENTS.md, docs/ci.md)."
+          exit 1
       - name: Wait for saget CI capacity
         if: runner.environment == 'self-hosted'
         working-directory: ${{ runner.temp }}

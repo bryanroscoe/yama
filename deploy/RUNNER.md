@@ -3,7 +3,7 @@
 Bryan authorized this setup on 2026-10-28. Successful **push CI on current main** now
 requests an automatic production release. Feature PRs still need review and passing
 checks before merge. Merging main is consequently a production release decision.
-Pause deployments by stopping `yama-deploy-runner` on saget (runner backend) or with
+Pause deployments with
 `gh workflow disable deploy.yml -R bryanroscoe/yama` (either backend); CI and PRs keep working.
 The workflow reaches saget through one of two backends; see [Choose the deploy backend](#choose-the-deploy-backend).
 
@@ -11,7 +11,8 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 
 - `.github/workflows/deploy.yml` runs after successful `CI` for a main push, or manually
   on main. It uses read-only Actions/contents permissions and a short-lived token.
-- With the default `runner` backend, the dedicated `saget-yama-production` runner is a Linux container on saget. Its only
+- With the `runner` backend (private repository only; the public repository uses the default
+  Cloudflare backend), the dedicated `saget-yama-production` runner is a Linux container on saget. Its only
   mounts are its own state and a read-only SSH directory. No Docker socket, production
   data, application env files, or server Git credentials are mounted in the runner.
 - Its SSH key has `restrict,command="/usr/local/bin/python3 /mnt/user/appdata/yama-release/host.py"`
@@ -25,8 +26,8 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
   2026-11-02: requiring the exact tip starved every release while merges landed every few
   minutes, and so did yielding to a newer commit once push CI passed in about a minute).
   A PR job cannot grant itself deployment access merely by selecting the runner label.
-  Ordinary CI uses a separate `yama-ci` runner,
-  state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
+  While the repository was private, ordinary CI used a separate `yama-ci` runner,
+  state/cache and container with no deployment key; the public repository uses GitHub-hosted CI; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
   git configuration. Phase is fetched over HTTPS from the public fork without a deploy key. Tokens
   never enter Docker contexts, application environments, logs, or command arguments.
@@ -160,10 +161,11 @@ like `CI_LINUX_RUNNER` does for CI. Both backends send only the release request 
 short-lived token to the same forced `host.py deploy FULL_SHA` gate, keep strict host-key
 checking and report the same `YAMA_RELEASE_RESULT`. No backend checks out code.
 
-- **Unset or `runner` (default):** the self-hosted `yama-production` runner on saget's LAN,
-  with its key and known hosts under `/run/yama-deploy`. The host comes from the repository
-  secret `DEPLOY_SSH_HOST` (saget's LAN address); an unknown backend value fails the job.
-- **`cloudflare`:** a one-use GitHub-hosted `ubuntu-24.04` job in the GitHub environment
+- **`runner`:** the self-hosted `yama-production` runner on saget's LAN, with its key and
+  known hosts under `/run/yama-deploy`. The host comes from the repository secret
+  `DEPLOY_SSH_HOST` (saget's LAN address). Only a private repository may use it: it served
+  the private repository until the move to public (now `bryanroscoe/yama-archive`).
+- **Unset or `cloudflare` (default):** a one-use GitHub-hosted `ubuntu-24.04` job in the GitHub environment
   `production`. It installs a pinned `cloudflared` release, checks its SHA-256, writes the
   deploy key and known hosts to a mode-600 temporary directory that is removed on exit, and
   connects with `ProxyCommand cloudflared access ssh --hostname %h`, passing the Access service
@@ -178,9 +180,9 @@ checking and report the same `YAMA_RELEASE_RESULT`. No backend checks out code.
   | `CF_ACCESS_CLIENT_SECRET` | The Access service token's client secret |
 
   Environment secrets take precedence over repository secrets of the same name, so the
-  repository-level `DEPLOY_SSH_HOST` keeps serving the runner backend until the switch. If
-  the account's plan offers no environment secrets for this private repository, set them as
-  repository secrets at the moment of switching instead (replacing the runner's host).
+  repository-level `DEPLOY_SSH_HOST` keeps serving the runner backend until the switch. Since the
+  repository went public it uses this backend only: keep the secrets in the `production`
+  environment (deployment branches: `main`), and never register the saget runner on it.
 
 The pin is `cloudflared` 2026.5.1: later releases are reported to ignore service tokens for
 `access ssh` and fall back to browser login
@@ -214,14 +216,14 @@ a router port or a restart of `novalyst-cloudflared`.
    then `gh workflow run deploy.yml --ref main -R bryanroscoe/yama`. An unchanged main reports
    "Already deployed and health-verified" without restarting anything. Check the run summary.
 7. **Retire the runner** once a Cloudflare release has succeeded: stop `yama-deploy-runner`,
-   remove its registration (`gh api --method DELETE repos/bryanroscoe/yama/actions/runners/ID`),
+   remove its registration (`gh api --method DELETE repos/bryanroscoe/yama-archive/actions/runners/ID`),
    remove its key from both authorized-keys files, and delete the repository-level
-   `DEPLOY_SSH_HOST` if nothing else uses it. To switch back before then, set `DEPLOY_BACKEND`
-   to `runner`.
+   `DEPLOY_SSH_HOST` if nothing else uses it. Only a private repository may switch back
+   (`DEPLOY_BACKEND=runner`); the public repository never uses the runner.
 
-**Before the repository could ever be public**, retire every persistent self-hosted runner
-registered to it (`yama-production` and the saget `yama-ci` worker): on a public repository
-any fork pull request could target their labels. The Cloudflare backend and GitHub-hosted CI
+**The repository is public**: never register a persistent self-hosted runner on it (the
+`yama-production` runner or the saget `yama-ci` workers), because any fork pull request could
+target their labels. Retiring them from the archive (step 7) uses `repos/bryanroscoe/yama-archive`. The Cloudflare backend and GitHub-hosted CI
 need no self-hosted runner. Saget's address, SSH user and the Access hostname stay in
 `deploy/.env` and Actions secrets, never in tracked files.
 
@@ -230,7 +232,9 @@ need no self-hosted runner. Saget's address, SSH user and the Access hostname st
 First prepare the app directory and `yama.env` with [the first-deploy procedure](README.md#first-deploy).
 Missing advisor/Forge configuration is created by the first authorized release.
 
-These steps set up the default `runner` backend.
+These steps set up the `runner` backend, which only a private repository may use. **Never run
+them against the public `bryanroscoe/yama`**; they are kept for the record and for a private
+repository.
 
 1. Build `deploy/runner/Dockerfile` as `yama-deploy-runner:2.338.2` on saget. Copy
    `deploy/runner/compose.yaml` to its server directory. Create `state` and `ssh` with

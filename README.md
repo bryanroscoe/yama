@@ -166,9 +166,10 @@ Create an OAuth client ID (type "Web application") in Google Cloud Console, add 
 
 ## Checks
 
-GitHub CI tests are switched off while hosted Actions minutes are short (Bryan, 2 Nov 2026):
-the `CI_TESTS` repository variable turns them back on, and until then agents run
-`scripts/local-ci.sh --no-amend` before merging ([Tests on or off](docs/ci.md#tests-on-or-off)).
+GitHub CI tests run on free GitHub-hosted runners since the repository went public (they were
+off from 2 Nov 2026 while hosted minutes were short). The `CI_TESTS` repository variable is the
+switch; while it is off, agents run `scripts/local-ci.sh --no-amend` before merging
+([Tests on or off](docs/ci.md#tests-on-or-off)).
 With tests on, [GitHub CI](docs/ci.md) runs the Rust and Python suites, web tests, typecheck and web build on
 every ready PR into main and every main push. Both CI jobs must pass before merge, or be skipped
 by the gate because `scripts/local-ci.sh` passed on that commit's tree (or the PR has the
@@ -185,8 +186,8 @@ npm test              # packages/core
 npm run typecheck     # core + web
 ```
 
-Successful CI on merged `main` automatically deploys through the dedicated saget runner
-([operation and recovery](deploy/RUNNER.md)). Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
+Successful CI on merged `main` automatically deploys through a GitHub-hosted job that reaches saget's release gate over
+Cloudflare Access ([operation and recovery](deploy/RUNNER.md)). Releases follow [deploy/RELEASING.md](deploy/RELEASING.md): fetch GitHub before merging, integrate the completed work into main, verify and publish main, then deploy that same commit from a clean main checkout. `./deploy/deploy.sh --check` checks readiness without contacting saget.
 
 `cargo test` includes the per-card tests (play/src/card_tests/): a smoke test for every card in Bryan's decks and specific tests for the commanders, the cards the decks are built around and the cards phase only partly implements or parses with warnings. What phase supports for each card, and the engine bugs the tests found, are in [docs/card-coverage.md](docs/card-coverage.md); regenerate it, and the tests' card fixture, with `cargo run -p yama-play --bin coverage -- data/engine/card-data-cbd552b41f962f5b.json ../commander-decks --fixture play/tests/fixtures/deck-cards.json --smoke play/src/card_tests/smoke_cards.rs`.
 
@@ -212,3 +213,8 @@ docs/              Design notes
 ```
 
 Phase retry-tail progress shows the experiment's pending/retry counts and hides the normal-pace ETA when only slow retries remain. A completed Phase half is labeled while Forge continues. This is reporting, not a fix for engine stalls or changed timeout budgets.
+
+## Licence
+
+The source is public to read, not to reuse: [LICENSE](LICENSE) reserves all rights, and Bryan
+gives named people written permission. Phase keeps its MIT/Apache-2.0 licence.

@@ -53,6 +53,16 @@ Source checks, native candidate acceptance, exact-image packaging/preflight, hos
 main CI and live play/reconnect checks are separate release gates. A merged Phase PR or
 component browser fixture alone proves neither Yama deployment nor live match behavior.
 
+## Repository and licence (11 November 2026)
+
+Bryan wanted a friend to fork Yama, and free GitHub-hosted CI, without releasing it for anyone to
+reuse. `github.com/bryanroscoe/yama` is public and source-available: [LICENSE](LICENSE) reserves all
+rights, and named people get written permission on PolyForm Noncommercial 1.0.0 terms. History was
+rewritten once on the move to remove a work email from a patch header; the pre-rewrite repository,
+with its PRs, issues and Actions logs, stays private as `bryanroscoe/yama-archive`. CI runs on
+GitHub-hosted runners and deploys over Cloudflare Access; no self-hosted runner is ever registered
+on the public repository, because a fork's pull request could rewrite a workflow to run on it.
+
 ## 1. What we're building
 
 | Area | Features | Matches Mythic Tools | Beyond Mythic Tools |
@@ -220,6 +230,11 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
+**Since the repository went public (November 2026)** CI runs on GitHub-hosted runners with
+`CI_TESTS` on, deploys use the Cloudflare Access backend, and saget runners are never used
+(Repository and licence, above). The next three paragraphs describe the private repository
+(now `bryanroscoe/yama-archive`); their saget runner choices are private-only history.
+
 **Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for same-repository
 PRs into every base branch (including stacked feature PRs) and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
 event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
@@ -234,7 +249,7 @@ main-push CI gates automatic production deployment; the opt-in hosted lab simula
 remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 
 **CI tests off (Bryan, 2026-11-02):** hosted CI used 2,715 of the plan's 3,000 monthly Actions
-minutes in two days, so the repository variable `CI_TESTS` now switches the test jobs and is off.
+minutes in two days, so the repository variable `CI_TESTS` switched the test jobs off until the move to public.
 PR and main-push runs then start no hosted job; agents run the full local checks
 (`scripts/local-ci.sh --no-amend`) on the final head before merging and report them as local
 evidence. A no-op marker job (on the `CI_LINUX_RUNNER` backend) keeps push CI on main successful,
@@ -242,7 +257,8 @@ so automatic deployment and the host release gate work unchanged. Setting `CI_TE
 restores the test CI described above. See `docs/ci.md`, "Tests on or off".
 
 **Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
-triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
+triggers `.github/workflows/deploy.yml`, then on the dedicated saget production runner (since the
+move to public, a GitHub-hosted job over Cloudflare Access). Merging
 reviewed work to main now requests production release. The runner has no Docker socket,
 production data/env mounts or general server shell. A restricted SSH command invokes the
 server-owned `deploy/host.py`, which independently verifies a main commit and its successful
@@ -251,8 +267,8 @@ fetches a dedicated clean main checkout and the published Phase pin, and builds
 committed exports on saget. The repository variable `DEPLOY_BACKEND` can move that request
 from the saget runner to a one-use GitHub-hosted job that reaches the same gate over
 Cloudflare Access SSH (deploy/RUNNER.md). Saget's address and deploy credentials live only in
-the gitignored `deploy/.env` and Actions secrets, never in tracked files. CI jobs can select saget or GitHub-hosted Linux using the repository
-`CI_LINUX_RUNNER` JSON variable; both run the same checks. On saget, a fast pre-job
+the gitignored `deploy/.env` and Actions secrets, never in tracked files. While private, CI jobs could select saget or GitHub-hosted Linux using the repository
+`CI_LINUX_RUNNER` JSON variable; the public repository uses GitHub-hosted only. On saget, a fast pre-job
 hook records the reservation; the first normal workflow step waits for capacity
 before checkout so runner reporting and cancellation stay responsive. The
 personal-account CI fleet control plane lives in `bryanroscoe/sagetserver` with
@@ -335,7 +351,7 @@ Game night has bad wifi, so the companion features must work without a connectio
 The proven approach is: find the card's four corners, straighten the image, turn it into an embedding (a compact numeric fingerprint), and look up the nearest match in a catalog of every printing. Optionally, OCR the collector number to break ties between printings.
 
 - **[CollectorVision](https://github.com/HanClinto/CollectorVision)** does exactly this. ONNX models (portable neural-net files) for corner detection and 128-number embeddings, a catalog of about 108,000 printings keyed by Scryfall ID (53 MB), under 100 ms per scan on a laptop CPU, and an experimental in-browser scanner. Its catalog updates regularly ([CollectorVisionCatalog](https://github.com/HanClinto/CollectorVisionCatalog), MIT).
-- **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. If Yama is open source under a compatible license, we can use it directly. If Yama stays private, we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
+- **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. Yama's source went public in November 2026 under an all-rights-reserved licence (LICENSE), which is not AGPL-compatible, so we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
 - **Plan:**
   1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's phone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
   2. If that's too slow, move inference to a native Capacitor plugin: ONNX Runtime Mobile on Android.
