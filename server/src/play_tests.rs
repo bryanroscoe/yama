@@ -1617,6 +1617,7 @@ async fn a_finished_game_saves_its_knockouts_and_how_it_was_won() {
     // A save that isn't asked for knockouts leaves the seats alone while the game is going.
     m.concede(1).unwrap();
     let turn = i64::from(m.outs()[0].turn);
+    assert!(m.events(None).iter().any(|h| matches!(h.what, yama_play::feed::What::Out { seat: 1 }) && i64::from(h.turn) == turn), "the feed has the knockout");
     persist(&pool, "results", &m, false).await.unwrap();
     assert_eq!(seats().await, vec![(0, None, None), (1, None, None), (2, None, None)]);
     persist(&pool, "results", &m, true).await.unwrap();

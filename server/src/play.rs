@@ -682,19 +682,17 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -
         .execute(&mut *tx)
         .await?;
         for k in &found {
-            // The feed keeps only the newest happenings, so a knockout from long ago can't name who
-            // did it any more: keep the name stored when it happened (same seat, same turn).
-            sqlx::query(
-                "UPDATE game_seats SET eliminated_by_seat = CASE WHEN ?1 IS NOT NULL THEN ?1 WHEN eliminated_turn = ?2 THEN eliminated_by_seat END,
-                        eliminated_turn = ?2
-                 WHERE game_id = ?3 AND seat = ?4",
-            )
-            .bind(k.by.map(i64::from))
-            .bind(i64::from(k.turn))
-            .bind(game_id)
-            .bind(i64::from(k.seat))
-            .execute(&mut *tx)
-            .await?;
+            // Read from the moment it happened while the feed holds it; a name stored for this
+            // same knockout stays if the hit behind it has since left the feed. Once the feed has
+            // let the knockout go, what was stored when it happened stands.
+            let sql = if k.seen {
+                "UPDATE game_seats SET eliminated_by_seat = COALESCE(?1, CASE WHEN eliminated_turn = ?2 THEN eliminated_by_seat END), eliminated_turn = ?2
+                 WHERE game_id = ?3 AND seat = ?4"
+            } else {
+                "UPDATE game_seats SET eliminated_by_seat = COALESCE(eliminated_by_seat, ?1), eliminated_turn = COALESCE(eliminated_turn, ?2)
+                 WHERE game_id = ?3 AND seat = ?4"
+            };
+            sqlx::query(sql).bind(k.by.map(i64::from)).bind(i64::from(k.turn)).bind(game_id).bind(i64::from(k.seat)).execute(&mut *tx).await?;
         }
     }
     if m.is_over() {
