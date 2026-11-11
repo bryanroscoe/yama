@@ -73,6 +73,7 @@ pub fn catalog() -> Vec<Value> {
     // A save takes a replacement list and optional target deck, unlike a read selector.
     save["deck"] = string("Optional existing deck to replace; absent means create a new deck.");
     save.as_object_mut().unwrap().remove("version");
+    save["op_id"] = super::tools::op_id_schema();
     vec![
         tool(
             "search_scryfall",

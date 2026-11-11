@@ -40,6 +40,11 @@ pub const SIGN_IN_WINDOW: Duration = Duration::from_secs(10 * 60);
 pub const NEW_ACCOUNTS_PER_ADDRESS: usize = 3;
 pub const NEW_ACCOUNTS_PER_HOUR: usize = 60;
 
+/// Tool calls on `/mcp` one account may make in a minute, and in a day when it joined through
+/// open sign-up (docs/mcp-design.md, Limits).
+pub const MCP_CALLS_PER_MINUTE: usize = 120;
+pub const MCP_CALLS_PER_DAY: usize = 200;
+
 /// Keys kept before stale ones are swept out.
 const SWEEP_AT: usize = 10_000;
 
@@ -184,6 +189,12 @@ pub struct Limits {
     pub oauth_approve: RateLimiter,
     /// MPC Autofill image searches for a MakePlayingCards order (mpc.rs), per account.
     pub mpc_images: RateLimiter,
+    /// Tool calls on `/mcp`, per account: an assistant at work makes a few dozen in a burst, a
+    /// loop that never ends makes hundreds.
+    pub mcp_calls: RateLimiter,
+    /// Tool calls on `/mcp` in a day, for an account that joined through open sign-up
+    /// (`User::limited`). Invited accounts and admins have no daily count.
+    pub mcp_calls_daily: RateLimiter,
 }
 
 impl Default for Limits {
@@ -218,6 +229,8 @@ impl Default for Limits {
             oauth_token: RateLimiter::new("token requests from this address", 300, 10 * MINUTE),
             oauth_approve: RateLimiter::new("app sign-ins", 30, 10 * MINUTE),
             mpc_images: RateLimiter::new("print image searches", 30, 10 * MINUTE),
+            mcp_calls: RateLimiter::new("tool calls", MCP_CALLS_PER_MINUTE, MINUTE),
+            mcp_calls_daily: RateLimiter::new("tool calls today", MCP_CALLS_PER_DAY, DAY),
         }
     }
 }

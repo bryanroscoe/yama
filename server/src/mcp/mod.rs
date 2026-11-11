@@ -256,6 +256,11 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             if !tools::offered(&name, &user, &via) {
                 rpc_error(&id, -32602, &format!("unknown tool \"{name}\""))
+            } else if let Err(e) = count_call(&st.limits, &user) {
+                // A tool result, not an HTTP 429: the assistant reads the reason and waits,
+                // where a transport error would only make its client retry.
+                tracing::info!(target: crate::request_log::TARGET, tool = %name, via = via.as_str(), ok = false, limited = true, user = %user.id, "mcp tool call");
+                rpc_result(&id, json!({"content": [{"type": "text", "text": tool_error(e)}], "isError": true}))
             } else {
                 let started = Instant::now();
                 let out = tools::call(&st, &user, &via, &name, &args).await;
@@ -271,6 +276,22 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
         _ => rpc_error(&id, -32601, &format!("method \"{method}\" isn't supported")),
     };
     Json(reply).into_response()
+}
+
+/// Count one tool call against the account's limits, or refuse it: so many a minute for
+/// everyone but admins, and so many a day for an account that joined through open sign-up. Both
+/// are checked before either is counted, so a refusal by one doesn't use up the other.
+fn count_call(limits: &crate::limits::Limits, user: &User) -> Result<(), AppError> {
+    if user.is_admin {
+        return Ok(());
+    }
+    limits.mcp_calls.allows(&user.id)?;
+    if user.limited {
+        limits.mcp_calls_daily.allows(&user.id)?;
+        limits.mcp_calls_daily.record(&user.id);
+    }
+    limits.mcp_calls.record(&user.id);
+    Ok(())
 }
 
 /// What Claude sees when a tool fails: the reason for anything the caller can fix, nothing more

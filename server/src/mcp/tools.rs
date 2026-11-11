@@ -85,8 +85,11 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "save_research",
         title: "Save private research for review in Yama",
-        description: "Store or refresh a yama-research/1 document: a deck plan's content (builds, swaps with reasons, acquisition evidence), private to the caller. This saves directly and idempotently; review choices survive refreshes and changed targets are flagged. A plan already tracking one of the note's builds follows the refreshed note (its swaps, store offers and lists are derived again). It never installs or saves a playable deck, changes inventory, approves a purchase, orders prints or starts games. To make a build the deck's plan, stage track_build afterwards. Use when asked to store research or a plan in Yama. Owner comes from sign-in, never the document.",
-        schema: || json!({"type":"object","properties":{"document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."}},"required":["document"],"additionalProperties":false}),
+        description: "Store or refresh a yama-research/1 document: a deck plan's content (builds, swaps with reasons, acquisition evidence), private to the caller. This saves directly and idempotently, replacing the note's earlier revision; review choices survive refreshes and changed targets are flagged. A plan already tracking one of the note's builds follows the refreshed note (its swaps, store offers and lists are derived again). A document that drops a deck or build a plan tracks would stop that plan, so it is refused and nothing is saved unless stop_plans is true. It never installs or saves a playable deck, changes inventory, approves a purchase, orders prints or starts games. To make a build the deck's plan, stage track_build afterwards. Use when asked to store research or a plan in Yama. Owner comes from sign-in, never the document.",
+        schema: || json!({"type":"object","properties":{
+            "document":{"type":"object","description":"A yama-research/1 report (up to 4 MiB), with id, title, generated_at, decks and exact proposed builds."},
+            "stop_plans":{"type":"boolean","description":"Only when they asked to drop the plan: also archive each plan tracking a deck or build this document no longer has, and retire its swaps (default false: such a save is refused and names those plans)."}
+        },"required":["document"],"additionalProperties":false}),
         does: Does::Research,
     },
     Tool {
@@ -935,21 +938,35 @@ fn for_caller(user: &User, via: &Via) -> impl Iterator<Item = &'static Tool> {
     TOOLS.iter().filter(move |t| (decide || t.does != Does::Decide) && (power || !SIMULATIONS.contains(&t.name)))
 }
 
+/// The `op_id` argument every staging tool takes (`changes::op_id`).
+pub(super) fn op_id_schema() -> Value {
+    json!({"type": "string", "minLength": 8, "maxLength": 64, "pattern": "^[A-Za-z0-9_-]+$",
+           "description": "Optional: your own id for this call, such as a new UUID. Calling again with the same op_id answers with the change already staged instead of staging another, so a retry after a lost reply is safe."})
+}
+
 pub fn list(user: &User, via: &Via) -> Vec<Value> {
     for_caller(user, via)
         .map(|t| {
             let annotations = match t.does {
                 Does::Read => json!({"readOnlyHint": true, "openWorldHint": false}),
+                // Saving a note replaces its earlier revision and, with stop_plans, archives the
+                // plans the new document no longer describes.
+                Does::Research if t.name == "save_research" => json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}),
                 Does::Research => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}),
-                // Staging adds a pending row and nothing else: harmless to repeat, never destructive.
+                // Staging adds a pending row and nothing else: never destructive. A repeat stages
+                // a second change unless the call carries an op_id.
                 Does::Stage => json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}),
                 Does::Decide => json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false}),
             };
+            let mut schema = (t.schema)();
+            if t.does == Does::Stage {
+                schema["properties"]["op_id"] = op_id_schema();
+            }
             json!({
                 "name": t.name,
                 "title": t.title,
                 "description": t.description,
-                "inputSchema": (t.schema)(),
+                "inputSchema": schema,
                 "annotations": annotations,
             })
         })
@@ -961,8 +978,26 @@ pub fn offered(name: &str, user: &User, via: &Via) -> bool {
     for_caller(user, via).any(|t| t.name == name) || super::research::offered(name)
 }
 
+/// What a staging tool stores as the change's kind: its own name, except `save_deck`, whose
+/// complete list is an `edit_deck` change.
+fn staged_kind(name: &str) -> Option<&'static str> {
+    if name == "save_deck" {
+        return Some("edit_deck");
+    }
+    TOOLS.iter().find(|t| t.name == name && t.does == Does::Stage).map(|t| t.name)
+}
+
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
+    // A staging call repeated with its op_id answers with the change it staged the first time,
+    // before any check that would now fail because that change was applied.
+    if let Some(kind) = staged_kind(name) {
+        if let Some(op) = changes::op_id(args)? {
+            if let Some(again) = changes::staged_before(st, user, via, kind, op).await? {
+                return Ok(again);
+            }
+        }
+    }
     match name {
         "datasets" => Ok(serde_json::to_string(&crate::datasets::list(pool,&user.id).await?).map_err(anyhow::Error::from)?),
         "dataset" => {
@@ -973,7 +1008,16 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
         },
         "save_research" => {
             let document = args.get("document").ok_or_else(|| AppError::bad("Missing document."))?;
-            Ok(crate::deck_research::save(pool, &user.id, document).await?.to_string())
+            let stop_plans = match args.get("stop_plans") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err(AppError::bad("stop_plans must be true or false")),
+            };
+            // Ask Claude can't apply a change, so it can't archive a plan this way either.
+            if stop_plans && !via.may_apply() {
+                return Err(AppError::bad("stop_plans isn't available here: they can archive a plan on its page in Yama. Nothing was saved."));
+            }
+            Ok(crate::deck_research::save_guarded(pool, &user.id, document, stop_plans).await?.to_string())
         }
         "review_research" => {
             let id=text_arg(args,"id")?;

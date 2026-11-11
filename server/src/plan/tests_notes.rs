@@ -447,3 +447,50 @@ async fn an_import_that_moves_a_donor_aside_never_leaves_a_stale_donor_key() {
     let got: String = sqlx::query_scalar("SELECT got FROM plan_swaps WHERE owner_id = ? AND ext_key = 'n|audit|energy|b4|rhystic'").bind(&a).fetch_one(&pool).await.unwrap();
     assert_ne!(serde_json::from_str::<Value>(&got).unwrap()["deck"], json!("ahoy"));
 }
+
+#[tokio::test]
+async fn save_research_refuses_to_stop_a_plan_without_their_say() {
+    let (app, pool) = app().await;
+    let (a, session) = user(&pool, "a@example.com").await;
+    save_note(&app, &session, &note()).await;
+    let (status, r) = track(&app, &session, "b3", "op-1").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    let (_, made) = send(&app, Method::POST, "/api/me/tokens", Some(&session), Some(json!({"name": "Claude", "scope": "mcp"}))).await;
+    let key = made["token"].as_str().unwrap();
+    let plan_status = || async { sqlx::query_scalar::<_, String>("SELECT status FROM plan_decks WHERE owner_id = ? AND key = 'energy'").bind(&a).fetch_one(&pool).await.unwrap() };
+    let note_now = || async { sqlx::query_as::<_, (String, i64)>("SELECT title, revision FROM research_reports WHERE owner_id = ? AND id = 'audit'").bind(&a).fetch_one(&pool).await.unwrap() };
+
+    // A refreshed note that still has the tracked build saves as before, and the plan follows it.
+    let mut kept = note();
+    kept["title"] = json!("Energy upgrades, revised");
+    let (err, text) = call(&app, key, "save_research", json!({"document": kept})).await;
+    assert!(!err && text.contains("\"plans_updated\":1"), "{text}");
+
+    // One that drops the tracked build would archive the plan: refused, and nothing is saved.
+    let mut dropped = note();
+    dropped["decks"][0]["builds"].as_array_mut().unwrap().remove(0);
+    let (err, text) = call(&app, key, "save_research", json!({"document": dropped.clone()})).await;
+    assert!(err && text.starts_with("Not saved") && text.contains("Energy (plan key energy)") && text.contains("stop_plans"), "{text}");
+    assert_eq!(note_now().await, ("Energy upgrades, revised".to_string(), 2), "the note is as it was");
+    assert_ne!(plan_status().await, "archived");
+    assert_eq!(live_swaps(&pool, &a).await.len(), 3, "the plan keeps its swaps");
+
+    // Ask Claude can't apply a change, and can't stop a plan this way either.
+    let q = crate::mcp::QuestionToken::mint(&a, crate::mcp::Question::default());
+    let (err, text) = call(&app, &q.token, "save_research", json!({"document": dropped.clone(), "stop_plans": true})).await;
+    assert!(err && text.contains("stop_plans isn't available"), "{text}");
+    assert_ne!(plan_status().await, "archived");
+
+    // With their say, an outside client's save goes through and the plan stops.
+    let (err, text) = call(&app, key, "save_research", json!({"document": dropped, "stop_plans": true})).await;
+    assert!(!err && text.contains("\"plans_stopped\":1"), "{text}");
+    assert_eq!(plan_status().await, "archived");
+    assert!(live_swaps(&pool, &a).await.is_empty());
+
+    // The tool list says what it can do: saving a note isn't marked harmless any more.
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(key), Some(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}))).await;
+    let tool = |name: &str| r["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap().clone();
+    assert_eq!(tool("save_research")["annotations"]["destructiveHint"], true);
+    assert_eq!(tool("save_research")["inputSchema"]["properties"]["stop_plans"]["type"], "boolean");
+    assert_eq!(tool("review_research")["annotations"]["destructiveHint"], false);
+}

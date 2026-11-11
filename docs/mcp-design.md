@@ -52,6 +52,15 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
 - Applying re-checks everything (the deck still exists and is the version the change was made
   against, the card resolves, the swap key is current). A stale change fails with the reason and
   stays pending, so nothing is applied on top of a list it wasn't made for.
+- **Staging is idempotent when the caller wants it** (2026-11-11). Every staging tool takes an
+  optional `op_id` (8 to 64 letters, digits, hyphens or underscores; a UUID). A second call with
+  the same `op_id` answers with the change the first one staged, whatever became of it, and stages
+  nothing; the answer comes before any check, so a retry after the change was applied doesn't
+  fail on the new list. An `op_id` that staged a different kind of change is refused. Ids are per
+  account (`assistant_changes.op_id`, unique with the owner). Without one, a repeat stages again.
+- **One apply or discard at a time per account** (`changes::owner_lock`, 2026-11-11), so a change
+  can't be applied twice at once. Before, one lock covered every account, and a slow apply held
+  up everyone else's.
 
 ## Tools
 
@@ -68,7 +77,12 @@ owner-checked resources. `save_deck` stages a complete new/replacement list, nev
 Private research adds `research`, `save_research` and `review_research`; see
 [its format and review semantics](research-format.md). The latter two store advice and stated
 preferences directly, an explicit exception to staged execution writes. They never alter a deck,
-inventory, planner approval, order or game. Compact reads and deck/build/scenario filters avoid
+inventory, planner approval, order or game. A saved note does move the plans that track its
+builds: they follow the refreshed note. So `save_research` is annotated as able to destroy
+(it replaces the note's earlier revision), and a document that drops a deck or build a plan
+tracks, which would archive that plan and retire its swaps, is refused with the plans named and
+nothing saved unless the call says `stop_plans: true` (2026-11-11). Ask Claude can't pass it, as
+it can't apply a change; the page's own upload is unchanged. Compact reads and deck/build/scenario filters avoid
 returning every list to a client that only needs one decision.
 
 **Deck plans (2026-11-04).** Bryan: "I would expect plans to be part of the MCP." A deck plan is a
@@ -127,8 +141,13 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 
 ## Limits
 
-- Tool calls count toward the asker's allowance: Ask Claude's daily question count, plus at most
-  200 tool calls a day for open sign-up accounts (none for admins).
+- Tool calls are counted per account (built 2026-11-11, `mcp::count_call`, `limits.rs`): at most
+  120 a minute for everyone but admins, and at most 200 a day for an account that joined through
+  open sign-up. Invited accounts and admins have no daily count. A refused call is a tool result
+  that says how long to wait, not an HTTP 429, so the assistant reads the reason instead of its
+  client retrying. The counts are in memory, like the other rate limits: a restart starts them
+  again, so they stop a runaway loop and are not a quota. Ask Claude's own daily question count is
+  separate.
 - `start_lab_run`, `more_lab_games` and `run_lab_again` use the lab's own allowance and queue caps.
 - Results are capped (a list is at most 300 lines, a search 60 cards) so one call can't fill the
   context window.
@@ -158,7 +177,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
    connect with a key.
 2. **Staged writes** (built 2026-10-23; ARCHITECTURE.md has what shipped). `assistant_changes`, the
    write tools, Apply and Discard in the panel and on Decks, Suggested changes, `apply_change` and
-   `discard_change` for keys and OAuth sign-ins. Not built: turning `apply_change` off for keys, the
+   `discard_change` for keys and OAuth sign-ins. Not built: turning `apply_change` off for keys. Built 2026-11-11: the
    daily tool-call cap for open sign-up accounts.
 3. **OAuth** for Claude Code and the claude.ai and phone apps' connectors (built 2026-10-22; below,
    and ARCHITECTURE.md has what shipped).

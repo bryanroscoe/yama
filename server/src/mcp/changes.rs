@@ -157,9 +157,60 @@ struct Staged {
     payload: Value,
 }
 
-/// Store a change as pending and tell Claude what happens next.
-async fn stage(st: &AppState, user: &User, via: &Via, s: Staged) -> AppResult<String> {
+/// The caller's own id for one staging call (`op_id`): repeating the call with it stages nothing
+/// new. Letters, digits, hyphens and underscores, so a UUID fits.
+pub(super) fn op_id(args: &Value) -> AppResult<Option<&str>> {
+    match args.get("op_id").filter(|v| !v.is_null()) {
+        None => Ok(None),
+        Some(Value::String(s)) if (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') => Ok(Some(s)),
+        Some(_) => Err(AppError::bad("op_id must be 8 to 64 letters, digits, hyphens or underscores (a UUID works)")),
+    }
+}
+
+/// The change this account already staged with `op`, as a staging tool's answer: a retried call
+/// gets the first call's change back, whatever became of it since. `kind` is what the tool
+/// stages; an op id that staged something else is refused, so a reused id never hides a new change.
+pub(super) async fn staged_before(st: &AppState, user: &User, via: &Via, kind: &str, op: &str) -> AppResult<Option<String>> {
+    #[allow(clippy::type_complexity)]
+    let row: Option<(String, String, String, Option<String>, String)> =
+        sqlx::query_as("SELECT id, kind, summary, detail, status FROM assistant_changes WHERE owner_id = ? AND op_id = ?").bind(&user.id).bind(op).fetch_optional(&st.pool).await?;
+    let Some((id, was, summary, detail, status)) = row else { return Ok(None) };
+    if was != kind {
+        return Err(AppError::bad(format!("op_id {op} already staged another change ({summary}). Use a new op_id for a new change. Nothing was staged.")));
+    }
+    let mut out = format!("Already staged with this op_id; nothing new was staged.\nChange: {summary}\n");
+    if let Some(d) = detail.as_deref().filter(|d| !d.trim().is_empty()) {
+        let _ = writeln!(out, "{}", d.trim());
+    }
+    let _ = writeln!(out, "Change id: {id}");
+    match status.as_str() {
+        "pending" => out.push_str(&next_step(st, via)),
+        decided => {
+            let _ = write!(out, "It was {decided} since.");
+        }
+    }
+    Ok(Some(out))
+}
+
+/// What happens to a pending change next, for the caller that staged it.
+fn next_step(st: &AppState, via: &Via) -> String {
+    let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Suggested changes".into());
+    match via {
+        Via::Question(_) => "It shows under your answer with Apply and Discard buttons. Say that it's waiting for their review; never say it's done.".into(),
+        _ => format!("They can apply or discard it in Yama ({page}). If they say yes to this change in this conversation, you may call apply_change with its id."),
+    }
+}
+
+/// Store a change as pending and tell Claude what happens next. With an `op_id` in `args`, a
+/// second call stores nothing and answers with the first one's change.
+async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -> AppResult<String> {
     let pool = &st.pool;
+    let op = op_id(args)?;
+    if let Some(op) = op {
+        if let Some(again) = staged_before(st, user, via, s.kind, op).await? {
+            return Ok(again);
+        }
+    }
     let waiting: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ? AND status = 'pending'").bind(&user.id).fetch_one(pool).await?;
     if waiting >= MAX_PENDING {
@@ -172,9 +223,9 @@ async fn stage(st: &AppState, user: &User, via: &Via, s: Staged) -> AppResult<St
         Via::Question(q) => (Some(q.conversation_id.as_str()), Some(q.message_id.as_str())),
         _ => (None, None),
     };
-    sqlx::query(
-        "INSERT INTO assistant_changes (id, owner_id, kind, summary, detail, payload, via, conversation_id, message_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    let stored = sqlx::query(
+        "INSERT INTO assistant_changes (id, owner_id, kind, summary, detail, payload, via, conversation_id, message_id, created_at, op_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&user.id)
@@ -186,25 +237,26 @@ async fn stage(st: &AppState, user: &User, via: &Via, s: Staged) -> AppResult<St
     .bind(conversation)
     .bind(message)
     .bind(now())
+    .bind(op)
     .execute(pool)
-    .await?;
+    .await;
+    match stored {
+        Ok(_) => {}
+        // Two calls with one op id at once: the index lets one in, and the other answers with it.
+        Err(e) if op.is_some() && e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
+            return match staged_before(st, user, via, s.kind, op.unwrap_or_default()).await? {
+                Some(again) => Ok(again),
+                None => Err(e.into()),
+            };
+        }
+        Err(e) => return Err(e.into()),
+    }
     let mut out = format!("Staged for their review; nothing has changed yet.\nChange: {}\n", s.summary);
     if !s.detail.trim().is_empty() {
         let _ = writeln!(out, "{}", s.detail.trim());
     }
     let _ = writeln!(out, "Change id: {id}");
-    let page = st.cfg.public_url.as_deref().map(|u| format!("{}/decks/changes", u.trim_end_matches('/'))).unwrap_or_else(|| "Decks, Suggested changes".into());
-    match via {
-        Via::Question(_) => out.push_str(
-            "It shows under your answer with Apply and Discard buttons. Say that it's waiting for their review; never say it's done.",
-        ),
-        _ => {
-            let _ = write!(
-                out,
-                "They can apply or discard it in Yama ({page}). If they say yes to this change in this conversation, you may call apply_change with its id."
-            );
-        }
-    }
+    out.push_str(&next_step(st, via));
     Ok(out)
 }
 
@@ -340,11 +392,7 @@ pub async fn edit_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         let _ = writeln!(detail, "Why: {n}");
     }
     let _ = write!(detail, "The list after:\n{}", checks(&after, &info));
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "edit_deck",
             summary: edit_summary(&name, &add, &remove),
             detail,
@@ -429,11 +477,7 @@ pub async fn delete_deck(st: &AppState, user: &User, via: &Via, args: &Value) ->
     };
     let detail = format!("{detail} Its share link stops working; games already played keep their record.");
     let pinned: Vec<&str> = configs.iter().map(|(c, _)| c.as_str()).collect();
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "delete_deck",
             summary,
             detail,
@@ -534,7 +578,7 @@ pub async fn save_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> A
         checks(&list.cards, &info),
         analysis::exported(&list.cards)
     );
-    stage(st,user,via,Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source})}).await
+    stage(st, user, via, args, Staged {kind:"edit_deck",summary,detail,payload:json!({"complete_list":true,"deck_id":target,"base_version":base,"name":name,"cards":list.cards,"note":note,"source_url":source})}).await
 }
 
 async fn apply_complete_deck(
@@ -689,11 +733,7 @@ pub async fn propose_swap(st: &AppState, user: &User, via: &Via, args: &Value) -
         Some(o) => format!("Idea for {deck}: {card_in} for {o}"),
         None => format!("Idea for {deck}: add {card_in}"),
     };
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "propose_swap",
             summary,
             detail: why.as_deref().map(|w| format!("Why: {w}")).unwrap_or_default(),
@@ -718,11 +758,7 @@ pub async fn answer_review(st: &AppState, user: &User, via: &Via, args: &Value) 
     if let Some(n) = &note {
         let _ = writeln!(detail, "Note: {n}");
     }
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "answer_review",
             summary: format!("Review, {}: {label} for {}", swap.deck, swap.label()),
             detail,
@@ -761,11 +797,7 @@ pub async fn mark_bought(st: &AppState, user: &User, via: &Via, args: &Value) ->
         }
         detail.push_str(". A bought mark is their claim; it doesn't record an order or change a list.");
     }
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "mark_bought",
             summary,
             detail,
@@ -779,11 +811,7 @@ pub async fn mark_installed(st: &AppState, user: &User, via: &Via, args: &Value)
     let swap = find_swap(&st.pool, &user.id, args).await?;
     let value = args.get("value").and_then(Value::as_bool).unwrap_or(true);
     let summary = if value { format!("Installed, {}: {}", swap.deck, swap.label()) } else { format!("Not installed, {}: {}", swap.deck, swap.label()) };
-    stage(
-        st,
-        user,
-        via,
-        Staged { kind: "mark_installed", summary, detail: String::new(), payload: json!({"swap_key": swap.key, "deck_key": swap.deck_key, "deck": swap.deck, "value": value}) },
+    stage(st, user, via, args, Staged { kind: "mark_installed", summary, detail: String::new(), payload: json!({"swap_key": swap.key, "deck_key": swap.deck_key, "deck": swap.deck, "value": value}) },
     )
     .await
 }
@@ -794,11 +822,7 @@ pub async fn swap_in_prints(st: &AppState, user: &User, via: &Via, args: &Value)
     if preview.done {
         return Ok(preview.text());
     }
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "swap_in_prints",
             summary: format!("Swap the prints into {name}: {} proxies, {} cards moved, {} swaps ticked installed", preview.proxies_added, preview.moved, preview.ticks.len()),
             detail: preview.text(),
@@ -843,11 +867,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         let Some((key, _, _, _)) = active else {
             return Ok(format!("No build of {deck_name} in \"{title}\" is tracked, so there's nothing to stop."));
         };
-        return stage(
-            st,
-            user,
-            via,
-            Staged {
+        return stage(st, user, via, args, Staged {
                 kind: "track_build",
                 summary: format!("Stop tracking {deck_name}'s plan"),
                 detail: "Its swaps, marks and answers are kept; tracking a build again brings them back.".into(),
@@ -890,11 +910,7 @@ pub async fn track_build(st: &AppState, user: &User, via: &Via, args: &Value) ->
         Some(_) => format!("Switch {deck_name}'s plan to {label}"),
         None => format!("Track {label} as {deck_name}'s plan"),
     };
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "track_build",
             summary,
             detail,
@@ -1010,11 +1026,7 @@ pub async fn approve_plan(st: &AppState, user: &User, via: &Via, args: &Value) -
             let _ = writeln!(detail, "{} {}", a["question"].as_str().unwrap_or_default(), a["answer"].as_str().unwrap_or_default());
         }
     }
-    stage(
-        st,
-        user,
-        via,
-        Staged {
+    stage(st, user, via, args, Staged {
             kind: "approve_plan",
             summary,
             detail,
@@ -1299,7 +1311,7 @@ pub async fn start_lab_run(st: &AppState, user: &User, via: &Via, args: &Value) 
         _ if request.get("field").is_some() => format!("{games} games, with {against} filling empty seats, {engines}."),
         _ => format!("{games} games, {engines}."),
     };
-    stage(st, user, via, Staged { kind: "start_lab_run", summary, detail, payload: request }).await
+    stage(st, user, via, args, Staged { kind: "start_lab_run", summary, detail, payload: request }).await
 }
 
 async fn apply_lab_run(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
@@ -1379,7 +1391,7 @@ pub async fn more_lab_games(st: &AppState, user: &User, via: &Via, args: &Value)
         }
     }
     let summary = format!("More lab games, {}: {games} more", run.name);
-    stage(st, user, via, Staged { kind: "more_lab_games", summary, detail, payload: json!({"experiment": id, "games": games, "seen_pods": run.pods}) }).await
+    stage(st, user, via, args, Staged { kind: "more_lab_games", summary, detail, payload: json!({"experiment": id, "games": games, "seen_pods": run.pods}) }).await
 }
 
 async fn apply_more_games(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
@@ -1412,7 +1424,7 @@ pub async fn run_lab_again(st: &AppState, user: &User, via: &Via, args: &Value) 
         "A new run with the same lists, opponents, engines and AI{}, and a new seed. The first run stays as it is.",
         if run.engine == "both" { format!(" ({games} games on each engine)") } else { String::new() }
     );
-    stage(st, user, via, Staged { kind: "run_lab_again", summary, detail, payload: json!({"experiment": id, "games": games}) }).await
+    stage(st, user, via, args, Staged { kind: "run_lab_again", summary, detail, payload: json!({"experiment": id, "games": games}) }).await
 }
 
 async fn apply_again(st: &AppState, user: &User, change: &str, p: &Value) -> AppResult<Value> {
@@ -1434,7 +1446,7 @@ pub async fn cancel_lab_run(st: &AppState, user: &User, via: &Via, args: &Value)
     }
     let summary = format!("Cancel lab run, {}", run.name);
     let detail = "Games already playing finish and count; no new ones start. The results so far stay.".to_string();
-    stage(st, user, via, Staged { kind: "cancel_lab_run", summary, detail, payload: json!({"experiment": id}) }).await
+    stage(st, user, via, args, Staged { kind: "cancel_lab_run", summary, detail, payload: json!({"experiment": id}) }).await
 }
 
 async fn apply_cancel(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
@@ -1522,7 +1534,7 @@ pub async fn add_to_collection(st: &AppState, user: &User, via: &Via, args: &Val
         "scryfall_id": scryfall_id, "name": name, "qty": qty, "proxy": proxy, "finish": finish,
         "container_id": place.as_ref().map(|(id, _)| id), "container": place.as_ref().map(|(_, n)| n),
     });
-    stage(st, user, via, Staged { kind: "add_to_collection", summary, detail: String::new(), payload }).await
+    stage(st, user, via, args, Staged { kind: "add_to_collection", summary, detail: String::new(), payload }).await
 }
 
 /// One row of the caller's collection that a move can take copies from.
@@ -1575,7 +1587,7 @@ pub async fn move_cards(st: &AppState, user: &User, via: &Via, args: &Value) -> 
     }
     let summary = format!("Move {qty} {name} from {} to {}", from.1, to.1);
     let payload = json!({"oracle_id": oracle_id, "name": name, "qty": qty, "from_id": from.0, "from": from.1, "to_id": to.0, "to": to.1});
-    stage(st, user, via, Staged { kind: "move_cards", summary, detail: String::new(), payload }).await
+    stage(st, user, via, args, Staged { kind: "move_cards", summary, detail: String::new(), payload }).await
 }
 
 /// Card conditions, as the collection page names them.
@@ -1634,7 +1646,7 @@ pub async fn set_condition(st: &AppState, user: &User, via: &Via, args: &Value) 
         "condition": condition, "container_id": place.0, "container": place.1,
         "oracle_id": card.as_ref().map(|(o, _)| o), "name": card.as_ref().map(|(_, n)| n),
     });
-    stage(st, user, via, Staged { kind: "set_condition", summary, detail, payload }).await
+    stage(st, user, via, args, Staged { kind: "set_condition", summary, detail, payload }).await
 }
 
 async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &Value) -> AppResult<Value> {
@@ -1833,7 +1845,7 @@ pub async fn set_shopping_rules(st: &AppState, user: &User, via: &Via, args: &Va
         sealed.map_or_else(|| "no limit".to_string(), |v| format!("at most ${v:.2} a deck before tax"))
     );
     let payload = json!({"changes": changes, "note": note});
-    stage(st, user, via, Staged { kind: "set_shopping_rules", summary, detail, payload }).await
+    stage(st, user, via, args, Staged { kind: "set_shopping_rules", summary, detail, payload }).await
 }
 
 async fn apply_shopping_rules(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
@@ -1916,7 +1928,7 @@ pub async fn set_store_preference(st: &AppState, user: &User, via: &Via, args: &
         parts.push(format!("note: {n}"));
     }
     let payload = json!({"store": key, "changes": changes});
-    stage(st, user, via, Staged { kind: "set_store_preference", summary, detail: parts.join("; ") + ".", payload }).await
+    stage(st, user, via, args, Staged { kind: "set_store_preference", summary, detail: parts.join("; ") + ".", payload }).await
 }
 
 async fn apply_store_preference(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
@@ -1990,7 +2002,7 @@ pub async fn check_stores(st: &AppState, user: &User, via: &Via, args: &Value) -
         stock::DAILY_SNAPSHOTS
     );
     let payload = json!({"stores": (!stores.is_empty()).then(|| stores.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()), "cards": (!cards.is_empty()).then_some(&cards), "yestcg": yestcg});
-    stage(st, user, via, Staged { kind: "check_stores", summary, detail, payload }).await
+    stage(st, user, via, args, Staged { kind: "check_stores", summary, detail, payload }).await
 }
 
 async fn apply_check_stores(st: &AppState, user: &User, change: &str, p: &Value) -> AppResult<Value> {
@@ -2050,7 +2062,7 @@ pub async fn add_wish(st: &AppState, user: &User, via: &Via, args: &Value) -> Ap
         parts.push(format!("why: {y}"));
     }
     let payload = json!({"kind": kind, "name": name, "qty": qty, "priority": priority, "deck_id": w.deck_id, "deck_name": w.deck_name, "why": why});
-    stage(st, user, via, Staged { kind: "add_wish", summary, detail: parts.join(", ") + ".", payload }).await
+    stage(st, user, via, args, Staged { kind: "add_wish", summary, detail: parts.join(", ") + ".", payload }).await
 }
 
 async fn apply_add_wish(st: &AppState, user: &User, change: &str, p: &Value) -> AppResult<Value> {
@@ -2073,15 +2085,28 @@ async fn apply_add_wish(st: &AppState, user: &User, change: &str, p: &Value) -> 
     Ok(json!({"label": format!("Added {} to your shopping list.", saved["name"].as_str().unwrap_or_default()), "id": saved["id"]}))
 }
 
-fn apply_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(Default::default)
+/// One apply or discard at a time for each account, so the same change can't be applied twice
+/// at once (a double click, the page and `apply_change` together). Accounts don't wait on each
+/// other: before 2026-11-11 one lock covered everyone, so a slow apply (a lab run, a store read)
+/// held up every other account's.
+async fn owner_lock(owner: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    type Locks = std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+    static LOCKS: std::sync::OnceLock<Locks> = std::sync::OnceLock::new();
+    let lock = {
+        let mut locks = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        // Forget the accounts nobody is applying for, so the map stays small.
+        if locks.len() >= 256 {
+            locks.retain(|_, l| std::sync::Arc::strong_count(l) > 1);
+        }
+        locks.entry(owner.to_string()).or_default().clone()
+    };
+    lock.lock_owned().await
 }
 
 /// Apply a pending change. A failure is kept on the change (it stays pending) and returned, so the
 /// page shows the reason; a server fault is logged and shown in general terms.
 pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView> {
-    let _one = apply_lock().lock().await;
+    let _one = owner_lock(&user.id).await;
     let row = load(&st.pool, &user.id, id).await?;
     if row.status != "pending" {
         return Err(AppError::Conflict(format!("This change was already {}.", row.status)));
@@ -2133,7 +2158,7 @@ pub async fn apply(st: &AppState, user: &User, id: &str) -> AppResult<ChangeView
 }
 
 pub async fn discard(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
-    let _one = apply_lock().lock().await;
+    let _one = owner_lock(owner).await;
     let row = load(pool, owner, id).await?;
     if row.status != "pending" {
         return Err(AppError::Conflict(format!("This change was already {}.", row.status)));
@@ -2194,6 +2219,27 @@ mod tests {
 
         assert_eq!(edit_list(list.clone(), &[], &[r("x", "Gone")], "Deck").unwrap_err(), "Gone isn't in Deck");
         assert!(edit_list(list, &[], &[r("c", "Commander")], "Deck").unwrap_err().contains("is the commander"));
+    }
+
+    #[tokio::test]
+    async fn applying_waits_only_for_the_same_account() {
+        use std::time::Duration;
+        let held = owner_lock("account-a").await;
+        // Another account goes straight through; the same account waits its turn.
+        tokio::time::timeout(Duration::from_secs(5), owner_lock("account-b")).await.expect("another account isn't held up");
+        assert!(tokio::time::timeout(Duration::from_millis(50), owner_lock("account-a")).await.is_err(), "the same account waits");
+        drop(held);
+        tokio::time::timeout(Duration::from_secs(5), owner_lock("account-a")).await.expect("and gets it when the first is done");
+    }
+
+    #[test]
+    fn op_ids_are_plain_tokens() {
+        assert_eq!(op_id(&json!({})).unwrap(), None);
+        assert_eq!(op_id(&json!({"op_id": null})).unwrap(), None);
+        assert_eq!(op_id(&json!({"op_id": "0f8fad5b-d9cb-469f-a165-70867728950e"})).unwrap(), Some("0f8fad5b-d9cb-469f-a165-70867728950e"));
+        for bad in [json!("short"), json!("has a space in it"), json!(12345678), json!("x".repeat(65))] {
+            assert!(op_id(&json!({"op_id": bad})).is_err(), "{bad}");
+        }
     }
 
     #[test]

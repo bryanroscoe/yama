@@ -651,6 +651,14 @@ pub async fn builds(pool: &SqlitePool, owner: &str) -> AppResult<Value> {
 }
 
 pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult<Value> {
+    save_guarded(pool, owner, document, true).await
+}
+
+/// As `save`. With `stop_plans` false, a document that would stop a plan (it no longer has the
+/// deck or build the plan tracks, so the plan would be archived and its swaps retired) is refused
+/// with those plans named, and nothing is saved: the MCP's `save_research`, where archiving a plan
+/// needs the person's say (2026-11-11).
+pub async fn save_guarded(pool: &SqlitePool, owner: &str, document: &Value, stop_plans: bool) -> AppResult<Value> {
     targets(document)?;
     let id = document["id"].as_str().unwrap();
     let encoded = serde_json::to_string(document).map_err(anyhow::Error::from)?;
@@ -677,6 +685,21 @@ pub async fn save(pool: &SqlitePool, owner: &str, document: &Value) -> AppResult
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+    if changed && !stop_plans {
+        let stopping = crate::plan::notes::would_stop(&mut tx, owner, id, document).await?;
+        if !stopping.is_empty() {
+            // Dropping the transaction leaves the note as it was.
+            let names = stopping.iter().map(|(key, name)| format!("{name} (plan key {key})")).collect::<Vec<_>>().join(", ");
+            return Err(AppError::Conflict(format!(
+                "Not saved: this document no longer has the deck or build that {} {names}, so saving it would archive {} and retire {} swaps. \
+                 Put the deck and build back in the document, or, only if they asked to drop {}, save again with stop_plans true.",
+                if stopping.len() == 1 { "a plan tracks:" } else { "these plans track:" },
+                if stopping.len() == 1 { "that plan" } else { "those plans" },
+                if stopping.len() == 1 { "its" } else { "their" },
+                if stopping.len() == 1 { "it" } else { "them" },
+            )));
+        }
+    }
     // Plans tracking one of this note's builds follow the note (plan/notes.rs).
     let (followed, stopped) = if changed { crate::plan::notes::rederive(&mut tx, owner, id, document).await? } else { (0, 0) };
     tx.commit().await?;

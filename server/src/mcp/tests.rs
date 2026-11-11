@@ -793,3 +793,119 @@ async fn deleting_a_deck_or_a_configuration_waits_for_review() {
     let (err, _) = call(&app, &theirs, "delete_deck", json!({"deck": configs[0]})).await;
     assert!(err, "another account's deck isn't found");
 }
+
+// ── safety (2026-11-11) ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_staging_call_repeated_with_its_op_id_stages_once() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    my_deck(&pool, &a).await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let other = key(&app, &b_session, Some("mcp")).await;
+    let staged = || async { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap() };
+    let op = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    let edit = json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "remove": ["Sol Ring"], "op_id": op});
+
+    let (err, first) = call(&app, &mcp, "edit_deck", edit.clone()).await;
+    assert!(!err && first.starts_with("Staged for their review"), "{first}");
+    let (err, again) = call(&app, &mcp, "edit_deck", edit.clone()).await;
+    assert!(!err && again.starts_with("Already staged with this op_id"), "{again}");
+    assert_eq!(change_id(&again), change_id(&first));
+    assert!(again.contains("apply_change"), "a pending change still says what happens next: {again}");
+    assert_eq!(staged().await, 1, "the retry staged nothing");
+
+    // Without an op id, a repeat is a second change, as before.
+    let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "remove": ["Sol Ring"]})).await;
+    assert!(!err && text.starts_with("Staged for their review"), "{text}");
+    assert_eq!(staged().await, 2);
+
+    // The id names one change of one account: another tool can't reuse it, another account can.
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Sol Ring", "op_id": op})).await;
+    assert!(err && text.contains("already staged another change"), "{text}");
+    let (err, text) = call(&app, &other, "add_to_collection", json!({"card": "Sol Ring", "op_id": op})).await;
+    assert!(!err && text.starts_with("Staged for their review"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "op_id": "short"})).await;
+    assert!(err && text.contains("op_id must be"), "{text}");
+    assert_eq!(staged().await, 2);
+
+    // Once applied, the retry still answers with that change instead of failing on the new list.
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&first)})).await;
+    assert!(!err, "{text}");
+    let (err, again) = call(&app, &mcp, "edit_deck", edit).await;
+    assert!(!err && again.contains("It was applied since."), "{again}");
+    assert_eq!(change_id(&again), change_id(&first));
+    assert_eq!(staged().await, 2);
+
+    // Every staging tool takes op_id, and says so in its schema.
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    let mut staging = 0;
+    for t in r["result"]["tools"].as_array().unwrap() {
+        if t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false {
+            staging += 1;
+            assert_eq!(t["inputSchema"]["properties"]["op_id"]["type"], "string", "{} has no op_id", t["name"]);
+        }
+    }
+    assert!(staging >= 19, "{staging} staging tools");
+}
+
+#[test]
+fn tool_calls_are_counted_per_account() {
+    use crate::auth::User;
+    use crate::limits::{Limits, MCP_CALLS_PER_DAY, MCP_CALLS_PER_MINUTE, RateLimiter};
+    let who = |id: &str, limited: bool, admin: bool| User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: admin };
+    let limits = Limits::default();
+    let invited = who("invited", false, false);
+    for _ in 0..MCP_CALLS_PER_MINUTE {
+        super::count_call(&limits, &invited).unwrap();
+    }
+    let refused = super::count_call(&limits, &invited).unwrap_err().to_string();
+    assert!(refused.contains("Too many tool calls. Try again in"), "{refused}");
+    super::count_call(&limits, &who("someone-else", false, false)).expect("each account has its own count");
+    for _ in 0..MCP_CALLS_PER_MINUTE * 3 {
+        super::count_call(&limits, &who("admin", false, true)).expect("admins aren't counted");
+    }
+
+    // The day's count is only for accounts that joined through open sign-up.
+    let roomy = Limits { mcp_calls: RateLimiter::new("tool calls", 100_000, std::time::Duration::from_secs(60)), ..Limits::default() };
+    let open = who("open", true, false);
+    for _ in 0..MCP_CALLS_PER_DAY {
+        super::count_call(&roomy, &open).unwrap();
+    }
+    let refused = super::count_call(&roomy, &open).unwrap_err().to_string();
+    assert!(refused.contains("Too many tool calls today"), "{refused}");
+    for _ in 0..MCP_CALLS_PER_DAY + 50 {
+        super::count_call(&roomy, &invited).expect("an invited account has no daily count");
+    }
+
+    // A call the minute's limit refuses doesn't use up the day's.
+    let tight = Limits { mcp_calls: RateLimiter::new("tool calls", 1, std::time::Duration::from_secs(60)), ..Limits::default() };
+    super::count_call(&tight, &open).unwrap();
+    for _ in 0..MCP_CALLS_PER_DAY * 2 {
+        assert!(super::count_call(&tight, &open).is_err());
+    }
+    assert!(tight.mcp_calls_daily.allows(&open.id).is_ok(), "refused calls weren't counted toward the day");
+}
+
+#[tokio::test]
+async fn a_flood_of_tool_calls_is_refused_as_a_tool_error() {
+    let (app, pool) = app().await;
+    let (_, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let other = key(&app, &b_session, Some("mcp")).await;
+    for n in 0..crate::limits::MCP_CALLS_PER_MINUTE {
+        let (err, text) = call(&app, &mcp, "changes", json!({})).await;
+        assert!(!err, "call {n}: {text}");
+    }
+    // The answer is a tool result the assistant can read, not an HTTP error its client retries.
+    let (err, text) = call(&app, &mcp, "changes", json!({})).await;
+    assert!(err && text.starts_with("Too many tool calls"), "{text}");
+    // Listing tools and other accounts go on.
+    let (status, _) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (err, text) = call(&app, &other, "changes", json!({})).await;
+    assert!(!err, "{text}");
+}

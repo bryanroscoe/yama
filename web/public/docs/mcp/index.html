@@ -116,7 +116,7 @@
 
     <section id="review">
       <h2>You review changes</h2>
-      <p><code>save_research</code> stores private research notes directly, and <code>review_research</code> records a choice you state. These never install a build, approve a purchase, move inventory or promote a planner swap. Changed research evidence is flagged beside your retained answers.</p>
+      <p><code>save_research</code> stores private research notes directly, and <code>review_research</code> records a choice you state. These never install a build, approve a purchase, move inventory or promote a planner swap. Changed research evidence is flagged beside your retained answers. A plan made from a note follows that note when it is saved again; a save that would stop one of your plans, because the note no longer has its deck or build, is refused unless your assistant says you asked for that.</p>
       <p>Tools that edit a deck, plan, collection or lab run first create a pending proposal. Review it in <a href="/decks/changes">Decks → Suggested changes</a>, then choose <strong>Apply</strong> or <strong>Discard</strong>. Applying a deck edit saves a new version; stale edits are rejected if the target has changed.</p>
       <p>Ask Claude inside Yama cannot apply its own proposals. An external MCP client also has apply and discard tools; it is instructed to apply only after you approve that exact change. Your client's permission settings control its tool calls.</p>
       <h3>Your account and research data</h3>
@@ -204,7 +204,7 @@
       </dl></details>
       <details><summary>Private research documents and choices (3)</summary><dl>
         <dt><code>research</code></dt><dd>Read a compact overview, one full deck/build, an exact shopping scenario or the complete document with your review choices.</dd>
-        <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders.</dd>
+        <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders, and won't stop a plan that tracks it without your say.</dd>
         <dt><code>review_research</code></dt><dd>Record your stated preferred build, swap answer or note with retry and stale-answer checks.</dd>
       </dl></details>
       <details><summary>Pending changes (3)</summary><dl>
