@@ -64,7 +64,7 @@ Subset of Scryfall syntax (`t:` `o:` `c:` `id<=` `mv` `pow` `f:` `kw:` `is:comma
 
 ### Card sheet
 
-Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history.
+Oracle text, Commander legality, Game Changer tag, rulings with dates and sources, printings with market prices and price history. Which of your decks run the card, and the combos it is part of in them (from each deck's kept Commander Spellbook check; nothing new is sent).
 
 ### Release calendar
 
@@ -86,6 +86,7 @@ Camera OCR in Collection; swap checks from Plans, Prints, Swap sheet or a plan d
 - Move, condition, proxy
 - Proxies kept out of market value, and a Real / Proxies filter
 - Idempotent offline ops
+- Import from a pasted list or a file exported by ManaBox, Moxfield, Archidekt, Deckbox, Dragon Shield or TCGplayer: set, number, finish, condition and language where the file has them; a preview of what matches, with lines that match nothing kept listed; into a box you choose; the same list twice adds nothing, and a newer export can add only the copies you don't have yet
 - Mythic Tools CSV import (with a preview; a newer export adds only what's new, and cards it no longer lists are removed only if you ask) and export
 - "Add to my collection" on a deck puts its cards in its deck box, in the printings the list names
 

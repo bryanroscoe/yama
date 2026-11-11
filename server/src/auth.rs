@@ -50,14 +50,14 @@ const ACCESS_REQUIRED: [&str; 3] = ["exp", "iss", "aud"];
 pub const MAX_NAME: usize = 60;
 pub const DISABLED: &str = "This account has been turned off. Ask the host if that's a mistake.";
 
-/// SQL that is true for a `users u` row with the smaller allowance (`User::limited`): a Google
-/// account that isn't an admin, has no password from the command line, and isn't invited.
-/// Accounts made any other way (Cloudflare Access, dev login, `user add`) never are. Being a power
-/// user doesn't change the allowance; an invite does.
+/// SQL that is true for a `users u` row with the smaller allowance (`User::limited`): a guest
+/// player (`guests.rs`), or a Google account that isn't an admin, has no password from the command
+/// line, and isn't invited. Accounts made any other way (Cloudflare Access, dev login, `user add`)
+/// never are. Being a power user doesn't change the allowance; an invite does.
 macro_rules! limited_sql {
     () => {
-        "(u.google_sub IS NOT NULL AND u.is_admin = 0 AND u.password_hash IS NULL \
-          AND NOT EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email))"
+        "(u.guest = 1 OR (u.google_sub IS NOT NULL AND u.is_admin = 0 AND u.password_hash IS NULL \
+          AND NOT EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email)))"
     };
 }
 pub(crate) use limited_sql;
@@ -85,7 +85,7 @@ macro_rules! user_columns {
             $crate::auth::limited_sql!(),
             " AS limited, ",
             $crate::auth::power_sql!(),
-            " AS power"
+            " AS power, u.guest = 1 AS guest"
         )
     };
 }
@@ -120,6 +120,10 @@ pub struct User {
     /// games and use Ask Claude (2026-10-31). Everyone else keeps their own data and reads
     /// simulation results, but can't start that work.
     pub power: bool,
+    /// A guest player with no account (`guests.rs`): signed in only to the play routes, by its
+    /// own cookie. No other way in accepts one.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub guest: bool,
 }
 
 impl User {
@@ -230,7 +234,7 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
-fn cookie_token(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn cookie_token(headers: &HeaderMap) -> Option<String> {
     CookieJar::from_headers(headers).get(SESSION_COOKIE).map(|c| c.value().to_string())
 }
 
@@ -241,12 +245,13 @@ pub fn request_session_token(headers: &HeaderMap) -> Option<String> {
 
 /// The live session's user. A disabled account has no sessions (disabling deletes them), and the
 /// check here covers one made between that and now; an account that isn't invited only works
-/// while open sign-up is on.
+/// while open sign-up is on. A guest player's session never counts here, whichever way it is
+/// sent: guests reach only the play routes (`guests::Player`).
 pub async fn user_for_token(st: &AppState, token: &str) -> AppResult<Option<User>> {
     let row: Option<SessionUser> = sqlx::query_as(concat!(
         "SELECT ",
         user_columns!(),
-        ", u.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at IS NULL"
+        ", u.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled_at IS NULL AND u.guest = 0"
     ))
     .bind(sha256_hex(token))
     .bind(now())
@@ -263,7 +268,7 @@ pub async fn user_for_token(st: &AppState, token: &str) -> AppResult<Option<User
 /// For credentials that name an account rather than a session: script keys and Claude's
 /// one-question tool tokens (`mcp/`).
 pub async fn user_by_id(st: &AppState, id: &str) -> AppResult<Option<User>> {
-    let user: Option<User> = sqlx::query_as(concat!("SELECT ", user_columns!(), " FROM users u WHERE u.id = ? AND u.disabled_at IS NULL"))
+    let user: Option<User> = sqlx::query_as(concat!("SELECT ", user_columns!(), " FROM users u WHERE u.id = ? AND u.disabled_at IS NULL AND u.guest = 0"))
         .bind(id)
         .fetch_optional(&st.pool)
         .await?;
@@ -626,7 +631,7 @@ pub async fn list_users(pool: &SqlitePool) -> anyhow::Result<()> {
     let rows: Vec<(String, String, bool, bool, bool, bool, bool)> = sqlx::query_as(concat!(
         "SELECT u.email, u.display_name, u.is_admin, u.password_hash IS NOT NULL, u.google_sub IS NOT NULL, ",
         limited_sql!(),
-        ", u.disabled_at IS NOT NULL FROM users u ORDER BY u.email"
+        ", u.disabled_at IS NOT NULL FROM users u WHERE u.guest = 0 ORDER BY u.email"
     ))
     .fetch_all(pool)
     .await?;
@@ -998,7 +1003,7 @@ async fn admin_list_users(State(st): State<AppState>, AdminUser(_): AdminUser) -
             " AS limited, EXISTS (SELECT 1 FROM invites i WHERE i.email = u.email) AS invited, u.power_user = 1 AS power_user,
                u.google_sub IS NOT NULL AS google, u.password_hash IS NOT NULL AS password, u.disabled_at, u.created_at,
                (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in, u.last_seen_at
-             FROM users u ORDER BY u.created_at DESC, u.email LIMIT 500"
+             FROM users u WHERE u.guest = 0 ORDER BY u.created_at DESC, u.email LIMIT 500"
         ))
         .fetch_all(&st.pool)
         .await?,

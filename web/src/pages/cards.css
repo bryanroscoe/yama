@@ -477,6 +477,56 @@
 .cp .cp-actions .primary {
   min-height: 52px;
 }
+/* Your decks that run the card, and the combos it is part of in them. */
+.cp-decks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cp .cp-decks h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.cp .cp-decks h3 {
+  margin: 8px 0 0;
+}
+.cp-deck-list,
+.cp-combo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cp-deck-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.cp-deck-list li:last-child,
+.cp-combo-list li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.cp-deck-list a {
+  font-weight: 700;
+}
+.cp-deck-use,
+.cp-combo-results,
+.cp-combo-meta {
+  font-size: var(--t-sm);
+  color: var(--dim);
+}
+.cp-combo-list li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.cp-combo-cards {
+  font-weight: 700;
+}
 .cp-printings {
   display: flex;
   flex-direction: column;

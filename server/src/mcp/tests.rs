@@ -918,7 +918,7 @@ fn staging_names(listed: &Value) -> Vec<String> {
 fn tool_calls_are_counted_per_account() {
     use crate::auth::User;
     use crate::limits::{Limits, MCP_CALLS_PER_DAY, MCP_CALLS_PER_MINUTE, RateLimiter};
-    let who = |id: &str, limited: bool, admin: bool| User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: admin };
+    let who = |id: &str, limited: bool, admin: bool| User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: admin, guest: false };
     let limits = Limits::default();
     let invited = who("invited", false, false);
     for _ in 0..MCP_CALLS_PER_MINUTE {

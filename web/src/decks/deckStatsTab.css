@@ -738,3 +738,17 @@ button.combo-pic:hover {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Buy this deck: the choice of cards, then the store links in a wrapping row. */
+.buy-deck-what {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.buy-deck-what > button {
+  white-space: normal;
+}
+.buy-deck-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

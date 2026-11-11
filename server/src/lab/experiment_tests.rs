@@ -91,7 +91,7 @@ fn idle(_: &str) -> bool {
 }
 
 fn user(id: &str, admin: bool) -> User {
-    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false, power: true }
+    User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited: false, power: true, guest: false }
 }
 
 async fn add_user(pool: &SqlitePool, id: &str, admin: bool) {

@@ -13,6 +13,7 @@ const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode 
   decks: { title: "Decks", lede: "Sign in to save your decks." },
   collection: { title: "Collection", lede: "Sign in to track your cards." },
   play: { title: "Play online", lede: `Sign in to play Commander online. ${ALPHA_NOTE}` },
+  "play/watch": { title: "Watch AIs play", lede: "Sign in to watch the computer play your decks or precons." },
   group: { title: "Playgroup", lede: "Sign in to see your group's games and stats." },
   mythic: { title: "Playgroup", lede: "Bring your playgroup's games over from Mythic Tools." },
   table: { title: "Saved games", lede: "Sign in for saved games. The life counter works without an account." },

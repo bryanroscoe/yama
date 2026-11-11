@@ -1,6 +1,7 @@
 import { HelpPopover } from "../components/HelpPopover";
 import { CardHover } from "../components/CardRef";
 import { CollectionItemSheet } from "./CollectionItemSheet";
+import { ImportCollectionSheet } from "./ImportCollectionSheet";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
 import { closeQuestion, unsavedScans } from "./scanClose";
 import { SellSheet } from "./SellSheet";
@@ -58,7 +59,8 @@ function byValue(a: Item, b: Item): number {
 export function CollectionPage() {
   const [container, setContainer] = useState("");
   const [filter, setFilter] = useState("");
-  const [importing, setImporting] = useState(false);
+  // The import that is open: a list or another app's file, or a Mythic Tools export.
+  const [importing, setImporting] = useState<"cards" | "mythic" | null>(null);
   const [open, setOpen] = useState<Item | null>(null);
   /** What the last change in a card's sheet did ("Mount Doom is now …"). */
   const [done, setDone] = useState<string | null>(null);
@@ -146,8 +148,8 @@ export function CollectionPage() {
           )}
         </div>
         <div className="coll-actions">
-          <button className="outline coll-import" onClick={() => setImporting(true)}>
-            <span className="coll-wide">Import from Mythic Tools</span>
+          <button className="outline coll-import" onClick={() => setImporting("cards")}>
+            <span className="coll-wide">Import cards</span>
             <span className="coll-narrow">Import</span>
           </button>
           <a className="button outline coll-export" {...exportLink("/api/collection/export.csv", "yama-collection.csv")}>Export CSV</a>
@@ -229,7 +231,7 @@ export function CollectionPage() {
           <EmptyState
             action={
               <>
-                <button className="outline" onClick={() => setImporting(true)}>Import from Mythic Tools</button>
+                <button className="outline" onClick={() => setImporting("cards")}>Import a list or a file</button>
                 <button className="outline" onClick={() => setScanning(true)}>Scan cards</button>
                 <Link className="button outline" to="/cards">Add from card search</Link>
               </>
@@ -316,13 +318,15 @@ export function CollectionPage() {
         setDeleting(null);
         setDone(`Deleted “${deleting.name}”. Its cards are still in your collection as loose cards.`);
       }} />}
-      {importing && <ImportSheet onClose={() => setImporting(false)} />}
+      {importing === "cards" && <ImportCollectionSheet containers={containers.data ?? []} onClose={() => setImporting(null)} onMythic={() => setImporting("mythic")} />}
+      {importing === "mythic" && <MythicImportSheet onClose={() => setImporting(null)} />}
       {scanning && <ScanToCollection containers={containers.data ?? []} onClose={() => setScanning(false)} />}
     </main>
   );
 }
 
-function ImportSheet({ onClose }: { onClose: () => void }) {
+/** A Mythic Tools export, brought up to date with its boxes and decks (the other import takes any list or file). */
+function MythicImportSheet({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   // Each file chosen gets a number, so choosing the same file again previews it again.
   const [file, setFile] = useState<{ n: number; text: string } | null>(null);

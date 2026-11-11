@@ -34,6 +34,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 |---|---|---|---|
 | Search Yama's card catalog (local grammar) | Cards | `search_cards` | Both |
 | One card: Oracle text, legality, rulings, owned copies | Card view | `get_cards` | Both |
+| One card: which of your decks run it, and its combos in them (kept Commander Spellbook checks) | Card view | — (`get_deck` per deck) | **Gap (MCP)** for the across-decks view |
 | Printings and their prices | Card view | `list_card_printings` | Both |
 | Price history over time | Card view (PriceHistory) | `get_price_history` | Both |
 | Add a copy of a printing from the card | Card view | `add_to_collection` (staged) | Both |
@@ -87,6 +88,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Rename a binder, deck box or list | — (the server has `PATCH /api/containers/:id`) | — | **Gap (UI and MCP)** |
 | Export CSV | Collection | — | UI only (a file download; the MCP reads the same rows) |
 | Import from Mythic Tools export | Collection, Mythic import | — | UI only (file upload) |
+| Import a pasted list or another app's export (ManaBox, Moxfield, Archidekt, Deckbox, Dragon Shield, TCGplayer) | Collection, Import cards | `add_to_collection` (staged), card by card | Partial: **Gap (MCP)** for a whole list or file |
 | Scan cards with the camera | Scanner | — | UI only (camera) |
 | Sell list (CSV) and local buylist offers (Mothership) | Sell sheet, Sell offers | — | **Gap (MCP)**, read the dated offers |
 

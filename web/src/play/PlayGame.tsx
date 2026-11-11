@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, publicOrigin } from "../api";
 import { useMe } from "../auth";
+import { usePlayerId } from "../guestPlay";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ask } from "../components/confirm";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
@@ -58,6 +59,7 @@ const BackArrow = () => (
 function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
   const qc = useQueryClient();
   const me = useMe();
+  const playerId = usePlayerId();
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const start = useMutation({
@@ -73,7 +75,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
       navigate("/play", { replace: true });
     },
   });
-  const isHost = game.host === me.data?.id;
+  const isHost = !!playerId && game.host === playerId;
   const open = game.seats.filter((s) => !s.ai && !s.deck_name).length;
   // Older servers send only the commander's name; look its art up then.
   const lookups = useCardArt(game.seats.filter((s) => !s.commander_art).map((s) => s.commander));

@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
 import { afterSignIn, Login, useMe } from "./auth";
+import { useGuestSession } from "./guestPlay";
 import { useCacheSweeps, useLapsedAccount } from "./session";
 import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
@@ -49,6 +50,7 @@ const gameDetail = area(() => import("./table/GameDetail"));
 const gameHistory = area(() => import("./table/GameHistory"));
 
 const PlayHome = play.page("PlayHome");
+const GuestPlayHome = play.page("GuestPlayHome");
 const PlayGame = play.page("PlayGame");
 const WatchHome = play.page("WatchHome");
 const WatchGame = play.page("WatchGame");
@@ -241,7 +243,8 @@ export function App() {
       {/* Full-screen pages that need an account: the focused sign-in page in front, and the same
           address opens once signed in. */}
       <Route path="/table/join/:gameId" element={signedIn ? <Paged page={GuestTable} kind="counter" /> : <Login />} />
-      <Route path="/play/:id" element={signedIn ? <Paged page={PlayGame} kind="board" /> : <Login />} />
+      {/* A guest player (guests.rs) plays its own games without an account. */}
+      <Route path="/play/:id" element={signedIn ? <Paged page={PlayGame} kind="board" /> : <GuestOrSignIn><Paged page={PlayGame} kind="board" /></GuestOrSignIn>} />
       <Route path="/play/watch/:id" element={signedIn ? <Paged page={WatchGame} kind="board" /> : <Login />} />
       <Route element={<Shell />}>
         {/* Keyed by who's signed in: a session that ends (or starts) under an open setup starts
@@ -251,10 +254,11 @@ export function App() {
             never stay on screen as the next account's placeholder. */}
         <Route path="cards" element={<Framed><CardsPage key={me.data?.id ?? "guest"} /></Framed>} />
         <Route path="new" element={<Framed><WhatsNewPage /></Framed>} />
+        {/* Open to everyone: signed out, it offers a game against the computer as a guest. */}
+        <Route path="play" element={signedIn ? <Paged page={PlayHome} title="Play online" /> : <Paged page={GuestPlayHome} title="Play online" />} />
         <Route element={<RequireAccount />}>
           <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
           <Route path="table/games/:id" element={<Paged page={GameDetailPage} kind="detail" />} />
-          <Route path="play" element={<Paged page={PlayHome} title="Play online" />} />
           <Route path="play/watch" element={<Paged page={WatchHome} title="Watch AIs play" />} />
           <Route path="collection" element={<Paged page={CollectionPage} title="Collection" kind="tiles" />} />
           <Route path="decks" element={<Paged page={DecksPage} title="Decks" kind="tiles" />} />
@@ -346,4 +350,11 @@ function NotFound() {
       </p>
     </main>
   );
+}
+
+/** A guest player's own game, else the sign-in page (guestPlay.ts). */
+function GuestOrSignIn({ children }: { children: ReactNode }) {
+  const guest = useGuestSession();
+  if (guest.isPending) return <Shell pending />;
+  return guest.data?.guest ? <>{children}</> : <Login />;
 }

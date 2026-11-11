@@ -155,8 +155,11 @@ pub struct Limits {
     pub playgroup_writes: RateLimiter,
     /// Changes to your own account's details (the name you go by), per account.
     pub profile_writes: RateLimiter,
-    /// Mythic Tools CSV and plan file imports, per account.
+    /// Mythic Tools CSV, collection and plan file imports, per account.
     pub imports: RateLimiter,
+    /// Previews of a collection import (collection/import.rs), per account. The page previews
+    /// again on each change and nothing is written, so this allows more than `imports`.
+    pub collection_previews: RateLimiter,
     /// Collection changes (batches of ops, and making, renaming and deleting containers), per
     /// account. A scanning session sends a batch per card, so this allows one a second.
     pub collection_writes: RateLimiter,
@@ -196,6 +199,12 @@ pub struct Limits {
     /// Tool calls on `/mcp` in a day, for an account that joined through open sign-up
     /// (`User::limited`). Invited accounts and admins have no daily count.
     pub mcp_calls_daily: RateLimiter,
+    /// Guest players made from one address in a day (`guests.rs`), counted once Turnstile passed.
+    pub new_guests_address: RateLimiter,
+    /// Guest players made on the whole server in an hour.
+    pub new_guests: RateLimiter,
+    /// Guest checks (Turnstile tokens sent to Cloudflare) from one address, passed or not.
+    pub guest_checks_address: RateLimiter,
 }
 
 impl Default for Limits {
@@ -216,6 +225,7 @@ impl Default for Limits {
             playgroup_writes: RateLimiter::new("playgroup changes", 60, 10 * MINUTE),
             profile_writes: RateLimiter::new("account changes", 30, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
+            collection_previews: RateLimiter::new("import previews", 200, 60 * MINUTE),
             collection_writes: RateLimiter::new("collection changes", 600, 10 * MINUTE),
             scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
             mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),
@@ -232,6 +242,9 @@ impl Default for Limits {
             mpc_images: RateLimiter::new("print image searches", 30, 10 * MINUTE),
             mcp_calls: RateLimiter::new("tool calls", MCP_CALLS_PER_MINUTE, MINUTE),
             mcp_calls_daily: RateLimiter::new("tool calls today", MCP_CALLS_PER_DAY, DAY),
+            new_guests_address: RateLimiter::new("guest games from this address today", 6, DAY),
+            new_guests: RateLimiter::new("guest players on Yama just now", 60, 60 * MINUTE),
+            guest_checks_address: RateLimiter::new("tries to start as a guest from this address", 20, 60 * MINUTE),
         }
     }
 }
