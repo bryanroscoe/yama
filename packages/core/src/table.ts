@@ -585,3 +585,69 @@ export function toServerEvents(log: LoggedEvent[]) {
     created_at: l.at,
   }));
 }
+
+// ── the clock ──────────────────────────────────────────────────────────────
+//
+// The clock keeps nothing of its own. It reads what a game already records: when it started, when
+// each turn was passed (every logged event has its time) and when it finished. So it works with
+// no connection, comes back after a reload, follows an undo, and a saved game keeps its times.
+
+/**
+ * How long the game and the current turn have run at `now`, in milliseconds. `turn` is the time
+ * since the turn was last passed (since the start, before the first pass); it means something
+ * only at a table that passes the turn. A finished game's clock stands where the game ended
+ * (`running` false). A time never runs backwards: a phone whose clock was set back reads 0.
+ */
+export function clockAt(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[], now: Date): { game: number; turn: number; running: boolean } {
+  const start = Date.parse(setup.startedAt);
+  let turnStart = start;
+  let end: number | null = null;
+  for (const l of log) {
+    if (l.event.type === "pass_turn") turnStart = Date.parse(l.at);
+    else if (l.event.type === "finish") end = Date.parse(l.event.endedAt) || Date.parse(l.at);
+  }
+  const until = end ?? now.getTime();
+  const since = (from: number) => (Number.isFinite(from) && Number.isFinite(until) ? Math.max(0, until - from) : 0);
+  return { game: since(start), turn: since(Math.max(start, turnStart) || start), running: end === null };
+}
+
+/**
+ * How long each turn ran, in order, in milliseconds: from the start (or the pass before) to each
+ * pass, and the last one to the end of a finished game. Empty for a table that never passed the
+ * turn. A turn still running isn't in it.
+ */
+export function turnSpans(setup: Pick<TableSetup, "startedAt">, log: LoggedEvent[]): number[] {
+  const spans: number[] = [];
+  let from = Date.parse(setup.startedAt);
+  let end: number | null = null;
+  for (const l of log) {
+    if (l.event.type === "pass_turn") {
+      const at = Date.parse(l.at);
+      if (Number.isFinite(at) && Number.isFinite(from)) spans.push(Math.max(0, at - from));
+      if (Number.isFinite(at)) from = Math.max(from || at, at);
+    } else if (l.event.type === "finish") end = Date.parse(l.event.endedAt) || Date.parse(l.at);
+  }
+  if (spans.length > 0 && end !== null && Number.isFinite(end)) spans.push(Math.max(0, end - from));
+  return spans;
+}
+
+/** A span as a clock shows it: "0:07", "4:12", "1:02:10". */
+export function clockText(ms: number): string {
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
+  const two = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return h > 0 ? `${h}:${two(m)}:${two(total % 60)}` : `${m}:${two(total % 60)}`;
+}
+
+/** The same span in words, for a sentence or a screen reader: "7 seconds", "4 minutes 12 seconds", "1 hour 2 minutes". */
+export function clockWords(ms: number): string {
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const part = (n: number, unit: string) => (n > 0 ? `${n} ${unit}${n === 1 ? "" : "s"}` : "");
+  // Past an hour the seconds stop mattering.
+  const parts = h > 0 ? [part(h, "hour"), part(m, "minute")] : [part(m, "minute"), part(s, "second")];
+  return parts.filter(Boolean).join(" ") || "0 seconds";
+}

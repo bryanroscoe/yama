@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { panelFills } from "./mana";
 import {
   apply,
+  clockAt,
+  clockText,
+  clockWords,
   commanderSources,
   commanderTax,
   dangerOf,
@@ -19,7 +22,10 @@ import {
   toServerEvents,
   toServerFinish,
   turnPosition,
+  turnSpans,
   wonText,
+  type LoggedEvent,
+  type TableEvent,
   type TableSetup,
 } from "./table";
 
@@ -387,5 +393,55 @@ describe("panelFills", () => {
     expect(panelFills(["UG", "WUR", "WURG", "WBR"])).toEqual(["U", "R", "G", "B"]);
     expect(panelFills(["W", "W"])).toEqual(["W", "W"]);
     expect(panelFills([""])).toEqual(["C"]);
+  });
+});
+
+describe("the clock", () => {
+  const start = { startedAt: "2026-11-11T19:00:00.000Z" };
+  const at = (min: number, sec = 0) => new Date(Date.parse(start.startedAt) + (min * 60 + sec) * 1000);
+  const ev = (seq: number, when: Date, event: TableEvent): LoggedEvent => ({ seq, at: when.toISOString(), event });
+  const life = (seq: number, when: Date) => ev(seq, when, { type: "life", seat: 0, delta: -1 });
+  const pass = (seq: number, when: Date) => ev(seq, when, { type: "pass_turn" });
+
+  it("times the game from its start and the turn from the last pass", () => {
+    // Nothing passed yet: the first turn has run as long as the game.
+    expect(clockAt(start, [life(1, at(1))], at(2, 30))).toEqual({ game: 150_000, turn: 150_000, running: true });
+    const log = [life(1, at(1)), pass(2, at(4)), life(3, at(5)), pass(4, at(9, 20)), life(5, at(10))];
+    expect(clockAt(start, log, at(12))).toEqual({ game: 720_000, turn: 160_000, running: true });
+    // Undo takes the last pass out of the log, and the turn's time with it.
+    expect(clockAt(start, log.slice(0, 3), at(12)).turn).toBe(480_000);
+  });
+
+  it("stands still once the game is finished", () => {
+    const log = [pass(1, at(4)), ev(2, at(30), { type: "finish", winnerSeat: 0, endedAt: at(30).toISOString() })];
+    for (const now of [at(31), at(600)]) expect(clockAt(start, log, now)).toEqual({ game: 1_800_000, turn: 1_560_000, running: false });
+  });
+
+  it("never runs backwards or reads a broken time", () => {
+    // A phone whose clock was set back, or an event stamped before the game's start.
+    expect(clockAt(start, [pass(1, at(4))], at(3))).toEqual({ game: 180_000, turn: 0, running: true });
+    expect(clockAt(start, [pass(1, at(-5))], at(2))).toEqual({ game: 120_000, turn: 120_000, running: true });
+    expect(clockAt(start, [], at(-1))).toEqual({ game: 0, turn: 0, running: true });
+    expect(clockAt({ startedAt: "not a date" }, [], at(1))).toEqual({ game: 0, turn: 0, running: true });
+    expect(clockAt(start, [{ seq: 1, at: "nonsense", event: { type: "pass_turn" } }], at(2))).toEqual({ game: 120_000, turn: 120_000, running: true });
+  });
+
+  it("gives each finished turn's length, and none for a table that never passed", () => {
+    expect(turnSpans(start, [life(1, at(1))])).toEqual([]);
+    const log = [pass(1, at(4)), life(2, at(5)), pass(3, at(9, 20))];
+    // The turn still running isn't one of them.
+    expect(turnSpans(start, log)).toEqual([240_000, 320_000]);
+    // A finished game's last turn ran to the end.
+    expect(turnSpans(start, [...log, ev(4, at(15), { type: "finish", winnerSeat: null, endedAt: at(15).toISOString() })])).toEqual([240_000, 320_000, 340_000]);
+    // Never passed, then finished: still no turns.
+    expect(turnSpans(start, [ev(1, at(15), { type: "finish", winnerSeat: null, endedAt: at(15).toISOString() })])).toEqual([]);
+  });
+
+  it("writes a span as a clock and in words", () => {
+    expect([0, 999, 7_000, 252_000, 3_599_000, 3_730_000, 36_000_000].map(clockText)).toEqual(["0:00", "0:00", "0:07", "4:12", "59:59", "1:02:10", "10:00:00"]);
+    expect([-5, Number.NaN].map(clockText)).toEqual(["0:00", "0:00"]);
+    expect([0, 1_000, 7_000, 60_000, 252_000, 3_600_000, 3_730_000, 7_260_000].map(clockWords)).toEqual([
+      "0 seconds", "1 second", "7 seconds", "1 minute", "4 minutes 12 seconds", "1 hour", "1 hour 2 minutes", "2 hours 1 minute",
+    ]);
   });
 });

@@ -46,6 +46,8 @@ import { spinSchedule } from "./spin";
 import { LayoutPicker } from "./LayoutPicker";
 import { EditSeat } from "./SeatEditor";
 import { setCountTurns, useCountTurns } from "./turns";
+import { setTableClock, useTableClock } from "./clock";
+import { TableClock } from "./TableClock";
 import { useFullscreen, useInstall } from "../install";
 import { useScreenAwake } from "./wakeLock";
 import { isGuest } from "../guest";
@@ -122,6 +124,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
   const navigate = useNavigate();
   const hosting = useHosting();
   const countTurns = useCountTurns();
+  const clock = useTableClock();
   // "Show the code" and "who goes first" are one-offs: a reload of this page mustn't open them
   // (and start sharing) again.
   useEffect(() => {
@@ -162,6 +165,8 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
     <>
       <div className="table-view-switch">
         <Segmented label="View" value={personal ? "mine" : "table"} onChange={chooseView} options={[["mine", "My seat"], ["table", "Whole table"]]} />
+        {/* My seat hides the middle of the table, so the clock sits up here. */}
+        {clock && personal && <TableClock setup={game.setup} log={game.log} counting={counting} className="table-clock-bar" />}
         <button className="quiet small" onClick={() => setChoosingSeat(true)}>{me ? "Change seat" : "Pick a seat"}</button>
         <button className="quiet small" onClick={() => setMenu(true)} aria-label="Table menu"><MenuIcon /></button>
       </div>
@@ -189,11 +194,12 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         </button>
       ) : (
         <button
-          className={`hub${counting ? "" : " hub-menu"}`}
+          className={`hub${counting ? "" : " hub-menu"}${clock ? " hub-clock" : ""}`}
           onClick={() => setMenu(true)}
           aria-label={`${counting ? `Turn ${state.turn}. ` : ""}${sharing ? "Shared with other phones. " : ""}Open table menu`}
         >
           {counting ? <span>{state.turn}</span> : <MenuIcon />}
+          {clock && <TableClock setup={game.setup} log={game.log} counting={counting} />}
           {/* Shared: a small dot on the hub. The join code is at the top of the menu. */}
           {sharing && <span className="hub-live" aria-hidden="true" />}
         </button>
@@ -231,6 +237,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
             aliveCount={alive.length}
             artFor={artFor}
             log={game.log}
+            setup={game.setup}
             turnSince={[...game.log].reverse().find((e) => e.event.type === "pass_turn")?.at ?? game.setup.startedAt}
           />
         </Dialog>
@@ -1200,7 +1207,7 @@ export const CloseIcon = () => (
 
 type Marker = "monarch" | "initiative" | "first";
 
-function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, turnSince }: {
+function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDice, aliveCount, artFor, log, setup, turnSince }: {
   following?: FollowingTable;
   state: TableState;
   onClose: () => void;
@@ -1212,6 +1219,8 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
   aliveCount: number;
   artFor: ArtFor;
   log: LoggedEvent[];
+  /** The game's start, for its clock. */
+  setup: Pick<LocalGame, "setup">["setup"];
   /** When the current turn started: the last pass, or the start of the game. */
   turnSince: string;
 }) {
@@ -1220,6 +1229,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
   const sync = useSyncStatus();
   const showArt = useShowArt();
   const countTurns = useCountTurns();
+  const clock = useTableClock();
   const install = useInstall();
   const fullscreen = useFullscreen();
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -1262,6 +1272,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
               <span className="dim">
                 {active?.name}'s turn, {minutes < 1 ? "just started" : `${minutes} min`}
               </span>
+              {clock && <TableClock setup={setup} log={log} counting className="table-clock-menu" />}
             </span>
           </div>
         ) : (
@@ -1269,6 +1280,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             <span className="tm-turn-text">
               <h2>The table</h2>
               <span className="dim">{played < 1 ? "Just started" : played < 60 ? `${played} min in` : `${Math.floor(played / 60)} h ${played % 60} min in`}</span>
+              {clock && <TableClock setup={setup} log={log} counting={false} className="table-clock-menu" />}
             </span>
           </div>
         )}
@@ -1384,6 +1396,19 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
             </span>
           </span>
         </label>}
+        <label className="check-row">
+          <input type="checkbox" checked={clock} onChange={(e) => setTableClock(e.target.checked)} />
+          <span>
+            Clock
+            <span className="small dim tm-setting-note">
+              {clock
+                ? counting
+                  ? " How long this turn has taken, and the game, in the middle of the table. The times come from when each turn was passed, which the game already keeps."
+                  : " How long the game has run, in the middle of the table. Count turns to time each turn too."
+                : " Off: no times on the table."}
+            </span>
+          </span>
+        </label>
         {/* Offered while art is showing, and always once it's switched off, so it can come back. */}
         {!following && (artists.length > 0 || !showArt) && (
           <label className="check-row">
