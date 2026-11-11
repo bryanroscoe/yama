@@ -80,10 +80,13 @@ export function EditDescription({ deck, onClose: closeSheet }: { deck: Pick<Deck
     mutationFn: () => api(`/api/decks/${encodeURIComponent(deck.id)}`, { method: "PATCH", json: { description: descriptionToSave(text) } }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["deck"] });
+      // The save moves the deck up the Decks list's "recently changed" order.
+      void qc.invalidateQueries({ queryKey: ["decks"] });
       closeSheet();
     },
   });
-  const left = DESCRIPTION_MAX - [...text].length;
+  // Counted as it will be saved (trimmed), in characters, as the server counts.
+  const left = DESCRIPTION_MAX - [...(descriptionToSave(text) ?? "")].length;
   return (
     <Dialog title="About this deck" onClose={onClose}>
       <form className="deck-settings" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>

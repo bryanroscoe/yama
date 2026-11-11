@@ -407,17 +407,29 @@ async fn a_decks_description_shows_on_its_shared_page_as_text_and_nowhere_else()
     let (status, _, profile) = page(&app, "/u/saget").await;
     assert_eq!(status, StatusCode::OK);
     assert!(profile.contains("Described"), "{profile}");
-    let (_, copy) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
-    let (_, _, names) = page(&app, &format!("/d/{token}/names.txt")).await;
+    let (status, copy) = send(&app, Method::GET, &format!("/api/public/decks/{token}"), None, None).await;
+    assert_eq!(status, StatusCode::OK, "{copy}");
+    assert_eq!(copy["name"], "Described");
+    let (status, _, names) = page(&app, &format!("/d/{token}/names.txt")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(names.contains("Sol Ring"), "{names}");
     for body in [&profile, &copy.to_string(), &names] {
         assert!(!body.contains("Lands matter") && !body.contains("private version note"), "{body}");
     }
     assert!(page(&app, &format!("/d/{token}")).await.2.contains(shown), "sharing more widely keeps the description");
 
+    // Another signed-in person can't read the owner's deck page data, description included.
+    let (_, other) = user(&pool, "other@example.com").await;
+    assert_eq!(send(&app, Method::GET, &path, Some(&other), None).await.0, StatusCode::NOT_FOUND);
+
+    // An apostrophe is escaped too.
+    send(&app, Method::PATCH, &path, Some(&bt), Some(json!({ "description": "It's Omo's deck." }))).await;
+    assert!(page(&app, &format!("/d/{token}")).await.2.contains("<p>It&#39;s Omo&#39;s deck.</p>"));
+
     // Cleared, the section goes.
     send(&app, Method::PATCH, &path, Some(&bt), Some(json!({ "description": null }))).await;
     let (_, _, html) = page(&app, &format!("/d/{token}")).await;
-    assert!(!html.contains("About this deck") && !html.contains("Lands matter"), "{html}");
+    assert!(!html.contains("About this deck") && !html.contains("Omo&#39;s deck"), "{html}");
 }
 
 #[tokio::test]

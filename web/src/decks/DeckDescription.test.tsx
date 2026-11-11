@@ -114,5 +114,10 @@ describe("writing the description", () => {
     type("é".repeat(DESCRIPTION_MAX));
     expect(saveButton().disabled).toBe(false);
     expect(document.body.textContent).toContain("0 characters left.");
+    // Spaces around it aren't saved, so they don't count; characters outside the basic plane count once.
+    type(`  ${"é".repeat(DESCRIPTION_MAX)}\n\n`);
+    expect(saveButton().disabled).toBe(false);
+    type("🂡".repeat(DESCRIPTION_MAX));
+    expect(saveButton().disabled).toBe(false);
   });
 });
