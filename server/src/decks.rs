@@ -1649,7 +1649,7 @@ pub async fn rename(pool: &SqlitePool, owner: &str, id: &str, name: &str) -> App
 
 /// A deck name as typed: trimmed, not empty, without line breaks or control characters, and at
 /// most `DECK_NAME_MAX` characters (it is printed on the deck's shared page).
-fn deck_name(name: &str) -> AppResult<String> {
+pub(crate) fn deck_name(name: &str) -> AppResult<String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(AppError::bad("deck needs a name"));

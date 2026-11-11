@@ -871,7 +871,8 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let plain = [
         "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
-        "mark_installed", "add_to_collection", "move_cards", "set_condition", "save_deck",
+        "mark_installed", "add_to_collection", "move_cards", "set_condition", "update_deck", "remove_wish", "create_container", "remove_from_collection",
+        "edit_copies", "save_deck",
     ];
     assert_eq!(staging_names(&r), plain, "staging tools listed for an account that can't start simulations and has no stores or runs");
     // A power user is listed the lab's four as well, with op_id like the rest: it may start a
@@ -881,7 +882,8 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
         "add_wish", "edit_deck", "delete_deck", "track_build", "approve_plan", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
-        "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition", "save_deck",
+        "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
+        "update_deck", "remove_wish", "create_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
     assert_eq!(staging_names(&r), with_lab, "staging tools listed for a power user with no stores");
 }
@@ -1034,4 +1036,158 @@ async fn an_online_games_log_is_read_as_each_player_saw_it() {
     // Someone who wasn't in the game sees none of it.
     let (err, text) = call(&app, &c_key, "game", json!({"id": "online-1", "events": true})).await;
     assert!(err && text == "game not found", "{text}");
+}
+
+// ── what the app does that had no tool ──────────────────────────────────────
+
+#[tokio::test]
+async fn a_deck_is_renamed_and_its_bracket_declared_only_when_applied() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    let (deck_id, _) = deck(&pool, &a, "Elf Ball").await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let other = key(&app, &b_session, Some("mcp")).await;
+    let saved = || async { sqlx::query_as::<_, (String, Option<i64>)>("SELECT name, bracket FROM decks WHERE id = ?").bind(&deck_id).fetch_one(&pool).await.unwrap() };
+
+    let (err, text) = call(&app, &mcp, "update_deck", json!({"deck": "Elf Ball"})).await;
+    assert!(err && text.contains("Nothing was staged"), "{text}");
+    let (err, text) = call(&app, &mcp, "update_deck", json!({"deck": "Elf Ball", "bracket": 6})).await;
+    assert!(err && text.contains("1 to 5"), "{text}");
+    let (err, text) = call(&app, &mcp, "update_deck", json!({"deck": "Elf Ball", "name": "two\nlines"})).await;
+    assert!(err && text.contains("line breaks"), "{text}");
+    // Someone else's deck isn't found, by name or by id.
+    for wanted in ["Elf Ball", deck_id.as_str()] {
+        let (err, text) = call(&app, &other, "update_deck", json!({"deck": wanted, "name": "Mine now"})).await;
+        assert!(err && text.contains("not found"), "{text}");
+    }
+
+    let (err, text) = call(&app, &mcp, "update_deck", json!({"deck": "Elf Ball", "name": "Elf Ball Deluxe", "bracket": 3})).await;
+    assert!(!err && text.contains("Rename Elf Ball to Elf Ball Deluxe and declare it Bracket 3"), "{text}");
+    assert_eq!(saved().await, ("Elf Ball".to_string(), None), "staged, not applied");
+    let id = change_id(&text);
+    let (err, text) = call(&app, &other, "apply_change", json!({"id": id})).await;
+    assert!(err, "another account applied it: {text}");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": id})).await;
+    assert!(!err, "{text}");
+    assert_eq!(saved().await, ("Elf Ball Deluxe".to_string(), Some(3)));
+
+    // Clearing the bracket leaves the name alone.
+    let (err, text) = call(&app, &mcp, "update_deck", json!({"deck": deck_id, "bracket": null})).await;
+    assert!(!err && text.contains("Clear Elf Ball Deluxe's declared bracket"), "{text}");
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(!err, "{text}");
+    assert_eq!(saved().await, ("Elf Ball Deluxe".to_string(), None));
+}
+
+#[tokio::test]
+async fn wishes_containers_and_copies_change_only_when_applied() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (b, b_session) = user(&pool, "someone@example.com").await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let other = key(&app, &b_session, Some("mcp")).await;
+    let apply = |text: String| {
+        let (app, mcp) = (app.clone(), mcp.clone());
+        async move {
+            let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+            assert!(!err, "{text}");
+        }
+    };
+
+    // A binder, made when they apply it.
+    let (err, text) = call(&app, &mcp, "create_container", json!({"name": "Trade Binder", "kind": "shelf"})).await;
+    assert!(err && text.contains("binder, deck, box or list"), "{text}");
+    let (err, text) = call(&app, &mcp, "create_container", json!({"name": "Trade Binder", "kind": "binder"})).await;
+    assert!(!err && text.contains("Make a binder called Trade Binder"), "{text}");
+    let containers = |owner: String| {
+        let pool = pool.clone();
+        async move { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM containers WHERE owner_id = ?").bind(owner).fetch_one(&pool).await.unwrap() }
+    };
+    assert_eq!(containers(a.clone()).await, 0, "staged, not applied");
+    apply(text).await;
+    assert_eq!((containers(a.clone()).await, containers(b.clone()).await), (1, 0));
+    let (err, text) = call(&app, &mcp, "create_container", json!({"name": "Trade Binder", "kind": "binder"})).await;
+    assert!(err && text.contains("already have a binder called Trade Binder"), "{text}");
+
+    // Three copies in it; one is marked a proxy with a note and a price, the others stay.
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Sol Ring", "qty": 3, "container": "Trade Binder"})).await;
+    assert!(!err, "{text}");
+    apply(text).await;
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder"})).await;
+    assert!(err && text.contains("Give what to change"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "finish": "shiny"})).await;
+    assert!(err && text.contains("nonfoil, foil or etched"), "{text}");
+    let (err, text) = call(&app, &other, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "proxy": true})).await;
+    assert!(err && text.contains("no binder, deck box or list called"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "qty": 1, "proxy": true, "note": "playtest", "price_paid": 0.25})).await;
+    assert!(!err && text.contains("Mark 1 Sol Ring in Trade Binder: a proxy, note \"playtest\", paid 0.25 each"), "{text}");
+    apply(text).await;
+    let copies = || async {
+        sqlx::query_as::<_, (i64, bool, Option<String>, Option<f64>)>("SELECT qty, proxy, note, purchase_price FROM collection_items WHERE owner_id = ? ORDER BY proxy").bind(&a).fetch_all(&pool).await.unwrap()
+    };
+    assert_eq!(copies().await, [(2, false, None, None), (1, true, Some("playtest".to_string()), Some(0.25))]);
+
+    // Two copies leave for good: the real ones first, as a move takes them.
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 5, "from": "Trade Binder"})).await;
+    assert!(err && text.contains("holds 3"), "{text}");
+    let (err, text) = call(&app, &other, "remove_from_collection", json!({"card": "Sol Ring", "from": "Trade Binder"})).await;
+    assert!(err && text.contains("no binder, deck box or list called"), "{text}");
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 2, "from": "Trade Binder"})).await;
+    assert!(!err && text.contains("Remove 2 Sol Ring from Trade Binder"), "{text}");
+    assert_eq!(copies().await.len(), 2, "staged, not applied");
+    apply(text).await;
+    assert_eq!(copies().await, [(1, true, Some("playtest".to_string()), Some(0.25))]);
+
+    // Two wishes with one name: the name alone is refused, the id takes one off.
+    let wish = crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() };
+    let first = crate::plan::wants::add(&pool, &a, &wish, "page", None).await.unwrap();
+    crate::plan::wants::add(&pool, &a, &wish, "page", None).await.unwrap();
+    let (err, text) = call(&app, &mcp, "remove_wish", json!({"wish": "sol ring"})).await;
+    assert!(err && text.contains("2 wishes are called") && text.contains("Nothing was staged"), "{text}");
+    let (err, text) = call(&app, &other, "remove_wish", json!({"wish": first["id"]})).await;
+    assert!(err && text.contains("Nothing they added"), "{text}");
+    let (err, text) = call(&app, &mcp, "remove_wish", json!({"wish": first["id"]})).await;
+    assert!(!err && text.contains("Take Sol Ring off their shopping list"), "{text}");
+    let wishes = || async { sqlx::query_scalar::<_, String>("SELECT id FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL").bind(&a).fetch_all(&pool).await.unwrap() };
+    assert_eq!(wishes().await.len(), 2, "staged, not applied");
+    apply(text).await;
+    let left = wishes().await;
+    assert!(left.len() == 1 && Some(left[0].as_str()) != first["id"].as_str(), "{left:?}");
+    // The one left is found by its name now.
+    let (err, text) = call(&app, &mcp, "remove_wish", json!({"wish": "Sol Ring"})).await;
+    assert!(!err, "{text}");
+}
+
+#[tokio::test]
+async fn a_playgroups_games_are_listed_for_its_members_only() {
+    let (app, pool) = app().await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    let (friend, _) = user(&pool, "friend@example.com").await;
+    sqlx::query("INSERT INTO playgroups (id, name, owner_id, join_code, created_at) VALUES ('pg-1', 'Friday night', ?, 'JOIN1', 't')").bind(&friend).execute(&pool).await.unwrap();
+    for (id, member) in [("m-a", &a), ("m-f", &friend)] {
+        sqlx::query("INSERT INTO playgroup_members (id, playgroup_id, user_id, guest_name, created_at) VALUES (?, 'pg-1', ?, NULL, 't')").bind(id).bind(member).execute(&pool).await.unwrap();
+    }
+    // One game the friend recorded in the playgroup (the caller wasn't in it), one of the caller's own outside it.
+    sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, turns, winner_seat, playgroup_id) VALUES ('g-group', 'in_person', ?, 'finished', '2026-11-02', 7, 0, 'pg-1')").bind(&friend).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, turns, winner_seat) VALUES ('g-own', 'in_person', ?, 'finished', '2026-11-01', 9, 0)").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO game_seats (game_id, seat, guest_name, commander_name) VALUES ('g-group', 0, 'Kelly', 'Atraxa'), ('g-own', 0, 'Sam', 'Krenko')").execute(&pool).await.unwrap();
+    let a_key = key(&app, &a_session, Some("mcp")).await;
+    let b_key = key(&app, &b_session, Some("mcp")).await;
+
+    let (err, text) = call(&app, &a_key, "list_games", json!({})).await;
+    assert!(!err && text.contains("g-own") && !text.contains("g-group"), "their own history has only their games: {text}");
+    for args in [json!({"playgroup": "friday night"}), json!({"playgroup": "pg-1"}), json!({"playgroup": "pg-1", "query": "kelly"})] {
+        let (err, text) = call(&app, &a_key, "list_games", args.clone()).await;
+        assert!(!err && text.contains("g-group") && !text.contains("g-own"), "{args}: {text}");
+    }
+    let (err, text) = call(&app, &a_key, "list_games", json!({"playgroup": "Nope"})).await;
+    assert!(err && text.contains("Friday night"), "{text}");
+    // Someone who isn't in the playgroup gets nothing from it, by name or by id.
+    for wanted in ["Friday night", "pg-1"] {
+        let (err, text) = call(&app, &b_key, "list_games", json!({"playgroup": wanted})).await;
+        assert!(err && text.contains("no playgroup called") && !text.contains("g-group"), "{text}");
+    }
 }

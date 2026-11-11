@@ -985,7 +985,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
+      "description": "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; playgroup lists one playgroup's games, also ones they weren't in; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1032,6 +1032,11 @@
               "newest",
               "oldest"
             ],
+            "type": "string"
+          },
+          "playgroup": {
+            "description": "Only this playgroup's games, including ones they weren't in: its name or id (list_playgroups).",
+            "maxLength": 300,
             "type": "string"
           },
           "query": {
@@ -2199,6 +2204,239 @@
       },
       "name": "set_condition",
       "title": "Set the condition of cards"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Rename one of their decks, set the bracket they declare for it (1 to 5), or both. The declared bracket is their own call, separate from Yama's estimate. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bracket": {
+            "description": "The bracket they declare; null clears it.",
+            "maximum": 5,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "deck": {
+            "description": "Their deck, by name or id.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "name": {
+            "description": "The deck's new name.",
+            "maxLength": 120,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deck"
+        ],
+        "type": "object"
+      },
+      "name": "update_deck",
+      "title": "Rename a deck or declare its bracket"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Take a card or sealed product they added to their shopping list off it. A card an approved plan buys stays. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "wish": {
+            "description": "The wish's name as get_shopping_list shows it, or its id when two share a name.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "wish"
+        ],
+        "type": "object"
+      },
+      "name": "remove_wish",
+      "title": "Take a wish off their shopping list"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Make a new, empty binder, deck box, box or list in their collection. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "deck is a deck box; list holds cards they don't physically keep together.",
+            "enum": [
+              "binder",
+              "deck",
+              "box",
+              "list"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "create_container",
+      "title": "Make a binder, box or list"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded, lost or entered by mistake. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "from": {
+            "description": "Their binder, deck box or list, by name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "qty": {
+            "description": "How many copies (default 1).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "card",
+          "from"
+        ],
+        "type": "object"
+      },
+      "name": "remove_from_collection",
+      "title": "Remove copies from their collection"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Correct the copies of a card in one of their binders, deck boxes or lists: finish, proxy or not, a note, or the price paid for each. Give only what changes. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "card": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "container": {
+            "description": "Their binder, deck box or list, by name.",
+            "maxLength": 300,
+            "type": "string"
+          },
+          "finish": {
+            "enum": [
+              "nonfoil",
+              "foil",
+              "etched"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "description": "A note on the copies; null clears it.",
+            "maxLength": 500,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "price_paid": {
+            "description": "What each copy cost; null clears it.",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "proxy": {
+            "type": "boolean"
+          },
+          "qty": {
+            "description": "How many copies; every copy of the card there if left out.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "card",
+          "container"
+        ],
+        "type": "object"
+      },
+      "name": "edit_copies",
+      "title": "Correct copies in their collection"
     },
     {
       "annotations": {

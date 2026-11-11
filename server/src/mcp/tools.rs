@@ -577,12 +577,13 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "list_games",
         aliases: &["games"],
         title: "Your game history",
-        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
+        description: "Games they played in person with Yama's life counter or online, newest first, 10 at a time (next_cursor continues): each with its seats (player, commander, final life, knockout turn), winner, turns, status and note. query matches a player's or commander's name; playgroup lists one playgroup's games, also ones they weren't in; filter unfinished or unnamed finds games to tidy up; detail summary gives one short row a game. These are real games, unlike lab results. `get_game` has one game's events or, for an online game, its log.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "search": {"type": "string", "description": "A player's or commander's name, or part of one."},
+                    "playgroup": {"type": "string", "description": "Only this playgroup's games, including ones they weren't in: its name or id (list_playgroups)."},
                     "filter": {"type": "string", "enum": ["all", "unfinished", "unnamed"], "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all)."},
                     "order": {"type": "string", "enum": ["newest", "oldest"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Games to list (default 10)."},
@@ -1220,6 +1221,142 @@ pub(super) const TOOLS: &[Tool] = &[
         search: false,
         handler: stage!(changes::set_condition),
         stages: Some(changes::staging::SET_CONDITION),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "update_deck",
+        aliases: &[],
+        title: "Rename a deck or declare its bracket",
+        description: staged!("Rename one of their decks, set the bracket they declare for it (1 to 5), or both. The declared bracket is their own call, separate from Yama's estimate."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "deck": {"type": "string", "description": "Their deck, by name or id."},
+                    "name": {"type": "string", "maxLength": 120, "description": "The deck's new name."},
+                    "bracket": {"type": ["integer", "null"], "minimum": 1, "maximum": 5, "description": "The bracket they declare; null clears it."},
+                },
+                "required": ["deck"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::update_deck),
+        stages: Some(changes::staging::UPDATE_DECK),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "remove_wish",
+        aliases: &[],
+        title: "Take a wish off their shopping list",
+        description: staged!("Take a card or sealed product they added to their shopping list off it. A card an approved plan buys stays."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "wish": {"type": "string", "description": "The wish's name as get_shopping_list shows it, or its id when two share a name."},
+                },
+                "required": ["wish"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::remove_wish),
+        stages: Some(changes::staging::REMOVE_WISH),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "create_container",
+        aliases: &[],
+        title: "Make a binder, box or list",
+        description: staged!("Make a new, empty binder, deck box, box or list in their collection."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "maxLength": 80},
+                    "kind": {"type": "string", "enum": ["binder", "deck", "box", "list"], "description": "deck is a deck box; list holds cards they don't physically keep together."},
+                },
+                "required": ["name", "kind"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::create_container),
+        stages: Some(changes::staging::CREATE_CONTAINER),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "remove_from_collection",
+        aliases: &[],
+        title: "Remove copies from their collection",
+        description: staged!("Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded, lost or entered by mistake."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "card": {"type": "string"},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies (default 1)."},
+                    "from": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                },
+                "required": ["card", "from"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::remove_from_collection),
+        stages: Some(changes::staging::REMOVE_FROM_COLLECTION),
+        output: None,
+        untrusted: None,
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
+        name: "edit_copies",
+        aliases: &[],
+        title: "Correct copies in their collection",
+        description: staged!("Correct the copies of a card in one of their binders, deck boxes or lists: finish, proxy or not, a note, or the price paid for each. Give only what changes."),
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "card": {"type": "string"},
+                    "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies; every copy of the card there if left out."},
+                    "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
+                    "proxy": {"type": "boolean"},
+                    "note": {"type": ["string", "null"], "maxLength": 500, "description": "A note on the copies; null clears it."},
+                    "price_paid": {"type": ["number", "null"], "minimum": 0, "description": "What each copy cost; null clears it."},
+                },
+                "required": ["card", "container"],
+                "additionalProperties": false,
+            })
+        },
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::edit_copies),
+        stages: Some(changes::staging::EDIT_COPIES),
         output: None,
         untrusted: None,
         renamed: &[],
@@ -2186,6 +2323,23 @@ async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
 const GAMES_PAGE: usize = 10;
 
 /// The Game history page's list (`games::history_page`), same search and filter.
+/// One of the playgroups the caller is in, by id or name: (id, name).
+async fn their_playgroup(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
+    let all: Vec<(String, String)> =
+        sqlx::query_as("SELECT p.id, p.name FROM playgroups p JOIN playgroup_members m ON m.playgroup_id = p.id WHERE m.user_id = ? ORDER BY p.name, p.id").bind(owner).fetch_all(pool).await?;
+    if let Some(group) = all.iter().find(|(id, name)| id == wanted || name.eq_ignore_ascii_case(wanted)) {
+        return Ok(group.clone());
+    }
+    let near: Vec<&(String, String)> = all.iter().filter(|(_, name)| name.to_lowercase().contains(&wanted.to_lowercase())).collect();
+    match near.as_slice() {
+        [one] => Ok((*one).clone()),
+        _ => Err(AppError::bad(format!(
+            "They are in no playgroup called \"{wanted}\". Theirs: {}.",
+            if all.is_empty() { "none yet".into() } else { all.iter().take(40).map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", ") }
+        ))),
+    }
+}
+
 async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     use crate::games::{HistoryFilter, HistoryOrder, HistoryParams};
     let word = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty());
@@ -2209,11 +2363,15 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
         Some(v) => v.as_u64().filter(|n| (1..=50).contains(n)).ok_or_else(|| AppError::bad("limit is a whole number from 1 to 50"))? as usize,
     };
     let q = word("search").unwrap_or("").to_string();
+    let playgroup = match arg::opt_text(args, "playgroup", arg::TEXT)? {
+        Some(wanted) => Some(their_playgroup(pool, &user.id, wanted).await?.0),
+        None => None,
+    };
     // A cursor continues one search; the older offset argument still works.
-    let scope = super::page::scope("games", &[word("filter").unwrap_or("all"), word("order").unwrap_or("newest"), &q]);
+    let scope = super::page::scope("games", &[word("filter").unwrap_or("all"), word("order").unwrap_or("newest"), &q, playgroup.as_deref().unwrap_or("")]);
     let offset = u32::try_from(super::page::start(args, &scope, offset as usize)?).map_err(|_| AppError::bad("cursor is out of range"))?;
     let summary = arg::summary(args)?;
-    let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset }).await?;
+    let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset, playgroup }).await?;
     // The page holds up to 50 games; a smaller limit hands out part of it and says where to go on.
     let more = page.has_more || page.games.len() > limit;
     let mut out = serde_json::to_value(&page).map_err(anyhow::Error::from)?;
