@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useSyncExternalStore, type ReactNode } from "react";
 import { Dialog, DialogHead } from "./Dialog";
 
 // The app's own "are you sure?" and "this went wrong", in place of the browser's confirm() and
@@ -73,7 +73,14 @@ export function ConfirmHost() {
   const waiting = useSyncExternalStore(subscribe, () => queue, () => queue);
   useEffect(() => {
     hosts += 1;
+    // Back (the browser's, or Android's) leaves the page a question was about: it is answered no
+    // rather than left over the next page, where yes would still act on the old one.
+    const left = () => {
+      for (const p of queue) settle(p, p.notice);
+    };
+    window.addEventListener("popstate", left);
     return () => {
+      window.removeEventListener("popstate", left);
       hosts -= 1;
       // Gone for good (not StrictMode's replay, which mounts again at once): nobody can answer
       // what is still waiting, so it is answered no, and a notice counts as read.
@@ -95,10 +102,12 @@ export function ConfirmHost() {
 /** One question as a centered alert dialog. Most code calls `ask` instead of drawing this. */
 export function ConfirmDialog({ question, notice = false, onAnswer }: { question: Question; notice?: boolean; onAnswer: (yes: boolean) => void }) {
   const { title, body, confirm, danger = false } = question;
+  const about = useId();
   return (
-    <Dialog label={title} alert centered className="confirm-dialog" onClose={() => onAnswer(notice)}>
+    // The consequence is read out with the question, as the browser's own box read it.
+    <Dialog label={title} alert centered className="confirm-dialog" describedBy={body ? about : undefined} onClose={() => onAnswer(notice)}>
       <DialogHead close={false}>{title}</DialogHead>
-      {body && <p className="confirm-body">{body}</p>}
+      {body && <p id={about}>{body}</p>}
       <div className="dialog-actions">
         {!notice && (
           // The safe answer takes focus first when the other one destroys something.

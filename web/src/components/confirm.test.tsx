@@ -44,6 +44,8 @@ describe("ask", () => {
     expect(d.getAttribute("aria-label")).toBe("Delete this run?");
     expect(d.querySelector("h2")!.textContent).toBe("Delete this run?");
     expect(d.textContent).toContain("Its games and results go too.");
+    // The consequence is read out with the question.
+    expect(document.getElementById(d.getAttribute("aria-describedby")!)!.textContent).toBe("Its games and results go too.");
     expect([...d.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Cancel", "Delete run"]);
     // No Close beside the heading: the answers are the way out.
     expect(button("Close")).toBeUndefined();
@@ -117,6 +119,15 @@ describe("ask", () => {
     expect(dialog()).not.toBeNull();
     click("Delete run");
     await expect(answer).resolves.toBe(true);
+  });
+
+  it("answers no when Back leaves the page the question was about", async () => {
+    const { answer } = await raise(() => ask(question));
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(answer).resolves.toBe(false);
+    expect(dialog()).toBeNull();
   });
 
   it("falls back to the browser's own when nothing is mounted to draw it", async () => {
