@@ -324,8 +324,9 @@ const EXTRA_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "vanguar
 
 /**
  * The name a query types, for ordering: its bare words and quoted phrases joined by spaces,
- * lowercased ("sol ring t:artifact" gives "sol ring"). Words that are negated or exact (`!`), and
- * keyed terms, aren't part of it. Null when the query names nothing, or can't be read.
+ * lowercased ("sol ring t:artifact" gives "sol ring"). Words that are negated (alone or inside a
+ * negated group, `-(sol ring) lotus`) or exact (`!`), and keyed terms, aren't part of it. Null
+ * when the query names nothing, or can't be read.
  * The same as `name_phrase` in server/src/cards/search.rs: keep the two in step.
  */
 export function namePhrase(query: string): string | null {
@@ -336,10 +337,17 @@ export function namePhrase(query: string): string | null {
     return null;
   }
   const words: string[] = [];
+  // Whether each open group is excluded (itself negated, or inside one that is), and whether a
+  // "-" is waiting for the term or group it negates.
+  const groups: boolean[] = [];
   let negated = false;
   for (const t of toks) {
-    if (t.k === "term" && t.key === null && !t.exact && !negated) words.push(t.value.trim().toLowerCase());
-    negated = t.k === "neg";
+    const excluded = negated || (groups[groups.length - 1] ?? false);
+    negated = false;
+    if (t.k === "neg") negated = true;
+    else if (t.k === "(") groups.push(excluded);
+    else if (t.k === ")") groups.pop();
+    else if (t.k === "term" && t.key === null && !t.exact && !excluded) words.push(t.value.trim().toLowerCase());
   }
   return words.join(" ") || null;
 }

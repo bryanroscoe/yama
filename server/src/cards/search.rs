@@ -45,21 +45,30 @@ pub fn compile(query: &str) -> Result<Compiled, String> {
 }
 
 /// The name a query types, for ordering: its bare words and quoted phrases joined by spaces,
-/// lowercased ("sol ring t:artifact" gives "sol ring"). Words that are negated or exact (`!`), and
-/// keyed terms, aren't part of it. `None` when the query names nothing, or can't be read.
+/// lowercased ("sol ring t:artifact" gives "sol ring"). Words that are negated (alone or inside a
+/// negated group, `-(sol ring) lotus`) or exact (`!`), and keyed terms, aren't part of it. `None`
+/// when the query names nothing, or can't be read.
 /// The default order puts the card with exactly this name first, then names that start with it
 /// (`name_rank`); the offline copy in `packages/core/src/search.ts` (`namePhrase`) does the same.
 pub fn name_phrase(query: &str) -> Option<String> {
     let toks = lex(query).ok()?;
     let mut words = Vec::new();
+    // Whether each open group is excluded (itself negated, or inside one that is), and whether a
+    // `-` is waiting for the term or group it negates.
+    let mut groups: Vec<bool> = Vec::new();
     let mut negated = false;
     for t in &toks {
-        if let Tok::Term { key: None, exact: false, value, .. } = t
-            && !negated
-        {
-            words.push(value.trim().to_lowercase());
+        let excluded = negated || groups.last().copied().unwrap_or(false);
+        negated = false;
+        match t {
+            Tok::Neg => negated = true,
+            Tok::LParen => groups.push(excluded),
+            Tok::RParen => {
+                groups.pop();
+            }
+            Tok::Term { key: None, exact: false, value, .. } if !excluded => words.push(value.trim().to_lowercase()),
+            _ => {}
         }
-        negated = matches!(t, Tok::Neg);
     }
     let phrase = words.join(" ");
     (!phrase.is_empty()).then_some(phrase)
@@ -450,6 +459,11 @@ mod tests {
         assert_eq!(name_phrase(r#""Sol Ring" mv<=1"#).as_deref(), Some("sol ring"));
         // Negated and exact words, and keyed terms, aren't the name being typed.
         assert_eq!(name_phrase("ring -sol").as_deref(), Some("ring"));
+        // A negated group excludes everything in it, however deep; the words after it count.
+        assert_eq!(name_phrase("-(sol ring) lotus").as_deref(), Some("lotus"));
+        assert_eq!(name_phrase("-(sol (ring or petal)) black lotus").as_deref(), Some("black lotus"));
+        assert_eq!(name_phrase("(sol ring) -(t:artifact bloom)").as_deref(), Some("sol ring"));
+        assert_eq!(name_phrase("-(sol ring)"), None);
         assert_eq!(name_phrase(r#"!"Sol Ring""#), None);
         assert_eq!(name_phrase("t:artifact id<=w"), None);
         assert_eq!(name_phrase(""), None);

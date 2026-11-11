@@ -73,6 +73,11 @@ describe("a typed name, in step with the server (cards/search.rs name_phrase, na
     expect(namePhrase("Sol  Ring t:artifact")).toBe("sol ring");
     expect(namePhrase('"Sol Ring" mv<=1')).toBe("sol ring");
     expect(namePhrase("ring -sol")).toBe("ring");
+    // A negated group excludes everything in it, however deep; the words after it count.
+    expect(namePhrase("-(sol ring) lotus")).toBe("lotus");
+    expect(namePhrase("-(sol (ring or petal)) black lotus")).toBe("black lotus");
+    expect(namePhrase("(sol ring) -(t:artifact bloom)")).toBe("sol ring");
+    expect(namePhrase("-(sol ring)")).toBeNull();
     expect(namePhrase('!"Sol Ring"')).toBeNull();
     expect(namePhrase("t:artifact id<=w")).toBeNull();
     expect(namePhrase("")).toBeNull();
