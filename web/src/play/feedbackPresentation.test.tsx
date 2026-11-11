@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CostText } from "./CostText";
-import { YesNoStrip, type WidgetContext } from "./Decide";
+import { DecisionStage, YesNoStrip, type WidgetContext } from "./Decide";
 import { initialDraft } from "./answer";
 import { FieldTile } from "./Tiles";
 import { actionCues } from "./ActionCues";
@@ -11,6 +11,15 @@ import type { CardView, Happening, Pending } from "./types";
 
 const vampire: CardView = { id: 1, name: "Cordial Vampire", owner: 1, controller: 1, types: ["Creature"], tapped: false, power: 3, toughness: 3, loyalty: null, damage: 0, counters: { plus1plus1: 2 }, attached_to: null };
 const handlers = { onPick() {}, onRead() {}, onHover() {} };
+it.each([false, true])("renders named opponents instead of a number input (compact %s)", (compact) => {
+  const p: Pending = { kind: "pick", answer: "choose_option", purpose: "control_recipient", choiceType: "opponent", prompt: "Choose an opponent to gain control of Wishclaw Talisman", source: { id: 91, name: "Wishclaw Talisman", controller: 0 }, min: 1, max: 1, upTo: false, options: [1, 3].map((seat) => ({ id: String(seat), name: `Player ${seat}`, controller: seat, zone: "player", eligible: true })) };
+  const ctx: WidgetContext = { meta: {}, whose: () => "Your", who: (seat) => seat === 1 ? "Syr Gwyn" : "Olivia", tone: () => undefined, onRead() {}, zone: { label: "", total: null, others: [] }, damageOf: () => 0, inPlay: [], seat: () => ({ art: null, artist: null, life: 37 }) };
+  const markup = renderToStaticMarkup(<DecisionStage p={p} draft={initialDraft(p)} onDraft={() => {}} ctx={ctx} compact={compact} disabled={false} />);
+  expect(markup).toContain("Choose an opponent to gain control of Wishclaw Talisman");
+  expect(markup).toContain('aria-label="Syr Gwyn, 37 life"');
+  expect(markup).toContain('aria-label="Olivia, 37 life"');
+  expect(markup).not.toContain('type="number"');
+});
 it.each([false, true])("separates an optional search question from the full card text (compact %s)", (compact) => {
   const oracle = "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.";
   const p: Pending = { kind: "yesno", answer: "decide_optional_effect", purpose: "may", prompt: oracle, oracle, min: 0, max: 1, upTo: false, options: [] };

@@ -15,6 +15,7 @@ import {
   nameMatches,
   isTapping,
   isTargeting,
+  isSeatPick,
   noneAct,
   onBoard,
   powerOf,
@@ -47,6 +48,17 @@ const pending = (extra: Partial<Pending>): Pending => ({
   ...extra,
 });
 const noCancel = { canCancel: false, spell: true };
+
+it("names a control recipient while preserving the engine's player-choice token", () => {
+  const p = pending({ answer: "choose_option", purpose: "control_recipient", choiceType: "opponent", min: 1, source: { id: 91, name: "Wishclaw Talisman", controller: 0 }, options: [option("1", { name: "Ben", controller: 1, zone: "player" }), option("3", { name: "Di", controller: 3, zone: "player" })] });
+  expect(isSeatPick(p)).toBe(true);
+  expect(buttons(p, initialDraft(p), noCancel).primary).toBe("Choose an opponent");
+  const d = togglePick(p, initialDraft(p), "3");
+  expect(buttons(p, d, { ...noCancel, who: (seat) => seat === 3 ? "Olivia" : "Ben" }).primary).toBe("Give Wishclaw Talisman to Olivia");
+  expect(toAct(p, d)).toEqual({ kind: "choose_option", choice: "3" });
+  expect(buttons({ ...p, purpose: "named_player" }, d, noCancel).primary).toBe("Choose Di");
+  expect(isSeatPick(pending({ kind: "number", answer: "choose_option", purpose: "name", choiceType: "number range", min: 1, max: 3 }))).toBe(false);
+});
 
 describe("picking cards", () => {
   const search = pending({ purpose: "search", prompt: "Search your library for up to 2 cards", min: 0, max: 2, upTo: true, zone: "library", options: [option("11", { zone: "library" }), option("12", { zone: "library" }), option("13", { zone: "library", eligible: false })] });

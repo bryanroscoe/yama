@@ -79,7 +79,7 @@ const TOGETHER = new Set(["vote", "piles_split", "piles_choose", "branch", "coin
 export const isTogether = (p: Pending | null | undefined): boolean => !!p && TOGETHER.has(p.purpose);
 
 /** Choosing a player (GRareRules' "Choosing a player"): the seat picker on art panels. */
-export const isSeatPick = (p: Pending | null | undefined): boolean => !!p && p.answer === "choose_player";
+export const isSeatPick = (p: Pending | null | undefined): boolean => !!p && (p.answer === "choose_player" || (p.answer === "choose_option" && p.kind === "pick" && ["named_player", "control_recipient"].includes(p.purpose)));
 
 /** Words the engine's options read as (no card): a villainous choice's branches, a guess, life totals. */
 export const isWordPick = (p: Pending | null | undefined): boolean => !!p && (p.purpose === "branch" || p.purpose === "guess" || p.purpose === "life");
@@ -768,6 +768,10 @@ export function buttons(
 /** A seat picker's main button, by what the player is chosen for: "Give the gift to Sam", "Clash with Jules". */
 function playerButton(p: Pending, name: string): string {
   switch (p.purpose) {
+    case "control_recipient":
+      return `Give ${p.source?.name ?? "control"} to ${name}`;
+    case "named_player":
+      return `Choose ${name}`;
     case "gift":
       return `Give the gift to ${name}`;
     case "clash_opponent":
@@ -832,7 +836,7 @@ function togetherButtons(p: Pending, d: Draft, moved: boolean, who?: (seat: numb
     case "reveal":
       return { primary: o ? `Reveal ${name}` : p.min === 0 ? "Don't reveal" : "Choose a card", ...none };
   }
-  if (p.answer === "choose_player") return { primary: o ? playerButton(p, who && o.controller !== undefined ? who(o.controller) : name) : "Choose a player" };
+  if (isSeatPick(p)) return { primary: o ? playerButton(p, who && o.controller !== undefined ? who(o.controller) : name) : p.choiceType === "opponent" ? "Choose an opponent" : "Choose a player" };
   return null;
 }
 

@@ -3500,6 +3500,17 @@ body.pb-dragging .pb-preview {
 .compact .dw-head > .dw-head-text:first-child {
   grid-column: 1 / 3;
 }
+.compact .dw-head:has(> .dw-card-art) {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.compact .dw-head:has(> .dw-card-art) > .dw-head-text,
+.compact .dw-head:has(> .dw-card-art) > .dw-count {
+  grid-column: 1 / -1;
+}
+.compact .dw-head:has(> .dw-card-art) > .dw-count {
+  justify-self: start;
+}
 .compact .dw-head-art {
   width: 52px;
   height: 40px;

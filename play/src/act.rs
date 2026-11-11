@@ -27,8 +27,8 @@ use engine::ai_support::AiDecisionContract;
 use engine::game::engine::apply_interaction;
 use engine::game::filter_state_for_viewer;
 use engine::types::ability::{
-    AbilityCost, AdditionalCost, AdditionalCostOrigin, CardSelectionMode, DiscardSelfScope, Effect, FreeEntry, QuantityExpr, SacrificeRequirement,
-    TapCreaturesSelectionMode, TargetRef,
+    AbilityCost, AdditionalCost, AdditionalCostOrigin, CardSelectionMode, ChoiceType, DiscardSelfScope, Effect, FreeEntry, QuantityExpr, SacrificeRequirement,
+    TapCreaturesSelectionMode, TargetFilter, TargetRef,
 };
 use engine::types::events::GameEvent;
 use engine::types::actions::{AlternativeCastDecision, CastChoice, GameAction, MayTriggerAutoChoiceOp, PriorityYieldOp, ReplacementAutoChoice, ResolveAllScope};
@@ -620,6 +620,28 @@ fn number_range(options: &[String]) -> Option<(usize, usize)> {
     (numbers.len() == max - min + 1 && numbers.iter().collect::<std::collections::HashSet<_>>().len() == numbers.len()).then_some((min, max))
 }
 
+/// Public resolving instructions can identify a single player choice followed by handing
+/// that source to the chosen player. Do not infer this from a card name or numeric options.
+fn chooses_control_recipient(vs: &GameState, choice: &ChoiceType) -> bool {
+    let mut current = vs.resolving_stack_entry.as_ref().and_then(|entry| entry.ability());
+    let mut player_choices = 0;
+    let mut transfers = false;
+    while let Some(ability) = current {
+        match &ability.effect {
+            Effect::Choose { choice_type, .. } if matches!(choice_type, ChoiceType::Player { .. } | ChoiceType::Opponent { .. }) => {
+                player_choices += 1;
+                transfers |= choice_type == choice
+                    && ability.sub_ability.as_deref().is_some_and(|next| matches!(next.effect, Effect::GainControl { target: TargetFilter::SelfRef }));
+            }
+            Effect::SearchLibrary { .. } | Effect::ChangeZone { .. } | Effect::Shuffle { .. } | Effect::GainControl { .. } => {}
+            // A branch or nested choice cannot be located from the public root alone.
+            _ => return false,
+        }
+        current = ability.sub_ability.as_deref();
+    }
+    player_choices == 1 && transfers
+}
+
 /// What a named choice names, in words: "card name", "creature type".
 fn choice_type_name(value: &Value) -> Option<String> {
     let raw = value.as_str().or_else(|| value.get("type").and_then(Value::as_str))?;
@@ -1061,34 +1083,60 @@ impl Pending {
                     image: None,
                     artist: None,
                 });
-                let mut p = match free_entry {
-                    // A number in a range: answered with its digits.
-                    Some(FreeEntry::Number { min, max }) => {
-                        let mut p = Pending::new(Kind::Number, Answer::ChooseOption, "name", format!("Choose a number from {min} to {max}"), vec![]);
-                        p.min = *min as usize;
-                        p.max = *max as usize;
-                        p.choice_type = Some(what);
-                        p
-                    }
-                    // A list of consecutive numbers ("choose a number between 0 and 10") is a number too.
-                    None if let Some((min, max)) = number_range(options) => {
-                        let mut p = Pending::new(Kind::Number, Answer::ChooseOption, "name", format!("Choose a number from {min} to {max}"), vec![]);
-                        p.min = min;
-                        p.max = max;
-                        p.choice_type = Some(what);
-                        p
-                    }
-                    None => {
-                        let mut p = Pending::new(Kind::Text, Answer::ChooseOption, "name", format!("Choose a {what}"), options.iter().map(|o| word(o.clone(), o.clone())).collect());
-                        p.min = 1;
-                        p.max = 1;
-                        // No list (a card name): any word, checked by the engine.
-                        p.free_entry = Some(options.is_empty());
-                        p.choice_type = Some(what);
-                        p
+                let is_player_choice = matches!(choice_type, ChoiceType::Player { .. } | ChoiceType::Opponent { .. });
+                let mut p = if is_player_choice {
+                    let choices = options.iter().map(|value| {
+                        let seat = value.parse::<u8>().ok()?;
+                        vs.players.iter().find(|p| p.id.0 == seat)?;
+                        let mut option = player_choice(PlayerId(seat), names);
+                        // ChooseOption consumes the engine's original string, not a target id.
+                        option.id = value.clone();
+                        Some(option)
+                    }).collect::<Option<Vec<_>>>()?;
+                    let who = if matches!(choice_type, ChoiceType::Opponent { .. }) { "an opponent" } else { "a player" };
+                    let source = asking.as_ref().map(|s| ObjectId(s.id)).or_else(|| crate::together::resolving_source(vs));
+                    let transfer = vs.resolving_stack_entry.as_ref().is_some_and(|entry| entry.controller == me && source == Some(entry.source_id))
+                        && chooses_control_recipient(vs, choice_type);
+                    let prompt = if transfer {
+                        let name = source.map(|id| Match::name_in(vs, &id)).unwrap_or_else(|| "the source".into());
+                        format!("Choose {who} to gain control of {name}")
+                    } else {
+                        format!("Choose {who}")
+                    };
+                    let mut p = Pending::new(Kind::Pick, Answer::ChooseOption, if transfer { "control_recipient" } else { "named_player" }, prompt, choices)
+                        .range(1, 1, false).from(vs, source);
+                    p.choice_type = Some(what);
+                    p
+                } else {
+                    match free_entry {
+                        // A number in a range: answered with its digits.
+                        Some(FreeEntry::Number { min, max }) => {
+                            let mut p = Pending::new(Kind::Number, Answer::ChooseOption, "name", format!("Choose a number from {min} to {max}"), vec![]);
+                            p.min = *min as usize;
+                            p.max = *max as usize;
+                            p.choice_type = Some(what);
+                            p
+                        }
+                        // A list of consecutive numbers ("choose a number between 0 and 10") is a number too.
+                        None if let Some((min, max)) = number_range(options) => {
+                            let mut p = Pending::new(Kind::Number, Answer::ChooseOption, "name", format!("Choose a number from {min} to {max}"), vec![]);
+                            p.min = min;
+                            p.max = max;
+                            p.choice_type = Some(what);
+                            p
+                        }
+                        None => {
+                            let mut p = Pending::new(Kind::Text, Answer::ChooseOption, "name", format!("Choose a {what}"), options.iter().map(|o| word(o.clone(), o.clone())).collect());
+                            p.min = 1;
+                            p.max = 1;
+                            // No list (a card name): any word, checked by the engine.
+                            p.free_entry = Some(options.is_empty());
+                            p.choice_type = Some(what);
+                            p
+                        }
                     }
                 };
-                p.source = asking;
+                if asking.is_some() || !is_player_choice { p.source = asking; }
                 p
             }
             WaitingFor::ReplacementChoice { player, candidates: items, kind, remember_identity, .. } if *player == me => {
@@ -3155,6 +3203,31 @@ mod tests {
         assert_eq!((p.kind, p.min, p.max, p.prompt.as_str()), (Kind::Number, 0, 10, "Choose a number from 0 to 10"));
         assert!(p.admits(&Act::ChooseOption { choice: "7".into() }).is_ok());
         assert!(p.admits(&Act::ChooseOption { choice: "11".into() }).is_err());
+    }
+
+    #[test]
+    fn named_player_domains_keep_the_exact_seats_instead_of_a_number_range() {
+        let e = Engine::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/act-cards.json")).unwrap();
+        let deck = SeatDeck { companion: vec![], commander: vec!["Combat Celebrant".into()], main: vec!["Island".into(); 99] };
+        let mut m = e.new_match_first(1, vec![deck; 6], &[], Some(0)).unwrap();
+        let names = ["Ana", "Ben", "Cy", "Di", "Eli", "Fay"].map(String::from);
+        let named = |choice_type, values: &[&str]| WaitingFor::NamedChoice {
+            player: PlayerId(0), choice_type, options: values.iter().map(|v| v.to_string()).collect(), source: None, persist_player: None, free_entry: None,
+        };
+        m.state.waiting_for = named(ChoiceType::opponent(), &["1", "3", "5"]);
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &names).unwrap();
+        assert_eq!((p.kind, p.answer, p.purpose, p.prompt.as_str()), (Kind::Pick, Answer::ChooseOption, "named_player", "Choose an opponent"));
+        assert_eq!(p.options.iter().map(|o| (o.id.as_str(), o.name.as_str(), o.controller)).collect::<Vec<_>>(), [("1", "Ben", Some(1)), ("3", "Di", Some(3)), ("5", "Fay", Some(5))]);
+        assert!(p.admits(&Act::ChooseOption { choice: "3".into() }).is_ok());
+        assert!(p.admits(&Act::ChooseOption { choice: "2".into() }).is_err());
+        assert!(p.admits(&Act::ChooseOption { choice: "0".into() }).is_err());
+        m.state.waiting_for = named(ChoiceType::Player { distinctness: Default::default() }, &["0", "2"]);
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &names).unwrap();
+        assert_eq!((p.kind, p.prompt.as_str()), (Kind::Pick, "Choose a player"));
+        assert_eq!(p.options.iter().map(|o| o.controller).collect::<Vec<_>>(), [Some(0), Some(2)]);
+        m.state.waiting_for = named(ChoiceType::NumberRange { min: 1, max: Some(3), distinctness: Default::default() }, &["1", "2", "3"]);
+        let p = Pending::of(&filter_state_for_viewer(&m.state, PlayerId(0)), PlayerId(0), &[], &names).unwrap();
+        assert_eq!((p.kind, p.min, p.max, p.prompt.as_str()), (Kind::Number, 1, 3, "Choose a number from 1 to 3"));
     }
 
     #[test]

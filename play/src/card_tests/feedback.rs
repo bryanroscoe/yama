@@ -2,6 +2,32 @@ use super::*;
 use crate::{PassMode, turns::Verdict};
 
 #[test]
+fn wishclaw_names_the_opponent_who_receives_control() {
+    big_stack(|| {
+        let mut t = Board::new(4).field(0, "Wishclaw Talisman").lands(0, "Plains", 1).build();
+        let talisman = t.id("Wishclaw Talisman");
+        t.m.state.objects.get_mut(&talisman).unwrap().counters.insert(CounterType::Generic("wish".into()), 3);
+        t.activate(talisman, None);
+        let mut saw_choice = false;
+        t.drive_answering(|_, seat, d| {
+            let p = d.pending.as_ref()?;
+            if p.answer != crate::act::Answer::ChooseOption || p.choice_type.as_deref() != Some("opponent") { return None; }
+            saw_choice = true;
+            assert_eq!(seat, 0);
+            assert_eq!(p.kind, crate::act::Kind::Pick);
+            assert_eq!(p.purpose, "control_recipient");
+            assert_eq!(p.prompt, "Choose an opponent to gain control of Wishclaw Talisman");
+            assert_eq!(p.source.as_ref().map(|s| s.name.as_str()), Some("Wishclaw Talisman"));
+            assert_eq!(p.options.iter().map(|o| (o.id.as_str(), o.controller)).collect::<Vec<_>>(), [("1", Some(1)), ("2", Some(2)), ("3", Some(3))]);
+            assert!(p.options.iter().all(|o| !o.name.chars().all(|c| c.is_ascii_digit())));
+            Some(Act::ChooseOption { choice: "2".into() })
+        }).expect("the named opponent choice resolves through the normal engine action");
+        assert!(saw_choice);
+        assert_eq!(t.m.state.objects[&talisman].controller, PlayerId(2));
+    });
+}
+
+#[test]
 fn fetchland_is_a_main_phase_action_even_without_a_castable_spell() {
     big_stack(|| {
         let mut t = Board::new(2).hand(0, "Windswept Heath").build();

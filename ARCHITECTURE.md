@@ -1960,3 +1960,8 @@ Optional basic-land-search prompts distinguish the pending search from an earlie
 mandatory exile, preserve the complete card text and label accepting/declining by
 what the player does (Search for a basic land / Skip search). Presentation only
 recognizes the complete supported instruction; other choices keep their engine wording.
+
+Named player/opponent choices use their engine-supplied seat domain and named player
+picker, preserving the original ChooseOption token. Numeric seat IDs never become
+a number range. An unambiguous public control-transfer sequence names the recipient
+and source in the question; other player choices keep a general player/opponent question.
