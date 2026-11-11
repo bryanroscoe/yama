@@ -14,8 +14,7 @@
   min-width: 0;
 }
 .deck-tab-section h2,
-.deck-plan-current h2,
-.deck-tab-empty h2 {
+.deck-plan-current h2 {
   margin: 0;
   font-family: var(--display);
   font-weight: 700;
@@ -115,12 +114,6 @@
   align-items: center;
   min-height: var(--target-compact);
   color: var(--text);
-}
-.deck-tab-empty {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  align-items: flex-start;
 }
 
 /* History: the lists on the left, the one open on the right; one column on phones. */

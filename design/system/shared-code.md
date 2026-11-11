@@ -136,3 +136,43 @@ Escape in the capture phase, calls `preventDefault()` and `stopPropagation()`, a
 
 Don't write `role="dialog"`, a `.scrim`, a `.sheet-head` or a window `keydown` listener for
 Escape in a page. Put a dialog's answers in a `.dialog-actions` row, the main one last.
+
+### Questions: `ask` and `tell` (`components/confirm.tsx`)
+
+The app's own "are you sure?" and "this went wrong", in place of the browser's `confirm()` and
+`alert()`. `<ConfirmHost />`, mounted once at the root, draws them one at a time as a centered
+alert dialog above every other layer.
+
+```tsx
+if (await ask({ title: "Delete this run?", body: "Its games and results go too.", confirm: "Delete run", danger: true })) remove.mutate();
+await tell({ title: "Couldn't export", body: message });
+```
+
+- `title` is the question; `body` is the consequence, in one short line (it is read out with
+  the question); `confirm` says what the button does, as a verb. Never "OK" for a question.
+- `danger` for anything that deletes, discards, revokes or makes something public: the button
+  is `--bad` and Cancel takes focus first, so Enter doesn't confirm it.
+- Cancel, Escape, the scrim and the browser's Back all answer no.
+- A question asked where the action is (an inline "Delete? / Keep") is fine; mark it
+  `role="alert"` so it is announced. Don't call `confirm(` or `alert(`.
+
+### ErrorText
+
+What went wrong, in words, as an alert: `<ErrorText error={query.error} />`. `error` is whatever
+was thrown, or the message itself; nothing is drawn for no error. `small` for a line beside a
+control. With `retry`, a quiet "Try again" sits on the error's line: give it where asking again
+can work.
+
+- A page or panel whose query failed uses `LoadFailed` and `RefreshFailed`
+  (`components/QueryError.tsx`): the first when there is nothing to show, the second when the
+  last good data is still on screen and only its refresh failed.
+- A sentence the page writes about its own state (a price that isn't a number, a list over a
+  store's limit) is a plain `<p className="error">`, not an alert: it would be read out again
+  every time it changes.
+
+### CopyButton
+
+`<CopyButton text={list} label="Copy the list" className="outline" />` copies, reads "Copied" for
+two seconds (aloud as well), goes back when the text changes, and when the browser refuses to
+copy opens the text in a dialog to copy by hand. Don't call `navigator.clipboard.writeText` in a
+page unless it does more than copy (the share sheet first, copy then open a site).

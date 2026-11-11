@@ -858,9 +858,7 @@
 .lab-diff > p {
   margin: 0;
 }
-.lab-diff-empty {
-  margin: 0;
-}
+
 .lab-diff-row {
   display: grid;
   grid-template-columns: 28px 64px minmax(0, 1fr) auto;
@@ -1277,13 +1275,7 @@ button.conf-mark:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
 }
-/* "Close" sat lower than the title: centre it on the title's line. */
-.conf-sheet .sheet-head {
-  align-items: center;
-}
-.conf-sheet .sheet-head h2 {
-  margin: 0;
-}
+
 .conf-sheet-deck {
   margin: 0;
   font-family: var(--display);
