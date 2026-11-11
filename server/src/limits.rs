@@ -145,6 +145,8 @@ pub struct Limits {
     /// Joining a playgroup or an online game by code, right or wrong, per account: a 6-letter
     /// code can't be found by guessing at this pace.
     pub join_codes: RateLimiter,
+    /// New playgroups, guests, renames and new join codes, per account.
+    pub playgroup_writes: RateLimiter,
     /// Mythic Tools CSV and plan file imports, per account.
     pub imports: RateLimiter,
     /// Scan photos kept for improving the scanner (scan_samples.rs), per account.
@@ -187,6 +189,7 @@ impl Default for Limits {
             people: RateLimiter::new("player searches", 120, MINUTE),
             offline_cards: RateLimiter::new("offline card downloads", 10, 60 * MINUTE),
             join_codes: RateLimiter::new("join codes tried", 20, 10 * MINUTE),
+            playgroup_writes: RateLimiter::new("playgroup changes", 60, 10 * MINUTE),
             imports: RateLimiter::new("imports", 60, 60 * MINUTE),
             scan_samples: RateLimiter::new("scan photos", 600, 60 * MINUTE),
             mythic_bridge: RateLimiter::new("Mythic Tools imports", 200, 60 * MINUTE),

@@ -14,6 +14,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-playgroup-members",
+    date: "2026-11-11",
+    title: "Manage who is in your playgroup",
+    items: [
+      "The Members list on the Playgroup page shows everyone in it. Anyone can leave; the owner can remove people, rename the playgroup, hand it on to another member or delete it.",
+      "Removing someone with an account changes the join code, so the old code no longer lets anyone in. The owner can also make a new code at any time.",
+    ],
+    link: { to: "/group", label: "Open Group" },
+  },
+  {
     id: "2026-11-09-your-profile",
     date: "2026-11-09",
     title: "Your profile, easier to find",

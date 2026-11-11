@@ -358,31 +358,14 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
     // Its own: pass each to the longest-standing other account member, or delete it.
     let owned: Vec<String> = sqlx::query_scalar("SELECT id FROM playgroups WHERE owner_id = ?").bind(id).fetch_all(&mut **tx).await?;
     for pg in owned {
-        let heir: Option<String> = sqlx::query_scalar(
-            "SELECT user_id FROM playgroup_members WHERE playgroup_id = ? AND user_id IS NOT NULL AND user_id != ?
-              ORDER BY created_at, id LIMIT 1",
-        )
-        .bind(&pg)
-        .bind(id)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let heir = crate::playgroups::heir(&mut **tx, &pg, id, false).await?;
         if let Some(heir) = heir {
             sqlx::query("UPDATE playgroups SET owner_id = ? WHERE id = ?").bind(&heir).bind(&pg).execute(&mut **tx).await?;
             r.playgroups_passed_on += 1;
         } else {
             // Its games leave the group, and seats leave its member rows (a guest member's name
-            // stays on the seat). The members go with the group.
-            sqlx::query("UPDATE games SET playgroup_id = NULL WHERE playgroup_id = ?").bind(&pg).execute(&mut **tx).await?;
-            sqlx::query(
-                "UPDATE game_seats SET
-                   guest_name = COALESCE(game_seats.guest_name, (SELECT m.guest_name FROM playgroup_members m WHERE m.id = game_seats.member_id)),
-                   member_id = NULL
-                 WHERE member_id IN (SELECT id FROM playgroup_members WHERE playgroup_id = ?)",
-            )
-            .bind(&pg)
-            .execute(&mut **tx)
-            .await?;
-            sqlx::query("DELETE FROM playgroups WHERE id = ?").bind(&pg).execute(&mut **tx).await?;
+            // stays on the seat). The members go with the group. The same as its owner deleting it.
+            crate::playgroups::delete_rows(&mut **tx, &pg).await?;
             r.playgroups_deleted += 1;
         }
     }
