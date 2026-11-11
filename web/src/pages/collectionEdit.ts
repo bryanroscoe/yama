@@ -80,6 +80,8 @@ export function finishChoices(current: string, printingFinishes: string[] | unde
   return list.includes(current) ? list : [current, ...list];
 }
 
+// ── a copy's language, and whether it's signed or altered ──────────────────
+
 /** The languages cards are printed in, by Scryfall's code (server/src/collection.rs `LANGS`). */
 export const LANGUAGES: [string, string][] = [
   ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"], ["it", "Italian"], ["pt", "Portuguese"], ["ja", "Japanese"], ["ko", "Korean"],
@@ -90,4 +92,59 @@ export const LANGUAGES: [string, string][] = [
 /** "Japanese" for "ja"; a code Yama has no name for is shown as it is. */
 export function languageName(code: string): string {
   return LANGUAGES.find(([c]) => c === code)?.[1] ?? code;
+}
+
+/** The languages a row can be set to: the list, and the row's own if it's one the list doesn't have. */
+export function languageChoices(current: string): [string, string][] {
+  return LANGUAGES.some(([c]) => c === current) ? LANGUAGES : [[current, current], ...LANGUAGES];
+}
+
+/** What marks a copy as its own: the language it's printed in, and whether it's signed or altered. */
+export interface Mark {
+  lang?: string;
+  signed?: boolean;
+  altered?: boolean;
+}
+
+/**
+ * The op that marks the row's copies (all, or one split off): a language, signed, altered. A new
+ * language also files the copies under that language's printing of the same set and number, when
+ * Yama has it, so the picture and the price are that printing's. Nothing changed: no op.
+ */
+export function markOps(
+  item: Pick<CollectionItem, "id" | "scryfall_id" | "qty" | "lang" | "signed" | "altered" | "set_code" | "collector_number">,
+  mark: Mark,
+  scope: Scope,
+  printings: Pick<Printing, "scryfall_id" | "set_code" | "collector_number" | "lang">[] | undefined,
+  newId: () => string,
+): Op[] {
+  const op: Op = { op_id: "", kind: "update", item_id: item.id };
+  if (mark.lang !== undefined && mark.lang !== item.lang) {
+    op.lang = mark.lang;
+    const same = printings?.find((p) => p.lang === mark.lang && p.set_code === item.set_code && p.collector_number === item.collector_number);
+    if (same && same.scryfall_id !== item.scryfall_id) op.scryfall_id = same.scryfall_id;
+  }
+  if (mark.signed !== undefined && mark.signed !== !!item.signed) op.signed = mark.signed;
+  if (mark.altered !== undefined && mark.altered !== !!item.altered) op.altered = mark.altered;
+  if (Object.keys(op).length === 3) return [];
+  if (scope === "one" && item.qty > 1) op.split = 1;
+  op.op_id = newId();
+  return [op];
+}
+
+/** What the page says after a mark is saved: "One Sol Ring is now signed." */
+export function markDone(item: Pick<CollectionItem, "name" | "qty">, mark: Mark, scope: Scope): string {
+  const what = [
+    mark.lang !== undefined ? `in ${languageName(mark.lang)}` : null,
+    mark.signed !== undefined ? (mark.signed ? "signed" : "not signed") : null,
+    mark.altered !== undefined ? (mark.altered ? "altered" : "not altered") : null,
+  ].filter(Boolean);
+  const name = item.name ?? "The card";
+  const which = item.qty === 1 ? name : scope === "one" ? `One ${name}` : `Every ${name} in this row`;
+  return `${which} is now ${what.join(" and ")}.`;
+}
+
+/** "Japanese, signed, altered" for the sheet's line about the copy; English and unmarked say nothing. */
+export function markWords(item: Pick<CollectionItem, "lang" | "signed" | "altered">): string[] {
+  return [item.lang !== "en" ? languageName(item.lang) : null, item.signed ? "signed" : null, item.altered ? "altered" : null].filter((x): x is string => !!x);
 }

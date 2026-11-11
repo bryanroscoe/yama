@@ -243,6 +243,8 @@ fn move_ops(copies: &mut [OwnedCopy], from: &dyn Fn(&OwnedCopy) -> bool, oracle_
                     purchase_price: None,
                     note: None,
                     proxy: None,
+                    altered: None,
+                    signed: None,
                     scryfall_id: None,
                     split: None,
                 });
