@@ -4,7 +4,7 @@
 //! These rows are apart from people's deck checks in both directions: a person's check is never
 //! read for a stock list, and a stock check never answers for a person's deck.
 //!
-//! The deck-check worker asks about one stock list at a time when no person's deck is waiting,
+//! The deck-check worker asks about one stock list at a time when no person's deck is due,
 //! through the same pacer, so people's checks always go first.
 use super::*;
 
@@ -77,6 +77,10 @@ async fn next(pool: &SqlitePool) -> anyhow::Result<Option<(String, String, Vec<D
             .collect();
     let now = Utc::now();
     for (id, cards) in crate::public_precons::stock_lists(pool).await? {
+        // Spellbook takes oracle ids: a list with none Yama knows has nothing to ask about.
+        if !cards.iter().any(|c| c.board != Board::Side && c.qty > 0 && !c.oracle_id.is_empty()) {
+            continue;
+        }
         let hash = list_hash(&cards);
         if due(state.get(&hash), now) {
             return Ok(Some((id, hash, cards)));
@@ -128,7 +132,7 @@ pub(super) async fn run_next(pool: &SqlitePool, http: &reqwest::Client, url: &st
                 combos: r.combos.clone(),
                 unrecognized: r.unrecognized.clone(),
             };
-            sqlx::query(
+            let saved = sqlx::query(
                 "INSERT INTO precon_checks (list_hash, source, precon_id, checked_at, result, attempts, last_attempt_at, error) VALUES (?, ?, ?, ?, ?, 0, ?, NULL)
                  ON CONFLICT (list_hash, source) DO UPDATE SET precon_id = excluded.precon_id, checked_at = excluded.checked_at, result = excluded.result,
                     attempts = 0, last_attempt_at = excluded.last_attempt_at, error = NULL",
@@ -140,7 +144,12 @@ pub(super) async fn run_next(pool: &SqlitePool, http: &reqwest::Client, url: &st
             .bind(json(&kept))
             .bind(&r.checked_at)
             .execute(pool)
-            .await
+            .await;
+            // Answers for lists this precon no longer has are never read again.
+            match saved {
+                Ok(_) => sqlx::query("DELETE FROM precon_checks WHERE precon_id = ? AND source = ? AND list_hash != ?").bind(&id).bind(SPELLBOOK).bind(&hash).execute(pool).await,
+                Err(e) => Err(e),
+            }
         }
         Err(e) => {
             sqlx::query(
@@ -215,7 +224,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(run_next(&pool, &http, &url, None).await.unwrap(), Turn::Asked);
-        assert_eq!(results(&pool).await.unwrap().len(), 2);
+        // The answer for the list it no longer has is gone.
+        let now = crate::public_precons::stock_lists(&pool).await.unwrap();
+        let kept = results(&pool).await.unwrap();
+        assert_eq!(kept.keys().collect::<Vec<_>>(), [&list_hash(&now[0].1)]);
 
         // No person's deck check was made or read.
         let people: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deck_version_checks").fetch_one(&pool).await.unwrap();
@@ -274,6 +286,16 @@ mod tests {
         let stock: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM precon_checks").fetch_one(&pool).await.unwrap();
         assert_eq!(stock, 0);
         assert!(matches!(next_pending(&pool).await.unwrap(), Next::Due(_)));
+    }
+
+    #[tokio::test]
+    async fn a_list_with_no_known_card_is_never_asked_about() {
+        let pool = crate::db::test_pool().await;
+        precon(&pool, "unknown", serde_json::json!([{ "name": "Not in the card data", "oracle_id": null, "qty": 1, "board": "commander" }])).await;
+        let url = super::super::tests::fake_spellbook(200).await;
+        assert_eq!(run_next(&pool, &crate::routes::http_client(), &url, None).await.unwrap(), Turn::Idle);
+        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM precon_checks").fetch_one(&pool).await.unwrap();
+        assert_eq!(rows, 0);
     }
 
     #[test]

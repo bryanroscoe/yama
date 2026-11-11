@@ -187,6 +187,11 @@ fn unresolved_names_count_as_unknown_cards() {
     assert_eq!(a.unknown_cards, ["Sol Rnig", "Homebrew"]);
     assert!((a.margin - before - 0.2).abs() < 1e-9, "{} vs {before}", a.margin);
     assert_eq!(a.confidence, "medium");
+    // One card that can't be read is already not "every card read".
+    let mut one = analyze(&[Entry { card: &one, facts: Some(&rock) }], Some(&r), &mut Cache::default());
+    assert_eq!((one.margin, one.confidence), (0.7, "high"), "everything read: the measured base");
+    add_unresolved(&mut one, &["Sol Rnig".into()]);
+    assert_eq!((one.margin, one.confidence), (0.8, "medium"));
 }
 
 #[test]
@@ -214,6 +219,11 @@ fn the_bracket_reading_keeps_power_and_the_card_rules_apart() {
     (r.bracket_tag, r.bracket) = ("C".into(), Some(2));
     r.mld.clear();
     assert_eq!(reading(3.0, 0.7, Some(&names(&["Rhystic Study"])), Some(&r), false).rules, Some(3));
+    // A tag raised by something the flags don't list still says whose reading it is.
+    (r.bracket_tag, r.bracket_label, r.bracket) = ("S".into(), "Spicy", Some(3));
+    let spicy = reading(3.0, 0.7, Some(&[]), Some(&r), false);
+    assert_eq!((spicy.rules, spicy.flags.as_slice()), (Some(3), ["Commander Spellbook's estimate: Spicy".to_string()].as_slice()));
+    (r.bracket_tag, r.bracket_label, r.bracket) = ("C".into(), "Core", Some(2));
     // Without Yama's own flags, Spellbook's list of Game Changers stands in.
     r.game_changers = names(&["Rhystic Study", "The One Ring"]);
     let stand_in = reading(3.0, 0.7, None, Some(&r), false);

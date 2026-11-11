@@ -376,7 +376,8 @@ impl Filters {
                     .unwrap_or(std::cmp::Ordering::Equal),
                 "commander" => b.commander_rate().partial_cmp(&a.commander_rate()).unwrap_or(std::cmp::Ordering::Equal),
                 "power" => b.power.as_ref().map(|p| p.level).partial_cmp(&a.power.as_ref().map(|p| p.level)).unwrap_or(std::cmp::Ordering::Equal),
-                "bracket" => b.power.as_ref().map(|p| p.bracket).cmp(&a.power.as_ref().map(|p| p.bracket)),
+                // What the cell says: "Bracket 2 to 3" sorts above "Bracket 2", below "Bracket 3".
+                "bracket" => b.power.as_ref().map(|p| (p.plays_like[1], p.plays_like[0])).cmp(&a.power.as_ref().map(|p| (p.plays_like[1], p.plays_like[0]))),
                 "sealed" => a
                     .sealed_price
                     .as_ref()

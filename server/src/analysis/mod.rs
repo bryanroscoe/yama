@@ -185,6 +185,7 @@ fn reading(power: f64, margin: f64, game_changers: Option<&[String]>, check: Opt
         flags.push(format!("{} Game Changer{}: {}", g.len(), plural(g.len()), g.join(", ")));
     }
     if let Some(c) = check {
+        let found = flags.len();
         if !c.mld.is_empty() {
             flags.push(format!("Mass land denial: {}", c.mld.join(", ")));
         }
@@ -197,6 +198,11 @@ fn reading(power: f64, margin: f64, game_changers: Option<&[String]>, check: Opt
             flags.push(format!("Two-card combo{}: {}{more}", plural(two.len()), two[..two.len().min(3)].join("; ")));
         }
         if let Some(b) = c.bracket {
+            // Its tag can come from something not listed above (a combo that is arguably
+            // two cards, a Game Changer Yama's data doesn't flag yet): say whose reading it is.
+            if rules.is_none_or(|r| b > r) && b > 2 && flags.len() == found {
+                flags.push(format!("Commander Spellbook's estimate: {}", c.bracket_label));
+            }
             rules = Some(rules.map_or(b, |r| r.max(b)));
         }
     }
@@ -561,7 +567,8 @@ const BASE_MARGIN: f64 = 0.7;
 /// The ± range and its confidence. It widens with cards missing from the card data, with no
 /// Spellbook check or cards Spellbook didn't know (their combos may be missing), and with many
 /// nonland cards the text rules don't score. Confidence says how complete the inputs were,
-/// not how right the score is: "high" is everything read.
+/// not how right the score is: "high" only when nothing widened the margin (every card read,
+/// a combo check that knew them all).
 fn spread(unknown: usize, combos: &Combos, unscored: i64, nonland: i64) -> (f64, &'static str) {
     let mut margin = BASE_MARGIN + (0.1 * unknown as f64).min(0.5);
     if !combos.checked {
@@ -574,7 +581,7 @@ fn spread(unknown: usize, combos: &Combos, unscored: i64, nonland: i64) -> (f64,
     }
     let margin = (margin * 10.0).round() / 10.0;
     // Margins are tenths: the cut-offs sit between them.
-    let confidence = if margin <= BASE_MARGIN + 0.15 {
+    let confidence = if margin <= BASE_MARGIN + 0.05 {
         "high"
     } else if margin <= BASE_MARGIN + 0.35 {
         "medium"

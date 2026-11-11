@@ -69,6 +69,7 @@ pub(super) fn cell(p: &Precon) -> String {
 /// Game Changer makes a precon a Bracket 3 list by the rules without making it play like one.
 fn rules_line(a: &Power) -> String {
     match a.rules {
+        Some(rules) if rules > a.plays_like[1] && a.flags.is_empty() => format!("<small>Bracket {rules} by the card rules</small>"),
         Some(rules) if rules > a.plays_like[1] => format!("<small>Bracket {rules} by the card rules: {}</small>", html::e(&a.flags.join("; "))),
         _ => String::new(),
     }
@@ -93,7 +94,7 @@ pub(crate) fn correlation(points: &[(f64, f64)]) -> Option<f64> {
 /// Full catalog, before search and pagination; never mixes commander aggregates with stock.
 pub(super) fn comparison(data: &Catalog) -> String {
     use std::fmt::Write;
-    let mut out = String::from("<section class=\"public-panel\"><h2>Power and win rates</h2><details><summary>About this comparison</summary><p>Computed power reads card text using Yama’s deck-analysis method. It is not a game simulation. “Plays like” is the bracket whose usual range holds the score, give or take its margin. It is not an official assignment. Wizards’ card rules are read separately: a list with a Game Changer is a Bracket 3 list by those rules even when it plays like Bracket 2, and the precons with one have not won more than the rest. Stock lists are checked for combos with Commander Spellbook; until a list’s answer is in, its margin is wider. These estimates do not change the rankings.</p><p>Each chart uses the full catalog, with complete card data and at least 20 games per source. Spearman ρ compares ordering, with ties averaged; it is descriptive, not held-out validation. Stock precons already helped calibrate the power scale. Different fields and engine limitations can explain disagreement.</p></details><div class=\"power-charts\">");
+    let mut out = String::from("<section class=\"public-panel\"><h2>Power and win rates</h2><details><summary>About this comparison</summary><p>Computed power reads card text using Yama’s deck-analysis method. It is not a game simulation. “Plays like” is the bracket whose usual range holds the score, give or take its margin. It is not an official assignment. Wizards’ card rules are read separately: a list with a Game Changer is a Bracket 3 list by those rules even when it plays like Bracket 2, and the precons with one have won about as often as the rest. Stock lists are checked for combos, mass land denial and extra turns with <a href=\"https://commanderspellbook.com/\">Commander Spellbook</a>; until a list’s answer is in, its margin is wider. These estimates do not change the rankings.</p><p>Each chart uses the full catalog, with complete card data and at least 20 games per source. Spearman ρ compares ordering, with ties averaged; it is descriptive, not held-out validation. Stock precons already helped calibrate the power scale. Different fields and engine limitations can explain disagreement.</p></details><div class=\"power-charts\">");
     let sources: Vec<_> = data.publication.iter().chain(data.comparisons.iter()).map(|s| (Some(s.id.as_str()), format!("{} model", consensus::engine_family(&s.engine)))).chain(std::iter::once((None, "Real games, stock lists".into()))).collect();
     for (id, label) in sources {
         let points: Vec<_> = data.precons.iter().filter_map(|p| {

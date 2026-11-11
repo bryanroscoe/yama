@@ -215,7 +215,7 @@ export function confidenceText(a: DeckAnalysis): string {
   else if (a.combos.unrecognized) why.push(`Commander Spellbook didn't know ${a.combos.unrecognized} ${a.combos.unrecognized === 1 ? "card" : "cards"}, so combos with ${a.combos.unrecognized === 1 ? "it" : "them"} may be missing`);
   if (a.unknown_cards.length) why.push(`${a.unknown_cards.length} ${a.unknown_cards.length === 1 ? "card isn't" : "cards aren't"} in Yama's card data`);
   if (a.nonland > 0 && a.unscored / a.nonland > 0.35) why.push("many cards do things the text rules don't score");
-  return `${inputsNote(a.confidence)}${why.length ? `: ${why.join("; ")}` : ""}. The margin starts at ±0.7, about how far lists built for the same bracket spread. An unofficial Yama estimate from card text, not from how the deck plays.`;
+  return `${inputsNote(a.confidence)}${why.length ? `: ${why.join("; ")}` : ""}. The margin is never narrower than lists built for the same bracket were measured to spread. An unofficial Yama estimate from card text, not from how the deck plays.`;
 }
 
 function PowerHelp({ analysis: a }: { analysis: DeckAnalysis }) {

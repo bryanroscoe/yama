@@ -5,7 +5,8 @@
 -- stock list, and these never answer for a person's deck.
 --
 -- Keyed by the list asked about (deck_checks::list_hash), so a corrected stock list gets its
--- own answer and the old one stops being read. A failed try keeps the last good answer.
+-- own answer; the old one stops being read and is deleted when the new one arrives. A failed
+-- try keeps the last good answer.
 CREATE TABLE precon_checks (
     list_hash        TEXT NOT NULL,
     source           TEXT NOT NULL,              -- 'commander_spellbook'

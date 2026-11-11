@@ -69,8 +69,8 @@ until the person pastes it and presses Analyze there.
    spread about 0.7 around their median ("Measuring the method"). It widens by 0.1 per card
    missing from the card data (up to 0.5), by 0.2 with no Spellbook check, and by the share of
    nonland cards that earned no points beyond 35%. Confidence says how complete those inputs
-   were, not how right the score is: high up to 0.8 ("every card read"), medium up to 1.0,
-   low beyond.
+   were, not how right the score is: high only at the base ("every card read", with a combo
+   check that knew them all), medium up to 1.0, low beyond.
 7. **Themes** (`themes.rs`). A theme counts the cards whose text joins in: 15 or more is core,
    10 major, 6 minor. Themes include tokens, counters, graveyard, artifacts, enchantments,
    spells, lands, equipment, sacrifice, life gain, flicker, energy, draw and go-wide. The two
@@ -161,7 +161,7 @@ the API as the band the score falls in.
 
 Stock precon lists get their own Commander Spellbook check (`precon_checks`,
 `deck_checks/precons.rs`): the deck-check worker asks about one stock list at a time when no
-person's deck is waiting, through the same pacer, and again after 30 days. A stock list is
+person's deck is due, through the same pacer, and again after 30 days. A stock list is
 public catalog data, so nothing of anyone's is sent. These answers are apart from people's deck
 checks in both directions.
 

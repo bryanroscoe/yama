@@ -982,7 +982,7 @@ pub(super) async fn detail(
     body.push_str(&meta(p, true));
     body.push_str("</section><section class=\"public-panel\"><h3>Computed power</h3>");
     body.push_str(&power::cell(p));
-    body.push_str("<p>Card-text estimate, not simulated play. “Plays like” is the bracket whose usual power range holds the score, give or take its margin; it is not an official assignment. The card rules (Game Changers, and what Commander Spellbook flags) are read separately and shown when they ask for a higher bracket.</p>");
+    body.push_str("<p>Card-text estimate, not simulated play. “Plays like” is the bracket whose usual power range holds the score, give or take its margin; it is not an official assignment. The card rules (Game Changers, and what <a href=\"https://commanderspellbook.com/\">Commander Spellbook</a> flags) are read separately and shown when they ask for a higher bracket.</p>");
     body.push_str("</section><section class=\"public-panel\"><h3>Real games</h3>");
     body.push_str(&real(p, true));
     body.push_str("</section>");
