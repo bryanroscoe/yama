@@ -20,7 +20,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright-core";
 import { audit, clearOverlay, drawOverlay, visibleText } from "./audit.mjs";
-import { NEVER_VISIT, SERVER_ROUTES, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
+import { NEVER_VISIT, SERVER_ROUTES, pageLinks, patternMatcher, routesFromApp, sampleKey, slugFor } from "./routes.mjs";
 import { writeReports } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -729,7 +729,7 @@ async function visit(run, context, vp, url, discover, state = null) {
     }
     if (!run.copy.has(entry.url)) run.copy.set(entry.url, await page.evaluate(visibleText).catch(() => ""));
     if (discover) {
-      const hrefs = await page.$$eval("a[href]", (as) => as.filter((a) => !a.hasAttribute("download")).map((a) => a.href));
+      const hrefs = await page.$$eval("a[href]", pageLinks);
       for (const h of hrefs) discover(new URL(h));
     }
     await frames(run, page, entry, vp, view, "page-", run.opts.maxFrames);
