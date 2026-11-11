@@ -1439,6 +1439,8 @@ a.source-chip:hover,a.source-chip:focus-visible {
 @media(max-width:600px) {
   .commander-table tr { grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; padding:14px 0; }
   .commander-table th:first-child { grid-column:1; border-bottom:0; }
+  /* The name's column is what the win rate leaves: a long word breaks rather than run under it. */
+  .commander-table .deck-link>span { overflow-wrap:anywhere; }
   .commander-table .meta-cell { grid-column:2; grid-row:1; text-align:right; }
   .commander-table .meta-cell small { display:block; }
   .commander-table td:last-child { grid-column:1/-1; display:flex; flex-wrap:wrap; align-items:center; gap:0 8px; }

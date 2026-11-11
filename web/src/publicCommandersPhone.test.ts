@@ -22,6 +22,10 @@ describe("a commander's row on a phone", () => {
     expect(rule(".commander-table .commander-sources[open]")).toContain("flex-basis:100%");
   });
 
+  it("breaks a long word in the name's column rather than let it run under the win rate", () => {
+    expect(rule(".commander-table .deck-link>span")).toContain("overflow-wrap:anywhere");
+  });
+
   it("draws one rule under the row, not a second under the name", () => {
     expect(rule(".commander-table th:first-child")).toContain("border-bottom:0");
   });
