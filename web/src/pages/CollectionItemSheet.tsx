@@ -34,8 +34,9 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   const [rescanning, setRescanning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [scope, setScope] = useState<Scope>("all");
-  // Signed, altered and language are often true of one copy in a row, so they ask which.
-  const [markScope, setMarkScope] = useState<Scope>("all");
+  // Signed, altered and language are usually true of one copy in a row, so they ask which and
+  // start at one: a tick that marked the whole row could merge it into another for good.
+  const [markScope, setMarkScope] = useState<Scope>(item.qty > 1 ? "one" : "all");
   const [scanNote, setScanNote] = useState<string | null>(null);
   const [scanError, setScanError] = useState<unknown>(null);
   const copies = item.qty === 1 ? "this copy" : scope === "all" ? `all ${item.qty} copies` : "one copy";
@@ -66,7 +67,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
   });
   const finishes = finishChoices(item.finish, printings.data?.find((p) => p.scryfall_id === item.scryfall_id)?.finishes);
   const mark = (m: Mark) => {
-    const ops = markOps(item, m, markScope, printings.data, () => ids.idFor(`mark:${JSON.stringify(m)}:${markScope}`));
+    const ops = markOps(item, m, markScope, () => ids.idFor(`mark:${JSON.stringify(m)}:${markScope}`));
     if (ops.length > 0) save(ops, markDone(item, m, markScope));
   };
   const reprint = (p: Printing) => {
@@ -244,10 +245,10 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         </label>
         <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
 
-        <section className="coll-marks stack" aria-label="Language, signed and altered">
-          <h3>Language, signed, altered</h3>
+        <section className="coll-marks stack" aria-labelledby={`marks-${item.id}`}>
+          <h3 id={`marks-${item.id}`}>About this copy</h3>
           {item.qty > 1 && (
-            <Segmented label="Which copies" value={markScope} onChange={setMarkScope} options={[["all", `All ${item.qty} copies`], ["one", "Just one"]]} />
+            <Segmented label="Which copies to mark" value={markScope} onChange={setMarkScope} options={[["one", "Just one"], ["all", `All ${item.qty} copies`]]} />
           )}
           <label>
             Language
@@ -261,7 +262,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           </label>
           <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
             <input type="checkbox" checked={!!item.altered} disabled={busy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => mark({ altered: e.target.checked })} />
-            Altered
+            Altered art
           </label>
         </section>
 

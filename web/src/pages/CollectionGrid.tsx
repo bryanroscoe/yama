@@ -1,6 +1,7 @@
 import { plural, usd } from "@yama/core";
 import type { CollectionItem } from "../api";
 import { CardImage } from "../components/ui";
+import { markWords } from "./collectionEdit";
 import { FINISH_LABEL } from "./collectionFilters";
 
 /**
@@ -21,6 +22,7 @@ export function CollectionGrid<T extends CollectionItem>({ items, onOpen }: { it
               <span className="num">×{i.qty}</span>
               {i.finish !== "nonfoil" && <span className="tag">{FINISH_LABEL[i.finish] ?? i.finish}</span>}
               {i.proxy && <span className="tag">Proxy</span>}
+              {markWords(i).map((w) => <span key={w} className="tag">{w[0]!.toUpperCase() + w.slice(1)}</span>)}
             </span>
             <span className="num coll-tile-price">{usd(i.unit_price_usd)}</span>
           </span>

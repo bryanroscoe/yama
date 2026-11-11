@@ -1805,5 +1805,14 @@ mod tests {
         send(&pool, serde_json::json!({"op_id": "f", "kind": "update", "item_id": signed, "condition": "LP"})).await;
         let kept: (bool, bool, String) = sqlx::query_as("SELECT signed, altered, condition FROM collection_items WHERE id = ?").bind(&signed).fetch_one(&pool).await.unwrap();
         assert_eq!(kept, (true, false, "LP".to_string()));
+
+        // Marking the other row the same makes the two rows one. The row that went leaves an
+        // alias, so a change another device still has queued for it lands on the row that stayed.
+        send(&pool, serde_json::json!({"op_id": "g", "kind": "update", "item_id": id, "signed": true, "lang": "en", "condition": "LP"})).await;
+        assert_eq!(rows(&pool).await, vec![(3, "en".to_string(), true, false)]);
+        let stayed: String = sqlx::query_scalar("SELECT new_id FROM item_aliases WHERE old_id = ? AND owner_id = 'u1'").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(stayed, signed);
+        send(&pool, serde_json::json!({"op_id": "h", "kind": "adjust", "item_id": id, "delta": -1})).await;
+        assert_eq!(rows(&pool).await, vec![(2, "en".to_string(), true, false)]);
     }
 }

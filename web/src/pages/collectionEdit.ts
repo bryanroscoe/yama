@@ -107,23 +107,13 @@ export interface Mark {
 }
 
 /**
- * The op that marks the row's copies (all, or one split off): a language, signed, altered. A new
- * language also files the copies under that language's printing of the same set and number, when
- * Yama has it, so the picture and the price are that printing's. Nothing changed: no op.
+ * The op that marks the row's copies (all, or one split off): a language, signed, altered.
+ * Nothing changed: no op. The printing stays as it is: Yama's card data has one entry for each
+ * set and number, so there is no other-language printing to file the copy under.
  */
-export function markOps(
-  item: Pick<CollectionItem, "id" | "scryfall_id" | "qty" | "lang" | "signed" | "altered" | "set_code" | "collector_number">,
-  mark: Mark,
-  scope: Scope,
-  printings: Pick<Printing, "scryfall_id" | "set_code" | "collector_number" | "lang">[] | undefined,
-  newId: () => string,
-): Op[] {
+export function markOps(item: Pick<CollectionItem, "id" | "qty" | "lang" | "signed" | "altered">, mark: Mark, scope: Scope, newId: () => string): Op[] {
   const op: Op = { op_id: "", kind: "update", item_id: item.id };
-  if (mark.lang !== undefined && mark.lang !== item.lang) {
-    op.lang = mark.lang;
-    const same = printings?.find((p) => p.lang === mark.lang && p.set_code === item.set_code && p.collector_number === item.collector_number);
-    if (same && same.scryfall_id !== item.scryfall_id) op.scryfall_id = same.scryfall_id;
-  }
+  if (mark.lang !== undefined && mark.lang !== item.lang) op.lang = mark.lang;
   if (mark.signed !== undefined && mark.signed !== !!item.signed) op.signed = mark.signed;
   if (mark.altered !== undefined && mark.altered !== !!item.altered) op.altered = mark.altered;
   if (Object.keys(op).length === 3) return [];
@@ -136,15 +126,18 @@ export function markOps(
 export function markDone(item: Pick<CollectionItem, "name" | "qty">, mark: Mark, scope: Scope): string {
   const what = [
     mark.lang !== undefined ? `in ${languageName(mark.lang)}` : null,
-    mark.signed !== undefined ? (mark.signed ? "signed" : "not signed") : null,
-    mark.altered !== undefined ? (mark.altered ? "altered" : "not altered") : null,
+    mark.signed === true ? "signed" : null,
+    mark.altered === true ? "altered" : null,
   ].filter(Boolean);
+  const gone = [mark.signed === false ? "signed" : null, mark.altered === false ? "altered" : null].filter(Boolean);
   const name = item.name ?? "The card";
   const which = item.qty === 1 ? name : scope === "one" ? `One ${name}` : `Every ${name} in this row`;
-  return `${which} is now ${what.join(" and ")}.`;
+  const now = what.length ? `is now ${what.join(" and ")}` : "";
+  const no = gone.length ? `is no longer ${gone.join(" or ")}` : "";
+  return `${which} ${[now, no].filter(Boolean).join(" and ")}.`;
 }
 
-/** "Japanese, signed, altered" for the sheet's line about the copy; English and unmarked say nothing. */
+/** "Japanese, signed, altered" for a copy's line in the sheet and its tags in the list; English and unmarked say nothing. */
 export function markWords(item: Pick<CollectionItem, "lang" | "signed" | "altered">): string[] {
   return [item.lang !== "en" ? languageName(item.lang) : null, item.signed ? "signed" : null, item.altered ? "altered" : null].filter((x): x is string => !!x);
 }

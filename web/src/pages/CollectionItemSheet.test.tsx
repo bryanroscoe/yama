@@ -27,13 +27,13 @@ describe("a collection row's sheet", () => {
     const html = sheet(row);
     // The line about the copy says the language by name and the marks it has.
     expect(html).toContain("Tales of Middle-earth #258, foil, LP, Japanese, signed");
-    expect(html).toContain('aria-label="Language, signed and altered"');
+    expect(html).toMatch(/<section[^>]*aria-labelledby="marks-row"[^>]*><h3 id="marks-row">About this copy<\/h3>/);
     expect(html).toMatch(/<option value="ja" selected="">Japanese<\/option>/);
     expect(html).toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/>Signed/);
-    expect(html).toMatch(/<input type="checkbox"(?![^>]*checked)[^>]*\/>Altered/);
-    // Several copies: which of them the mark is for.
-    expect(html).toContain("All 3 copies");
-    expect(html).toContain("Just one");
+    expect(html).toMatch(/<input type="checkbox"(?![^>]*checked)[^>]*\/>Altered art/);
+    // Several copies: which of them the mark is for, starting at just one (a tick mustn't mark the row).
+    expect(html).toContain('aria-label="Which copies to mark"');
+    expect(html).toMatch(/aria-label="Which copies to mark".*?<button[^>]*aria-pressed="true"[^>]*>Just one<\/button>/s);
   });
 
   it("asks which copies only when the row has more than one", () => {
