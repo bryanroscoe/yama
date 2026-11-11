@@ -495,6 +495,9 @@ function forgetPrompts(gameId: string) {
   localStorage.removeItem(`yama.table.dismissed.${gameId}`);
 }
 
+/** What to ask before discardGame (components/confirm's `ask`). */
+export const DISCARD_GAME = { title: "Throw this game away?", body: "It won't count, and it's deleted from Yama.", confirm: "Throw it away", danger: true } as const;
+
 /** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
   if (!current || !mayEditCurrent()) return;

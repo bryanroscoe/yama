@@ -6,6 +6,7 @@ import { ErrorText } from "../components/ui";
 import { VISIBILITY_CHOICES, useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, resetNoteLink, setNoteSharing, type NoteSharing, type ResearchBundle } from "./api";
 import { planSummariesKey } from "./view";
+import { ask } from "../components/confirm";
 
 /** Who can see this plan, and its link: the same three choices as a deck. */
 export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
@@ -45,7 +46,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
       <div className="row">
         <button type="button" className="primary" onClick={() => void copy(link)}>Copy link</button>
         <a className="button" href={link} target="_blank" rel="noreferrer">Open</a>
-        <button type="button" className="quiet" disabled={reset.isPending} onClick={() => confirm("Make a new link? The old one stops working.") && reset.mutate()}>Reset link</button>
+        <button type="button" className="quiet" disabled={reset.isPending} onClick={async () => (await ask({ title: "Make a new link?", body: "The old one stops working.", confirm: "Make a new link", danger: true })) && reset.mutate()}>Reset link</button>
       </div>
       {copied && <p className="small" role="status">{copied}</p>}
     </div>}

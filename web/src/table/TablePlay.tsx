@@ -36,7 +36,7 @@ import { panelArt, setShowArt, useShowArt } from "./art";
 import { tableLayout, useLandscape, useLayoutChoice } from "./layouts";
 import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
 import { announceNext, JoinSheet, ShareCard, startHosting, useHosting, joinUrl } from "./share";
-import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame } from "./store";
+import { canUndo, discardGame, dispatch, finishGame, redo, startGame, undo, useSyncStatus, useTable, type LocalGame, DISCARD_GAME } from "./store";
 import { history } from "./history";
 import { DiceSheet, roll as rollDie } from "./DiceSheet";
 import { spinSchedule } from "./spin";
@@ -51,6 +51,7 @@ import { isGuest } from "../guest";
 export const DispatchContext = createContext<(e: TableEvent) => void>(dispatch);
 import "./table.css";
 import "./art-panel.css";
+import { ask } from "../components/confirm";
 
 export { uprightLayout } from "./layouts";
 
@@ -1395,8 +1396,8 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
         <button className="outline" onClick={onLeave}>Leave the table</button>
         {!following && <button
           className="outline tm-discard"
-          onClick={() => {
-            if (confirm("Throw this game away? It won't count, and it's deleted from Yama.")) {
+          onClick={async () => {
+            if (await ask(DISCARD_GAME)) {
               discardGame();
               onLeave();
             }

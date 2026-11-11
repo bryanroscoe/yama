@@ -10,6 +10,7 @@ import { ErrorText, Segmented } from "../components/ui";
 import { SPEEDS, seatName } from "./watch";
 import type { SeatInfo, Speed, View, WatchStatus } from "./types";
 import { count } from "@yama/core";
+import { ask } from "../components/confirm";
 
 export type WatchMessage =
   | { type: "play" }
@@ -107,7 +108,7 @@ export function WatchControls({ id, status, view, seats, art, pov, onPov, send, 
         </span>
       </div>
       {!compact && (
-        <button type="button" className="quiet watch-stop" onClick={() => confirm("Stop this game? You can still look at the board.") && send({ type: "stop" })}>
+        <button type="button" className="quiet watch-stop" onClick={async () => (await ask({ title: "Stop this game?", body: "You can still look at the board.", confirm: "Stop the game" })) && send({ type: "stop" })}>
           Stop the game
         </button>
       )}

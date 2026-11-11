@@ -232,7 +232,7 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
         <p className="small faint">Moving all copies in this row. To move just one, remove one here and add it from the Cards tab into the new place.</p>
 
         {deleting ? (
-          <div className="coll-delete stack" role="alertdialog" aria-label="Delete">
+          <div className="coll-delete stack" role="group" aria-label="Delete">
             <p>
               Delete {item.qty === 1 ? "this copy" : `all ${item.qty} copies`} of {item.name ?? "this card"} from {item.container_name ?? "your collection"}?
             </p>

@@ -12,6 +12,7 @@ import { SettingsHowTo } from "./howto";
 import { CopyButton } from "./parts";
 import { clearPlanData } from "./store";
 import { fmtDate, usd } from "@yama/core";
+import { ask } from "../components/confirm";
 
 const VIA: Record<string, string> = { web: "uploaded in the browser", token: "sent by a script", cli: "imported on the server" };
 
@@ -321,7 +322,7 @@ function Keys() {
                 <button
                   className="quiet small"
                   disabled={revoke.isPending}
-                  onClick={() => window.confirm(`Revoke "${k.name}"? Scripts using it stop working.`) && revoke.mutate(k.id)}
+                  onClick={async () => (await ask({ title: `Revoke "${k.name}"?`, body: "Scripts using it stop working.", confirm: "Revoke key", danger: true })) && revoke.mutate(k.id)}
                 >
                   Revoke
                 </button>
@@ -341,10 +342,13 @@ function ThisDevice({ userId }: { userId: string }) {
   const box = useOutbox(userId);
   const clear = async () => {
     const n = box.pending.length;
-    const ask = n
-      ? `${n === 1 ? "1 answer hasn't" : `${n} answers haven't`} reached Yama yet and will be deleted. Clear the plan data on this device anyway?`
-      : "Clear the plan data saved on this device? Your plans stay in Yama and download again when you open them.";
-    if (!window.confirm(ask)) return;
+    const sure = await ask({
+      title: n ? "Clear the plan data on this device anyway?" : "Clear the plan data saved on this device?",
+      body: n ? `${n === 1 ? "1 answer hasn't" : `${n} answers haven't`} reached Yama yet and will be deleted.` : "Your plans stay in Yama and download again when you open them.",
+      confirm: "Clear plan data",
+      danger: true,
+    });
+    if (!sure) return;
     await clearPlanData(userId);
     qc.removeQueries({ queryKey: ["plan"] });
     qc.removeQueries({ queryKey: ["plan-cache"] });

@@ -5,6 +5,7 @@ import { publicOrigin } from "../api";
 import { disconnectApp, listConnectedApps } from "./api";
 import { appKind, appName, claudeCodeCommand } from "./logic";
 import { fmtDate } from "@yama/core";
+import { ask } from "../components/confirm";
 
 /**
  * Decks, Plans, Settings: how to connect Claude to Yama by signing in (no key to paste), and the
@@ -52,7 +53,7 @@ export function ConnectedApps() {
               <button
                 className="quiet small"
                 disabled={disconnect.isPending}
-                onClick={() => window.confirm(`Disconnect "${appName(a.name)}"? It stops working until you connect it again.`) && disconnect.mutate(a.id)}
+                onClick={async () => (await ask({ title: `Disconnect "${appName(a.name)}"?`, body: "It stops working until you connect it again.", confirm: "Disconnect", danger: true })) && disconnect.mutate(a.id)}
               >
                 Disconnect
               </button>

@@ -11,7 +11,7 @@ import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
-import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable, DISCARD_GAME } from "./store";
 import { isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
@@ -28,6 +28,7 @@ import { forgetTable, followedTable } from "./following";
 import { tablePlay } from "./playLoader";
 import "./seats.css";
 import "./home.css";
+import { ask } from "../components/confirm";
 
 /** The last setup on this device: an account's, or (apart, so no names carry over) a guest's. */
 const lastSetupKey = () => (isGuest() ? "yama.table.lastSetup.guest" : "yama.table.lastSetup");
@@ -117,7 +118,7 @@ export function TableHome() {
           )}
           <div className="row">
             <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
-            <button className="quiet" disabled={hosting.following === game.setup.id} onClick={() => confirm("Throw this game away? It won't count, and it's deleted from Yama.") && discardGame()}>
+            <button className="quiet" disabled={hosting.following === game.setup.id} onClick={async () => (await ask(DISCARD_GAME)) && discardGame()}>
               Discard
             </button>
           </div>
@@ -182,7 +183,7 @@ function SaveGuestGames() {
       </p>
       <div className="row">
         {what && <button className="primary" onClick={saveGuestGames}>{one ? "Save it" : "Save them"}</button>}
-        <button className="quiet" onClick={() => confirm("Throw away the games counted without an account? They were never saved to Yama.") && dropGuestGames()}>
+        <button className="quiet" onClick={async () => (await ask({ title: "Throw away the games counted without an account?", body: "They were never saved to Yama.", confirm: "Throw them away", danger: true })) && dropGuestGames()}>
           Throw away
         </button>
       </div>

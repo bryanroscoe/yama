@@ -28,6 +28,8 @@ import { addCard, deviceFlag, fixCard, loadDraft, removeCard, setDeviceFlag, sto
 import "../scanner/scanner.css";
 import "./deckScan.css";
 import "./deckCheck.css";
+import { ask } from "../components/confirm";
+import { plural } from "@yama/core";
 
 const scanner = () => import("../scanner");
 const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
@@ -105,9 +107,19 @@ export function DeckCheckPage() {
     setMuted(on);
     setDeviceFlag(MUTE, on);
   };
-  const saveAsScan = () => {
+  const saveAsScan = async () => {
     const existing = loadDraft(id);
-    if (existing && existing.cards.length > 0 && !confirm(`A scan of this deck is already in progress on this device (${existing.cards.length} cards). Replace it with this check's ${draft.cards.length} cards?`)) return;
+    if (
+      existing &&
+      existing.cards.length > 0 &&
+      !(await ask({
+        title: `Replace the scan with this check's ${plural(draft.cards.length, "card")}?`,
+        body: `A scan of this deck is already in progress on this device (${plural(existing.cards.length, "card")}).`,
+        confirm: "Replace the scan",
+        danger: true,
+      }))
+    )
+      return;
     storeDraft(toScanDraft(draft, t));
     navigate(`/decks/${id}/scan`);
   };
@@ -165,7 +177,7 @@ export function DeckCheckPage() {
           {sum.checked > 0 && (
             <div className="row">
               <button onClick={saveAsScan}>Save as a deck scan</button>
-              <button className="quiet" onClick={() => confirm("Start the check over? The cards checked so far are cleared.") && setDraft((x) => ({ ...x, cards: [] }))}>
+              <button className="quiet" onClick={async () => (await ask({ title: "Start the check over?", body: "The cards checked so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
                 Start over
               </button>
             </div>

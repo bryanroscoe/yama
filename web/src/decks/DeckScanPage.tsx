@@ -18,6 +18,7 @@ import {
 } from "./deckScan";
 import "../scanner/scanner.css";
 import "./deckScan.css";
+import { ask } from "../components/confirm";
 
 // The scanner pulls in OCR; load it only when the camera opens.
 const scanner = () => import("../scanner");
@@ -73,7 +74,7 @@ export function DeckScanPage() {
           <div className="row">
             <button className="primary" disabled={!p.count} onClick={() => setStep("review")}>Check the changes</button>
             {p.count > 0 && (
-              <button className="quiet" onClick={() => confirm("Start the scan over? The cards scanned so far are cleared.") && setDraft((x) => ({ ...x, cards: [] }))}>
+              <button className="quiet" onClick={async () => (await ask({ title: "Start the scan over?", body: "The cards scanned so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
                 Start over
               </button>
             )}

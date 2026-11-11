@@ -35,6 +35,7 @@ import { RunWarnings, usePrecons } from "./Precons";
 import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
 import { fmtDate, count } from "@yama/core";
+import { ask } from "../components/confirm";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
 export function headline(e: ExperimentItem, name?: (label: string) => string): string {
@@ -193,11 +194,11 @@ export function RunsPage() {
                     Open
                   </Link>
                   {live ? (
-                    <button className="quiet" disabled={stop.isPending} onClick={() => confirm("Stop this run? Games already played are kept.") && stop.mutate(e.id)}>
+                    <button className="quiet" disabled={stop.isPending} onClick={async () => (await ask({ title: "Stop this run?", body: "Games already played are kept.", confirm: "Stop run" })) && stop.mutate(e.id)}>
                       Stop
                     </button>
                   ) : (
-                    <button className="quiet" disabled={remove.isPending} onClick={() => confirm(`Delete ${e.name}? Its games and results go too.`) && remove.mutate(e.id)}>
+                    <button className="quiet" disabled={remove.isPending} onClick={async () => (await ask({ title: `Delete ${e.name}?`, body: "Its games and results go too.", confirm: "Delete run", danger: true })) && remove.mutate(e.id)}>
                       Delete
                     </button>
                   )}

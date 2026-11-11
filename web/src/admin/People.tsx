@@ -8,6 +8,7 @@ import { adminApi, type SharedGrant, type SharedOverview, type ViewLogRow } from
 import { startViewing } from "../viewing";
 import { confirms, deleteSummary, parseDailyCap, searchAccounts, sharedGrantLine, sharedSummary } from "./logic";
 import { ago } from "@yama/core";
+import { ask } from "../components/confirm";
 
 const signInWays = (a: AccountInfo) => {
   const ways = [a.google && "Google", a.password && "a password"].filter(Boolean);
@@ -42,18 +43,18 @@ export function PeoplePage() {
   // View as: the page reloads as them (viewing.ts), so there's nothing to do on success here.
   const view = useMutation({ mutationFn: (a: AccountInfo) => startViewing(a.id) });
 
-  const flip = (a: AccountInfo) => {
-    if (!a.disabled_at && !window.confirm(`Disable ${a.email}? They're signed out at once and can't sign in until you enable the account again.`)) return;
+  const flip = async (a: AccountInfo) => {
+    if (!a.disabled_at && !(await ask({ title: `Disable ${a.email}?`, body: "They're signed out at once and can't sign in until you enable the account again.", confirm: "Disable account", danger: true }))) return;
     toggle.mutate(a);
   };
-  const flipPower = (a: AccountInfo) => {
-    if (a.power_user && !window.confirm(`Stop ${a.email} being a power user? They keep their runs but can't start simulations, watch AI games or ask Claude.`)) return;
+  const flipPower = async (a: AccountInfo) => {
+    if (a.power_user && !(await ask({ title: `Stop ${a.email} being a power user?`, body: "They keep their runs but can't start simulations, watch AI games or ask Claude.", confirm: "Stop power user", danger: true }))) return;
     power.mutate(a);
   };
-  const flipInvite = (a: AccountInfo) => {
+  const flipInvite = async (a: AccountInfo) => {
     if (a.invited) {
       const after = open ? "They're signed out, and can sign in again with the smaller allowance." : "They're signed out and can't sign in again.";
-      if (!window.confirm(`Remove ${a.email}'s invite? ${after}`)) return;
+      if (!(await ask({ title: `Remove ${a.email}'s invite?`, body: after, confirm: "Remove invite", danger: true }))) return;
     }
     invite.mutate(a);
   };
@@ -180,7 +181,7 @@ function WhoCanSignIn({ open }: { open: boolean }) {
                 <span>
                   {i.email} <span className="dim">invited {ago(i.created_at)}</span>
                 </span>
-                <button className="quiet" onClick={() => window.confirm(`Remove the invite for ${i.email}?`) && remove.mutate(i.email)}>
+                <button className="quiet" onClick={async () => (await ask({ title: `Remove the invite for ${i.email}?`, confirm: "Remove invite", danger: true })) && remove.mutate(i.email)}>
                   Remove
                 </button>
               </li>

@@ -55,6 +55,7 @@ describe("waiting and empty states use the shared components", () => {
 
 describe("dialogs use the shared modal layer", () => {
   const DIALOG = "web/src/components/Dialog.tsx";
+  const CONFIRM = "web/src/components/confirm.tsx";
   // Full-screen layers with their own look: the card zoom, the full-screen picker, the scanner
   // and the sample hand. Each is a modal layer through useModalLayer. Don't add to this list:
   // a new dialog is a <Dialog>.
@@ -68,12 +69,17 @@ describe("dialogs use the shared modal layer", () => {
   ]);
   // The Cards tab's card page covers the results but not the rail: a page over a page, not a modal.
   const PAGE_OVER_PAGE = "web/src/pages/Cards.tsx";
-  // An inline "Delete?" question, replaced by ConfirmDialog next.
-  const INLINE_QUESTION = "web/src/pages/CollectionItemSheet.tsx";
 
   it("no page builds its own dialog", () => {
     // Use <Dialog title="…" onClose={…}> from components/ui (or label="…" when it draws its own first line).
-    const found = uses(/role="(dialog|alertdialog)"/, (file) => file === DIALOG || LAYERS.has(file) || file === PAGE_OVER_PAGE || file === INLINE_QUESTION || BOARD.test(file));
+    const found = uses(/role="(dialog|alertdialog)"/, (file) => file === DIALOG || LAYERS.has(file) || file === PAGE_OVER_PAGE || file === CONFIRM || BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+
+  it("no page uses the browser's confirm or alert", () => {
+    // Use ask({ title, body, confirm, danger }) or tell({ title, body }) from components/confirm:
+    // the app's own dialog, with a button that says what it does.
+    const found = uses(/(^|[^.\w])(window\.)?(confirm|alert)\(/, (file) => file === CONFIRM);
     expect(found).toEqual([]);
   });
 

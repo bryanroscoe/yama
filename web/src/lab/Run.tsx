@@ -46,6 +46,7 @@ import { FEW_GAMES } from "./tables";
 import {
   gameChoices,
 } from "./logic";
+import { ask } from "../components/confirm";
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -314,7 +315,7 @@ export function RunPage() {
           ) : (
             <button onClick={() => navigate("/lab/compare", { state: { prefill: comparePrefill(e) } })}>Edit and run again</button>
           )}
-          <button className="quiet" onClick={() => confirm("Delete this run and its results?") && remove.mutate()} disabled={remove.isPending}>
+          <button className="quiet" onClick={async () => (await ask({ title: "Delete this run and its results?", confirm: "Delete run", danger: true })) && remove.mutate()} disabled={remove.isPending}>
             Delete
           </button>
         </div>

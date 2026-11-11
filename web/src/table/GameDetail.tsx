@@ -19,6 +19,7 @@ import { LogGame } from "./TableHome";
 import { isViewing } from "../viewingFlag";
 import { joinFragment } from "./share";
 import "./home.css";
+import { ask } from "../components/confirm";
 
 const FORMAT_KEYS: TableFormat[] = ["commander", "standard", "other"];
 
@@ -295,7 +296,7 @@ export function GameDetailPage() {
           <button
             className="outline bad"
             disabled={remove.isPending}
-            onClick={() => confirm("Delete this game from Yama? It comes out of the history and stats for everyone who played. This can't be undone.") && remove.mutate()}
+            onClick={async () => (await ask({ title: "Delete this game from Yama?", body: "It comes out of the history and stats for everyone who played. This can't be undone.", confirm: "Delete game", danger: true })) && remove.mutate()}
           >
             {remove.isPending ? "Deleting…" : "Delete this game"}
           </button>
