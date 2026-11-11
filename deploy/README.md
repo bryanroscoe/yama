@@ -24,7 +24,9 @@ Follow [Releasing Yama](RELEASING.md) before a first deploy or update: fetch Git
    the admin email(s), open Google sign-up (`YAMA_OPEN_SIGNUP=1`) and
    `YAMA_PASSWORD_LOGIN=0`. Use the existing approved Google OAuth client/origins;
    new accounts or provider configuration still require Bryan's request.
-3. Install the reviewed [production runner and host entrypoint](RUNNER.md). Once CI
+3. Install the reviewed host entrypoint and the Cloudflare deploy backend
+   ([RUNNER.md](RUNNER.md#set-up-the-cloudflare-backend); never a self-hosted runner on the
+   public repository). Once CI
    passes on current main, the workflow deploys; a requested manual release uses
    `./deploy/deploy.sh` from clean current main and the same host gate.
 4. The first authorized release creates missing advisor/Forge env files and paired
@@ -149,8 +151,8 @@ Claude Code and claude.ai's custom connectors reach Yama's tools at `https://yam
 
 ## Updating
 
-Successful push CI on current `main` automatically deploys through the dedicated saget
-runner. Follow [Releasing Yama](RELEASING.md) for reviews and merge, and [runner operation](RUNNER.md)
+Successful push CI on current `main` automatically deploys through a GitHub-hosted job that
+reaches saget's release gate over Cloudflare Access (the saget runner served the private repository). Follow [Releasing Yama](RELEASING.md) for reviews and merge, and [runner operation](RUNNER.md)
 for setup, pause, status and recovery. One server lock serializes automatic and manual
 releases. A request builds and activates its commit while that commit is still on main, even
 if newer merges have passed CI meanwhile; they deploy after it. A superseded run (its commit left

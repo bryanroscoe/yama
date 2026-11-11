@@ -230,6 +230,11 @@ should be enabled for the repository. An unavailable cloud reviewer is disclosed
 by an independent Codex agent review. Event-driven PR monitoring resumes pending work through
 merge rather than leaving an unmonitored handoff. See `AGENTS.md` and `deploy/RELEASING.md`.
 
+**Since the repository went public (November 2026)** CI runs on GitHub-hosted runners with
+`CI_TESTS` on, deploys use the Cloudflare Access backend, and saget runners are never used
+(Repository and licence, above). The next three paragraphs describe the private repository
+(now `bryanroscoe/yama-archive`); their saget runner choices are private-only history.
+
 **Test CI (Bryan, 2026-10-29):** `.github/workflows/ci.yml` runs automatically for same-repository
 PRs into every base branch (including stacked feature PRs) and main pushes, with a manual trigger for diagnosis. Concurrency groups include the
 event type so manual diagnostics cannot cancel deployment-authorizing push CI. Both jobs run on the separate
@@ -244,7 +249,7 @@ main-push CI gates automatic production deployment; the opt-in hosted lab simula
 remains separate. Setup, maintenance and evidence boundaries: `docs/ci.md`.
 
 **CI tests off (Bryan, 2026-11-02):** hosted CI used 2,715 of the plan's 3,000 monthly Actions
-minutes in two days, so the repository variable `CI_TESTS` now switches the test jobs and is off.
+minutes in two days, so the repository variable `CI_TESTS` switched the test jobs off until the move to public.
 PR and main-push runs then start no hosted job; agents run the full local checks
 (`scripts/local-ci.sh --no-amend`) on the final head before merging and report them as local
 evidence. A no-op marker job (on the `CI_LINUX_RUNNER` backend) keeps push CI on main successful,
@@ -252,7 +257,8 @@ so automatic deployment and the host release gate work unchanged. Setting `CI_TE
 restores the test CI described above. See `docs/ci.md`, "Tests on or off".
 
 **Automatic deployment (Bryan, 2026-10-28):** successful push CI on current GitHub main
-triggers `.github/workflows/deploy.yml` on the dedicated saget production runner. Merging
+triggers `.github/workflows/deploy.yml`, then on the dedicated saget production runner (since the
+move to public, a GitHub-hosted job over Cloudflare Access). Merging
 reviewed work to main now requests production release. The runner has no Docker socket,
 production data/env mounts or general server shell. A restricted SSH command invokes the
 server-owned `deploy/host.py`, which independently verifies a main commit and its successful
@@ -261,8 +267,8 @@ fetches a dedicated clean main checkout and the published Phase pin, and builds
 committed exports on saget. The repository variable `DEPLOY_BACKEND` can move that request
 from the saget runner to a one-use GitHub-hosted job that reaches the same gate over
 Cloudflare Access SSH (deploy/RUNNER.md). Saget's address and deploy credentials live only in
-the gitignored `deploy/.env` and Actions secrets, never in tracked files. CI jobs can select saget or GitHub-hosted Linux using the repository
-`CI_LINUX_RUNNER` JSON variable; both run the same checks. On saget, a fast pre-job
+the gitignored `deploy/.env` and Actions secrets, never in tracked files. While private, CI jobs could select saget or GitHub-hosted Linux using the repository
+`CI_LINUX_RUNNER` JSON variable; the public repository uses GitHub-hosted only. On saget, a fast pre-job
 hook records the reservation; the first normal workflow step waits for capacity
 before checkout so runner reporting and cancellation stay responsive. The
 personal-account CI fleet control plane lives in `bryanroscoe/sagetserver` with

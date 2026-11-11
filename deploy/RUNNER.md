@@ -3,7 +3,7 @@
 Bryan authorized this setup on 2026-10-28. Successful **push CI on current main** now
 requests an automatic production release. Feature PRs still need review and passing
 checks before merge. Merging main is consequently a production release decision.
-Pause deployments by stopping `yama-deploy-runner` on saget (runner backend) or with
+Pause deployments with
 `gh workflow disable deploy.yml -R bryanroscoe/yama` (either backend); CI and PRs keep working.
 The workflow reaches saget through one of two backends; see [Choose the deploy backend](#choose-the-deploy-backend).
 
@@ -11,7 +11,8 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
 
 - `.github/workflows/deploy.yml` runs after successful `CI` for a main push, or manually
   on main. It uses read-only Actions/contents permissions and a short-lived token.
-- With the default `runner` backend, the dedicated `saget-yama-production` runner is a Linux container on saget. Its only
+- With the `runner` backend (private repository only; the public repository uses the default
+  Cloudflare backend), the dedicated `saget-yama-production` runner is a Linux container on saget. Its only
   mounts are its own state and a read-only SSH directory. No Docker socket, production
   data, application env files, or server Git credentials are mounted in the runner.
 - Its SSH key has `restrict,command="/usr/local/bin/python3 /mnt/user/appdata/yama-release/host.py"`
@@ -25,8 +26,8 @@ The workflow reaches saget through one of two backends; see [Choose the deploy b
   2026-11-02: requiring the exact tip starved every release while merges landed every few
   minutes, and so did yielding to a newer commit once push CI passed in about a minute).
   A PR job cannot grant itself deployment access merely by selecting the runner label.
-  Ordinary CI uses a separate `yama-ci` runner,
-  state/cache and container with no deployment key; see [CI setup](../docs/ci.md).
+  While the repository was private, ordinary CI used a separate `yama-ci` runner,
+  state/cache and container with no deployment key; the public repository uses GitHub-hosted CI; see [CI setup](../docs/ci.md).
 - Yama Git/API access uses the request's ephemeral token, only in memory/per-process
   git configuration. Phase is fetched over HTTPS from the public fork without a deploy key. Tokens
   never enter Docker contexts, application environments, logs, or command arguments.
