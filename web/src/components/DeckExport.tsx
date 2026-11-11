@@ -1,4 +1,4 @@
-import { EXPORT_FORMATS, exportDeck, exportFileName, type ExportFormat } from "@yama/core";
+import { EXPORT_FORMATS, exportDeck, exportFileName, exportMime, type ExportFormat } from "@yama/core";
 import { useMemo, useState } from "react";
 import type { DeckView } from "../api";
 import { saveFile } from "../download";
@@ -27,6 +27,7 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
           finish: e.printing?.finish ?? null,
         })),
         format,
+        deck.name,
       ),
     [deck, format],
   );
@@ -37,7 +38,8 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
     setFormat(f);
     localStorage.setItem(LAST_FORMAT, f);
   };
-  const download = () => void saveFile(new Blob([text], { type: "text/plain;charset=utf-8" }), exportFileName(deck.name, format));
+  const fileName = exportFileName(deck.name, format);
+  const download = () => void saveFile(new Blob([text], { type: exportMime(format) }), fileName);
 
   return (
     <Dialog title="Export deck" onClose={onClose}>
@@ -52,7 +54,7 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
             </label>
           ))}
         </fieldset>
-        {format === "moxfield" && (fromDefault > 0 || noPrinting > 0) && (
+        {(format === "moxfield" || format === "archidekt" || format === "csv") && (fromDefault > 0 || noPrinting > 0) && (
           <p className="small dim" style={{ margin: 0 }}>
             {fromDefault > 0 && `${fromDefault} ${fromDefault === 1 ? "card isn't" : "cards aren't"} in your collection, so ${fromDefault === 1 ? "it names a paper printing" : "they name paper printings"}, Scryfall's default where that is one. `}
             {noPrinting > 0 && `${noPrinting} ${noPrinting === 1 ? "card has" : "cards have"} no paper printing on file and ${noPrinting === 1 ? "goes" : "go"} by name only.`}
@@ -60,11 +62,11 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
         )}
         <label>
           List
-          <textarea readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="Deck list to copy" />
+          <textarea readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="Deck list to copy" spellCheck={false} />
         </label>
         <div className="row">
           <CopyButton className="primary" text={text} label="Copy" />
-          <button onClick={download}>Download .txt</button>
+          <button type="button" onClick={download}>Download .{fileName.split(".").pop()}</button>
         </div>
       </div>
     </Dialog>
