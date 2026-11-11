@@ -64,6 +64,21 @@ export function dropPlan({ files, boxHasText, overBox }: { files: boolean; boxHa
   return overBox ? "insert" : "ignore";
 }
 
+/**
+ * Fetches something to put in the box (the clipboard, chosen files), asks whether it may replace
+ * what is there, and gives it back only if the box hasn't changed hands meanwhile: typing or
+ * another list arriving while the clipboard is read, or while the question is up, wins, and this
+ * one is dropped. `turn()` is the box's turn counter. Nothing is counted here, so a list still
+ * loading keeps loading until the replacement really goes in.
+ */
+export async function ifStillWanted<T>(turn: () => number, get: () => Promise<T | null>, may: (value: T) => Promise<boolean>): Promise<T | null> {
+  const asked = turn();
+  const value = await get();
+  if (value === null || asked !== turn()) return null;
+  if (!(await may(value)) || asked !== turn()) return null;
+  return value;
+}
+
 /** Whether replacing the whole list has to ask first: there is unsaved work in it, and a way to ask. */
 export function needsReplaceQuestion(unsaved: boolean, canAsk: boolean): boolean {
   return unsaved && canAsk;
@@ -224,7 +239,11 @@ export function useListImport({
    * saved they ask first (11 Nov 2026: they replaced it without a word, and unlike a paste into
    * the box there is no undo).
    */
-  const mayReplace = async (what: string): Promise<boolean> => !needsReplaceQuestion(unsaved, !!confirmReplace) || (await confirmReplace!(what));
+  /** Moves on whenever the box changes hands: typing, a paste, a file, a loaded list. */
+  const turn = () => sourceRequest.current;
+  /** Whether the box holds unsaved work as of the latest render (a Paste asks about the list as it is when its answer comes, not as it was when tapped). */
+  const unsavedNow = useRef(false);
+  const mayReplace = async (what: string): Promise<boolean> => !needsReplaceQuestion(unsavedNow.current, !!confirmReplace) || (await confirmReplace!(what));
 
   const readFiles = async (files: FileList | File[]) => {
     const list = [...files];
@@ -234,7 +253,7 @@ export function useListImport({
       setNotice(`${big.name} is too big for a deck list (2 MB at most).`);
       return;
     }
-    if (!(await mayReplace(list.length === 1 ? list[0]!.name : `${list.length} files`))) return;
+    if (!(await ifStillWanted(turn, async () => list, () => mayReplace(list.length === 1 ? list[0]!.name : `${list.length} files`)))) return;
     const request = ++sourceRequest.current;
     const sources = await Promise.all(list.map(async (f) => ({ text: await f.text(), fileName: f.name })));
     if (request !== sourceRequest.current) return;
@@ -246,13 +265,18 @@ export function useListImport({
 
   const pasteFromClipboard = async () => {
     try {
-      // Read first: the browser only allows it straight from the tap.
-      const t = await navigator.clipboard.readText();
-      if (!t.trim()) {
-        setNotice("The clipboard is empty. Copy the list first, then tap Paste.");
-        return;
-      }
-      if (!(await mayReplace("what's on the clipboard"))) return;
+      const t = await ifStillWanted(
+        turn,
+        // Read first: the browser only allows it straight from the tap.
+        async () => {
+          const read = await navigator.clipboard.readText();
+          if (read.trim()) return read;
+          setNotice("The clipboard is empty. Copy the list first, then tap Paste.");
+          return null;
+        },
+        () => mayReplace("what's on the clipboard"),
+      );
+      if (t === null) return;
       setUserText(t);
       runCheck([{ text: t }]);
     } catch {
@@ -294,6 +318,7 @@ export function useListImport({
     setDrafts((all) => all.map((x, i) => (i === active ? d : x)));
   };
   const unsaved = unsavedList({ text, given, drafts: drafts.length, draftEdited });
+  unsavedNow.current = unsaved;
 
   return {
     text, setUserText, prefill, loadList, sourceLoading,

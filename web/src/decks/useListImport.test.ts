@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxEdits, dropPlan, needsReplaceQuestion, replaceQuestion, unsavedList, type Source } from "./useListImport";
+import { boxEdits, dropPlan, ifStillWanted, needsReplaceQuestion, replaceQuestion, unsavedList, type Source } from "./useListImport";
 
 /** The box as the handlers see it: what was set, what was checked, and the timers still to run. */
 function box() {
@@ -110,5 +110,21 @@ describe("Paste, Choose a file and a dropped file", () => {
   it("say what will replace the list", () => {
     expect(replaceQuestion("what's on the clipboard")).toEqual({ title: "Replace the list with what's on the clipboard?", body: "What you typed or changed in the box will be lost.", confirm: "Replace the list" });
     expect(replaceQuestion("atraxa.txt").title).toBe("Replace the list with atraxa.txt?");
+  });
+
+  it("are dropped when the box changed hands while the clipboard was read or the question was up", async () => {
+    let turn = 0;
+    const yes = async () => true;
+    // Nothing happened meanwhile: the list goes in.
+    expect(await ifStillWanted(() => turn, async () => "1 Island", yes)).toBe("1 Island");
+    // The person typed while the clipboard was being read.
+    expect(await ifStillWanted(() => turn, async () => { turn++; return "1 Island"; }, yes)).toBeNull();
+    // ...or while the question was up, even if they then said Replace.
+    expect(await ifStillWanted(() => turn, async () => "1 Island", async () => { turn++; return true; })).toBeNull();
+    // Keep, and nothing to put in: nothing goes in, and nothing is asked for an empty clipboard.
+    expect(await ifStillWanted(() => turn, async () => "1 Island", async () => false)).toBeNull();
+    let asked = false;
+    expect(await ifStillWanted(() => turn, async () => null, async () => (asked = true))).toBeNull();
+    expect(asked).toBe(false);
   });
 });
