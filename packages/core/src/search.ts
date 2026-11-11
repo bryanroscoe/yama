@@ -322,6 +322,46 @@ export function compileSearch(query: string, opts: SearchOptions = {}): Pred {
 
 const EXTRA_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "vanguard", "scheme", "planar"]);
 
+/**
+ * The name a query types, for ordering: its bare words and quoted phrases joined by spaces,
+ * lowercased ("sol ring t:artifact" gives "sol ring"). Words that are negated (alone or inside a
+ * negated group, `-(sol ring) lotus`) or exact (`!`), and keyed terms, aren't part of it. Null
+ * when the query names nothing, or can't be read.
+ * The same as `name_phrase` in server/src/cards/search.rs: keep the two in step.
+ */
+export function namePhrase(query: string): string | null {
+  let toks: Tok[];
+  try {
+    toks = lex(query);
+  } catch {
+    return null;
+  }
+  const words: string[] = [];
+  // Whether each open group is excluded (itself negated, or inside one that is), and whether a
+  // "-" is waiting for the term or group it negates.
+  const groups: boolean[] = [];
+  let negated = false;
+  for (const t of toks) {
+    const excluded = negated || (groups[groups.length - 1] ?? false);
+    negated = false;
+    if (t.k === "neg") negated = true;
+    else if (t.k === "(") groups.push(excluded);
+    else if (t.k === ")") groups.pop();
+    else if (t.k === "term" && t.key === null && !t.exact && !excluded) words.push(t.value.trim().toLowerCase());
+  }
+  return words.join(" ") || null;
+}
+
+/**
+ * Where a name stands against the typed one: 0 for exactly that name, 1 for a name that starts
+ * with it, 2 for the rest (a name search matches its words anywhere in the name, so "sol ring"
+ * also finds Searing Soloist). The server's `name_rank`.
+ */
+export function nameRank(name: string, phrase: string): 0 | 1 | 2 {
+  const n = name.toLowerCase();
+  return n === phrase ? 0 : n.startsWith(phrase) ? 1 : 2;
+}
+
 export function searchOffline(
   cards: OfflineCard[],
   query: string,
@@ -340,7 +380,11 @@ export function searchOffline(
       return hits.sort((a, b) => (a.e ?? Infinity) - (b.e ?? Infinity) || byName(a, b));
     case "color":
       return hits.sort((a, b) => a.c.length - b.c.length || a.c.localeCompare(b.c) || byName(a, b));
-    default:
-      return hits.sort(byName);
+    default: {
+      // By name; a typed name puts its exact match first, then names that start with it.
+      const phrase = namePhrase(query);
+      if (!phrase) return hits.sort(byName);
+      return hits.sort((a, b) => nameRank(a.n, phrase) - nameRank(b.n, phrase) || byName(a, b));
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSearch, GAME_CHANGERS_NOT_LOADED, searchOffline, type OfflineCard } from "./search";
+import { compileSearch, GAME_CHANGERS_NOT_LOADED, namePhrase, nameRank, searchOffline, type OfflineCard } from "./search";
 
 const card = (o: Partial<OfflineCard> & { n: string }): OfflineCard => ({
   i: o.n, m: null, v: 0, t: "", o: "", c: "", ci: "", p: null, th: null, l: null, r: "common", k: [],
@@ -47,5 +47,41 @@ describe("offline search", () => {
     expect(() => compileSearch("c:xyz")).toThrow();
     expect(() => compileSearch("(t:elf")).toThrow();
     expect(() => compileSearch("mv>=abc")).toThrow();
+  });
+});
+
+describe("a typed name, in step with the server (cards/search.rs name_phrase, name_rank)", () => {
+  // Every one of these has "sol" and "ring" somewhere in its name.
+  const pool = ["Searing Soloist", "Insolent Ringleader", "Sol Ringbearer", "Absolver of Rings", "Sol Ring"].map((n) => card({ n, t: "Artifact", v: n === "Sol Ring" ? 1 : 3 }));
+  const found = (q: string, order?: "name" | "mv") => searchOffline(pool, q, order).map((c) => c.n);
+
+  it("puts the card of that name first, then names that start with it, then A to Z", () => {
+    const byName = ["Sol Ring", "Sol Ringbearer", "Absolver of Rings", "Insolent Ringleader", "Searing Soloist"];
+    expect(found("sol ring")).toEqual(byName);
+    expect(found("SOL RING t:artifact", "name")).toEqual(byName);
+    expect(found('"sol ring"')).toEqual(["Sol Ring", "Sol Ringbearer"]);
+    expect(found("sol").slice(0, 2)).toEqual(["Sol Ring", "Sol Ringbearer"]);
+  });
+
+  it("leaves a search with no typed name, or another order, as it was", () => {
+    expect(found("t:artifact").slice(0, 2)).toEqual(["Absolver of Rings", "Insolent Ringleader"]);
+    expect(found("sol ring", "mv").slice(0, 2)).toEqual(["Sol Ring", "Absolver of Rings"]);
+  });
+
+  it("reads the typed name as the server does", () => {
+    expect(namePhrase("sol ring")).toBe("sol ring");
+    expect(namePhrase("Sol  Ring t:artifact")).toBe("sol ring");
+    expect(namePhrase('"Sol Ring" mv<=1')).toBe("sol ring");
+    expect(namePhrase("ring -sol")).toBe("ring");
+    // A negated group excludes everything in it, however deep; the words after it count.
+    expect(namePhrase("-(sol ring) lotus")).toBe("lotus");
+    expect(namePhrase("-(sol (ring or petal)) black lotus")).toBe("black lotus");
+    expect(namePhrase("(sol ring) -(t:artifact bloom)")).toBe("sol ring");
+    expect(namePhrase("-(sol ring)")).toBeNull();
+    expect(namePhrase('!"Sol Ring"')).toBeNull();
+    expect(namePhrase("t:artifact id<=w")).toBeNull();
+    expect(namePhrase("")).toBeNull();
+    expect(namePhrase('o:"open')).toBeNull();
+    expect([nameRank("Sol Ring", "sol ring"), nameRank("Sol Ringbearer", "sol ring"), nameRank("Searing Soloist", "sol ring")]).toEqual([0, 1, 2]);
   });
 });
