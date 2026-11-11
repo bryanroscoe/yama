@@ -2,7 +2,7 @@ import { safeUrl, type ResearchDocument } from "../research/api";
 import { parseDeckList } from "@yama/core";
 
 export interface SourceUse { id: string; deck: string; deck_name: string; category: string; build_match?: boolean; brackets?: number[] }
-export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean; title?: string; finish?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string }
+export interface SourceOffer { store: string; price: number | null; qty: number | null; condition: string; url: string; variant_id: string; checked_at: string; qualifies: boolean; title?: string; finish?: string; language?: string; market?: number | null; market_source?: string; market_checked_at?: string; market_match?: string; printing_id?: string }
 export interface SourceCard { name: string; status: string; uses: SourceUse[]; offers: SourceOffer[] }
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => v && typeof v === "object" && !Array.isArray(v) ? v as Obj : {};
@@ -24,7 +24,7 @@ function normalizeSourceCards(value: unknown): SourceCard[] {
       const o = obj(rawOffer), url = safeUrl(str(o.url));
       if (!url || !str(o.store)) return [];
       const qty = number(o.qty);
-      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), qualifies: o.qualifies === true, title: str(o.title), finish: str(o.finish), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id) }];
+      return [{ store: str(o.store), price: number(o.price), qty: qty == null ? null : Math.floor(qty), condition: str(o.condition), url, variant_id: str(o.variant_id), checked_at: str(o.checked_at), qualifies: o.qualifies === true, title: str(o.title), finish: str(o.finish), language: str(o.language), market: number(o.market), market_source: safeUrl(str(o.market_source)) ?? undefined, market_checked_at: str(obj(o.market_evidence).checked_at), market_match: str(obj(o.market_evidence).matching), printing_id: str(obj(o.market_evidence).scryfall_id) }];
     });
     return [{ name, status: str(c.status), uses, offers }];
   });
@@ -73,7 +73,7 @@ export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks:
   return [...groups.values()].sort((a,b) => a.name.localeCompare(b.name));
 }
 
-export const offerId = (o: SourceOffer): string => o.variant_id ? `${o.url}#variant=${encodeURIComponent(o.variant_id)}` : o.url;
+export const offerId = (o: SourceOffer): string => o.variant_id ? `${o.url}#variant=${encodeURIComponent(o.variant_id)}` : `${o.url}#details=${encodeURIComponent(JSON.stringify([o.title,o.printing_id,o.finish,o.condition,o.language,o.price]))}`;
 
 export interface SourceChoice { offer: string; qty: number }
 export const choicesFor = (choices: Record<string, SourceChoice[]>, name: string): SourceChoice[] => Object.hasOwn(choices,name) && Array.isArray(choices[name]) ? choices[name]! : [];
@@ -91,7 +91,7 @@ export function sourceCarts(rows: SourceCard[], choices: Record<string, SourceCh
       if (!offer?.qualifies || offer.price == null || !Number.isFinite(choice.qty) || seen.has(offerId(offer))) continue;
       seen.add(offerId(offer));
       const origin = new URL(offer.url).origin;
-      const sku = `${origin}|${offer.variant_id || offer.url}`;
+      const sku = `${origin}|${offer.variant_id || offerId(offer)}`;
       const available = offer.qty == null ? Infinity : Math.max(0, offer.qty - (stockUsed.get(sku) ?? 0));
       const qty = Math.max(0, Math.min(Math.floor(choice.qty), remaining, available));
       if (!qty) continue;

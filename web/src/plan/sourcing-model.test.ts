@@ -126,3 +126,13 @@ it("keeps same-product Shopify variants distinct across NM/LP and carts the chos
  expect(sourceCarts(rows,{"Sol Ring":[{offer:offer.url,qty:1}]},new Map())).toEqual([]);
  expect(offerId(lp)).not.toBe(offerId(nm));
 });
+
+it("retains non-Shopify condition/printing variants when SKU IDs are missing",()=>{
+ const lp={...offer,variant_id:"",condition:"Lightly Played",title:"Ring [A]",price:0.25};
+ const nm={...offer,variant_id:"",condition:"Near Mint",title:"Ring [B]",price:0.50};
+ const rows=portfolioRows(sourceCards([{...raw[0]!,offers:[lp,nm]}]),doc,new Set(["a","b"]),"","all");
+ expect(rows[0]!.offers).toHaveLength(2);expect(offerId(lp)).not.toBe(offerId(nm));
+ const carts=sourceCarts(rows,allChoices(rows),new Map());
+ expect(carts[0]!.rows.map(r=>r.offer.condition)).toEqual(["Near Mint","Lightly Played"]);
+ expect(sourceCarts(rows,{"Sol Ring":[{offer:offer.url,qty:2}]},new Map())).toEqual([]);
+});
