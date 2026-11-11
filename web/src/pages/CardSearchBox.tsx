@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
 import { useDebounced } from "../useDebounced";
-import { moveSuggestion, nameBeingTyped } from "./cardQuery";
+import { moveSuggestion, nameBeingTyped, suggestionsFor } from "./cardQuery";
 
 /** Names offered at once: enough to find a card, few enough to fit above a phone's keyboard. */
 const SUGGESTIONS = 8;
@@ -34,8 +34,10 @@ export function CardSearchBox({ value, onChange, onPick, suggest }: { value: str
     staleTime: 5 * 60_000,
     retry: false,
   });
+  // Only names fetched for what the box holds now: while typing runs ahead of the lookup, the
+  // names for the earlier letters aren't offered (Down and Enter could open a card nobody typed).
   // Offline, or the lookup failed: no names, and the search still works as typed.
-  const list = open && typed ? (names.data ?? []).slice(0, SUGGESTIONS) : [];
+  const list = open && suggestionsFor(typed, term) ? (names.data ?? []).slice(0, SUGGESTIONS) : [];
   const showing = list.length > 0;
   const pick = (name: string) => {
     setOpen(false);

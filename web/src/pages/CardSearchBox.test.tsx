@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CardSearchBox } from "./CardSearchBox";
-import { moveSuggestion, nameBeingTyped, nameQuery } from "./cardQuery";
+import { cardNamed, exactNameQuery, moveSuggestion, nameBeingTyped, nameQuery, suggestionsFor } from "./cardQuery";
 import { compileSearch, namePhrase } from "@yama/core";
 
 function box(value: string): string {
@@ -34,6 +34,28 @@ describe("the Cards search box", () => {
     for (const draft of ["", "s", "t:elf", "sol t:artifact", "mv<=2", 'o:"draw', "(sol ring)", "-sol ring", "ring -sol", '!"sol ring"', "pow>3"]) {
       expect(nameBeingTyped(draft), draft).toBeNull();
     }
+  });
+
+  it("offers only the names fetched for what the box holds now", () => {
+    // Typing runs ahead of the lookup: the names for "sol" aren't offered once the box says "lotus".
+    expect(suggestionsFor("sol", "sol")).toBe(true);
+    expect(suggestionsFor("Sol", "sol")).toBe(true);
+    expect(suggestionsFor("lotus", "sol")).toBe(false);
+    expect(suggestionsFor("solem", "sol")).toBe(false);
+    expect(suggestionsFor(null, "sol")).toBe(false);
+  });
+
+  it("finds a picked card by its exact name, wherever it would be in the results", () => {
+    expect(exactNameQuery("Sol Ring")).toBe('!"Sol Ring"');
+    expect(exactNameQuery("Circle of Protection: Red")).toBe('!"Circle of Protection: Red"');
+    // A name with a quote mark can't be quoted: it is searched as words, and picked out by name.
+    expect(exactNameQuery('Kongming, "Sleeping Dragon"')).toBe("Kongming, Sleeping Dragon");
+    for (const name of ["Sol Ring", "Fire // Ice", "Trick or Treat", 'Kongming, "Sleeping Dragon"']) expect(() => compileSearch(exactNameQuery(name)), name).not.toThrow();
+    const hits = [{ name: "Fable // Sol Ring", oracle_id: "a" }, { name: "sol ring", oracle_id: "b" }];
+    expect(cardNamed(hits, "Sol Ring")?.oracle_id).toBe("b");
+    expect(cardNamed([hits[0]!], "Sol Ring")?.oracle_id).toBe("a");
+    expect(cardNamed(hits, "Lotus")).toBeUndefined();
+    expect(cardNamed([], "Sol Ring")).toBeUndefined();
   });
 
   it("moves through the names with Down and Up, back to the box at either end", () => {

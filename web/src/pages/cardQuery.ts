@@ -126,6 +126,21 @@ export function nameQuery(name: string): string {
   return name.includes('"') ? name.replace(/["()]/g, "").replace(/:/g, "") : `"${name}"`;
 }
 
+/** The search that finds just the card of this name: `!"Name"`. A name with a quote mark in it can't be quoted, so it is searched as words. */
+export function exactNameQuery(name: string): string {
+  return name.includes('"') ? nameQuery(name) : `!"${name}"`;
+}
+
+/** The card of exactly this name among some hits (any case); failing that, the only hit. */
+export function cardNamed<T extends { name: string }>(cards: T[], name: string): T | undefined {
+  return cards.find((c) => c.name.toLowerCase() === name.toLowerCase()) ?? (cards.length === 1 ? cards[0] : undefined);
+}
+
+/** Whether names fetched for one typed term are the ones to offer for what the box holds now. */
+export function suggestionsFor(typed: string | null, fetchedFor: string): boolean {
+  return typed !== null && typed.toLowerCase() === fetchedFor.toLowerCase();
+}
+
 /** The suggestion Up or Down moves to, wrapping; -1 is the box itself (nothing chosen). */
 export function moveSuggestion(active: number, count: number, step: 1 | -1): number {
   if (count === 0) return -1;
