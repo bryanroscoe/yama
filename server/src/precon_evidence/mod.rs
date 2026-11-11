@@ -977,10 +977,11 @@ pub(crate) async fn chosen_simulation_at(pool: &SqlitePool, cutoff: Option<DateT
     if strengths.is_empty() {
         return Ok(None);
     }
-    let day = newest.get(..10).unwrap_or(&newest).to_string();
+    // Written as the public pages write a count and a date: "11,364 … (tournaments to Oct 30, 2026)".
+    let day = crate::public_page::when(&newest);
     let name = format!(
         "{} stock-precon tournament games, {build} ({}{day}{})",
-        v.games,
+        crate::public_page::count(i64::from(v.games)),
         if chosen.len() > 1 { "tournaments to " } else { "" },
         if done { "" } else { ", still playing" }
     );
