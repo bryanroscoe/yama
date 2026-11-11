@@ -177,6 +177,15 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("tabs are one of the shared pieces", () => {
+  it("no page builds a tablist", () => {
+    // SubNav or DeckTabs for pages, SectionTabs for sections of a page, Segmented for a view,
+    // aria-expanded buttons for things that open and close (design/system/shared-code.md, Tabs).
+    const found = uses(/role="(tablist|tab|tabpanel)"/, (file) => BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
 describe("a page's title row uses the shared header", () => {
   it("no page writes its own page-head", () => {
     // Use <PageHeader title="…" sub={…} actions={…} /> from components/ui. The stand-in drawn

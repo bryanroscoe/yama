@@ -354,3 +354,18 @@ A page's title row: the `h1`, an optional line under it, and the page's actions 
   secondaries go in a `MoreMenu` (see ActionBar).
 - The Decks, Plans and Lab areas draw theirs with `AreaHead`, `PlansHead` and `LabHead`, which
   add the area's sections and its `BackLink`.
+
+### Tabs: which piece to use
+
+There is no `Tabs` component, on purpose. Each thing that looks like tabs is one of these:
+
+| It does this | Use |
+|---|---|
+| Goes to another page of the same area | `SubNav`, or `DeckTabs` for the Decks sections (links, `aria-current="page"`) |
+| Jumps to a section of a long page | `SectionTabs` (links; the section in view is current) |
+| Switches a view or a value in place | `Segmented` (buttons, `aria-pressed`) |
+| Opens one of several things and closes it again | buttons with `aria-expanded` in a named `role="group"` (the import page's "Where your deck is") |
+
+Don't write `role="tablist"` in a page: a tab can't be closed and one is always chosen, and a
+tablist owes its users arrow keys and a `tabpanel` for each tab. The online board's own
+tablists are the exception until it joins these rules.
