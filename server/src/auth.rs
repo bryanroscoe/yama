@@ -34,6 +34,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration as StdDuration, Instant};
 use tokio::sync::RwLock;
 
@@ -45,8 +46,8 @@ const GOOGLE_ISSUERS: [&str; 2] = ["accounts.google.com", "https://accounts.goog
 /// the issuer and audience checks for a token without them.
 const GOOGLE_REQUIRED: [&str; 4] = ["exp", "iss", "aud", "sub"];
 const ACCESS_REQUIRED: [&str; 3] = ["exp", "iss", "aud"];
-/// Longest display name kept from a Google profile.
-const MAX_NAME: usize = 60;
+/// Longest display name, kept from a Google profile or typed in Account settings.
+pub const MAX_NAME: usize = 60;
 pub const DISABLED: &str = "This account has been turned off. Ask the host if that's a mistake.";
 
 /// SQL that is true for a `users u` row with the smaller allowance (`User::limited`): a Google
@@ -97,7 +98,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/password", post(password_login))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/config", get(auth_config))
-        .route("/api/me", get(me).delete(delete_me))
+        .route("/api/me", get(me).patch(update_me).delete(delete_me))
         .route("/api/invites", get(list_invites).post(create_invite))
         .route("/api/invites/{email}", delete(delete_invite))
         .route("/api/admin/users", get(admin_list_users))
@@ -751,6 +752,31 @@ async fn me(CurrentUser(user): CurrentUser, crate::view_as::MaybeView(view): cra
 }
 
 #[derive(Deserialize)]
+struct UpdateMe {
+    display_name: String,
+}
+
+/// `PATCH /api/me`: change the name you go by. It is what playgroup members and the people you
+/// play with see; it starts as the Google profile's name and was fixed from then on. Shared
+/// pages never show it (they go by the handle). Refused while an admin views as someone, like
+/// every write (`view_as::guard`).
+async fn update_me(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(body): Json<UpdateMe>) -> AppResult<Json<Me>> {
+    let name = body.display_name.trim();
+    if name.is_empty() {
+        return Err(AppError::bad("your name can't be blank"));
+    }
+    if name.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
+        return Err(AppError::bad("your name can't hold line breaks or control characters"));
+    }
+    if name.chars().count() > MAX_NAME {
+        return Err(AppError::bad(format!("your name can have at most {MAX_NAME} characters")));
+    }
+    st.limits.profile_writes.check_user(&user)?;
+    sqlx::query("UPDATE users SET display_name = ? WHERE id = ?").bind(name).bind(&user.id).execute(&st.pool).await?;
+    Ok(Json(Me { user: User { display_name: name.to_string(), ..user }, viewing: None }))
+}
+
+#[derive(Deserialize)]
 struct DeleteMe {
     /// The account's email, typed to confirm.
     confirm_email: String,
@@ -834,6 +860,10 @@ async fn start_session(st: &AppState, jar: CookieJar, user: User) -> AppResult<(
         .await?;
     // Signing in counts as being seen.
     sqlx::query("UPDATE users SET last_seen_at = ? WHERE id = ?").bind(now()).bind(&user.id).execute(&st.pool).await?;
+    // Housekeeping never fails a sign-in.
+    if let Err(err) = sweep_sessions(&st.pool).await {
+        tracing::warn!(error = %err, "couldn't delete expired sessions");
+    }
     let cookie = Cookie::build((SESSION_COOKIE, token.clone()))
         .path("/")
         .http_only(true)
@@ -842,6 +872,26 @@ async fn start_session(st: &AppState, jar: CookieJar, user: User) -> AppResult<(
         .max_age(time_days(SESSION_DAYS))
         .build();
     Ok((jar.add(cookie), Json(LoginResponse { user, token })))
+}
+
+static LAST_SESSION_SWEEP: AtomicI64 = AtomicI64::new(0);
+const SESSION_SWEEP_EVERY_SECONDS: i64 = 600;
+
+/// Delete expired sessions, at most every ten minutes, when someone signs in (the way `oauth`
+/// sweeps its codes and tokens). A session past its 90 days signs nobody in (`user_for_token`
+/// checks the date), but each sign-in adds a row and nothing ever took one away.
+async fn sweep_sessions(pool: &SqlitePool) -> sqlx::Result<()> {
+    let at = Utc::now().timestamp();
+    let last = LAST_SESSION_SWEEP.load(Ordering::Relaxed);
+    if at - last < SESSION_SWEEP_EVERY_SECONDS || LAST_SESSION_SWEEP.compare_exchange(last, at, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        return Ok(());
+    }
+    delete_expired_sessions(pool).await.map(|_| ())
+}
+
+/// Delete every session whose time is up. Returns how many went.
+async fn delete_expired_sessions(pool: &SqlitePool) -> sqlx::Result<u64> {
+    Ok(sqlx::query("DELETE FROM sessions WHERE expires_at <= ?").bind(now()).execute(pool).await?.rows_affected())
 }
 
 fn time_days(days: i64) -> time::Duration {
@@ -1264,6 +1314,69 @@ mod tests {
         assert!(status.is_success(), "{status}");
         let (status, _) = crate::testutil::send(&app, Method::POST, "/api/auth/logout", None, None).await;
         assert!(status.is_success(), "{status}");
+    }
+
+    #[tokio::test]
+    async fn expired_sessions_are_deleted_and_live_ones_kept() {
+        let (app, pool) = crate::testutil::app().await;
+        let (pat, live) = crate::testutil::user(&pool, "pat@example.com").await;
+        let short = cli_session(&pool, "pat@example.com", 1).await.unwrap();
+        for (hash, expires) in [("old-1", "2020-01-01T00:00:00Z"), ("old-2", "2026-01-01T00:00:00Z")] {
+            sqlx::query("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, '2019-10-01T00:00:00Z', ?)")
+                .bind(hash).bind(&pat).bind(expires).execute(&pool).await.unwrap();
+        }
+        assert_eq!(delete_expired_sessions(&pool).await.unwrap(), 2);
+        assert_eq!(delete_expired_sessions(&pool).await.unwrap(), 0);
+        let left: Vec<String> = sqlx::query_scalar("SELECT token_hash FROM sessions ORDER BY token_hash").fetch_all(&pool).await.unwrap();
+        let mut expected = vec![sha256_hex(&live), sha256_hex(&short)];
+        expected.sort();
+        assert_eq!(left, expected);
+        for token in [&live, &short] {
+            let (status, _) = crate::testutil::send(&app, axum::http::Method::GET, "/api/me", Some(token), None).await;
+            assert_eq!(status, axum::http::StatusCode::OK);
+        }
+    }
+
+    #[tokio::test]
+    async fn people_can_change_the_name_they_go_by() {
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let (app, pool) = crate::testutil::app().await;
+        let (pat, token) = crate::testutil::user(&pool, "pat@example.com").await;
+        let (sam, _) = crate::testutil::user(&pool, "sam@example.com").await;
+        let rename = |body: serde_json::Value| crate::testutil::send(&app, Method::PATCH, "/api/me", Some(&token), Some(body));
+
+        let (status, me) = rename(json!({ "display_name": "  Pat Rivers  " })).await;
+        assert_eq!((status, me["display_name"].as_str(), me["email"].as_str()), (StatusCode::OK, Some("Pat Rivers"), Some("pat@example.com")));
+        let (_, me) = crate::testutil::send(&app, Method::GET, "/api/me", Some(&token), None).await;
+        assert_eq!(me["display_name"], "Pat Rivers");
+        // Only the caller's own name changes, and only the name.
+        let names: Vec<(String, String)> = sqlx::query_as("SELECT id, display_name FROM users ORDER BY email").fetch_all(&pool).await.unwrap();
+        assert_eq!(names, vec![(pat.clone(), "Pat Rivers".to_string()), (sam, "sam".to_string())]);
+
+        let long = "n".repeat(MAX_NAME + 1);
+        for bad in ["", "   ", "Pat\nRivers", "Pat\u{2028}Rivers", "Pat\u{2029}Rivers", long.as_str()] {
+            let (status, _) = rename(json!({ "display_name": bad })).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}");
+        }
+        let (status, _) = rename(json!({})).await;
+        assert!(status.is_client_error(), "{status}");
+        let at_cap = "é".repeat(MAX_NAME);
+        let (status, me) = rename(json!({ "display_name": at_cap })).await;
+        assert_eq!((status, me["display_name"].as_str()), (StatusCode::OK, Some(at_cap.as_str())));
+        // Signed out, there is nobody to rename.
+        let (status, _) = crate::testutil::send(&app, Method::PATCH, "/api/me", None, Some(json!({ "display_name": "Nobody" }))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        // A script changing it over and over is stopped.
+        let mut refused = false;
+        for i in 0..100 {
+            let (status, _) = rename(json!({ "display_name": format!("Pat {i}") })).await;
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                refused = true;
+                break;
+            }
+        }
+        assert!(refused);
     }
 
     #[tokio::test]

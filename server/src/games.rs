@@ -159,6 +159,18 @@ pub(crate) async fn can_see(pool: &SqlitePool, game: &str, user: &str) -> AppRes
 }
 
 async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(g): Json<NewGame>) -> AppResult<Json<serde_json::Value>> {
+    // Limits (limits.rs): every save counts toward a flood limit; a game new to Yama counts
+    // toward a smaller one. A phone sends its game again with each batch of taps, so only ids
+    // that aren't this account's own games yet are held to the smaller number.
+    st.limits.game_saves.check_user(&user)?;
+    let known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM games WHERE id = ? AND created_by = ?)")
+        .bind(&g.id)
+        .bind(&user.id)
+        .fetch_one(&st.pool)
+        .await?;
+    if !known {
+        st.limits.game_creates.check_user(&user)?;
+    }
     Ok(Json(create_game(&st.pool, &user.id, g).await?))
 }
 

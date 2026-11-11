@@ -335,17 +335,15 @@ pub(super) async fn collection(
     Query(query): Query<CollectionQuery>,
 ) -> AppResult<Response> {
     limit(&st, &address)?;
-    let (sharer, lines) = match shared_collection(&st.pool, &handle).await {
+    // The search as the form allows it (200 characters), whatever the address says.
+    let q: String = query.q.chars().take(200).collect();
+    let (sharer, found) = match shared_collection_page(&st.pool, &handle, &q, query.page, PAGE).await {
         Ok(x) => x,
         Err(AppError::NotFound(_)) => return Ok(not_found(&st, "Collection")),
         Err(err) => return Err(err),
     };
     let h = sharer.handle.clone().unwrap_or_default();
-    let needle = query.q.trim().to_lowercase();
-    let hits: Vec<&CollectionLine> = lines.iter().filter(|l| needle.is_empty() || l.name.to_lowercase().contains(&needle)).collect();
-    let copies: i64 = lines.iter().map(|l| l.qty).sum();
-    let pages = hits.len().div_ceil(PAGE).max(1);
-    let at = query.page.min(pages - 1);
+    let (hits, copies, pages, at) = (&found.lines, found.copies, found.pages, found.page);
     let mut body = format!(
         "<a class=\"back-link\" href=\"/u/{0}\">← @{0}</a><section class=\"share-profile-head\"><p class=\"eyebrow\">Collection</p><h1>@{0}'s cards</h1><p class=\"dim\">{1} copies. Real cards only; proxies aren't listed.</p></section><div class=\"public-actions\"><a class=\"button primary\" href=\"/u/{0}/collection.txt\" download>Download as a list</a><a class=\"button\" href=\"/u/{0}/collection.csv\" download>Download CSV</a></div>",
         e(&h),
@@ -355,14 +353,14 @@ pub(super) async fn collection(
         body,
         "<form class=\"public-filters\" method=\"get\" action=\"/u/{}/collection\" aria-label=\"Search the collection\"><label class=\"search\"><span class=\"sr-only\">Search</span><input type=\"search\" name=\"q\" value=\"{}\" maxlength=\"200\" placeholder=\"Search card names\"></label><button type=\"submit\" class=\"primary\">Search</button></form>",
         e(&h),
-        e(&query.q)
+        e(&q)
     )
     .unwrap();
     if hits.is_empty() {
         body.push_str("<p class=\"dim\">No cards match.</p>");
     } else {
         body.push_str("<table class=\"share-collection\"><thead><tr><th scope=\"col\">Card</th><th scope=\"col\">Printing</th><th scope=\"col\">Finish</th><th scope=\"col\">Condition</th><th scope=\"col\" class=\"num\">Copies</th></tr></thead><tbody>");
-        for l in hits.iter().skip(at * PAGE).take(PAGE) {
+        for l in hits {
             let finish = match l.finish.as_str() {
                 "foil" => "Foil",
                 "etched" => "Etched",
@@ -387,8 +385,8 @@ pub(super) async fn collection(
         if pages > 1 {
             let link = |p: usize| {
                 let mut u = format!("/u/{}/collection?page={p}", e(&h));
-                if !query.q.is_empty() {
-                    let enc: String = url::form_urlencoded::byte_serialize(query.q.as_bytes()).collect();
+                if !q.is_empty() {
+                    let enc: String = url::form_urlencoded::byte_serialize(q.as_bytes()).collect();
                     u.push_str(&format!("&amp;q={enc}"));
                 }
                 u

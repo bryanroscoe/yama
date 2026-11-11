@@ -272,7 +272,8 @@ async fn save(
     key.sort();
     let target = serde_json::json!({ "deck": id, "cards": key, "make_current": body.make_current });
 
-    let mut tx = st.pool.begin().await?;
+    // Immediate: the op check and the deck's current list are read before the version is written.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     let done: Option<(String, String)> = sqlx::query_as("SELECT kind, payload FROM applied_ops WHERE op_id = ? AND owner_id = ?")
         .bind(&body.op_id)
         .bind(&user.id)
