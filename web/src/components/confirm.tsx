@@ -25,6 +25,9 @@ interface Pending {
   done: (answer: boolean) => void;
 }
 
+/** With the unsaved-work question (web/src/unsaved.tsx), the top of the page's layers. */
+const QUESTION_LAYER = 90;
+
 let host: ((pending: Pending) => void) | null = null;
 let next = 1;
 
@@ -62,7 +65,12 @@ export function ConfirmHost() {
     current.done(yes);
     setQueue((q) => q.filter((p) => p.id !== current.id));
   };
-  return <ConfirmDialog key={current.id} question={current.question} notice={current.notice} onAnswer={answer} />;
+  return (
+    // Above every sheet and overlay a question can be asked over (sheets are 41, the scanner 60 to 80).
+    <div style={{ position: "fixed", inset: 0, zIndex: QUESTION_LAYER }}>
+      <ConfirmDialog key={current.id} question={current.question} notice={current.notice} onAnswer={answer} />
+    </div>
+  );
 }
 
 /** One question as a centered alert dialog. Most code calls `ask` instead of drawing this. */
