@@ -6,7 +6,7 @@ use axum::http::{Method, Request, StatusCode, header};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-async fn key(app: &Router, session: &str, scope: Option<&str>) -> String {
+pub(super) async fn key(app: &Router, session: &str, scope: Option<&str>) -> String {
     let mut body = json!({"name": "Claude Code on the Mac"});
     if let Some(s) = scope {
         body["scope"] = json!(s);
@@ -16,11 +16,11 @@ async fn key(app: &Router, session: &str, scope: Option<&str>) -> String {
     made["token"].as_str().unwrap().to_string()
 }
 
-fn rpc(method: &str, params: Value) -> Value {
+pub(super) fn rpc(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 }
 
-async fn call(app: &Router, token: &str, tool: &str, args: Value) -> (bool, String) {
+pub(super) async fn call(app: &Router, token: &str, tool: &str, args: Value) -> (bool, String) {
     let (status, r) = send(app, Method::POST, "/mcp", Some(token), Some(rpc("tools/call", json!({"name": tool, "arguments": args})))).await;
     assert_eq!(status, StatusCode::OK, "{r}");
     (r["result"]["isError"].as_bool().unwrap(), r["result"]["content"][0]["text"].as_str().unwrap().to_string())
@@ -245,7 +245,7 @@ async fn playgroups_show_only_groups_the_caller_is_in() {
         .bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &a_key, "playgroups", json!({"id": "pg-1"})).await;
     assert!(!err, "{text}");
-    assert!(text.contains("\"games\": 1") && text.contains("Kelly"), "{text}");
+    assert!(text.contains("\"games\":1") && text.contains("Kelly"), "{text}");
     assert!(!text.contains(&a) && !text.contains("m-2"), "no account or member ids in stats: {text}");
 
     let (_, text) = call(&app, &b_key, "playgroups", json!({})).await;
@@ -257,7 +257,7 @@ async fn playgroups_show_only_groups_the_caller_is_in() {
 
 // ── staged changes (slice 2) ────────────────────────────────────────────────
 
-async fn seed_cards(pool: &sqlx::SqlitePool) {
+pub(super) async fn seed_cards(pool: &sqlx::SqlitePool) {
     for (id, name, type_line, ci) in [
         ("o-cmd", "Test Commander", "Legendary Creature — Elf", "G"),
         ("o-sol", "Sol Ring", "Artifact", ""),

@@ -695,6 +695,69 @@ pub(crate) async fn review(pool: &SqlitePool, owner: &str) -> AppResult<String> 
     Ok(out)
 }
 
+/// The Review queue for the tools (`mcp/`), a page of swaps at a time, so the answer stays small
+/// on an account with many proposals: every plan deck's counts, then `limit` swaps from `offset`.
+/// The swaps waiting for an answer are listed; the answered ones are only counted unless
+/// `answered` is set, which lists them after each deck's waiting ones. `deck_key` narrows it to
+/// one plan. Returns the text and how many swaps the listing holds in all.
+pub(crate) async fn review_page(pool: &SqlitePool, owner: &str, deck_key: Option<&str>, answered: bool, offset: usize, limit: usize) -> AppResult<(String, usize)> {
+    /// The longest one swap's lines get: reasons are typed by people and can run long.
+    const SWAP: usize = 700;
+    let mut out = String::from(
+        "Proposed swaps for their plan decks. A deck's proposals together are a plan version waiting for their OK: they \
+         approve it whole on the deck's plan page (skipping any change first), or answer one change at a time with want, \
+         unsure or don't want. Planned swaps are already in the plan and aren't on this list.\n",
+    );
+    out.push_str(&plan_settings(pool, owner).await?);
+    let answers = reviews(pool, owner).await?;
+    let swaps = swaps_for(pool, owner, deck_key, Some("proposed")).await?;
+    if swaps.is_empty() {
+        out.push_str("\nNo proposed swaps right now.\n");
+        return Ok((out, 0));
+    }
+    out.push_str("\nBy plan deck:\n");
+    let mut listed: Vec<(&String, bool, &SwapLine)> = Vec::new();
+    let mut at = 0;
+    while at < swaps.len() {
+        let deck = &swaps[at].0;
+        let end = at + swaps[at..].iter().take_while(|(d, _)| d == deck).count();
+        let (open, done): (Vec<&SwapLine>, Vec<&SwapLine>) = swaps[at..end].iter().map(|(_, sw)| sw).partition(|sw| !is_answered(&answers, &sw.key));
+        let _ = writeln!(out, "- {deck}: {} waiting for an answer, {} answered", open.len(), done.len());
+        listed.extend(open.into_iter().map(|sw| (deck, true, sw)));
+        if answered {
+            listed.extend(done.into_iter().map(|sw| (deck, false, sw)));
+        }
+        at = end;
+    }
+    let total = listed.len();
+    let shown: Vec<(&String, bool, &SwapLine)> = listed.into_iter().skip(offset).take(limit).collect();
+    if shown.is_empty() {
+        out.push_str(if total == 0 { "\nNone is waiting for an answer.\n" } else { "\nNo more swaps on this list.\n" });
+        return Ok((out, total));
+    }
+    let _ = writeln!(
+        out,
+        "\nSwaps {} to {} of {total}{}:",
+        offset + 1,
+        offset + shown.len(),
+        if answered { "" } else { " waiting for an answer (answered ones are only counted above)" }
+    );
+    let mut heading: Option<(&String, bool)> = None;
+    for (deck, open, sw) in shown {
+        if heading != Some((deck, open)) {
+            let _ = writeln!(out, "\n{deck}, {}:", if open { "waiting for an answer" } else { "already answered" });
+            heading = Some((deck, open));
+        }
+        let text = swap_text(sw, &answers);
+        if text.chars().count() > SWAP {
+            let _ = writeln!(out, "{}…", text.chars().take(SWAP).collect::<String>());
+        } else {
+            let _ = writeln!(out, "{text}");
+        }
+    }
+    Ok((out, total))
+}
+
 // ── deck ────────────────────────────────────────────────────────────────────
 
 async fn deck(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<String> {

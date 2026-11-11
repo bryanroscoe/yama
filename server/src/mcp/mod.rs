@@ -25,6 +25,8 @@
 //! tool name and outcome only, never arguments or results.
 
 pub mod changes;
+mod overview;
+mod page;
 pub(crate) mod tools;
 pub(crate) mod research;
 mod workflows;
@@ -285,3 +287,5 @@ fn tool_error(e: AppError) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_budget;

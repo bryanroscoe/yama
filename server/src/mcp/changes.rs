@@ -602,7 +602,7 @@ async fn apply_complete_deck(
 // ── plan changes ────────────────────────────────────────────────────────────
 
 /// The caller's plan deck by key or name: (key, name).
-async fn plan_deck(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
+pub(super) async fn plan_deck(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT key, name FROM plan_decks WHERE owner_id = ?1 AND status != 'archived'
            AND (key = ?2 OR lower(name) = lower(?2) OR instr(lower(name), lower(?2)) > 0)

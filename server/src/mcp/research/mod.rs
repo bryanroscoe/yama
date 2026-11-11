@@ -206,7 +206,7 @@ pub fn catalog() -> Vec<Value> {
             "Owned cards and locations",
             "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
             schema(
-                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("Page",1,1,10000),"limit":number("Rows",40,1,100)}),
+                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("Page",1,1,10000),"limit":number("Rows",25,1,100)}),
                 &[],
             ),
             false,
@@ -308,7 +308,7 @@ pub async fn call(
         "save_deck" => return super::changes::save_deck(st, user, via, args).await,
         _ => return Err(AppError::bad(format!("unknown tool \"{name}\""))),
     };
-    let result = serde_json::to_string_pretty(&value).map_err(anyhow::Error::from)?;
+    let result = serde_json::to_string(&value).map_err(anyhow::Error::from)?;
     if result.len() > 100_000 {
         return Err(AppError::bad(
             "The result exceeded Yama's tool limit. Request fewer results or a narrower query.",
@@ -927,7 +927,7 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
         .unwrap_or("")
         .to_lowercase();
     let outside = boolean(args, "outside_decks", false)?;
-    let limit = integer(args, "limit", 40, 1, 100)? as usize;
+    let limit = integer(args, "limit", 25, 1, 100)? as usize;
     let page = integer(args, "page", 1, 1, 10000)? as usize;
     let mut rows = crate::collection::items_for_owner(&st.pool, &user.id).await?;
     rows.retain(|i| {
@@ -940,10 +940,16 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
     });
     rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     let total = rows.len();
-    Ok(
-        json!({"total_rows":total,"page":page,"has_more":page*limit<total,"items":rows.into_iter().skip((page-1)*limit).take(limit).collect::<Vec<_>>(),
-        "note":"Only your copies. A copy elsewhere in your collection may be committed to another deck or plan."}),
-    )
+    let mut items = json!(rows.into_iter().skip((page - 1) * limit).take(limit).collect::<Vec<_>>());
+    // Image links are two long URLs a row; card_printings has them for the printing that needs one.
+    for item in items.as_array_mut().into_iter().flatten() {
+        if let Some(o) = item.as_object_mut() {
+            o.remove("image_small");
+            o.remove("image_normal");
+        }
+    }
+    Ok(json!({"total_rows":total,"page":page,"has_more":page*limit<total,"items":items,
+        "note":"Only your copies. A copy elsewhere in your collection may be committed to another deck or plan."}))
 }
 
 async fn sources(st: &AppState) -> AppResult<Value> {

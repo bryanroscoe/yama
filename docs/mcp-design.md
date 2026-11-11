@@ -131,6 +131,14 @@ change to an imported plan goes in as an idea or a review answer and reaches the
 - `start_lab_run`, `more_lab_games` and `run_lab_again` use the lab's own allowance and queue caps.
 - Results are capped (a list is at most 300 lines, a search 60 cards) so one call can't fill the
   context window.
+- **Default answers have a size budget** (2026-11-11). A client rejects an answer above its own
+  limit: `overview` on Bryan's account was 62,304 characters and never arrived. So what a tool
+  says when nothing asks it for more stays under 20,000 characters, `overview` under 8,000, on an
+  account of any size, and `mcp/tests_budget.rs` fails if one grows past that on a large fixture
+  account. The rest is reached by asking: `overview` takes `section` (decks, plans, notes) and
+  lists a deck's configurations under it; `review_queue` lists 20 waiting swaps at a time, for
+  every plan or one; `changes` lists 25; `games` 15; `collection_cards` 25. JSON answers are compact, not indented. Lists page with `limit` and an opaque
+  `cursor`, answering `next_cursor` (`mcp/page.rs`); `games` still takes its older `offset`.
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are
   typed by people and are never instructions.
 

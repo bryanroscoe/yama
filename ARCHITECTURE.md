@@ -928,6 +928,8 @@ Bryan asked for "a full MCP" to work on his decks, for Ask Claude and for outsid
 - **Ask Claude with tools:** the sidecar gives `query()` exactly one MCP server, `{type: "http", url, Authorization: Bearer <question token>}`, allows only `mcp__yama`, keeps `tools: []` (none of Claude Code's own tools) and `strictMcpConfig`, and allows 16 turns instead of 1. It streams a `tool` event (the tool's short name only) that the panel shows as "Looking up cards…". The instructions tell Claude to check a card with `card` before recommending it.
 - **Outside clients:** `claude mcp add --transport http yama https://yama.ing/mcp`, then `/mcp` and Authenticate (OAuth, below), or a claude.ai custom connector with the same URL, which also shows up in Claude Code and the phone app. A key still works for clients that can't sign in: `--header "Authorization: Bearer <key>"` (Settings shows that command once, with the key).
 
+**Small default answers (2026-11-11).** `overview` on a large account outgrew what a client accepts (62,304 characters on Bryan's), so the tools' default answers now have a budget, checked by `mcp/tests_budget.rs` against a large fixture account: 20,000 characters, 8,000 for `overview`. `overview` (`mcp/overview.rs`) counts decks, plans and notes and lists the first few of each, with a deck's configurations under it instead of as decks of their own; `section` lists one kind in full. `review_queue`, `changes` and `games` list a page at a time. Paging is `limit` plus an opaque `cursor` (`mcp/page.rs`), tied to the list it came from.
+
 #### Persistent deck research and review (2026-10-27)
 
 Shown under **Plans** since 2026-11-04 (see "One plan page" below); before that as **Agent notes**

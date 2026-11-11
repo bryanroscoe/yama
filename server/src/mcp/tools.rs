@@ -99,8 +99,22 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "overview",
         title: "Your decks and deck plans",
-        description: "List this person's decks in Yama (with commanders) and their deck plans: each saved note's decks and builds, which build is tracked as that deck's plan (with its plan key), and plans imported from a plan file. Start here.",
-        schema: no_args,
+        description: "Start here. This person's Yama account at a glance: how many decks, deck plans and saved notes they have, and the \
+                      first few of each, with which note build each plan tracks and its plan key. A deck's configurations (other builds of \
+                      it) are listed under that deck, not as decks of their own. The answer stays small on a large account: to list one \
+                      kind in full, call again with section decks, plans or notes, limit at a time; the answer ends with next_cursor \
+                      for the page after.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "section": {"type": "string", "enum": ["decks", "plans", "notes"], "description": "List this kind in full instead of the summary: decks (with ids and each configuration), plans (archived ones included) or notes (every note deck and its builds)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "With section: how many to list (default 40 decks or plans, 10 notes)."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "With section: next_cursor from the page before, to continue it."},
+                },
+                "additionalProperties": false,
+            })
+        },
         does: Does::Read,
     },
     Tool {
@@ -305,8 +319,21 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "review_queue",
         title: "Proposals to review",
-        description: "Every proposed swap, deck by deck: the ones still waiting for their answer first, then the ones they answered.",
-        schema: no_args,
+        description: "Proposed swaps waiting for their answer: every plan deck's count of waiting and answered proposals, then the \
+                      waiting ones with their reasons, 20 at a time, deck by deck. plan narrows it to one deck; answered true also \
+                      lists the ones they answered, with their answers. The answer ends with next_cursor when there are more.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "plan": {"type": "string", "maxLength": 300, "description": "Only this plan: its key or deck name from `overview`."},
+                    "answered": {"type": "boolean", "description": "Also list the proposals they already answered (default false: only counted)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Swaps to list (default 20)."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the page before, with the same plan and answered."},
+                },
+                "additionalProperties": false,
+            })
+        },
         does: Does::Read,
     },
     Tool {
@@ -398,8 +425,8 @@ const TOOLS: &[Tool] = &[
         name: "games",
         title: "Your game history",
         description: "Games they played in person with Yama's life counter or online, newest first, as the Game history page lists \
-                      them: 50 a page, each with its seats (player, commander, final life, knockout turn), winner seat, turns, \
-                      status and note. search matches a player's or commander's name; filter unfinished or unnamed finds games \
+                      them: 15 at a time (limit, up to 50), each with its seats (player, commander, final life, knockout turn), winner seat, \
+                      turns, status and note; next_offset continues the list. search matches a player's or commander's name; filter unfinished or unnamed finds games \
                       to tidy up. These are real games, unlike lab results. Use `game` for one game's events.",
         schema: || {
             json!({
@@ -408,7 +435,8 @@ const TOOLS: &[Tool] = &[
                     "search": {"type": "string", "description": "A player's or commander's name, or part of one."},
                     "filter": {"type": "string", "enum": ["all", "unfinished", "unnamed"], "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all)."},
                     "order": {"type": "string", "enum": ["newest", "oldest"]},
-                    "offset": {"type": "integer", "minimum": 0, "description": "Games to skip, 50 a page."}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Games to list (default 15)."},
+                    "offset": {"type": "integer", "minimum": 0, "description": "Games to skip: next_offset from the answer before."}
                 },
                 "additionalProperties": false
             })
@@ -498,9 +526,18 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "changes",
         title: "Changes waiting for review",
-        description: "The changes you (or another Claude) staged that they haven't applied or discarded yet, with ids. \
-                      Check here before staging the same change twice.",
-        schema: no_args,
+        description: "The changes you (or another Claude) staged that they haven't applied or discarded yet, with ids, newest first, \
+                      25 at a time (next_cursor continues). Check here before staging the same change twice.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Changes to list (default 25)."},
+                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the page before."},
+                },
+                "additionalProperties": false,
+            })
+        },
         does: Does::Read,
     },
     Tool {
@@ -923,12 +960,12 @@ pub fn offered(name: &str, user: &User, via: &Via) -> bool {
 pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Value) -> AppResult<String> {
     let pool = &st.pool;
     match name {
-        "datasets" => Ok(serde_json::to_string_pretty(&crate::datasets::list(pool,&user.id).await?).map_err(anyhow::Error::from)?),
+        "datasets" => Ok(serde_json::to_string(&crate::datasets::list(pool,&user.id).await?).map_err(anyhow::Error::from)?),
         "dataset" => {
             let mut query=args.as_object().cloned().ok_or_else(||AppError::bad("arguments must be an object"))?;
             let id=query.remove("id").and_then(|v|v.as_str().map(str::to_owned)).filter(|s|!s.is_empty()).ok_or_else(||AppError::bad("id is required"))?;
             let q:crate::datasets::ReadQuery=serde_json::from_value(Value::Object(query)).map_err(|e|AppError::bad(format!("invalid dataset query: {e}")))?;
-            Ok(serde_json::to_string_pretty(&crate::datasets::read(pool,&user.id,&id,q).await?).map_err(anyhow::Error::from)?)
+            Ok(serde_json::to_string(&crate::datasets::read(pool,&user.id,&id,q).await?).map_err(anyhow::Error::from)?)
         },
         "save_research" => {
             let document = args.get("document").ok_or_else(|| AppError::bad("Missing document."))?;
@@ -987,7 +1024,7 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             }
             Ok(report.to_string())
         }
-        "changes" => changes_text(pool, user).await,
+        "changes" => changes_text(pool, user, args).await,
         "edit_deck" => changes::edit_deck(st, user, via, args).await,
         "delete_deck" => changes::delete_deck(st, user, via, args).await,
         "propose_swap" => changes::propose_swap(st, user, via, args).await,
@@ -1020,24 +1057,20 @@ pub async fn call(st: &AppState, user: &User, via: &Via, name: &str, args: &Valu
             let c = changes::discard(pool, &user.id, text_arg(args, "id")?).await?;
             Ok(format!("Discarded: {}", c.summary))
         }
-        "overview" => {
-            let mut text = context::build(pool, user, "general", None).await?;
-            text.push_str(&note_plans(pool, &user.id, None).await?);
-            Ok(text)
-        }
+        "overview" => super::overview::overview(pool, &user.id, args).await,
         "deck" => deck(pool, user, text_arg(args, "deck")?).await,
         "plan_deck" => {
             let key = text_arg(args, "key")?;
             match context::build(pool, user, "plan_deck", Some(key)).await {
                 // A note deck with no tracked build yet is still a deck plan: say what it has.
                 Err(AppError::NotFound(_)) => {
-                    let text = note_plans(pool, &user.id, Some(key)).await?;
+                    let text = super::overview::untracked_note_deck(pool, &user.id, key).await?;
                     if text.is_empty() { Err(AppError::NotFound("plan deck")) } else { Ok(text) }
                 }
                 other => other,
             }
         }
-        "review_queue" => context::build(pool, user, "review", None).await,
+        "review_queue" => review_queue(pool, user, args).await,
         "shopping_trip" => {
             let today = match args.get("today").and_then(Value::as_str) {
                 Some(d) if crate::plan::model::is_date(d) => d.to_string(),
@@ -1227,7 +1260,7 @@ async fn price_history(pool: &SqlitePool, args: &Value) -> AppResult<String> {
         "changes": h.changes.iter().map(|(d, v)| json!({"date": d, "price": v})).collect::<Vec<_>>(),
         "note": note,
     });
-    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+    Ok(serde_json::to_string(&out).map_err(anyhow::Error::from)?)
 }
 
 fn price(usd: Option<f64>, date: Option<&str>) -> String {
@@ -1261,65 +1294,6 @@ fn identity(ci: &str) -> String {
 // ── decks ───────────────────────────────────────────────────────────────────
 
 /// The caller's deck by id or (case-insensitive) name. Several matches is a 400 naming them.
-/// Their notes' decks and builds as deck plans, with which build each deck tracks. With `only`,
-/// just the note decks with that key that aren't tracked (`plan_deck` on such a key); empty when
-/// there are none.
-async fn note_plans(pool: &SqlitePool, owner: &str, only: Option<&str>) -> AppResult<String> {
-    #[allow(clippy::type_complexity)]
-    let rows: Vec<(String, String, i64, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT r.id, r.title, r.revision, json_extract(d.value, '$.key'), json_extract(d.value, '$.name'),
-           (SELECT json_group_array(json_object('id', json_extract(b.value, '$.id'), 'label', json_extract(b.value, '$.label'),
-                                                'bracket', json_extract(b.value, '$.bracket')))
-            FROM json_each(d.value, '$.builds') b)
-         FROM research_reports r, json_each(r.document, '$.decks') d
-         WHERE r.owner_id = ? AND json_type(d.value, '$.key') = 'text'
-         ORDER BY r.updated_at DESC, r.id, d.key",
-    )
-    .bind(owner)
-    .fetch_all(pool)
-    .await?;
-    let tracked: Vec<(String, String, String, String, String)> = sqlx::query_as(
-        "SELECT note_id, note_deck_key, note_build_id, key, status FROM plan_decks WHERE owner_id = ? AND note_id IS NOT NULL",
-    )
-    .bind(owner)
-    .fetch_all(pool)
-    .await?;
-    let tracked: HashMap<(String, String), (String, String, String)> =
-        tracked.into_iter().map(|(n, d, b, k, s)| ((n, d), (b, k, s))).collect();
-    let mut out = String::new();
-    let mut note_seen = String::new();
-    for (id, title, revision, deck_key, deck_name, builds) in rows {
-        let track = tracked.get(&(id.clone(), deck_key.clone())).filter(|t| t.2 != "archived");
-        if only.is_some_and(|k| k != deck_key || track.is_some()) {
-            continue;
-        }
-        if out.is_empty() {
-            out.push_str(match only {
-                None => "\nTheir notes, archived plans kept for reference (`research` reads one; `track_build` makes one build a deck's next plan version, waiting for their OK):\n",
-                Some(_) => "Not a plan yet. This deck is in their notes; `research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n",
-            });
-        }
-        if note_seen != id {
-            let _ = writeln!(out, "- {title} (note id {id}, revision {revision}): /decks/plans/archived/{id}");
-            note_seen.clone_from(&id);
-        }
-        let builds: Vec<Value> = serde_json::from_str(&builds).unwrap_or_default();
-        let builds: Vec<String> = builds
-            .iter()
-            .map(|b| {
-                let bracket = b["bracket"].as_i64().map(|n| format!(", bracket {n}")).unwrap_or_default();
-                format!("{} ({}{bracket})", b["id"].as_str().unwrap_or("?"), b["label"].as_str().unwrap_or(""))
-            })
-            .collect();
-        let state = match track {
-            Some((build, key, _)) => format!("tracking build {build} as plan key {key}"),
-            None => "no build tracked".into(),
-        };
-        let _ = writeln!(out, "  - {} (deck key {deck_key}): {state}. Builds: {}", deck_name.as_deref().unwrap_or(&deck_key), builds.join("; "));
-    }
-    Ok(out)
-}
-
 pub(super) async fn deck_id(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<String> {
     let by_id: Option<String> = sqlx::query_scalar("SELECT id FROM decks WHERE id = ? AND owner_id = ? AND archived = 0").bind(wanted).bind(owner).fetch_optional(pool).await?;
     if let Some(id) = by_id {
@@ -1588,7 +1562,7 @@ async fn lab_runs(pool: &SqlitePool, user: &User) -> AppResult<String> {
     }
     let mut out = String::from("Their lab experiments, newest first:\n");
     for (id, name, status, done, total, created) in rows {
-        let _ = writeln!(out, "- {name} ({status}, {done} of {total} games, made {}) id {id}", created.get(..10).unwrap_or(&created));
+        let _ = writeln!(out, "- {} ({status}, {done} of {total} games, made {}) id {id}", clip(&name, 120), created.get(..10).unwrap_or(&created));
     }
     Ok(out)
 }
@@ -1608,7 +1582,7 @@ async fn collection_summary(pool: &SqlitePool, user: &User) -> AppResult<String>
         "containers": containers,
         "note": "Market values are dated market references, not store or buylist offers. Loose copies are in no container.",
     });
-    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+    Ok(out.to_string())
 }
 
 /// Takes account and member ids out of a games or stats answer before it goes to an assistant: it
@@ -1642,6 +1616,18 @@ fn without_people_ids(v: &mut Value, me: &str) {
         }
     }
     walk(v, me, &mut HashMap::new());
+}
+
+/// Drops every null field, for a list whose rows are mostly empty optional fields.
+fn without_nulls(v: &mut Value) {
+    match v {
+        Value::Object(o) => {
+            o.retain(|_, x| !x.is_null());
+            o.values_mut().for_each(without_nulls);
+        }
+        Value::Array(a) => a.iter_mut().for_each(without_nulls),
+        _ => {}
+    }
 }
 
 /// The Playgroup page: the groups, or one group's stats. Join codes and account ids stay out: an
@@ -1678,10 +1664,13 @@ async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
             groups
         }
     };
-    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+    Ok(serde_json::to_string(&out).map_err(anyhow::Error::from)?)
 }
 
-/// The Game history page's list (`games::history_page`), same search, filter and paging.
+/// Games one `games` answer lists unless `limit` asks for more (the page itself holds 50).
+const GAMES_PAGE: usize = 15;
+
+/// The Game history page's list (`games::history_page`), same search and filter.
 async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     use crate::games::{HistoryFilter, HistoryOrder, HistoryParams};
     let word = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty());
@@ -1700,14 +1689,29 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
         None | Some(Value::Null) => 0,
         Some(v) => v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| AppError::bad("offset is a whole number"))?,
     };
+    let limit = match args.get("limit") {
+        None | Some(Value::Null) => GAMES_PAGE,
+        Some(v) => v.as_u64().filter(|n| (1..=50).contains(n)).ok_or_else(|| AppError::bad("limit is a whole number from 1 to 50"))? as usize,
+    };
     let q = word("search").unwrap_or("").to_string();
     let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset }).await?;
+    // The page holds up to 50 games; a smaller limit hands out part of it and says where to go on.
+    let more = page.has_more || page.games.len() > limit;
     let mut out = serde_json::to_value(&page).map_err(anyhow::Error::from)?;
     without_people_ids(&mut out, &user.id);
+    if let Some(games) = out["games"].as_array_mut() {
+        games.truncate(limit);
+    }
+    // A seat or a game says only what was recorded: an absent field is one nobody filled in.
+    without_nulls(&mut out);
+    out["has_more"] = json!(more);
+    if more {
+        out["next_offset"] = json!(u64::from(offset) + limit as u64);
+    }
     if page.games.is_empty() {
         out["note"] = json!("No games match. Games logged on a phone that hasn't synced yet aren't here.");
     }
-    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+    Ok(out.to_string())
 }
 
 /// One game as its page shows it (`games::game_detail`); the event log only when asked.
@@ -1727,7 +1731,7 @@ async fn game(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String>
             o.insert("events".into(), Value::Array(events.into_iter().take(MAX_EVENTS).collect()));
         }
     }
-    Ok(serde_json::to_string_pretty(&out).map_err(anyhow::Error::from)?)
+    Ok(serde_json::to_string(&out).map_err(anyhow::Error::from)?)
 }
 
 /// An experiment's games pod by pod on one engine, or one game in full (`game`).
@@ -1998,18 +2002,60 @@ pub(super) async fn precon_id(pool: &SqlitePool, wanted: &str) -> AppResult<(Str
 
 // ── staged changes ──────────────────────────────────────────────────────────
 
-async fn changes_text(pool: &SqlitePool, user: &User) -> AppResult<String> {
+/// Changes one `changes` answer lists unless `limit` asks for more.
+const CHANGES_PAGE: usize = 25;
+
+async fn changes_text(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    let page = super::page::page(args, "changes", CHANGES_PAGE, changes::MAX_PENDING as usize)?;
     let waiting = changes::list(pool, &user.id, true, None).await?;
     if waiting.is_empty() {
         return Ok("No changes are waiting for their review.".into());
     }
     let mut out = format!("{} change{} waiting for their review, newest first:\n", waiting.len(), if waiting.len() == 1 { " is" } else { "s are" });
-    for c in waiting {
-        let _ = write!(out, "- {} (id {}, staged {}", c.summary, c.id, c.created_at.get(..10).unwrap_or(&c.created_at));
+    for c in waiting.iter().skip(page.offset).take(page.limit) {
+        let _ = write!(out, "- {} (id {}, staged {}", clip(&c.summary, 240), c.id, c.created_at.get(..10).unwrap_or(&c.created_at));
         if let Some(e) = &c.error {
-            let _ = write!(out, "; the last try to apply it failed: {e}");
+            let _ = write!(out, "; the last try to apply it failed: {}", clip(e, 240));
         }
         out.push_str(")\n");
     }
+    if let Some(next) = page.next("changes", waiting.len()) {
+        let _ = writeln!(out, "next_cursor: {next}");
+    }
     Ok(out)
+}
+
+/// The Review queue (`advisor::context::review_page`): counts for every plan deck, then a page of
+/// the swaps waiting for an answer.
+async fn review_queue(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    let key = match args.get("plan").filter(|v| !v.is_null()) {
+        None => None,
+        Some(_) => Some(changes::plan_deck(pool, &user.id, text_arg(args, "plan")?).await?.0),
+    };
+    let answered = match args.get("answered") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(AppError::bad("answered must be true or false")),
+    };
+    // A cursor belongs to one listing: the same plan, with or without the answered ones.
+    let scope = format!("review_queue.{}.{answered}", key.as_deref().unwrap_or(""));
+    let page = super::page::page(args, &scope, REVIEW_PAGE, 100)?;
+    let (mut out, total) = context::review_page(pool, &user.id, key.as_deref(), answered, page.offset, page.limit).await?;
+    if let Some(next) = page.next(&scope, total) {
+        let _ = writeln!(out, "\nnext_cursor: {next}");
+    }
+    Ok(out)
+}
+
+/// Swaps one `review_queue` answer lists unless `limit` asks for more.
+const REVIEW_PAGE: usize = 20;
+
+/// Text people typed, cut to `max` characters for a list line.
+fn clip(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
