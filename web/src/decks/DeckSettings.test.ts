@@ -29,6 +29,23 @@ describe("deck settings", () => {
   });
 });
 
+describe("a deck's folder", () => {
+  const main = { parent_id: null, configurations: [ref("m")] };
+  it("is left alone until something is typed in it", () => {
+    expect(settingsPatch(main, choices)).not.toHaveProperty("folder");
+    expect(settingsPatch(main, { ...choices, folder: null })).not.toHaveProperty("folder");
+  });
+
+  it("is saved trimmed, and a blank one takes the deck out of its folder", () => {
+    expect(settingsPatch(main, { ...choices, folder: " Precons " }).folder).toBe("Precons");
+    expect(settingsPatch(main, { ...choices, folder: "  " }).folder).toBeNull();
+  });
+
+  it("belongs to a main deck, not to a list of another deck", () => {
+    expect(settingsPatch(main, { ...choices, parent: "main", folder: "Precons" })).not.toHaveProperty("folder");
+  });
+});
+
 describe("closing deck settings", () => {
   const deck = { name: "Revival Trance", acquisition_status: null, container_id: "box1", parent_id: null, configuration: null };
   const same = { name: "Revival Trance", ownership: "" as const, container: "box1", parent: null, list: "" };
@@ -39,5 +56,10 @@ describe("closing deck settings", () => {
     expect(settingsChanged(deck, { ...same, container: "" })).toBe(true);
     expect(settingsChanged(deck, { ...same, parent: "main" })).toBe(true);
     expect(settingsChanged({ ...deck, parent_id: "main", configuration: "Stock" }, { ...same, parent: "main", list: "Stock" })).toBe(false);
+    expect(settingsChanged(deck, { ...same, folder: null }, "Precons")).toBe(false);
+    expect(settingsChanged(deck, { ...same, folder: "Precons " }, "Precons")).toBe(false);
+    expect(settingsChanged(deck, { ...same, folder: "Upgraded" }, "Precons")).toBe(true);
+    expect(settingsChanged(deck, { ...same, folder: "" }, "Precons")).toBe(true);
+    expect(settingsChanged(deck, { ...same, folder: "Precons" })).toBe(true);
   });
 });
