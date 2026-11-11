@@ -3,6 +3,11 @@
 User-facing features, setup and examples are published at
 [the public MCP guide](https://yama.ing/docs/mcp/) (`web/public/docs/mcp/index.html`).
 
+Local buying follows [the shopping workflow](local-shopping-workflow.md), exposed
+to MCP clients as `yama://shopping/workflow`. It distinguishes current build
+verification, private research evidence, active plan/trip stock, requested refreshes,
+listing and cart links, optional real replacements for proxies, and sell buylists.
+
 Bryan, 2026-10-22: "Could we create a full MCP to work with and optimize your decks and stuff with
 this?" His answers: **both** (Ask Claude inside Yama and outside clients such as Claude Code), from
 **one toolset**; Claude may change **everything**, but should **recommend review before editing**.

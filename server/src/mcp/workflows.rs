@@ -54,6 +54,7 @@ pub fn prompt(params: &Value) -> AppResult<Value> {
 
 pub fn resources() -> Vec<Value> {
     vec![
+        json!({"uri":"yama://shopping/workflow","name":"shopping_workflow","title":"Local shopping from current deck builds","mimeType":"text/markdown"}),
         json!({"uri":"yama://research/sources","name":"research_sources","title":"Sources and freshness","mimeType":"application/json"}),
         json!({"uri":"yama://research/format","name":"research_format","title":"Private research document and review format","mimeType":"text/markdown"}),
     ]
@@ -67,6 +68,9 @@ pub fn templates() -> Vec<Value> {
 
 pub async fn read(st: &AppState, user: &User, via: &Via, params: &Value) -> AppResult<Value> {
     let uri = super::research::required_text(params, "uri", 400)?;
+    if uri == "yama://shopping/workflow" {
+        return Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":include_str!("../../../docs/local-shopping-workflow.md") }]}));
+    }
     if uri == "yama://research/format" {
         return Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":include_str!("../../../docs/research-format.md") }]}));
     }

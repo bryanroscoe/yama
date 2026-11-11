@@ -107,6 +107,12 @@ async fn the_protocol_basics() {
     assert_eq!(r["result"], json!({}));
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/list", json!({})))).await;
     assert!(r["result"]["resources"].as_array().is_some());
+    assert!(r["result"]["resources"].as_array().unwrap().iter().any(|v| v["uri"] == "yama://shopping/workflow"));
+    let (status, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/read", json!({"uri":"yama://shopping/workflow"})))).await;
+    assert_eq!(status, StatusCode::OK);
+    let content = &r["result"]["contents"][0];
+    assert_eq!(content["mimeType"], "text/markdown");
+    assert_eq!(content["text"], include_str!("../../../docs/local-shopping-workflow.md"));
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("unknown/method", json!({})))).await;
     assert_eq!(r["error"]["code"], -32601);
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/call", json!({"name": "rm_rf"})))).await;
@@ -653,7 +659,7 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
 
     let file = json!({
         "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T16:24:00Z", "cards": ["Sol Ring", "Mana Vault"],
-        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "condition": "Near Mint", "finish": "nonfoil", "price": 1.0, "available": true, "qty": 2}],
+        "listings": [{"card": "Sol Ring", "title": "Sol Ring [C21 - 263]", "condition": "Near Mint", "finish": "nonfoil", "price": 1.0, "available": true, "qty": 2, "url": "https://patsgames.com/products/sol-ring", "variant": "123456"}],
     });
     let (s, v) = send(&app, Method::POST, "/api/plan/stock/import", Some(&a_session), Some(file)).await;
     assert!(s.is_success(), "{v}");
@@ -661,6 +667,8 @@ async fn store_stock_reads_snapshots_and_check_stores_only_stages() {
     assert!(!err, "{text}");
     assert!(text.contains("- Sol Ring: $1.00, Sol Ring [C21 - 263] (Near Mint, non-foil, 2 in stock)"), "{text}");
     assert!(text.contains("- Mana Vault: Not found in stock"), "{text}");
+    assert!(text.contains("Listing: https://patsgames.com/products/sol-ring"), "{text}");
+    assert!(text.contains("Cart variant: 123456"), "{text}");
     // A listing that didn't say whether it's available is said to be unknown, with its price.
     let quiet = json!({
         "format": "yama-store-snapshot/1", "store": "pats", "fetched_at": "2026-11-01T17:00:00Z", "cards": ["Sol Ring"],

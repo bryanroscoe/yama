@@ -67,6 +67,7 @@ const PlanPage = plan.page("PlanPage");
 const Archived = plan.page("Archived");
 const GetCards = plan.page("GetCards");
 const Trip = plan.page("Trip");
+const Sourcing = plan.page("Sourcing");
 const SwapSheetPage = plan.page("SwapSheetPage");
 const MpcPrint = plan.page("MpcPrint");
 const SwapCardsPage = plan.page("SwapCardsPage");
@@ -273,6 +274,7 @@ export function App() {
             <Route path="settings" element={<PlanSettings />} />
             <Route path="get" element={<GetCards />} />
             <Route path="get/trip" element={<Trip />} />
+            <Route path="get/sourcing" element={<Sourcing />} />
             <Route path="get/mpc" element={<MpcPrint />} />
             <Route path="get/swap-sheet" element={<SwapSheetPage />} />
             <Route path="get/swap-cards" element={<SwapCardsPage />} />

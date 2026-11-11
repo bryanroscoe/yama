@@ -12,6 +12,21 @@ For copies outside deck containers, query `collection_cards` with
 `outside_decks=true` and follow pagination. Check saved plan allocations before
 calling those copies spare; being outside a deck box does not mean unreserved.
 Read `shopping_settings` before applying a buy rule or store preference.
+Read `yama://shopping/workflow` for the complete local-buying handoff. Match the
+latest exact deck/build and research revision before reusing a shopping report.
+For all decks at once, link `/decks/plans/get/sourcing`: it reads the private
+`local_sources` snapshot returned by `research(id, full=true)`. Keep stable per-copy
+use IDs and recipients, count each deck's bracket union once, and never add
+overlapping reports. Known-stock bulk selection leaves unknown quantities out.
+Archived research and live trip snapshots are separate; disclose differing dates.
+Refreshing a tracked build can rederive recognized offers and lists, but does not
+fetch fresh store stock. State which evidence was updated.
+Preview unapproved builds without approving them or treating an empty trip as no
+local availability. Supply explicit cards to `check_stores` for those previews.
+Return clickable listing/search links for every applicable store, dated quotes,
+quantity uncertainty and Shopify cart links where supported; TCGplayer Pro carts
+require adding cards on their listing pages. Keep sell-to-store buylist links
+separate. Never return only an archived note as the buying instructions.
 
 Keep owned real copies, proxies, needed copies, installed cards, proposed
 allocations and outstanding orders separate. Saving a list or research note does

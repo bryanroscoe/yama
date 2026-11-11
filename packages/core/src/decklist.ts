@@ -33,6 +33,26 @@ export interface ListLine {
   board: string;
 }
 
+/** Import-name normalization matching server/src/decks.rs::parse_list. No card lookup. */
+export function parseDeckList(text: string): ListLine[] {
+  const out: ListLine[] = [];
+  let board = "main";
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const header = line.replace(/^(?:\/\/)+/, "").replace(/^#+/, "").trim().replace(/:+$/, "").toLowerCase().split(/[ (]/)[0];
+    if (["commander", "commanders"].includes(header ?? "")) { board = "commander"; continue; }
+    if (["deck", "main", "mainboard", "maindeck", "creatures", "lands", "spells"].includes(header ?? "")) { board = "main"; continue; }
+    if (["sideboard", "side", "maybeboard", "considering"].includes(header ?? "")) { board = "side"; continue; }
+    if (line.startsWith("//") || line.startsWith("#")) continue;
+    const match = line.match(/^([+-]?\d+)[xX]* (.*)$/);
+    const qty = match ? Number(match[1]) : 1;
+    const name = (match?.[2] ?? line).split(" (")[0]!.split(" *")[0]!.split(" #")[0]!.trim();
+    if (name && Number.isSafeInteger(qty) && qty > 0) out.push({ qty, name, board });
+  }
+  return out;
+}
+
 /** "Commander", "Deck" and "Sideboard" sections of `N Name` lines, in the order given. */
 export function listText(cards: ListLine[]): string {
   const section = (title: string, board: string) => {
