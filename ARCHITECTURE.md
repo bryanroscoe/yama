@@ -1,7 +1,8 @@
 # Yama architecture
 
-Yama (Yet Another Magic App) is a free Magic: The Gathering app for Commander players, in the
-browser and on Android. It does two jobs on one account: a **companion** for game night (life
+Yama (Yet Another Magic App) is a free Magic: The Gathering app for Commander players. It runs
+in the browser and as an installable web app; an Android app is built but not yet released. It
+does two jobs on one account: a **companion** for game night (life
 counter, playgroups and stats, cards, collection, prices, decks) and **online play** against
 friends or AI, with every game stored as a replay. Personal data stays private to each account
 unless its owner shares it.
@@ -93,7 +94,7 @@ back into the server's own MCP tools; and releases arrive by a separate path, sh
 ### Clients
 
 One React and TypeScript codebase serves the browser, the installable web app and the Android
-app (a Capacitor shell around the same build; `web/android/`). Logic that needs no interface
+app (a Capacitor shell around the same build, in `web/android/`; built, and not yet in a store). Logic that needs no interface
 lives in `packages/core`, so it can be tested without a browser: the life counter's reducer,
 the offline card search, deck list parsing and stats, sample hands, and every derived view of a
 plan.
@@ -106,8 +107,8 @@ Three things run on the device so that game night needs no connection:
 - **The scanner** recognises a card by its art with ONNX models in a web worker
   (`onnxruntime-web`), and reads the collector line with Tesseract when the art is not enough.
 
-Card images load from Scryfall's CDN straight to the device. Yama never stores, proxies or
-alters them.
+Card images load from Scryfall's CDN straight to the device, where the service worker may keep
+a bounded cache of them. Yama's server never stores, proxies or alters them.
 
 An online game can also be played on Phase's own board client, built to WASM from the same
 pinned engine and served under `/board/`.
@@ -118,22 +119,24 @@ pinned engine and served under `/board/`.
 command-line tool for imports, invites and account management. As a server it has six jobs:
 
 - **API.** JSON over HTTPS under `/api/`. Sessions are a cookie in the browser and a bearer
-  token in the Android app. Sign-in is a Google ID token that the server verifies; password
-  accounts exist only from the command line.
+  token in the Android app. Sign-in is a Google ID token that the server verifies. Password
+  accounts exist only from the command line, a development login works only on localhost, and
+  Cloudflare Access sign-in can be configured.
 - **WebSockets** for live online games (`/api/play/{id}/ws`), watching AI games
   (`/api/watch/{id}/ws`) and the server's own table relay (`/api/table/{game_id}/ws`), which
   local development and self-hosted copies use in place of Cloudflare's.
 - **MCP** at `/mcp`, with its own OAuth authorization server (`server/src/oauth`), so an
   assistant can act for one account. See [Assistants](#assistants).
-- **Public pages.** The precon reference, the commander ranking and shared decks, plans and
-  profiles are rendered by the server as plain HTML before the app's sign-in gate
+- **Public pages.** The precon reference, the commander ranking, and the decks, collections,
+  plans and profiles their owners chose to share are rendered by the server as plain HTML before the app's sign-in gate
   (`server/src/public_page.rs`, `public_precons`, `public_commanders`, `sharing`).
 - **Static files.** The built web app, with content-addressed assets.
 - **Background jobs.** Scheduled card, price and release-calendar imports from Scryfall, MTGJSON
   and TCGCSV (with `YAMA_AUTO_IMPORT=1`), bracket checks against Commander Spellbook after a
   deck is saved, and the Lab's scheduler.
 
-Requests are rate-limited per account and per client address (`server/src/limits.rs`). Every
+Sign-in, searches, imports, new games and the other costly routes are rate-limited per account
+or per client address (`server/src/limits.rs`). With `YAMA_LOG_DIR` set, as in production, every
 write request is logged to daily files on the data volume.
 
 ### Data
@@ -143,14 +146,14 @@ is simpler to run and to back up than a database server, and the schema avoids a
 would make a later move a rewrite. The schema is the numbered migrations in
 `server/migrations/`.
 
-- **Every private row carries its owner.** Queries bind the caller's ID, and links that cascade
-  use composite `(id, owner_id)` foreign keys, so the database itself refuses a cross-owner
-  link.
+- **Every private row carries its owner.** Queries bind the caller's ID. The planner and
+  research tables go further: their cascading links use composite `(id, owner_id)` foreign
+  keys, so the database itself refuses a cross-owner link.
 - **Prices are dated.** Each price carries its date and source. History stores a row only when
   a value changes. A missing price is `NULL` and is shown as "no price", never as 0.
 - **Games are event logs.** An in-person game is a list of table events; an online game is a
   seed and an action log. Both use the same `games` table, so stats cover both.
-- **Backups.** The release gate copies the database before every activation. A nightly job on
+- **Backups.** The release gate copies an existing database before every activation. A nightly job on
   the host keeps verified snapshots for 14 days, and another copies the live database offsite.
 
 ### Online play
@@ -172,9 +175,9 @@ sequenceDiagram
   P->>S: An action, with the revision it was chosen at
   S->>E: Is it one of the legal actions?
   E-->>S: Yes: the new state
-  S->>D: Append the action to the replay
   S-->>P: Your new view
   S-->>O: Their views, filtered per seat
+  S->>D: Save the replay with the new action
   Note over P,O: AI seats act on the server, through the same legal-action path
   Note over P,O: After a restart, live games are rebuilt from their replays
 ```
@@ -207,8 +210,9 @@ flowchart LR
 
 Because the server applies each ID once, a retry after a lost reply is always safe. Quantity
 changes are deltas, so two devices editing the same card merge. Plain fields are last writer
-wins. Collection edits, plan answers and ticks, and table game events all follow this rule
-(`applied_ops`, `collection_ops`, a game event's `seq`), and any new sync path has to keep it.
+wins. Collection edits, plan answers and ticks, and table game events all follow this rule (the
+`applied_ops` table, `plan_inputs.op_id`, and a game event's `(game_id, seq)`), and any new sync
+path has to keep it.
 
 ### The shared table
 
@@ -243,6 +247,8 @@ it within Cloudflare's free plan. Details: [relay/README.md](relay/README.md) an
 ### Lab
 
 The Lab answers "is this deck better with this change?" by playing AI-against-AI games in bulk.
+Starting a run is limited to admins and the accounts they mark as power users; results stay
+visible.
 
 ```mermaid
 flowchart LR
@@ -277,8 +283,9 @@ and approves it through Yama's OAuth server, and the assistant then works on tha
 - **Everything a tool returns is data.** Deck names, notes and outside sources are text typed
   by people, and are labelled as such.
 
-"Ask Claude" inside the app uses the same tools: the server calls the advisor sidecar, which
-runs Claude and calls back into `/mcp` with a token scoped to that one question. Details:
+"Ask Claude" inside the app (for admins and power users) works the same way: the server calls
+the advisor sidecar, which runs Claude with Yama's read tools as its only tools and calls back
+into `/mcp` with a token scoped to that one question. Details:
 [MCP design](docs/mcp-design.md), [capabilities](docs/mcp-parity.md),
 [UI and MCP parity](docs/ui-mcp-parity.md).
 
@@ -286,13 +293,15 @@ runs Claude and calls back into `/mcp` with a token scoped to that one question.
 
 - **Owner isolation at every boundary.** Queries bind the owner; worker keys, script keys and
   leased Lab work are scoped to their owner; deleting an account removes its dependent data.
-- **Sharing is opt-in and a separate projection.** Public pages read only what sharing allows.
-  They never show account details, prices paid, notes, containers, proxies, plans or games.
+- **Sharing is opt-in and a separate projection.** Public pages read only what the owner chose
+  to share. They never show account details, prices paid, notes, containers, proxies or games,
+  and a shared plan never shows its owner's answers, ownership or shopping evidence.
 - **Hidden information stays on the server.** Each seat in an online game receives its own
   filtered view.
 - **Credentials stay where they are used.** The advisor's token lives only in its container.
   The Forge container has no route out. The `yama` container runs read-only with every
-  capability dropped. Secrets and the database never enter an image, a log or CI.
+  capability dropped. The application's secrets and the database never enter an image, a log or a CI
+  job; the deploy job holds only its restricted SSH key and its Access token.
 - **No self-hosted CI runner.** The repository is public, and a fork's pull request could
   rewrite a workflow to run on one.
 
@@ -313,8 +322,8 @@ flowchart TB
     direction LR
     push["Push CI on main"] --> deploy["Deploy workflow<br/>hosted job, SSH over<br/>Cloudflare Access"]
     deploy --> gate["Release gate on the host<br/>checks the commit and its<br/>CI run on GitHub for itself"]
-    gate --> build["Backs up SQLite,<br/>builds images tagged<br/>with the full commit"]
-    build --> health["Switches over only if<br/>all three containers pass<br/>their health checks"]
+    gate --> build["Builds images tagged<br/>with the full commit,<br/>then backs up SQLite"]
+    build --> health["Activates, and succeeds<br/>only when all three<br/>containers are healthy"]
   end
 
   before --> after
@@ -322,19 +331,21 @@ flowchart TB
 
 Merging to `main` is the release decision. The deploy job's key can run only the gate on the
 host, and the gate trusts nothing the job says: it asks GitHub whether the commit
-is on `main` and whether its push CI passed. Production never moves to an older commit. The gate
-itself is installed on the host by hand after review; merging a change to it does not install
+is on `main` and whether its push CI passed. Production never moves to an older commit. A failed build
+or backup leaves the running release untouched. A failure after activation is recorded and left
+for a person to inspect; the gate never restores a database or reverses a migration by itself.
+The gate itself is installed on the host by hand after review; merging a change to it does not install
 it. Details: [CI](docs/ci.md), [releasing](deploy/RELEASING.md),
 [the deploy runner and gate](deploy/RUNNER.md), [running on the host](deploy/README.md),
 [release trains](docs/release-trains.md).
 
 ## Decision record
 
-Everything below is the plan of record, kept in the order it was written. Sections 1 to 12 are
-the proposal of 17 October 2026 (building started the next day), amended in place where a
-decision changed. The dated subsections record later decisions with their reasons and the
-request that led to them. Some describe a state that has since moved on; each says when it was
-written, and the newest one on a topic stands.
+Everything below is the plan of record. Sections 1 to 12 are the proposal of 17 October 2026
+(building started the next day), amended in place where a decision changed. The dated sections
+record later decisions with their reasons and the request that led to them. They are not in
+strict date order, so use the topic index. Some describe a state that has since moved on; each
+says when it was written, and the newest one on a topic stands.
 
 Two things in the original proposal read differently now. The code layout sketched in section 2
 was the plan; what was built is in the [README](README.md#repository-layout). The diagram in

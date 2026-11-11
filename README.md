@@ -20,7 +20,7 @@ working at a table with bad wifi.
 | Collection | Binders, boxes and deck boxes, real copies and proxies, with lossless Mythic Tools import and export. |
 | Decks | Paste any common list format, keep versions, see what you own and what you still need, sample hands, mana stats, a bracket estimate, and plans for upgrading a deck. |
 | Online play (alpha) | Commander against friends or AI on the [Phase](https://github.com/bryanroscoe/yama-phase) rules engine. The server keeps hidden information hidden and saves every game as a replay. |
-| Lab | AI-against-AI tournaments to try a deck change, on Phase and on Forge, read as paired differences with intervals. |
+| Lab | AI-against-AI tournaments to try a deck change, on Phase and on Forge, read as paired differences with intervals. Starting a run is limited to accounts the admin enables; results stay visible. |
 | Public reference | [Precons](https://yama.ing/precons) and [commanders](https://yama.ing/commanders) for anyone, without signing in: stock lists, attributed real-game results and dated prices. |
 | Assistants | An [MCP server](https://yama.ing/docs/mcp/) so Claude, ChatGPT or Codex can read your decks and collection and stage changes for you to approve. |
 
@@ -66,11 +66,11 @@ flowchart LR
   server --> engine
   server --> advisor
   server --> forge
-  server -->|scheduled imports| sources
+  server -->|imports and lookups| sources
 ```
 
-- **Clients.** One React and TypeScript app serves the browser, the installed web app and the
-  Android shell. Writes made offline are queued as operations with client-made IDs and applied
+- **Clients.** One React and TypeScript app serves the browser, the installed web app and an
+  Android shell (built, not yet in a store). Writes made offline are queued as operations with client-made IDs and applied
   once by the server, so a retry is always safe.
 - **Server.** `yama-server` is a single Rust binary: the JSON API, WebSockets for live games,
   the MCP endpoint with its OAuth server, server-rendered public pages, the built web app's
@@ -78,7 +78,7 @@ flowchart LR
 - **Rules engines.** Online games run on a pinned fork of Phase inside the server, which checks
   every action against the engine's legal list and sends each seat only what that seat may see.
   Lab games run in isolated child processes, and optionally on Forge in its own container with
-  no network access.
+  no route to the internet.
 - **Shared table.** Phones at a table meet on a Cloudflare Worker, not on the home server, so
   game night survives a server or internet outage at home.
 - **Delivery.** Every change lands through a reviewed pull request. CI runs on GitHub-hosted
@@ -93,7 +93,7 @@ the dated record of every design decision.
 | Path | What lives there |
 |---|---|
 | `server/` | The Rust server (Axum, sqlx on SQLite) and its command-line tools: imports, invites, account and price commands. Schema in `server/migrations/`. |
-| `play/` | Online play and the Lab's game core on top of the Phase engine, with the `soak`, `playbench`, `lab`, `coverage` and `referee` binaries. |
+| `play/` | Online play and the Lab's game core on top of the Phase engine, with its command-line tools in `play/src/bin/` (`soak`, `playbench`, `lab`, `coverage`, `referee` and others). |
 | `web/` | The React app (Vite), its service worker, the offline card store, the scanner, and the Android project in `web/android/`. |
 | `packages/core/` | Shared TypeScript with no UI: the life counter reducer, offline card search, deck lists and stats, sample hands, and the planner's logic. |
 | `relay/` | The shared table's Cloudflare Worker and Durable Object. |
@@ -138,7 +138,7 @@ npm run dev                                  # web app on http://localhost:5173,
 ```
 
 Open `http://localhost:5173` and sign in with the development login (any email, no password).
-[`.env.example`](.env.example) lists every setting, and
+[`.env.example`](.env.example) lists the common settings, and
 [docs/development.md](docs/development.md) covers the rest: the server's other commands (imports,
 invites, accounts), debugging with real data, and the full-game checks.
 
@@ -164,8 +164,9 @@ Google sign-in only works on origins added to an OAuth client, so locally use on
 
 Both need the engine's card data file in `data/engine/`, built to match `deploy/phase-rev`. It
 is not published for download; [docs/engine-integration.md](docs/engine-integration.md) explains
-how to build it. `./target/debug/soak` then plays an all-AI game and checks that its replay is
-deterministic.
+how to build it. `cargo run -p yama-play --bin soak` then plays an all-AI game and checks that
+its replay is deterministic; it reads deck lists from a folder you pass it
+([docs/development.md](docs/development.md#online-play-and-the-lab)).
 
 ### With a copy of production's data (maintainers)
 
@@ -187,7 +188,8 @@ npm run build         # production web build
 
 `scripts/local-ci.sh --no-amend` runs everything CI runs, on the current commit.
 [GitHub CI](docs/ci.md) runs the same checks on GitHub-hosted runners for every ready pull
-request into `main` and every push to `main`.
+request from a branch of this repository and every push to `main`. A pull request from a fork
+starts no CI jobs.
 
 `cargo test` skips the full-game tests. Those, with the determinism, performance and per-card
 coverage checks, are in [docs/development.md](docs/development.md#full-game-checks) and
@@ -197,8 +199,9 @@ coverage checks, are in [docs/development.md](docs/development.md#full-game-chec
 
 Merging to `main` is a release. Once CI passes on that commit, a GitHub-hosted job asks the
 production host to deploy it over Cloudflare Access; the host verifies the commit and its CI run
-itself, backs up the database, builds the images, and switches over only when every health check
-passes. See [deploy/RELEASING.md](deploy/RELEASING.md), [deploy/RUNNER.md](deploy/RUNNER.md) and
+itself, builds the images, backs up the database and activates the release, which counts as
+done only when all three containers are healthy. A failed activation is left for a person to
+inspect; nothing restores a database automatically. See [deploy/RELEASING.md](deploy/RELEASING.md), [deploy/RUNNER.md](deploy/RUNNER.md) and
 [deploy/README.md](deploy/README.md).
 
 ## Documentation

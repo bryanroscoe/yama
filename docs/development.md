@@ -35,7 +35,8 @@ npm install
 npm run dev                                  # web app on http://localhost:5173, proxying /api
 ```
 
-[`.env.example`](../.env.example) lists every setting with its default.
+[`.env.example`](../.env.example) lists the common settings with their defaults; the rest are
+read in `server/src/config.rs`.
 
 To serve the built web app from the Rust server (one process, as in production): `npm run build`,
 then `YAMA_WEB_DIST=web/dist ./target/debug/yama-server serve`.
@@ -94,8 +95,13 @@ expected SHA-256.
 
 ```sh
 mkdir -p data/engine                    # put the card data file here
-./target/debug/soak                     # an all-AI game with Bryan's decks; checks replay determinism
+cargo run -p yama-play --bin soak -- data/engine/card-data-cbd552b41f962f5b.json 8 7 Easy path/to/decks
+                                        # an all-AI game; checks replay determinism
 ```
+
+`soak` takes the card data, a turn limit, a seed or range, a difficulty and a folder of deck
+lists. With no folder it reads `../commander-decks/decks`, a private repository of Bryan's decks,
+so pass your own.
 
 Forge as a second Lab engine and Ask Claude are optional sidecars. Their settings are in
 `.env.example`; [forge-worker/README.md](../forge-worker/README.md) and
