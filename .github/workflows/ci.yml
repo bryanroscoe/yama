@@ -46,7 +46,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository))
     # Same backend as the other jobs, so a hosted billing block can't stop it on saget.
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 5 }}
     # A gate failure never fails CI: the web and Rust jobs then simply run.
     continue-on-error: true
     permissions:
@@ -98,7 +98,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
     # On saget it may wait for the shared CI pool and the release gate (a running deploy
     # holds it); timing out there would fail push CI and block the deploy.
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 5 }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 5 }}
     permissions: {}
     steps:
       - name: Refuse a self-hosted runner on a public repository
@@ -129,7 +129,7 @@ jobs:
        (!github.event.pull_request.draft &&
         github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 15 }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 15 }}
     steps:
       - name: Refuse a self-hosted runner on a public repository
         if: runner.environment == 'self-hosted' && github.event.repository.private == false
@@ -172,7 +172,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository &&
         needs.gate.outputs.rust != 'false'))
     runs-on: ${{ fromJSON(vars.CI_LINUX_RUNNER || '["ubuntu-latest"]') }}
-    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'self-hosted', 'self-hosted') && 360 || 90 }}
+    timeout-minutes: ${{ contains(vars.CI_LINUX_RUNNER || 'ubuntu-latest', 'self-hosted') && 360 || 90 }}
     defaults:
       run:
         working-directory: app

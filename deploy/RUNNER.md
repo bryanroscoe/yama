@@ -217,8 +217,8 @@ a router port or a restart of `novalyst-cloudflared`.
 7. **Retire the runner** once a Cloudflare release has succeeded: stop `yama-deploy-runner`,
    remove its registration (`gh api --method DELETE repos/bryanroscoe/yama-archive/actions/runners/ID`),
    remove its key from both authorized-keys files, and delete the repository-level
-   `DEPLOY_SSH_HOST` if nothing else uses it. To switch back before then, set `DEPLOY_BACKEND`
-   to `runner`.
+   `DEPLOY_SSH_HOST` if nothing else uses it. Only a private repository may switch back
+   (`DEPLOY_BACKEND=runner`); the public repository never uses the runner.
 
 **The repository is public**: never register a persistent self-hosted runner on it (the
 `yama-production` runner or the saget `yama-ci` workers), because any fork pull request could

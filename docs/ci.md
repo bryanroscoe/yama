@@ -2,7 +2,8 @@
 
 ## Tests on or off
 
-**Off since 2 Nov 2026 (Bryan).** The plan includes 3,000 hosted Actions minutes a month and
+**On since the repository went public (November 2026):** GitHub-hosted minutes are free for a
+public repository. **Off from 2 Nov 2026 (Bryan) until then:** the plan includes 3,000 hosted Actions minutes a month and
 CI used 2,715 of them in the first two days of November: about 2,600 minutes in 208 runs of
 each CI job. The Rust job alone took 2,233 of those minutes, the gate 193 and the web checks
 182. At that rate a month needs roughly 40,000 minutes, about 13 times the allowance.
@@ -46,10 +47,9 @@ npm run android:sync -w web
 [Don't test a merge twice](#dont-test-a-merge-twice) about macOS vs Linux apply to every merge
 while tests are off, since nothing re-tests main on Linux.
 
-To get free CI tests back without paying for minutes, set `CI_TESTS` to `on` and route CI to
-saget (`python3 scripts/ci_runners.py switch saget --repo yama --apply` from `sagetserver`;
-see [Choose the CI backend](#choose-the-ci-backend)). Saget jobs cost no Actions minutes but
-share saget's CI pool.
+Hosted tests are free since the repository went public: `CI_TESTS` `on` runs them on
+GitHub-hosted runners. **Never route this repository's CI to saget** or any other
+self-hosted runner (AGENTS.md).
 
 The rest of this page describes CI with tests on.
 
@@ -101,18 +101,13 @@ single workspace profile before retaining more. Stop the runner before any scope
 
 ## Choose the CI backend
 
-Both jobs select the JSON labels in the repository Actions variable
-`CI_LINUX_RUNNER`. An unset variable keeps the current saget default. The
-`sagetserver` control CLI changes routing without a workflow edit:
-
-```sh
-python3 scripts/ci_runners.py switch saget --repo yama --apply
-python3 scripts/ci_runners.py switch github --repo yama --apply
-```
-
-Run these commands from the `sagetserver` repository. Omit `--apply` to preview;
-`--all` selects every configured private project. The values are
-`["self-hosted","Linux","X64","yama-ci"]` and `["ubuntu-24.04"]` respectively.
+Every job selects the JSON labels in the repository Actions variable `CI_LINUX_RUNNER`;
+unset means `["ubuntu-latest"]`. **The public repository stays on GitHub-hosted runners**:
+leave the variable unset or hosted, and never run `sagetserver`'s
+`scripts/ci_runners.py switch saget --repo yama` or `register --repo yama` against it. While
+the repository was private (now `bryanroscoe/yama-archive`), that CLI switched between
+`["self-hosted","Linux","X64","yama-ci"]` and `["ubuntu-24.04"]`; the saget notes below
+describe that time.
 Newly scheduled jobs use the selected backend. Existing jobs finish on their
 assigned runner. GitHub-hosted private CI needs available account minutes/billing;
 changing the variable does not clear a billing block.
@@ -147,6 +142,10 @@ identical on both backends. The local job budget includes time waiting for the
 shared compute slot; hosted job budgets retain their previous limits.
 
 ## Manage saget workers
+
+**Private repository only (history).** These workers served the private repository, now
+`bryanroscoe/yama-archive`, and are retired with it. Never register one on the public
+`bryanroscoe/yama`.
 
 The shared controller in `bryanroscoe/sagetserver` owns registration, immutable
 profile images, restart reconciliation and resource budgets. Its runbook is
