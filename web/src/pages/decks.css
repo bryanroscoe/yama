@@ -84,61 +84,6 @@
   }
 }
 
-/* ── toolbar: Whole deck / Still need, Stacks / List ────────────────────── */
-
-.deck-show,
-.deck-layout {
-  display: flex;
-  gap: 4px;
-}
-.deck-toolbar .deck-show > button {
-  min-height: var(--target);
-  padding: 0 16px;
-  border: none;
-  background: transparent;
-  color: var(--dim);
-}
-.deck-toolbar .deck-show > button:hover {
-  color: var(--text);
-}
-.deck-toolbar .deck-show > button[aria-selected="true"] {
-  background: var(--text);
-  color: var(--ground);
-}
-.deck-toolbar .deck-layout > button {
-  min-height: var(--target);
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--dim);
-  font-size: var(--t-label);
-}
-.deck-toolbar .deck-layout > button[aria-pressed="true"] {
-  background: var(--raised);
-  color: var(--text);
-}
-@media (max-width: 899px) {
-  .deck-page .deck-toolbar {
-    margin: 8px 0 16px;
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-  /* Phones: Whole deck / Still need is the full-width segmented track. */
-  .deck-show {
-    flex: 1 1 100%;
-    padding: 3px;
-    gap: 2px;
-    border-radius: var(--r-pill);
-    background: var(--surface);
-  }
-  .deck-toolbar .deck-show > button {
-    flex: 1;
-  }
-  .deck-layout {
-    margin-left: auto;
-  }
-}
-
 /* ── list rows: art crop, name, where it is, have or need ───────────────── */
 
 .deck-group-head {
@@ -342,17 +287,12 @@
 
 /* Delete deck / Delete configuration (decks/DeleteDeck.tsx): red text in the menus, a filled
    red button only on the confirming sheet. */
-.deck-page button.deck-delete { color: var(--bad); }
-.deck-page button.deck-delete:hover { border-color: var(--bad); }
 .deck-delete-sheet p { margin: 0; }
 .deck-delete-choice { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .deck-delete-choice legend { padding: 0 4px; font-weight: 700; overflow-wrap: anywhere; }
 .deck-delete-choice label { display: flex; align-items: center; gap: 8px; min-height: var(--target); font-weight: 400; }
 .deck-sources { margin-top: 24px; }
 .deck-page .hero-title { overflow-wrap: anywhere; line-height: .9; }
-@media (max-width: 899px) {
-  .deck-toolbar { flex-wrap: wrap; }
-}
 .deck-page .deck-more > details { margin-bottom: 20px; }
 @media (max-width: 899px) {
 }

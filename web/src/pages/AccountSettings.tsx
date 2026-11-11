@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { api, type User } from "../api";
 import { useAuthConfig, useLogout, useMe } from "../auth";
 import { contactHref } from "../components/PowerOnly";
-import { ErrorText } from "../components/ui";
+import { Button, ButtonLink, ErrorText } from "../components/ui";
 import { downloadOfflineCards, useOfflineCards } from "../offline/cards";
 import { keepStorage } from "../storage";
 import { AdvisorSettings } from "../advisor/AdvisorSettings";
@@ -23,7 +23,7 @@ export function AccountSettings() {
       <div className="grp-you">
         {me.data && <YourName me={me.data} />}
         <OfflineCardsSetting />
-        {!me.data?.viewing && <div className="grp-you-row" id="sharing"><span className="grp-you-text"><b>Sharing</b><span>Your public profile, shared decks, builds and privacy settings.</span></span><Link className="button outline" to="/sharing">Open Sharing</Link></div>}
+        {!me.data?.viewing && <div className="grp-you-row" id="sharing"><span className="grp-you-text"><b>Sharing</b><span>Your public profile, shared decks, builds and privacy settings.</span></span><ButtonLink variant="outline" to="/sharing">Open Sharing</ButtonLink></div>}
         {/* Ask Claude stays private while an admin views as you (server/src/view_as.rs). */}
         {!me.data?.viewing && me.data?.power && <AdvisorSettings />}
         {me.data?.is_admin && (
@@ -32,11 +32,11 @@ export function AccountSettings() {
               <b>Admin</b>
               <span>Who can sign in, accounts, usage and the server.</span>
             </span>
-            <Link className="button" to="/admin">Open</Link>
+            <ButtonLink to="/admin">Open</ButtonLink>
           </div>
         )}
         <div className="grp-you-row grp-you-actions">
-          <button className="outline" onClick={() => logout().catch(setSignOutError)}>Sign out</button>
+          <Button variant="outline" onClick={() => logout().catch(setSignOutError)}>Sign out</Button>
           <Link className="grp-new" to="/new">What's new in Yama</Link>
           <a className="grp-new" href={contactHref()}>Help and contact</a>
         </div>
@@ -74,7 +74,7 @@ export function YourName({ me }: { me: User }) {
           <b>{me.display_name}</b>
           <span>Signed in as {me.email}</span>
         </span>
-        {!me.viewing && <button className="outline" onClick={() => { setName(me.display_name); save.reset(); setEditing(true); }}>Change name</button>}
+        {!me.viewing && <Button variant="outline" onClick={() => { setName(me.display_name); save.reset(); setEditing(true); }}>Change name</Button>}
       </div>
     );
   }
@@ -86,8 +86,8 @@ export function YourName({ me }: { me: User }) {
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={NAME_MAX} required autoFocus autoComplete="nickname" />
         </label>
         <span className="grp-you-actions">
-          <button disabled={save.isPending || name.trim() === ""}>Save name</button>{" "}
-          <button type="button" className="outline" disabled={save.isPending} onClick={() => setEditing(false)}>Cancel</button>
+          <Button type="submit" disabled={save.isPending || name.trim() === ""}>Save name</Button>{" "}
+          <Button variant="outline" disabled={save.isPending} onClick={() => setEditing(false)}>Cancel</Button>
         </span>
       </form>
       <span className="small dim">The name your playgroup and the people you play with see. Your shared pages go by your handle.</span>
@@ -110,7 +110,7 @@ function OfflineCardsSetting() {
               : "Save every card's rules text (a 5 MB download) so card search works without signal."}
           </span>
         </span>
-        <button
+        <Button
           onClick={() => {
             keepStorage();
             void downloadOfflineCards();
@@ -118,7 +118,7 @@ function OfflineCardsSetting() {
           disabled={s.downloading}
         >
           {s.downloading ? "Saving…" : s.count ? "Update" : "Save"}
-        </button>
+        </Button>
       </div>
       <ErrorText small error={s.error} />
     </div>

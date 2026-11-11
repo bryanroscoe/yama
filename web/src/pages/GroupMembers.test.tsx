@@ -42,13 +42,13 @@ describe("the playgroup's members", () => {
     expect(html).not.toContain('aria-label="Remove Bryan"');
     for (const text of ["Rename", "New code", "Delete this playgroup", "Leave this playgroup"]) expect(html).toContain(text);
     // Deleting waits until no other account is in the group.
-    expect(html).toMatch(/<button class="outline" disabled="">Delete<\/button>/);
+    expect(html).toMatch(/<button type="button" class="outline" disabled="">Delete<\/button>/);
   });
 
   it("lets the only account delete the group, not leave it to nobody", () => {
     const alone = { ...group, members: group.members.filter((m) => m.user_id !== "pat") };
     const html = render("bryan", alone);
-    expect(html).toMatch(/<button class="outline">Delete<\/button>/);
+    expect(html).toMatch(/<button type="button" class="outline">Delete<\/button>/);
     expect(html).not.toContain("Leave this playgroup");
   });
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
-import { ErrorText } from "../components/ui";
+import { Button, ErrorText } from "../components/ui";
 import type { SellCard } from "./sellList";
 import { canCheck, currentOffer, offerKey, offerTotals, type BuylistOffer } from "./buylistOffers";
 import { usd, fmtDateTime } from "@yama/core";
@@ -71,8 +71,8 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
     <section className="stack sell-offers" aria-label="Local buylist offers">
       <h3>Local buylist offers</h3>
       <div className="row">
-        <button className="outline" disabled={running || unique.length === 0} onClick={() => void check()}>Check Mothership ({unique.length})</button>
-        {running && <button className="quiet" onClick={() => { controller.current?.abort(); setRunning(false); }}>Stop</button>}
+        <Button variant="outline" disabled={running || unique.length === 0} onClick={() => void check()}>Check Mothership ({unique.length})</Button>
+        {running && <Button variant="quiet" onClick={() => { controller.current?.abort(); setRunning(false); }}>Stop</Button>}
         <a href="https://buylist.mothershipatx.com/retailer/buylist" target="_blank" rel="noreferrer">Open buylist</a>
       </div>
       <p className="small dim">Exact printing, condition and finish. Checks are saved to your account and reused for six hours. Leaving this sheet stops further checks.</p>
@@ -80,7 +80,7 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
       {(running || done > 0) && <p role="status">{done} checks completed{running ? "; checking selected cards…" : "."}</p>}
       <ErrorText error={error} />
       {offers.size > 0 && <OfferSummary total={total} />}
-      {total.copies > 0 && <button className="outline" disabled={running} onClick={() => onChoose(offerTotals(selected, offers, qty).quantities)}>Use offered copies for the Storepass list</button>}
+      {total.copies > 0 && <Button variant="outline" disabled={running} onClick={() => onChoose(offerTotals(selected, offers, qty).quantities)}>Use offered copies for the Storepass list</Button>}
       <p className="small dim">Online offers are indicative. Mothership confirms grading, quantity and acceptance. No sale is submitted here.</p>
       <ul className="sell-list">
         {unique.slice(0, show).map((c) => {
@@ -91,14 +91,14 @@ export function SellOffers({ cards, qty, onChoose }: { cards: SellCard[]; qty: (
               <p className="small">{currentOffer(o, now) ? LABELS[o.status] : "Past check"}{o.cash_usd != null ? `: ${usd(o.cash_usd)} cash each` : ""}{o.credit_usd != null ? ` / ${usd(o.credit_usd)} credit each` : ""}. {fmtDateTime(o.checked_at)}.</p>
               <p className="small dim">{o.note}</p>
             </>}
-            <button className="quiet small" onClick={() => void history(c)}>Saved checks</button>
+            <Button variant="quiet" size="small" onClick={() => void history(c)}>Saved checks</Button>
             {rows && <div className="small">
               {rows.length === 0 ? "No saved checks for this printing yet." : <ul>{rows.map((r) => <li key={r.checked_at}>{fmtDateTime(r.checked_at)}: {LABELS[r.status]}, cash {usd(r.cash_usd)}, credit {usd(r.credit_usd)}</li>)}</ul>}
             </div>}
           </li>;
         })}
       </ul>
-      {unique.length > show && <button className="quiet" onClick={() => setShow((n) => n + 30)}>Show more cards</button>}
+      {unique.length > show && <Button variant="quiet" onClick={() => setShow((n) => n + 30)}>Show more cards</Button>}
     </section>
   );
 }

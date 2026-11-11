@@ -2555,7 +2555,8 @@ fieldset.seat > legend:not(.visually-hidden) + * {
 .more-menu-items > :is(button, a):hover {
   background: var(--raised);
 }
-.more-menu-items > .deck-delete {
+/* The action that removes something goes last, in --bad. */
+.more-menu-items > .danger {
   color: var(--bad);
 }
 .more-menu-sep {
