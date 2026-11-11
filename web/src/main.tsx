@@ -7,7 +7,7 @@ import { App } from "./App";
 import { savedMe } from "./auth";
 import { setGuestActive } from "./guest";
 import { reloadOnStaleCode } from "./lazyPages";
-import { followSession, signInEnded, startSession, watchOtherTabs } from "./session";
+import { followMe, signInEnded, startSession, watchOtherTabs } from "./session";
 import { keepStorage } from "./storage";
 import { selectSlot } from "./table/store";
 import "@fontsource/big-shoulders-display/500";
@@ -61,12 +61,7 @@ if (saved) followAccount(saved);
 // The cache holds one account's data: it's emptied when the account changes, here, before any
 // page renders as the new one (session.ts).
 startSession(queryClient, saved?.id ?? null);
-queryClient.getQueryCache().subscribe((event) => {
-  if (event.type !== "updated" || event.query.queryKey[0] !== "me" || event.query.state.status === "pending") return;
-  const me = event.query.state.data as User | null | undefined;
-  followAccount(me);
-  followSession(me?.id ?? null);
-});
+followMe(queryClient, followAccount);
 watchOtherTabs(queryClient);
 
 // One catch-all route around the app's own <Routes>: a data router, which is what lets a page

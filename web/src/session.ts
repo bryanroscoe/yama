@@ -13,7 +13,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
-import { ApiError } from "./api";
+import { ApiError, type User } from "./api";
 
 /** The cached user (auth.tsx keeps it): a change from another tab means the account changed there. */
 export const ME_KEY = "yama.me";
@@ -81,16 +81,23 @@ export function storageStep(event: { key: string | null; newValue: string | null
 let state: CacheState = { owner: null, lapsed: null };
 let pages = 0;
 let deliberate = false;
-/** The server has answered for an account in this tab. Until then the app only opened as the
- *  account this device last saw, and a 401 means signed out, not a sign-in ending mid-work. */
+/** The server has answered for an account in this tab (`accountConfirmed`). Until then the app
+ *  only opened as the account this device last saw, and a 401 means signed out, not a sign-in
+ *  ending mid-work. */
 let confirmed = false;
+/** The account last seen signed in, for the page kept open while it signs in again. */
+let lastUser: User | null = null;
 let client: QueryClient | null = null;
 const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
 };
 
-const clearAccountData = () => client?.removeQueries({ predicate: (q) => !keptAcrossAccounts(q.queryKey) });
+const clearAccountData = () => {
+  client?.removeQueries({ predicate: (q) => !keptAcrossAccounts(q.queryKey) });
+  // A save the last account queued (paused offline) must not be sent as whoever signs in next.
+  client?.getMutationCache().clear();
+};
 
 /** Start following the session for this tab's cache: `owner` is the account the app opened as. */
 export function startSession(queryClient: QueryClient, owner: string | null) {
@@ -99,12 +106,37 @@ export function startSession(queryClient: QueryClient, owner: string | null) {
   pages = 0;
   deliberate = false;
   confirmed = false;
+  lastUser = null;
 }
 
-/** The server said who is signed in (main.tsx calls this before any page renders with it). */
+/**
+ * The server itself answered for an account: `/api/me` said who is signed in, or a sign-in just
+ * succeeded (auth.tsx). Not the copy of the account this device keeps for opening offline.
+ */
+export function accountConfirmed() {
+  confirmed = true;
+}
+
+/**
+ * Follow who is signed in from the `["me"]` query, as it changes and before any page renders
+ * with it. `onAccount` hears every state with an answer in it (the saved account while a check is
+ * out, too); the cache rules only follow answers: a check starting or failing repeats what was
+ * already known, and must not count as the server confirming the saved account.
+ */
+export function followMe(queryClient: QueryClient, onAccount: (me: User | null | undefined) => void = () => {}) {
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.query.queryKey[0] !== "me" || event.query.state.status === "pending") return;
+    const me = event.query.state.data as User | null | undefined;
+    onAccount(me);
+    if (event.action.type !== "success") return;
+    if (me) lastUser = me;
+    followSession(me?.id ?? null);
+  });
+}
+
+/** The answer to who is signed in (null for nobody), applied to this tab's cache. */
 export function followSession(now: string | null) {
   const next = cacheStep(state, now, { pages: confirmed ? pages : 0, deliberate });
-  if (now !== null) confirmed = true;
   const changed = next.lapsed !== state.lapsed;
   state = { owner: next.owner, lapsed: next.lapsed };
   if (next.clear) clearAccountData();
@@ -149,6 +181,20 @@ export function releaseSession() {
 }
 
 /** The account whose open page is waiting for it to sign in again, or null. */
+export function lapsedAccount(): string | null {
+  return state.lapsed;
+}
+
+/**
+ * That account as it was last seen, for the page kept open under the sign-in prompt: the page
+ * goes on reading as its account (auth.tsx `KeptAccount`) instead of emptying itself.
+ */
+export function useKeptAccount(): User | null {
+  const lapsed = useLapsedAccount();
+  return lapsed && lastUser?.id === lapsed ? lastUser : null;
+}
+
+/** The id of the account whose open page is waiting for it to sign in again, or null. */
 export function useLapsedAccount(): string | null {
   return useSyncExternalStore(
     (l) => {

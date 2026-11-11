@@ -31,9 +31,9 @@ function parse(raw: string | null): LastSetup | null {
 
 /**
  * The last setup of whoever is using the Table, or null. A setup saved before setups were kept
- * per account (under the bare key) is taken over by the account in its first seat (the one holding
- * the phone, where a new setup puts the account itself), and by nobody else; it then moves to that
- * account's own key.
+ * per account (under the bare key) is taken over by the first account to open the Table if it
+ * holds the first seat (the one holding the phone, where a new setup puts the account itself),
+ * and moves to that account's own key; any other account's read deletes it instead.
  */
 export function readLastSetup(storage: Pick<Storage, "getItem" | "setItem" | "removeItem">, userId: string | null | undefined): LastSetup | null {
   try {
@@ -41,9 +41,12 @@ export function readLastSetup(storage: Pick<Storage, "getItem" | "setItem" | "re
     if (own || !userId) return own;
     const raw = storage.getItem(BASE);
     const old = parse(raw);
-    if (old?.seats?.[0]?.userId !== userId) return null;
-    storage.setItem(lastSetupKey(userId), raw!);
+    if (raw === null) return null;
+    // Whoever reads it first settles it: theirs if they hold its first seat, otherwise nobody's.
+    // Either way the shared key is gone, so it never waits there for some later account.
     storage.removeItem(BASE);
+    if (old?.seats?.[0]?.userId !== userId) return null;
+    storage.setItem(lastSetupKey(userId), raw);
     return old;
   } catch {
     return null;

@@ -22,7 +22,7 @@ describe("the last table setup on a device", () => {
 
   it("gives a setup saved under the old shared key only to the account in its first seat", () => {
     const s = storage({ "yama.table.lastSetup": JSON.stringify(setup("alice", "Alice")) });
-    expect(readLastSetup(s, "bob")).toBeNull();
+    // A guest never reads it, and leaves it for the account.
     expect(readLastSetup(s, null)).toBeNull();
     expect(s.m.has("yama.table.lastSetup")).toBe(true);
     expect(readLastSetup(s, "alice")?.groupId).toBe("g1");
@@ -30,6 +30,14 @@ describe("the last table setup on a device", () => {
     expect(s.m.has("yama.table.lastSetup")).toBe(false);
     expect(readLastSetup(s, "alice")?.groupId).toBe("g1");
     expect(readLastSetup(s, "bob")).toBeNull();
+  });
+
+  it("deletes the old shared setup when another account reads it first", () => {
+    const s = storage({ "yama.table.lastSetup": JSON.stringify(setup("alice", "Alice")) });
+    expect(readLastSetup(s, "bob")).toBeNull();
+    // Gone for good: it doesn't wait under the shared key for some later account.
+    expect(s.m.has("yama.table.lastSetup")).toBe(false);
+    expect(readLastSetup(s, "alice")).toBeNull();
   });
 
   it("reads nothing from a broken or blocked store", () => {

@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
-import { accountPageOpen, cacheStep, followSession, keptAcrossAccounts, ME_KEY, releaseSession, releaseStep, SIGNED_OUT_KEY, signInEnded, signingOut, startSession, storageStep } from "./session";
+import { accountConfirmed, accountPageOpen, cacheStep, followMe, followSession, keptAcrossAccounts, lapsedAccount, ME_KEY, releaseSession, releaseStep, SIGNED_OUT_KEY, signInEnded, signingOut, startSession, storageStep } from "./session";
 
 const open = { pages: 1, deliberate: false };
 const none = { pages: 0, deliberate: false };
@@ -85,7 +85,7 @@ describe("another tab of this browser", () => {
 describe("this tab's cache as accounts come and go", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  function cache(owner: string | null) {
+  function cache(owner: string | null, confirm = true) {
     const qc = new QueryClient();
     qc.setQueryData(["me"], owner ? { id: owner } : null);
     qc.setQueryData(["auth-config"], { open_signup: true });
@@ -93,6 +93,8 @@ describe("this tab's cache as accounts come and go", () => {
     qc.setQueryData(["deck", "d1"], { id: "d1" });
     qc.setQueryData(["plan", owner], { decks: [] });
     startSession(qc, owner);
+    // As the app does once the server has answered for the account (auth.tsx).
+    if (confirm) accountConfirmed();
     const families = () => qc.getQueryCache().getAll().map((q) => String(q.queryKey[0])).sort();
     return { qc, families };
   }
@@ -106,7 +108,7 @@ describe("this tab's cache as accounts come and go", () => {
   });
 
   it("empties on a 401 at start (the saved account was never confirmed by the server), even with a page open", () => {
-    const { families } = cache("a");
+    const { families } = cache("a", false);
     const close = accountPageOpen();
     followSession(null);
     expect(families()).toEqual(["auth-config", "me"]);
@@ -169,5 +171,67 @@ describe("this tab's cache as accounts come and go", () => {
     expect(families()).toEqual(["auth-config", "me"]);
     expect(stored.has(SIGNED_OUT_KEY)).toBe(false);
     close();
+  });
+});
+
+describe("following the me query itself, as main.tsx does", () => {
+  const A = { id: "a", email: "a@example.com", display_name: "A", is_admin: false };
+
+  /** The app as it opens: the saved account as initial data, an account page on screen. */
+  function app(answers: (typeof A | null)[]) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    startSession(qc, "a");
+    const seen: (string | null)[] = [];
+    const stop = followMe(qc, (me) => void seen.push(me?.id ?? null));
+    qc.setQueryData(["deck", "d1"], { id: "d1" });
+    const close = accountPageOpen();
+    const ask = () =>
+      qc.fetchQuery({
+        queryKey: ["me"],
+        initialData: A,
+        initialDataUpdatedAt: 0,
+        staleTime: 0,
+        // useMe's query function: a 200 is the server's own answer, a 401 is nobody.
+        queryFn: async () => {
+          const me = answers.shift() ?? null;
+          if (me) accountConfirmed();
+          return me;
+        },
+      });
+    const done = () => {
+      close();
+      stop();
+    };
+    return { qc, ask, seen, done };
+  }
+
+  it("treats an expired saved account at first load as signed out, not as a sign-in ending mid-work", async () => {
+    const { qc, ask, seen, done } = app([null]);
+    await ask();
+    // The check starting repeated the saved account; that is not the server confirming it.
+    expect(seen).toEqual(["a", null]);
+    expect(lapsedAccount()).toBeNull();
+    expect(qc.getQueryData(["deck", "d1"])).toBeUndefined();
+    done();
+  });
+
+  it("keeps the open page waiting when a sign-in the server had confirmed ends", async () => {
+    const { qc, ask, done } = app([A, null]);
+    await ask();
+    expect(lapsedAccount()).toBeNull();
+    await ask();
+    expect(lapsedAccount()).toBe("a");
+    expect(qc.getQueryData(["deck", "d1"])).toEqual({ id: "d1" });
+    done();
+  });
+
+  it("drops a save the last account left queued when the account changes", () => {
+    const qc = new QueryClient();
+    startSession(qc, "a");
+    accountConfirmed();
+    qc.getMutationCache().build(qc, { mutationFn: async () => "saved" });
+    expect(qc.getMutationCache().getAll()).toHaveLength(1);
+    followSession("b");
+    expect(qc.getMutationCache().getAll()).toHaveLength(0);
   });
 });

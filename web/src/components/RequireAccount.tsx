@@ -1,8 +1,7 @@
-import { Fragment, useEffect, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { Fragment, useLayoutEffect, type ReactNode } from "react";
 import { Outlet, useLocation } from "react-router";
-import { SignInForm, useMe } from "../auth";
-import { accountPageOpen, releaseSession, useLapsedAccount } from "../session";
+import { KeptAccount, SignInForm, useMe } from "../auth";
+import { accountPageOpen, releaseSession, useKeptAccount } from "../session";
 import { ALPHA_NOTE } from "./AlphaTag";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
@@ -40,15 +39,21 @@ const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode 
 export function RequireAccount({ children }: { children?: ReactNode }) {
   const me = useMe();
   const { pathname } = useLocation();
-  const lapsed = useLapsedAccount();
-  // Counted while on screen, so a sign-in that ends knows there is a page to keep.
-  useEffect(() => accountPageOpen(), []);
-  const shownAs = me.data?.id ?? lapsed;
+  // The account whose page is being kept through a sign-in that ended.
+  const kept = useKeptAccount();
+  // Counted while on screen, so a sign-in that ends knows there is a page to keep. A layout
+  // effect: when the page closes while waiting, its account's data is dropped before the next
+  // page is painted, not a frame after.
+  useLayoutEffect(() => accountPageOpen(), []);
+  const shownAs = me.data?.id ?? kept?.id;
   if (shownAs) {
     return (
       <>
-        {/* Keyed by account: a different one never inherits this page's state. */}
-        <Fragment key={shownAs}>{children ?? <Outlet />}</Fragment>
+        {/* The kept page goes on reading as its account (useMe), so it doesn't empty itself. */}
+        <KeptAccount.Provider value={me.data ? null : kept}>
+          {/* Keyed by account: a different one never inherits this page's state. */}
+          <Fragment key={shownAs}>{children ?? <Outlet />}</Fragment>
+        </KeptAccount.Provider>
         {!me.data && <SignInAgain />}
       </>
     );
@@ -76,7 +81,7 @@ export function RequireAccount({ children }: { children?: ReactNode }) {
  * page). Not dismissed by Escape or a tap outside, since closing it drops what's typed underneath.
  */
 function SignInAgain() {
-  return createPortal(
+  return (
     <>
       <div className="scrim" />
       <div className="sheet sheet-centered" role="dialog" aria-modal="true" aria-label="Sign in again">
@@ -88,7 +93,6 @@ function SignInAgain() {
           </div>
         </div>
       </div>
-    </>,
-    document.body,
+    </>
   );
 }

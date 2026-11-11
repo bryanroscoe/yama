@@ -243,7 +243,9 @@ export function App() {
         {/* Keyed by who's signed in: a session that ends (or starts) under an open setup starts
             it afresh, so no account's seats, decks or playgroup carry into a guest game. */}
         <Route index element={<TableHome key={me.data?.id ?? "guest"} />} />
-        <Route path="cards" element={<CardsPage />} />
+        {/* Keyed by who is signed in, as the Table is: one account's results (with its own copies)
+            never stay on screen as the next account's placeholder. */}
+        <Route path="cards" element={<CardsPage key={me.data?.id ?? "guest"} />} />
         <Route path="new" element={<WhatsNewPage />} />
         <Route element={<RequireAccount />}>
           <Route path="table/games" element={<Paged page={GameHistoryPage} title="Game history" />} />
