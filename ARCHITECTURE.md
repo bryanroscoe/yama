@@ -1955,3 +1955,8 @@ match progression. Bounded cues consume action-time viewer-filtered events to sh
 casts and arrivals that occur inside one server batch. Hidden/reconnected clients do
 not replay old cues. The response panel shows the full card, controller, ability text
 and targets beside the action; only visible stack/card elements anchor target lines.
+
+Optional basic-land-search prompts distinguish the pending search from an earlier
+mandatory exile, preserve the complete card text and label accepting/declining by
+what the player does (Search for a basic land / Skip search). Presentation only
+recognizes the complete supported instruction; other choices keep their engine wording.

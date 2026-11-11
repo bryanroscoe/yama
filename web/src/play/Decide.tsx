@@ -42,6 +42,7 @@ import {
   phyrexianMana,
   pickTag,
   rememberLabels,
+  yesNoPresentation,
   restHere,
   room,
   setNumber,
@@ -216,11 +217,13 @@ function Head({ p, ctx, count, compact, image = false, extra }: { p: Pending; ct
 /** The strip over the live board for a "may"; the rail's buttons answer it. */
 export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   const s = p.source;
+  const presentation = yesNoPresentation(p);
+  const question = presentation?.question ?? p.prompt;
   const remember = draft.kind === "yesno" ? draft.remember : "ask";
   const labels = rememberLabels(p);
   const { handlers } = useRead(() => s && ctx.onRead(s.name, s.id));
   return (
-    <section className={`dw-strip${compact ? " compact" : ""}`} role="alertdialog" aria-label={p.prompt}>
+    <section className={`dw-strip${compact ? " compact" : ""}`} role="alertdialog" aria-label={question}>
       {s?.art && (
         <details className="dw-card-art">
           <summary>Card art</summary>
@@ -235,7 +238,8 @@ export function YesNoStrip({ p, draft, onDraft, ctx, compact, disabled }: Props)
             {sourceLine(p, ctx)}
           </span>
         )}
-        <b className="dw-question">{p.prompt}</b>
+        <b className="dw-question">{question}</b>
+        {presentation && <span className="dw-note">{presentation.detail}</span>}
         {p.oracle && <span className="dw-oracle">{p.oracle}</span>}
         <Warn text={p.warn} />
         {/* Where the engine can remember the answer, or Yama can (an unless-cost, the command zone). */}

@@ -21,6 +21,7 @@ import {
   orderTag,
   ready,
   rememberLabels,
+  yesNoPresentation,
   restHere,
   setNumber,
   splitTag,
@@ -263,11 +264,28 @@ describe("yes or no, remembered", () => {
   });
   it("names a long question's buttons by what it asks", () => {
     const solemn = { ...may, prompt: "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle?" };
-    expect(buttons(solemn, initialDraft(solemn), noCancel)).toMatchObject({ primary: "Search", secondary: "Don't search" });
+    expect(buttons(solemn, initialDraft(solemn), noCancel)).toMatchObject({ primary: "Search for a basic land", secondary: "Skip search" });
     expect(rememberLabels(solemn)).toEqual({ ask: "Ask each time", always: "Always search", never: "Never search" });
     const prose = { ...may, prompt: "Exile it. You may cast it." };
     expect(buttons(prose, initialDraft(prose), noCancel)).toMatchObject({ primary: "Yes", secondary: "No" });
     expect(rememberLabels(prose).always).toBe("Always yes");
+  });
+  it("asks only about Path to Exile's optional search, not whether to exile", () => {
+    const path = { ...may, prompt: "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle." };
+    const draft = initialDraft(path);
+    expect(yesNoPresentation(path)).toMatchObject({ question: "Search your library for a basic land?" });
+    expect(yesNoPresentation(path)?.detail).toContain("Skipping the search does not cancel the exile.");
+    expect(buttons(path, draft, noCancel)).toMatchObject({ primary: "Search for a basic land", secondary: "Skip search", secondaryDoes: "no" });
+    expect(toAct(path, draft, true)).toEqual({ kind: "decide_optional_effect", accept: true });
+    expect(toAct(path, draft, false)).toEqual({ kind: "decide_optional_effect", accept: false });
+    expect(rememberLabels(path)).toEqual({ ask: "Ask each time", always: "Always search", never: "Never search" });
+  });
+  it("does not infer a search from unrelated, conditional or different instructions", () => {
+    for (const prompt of ["Exile it. You may cast it.", "You may search your library for a card.", "Search your library for a basic land card, put it into your hand, then shuffle?", "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle. Draw a card."]) {
+      expect(yesNoPresentation({ ...may, prompt })).toBeNull();
+    }
+    const prompt = "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.";
+    expect(yesNoPresentation({ ...may, prompt, answer: "pay_unless_cost" })).toBeNull();
   });
   it("never remembers where the engine can't", () => {
     const theirs = { ...may, remember: undefined };

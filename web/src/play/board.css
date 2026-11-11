@@ -6025,7 +6025,12 @@ button.portrait:hover {
   overflow: hidden;
 }
 .go:not(.wide) .go-hero {
-  height: 270px;
+  height: auto;
+  min-height: 270px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 28px;
 }
 .go-hero img {
   position: absolute;
@@ -6068,8 +6073,18 @@ button.portrait:hover {
   color: rgb(255 255 255 / 0.75);
 }
 .go:not(.wide) .go-credit {
-  top: 10px;
-  bottom: auto;
+  position: relative;
+  inset: auto;
+  align-self: flex-end;
+}
+.go:not(.wide) .go-title {
+  position: relative;
+  inset: auto;
+  order: 1;
+}
+.go:not(.wide) .go-title h1 {
+  font-size: clamp(44px, 12vw, 64px);
+  line-height: 1;
 }
 .go-body {
   display: grid;
@@ -7990,13 +8005,6 @@ button.dw-pile2:disabled {
 .ft:has(.ft-counters) { width: max(var(--tile), 112px); height: max(var(--tile), 112px); }
 .ft-mana { position: absolute; left: 3px; bottom: 4px; max-width: calc(100% - 6px); background: var(--art-chip); border-radius: 4px; padding: 2px 4px; font-size: 11px; }
 .pb-dock:has(.response-card) { max-height: 75dvh; overflow-y: auto; }
-@media (min-width: 1000px) {
-  .ph-seat-fields { display: grid; grid-template-rows: 36px minmax(44px, auto) 36px; align-content: start; }
-  .ph-seat-fields > .ph-kind { grid-row: 1; }
-  .ph-seat-fields > .combo-wrap { grid-row: 2; }
-  .ph-seat-fields > .ph-skills { grid-row: 3; }
-  .ph-seat-fields > :not(.ph-kind, .combo-wrap, .ph-skills) { grid-column: 1; }
-}
 .action-cue { position: fixed; z-index: 18; pointer-events: none; top: 90px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; width: min(360px, calc(100dvw - 24px)); padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); box-shadow: 0 8px 28px rgb(0 0 0 / .5); animation: action-arrive 350ms ease-out both; }
 .action-cue img { width: 86px; height: auto; border-radius: 6px; }
 .action-cue span { font-size: 15px; }

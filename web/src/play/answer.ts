@@ -582,6 +582,24 @@ function rareButtons(p: Pending, d: Draft, who?: (seat: number) => string): { pr
   return null;
 }
 
+/** Known optional searches whose engine description can include an earlier, mandatory effect. */
+export function yesNoPresentation(p: Pending): { question: string; detail: string; yes: string; no: string } | null {
+  if (p.kind !== "yesno" || p.answer !== "decide_optional_effect" || p.purpose !== "may") return null;
+  const text = p.prompt.replace(/\s+/g, " ").trim();
+  // Match the complete instruction, not a card name or an arbitrary "may" inside Oracle text.
+  const path = /^Exile target creature\. Its controller may search their library for a basic land card, put (?:that card|it) onto the battlefield tapped, then shuffle[.?]?$/i.test(text);
+  const search = /^Search your library for a basic land card, put (?:that card|it) onto the battlefield tapped, then shuffle\?$/i.test(text);
+  if (!path && !search) return null;
+  return {
+    question: "Search your library for a basic land?",
+    detail: path
+      ? "Only the basic land search is optional. A land you find enters tapped; you then shuffle. Skipping the search does not cancel the exile."
+      : "You may find a basic land, put it onto the battlefield tapped, then shuffle.",
+    yes: "Search for a basic land",
+    no: "Skip search",
+  };
+}
+
 /** A one-sentence question ("Draw a card?") as words for buttons ("draw a card"), else null. */
 function shortQuestion(p: Pending): string | null {
   const q = p.prompt.trim();
@@ -592,7 +610,7 @@ function shortQuestion(p: Pending): string | null {
 
 /** The first word of a one-sentence question, which says what it asks you to do ("search"). */
 function questionVerb(p: Pending): string | null {
-  const q = p.prompt.trim();
+  const q = (yesNoPresentation(p)?.question ?? p.prompt).trim();
   if (!q.endsWith("?") || q.slice(0, -1).includes("?") || q.includes(". ")) return null;
   const first = q.split(/[\s,]/)[0] ?? "";
   return /^[A-Za-z]+$/.test(first) ? first.toLowerCase() : null;
@@ -605,6 +623,8 @@ function questionVerb(p: Pending): string | null {
  */
 export function yesNoLabels(p: Pending): { yes: string; no: string } {
   if (p.yesLabel && p.yesLabel !== "Yes") return { yes: p.yesLabel, no: p.noLabel ?? "No" };
+  const presentation = yesNoPresentation(p);
+  if (presentation) return { yes: presentation.yes, no: presentation.no };
   const q = shortQuestion(p);
   if (q) return { yes: `Yes, ${q}`, no: "No" };
   const verb = questionVerb(p);

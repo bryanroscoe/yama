@@ -1032,7 +1032,8 @@
 /* Keep selected deck fields aligned when descriptions or names wrap. */
 .play-seat, .ph-seat { align-items: start; }
 .play-seat .combo-wrap, .ph-seat .combo-wrap { min-width: 0; width: 100%; }
-@media (min-width: 1000px) {
-  .ph-seat-fields > .saved-deck-picker { grid-row: 2; grid-column: 1; min-width: 0; }
-  .ph-seat-fields > .ph-friend { grid-row: 2; }
+@media (min-width: 900px) {
+  .ph-seat-fields > .saved-deck-picker { min-width: 0; }
+  .ph-seat-fields > .ph-kind { min-height: 44px; flex: none; }
+  .ph-seat-fields:not(:has(> .ph-kind))::before { content: ""; height: 44px; flex: none; }
 }

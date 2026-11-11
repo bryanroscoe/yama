@@ -1,14 +1,26 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CostText } from "./CostText";
+import { YesNoStrip, type WidgetContext } from "./Decide";
+import { initialDraft } from "./answer";
 import { FieldTile } from "./Tiles";
 import { actionCues } from "./ActionCues";
 import { PLAY_SPEEDS, stackChange } from "./motion";
 import { stackRowOf, visibleAnchor } from "./DragLayer";
-import type { CardView, Happening } from "./types";
+import type { CardView, Happening, Pending } from "./types";
 
 const vampire: CardView = { id: 1, name: "Cordial Vampire", owner: 1, controller: 1, types: ["Creature"], tapped: false, power: 3, toughness: 3, loyalty: null, damage: 0, counters: { plus1plus1: 2 }, attached_to: null };
 const handlers = { onPick() {}, onRead() {}, onHover() {} };
+it.each([false, true])("separates an optional search question from the full card text (compact %s)", (compact) => {
+  const oracle = "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.";
+  const p: Pending = { kind: "yesno", answer: "decide_optional_effect", purpose: "may", prompt: oracle, oracle, min: 0, max: 1, upTo: false, options: [] };
+  const ctx: WidgetContext = { meta: {}, whose: () => "Your", who: () => "you", tone: () => undefined, onRead() {}, zone: { label: "", total: null, others: [] }, damageOf: () => 0, inPlay: [] };
+  const markup = renderToStaticMarkup(<YesNoStrip p={p} draft={initialDraft(p)} onDraft={() => {}} ctx={ctx} compact={compact} disabled={false} />);
+  expect(markup).toContain('aria-label="Search your library for a basic land?"');
+  expect(markup).toContain('class="dw-question">Search your library for a basic land?</b>');
+  expect(markup).toContain("Only the basic land search is optional.");
+  expect(markup).toContain(`class="dw-oracle">${oracle}</span>`);
+});
 it("distinguishes counters from the quantity of creatures", () => {
   const one = renderToStaticMarkup(<FieldTile pile={{ key: "v", ids: [1], card: vampire }} h={handlers} look={{}} />);
   expect(one).toContain("2 +1/+1 counters");
