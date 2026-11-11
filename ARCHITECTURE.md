@@ -2045,3 +2045,6 @@ Named player/opponent choices use their engine-supplied seat domain and named pl
 picker, preserving the original ChooseOption token. Numeric seat IDs never become
 a number range. An unambiguous public control-transfer sequence names the recipient
 and source in the question; other player choices keep a general player/opponent question.
+
+
+Local sourcing shopping rows default to Near Mint and expose deck/bracket recipients, store/condition/card filters, per-printing dated market provenance and same-printing condition minima where saved. Bulk requested carts may include stock-count-unknown listings, explicitly marked unconfirmed; confirmed-only bulk selection remains separate. Neither action orders or marks bought. Search links open storefront searches and do not claim a stock refresh.
