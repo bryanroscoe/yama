@@ -299,3 +299,20 @@ screen reader reads them as its name.
   or `<textarea>` with no name at all, and a `<label>` with no words in it doesn't count.
 - A label that lays itself out (a class of its own, markup in its words, two controls) can
   stay a `<label>`: 73 plain ones moved to these components, the rest are still written out.
+
+### BackLink (`components/BackLink.tsx`)
+
+The way back to the page above this one: one chevron, one wording.
+
+```tsx
+<BackLink to="/decks/plans" label="Back to plans" />                          // a round 44 px button in a page's top row
+<BackLink to={`/decks/${d.id}`} label={`Back to ${d.name}`} text={d.name} />   // laptops show the words
+<BackLink to="/decks" label="Back to decks" text="Decks" onArt />              // in the corner of an art header
+<BackLink inline to="/play" label="Back to Play online" text="Play online" />  // a line of words, no top row
+```
+
+- `text` is the place itself, not "Back". The accessible name reads "Back to" and the place:
+  it is worked out from `text`, or given as `label` when the place needs more words than the
+  screen shows (keep the words on screen in it). `inline` needs `text`. No "←" anywhere.
+- `AreaHead` and `LabHead` draw their own from `back={{ to, label }}`.
+- It is a link. The card page's Back is a `Button`: it goes back in history, wherever that was.

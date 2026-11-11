@@ -1,10 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { BackButton } from "../../components/DeckTabs";
 import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
-import { Button, ButtonLink, CopyButton, Details, ErrorText, Field, Loading } from "../../components/ui";
+import { BackLink, Button, ButtonLink, CopyButton, Details, ErrorText, Field, Loading } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
 import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
@@ -77,7 +76,7 @@ export function MythicImportPage() {
 
   return (
     <main className="page stack mythic-import">
-      <BackButton to="/group" label="Back to playgroup" text="Playgroup" />
+      <BackLink to="/group" label="Back to playgroup" text="Playgroup" />
       <h1>Import from Mythic Tools</h1>
       {!enabled ? (
         <p className="dim">The Mythic Tools import isn't switched on for this server.</p>

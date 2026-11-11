@@ -10,7 +10,7 @@ import { usePlayerId } from "../guestPlay";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { ask } from "../components/confirm";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Button, ErrorText, Pips } from "../components/ui";
+import { BackLink, Button, ErrorText, Pips } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { BracketChips } from "../components/Bracket";
 import { useCardArt } from "../components/useCardArt";
@@ -49,12 +49,6 @@ export function PlayGame() {
   // Keyed by game, so a rematch starts with a fresh board (nothing carried over from the last one).
   return <Board key={id} id={id} live={game.data.status === "in_progress"} phaseBoard={game.data.phase_board === true} />;
 }
-
-const BackArrow = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="m15 18-6-6 6-6" />
-  </svg>
-);
 
 function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
   const qc = useQueryClient();
@@ -109,7 +103,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
   return (
     <main className="page lobby">
       <div className="lobby-top">
-        <Link to="/play" className="lobby-back"><BackArrow />Play online</Link>
+        <BackLink inline to="/play" label="Back to Play online" text="Play online" />
         <span className="lobby-group">{game.playgroup ? `${game.playgroup}, counts toward group stats` : "Not counted in group stats"}</span>
       </div>
       {notice}

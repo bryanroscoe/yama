@@ -6,8 +6,8 @@ import { CardRef } from "../components/CardRef";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
-import { AreaHead, BackButton } from "../components/DeckTabs";
-import { Button, ButtonLink, ErrorText, Field, Loading, Pips, StatusPill } from "../components/ui";
+import { AreaHead } from "../components/DeckTabs";
+import { BackLink, Button, ButtonLink, ErrorText, Field, Loading, Pips, StatusPill } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -185,7 +185,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
   const rowsOf = (swaps ?? []).map((s): ChangeRow => ({ add: s.in.name, cut: s.out.name, n: 1, why: s.why ?? "", notes: [s.where, s.out.board === "commander" || s.in.board === "commander" ? "Changes the commander." : null].filter((x): x is string => !!x), add_image: null, cut_image: null }));
   return <main className="plan plan-deck-page note-page build-choices">
     <ArtPanel as="header" className="plan-hero" art={art.art} artist={art.artist} wash="bottom" toGround credit={false}>
-      <BackButton to="/decks/builds" label="Back to swap cards" className="on-art" />
+      <BackLink to="/decks/builds" label="Back to swap cards" onArt />
       {art.art && <span className="plan-hero-credit">{commanderOf(family)}. {artCredit(art.artist)}</span>}
       <div className="plan-hero-inner">
         <nav className="plan-crumbs" aria-label="Breadcrumb"><Link to="/decks">Decks</Link><span aria-hidden="true">/</span><Link to="/decks/builds">Swap cards</Link></nav>

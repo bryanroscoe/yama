@@ -177,6 +177,16 @@ describe("buttons use the shared components", () => {
   });
 });
 
+describe("the way back uses the shared link", () => {
+  it("no page draws its own back link", () => {
+    // Use <BackLink to="…" label="Back to …" text="…"> from components/ui (onArt on an art
+    // header, inline on a page with no top row). The card page's Back is a button: it goes
+    // back in history, wherever that is.
+    const found = uses(/className="[^"]*\b(area-back|hero-back|lobby-back|gd-back)\b|←/, (file) => file === "web/src/components/BackLink.tsx" || BOARD.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
 describe("every control has a name", () => {
   /** A label's own words: what is left of it without its control and without tags. */
   const wordsOf = (label: string) =>

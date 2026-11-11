@@ -24,9 +24,8 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { AskClaude } from "../advisor/AskClaude";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
-import { BackButton } from "../components/DeckTabs";
 import { useScrollToHash } from "../components/useScrollToHash";
-import { Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented, StatusPill } from "../components/ui";
+import { BackLink, Button, ButtonLink, CopyButton, EmptyState, Pips, Segmented, StatusPill } from "../components/ui";
 import { Ideas, LinkDeck } from "./deckParts";
 import { InstalledTick } from "./marks";
 import { deviceId, outbox, useOutbox } from "./outbox";
@@ -84,7 +83,7 @@ function PlanHero({ deck, plan, view }: { deck: PlanDeck; plan: DeckPlanState; v
   const line = versionLine(plan, view.b.head);
   return (
     <ArtPanel as="header" className="plan-hero" art={art} artist={commander?.artist} wash="bottom" toGround credit={false}>
-      <BackButton to="/decks/plans" label="Back to plans" className="on-art" />
+      <BackLink to="/decks/plans" label="Back to plans" onArt />
       {art && <span className="plan-hero-credit">{artCredit(commander?.artist)}</span>}
       <div className="plan-hero-inner">
         <nav className="plan-crumbs" aria-label="Breadcrumb">

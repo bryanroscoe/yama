@@ -11,7 +11,7 @@ import { AlphaTag } from "../components/AlphaTag";
 import { api, type DeckSummary } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { Button, ErrorText, Segmented } from "../components/ui";
+import { BackLink, Button, ErrorText, Segmented } from "../components/ui";
 import type { PreconItem, PreconList } from "../lab/api";
 import { shortName } from "./text";
 import { LEVELS, SPEEDS, statusLine, tableNames, watchRequest, type Level, type WatchSeatPlan, type WatchSummary } from "./watch";
@@ -19,12 +19,6 @@ import type { Speed } from "./types";
 import { SavedDeckPicker, PreconPicker } from "../components/DeckPicker";
 import "./play.css";
 import { ago } from "@yama/core";
-
-const BackArrow = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="m15 18-6-6 6-6" />
-  </svg>
-);
 
 export function WatchHome() {
   const power = usePower();
@@ -48,7 +42,7 @@ export function WatchHome() {
   const listArt = (games.data ?? []).flatMap((g) => g.seats.filter((s) => s.commander_art));
   return (
     <main className="page play-home watch-home">
-      <Link to="/play" className="lobby-back"><BackArrow />Play online</Link>
+      <BackLink inline to="/play" label="Back to Play online" text="Play online" />
       <div className="ph-head">
         <h1>
           Watch AIs play

@@ -4,8 +4,8 @@ import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-r
 import { useMe } from "../auth";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { CardRef, CardText } from "../components/CardRef";
-import { AreaHead, BackButton } from "../components/DeckTabs";
-import { Button, ButtonLink, ErrorText, Loading, Pips, StatusPill } from "../components/ui";
+import { AreaHead } from "../components/DeckTabs";
+import { BackLink, Button, ButtonLink, ErrorText, Loading, Pips, StatusPill } from "../components/ui";
 import { saveFile } from "../download";
 import { copySharedNote, report, targetForSwap, type Build, type GameplayProfile, type Power, type ResearchBundle, type ResearchDeck } from "./api";
 import { DeckChanged, useDeckNamed } from "./about";
@@ -495,7 +495,7 @@ function DeckPage({ bundle, deck }: { bundle: ResearchBundle; deck: ResearchDeck
   return (
     <main className="plan plan-deck-page note-page">
       <ArtPanel as="header" className="plan-hero" art={v?.art?.image} artist={v?.art?.artist} wash="bottom" toGround credit={false}>
-        <BackButton to={noteHref(doc.id)} label="Back to the note" className="on-art" />
+        <BackLink to={noteHref(doc.id)} label="Back to the note" onArt />
         {v?.art && (
           <span className="plan-hero-credit">
             {deck.commander}. {artCredit(v.art.artist)}

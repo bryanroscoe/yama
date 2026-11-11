@@ -603,9 +603,6 @@ a.rg-row:focus-visible {
   gap: 24px;
   max-width: 760px;
 }
-.gd-back {
-  margin: 0;
-}
 .gd-head {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);

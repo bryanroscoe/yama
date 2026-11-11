@@ -7,7 +7,7 @@ import { duplexPages, type BuildChoice } from "./buildCatalog";
 import { buildNotesKey } from "../research/api";
 
 // Navigation uses browser-only outbox subscriptions; keep real auth/plan hooks for cache tests.
-vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1>, BackButton: ({ label }: { label: string }) => <a>{label}</a> }));
+vi.mock("../components/DeckTabs", () => ({ AreaHead: ({ title }: { title: string }) => <h1>{title}</h1> }));
 
 const from: BuildChoice = { id: "a", label: "Bracket 2", kind: "bracket", list: "", source: "Plan v27", href: "/", warnings: [] };
 const to: BuildChoice = { ...from, id: "b", label: "Bracket 3" };
