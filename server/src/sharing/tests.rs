@@ -213,6 +213,107 @@ async fn the_shared_collection_csv_defuses_spreadsheet_formulas() {
     assert_eq!((&rows[1][5], &rows[1][6]), ("'=HYPERLINK(\"https://evil.example\",\"x\")", "'@SUM(1)"));
 }
 
+/// The public collection page reads one page of lines from the database, however large the
+/// collection, and searches there too.
+#[tokio::test]
+async fn the_shared_collection_page_pages_and_searches_in_the_database() {
+    let (app, pool) = app().await;
+    let (bryan, _) = user(&pool, "bryan@example.com").await;
+    sqlx::query("UPDATE users SET handle = 'saget', collection_public = 1 WHERE id = ?").bind(&bryan).execute(&pool).await.unwrap();
+    // 450 different cards, two copies each, plus one with characters LIKE treats specially and
+    // one whose name starts with a letter outside ASCII.
+    for i in 0..450 {
+        card(&pool, &format!("o{i}"), &format!("Card {i:03}"), "Artifact", &format!("p{i}"), "tst", &i.to_string()).await;
+    }
+    card(&pool, "o-odd", "100% Pure_Gold", "Artifact", "p-odd", "tst", "odd").await;
+    card(&pool, "o-eowyn", "Éowyn, Shieldmaiden", "Legendary Creature", "p-eowyn", "tst", "eowyn").await;
+    card(&pool, "o-proxy", "Proxy Only", "Artifact", "p-proxy", "tst", "proxy").await;
+    sqlx::query(
+        "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, proxy, created_at, updated_at)
+         SELECT 'i-' || scryfall_id, ?, scryfall_id, 2, scryfall_id = 'p-proxy', 'now', 'now' FROM printings",
+    )
+    .bind(&bryan)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let rows = |html: &str| html.matches("class=\"public-card-ref\"").count();
+    let total = "904 copies";
+
+    let (status, _, first) = page(&app, "/u/saget/collection").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rows(&first), 200);
+    assert!(first.contains(total) && first.contains("Page 1 of 3") && first.contains(">100% Pure_Gold<") && !first.contains("Proxy Only"));
+    let (_, _, last) = page(&app, "/u/saget/collection?page=2").await;
+    assert_eq!(rows(&last), 52);
+    assert!(last.contains("Page 3 of 3") && last.contains(">Card 449<") && !last.contains(">Card 000<"));
+    // A page past the end is the last one, not an error or an empty table.
+    let (status, _, beyond) = page(&app, "/u/saget/collection?page=99999999").await;
+    assert_eq!((status, rows(&beyond)), (StatusCode::OK, 52));
+    // No line is on two pages.
+    let (_, _, middle) = page(&app, "/u/saget/collection?page=1").await;
+    assert_eq!(rows(&middle), 200);
+    assert!(middle.contains(">Card 200<") && !first.contains(">Card 200<") && !last.contains(">Card 200<"));
+
+    // Searching: anywhere in the name, any case, with the whole collection's count unchanged.
+    let (_, _, found) = page(&app, "/u/saget/collection?q=CARD+44").await;
+    assert_eq!(rows(&found), 10);
+    assert!(found.contains(total) && found.contains(">Card 440<") && !found.contains("Page 1 of"));
+    let (_, _, paged) = page(&app, "/u/saget/collection?q=card&page=2").await;
+    assert_eq!(rows(&paged), 50);
+    assert!(paged.contains("page=1&amp;q=card"));
+    // % and _ are ordinary characters in a search.
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=100%25").await.2), 1);
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=e_g").await.2), 1);
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=%25").await.2), 1);
+    // Case is ignored outside ASCII too, as it was when the page searched in memory: SQLite's
+    // LIKE alone would miss the first of these.
+    for q in ["%C3%A9owyn", "%C3%89OWYN", "%C3%89owyn,+shield", "OWYN"] {
+        let (_, _, found) = page(&app, &format!("/u/saget/collection?q={q}")).await;
+        assert_eq!(rows(&found), 1, "{q}");
+        assert!(found.contains("Éowyn, Shieldmaiden") && found.contains(total), "{q}");
+    }
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=%C3%A9").await.2), 1);
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=eowyn").await.2), 0, "an accent isn't dropped");
+    // A NUL ends a LIKE pattern early (it would match everything); it finds nothing, as before.
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=%00").await.2), 0);
+    assert_eq!(rows(&page(&app, "/u/saget/collection?q=9%00zz").await.2), 0);
+    let (_, _, none) = page(&app, "/u/saget/collection?q=no+such+card").await;
+    assert_eq!(rows(&none), 0);
+    assert!(none.contains("No cards match."));
+}
+
+/// The want list's cache key no longer reads the collection. It must still change whenever
+/// the copies do, or a container's kind does.
+#[tokio::test]
+async fn the_want_list_follows_the_collection_without_reading_all_of_it() {
+    let (app, pool) = app().await;
+    let (owner, auth) = user(&pool, "wants-key@example.com").await;
+    card(&pool, "ring", "Sol Ring", "Artifact", "p-ring", "tst", "1").await;
+    let (_, v) = deck(&pool, &owner, "Needs a ring").await;
+    sqlx::query("UPDATE deck_versions SET cards = ? WHERE id = ?")
+        .bind(json!([{"oracle_id": "ring", "name": "Sol Ring", "qty": 1, "board": "main"}]).to_string())
+        .bind(v)
+        .execute(&pool)
+        .await
+        .unwrap();
+    send(&app, Method::PUT, "/api/me/sharing", Some(&auth), Some(json!({"handle": "wants-key", "wants_public": true}))).await;
+    let wanted = || async { page(&app, "/u/wants-key/wants.txt").await.2 };
+    assert_eq!(wanted().await, "1 Sol Ring\n");
+    // A copy arrives: nothing is wanted.
+    copies(&app, &auth, "spare", "p-ring", 1, false, None).await;
+    assert_eq!(wanted().await, "");
+    // It goes into another deck's box: spoken for, so one is wanted again.
+    let (_, box_) = send(&app, Method::POST, "/api/containers", Some(&auth), Some(json!({"kind": "deck", "name": "Another deck"}))).await;
+    let item: String = sqlx::query_scalar("SELECT id FROM collection_items WHERE owner_id = ?").bind(&owner).fetch_one(&pool).await.unwrap();
+    let moved = json!([{ "op_id": "move", "kind": "update", "item_id": item, "container_id": box_["id"] }]);
+    assert_eq!(send(&app, Method::POST, "/api/collection/ops", Some(&auth), Some(moved)).await.0, StatusCode::OK);
+    assert_eq!(wanted().await, "1 Sol Ring\n");
+    // The box becomes a plain box without any op (nothing in Yama does this to a deck's box; the
+    // key guards against it all the same): free again.
+    sqlx::query("UPDATE containers SET kind = 'box' WHERE owner_id = ?").bind(&owner).execute(&pool).await.unwrap();
+    assert_eq!(wanted().await, "");
+}
+
 #[tokio::test]
 async fn shared_pages_carry_no_private_details() {
     let (app, pool) = app().await;

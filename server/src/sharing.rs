@@ -794,6 +794,97 @@ pub(crate) async fn shared_collection(pool: &SqlitePool, handle: &str) -> AppRes
     Ok((sharer, lines))
 }
 
+/// One page of a shared collection, searched and cut by the database. The page is public and
+/// its visitors needn't sign in, so a visit no longer brings every line of a large collection
+/// into the server to show 200 of them: the database still reads the owner's rows to group and
+/// count them, but only one page of lines is decoded, held and rendered. (The downloads still
+/// take all of it: that is what they are for.)
+pub(crate) struct CollectionPage {
+    pub(crate) lines: Vec<CollectionLine>,
+    /// The page shown, from 0: the one asked for, or the last there is.
+    pub(crate) page: usize,
+    pub(crate) pages: usize,
+    /// Real copies in the whole collection, whatever the search.
+    pub(crate) copies: i64,
+}
+
+/// `search` matches anywhere in a card's name, ignoring case, as the page always has.
+pub(crate) async fn shared_collection_page(pool: &SqlitePool, handle: &str, search: &str, page: usize, per_page: usize) -> AppResult<(Sharer, CollectionPage)> {
+    let sharer = sharer_by_handle(pool, handle).await?;
+    if !sharer.collection_public {
+        return Err(AppError::NotFound("collection"));
+    }
+    let search = search.trim();
+    // An ASCII search is the database's own LIKE, which ignores ASCII case: the same answer as
+    // lower-casing both sides, for every card name there is. (Two characters outside ASCII
+    // lower-case into it, the Kelvin sign and the dotted capital I; no card is named with
+    // either.) SQLite's LIKE doesn't fold other letters ("éowyn" wouldn't find "Éowyn,
+    // Shieldmaiden"), and stops reading its pattern at a NUL, so a search with either is
+    // matched here against the names of the cards in the collection (one short column, not
+    // its lines), and the names that match are handed to the same queries.
+    let (like, names): (Option<String>, Option<String>) = if search.is_ascii() && !search.contains('\0') {
+        (Some(format!("%{}%", search.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"))), None)
+    } else {
+        let needle = search.to_lowercase();
+        let owned: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT c.name
+             FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id JOIN cards c ON c.oracle_id = p.oracle_id
+             WHERE i.owner_id = ? AND i.proxy = 0 AND i.qty > 0",
+        )
+        .bind(&sharer.id)
+        .fetch_all(pool)
+        .await?;
+        let matching: Vec<String> = owned.into_iter().filter(|n| n.to_lowercase().contains(&needle)).collect();
+        (None, Some(serde_json::to_string(&matching).map_err(anyhow::Error::from)?))
+    };
+    let copies: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(i.qty), 0)
+         FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id JOIN cards c ON c.oracle_id = p.oracle_id
+         WHERE i.owner_id = ? AND i.proxy = 0 AND i.qty > 0",
+    )
+    .bind(&sharer.id)
+    .fetch_one(pool)
+    .await?;
+    let matching: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM (
+           SELECT 1
+           FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id JOIN cards c ON c.oracle_id = p.oracle_id
+           WHERE i.owner_id = ?1 AND i.proxy = 0 AND i.qty > 0
+             AND (?2 IS NULL OR c.name LIKE ?2 ESCAPE '\\')
+             AND (?3 IS NULL OR c.name IN (SELECT value FROM json_each(?3)))
+           GROUP BY c.name, p.set_code, p.collector_number, i.finish, i.lang, i.condition)",
+    )
+    .bind(&sharer.id)
+    .bind(&like)
+    .bind(&names)
+    .fetch_one(pool)
+    .await?;
+    let per_page = per_page.max(1);
+    let pages = usize::try_from(matching).unwrap_or(0).div_ceil(per_page).max(1);
+    let page = page.min(pages - 1);
+    // The same lines and order as `shared_collection`, with language and condition added to the
+    // order so that pages never overlap.
+    let lines = sqlx::query_as(
+        "SELECT c.name, p.set_code, p.set_name, p.collector_number, i.finish, i.lang, i.condition, SUM(i.qty) AS qty,
+                c.image_normal AS image, c.type_line
+         FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id JOIN cards c ON c.oracle_id = p.oracle_id
+         WHERE i.owner_id = ?1 AND i.proxy = 0 AND i.qty > 0
+           AND (?2 IS NULL OR c.name LIKE ?2 ESCAPE '\\')
+           AND (?3 IS NULL OR c.name IN (SELECT value FROM json_each(?3)))
+         GROUP BY c.name, p.set_code, p.collector_number, i.finish, i.lang, i.condition
+         ORDER BY c.name, p.set_code, p.collector_number, i.finish, i.lang, i.condition
+         LIMIT ?4 OFFSET ?5",
+    )
+    .bind(&sharer.id)
+    .bind(&like)
+    .bind(&names)
+    .bind(per_page as i64)
+    .bind((page * per_page) as i64)
+    .fetch_all(pool)
+    .await?;
+    Ok((sharer, CollectionPage { lines, page, pages, copies }))
+}
+
 // ── exports ────────────────────────────────────────────────────────────────
 
 /// The same three formats as the deck page's Export (packages/core/src/deckExport.ts).
