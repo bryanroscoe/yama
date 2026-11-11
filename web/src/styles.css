@@ -2617,3 +2617,19 @@ body:has(.view-banner) {
     overflow-wrap: anywhere;
   }
 }
+
+/* Mobile browser installation belongs above page content throughout the app. */
+.install-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: var(--content-w);
+  width: calc(100% - 2 * var(--page-pad));
+  margin: 16px auto;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--raised);
+}
+.install-card p { margin: 0; flex: 1 1 18rem; }

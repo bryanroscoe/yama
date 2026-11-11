@@ -45,7 +45,7 @@ export function LayoutPicker({ n, art, className = "" }: { n: number; art?: (sea
           </button>
         ))}
       </div>
-      {about && <p className="small dim layout-about">{about} Seat 1 holds the phone; the rest go clockwise. Each phone keeps its own choice.</p>}
+      {about && <p className="small dim layout-about">{about} Seat 1 is nearest this device; the rest go clockwise. Each device keeps its own layout.</p>}
     </div>
   );
 }

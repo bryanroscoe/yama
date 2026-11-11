@@ -254,7 +254,7 @@ covers the whole file and takes the cost out of reads through Unraid's `/mnt/use
 
 ## Debugging with real data
 
-`./deploy/pull-db.sh` copies saget's newest verified daily snapshot to the local `data/yama.db`, or the newest deploy copy when there is no snapshot (read-only on saget; `--fresh` writes a new backup first and copies that one, which changes the server). See "Signing in locally" in the main README.
+`./deploy/pull-db.sh` copies saget's newest verified daily snapshot to the local `data/yama.db`, or the newest deploy copy when there is no snapshot (read-only on saget; `--fresh` writes a new backup first and copies that one, which changes the server). See "Signing in" in [docs/development.md](../docs/development.md#signing-in).
 
 ## Rollback
 
