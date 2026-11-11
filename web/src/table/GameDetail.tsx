@@ -12,7 +12,7 @@ import { artCredits } from "../components/ArtPanel";
 import { ErrorText, Loading } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { history } from "./history";
-import { splitPair } from "./logEdit";
+import { isLoggedGame, splitPair } from "./logEdit";
 import { cardNamed, unionIdentity } from "./pickers";
 import { deleteGame, resumeGame, useOutbox, useTable } from "./store";
 import { LogGame } from "./TableHome";
@@ -176,11 +176,14 @@ export function GameDetailPage() {
   // A table that never passed the turn has one long "turn": no headings for it.
   const counted = log.some((l) => l.event.type === "pass_turn");
   const how = winConditionLabel(g.win_condition);
+  // Logged after it was played (Log a game): finished, with nothing from the table. A note
+  // doesn't say so; any game can carry one.
+  const logged = isLoggedGame(g);
   const title = going ? "Still going" : winner ? `${seatName(winner)} won` : g.status === "finished" ? "A draw" : "Game";
   const facts = [
     `${fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
     `${formatLabel(setup.format)}, ${g.seats.length} players at ${setup.startingLife} life.`,
-    g.turns ? `${g.turns} turns.` : null,
+    g.turns ? `${g.turns} ${g.mode === "online" ? "player turns" : "turns"}.` : null,
     how ? `Won by ${how.toLowerCase()}.` : null,
     first ? `${seatName(first)} went first.` : null,
     g.note ? `${g.note}.` : null,
@@ -271,7 +274,7 @@ export function GameDetailPage() {
       <section aria-labelledby="gd-history">
         <h2 id="gd-history">What happened</h2>
         {turns.length === 0 ? (
-          <p className="dim">{g.note ? "Logged after the game, so there's no play-by-play." : "Nothing saved yet."}</p>
+          <p className="dim">{logged ? "Logged after the game, so there's no play-by-play." : "Nothing saved yet."}</p>
         ) : (
           <ol className="gd-turns">
             {turns.map((t, i) => (

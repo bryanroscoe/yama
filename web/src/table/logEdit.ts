@@ -14,6 +14,15 @@ export function splitPair(s: Pick<GameSeat, "commander_name" | "deck_label">): {
   return { commander, partner };
 }
 
+/**
+ * A game logged after it was played (Log a game): finished, with nothing recorded at the table.
+ * A note doesn't say so: any game can carry one. The server's rule is the same (games.rs,
+ * `is_logged`).
+ */
+export function isLoggedGame(g: Pick<GameDetail, "mode" | "status" | "events">): boolean {
+  return g.mode === "in_person" && g.status === "finished" && g.events.length === 0;
+}
+
 export interface LogForm {
   groupId: string;
   /** The game's format and starting life, kept as they were (a copied Standard game stays one). */

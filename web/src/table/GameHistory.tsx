@@ -65,7 +65,7 @@ export function GameHistoryPage() {
               <Link className="gh-game" to={g.mode === "in_person" ? `/table/games/${g.id}` : `/play/${g.id}`} state={{ history: `/table/games?${params}` }}>
                 <span className="gh-game-head"><b>{g.status === "abandoned" ? "Abandoned" : text.title}{text.with ? ` with ${text.with}` : ""}</b><time dateTime={g.started_at}>{fmtDate(g.started_at)}</time></span>
                 <span className="gh-players">{g.seats.map((s) => `${s.display_name?.trim() || `Seat ${s.seat + 1}`}${s.commander_name ? ` (${s.commander_name})` : ""}`).join(", ")}</span>
-                <span className="gh-meta">{g.status === "in_progress" ? "Unfinished" : g.status === "abandoned" ? "Abandoned" : "Finished"}{unnamed.length ? `, ${unnamed.length} unnamed ${unnamed.length === 1 ? "player" : "players"}` : ""}{g.turns ? `, ${g.turns} turns` : ""}</span>
+                <span className="gh-meta">{g.status === "in_progress" ? "Unfinished" : g.status === "abandoned" ? "Abandoned" : "Finished"}{unnamed.length ? `, ${unnamed.length} unnamed ${unnamed.length === 1 ? "player" : "players"}` : ""}{g.turns ? `, ${g.turns} ${g.mode === "online" ? "player turns" : "turns"}` : ""}</span>
               </Link>
             </li>
           );

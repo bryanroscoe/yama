@@ -162,6 +162,8 @@ struct ExportGame<'a> {
     id: &'a str,
     source: &'static str,
     mode: &'a str,
+    format: &'a str,
+    starting_life: i64,
     playgroup: Option<&'a str>,
     started_at: &'a str,
     ended_at: Option<&'a str>,
@@ -180,6 +182,8 @@ struct ExportSeat<'a> {
     turn_position: Option<usize>,
     player: &'a str,
     you: bool,
+    /// The computer played this seat.
+    ai: bool,
     result: &'static str,
     deck: Option<&'a str>,
     deck_version_id: Option<&'a str>,
@@ -225,6 +229,7 @@ fn export_file(e: &Export) -> ExportFile<'_> {
                         turn_position: g.turn_position(s.seat),
                         player: &s.name,
                         you: s.user_id.as_deref() == Some(e.me.as_str()),
+                        ai: s.ai,
                         result: g.result_for(s.seat),
                         deck: v.map(|v| v.deck.as_str()).or(s.deck_label.as_deref()),
                         deck_version_id: s.deck_version_id.as_deref(),
@@ -253,6 +258,8 @@ fn export_file(e: &Export) -> ExportFile<'_> {
                 id: &g.id,
                 source: "yama",
                 mode: &g.mode,
+                format: &g.format,
+                starting_life: g.starting_life,
                 playgroup: g.playgroup_name.as_deref(),
                 started_at: &g.started_at,
                 ended_at: g.ended_at.as_deref(),
@@ -277,7 +284,10 @@ fn export_file(e: &Export) -> ExportFile<'_> {
                 Deck names and version notes are only given for your own decks. \
                 Null means not recorded; a null result means you didn't play in that game. \
                 win_condition is one of combat, commander_damage, combo, alternate, mill, poison, concession, other. \
-                fun is each player's rating from 1 to 5.",
+                fun is each player's rating from 1 to 5. \
+                mode is in_person (at the table or logged afterwards) or online; turns and eliminated_turn count rounds \
+                for in_person games and every player's turn for online games. \
+                format is commander, standard (Constructed) or other. ai is true for a seat the computer played.",
         games,
     }
 }
@@ -292,10 +302,12 @@ fn to_json(e: &Export) -> Value {
     serde_json::to_value(export_file(e)).expect("export serializes")
 }
 
-pub const CSV_HEADER: [&str; 28] = [
+/// New columns go at the end, so a sheet reading the older ones by position still does.
+pub const CSV_HEADER: [&str; 31] = [
     "game_id", "date", "started_at", "ended_at", "mode", "playgroup", "player_count", "turns", "first_seat", "winner_seat",
     "win_condition", "game_note", "seat", "turn_position", "player", "you", "result", "deck", "deck_version", "deck_version_id",
     "deck_version_note", "deck_label", "commander", "final_life", "eliminated_turn", "eliminated_by_seat", "eliminated_by", "fun",
+    "format", "starting_life", "ai",
 ];
 
 /// Text a spreadsheet would read as a formula (=, +, -, @, tab, return) gets a leading
@@ -343,6 +355,9 @@ fn to_csv(e: &Export) -> anyhow::Result<Vec<u8>> {
                 num(s.eliminated_by_seat),
                 text(s.eliminated_by_seat.and_then(|b| g.seat(b)).map(|b| b.name.as_str())),
                 num(s.fun),
+                g.format.clone(),
+                g.starting_life.to_string(),
+                s.ai.to_string(),
             ])?;
         }
     }
@@ -380,6 +395,7 @@ mod tests {
         g.seats[0].eliminated_by_seat = Some(1);
         g.seats[0].fun = Some(4);
         g.seats[2].name = "-Sam, the \"guest\"".into();
+        g.seats[1].ai = true;
         let mut labels = HashMap::new();
         labels.insert("v3".to_string(), VersionLabel { deck: "Fantastic Four".into(), label: "Fantastic Four v3".into(), note: Some("Sol Ring in".into()), saved_at: "2026-10-12T10:00:00Z".into() });
         Export { games: vec![g], labels, scope: json!({ "kind": "user" }), zone: Zone::Named(chrono_tz::America::Chicago), me: "me".into() }
@@ -408,6 +424,8 @@ mod tests {
         assert_eq!(me["deck_version_note"], "Sol Ring in");
         assert_eq!(g["seats"][2]["turn_position"], 1);
         assert_eq!(g["seats"][1]["fun"], Value::Null);
+        assert_eq!((&g["mode"], &g["format"], &g["starting_life"]), (&json!("in_person"), &json!("commander"), &json!(40)));
+        assert_eq!((&me["ai"], &g["seats"][1]["ai"]), (&json!(false), &json!(true)));
     }
 
     #[test]
@@ -444,6 +462,18 @@ mod tests {
         assert_eq!(&rows[2][col("player")], "'-Sam, the \"guest\"");
         assert_eq!(&rows[2][col("turn_position")], "1");
         assert_eq!(&rows[1][col("fun")], "");
+        assert_eq!((&rows[0][col("format")], &rows[0][col("starting_life")], &rows[0][col("ai")], &rows[1][col("ai")]), ("commander", "40", "false", "true"));
+    }
+
+    #[test]
+    fn the_older_csv_columns_keep_their_places() {
+        // Sheets read these by position: new columns only ever go after "fun".
+        assert_eq!(CSV_HEADER[..28], [
+            "game_id", "date", "started_at", "ended_at", "mode", "playgroup", "player_count", "turns", "first_seat", "winner_seat",
+            "win_condition", "game_note", "seat", "turn_position", "player", "you", "result", "deck", "deck_version", "deck_version_id",
+            "deck_version_note", "deck_label", "commander", "final_life", "eliminated_turn", "eliminated_by_seat", "eliminated_by", "fun",
+        ]);
+        assert_eq!(CSV_HEADER[28..], ["format", "starting_life", "ai"]);
     }
 
     #[test]

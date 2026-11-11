@@ -15,6 +15,18 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-honest-game-stats",
+    date: "2026-11-11",
+    title: "Stats that keep unlike games apart",
+    items: [
+      "The computer is no longer listed as a playgroup player, and games against only the computer stay out of players' records.",
+      "A deck's page shows its games against the computer on their own line, apart from its record against people.",
+      "Table games count rounds and online games count every player's turn, so the Playgroup page averages them separately. Commander stats now come from Commander games only.",
+      "Game exports say each game's format and starting life, and whether the computer played a seat.",
+    ],
+    link: { to: "/group", label: "Open Playgroup" },
+  },
+  {
     id: "2026-11-11-online-results",
     date: "2026-11-11",
     title: "Online games count fully in playgroup stats",

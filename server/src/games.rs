@@ -1447,7 +1447,10 @@ mod tests {
         // A mirror match (the computer with the same version) counts once.
         sqlx::query("UPDATE game_seats SET deck_version_id = 'v-a' WHERE game_id = 'og' AND seat = 1").execute(&pool).await.unwrap();
         let games = crate::stats::finished_games(&pool, crate::stats::Scope::Deck("d-a")).await.unwrap();
-        assert_eq!(crate::stats::results_by_version(&games)["v-a"], crate::stats::Record { games: 1, wins: 1, losses: 0, draws: 0 });
+        // It was a game against the computer alone: counted once, and apart from the deck's
+        // record against people.
+        assert_eq!(crate::stats::results_against_computer(&games)["v-a"], crate::stats::Record { games: 1, wins: 1, losses: 0, draws: 0 });
+        assert!(crate::stats::results_by_version(&games).is_empty());
     }
 
     #[tokio::test]

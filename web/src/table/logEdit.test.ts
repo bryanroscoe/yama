@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSummary, GameDetail, GameSeat } from "../api";
-import { formFromGame, settleRebuilt, splitPair } from "./logEdit";
+import { formFromGame, isLoggedGame, settleRebuilt, splitPair } from "./logEdit";
 
 const seat = (n: number, p: Partial<GameSeat>): GameSeat => ({
   seat: n, member_id: null, user_id: null, guest_name: null, deck_version_id: null, deck_label: null, commander_name: null,
@@ -13,6 +13,21 @@ const game = (p: Partial<GameDetail>): GameDetail => ({
 });
 
 const myDeck = { id: "d1", name: "Riders of Rohan", color_identity: "RW", commander_image: "https://cards.scryfall.io/art.jpg", commander_artist: "Someone" } as unknown as DeckSummary;
+
+describe("isLoggedGame", () => {
+  const event = { seq: 1, actor_seat: 0, kind: "life", payload: { type: "life", seat: 0, delta: -1 }, created_at: null };
+
+  it("goes by what was recorded, not by whether the game has a note", () => {
+    // Log a game's own: finished, nothing from the table, whatever its note says.
+    expect(isLoggedGame(game({ note: "Logged after the game" }))).toBe(true);
+    expect(isLoggedGame(game({ note: null }))).toBe(true);
+    // A table game with a note was still played at the table.
+    expect(isLoggedGame(game({ note: "Sam left early", events: [event] }))).toBe(false);
+    // A table that hasn't recorded anything yet, and an online game.
+    expect(isLoggedGame(game({ status: "in_progress", note: "Second game of the night" }))).toBe(false);
+    expect(isLoggedGame(game({ mode: "online", note: "Rematch" }))).toBe(false);
+  });
+});
 
 describe("formFromGame", () => {
   it("puts every answer back on the seat it was about", () => {

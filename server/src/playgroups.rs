@@ -501,7 +501,10 @@ pub(crate) struct Stats {
     games: i64,
     players: Vec<crate::stats::PlayerStat>,
     commanders: Vec<crate::stats::CommanderStat>,
+    /// Rounds, from games at the table and logged ones.
     average_turns: Option<crate::stats::Average>,
+    /// Every player's turn counted, from online games.
+    average_online_turns: Option<crate::stats::Average>,
     average_minutes: Option<crate::stats::Average>,
     seats: Vec<crate::stats::PodSeats>,
     seats_unknown: i64,
@@ -529,6 +532,7 @@ pub(crate) async fn stats_for(pool: &SqlitePool, user_id: &str, id: &str) -> App
         players: s::players(&games),
         commanders: s::commanders(&games),
         average_turns: s::average_turns(&games),
+        average_online_turns: s::average_online_turns(&games),
         average_minutes: s::average_minutes(&games),
         seats: s::seats(&games),
         seats_unknown: s::seats_unknown(&games),

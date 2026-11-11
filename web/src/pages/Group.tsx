@@ -114,9 +114,16 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
             <div className="grp-figures">
               <span className="grp-figure"><b className="num">{s.games}</b><span>{since ? <><span className="grp-wide">games since {since}</span><span className="grp-narrow">games</span></> : "games"}</span></span>
               {s.average_turns && (
-                <span className="grp-figure" title={`From ${s.average_turns.games} games`}>
+                <span className="grp-figure" title={`From ${s.average_turns.games} games at the table or logged afterwards`}>
                   <b className="num">{s.average_turns.value.toFixed(1)}</b>
                   <span><span className="grp-wide">turns on average</span><span className="grp-narrow">turns, average</span></span>
+                </span>
+              )}
+              {/* Online games count every player's turn, so they aren't averaged with the table's rounds. */}
+              {s.average_online_turns && (
+                <span className="grp-figure" title={`From ${s.average_online_turns.games} online games, counting every player's turn`}>
+                  <b className="num">{s.average_online_turns.value.toFixed(1)}</b>
+                  <span><span className="grp-wide">player turns on average online</span><span className="grp-narrow">player turns, online</span></span>
                 </span>
               )}
               {s.average_minutes && (
@@ -144,7 +151,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
           <section className="grp-section" aria-labelledby="grp-players">
             <div className="grp-section-head">
               <h2 id="grp-players">Players</h2>
-              <span className="grp-wide grp-hint">The line marks an even share: 25% at a 4-player table. Fewer than {under} games is too few to say.</span>
+              <span className="grp-wide grp-hint">The line marks an even share: 25% at a 4-player table. Fewer than {under} games is too few to say. The computer's seats and games against only the computer aren't counted.</span>
             </div>
             <ul className="grp-players">
               {s.players.map((p) => {
@@ -185,7 +192,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
                 );
               })}
             </ul>
-            <p className="grp-narrow grp-hint">The line marks 25%. Under {under} games is too few to say.</p>
+            <p className="grp-narrow grp-hint">The line marks an even share. Under {under} games is too few to say. Games against only the computer aren't counted.</p>
           </section>
 
           <div className="grp-pair">
