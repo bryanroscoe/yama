@@ -56,7 +56,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Restore an older version | History tab | `save_deck` with the old list | Both |
 | Validate a list without saving | Import preview, Edit list | `check_deck_list` | Both |
 | Delete a deck or configuration | Deck settings | `delete_deck` (staged) | Both |
-| Rename, move to a box, declare a bracket | Deck settings, Declare bracket | — | **Gap (MCP).** Stage `deck_settings` |
+| Rename, move to a box, declare a bracket | Deck settings, Declare bracket | `update_deck` (staged): name and declared bracket | Partial (2026-11-11): **Gap (MCP)** for moving a deck to a box |
 | Export the list as text | Deck export (copy, .txt) | `get_deck` returns the list | Both |
 | Bracket check (re-run) | Bracket, Why this bracket | `get_deck`, `get_deck_analysis` | Both |
 | Configurations: save a copy as a new list, make a list the one in the box | Deck page | Read via `get_deck`; delete via `delete_deck` | **Gap (MCP)** for creating and switching |
@@ -82,8 +82,8 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Add copies | Collection, Scanner | `add_to_collection` (staged) | Both |
 | Move copies between containers | Collection | `move_cards` (staged) | Both |
 | Set condition | Collection item sheet | `set_condition` (staged) | Both |
-| Edit one copy: finish, printing, price paid, proxy, remove | Collection item sheet | — | **Gap (MCP).** Stage `edit_copy` / `remove_copies` |
-| Create or delete a binder, deck box or list | Collection | — | **Gap (MCP).** Stage container changes |
+| Edit one copy: finish, printing, price paid, proxy, remove | Collection item sheet | `edit_copies`, `remove_from_collection` (staged), by card and container | Both (2026-11-11) for copies in a binder, box or list; **Gap (MCP)** for changing the printing and for copies not in a container |
+| Create or delete a binder, deck box or list | Collection | `create_container` (staged) | Partial (2026-11-11): **Gap (MCP)** for deleting one |
 | Rename a binder, deck box or list | — (the server has `PATCH /api/containers/:id`) | — | **Gap (UI and MCP)** |
 | Export CSV | Collection | — | UI only (a file download; the MCP reads the same rows) |
 | Import from Mythic Tools export | Collection, Mythic import | — | UI only (file upload) |
@@ -103,7 +103,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Propose a swap | Plan page | `propose_swap` | Both |
 | Mark bought, installed; swap in prints | Plan page, Get cards | `mark_bought`, `mark_installed`, `swap_in_prints` | Both |
 | Shopping list, add a want | Get cards | `get_shopping_list`, `add_wish` | Both |
-| Remove a want; deck gaps as wants | Trip | — | **Gap (MCP).** Stage `remove_wish` |
+| Remove a want; deck gaps as wants | Trip | `remove_wish` (staged) | Partial (2026-11-11): **Gap (MCP)** for adding a deck's gaps as wants |
 | Store trip | Trip | `get_shopping_trip` | Both |
 | Shopping rules, store preferences | Plan settings, Trip | `get_shopping_settings`, `set_shopping_rules`, `set_store_preference` | Both |
 | Store order; remove a dated rule set | Trip, Plan settings | — | Gap (MCP), small |
@@ -150,7 +150,7 @@ part of it). "Gap" rows are the backlog, in rough priority order inside each are
 | Log a past game, edit a logged game | Table setup, game detail | — | **Gap (MCP).** Stage `log_game` |
 | Delete a game | Game detail | — | Gap (MCP), staged |
 | Playgroups: list, stats (commanders, players, rivalries) | Playgroup | `list_playgroups` | Both (added 2026-11-09). Assistants get names, never account or member ids |
-| A playgroup's games, including ones you weren't in | Playgroup | `list_games` covers only games you recorded or sat in | Partial: **Gap (MCP)**, a `playgroup` argument on `list_games` |
+| A playgroup's games, including ones you weren't in | Playgroup | `list_games` with `playgroup` (a member only; checked in the query) | Both (2026-11-11) |
 | Playgroups: start, join, add a guest | Playgroup | — | Gap (MCP), staged; low priority |
 | Export games as CSV or JSON | Playgroup | — | UI only (a file) |
 | Mythic Tools: import games, send a deck | Mythic pages | — | UI only for now (file and outside service) |

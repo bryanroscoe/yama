@@ -298,6 +298,12 @@ export function toolActivity(name: string): string {
     case "add_to_collection":
     case "move_cards":
     case "set_condition":
+    case "add_wish":
+    case "update_deck":
+    case "remove_wish":
+    case "create_container":
+    case "remove_from_collection":
+    case "edit_copies":
       return "Staging a change for your review…";
     default:
       return "Looking something up…";

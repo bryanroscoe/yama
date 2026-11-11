@@ -233,6 +233,10 @@ fn next_step(st: &AppState, via: &Via) -> String {
 /// second call stores nothing and answers with the first one's change.
 async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -> AppResult<String> {
     let pool = &st.pool;
+    // The table no longer checks the kind (0076): the tool table is the list of kinds.
+    if super::registry::applier(s.kind).is_none() {
+        return Err(AppError::Other(anyhow::anyhow!("no tool applies the change kind {}", s.kind)));
+    }
     let op = op(s.kind, args)?;
     if let Some(op) = &op {
         if let Some(again) = staged_before(st, user, via, op).await? {
@@ -1551,11 +1555,29 @@ struct CopyRow {
     misprint: bool,
     proxy: bool,
     purchase_price: Option<f64>,
+    set_code: Option<String>,
+    collector_number: Option<String>,
+}
+
+impl CopyRow {
+    /// "TST #12, foil, LP, proxy": what tells this row's copies from the card's other copies.
+    fn kind(&self) -> String {
+        let mut said = format!("{} #{}", self.set_code.as_deref().unwrap_or("?").to_uppercase(), self.collector_number.as_deref().unwrap_or("?"));
+        for part in [self.finish.as_str(), self.condition.as_str()] {
+            said.push_str(", ");
+            said.push_str(part);
+        }
+        if self.proxy {
+            said.push_str(", proxy");
+        }
+        said
+    }
 }
 
 async fn copies_in(conn: &mut sqlx::SqliteConnection, owner: &str, oracle_id: &str, container_id: &str) -> AppResult<Vec<CopyRow>> {
     Ok(sqlx::query_as(
-        "SELECT i.id, i.qty, i.scryfall_id, i.condition, i.finish, i.lang, i.altered, i.signed, i.misprint, i.proxy, i.purchase_price
+        "SELECT i.id, i.qty, i.scryfall_id, i.condition, i.finish, i.lang, i.altered, i.signed, i.misprint, i.proxy, i.purchase_price,
+                p.set_code, p.collector_number
          FROM collection_items i JOIN printings p ON p.scryfall_id = i.scryfall_id
          WHERE i.owner_id = ? AND p.oracle_id = ? AND i.container_id = ? AND i.qty > 0
          ORDER BY i.proxy, i.qty DESC, i.id",
@@ -1653,6 +1675,9 @@ async fn apply_collection(st: &AppState, user: &User, kind: &str, id: &str, p: &
     use crate::collection::{CopyKind, Op, OpKind, apply_op};
     let op = |n: usize, op: OpKind| Op { op_id: format!("{DEVICE}-{id}-{n}"), device_id: Some(DEVICE.into()), op };
     let mut tx = st.pool.begin().await?;
+    if !first_apply(&mut tx, &user.id, id, kind).await? {
+        return Ok(json!({"label": "Already done", "link": "/collection"}));
+    }
     if kind == "add_to_collection" {
         let copy = CopyKind { condition: "NM".into(), finish: p["finish"].as_str().unwrap_or("nonfoil").into(), lang: "en".into(), proxy: p["proxy"].as_bool().unwrap_or(false), ..Default::default() };
         let add = OpKind::Add {
@@ -2078,6 +2103,377 @@ async fn apply_add_wish(st: &AppState, user: &User, change: &str, p: &Value) -> 
     Ok(json!({"label": format!("Added {} to your shopping list.", saved["name"].as_str().unwrap_or_default()), "id": saved["id"]}))
 }
 
+// ── what the app does that had no tool (2026-11-11) ─────────────────────────
+
+/// `update_deck`: a deck's name, its declared bracket, or both.
+pub async fn update_deck(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let pool = &st.pool;
+    let id = deck_id(pool, &user.id, arg::text(args, "deck")?).await?;
+    let (name, bracket): (String, Option<i64>) = sqlx::query_as("SELECT name, bracket FROM decks WHERE id = ? AND owner_id = ?").bind(&id).bind(&user.id).fetch_one(pool).await?;
+    let new_name = match arg::opt_text(args, "name", arg::TEXT)? {
+        Some(wanted) => Some(crate::decks::deck_name(wanted)?).filter(|wanted| *wanted != name),
+        None => None,
+    };
+    let new_bracket = match args.get("bracket") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(b) => Some(Some(b.as_i64().filter(|b| (1..=5).contains(b)).ok_or_else(|| AppError::bad("bracket is a whole number from 1 to 5, or null to clear it"))?)),
+    }
+    .filter(|wanted| *wanted != bracket);
+    let mut parts = Vec::new();
+    if let Some(wanted) = &new_name {
+        parts.push(format!("Rename {name} to {wanted}"));
+    }
+    match new_bracket {
+        Some(Some(b)) => parts.push(format!("{} Bracket {b}", if parts.is_empty() { format!("Declare {name}") } else { "declare it".into() })),
+        Some(None) => parts.push(if parts.is_empty() { format!("Clear {name}'s declared bracket") } else { "clear its declared bracket".into() }),
+        None => {}
+    }
+    if parts.is_empty() {
+        return Err(AppError::bad(format!("Give a new name, a bracket (1 to 5, or null to clear it), or both. {name} already has what was sent. Nothing was staged.")));
+    }
+    let detail = match bracket {
+        Some(b) if new_bracket.is_some() => format!("It is declared Bracket {b} now. The declared bracket is their own call; Yama's estimate from the list is separate."),
+        None if new_bracket.is_some() => "No bracket is declared now. The declared bracket is their own call; Yama's estimate from the list is separate.".to_string(),
+        _ => String::new(),
+    };
+    let payload = json!({"deck_id": id, "deck": name, "name": new_name, "set_bracket": new_bracket.is_some(), "bracket": new_bracket.flatten()});
+    stage(st, user, via, args, Staged { kind: "update_deck", summary: parts.join(" and "), detail, payload }).await
+}
+
+async fn apply_update_deck(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let deck_id = p["deck_id"].as_str().unwrap_or_default();
+    let deck = p["deck"].as_str().unwrap_or("the deck");
+    st.limits.deck_writes.check_user(user)?;
+    // The fields this change leaves alone are read inside the write, so it can't put back a name
+    // or a bracket they changed in Yama meanwhile.
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let live: Option<(String, Option<i64>)> =
+        sqlx::query_as("SELECT name, bracket FROM decks WHERE id = ? AND owner_id = ? AND archived = 0").bind(deck_id).bind(&user.id).fetch_optional(&mut *tx).await?;
+    let Some((name, bracket)) = live else {
+        return Err(AppError::Conflict(format!("{deck} isn't in your decks any more.")));
+    };
+    let name = match p["name"].as_str() {
+        Some(wanted) => crate::decks::deck_name(wanted)?,
+        None => name,
+    };
+    let bracket = if p["set_bracket"] == true { p["bracket"].as_i64().filter(|b| (1..=5).contains(b)) } else { bracket };
+    sqlx::query("UPDATE decks SET name = ?, bracket = ?, updated_at = ? WHERE id = ? AND owner_id = ?").bind(&name).bind(bracket).bind(now()).bind(deck_id).bind(&user.id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(json!({"label": format!("Updated {name}"), "link": format!("/decks/{deck_id}")}))
+}
+
+/// `remove_wish`: one want off their shopping list, by its name (or id).
+pub async fn remove_wish(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let wanted = arg::text(args, "wish")?;
+    let all = crate::plan::wants::list(&st.pool, &user.id).await?;
+    let text = |want: &Value, key: &str| want[key].as_str().unwrap_or_default().to_string();
+    let found: Vec<&Value> = match all.iter().find(|want| want["id"].as_str() == Some(wanted)) {
+        Some(by_id) => vec![by_id],
+        None => all.iter().filter(|want| want["name"].as_str().is_some_and(|name| name.eq_ignore_ascii_case(wanted))).collect(),
+    };
+    let label = |want: &Value| match want["deck_name"].as_str() {
+        Some(deck) => format!("{} for {deck}", text(want, "name")),
+        None => text(want, "name"),
+    };
+    let want = match found.as_slice() {
+        [] => return Err(AppError::bad(format!("Nothing they added to their shopping list is called \"{wanted}\". `get_shopping_list` shows what they added. Nothing was staged."))),
+        [one] => *one,
+        many => {
+            let which = many.iter().copied().map(|want| format!("{} (wish {})", label(want), text(want, "id"))).collect::<Vec<_>>().join("; ");
+            return Err(AppError::bad(format!("{} wishes are called \"{wanted}\": {which}. Give the id of the one to remove. Nothing was staged.", many.len())));
+        }
+    };
+    let qty = want["qty"].as_i64().unwrap_or(1);
+    let summary = format!("Take {}{} off their shopping list", if qty > 1 { format!("{qty}× ") } else { String::new() }, label(want));
+    let detail = "Only the wish goes. A card an approved plan buys stays on the list.".to_string();
+    stage(st, user, via, args, Staged { kind: "remove_wish", summary, detail, payload: json!({"want_id": want["id"], "name": want["name"]}) }).await
+}
+
+async fn apply_remove_wish(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let name = p["name"].as_str().unwrap_or("That wish");
+    crate::plan::wants::remove(&st.pool, &user.id, p["want_id"].as_str().unwrap_or_default()).await.map_err(|e| match e {
+        AppError::NotFound(_) => AppError::Conflict(format!("{name} is already off your shopping list.")),
+        other => other,
+    })?;
+    Ok(json!({"label": format!("Took {name} off your shopping list.")}))
+}
+
+/// What the app calls each kind of container.
+const CONTAINER_KINDS: [(&str, &str); 4] = [("binder", "binder"), ("deck", "deck box"), ("box", "box"), ("list", "list")];
+
+/// `create_container`: a new binder, deck box, box or list.
+pub async fn create_container(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let name = crate::collection::container_name(arg::text(args, "name")?)?;
+    let kind = arg::text(args, "kind")?.to_lowercase();
+    let Some(&(kind, said)) = CONTAINER_KINDS.iter().find(|(k, _)| *k == kind) else {
+        return Err(AppError::bad("kind is binder, deck, box or list"));
+    };
+    let there: Option<String> = sqlx::query_scalar("SELECT id FROM containers WHERE owner_id = ? AND kind = ? AND name = ?").bind(&user.id).bind(kind).bind(&name).fetch_optional(&st.pool).await?;
+    if there.is_some() {
+        return Err(AppError::bad(format!("They already have a {said} called {name}. Nothing was staged.")));
+    }
+    let summary = format!("Make a {said} called {name}");
+    stage(st, user, via, args, Staged { kind: "create_container", summary, detail: "It starts empty.".into(), payload: json!({"kind": kind, "said": said, "name": name}) }).await
+}
+
+async fn apply_create_container(st: &AppState, user: &User, p: &Value) -> AppResult<Value> {
+    let name = crate::collection::container_name(p["name"].as_str().unwrap_or_default())?;
+    let kind = p["kind"].as_str().filter(|k| crate::collection::KINDS.contains(k)).ok_or_else(|| AppError::bad("kind is binder, deck, box or list"))?;
+    st.limits.collection_writes.check_user(user)?;
+    crate::collection::insert_container(&st.pool, &user.id, kind, &name).await?;
+    Ok(json!({"label": format!("Made the {} {name}", p["said"].as_str().unwrap_or(kind)), "link": "/collection"}))
+}
+
+/// `remove_from_collection`: copies of a card leave one of their binders, boxes or lists for
+/// good. The change names the exact rows and how many go from each: when the copies there are
+/// not all alike (another printing, finish, condition, a proxy), the call has to say which.
+pub async fn remove_from_collection(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let pool = &st.pool;
+    let wanted = arg::text(args, "card")?.to_string();
+    let known = known_cards(pool, std::slice::from_ref(&wanted)).await?;
+    let (oracle_id, name) = known[&wanted].clone();
+    let qty = arg::int(args, "qty", 1, 1, 100)?;
+    let from = container(pool, &user.id, arg::text(args, "from")?).await?;
+    let (set, number) = (arg::opt_string(args, "set", 10)?, arg::opt_string(args, "number", 20)?);
+    let finish = match arg::opt_text(args, "finish", 20)? {
+        Some(f) if !FINISHES.iter().any(|(k, _)| *k == f) => return Err(AppError::bad("finish is nonfoil, foil or etched")),
+        f => f,
+    };
+    let proxy = match args.get("proxy") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(_) => return Err(AppError::bad("proxy must be true or false")),
+    };
+    let rows = copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, &from.0).await?;
+    if rows.is_empty() {
+        return Err(AppError::bad(format!("{} holds no {name}. Nothing was staged.", from.1)));
+    }
+    let there = rows.iter().map(|r| format!("{} × {}", r.qty, r.kind())).collect::<Vec<_>>().join("; ");
+    let same = |have: &Option<String>, want: &Option<String>| want.as_deref().is_none_or(|w| have.as_deref().is_some_and(|h| h.eq_ignore_ascii_case(w)));
+    let meant: Vec<&CopyRow> =
+        rows.iter().filter(|r| same(&r.set_code, &set) && same(&r.collector_number, &number) && finish.is_none_or(|f| f == r.finish) && proxy.is_none_or(|p| p == r.proxy)).collect();
+    let able: i64 = meant.iter().map(|r| r.qty).sum();
+    if able < qty {
+        return Err(AppError::bad(format!("{} holds {able} {name} like that, not {qty}. It holds: {there}. Nothing was staged.", from.1)));
+    }
+    if meant.len() > 1 && qty < able {
+        return Err(AppError::bad(format!(
+            "{}'s {name} are not all alike: {there}. Say which {} with set and number, finish or proxy. Nothing was staged.",
+            from.1,
+            if qty == 1 { "one goes" } else { "ones go" }
+        )));
+    }
+    // One kind of copy, or every copy meant: the rows and how many leave each are pinned here.
+    let mut left = qty;
+    let mut going = Vec::new();
+    let mut said = Vec::new();
+    for r in meant {
+        let take = left.min(r.qty);
+        if take == 0 {
+            break;
+        }
+        left -= take;
+        going.push(json!({"id": r.id, "qty": take}));
+        said.push(format!("{take} × {}", r.kind()));
+    }
+    let summary = format!("Remove {qty} {name} from {}", from.1);
+    let detail = format!(
+        "Leaving their collection for good (sold, traded, lost or entered by mistake): {}. {} of the {} {name} there stay. To put copies somewhere else, move them instead.",
+        said.join("; "),
+        rows.iter().map(|r| r.qty).sum::<i64>() - qty,
+        rows.iter().map(|r| r.qty).sum::<i64>(),
+    );
+    let payload = json!({"name": name, "qty": qty, "from_id": from.0, "from": from.1, "rows": going});
+    stage(st, user, via, args, Staged { kind: "remove_from_collection", summary, detail, payload }).await
+}
+
+/// Takes the pinned copies out of the pinned rows. A row that has gone, moved or holds fewer
+/// than was pinned means the collection changed since: nothing is removed.
+async fn apply_remove_copies(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
+    use crate::collection::{Op, OpKind, apply_op};
+    let (name, place) = (p["name"].as_str().unwrap_or("copies"), p["from"].as_str().unwrap_or("That place"));
+    let label = format!("Removed {name} from {place}");
+    st.limits.collection_writes.check_user(user)?;
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if !first_apply(&mut tx, &user.id, id, "remove_from_collection").await? {
+        return Ok(json!({"label": label, "link": "/collection"}));
+    }
+    for (n, row) in p["rows"].as_array().into_iter().flatten().enumerate() {
+        let (item, take) = (row["id"].as_str().unwrap_or_default(), row["qty"].as_i64().unwrap_or(0));
+        let held: Option<i64> = sqlx::query_scalar("SELECT qty FROM collection_items WHERE id = ? AND owner_id = ? AND container_id = ?")
+            .bind(item)
+            .bind(&user.id)
+            .bind(p["from_id"].as_str().unwrap_or_default())
+            .fetch_optional(&mut *tx)
+            .await?;
+        if take <= 0 || held.is_none_or(|held| held < take) {
+            return Err(AppError::Conflict(format!("{place}'s {name} changed after this was suggested, so nothing was removed. Discard it and ask again.")));
+        }
+        let op = Op { op_id: format!("{DEVICE}-{id}-{n}"), device_id: Some(DEVICE.into()), op: OpKind::Adjust { item_id: item.into(), delta: -take } };
+        apply_op(&mut tx, &user.id, &op).await?;
+    }
+    tx.commit().await?;
+    Ok(json!({"label": label, "link": "/collection"}))
+}
+
+/// The words for a finish, as the collection page says them.
+const FINISHES: [(&str, &str); 3] = [("nonfoil", "nonfoil"), ("foil", "foil"), ("etched", "etched foil")];
+
+/// Whether a finish or proxy edit would change this row.
+fn edit_changes(row: &CopyRow, finish: Option<&str>, proxy: Option<bool>) -> bool {
+    finish.is_some_and(|f| f != row.finish) || proxy.is_some_and(|p| p != row.proxy)
+}
+
+/// `edit_copies`: the finish or proxy mark of some or all copies of a card in one place, or a
+/// note or price paid for all of them. The collection keeps one note and one price for a row of
+/// identical copies, so those two can't be set on only some.
+pub async fn edit_copies(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let pool = &st.pool;
+    let wanted = arg::text(args, "card")?.to_string();
+    let known = known_cards(pool, std::slice::from_ref(&wanted)).await?;
+    let (oracle_id, name) = known[&wanted].clone();
+    let place = container(pool, &user.id, arg::text(args, "container")?).await?;
+    let mut parts = Vec::new();
+    let finish = match arg::opt_text(args, "finish", 20)? {
+        None => None,
+        Some(f) => {
+            let &(finish, said) = FINISHES.iter().find(|(k, _)| *k == f).ok_or_else(|| AppError::bad("finish is nonfoil, foil or etched"))?;
+            parts.push(said.to_string());
+            Some(finish)
+        }
+    };
+    let proxy = match args.get("proxy") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => {
+            parts.push(if *b { "a proxy".into() } else { "a real card, not a proxy".into() });
+            Some(*b)
+        }
+        Some(_) => return Err(AppError::bad("proxy must be true or false")),
+    };
+    let note = match args.get("note") {
+        None => None,
+        Some(Value::Null) => {
+            parts.push("no note".into());
+            Some(None)
+        }
+        Some(_) => match arg::opt_string(args, "note", 500)? {
+            Some(text) => {
+                parts.push(format!("note \"{text}\""));
+                Some(Some(text))
+            }
+            None => {
+                parts.push("no note".into());
+                Some(None)
+            }
+        },
+    };
+    let price = arg::opt_number(args, "price_paid")?;
+    match price {
+        Some(Some(usd)) if !(0.0..=1_000_000.0).contains(&usd) => return Err(AppError::bad("price_paid is an amount from 0 to 1,000,000, or null to clear it")),
+        Some(Some(usd)) => parts.push(format!("paid {usd:.2} each")),
+        Some(None) => parts.push("no price paid".into()),
+        None => {}
+    }
+    if parts.is_empty() {
+        return Err(AppError::bad("Give what to change: finish, proxy, note or price_paid. For condition use set_condition; to move copies use move_cards. Nothing was staged."));
+    }
+    let rows = copies_in(&mut *pool.acquire().await?, &user.id, &oracle_id, &place.0).await?;
+    let have: i64 = rows.iter().map(|r| r.qty).sum();
+    if have == 0 {
+        return Err(AppError::bad(format!("{} holds no {name}. Nothing was staged.", place.1)));
+    }
+    // A note or a price is for every copy there; a finish or proxy edit takes copies it changes.
+    let whole = note.is_some() || price.is_some();
+    let able: i64 = if whole { have } else { rows.iter().filter(|r| edit_changes(r, finish, proxy)).map(|r| r.qty).sum() };
+    if able == 0 {
+        return Err(AppError::bad(format!("Every {name} in {} is already {}. Nothing was staged.", place.1, parts.join(", "))));
+    }
+    let qty = match args.get("qty").filter(|q| !q.is_null()) {
+        None => able,
+        Some(_) => arg::int(args, "qty", able, 1, 100)?,
+    };
+    if whole && qty != have {
+        return Err(AppError::bad(format!(
+            "A note and the price paid are kept for a card's identical copies together, so they can't be set on only some of them. Leave qty out to set them on all {have} {name} in {}, or change only finish or proxy on some. Nothing was staged.",
+            place.1
+        )));
+    }
+    if qty > able {
+        return Err(AppError::bad(format!("{} holds {able} {name} that this would change, not {qty}. Nothing was staged.", place.1)));
+    }
+    let summary = format!("Mark {qty} {name} in {}: {}", place.1, parts.join(", "));
+    let detail = if qty < have { format!("{} holds {have}; the other {} stay as they are.", place.1, have - qty) } else { String::new() };
+    let payload = json!({
+        "oracle_id": oracle_id, "name": name, "qty": qty, "container_id": place.0, "container": place.1,
+        "finish": finish, "proxy": proxy, "set_note": note.is_some(), "note": note.flatten(), "set_price": price.is_some(), "price_paid": price.flatten(),
+    });
+    stage(st, user, via, args, Staged { kind: "edit_copies", summary, detail, payload }).await
+}
+
+/// Marks a change as applied to the collection, inside the transaction that applies it. False
+/// when an earlier attempt already did: the change's own status is written after that commit,
+/// so after a crash between the two it is applied again, and the rows a second attempt would
+/// find are no longer the ones the first one changed.
+async fn first_apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, owner: &str, change: &str, kind: &str) -> AppResult<bool> {
+    let marked = sqlx::query("INSERT INTO applied_ops (op_id, owner_id, device_id, kind, payload, applied_at) VALUES (?, ?, ?, ?, '{}', ?) ON CONFLICT(owner_id, op_id) DO NOTHING")
+        .bind(format!("{DEVICE}-{change}"))
+        .bind(owner)
+        .bind(DEVICE)
+        .bind(kind)
+        .bind(now())
+        .execute(&mut **tx)
+        .await?;
+    Ok(marked.rows_affected() == 1)
+}
+
+/// Applies `edit_copies` to the rows as they are now, through the collection ops the app sends.
+async fn apply_edit_copies(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
+    use crate::collection::{Op, OpKind, apply_op};
+    let op = |n: usize, op: OpKind| Op { op_id: format!("{DEVICE}-{id}-{n}"), device_id: Some(DEVICE.into()), op };
+    let (name, place) = (p["name"].as_str().unwrap_or("copies"), p["container"].as_str().unwrap_or("That place"));
+    let label = format!("Done: {name} in {place} updated");
+    let (finish, proxy) = (p["finish"].as_str(), p["proxy"].as_bool());
+    let whole = p["set_note"] == true || p["set_price"] == true;
+    let mut left = p["qty"].as_i64().unwrap_or(1);
+    st.limits.collection_writes.check_user(user)?;
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if !first_apply(&mut tx, &user.id, id, "edit_copies").await? {
+        return Ok(json!({"label": label, "link": "/collection"}));
+    }
+    let mut rows = copies_in(&mut tx, &user.id, p["oracle_id"].as_str().unwrap_or_default(), p["container_id"].as_str().unwrap_or_default()).await?;
+    if !whole {
+        rows.retain(|r| edit_changes(r, finish, proxy));
+    }
+    let there: i64 = rows.iter().map(|r| r.qty).sum();
+    if there < left || (whole && there != left) {
+        return Err(AppError::Conflict(format!("{place}'s {name} changed after this was suggested ({there} to change now, not {left}), so it wasn't applied. Discard it and ask again.")));
+    }
+    for (n, r) in rows.into_iter().enumerate() {
+        if left == 0 {
+            break;
+        }
+        let take = left.min(r.qty);
+        left -= take;
+        let change = OpKind::Update {
+            item_id: r.id,
+            condition: None,
+            finish: finish.map(String::from),
+            lang: None,
+            container_id: None,
+            purchase_price: (p["set_price"] == true).then(|| p["price_paid"].as_f64()),
+            note: (p["set_note"] == true).then(|| p["note"].as_str().map(String::from)),
+            proxy,
+            scryfall_id: None,
+            // Fewer than the row holds: those copies split off into a row of their own.
+            split: (take < r.qty).then_some(take),
+        };
+        apply_op(&mut tx, &user.id, &op(n, change)).await?;
+    }
+    tx.commit().await?;
+    Ok(json!({"label": label, "link": "/collection"}))
+}
+
 /// One apply or discard at a time for each account, so the same change can't be applied twice
 /// at once (a double click, the page and `apply_change` together). Accounts don't wait on each
 /// other: before 2026-11-11 one lock covered everyone, so a slow apply (a lab run, a store read)
@@ -2184,6 +2580,11 @@ pub(super) mod staging {
     pub const SET_STORE_PREFERENCE: Staging = Staging { kind: "set_store_preference", apply: |st, user, _, p| Box::pin(apply_store_preference(st, user, p)) };
     pub const CHECK_STORES: Staging = Staging { kind: "check_stores", apply: |st, user, change, p| Box::pin(apply_check_stores(st, user, change.id, p)) };
     pub const ADD_WISH: Staging = Staging { kind: "add_wish", apply: |st, user, change, p| Box::pin(apply_add_wish(st, user, change.id, p)) };
+    pub const UPDATE_DECK: Staging = Staging { kind: "update_deck", apply: |st, user, _, p| Box::pin(apply_update_deck(st, user, p)) };
+    pub const REMOVE_WISH: Staging = Staging { kind: "remove_wish", apply: |st, user, _, p| Box::pin(apply_remove_wish(st, user, p)) };
+    pub const CREATE_CONTAINER: Staging = Staging { kind: "create_container", apply: |st, user, _, p| Box::pin(apply_create_container(st, user, p)) };
+    pub const REMOVE_FROM_COLLECTION: Staging = Staging { kind: "remove_from_collection", apply: |st, user, change, p| Box::pin(apply_remove_copies(st, user, change.id, p)) };
+    pub const EDIT_COPIES: Staging = Staging { kind: "edit_copies", apply: |st, user, change, p| Box::pin(apply_edit_copies(st, user, change.id, p)) };
 }
 
 // ── routes (the pages, signed in) ───────────────────────────────────────────

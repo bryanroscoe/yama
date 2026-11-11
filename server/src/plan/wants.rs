@@ -173,15 +173,21 @@ pub async fn add_route(State(st): State<AppState>, CurrentUser(user): CurrentUse
 /// `DELETE /api/plan/wants/{id}`: take it off your list. One added on the page is deleted; one a
 /// change from Claude added is kept, retired, since applying that change again must add nothing.
 pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Value>> {
-    let mut tx = st.pool.begin().await?;
-    let gone = sqlx::query("DELETE FROM shopping_wants WHERE id = ? AND owner_id = ? AND source = 'page'").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    remove(&st.pool, &user.id, &id).await?;
+    Ok(Json(json!({"removed": id})))
+}
+
+/// Take one of `owner`'s wants off their list (the route above and the MCP's `remove_wish`).
+pub async fn remove(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<()> {
+    let mut tx = pool.begin().await?;
+    let gone = sqlx::query("DELETE FROM shopping_wants WHERE id = ? AND owner_id = ? AND source = 'page'").bind(id).bind(owner).execute(&mut *tx).await?;
     let done = if gone.rows_affected() > 0 {
         gone
     } else {
         sqlx::query("UPDATE shopping_wants SET retired_at = ? WHERE id = ? AND owner_id = ? AND retired_at IS NULL")
             .bind(now())
-            .bind(&id)
-            .bind(&user.id)
+            .bind(id)
+            .bind(owner)
             .execute(&mut *tx)
             .await?
     };
@@ -189,9 +195,9 @@ pub async fn remove_route(State(st): State<AppState>, CurrentUser(user): Current
         return Err(AppError::NotFound("want"));
     }
     // Its recorded store prices (a sealed product's) go with it, whichever way it was added.
-    sqlx::query("DELETE FROM sealed_quotes WHERE want_id = ? AND owner_id = ?").bind(&id).bind(&user.id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM sealed_quotes WHERE want_id = ? AND owner_id = ?").bind(id).bind(owner).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(Json(json!({"removed": id})))
+    Ok(())
 }
 
 /// A deck's cards the collection doesn't hold enough real copies of: (name, needed, real copies,

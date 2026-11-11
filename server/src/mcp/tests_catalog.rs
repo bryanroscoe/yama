@@ -288,7 +288,7 @@ async fn every_tool_answers_empty_and_wrong_arguments_cleanly() {
 /// `deck`.) A tool with one of these must be in
 /// `isolation_cases` (or `ISOLATION_ELSEWHERE`), so a new tool that takes an id can't ship
 /// without its two-account check.
-const OWNED: [&str; 14] = ["id", "run_id", "deck", "plan", "key", "store", "stores", "container", "from", "to", "other", "entrants", "left", "right"];
+const OWNED: [&str; 16] = ["id", "run_id", "deck", "plan", "key", "store", "stores", "container", "from", "to", "other", "entrants", "left", "right", "wish", "playgroup"];
 
 /// Tools with an owned argument whose isolation is tested where their fixtures live.
 const ISOLATION_ELSEWHERE: [(&str, &str); 1] = [("dataset", "datasets/tests.rs, mcp_reads_are_owner_scoped_and_never_offer_dataset_import_permissions")];
@@ -425,6 +425,12 @@ fn isolation_cases(f: &Fixture) -> Vec<(&'static str, Value, ForOwner)> {
         ("add_to_collection", json!({"card": "Sol Ring", "container": "Box A"}), Works),
         ("move_cards", json!({"card": "Sol Ring", "from": "Box A", "to": "Box A"}), Unchecked),
         ("set_condition", json!({"container": "Box A", "condition": "LP"}), Works),
+        ("update_deck", json!({"deck": deck, "bracket": 3}), Works),
+        // The owner's side, with a real wish, is in tests.rs (wishes_containers_and_copies_change_only_when_applied).
+        ("remove_wish", json!({"wish": "want-a"}), Unchecked),
+        ("edit_copies", json!({"card": "Sol Ring", "container": "Box A", "proxy": true}), Works),
+        ("remove_from_collection", json!({"card": "Sol Ring", "from": "Box A"}), Works),
+        ("list_games", json!({"playgroup": "group-a"}), Works),
         ("changes", json!({"id": f.change}), Shows),
         ("discard_change", json!({"id": f.change}), Works),
         ("apply_change", json!({"id": f.change}), Unchecked),

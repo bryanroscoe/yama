@@ -23,9 +23,11 @@ this?" His answers: **both** (Ask Claude inside Yama and outside clients such as
   handler and, for a staging tool, the kind it stores and the function that applies it.
   `tools/list`, `tools/call` and applying a staged change all read that entry; before, a tool was
   spread over two tables and three `match`es. The entries live beside their code
-  (`tools::TOOLS`, `research::TOOLS`). To add a tool: write its handler, add its entry, add the
-  stored kind to the `assistant_changes` CHECK in a migration if it stages a new one, add it to
-  the public guide, and regenerate the catalog snapshot. Arguments are read with `mcp/args.rs`,
+  (`tools::TOOLS`, `research::TOOLS`). To add a tool: write its handler, add its entry, add it to
+  the public guide, and regenerate the catalog snapshot. A new stored kind needs no migration:
+  `assistant_changes.kind` lost its CHECK in 0076 (the table had been recreated nine times to
+  add a kind, and one tool shipped without its kind), and the tool table is the one list of
+  kinds. Arguments are read with `mcp/args.rs`,
   one set of helpers with one set of messages.
 - **One endpoint:** `POST /mcp`, MCP's Streamable HTTP transport, stateless, answering with plain
   JSON (no server-sent events, no session id). Methods: `initialize`, `notifications/initialized`,
@@ -141,6 +143,9 @@ Write (staged):
 | `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
 | `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
 | `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
+| `edit_copies`, `remove_from_collection`, `create_container` | The copies of a card in one container: a finish or proxy mark for some or all of them (the ones it would change), a note or price paid for all of them; copies that leave the collection, pinned row by row when staged and told apart by set and number, finish or proxy when they are not all alike; a new binder, deck box, box or list (2026-11-11) |
+| `update_deck` | A deck's name, its declared bracket (1 to 5, or cleared), or both (2026-11-11) |
+| `remove_wish` | One want they added, off their shopping list, by name or id; two with one name are refused until the id says which (2026-11-11) |
 | `set_shopping_rules` | A new buy rule and sealed cap as a rule set from the day they apply it (parts left out keep the rule in force) |
 | `set_store_preference` | One store's level, place in their order of how easy stores are to get to, and a favourite's premium (parts left out stay) |
 | `add_wish` | A card or sealed product on their shopping list (need or along the way; for a Yama deck or a label) |
