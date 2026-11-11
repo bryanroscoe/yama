@@ -178,9 +178,9 @@ checking and report the same `YAMA_RELEASE_RESULT`. No backend checks out code.
   | `CF_ACCESS_CLIENT_SECRET` | The Access service token's client secret |
 
   Environment secrets take precedence over repository secrets of the same name, so the
-  repository-level `DEPLOY_SSH_HOST` keeps serving the runner backend until the switch. If
-  the account's plan offers no environment secrets for this private repository, set them as
-  repository secrets at the moment of switching instead (replacing the runner's host).
+  repository-level `DEPLOY_SSH_HOST` keeps serving the runner backend until the switch. Since the
+  repository went public it uses this backend only: keep the secrets in the `production`
+  environment (deployment branches: `main`), and never register the saget runner on it.
 
 The pin is `cloudflared` 2026.5.1: later releases are reported to ignore service tokens for
 `access ssh` and fall back to browser login

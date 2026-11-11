@@ -212,3 +212,8 @@ docs/              Design notes
 ```
 
 Phase retry-tail progress shows the experiment's pending/retry counts and hides the normal-pace ETA when only slow retries remain. A completed Phase half is labeled while Forge continues. This is reporting, not a fix for engine stalls or changed timeout budgets.
+
+## Licence
+
+The source is public to read, not to reuse: [LICENSE](LICENSE) reserves all rights, and Bryan
+gives named people written permission. Phase keeps its MIT/Apache-2.0 licence.

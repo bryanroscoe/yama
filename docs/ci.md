@@ -178,17 +178,18 @@ Rust CI checks out Yama and the public `bryanroscoe/yama-phase` side by side, at
 no local cache path substitutions are used on GitHub. The expected engine repository is
 checked before checkout. An invalid pin fails the job explicitly.
 
-Phase has been public since 31 October 2026, so its checkout no longer needs the legacy
+Yama's own repository is public (AGENTS.md) and must never get a self-hosted runner: CI
+runs on GitHub-hosted runners (`CI_LINUX_RUNNER` set to `["ubuntu-latest"]`). Phase has been public since 31 October 2026, so its checkout no longer needs the legacy
 `YAMA_PHASE_DEPLOY_KEY` secret. Both checkouts disable credential persistence. Both jobs
 refuse fork PRs before scheduling on the persistent runner. Copy reviewed fork work into a
-trusted branch in this private repository before running CI; skipped fork jobs are not passing
+trusted branch in this repository before running CI; skipped fork jobs are not passing
 acceptance evidence.
 
 Before merge, inspect the checks on the actual PR head and require both jobs to pass, or a
 **Local CI gate** summary saying they were skipped for that head commit. Keep
-local validation, GitHub CI, source review, merge and deployment as distinct evidence. This
-private repository's current GitHub plan does not support protected-branch required checks;
-the completion workflow enforces this gate without changing the plan or visibility.
+local validation, GitHub CI, source review, merge and deployment as distinct evidence. The repository
+was private on a plan without protected-branch required checks until it went public in
+November 2026; the completion workflow enforces this gate either way.
 
 Default `cargo test` deliberately skips ignored full-data gameplay tests. CI does not claim
 full-game correctness or cross-machine performance from those passing checks; follow

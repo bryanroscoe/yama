@@ -53,6 +53,16 @@ Source checks, native candidate acceptance, exact-image packaging/preflight, hos
 main CI and live play/reconnect checks are separate release gates. A merged Phase PR or
 component browser fixture alone proves neither Yama deployment nor live match behavior.
 
+## Repository and licence (11 November 2026)
+
+Bryan wanted a friend to fork Yama, and free GitHub-hosted CI, without releasing it for anyone to
+reuse. `github.com/bryanroscoe/yama` is public and source-available: [LICENSE](LICENSE) reserves all
+rights, and named people get written permission on PolyForm Noncommercial 1.0.0 terms. History was
+rewritten once on the move to remove a work email from a patch header; the pre-rewrite repository,
+with its PRs, issues and Actions logs, stays private as `bryanroscoe/yama-archive`. CI runs on
+GitHub-hosted runners and deploys over Cloudflare Access; no self-hosted runner is ever registered
+on the public repository, because a fork's pull request could rewrite a workflow to run on it.
+
 ## 1. What we're building
 
 | Area | Features | Matches Mythic Tools | Beyond Mythic Tools |
@@ -335,7 +345,7 @@ Game night has bad wifi, so the companion features must work without a connectio
 The proven approach is: find the card's four corners, straighten the image, turn it into an embedding (a compact numeric fingerprint), and look up the nearest match in a catalog of every printing. Optionally, OCR the collector number to break ties between printings.
 
 - **[CollectorVision](https://github.com/HanClinto/CollectorVision)** does exactly this. ONNX models (portable neural-net files) for corner detection and 128-number embeddings, a catalog of about 108,000 printings keyed by Scryfall ID (53 MB), under 100 ms per scan on a laptop CPU, and an experimental in-browser scanner. Its catalog updates regularly ([CollectorVisionCatalog](https://github.com/HanClinto/CollectorVisionCatalog), MIT).
-- **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. If Yama is open source under a compatible license, we can use it directly. If Yama stays private, we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
+- **Catch:** the CollectorVision code is **AGPL-3.0**, with a commercial license available. Yama's source went public in November 2026 under an all-rights-reserved licence (LICENSE), which is not AGPL-compatible, so we either write our own pipeline (the approach isn't hard; the trained models are the valuable part) or contact the author. Decide before we use any of it.
 - **Plan:**
   1. Spike in the web view with `onnxruntime-web` (WebGPU or WASM) on Bryan's phone. Target: under 250 ms per frame, with a live box around the card and a beep or haptic when it locks on.
   2. If that's too slow, move inference to a native Capacitor plugin: ONNX Runtime Mobile on Android.
