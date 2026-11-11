@@ -181,11 +181,15 @@ the source game.
 - **Format:** grow the referee scenario format into a versioned position: multiplayer, every zone
   in order (hidden zones included, kept private), each permanent's state, counters, attachments,
   face-down and transformed faces, the command zone, commanders and commander tax, commander
-  damage, life, poison, emblems, whose turn and which step, with cards matched by Oracle id and
-  printing rather than name.
+  damage, life, poison and every other player counter (energy, experience, rad and the like),
+  emblems, game-wide state (the monarch, the initiative, day or night, the city's blessing), mana
+  still in a pool, whose turn and which step, with cards matched by Oracle id and printing rather
+  than name. Anything a position holds that the format doesn't cover makes it unclean, so it is
+  refused rather than dropped.
 - **Clean positions first:** start of a step, empty stack, no pending choice, no delayed triggers
-  and no effects with a duration still running. Anything else is refused with the reason. Widen
-  it with fixtures afterwards, as the contract says.
+  no effects with a duration still running, and nothing the format can't carry. Anything else is
+  refused with the reason. This is only the first stage: the contract requires widening coverage
+  with fixtures until nonempty stacks and suspended choices move too (step 8 below).
 - **"Continue in the other engine" before "switch in place".** A new game from an exported
   position needs no change to the original game's identity, history or saves, and its consent
   step is simpler. Switching in place is the same export, plus the extra rules for keeping one
@@ -206,9 +210,11 @@ the source game.
 | 5. Saved points | The contract's acceptance evidence for both engines. |
 | 6. Continue in the other engine | Clean positions move both ways with the referee harness's checks; unclean ones are refused with a reason. |
 | 7. Switch in place | Consent from every human seat; the same checks as step 6. |
+| 8. Full switching coverage | Positions with a nonempty stack, pending triggers and suspended choices move both ways, as the contract requires, each with fixtures; whatever is still refused is listed with its reason. Switching isn't finished until this is done. |
 
 Steps 0 to 4 give Bryan engine choice at table creation. Step 6 is what most people mean by
-switching; step 7 may not be worth its cost once step 6 exists.
+switching, at clean positions only; step 8 extends it to every position, as the contract requires.
+Step 7 may not be worth its cost once step 6 exists.
 
 ## Costs and risks
 
