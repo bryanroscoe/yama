@@ -116,7 +116,7 @@
 
     <section id="review">
       <h2>You review changes</h2>
-      <p><code>save_research</code> stores private research notes directly, and <code>review_research</code> records a choice you state. These never install a build, approve a purchase, move inventory or promote a planner swap. Changed research evidence is flagged beside your retained answers.</p>
+      <p><code>save_research</code> stores private research notes directly, and <code>review_research</code> records a choice you state. These never install a build, approve a purchase, move inventory or promote a planner swap. Changed research evidence is flagged beside your retained answers. A plan made from a note follows that note when it is saved again; a save that would stop one of your plans, because the note no longer has its deck or build, is refused unless your assistant says you asked for that.</p>
       <p>Tools that edit a deck, plan, collection or lab run first create a pending proposal. Review it in <a href="/decks/changes">Decks → Suggested changes</a>, then choose <strong>Apply</strong> or <strong>Discard</strong>. Applying a deck edit saves a new version; stale edits are rejected if the target has changed.</p>
       <p>Ask Claude inside Yama cannot apply its own proposals. An external MCP client also has apply and discard tools; it is instructed to apply only after you approve that exact change. Your client's permission settings control its tool calls.</p>
       <h3>Your account and research data</h3>
@@ -138,7 +138,7 @@
         <dt><code>research_sources</code></dt><dd>Inspect attribution, local data freshness and research limits.</dd>
       </dl></details>
       <details><summary>Decks, construction and history (10)</summary><dl>
-        <dt><code>overview</code></dt><dd>List your saved decks and upgrade plans.</dd>
+        <dt><code>overview</code></dt><dd>Your account at a glance: counts of decks, plans and notes with the first few of each, configurations grouped under their deck. Ask for one section to page through the rest.</dd>
         <dt><code>deck</code></dt><dd>Read a saved list, Commander checks, declared bracket and recorded results.</dd>
         <dt><code>check_list</code></dt><dd>Validate a proposed list without saving it.</dd>
         <dt><code>deck_analysis</code></dt><dd>Analyze validation, curve, land access, role hints, ownership and dated budget estimates.</dd>
@@ -172,7 +172,7 @@
       </dl></details>
       <details><summary>Upgrade plans and shopping (18)</summary><dl>
         <dt><code>plan_deck</code></dt><dd>Read stock, current and after-prints lists, swaps, review answers, orders and prints.</dd>
-        <dt><code>review_queue</code></dt><dd>Find swaps still waiting for your answer.</dd>
+        <dt><code>review_queue</code></dt><dd>Find swaps still waiting for your answer, a page at a time, for every plan or one.</dd>
         <dt><code>track_build</code></dt><dd>Stage making one build from a saved note the deck's plan.</dd>
         <dt><code>approve_plan</code></dt><dd>Stage approving a plan version whole, skipping the changes you name, once open questions are answered.</dd>
         <dt><code>shopping_list</code></dt><dd>Read your one shopping list and where the store trip puts each card, or why it isn't on the trip.</dd>
@@ -204,11 +204,11 @@
       </dl></details>
       <details><summary>Private research documents and choices (3)</summary><dl>
         <dt><code>research</code></dt><dd>Read a compact overview, one full deck/build, an exact shopping scenario or the complete document with your review choices.</dd>
-        <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders.</dd>
+        <dt><code>save_research</code></dt><dd>Store or refresh private research for review; never alters installed decks or orders, and won't stop a plan that tracks it without your say.</dd>
         <dt><code>review_research</code></dt><dd>Record your stated preferred build, swap answer or note with retry and stale-answer checks.</dd>
       </dl></details>
       <details><summary>Pending changes (3)</summary><dl>
-        <dt><code>changes</code></dt><dd>List proposals waiting for review.</dd>
+        <dt><code>changes</code></dt><dd>List proposals waiting for review, a page at a time.</dd>
         <dt><code>apply_change</code></dt><dd>Apply an approved proposal, with ownership and stale-version checks. External clients only.</dd>
         <dt><code>discard_change</code></dt><dd>Discard a proposal. External clients only.</dd>
       </dl></details>

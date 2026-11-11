@@ -25,6 +25,8 @@
 //! tool name and outcome only, never arguments or results.
 
 pub mod changes;
+mod overview;
+mod page;
 pub(crate) mod tools;
 pub(crate) mod research;
 mod workflows;
@@ -245,15 +247,24 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
         },
         "resources/list" => rpc_result(&id, json!({"resources": workflows::resources()})),
         "resources/templates/list" => rpc_result(&id, json!({"resourceTemplates": workflows::templates()})),
-        "resources/read" => match workflows::read(&st, &user, &via, &params).await {
-            Ok(result) => rpc_result(&id, result),
+        // Reading a resource runs a tool (`deck_analysis`, `card`), so it counts as a call.
+        "resources/read" => match count_call(&st.limits, &user) {
             Err(e) => rpc_error(&id, -32602, &tool_error(e)),
+            Ok(()) => match workflows::read(&st, &user, &via, &params).await {
+                Ok(result) => rpc_result(&id, result),
+                Err(e) => rpc_error(&id, -32602, &tool_error(e)),
+            },
         },
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or_default().to_string();
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             if !tools::offered(&name, &user, &via) {
                 rpc_error(&id, -32602, &format!("unknown tool \"{name}\""))
+            } else if let Err(e) = count_call(&st.limits, &user) {
+                // A tool result, not an HTTP 429: the assistant reads the reason and waits,
+                // where a transport error would only make its client retry.
+                tracing::info!(target: crate::request_log::TARGET, tool = %name, via = via.as_str(), ok = false, limited = true, user = %user.id, "mcp tool call");
+                rpc_result(&id, json!({"content": [{"type": "text", "text": tool_error(e)}], "isError": true}))
             } else {
                 let started = Instant::now();
                 let out = tools::call(&st, &user, &via, &name, &args).await;
@@ -271,6 +282,26 @@ async fn mcp_route(State(st): State<AppState>, extensions: axum::http::Extension
     Json(reply).into_response()
 }
 
+/// Count one tool call against the account's limits, or refuse it: so many a minute for
+/// everyone but admins, and so many a day for an account that joined through open sign-up. Both
+/// are checked before either is counted, so a refusal by one doesn't use up the other.
+fn count_call(limits: &crate::limits::Limits, user: &User) -> Result<(), AppError> {
+    /// Held from the checks to the counts, so calls arriving together can't all pass a check
+    /// before any is counted.
+    static COUNTING: Mutex<()> = Mutex::new(());
+    if user.is_admin {
+        return Ok(());
+    }
+    let _one = COUNTING.lock().unwrap_or_else(|e| e.into_inner());
+    limits.mcp_calls.allows(&user.id)?;
+    if user.limited {
+        limits.mcp_calls_daily.allows(&user.id)?;
+        limits.mcp_calls_daily.record(&user.id);
+    }
+    limits.mcp_calls.record(&user.id);
+    Ok(())
+}
+
 /// What Claude sees when a tool fails: the reason for anything the caller can fix, nothing more
 /// for a server fault.
 fn tool_error(e: AppError) -> String {
@@ -285,3 +316,5 @@ fn tool_error(e: AppError) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_budget;

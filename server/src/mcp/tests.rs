@@ -6,7 +6,7 @@ use axum::http::{Method, Request, StatusCode, header};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-async fn key(app: &Router, session: &str, scope: Option<&str>) -> String {
+pub(super) async fn key(app: &Router, session: &str, scope: Option<&str>) -> String {
     let mut body = json!({"name": "Claude Code on the Mac"});
     if let Some(s) = scope {
         body["scope"] = json!(s);
@@ -16,11 +16,11 @@ async fn key(app: &Router, session: &str, scope: Option<&str>) -> String {
     made["token"].as_str().unwrap().to_string()
 }
 
-fn rpc(method: &str, params: Value) -> Value {
+pub(super) fn rpc(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 }
 
-async fn call(app: &Router, token: &str, tool: &str, args: Value) -> (bool, String) {
+pub(super) async fn call(app: &Router, token: &str, tool: &str, args: Value) -> (bool, String) {
     let (status, r) = send(app, Method::POST, "/mcp", Some(token), Some(rpc("tools/call", json!({"name": tool, "arguments": args})))).await;
     assert_eq!(status, StatusCode::OK, "{r}");
     (r["result"]["isError"].as_bool().unwrap(), r["result"]["content"][0]["text"].as_str().unwrap().to_string())
@@ -245,7 +245,7 @@ async fn playgroups_show_only_groups_the_caller_is_in() {
         .bind(&a).execute(&pool).await.unwrap();
     let (err, text) = call(&app, &a_key, "playgroups", json!({"id": "pg-1"})).await;
     assert!(!err, "{text}");
-    assert!(text.contains("\"games\": 1") && text.contains("Kelly"), "{text}");
+    assert!(text.contains("\"games\":1") && text.contains("Kelly"), "{text}");
     assert!(!text.contains(&a) && !text.contains("m-2"), "no account or member ids in stats: {text}");
 
     let (_, text) = call(&app, &b_key, "playgroups", json!({})).await;
@@ -257,7 +257,7 @@ async fn playgroups_show_only_groups_the_caller_is_in() {
 
 // ── staged changes (slice 2) ────────────────────────────────────────────────
 
-async fn seed_cards(pool: &sqlx::SqlitePool) {
+pub(super) async fn seed_cards(pool: &sqlx::SqlitePool) {
     for (id, name, type_line, ci) in [
         ("o-cmd", "Test Commander", "Legendary Creature — Elf", "G"),
         ("o-sol", "Sol Ring", "Artifact", ""),
@@ -792,4 +792,149 @@ async fn deleting_a_deck_or_a_configuration_waits_for_review() {
     let theirs = key(&app, &other, Some("mcp")).await;
     let (err, _) = call(&app, &theirs, "delete_deck", json!({"deck": configs[0]})).await;
     assert!(err, "another account's deck isn't found");
+}
+
+// ── safety (2026-11-11) ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_staging_call_repeated_with_its_op_id_stages_once() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    my_deck(&pool, &a).await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let other = key(&app, &b_session, Some("mcp")).await;
+    let staged = || async { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM assistant_changes WHERE owner_id = ?").bind(&a).fetch_one(&pool).await.unwrap() };
+    let op = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    let edit = json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "remove": ["Sol Ring"], "op_id": op});
+
+    let (err, first) = call(&app, &mcp, "edit_deck", edit.clone()).await;
+    assert!(!err && first.starts_with("Staged for their review"), "{first}");
+    let (err, again) = call(&app, &mcp, "edit_deck", edit.clone()).await;
+    assert!(!err && again.starts_with("Already staged with this op_id"), "{again}");
+    assert_eq!(change_id(&again), change_id(&first));
+    assert!(again.contains("apply_change"), "a pending change still says what happens next: {again}");
+    assert_eq!(staged().await, 1, "the retry staged nothing");
+
+    // Without an op id, a repeat is a second change, as before.
+    let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "remove": ["Sol Ring"]})).await;
+    assert!(!err && text.starts_with("Staged for their review"), "{text}");
+    assert_eq!(staged().await, 2);
+
+    // The id names one request of one account. Reused for another tool, or for the same tool
+    // with other arguments, it is refused: answering with the first change would tell the caller
+    // its new change was staged, and a yes to it would apply the wrong one.
+    let (err, text) = call(&app, &mcp, "add_to_collection", json!({"card": "Sol Ring", "op_id": op})).await;
+    assert!(err && text.contains("was already used for a different request") && text.contains(&change_id(&first)), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "remove": ["Forest"], "op_id": op})).await;
+    assert!(err && text.contains("was already used for a different request"), "{text}");
+    // save_deck stores the same kind of change as edit_deck; it is still another request.
+    let (err, text) = call(&app, &mcp, "save_deck", json!({"deck": "Elf Ball", "list": "Commander\n1 Test Commander\nDeck\n1 Sol Ring\n98 Forest", "op_id": op})).await;
+    assert!(err && text.contains("was already used for a different request"), "{text}");
+    let (err, text) = call(&app, &other, "add_to_collection", json!({"card": "Sol Ring", "op_id": op})).await;
+    assert!(!err && text.starts_with("Staged for their review"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_deck", json!({"deck": "Elf Ball", "add": ["Arcane Signet"], "op_id": "short"})).await;
+    assert!(err && text.contains("op_id must be"), "{text}");
+    assert_eq!(staged().await, 2);
+
+    // Once applied, the retry still answers with that change instead of failing on the new list.
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&first)})).await;
+    assert!(!err, "{text}");
+    let (err, again) = call(&app, &mcp, "edit_deck", edit).await;
+    assert!(!err && again.contains("It was applied since. To stage the same change again, use a new op_id."), "{again}");
+    assert_eq!(change_id(&again), change_id(&first));
+    assert_eq!(staged().await, 2);
+
+    // Two calls at once with one op id (a client that sends twice): one change, the same answer.
+    let twice = json!({"deck": "Elf Ball", "add": ["Forest"], "op_id": "sent-twice-at-once"});
+    let ((err_a, a_text), (err_b, b_text)) = tokio::join!(call(&app, &mcp, "edit_deck", twice.clone()), call(&app, &mcp, "edit_deck", twice.clone()));
+    assert!(!err_a && !err_b, "{a_text}\n{b_text}");
+    assert_eq!(change_id(&a_text), change_id(&b_text));
+    assert_eq!(staged().await, 3);
+
+    // Every staging tool takes op_id, and says so in its schema.
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    let mut staging = 0;
+    for t in r["result"]["tools"].as_array().unwrap() {
+        if t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false {
+            staging += 1;
+            assert_eq!(t["inputSchema"]["properties"]["op_id"]["type"], "string", "{} has no op_id", t["name"]);
+        }
+    }
+    // The 20 staging tools less the three that start simulations (this account isn't a power
+    // user), and save_deck.
+    assert_eq!(staging, 18, "staging tools listed for an account that can't start simulations");
+    // A power user is also listed the three that start simulations, with op_id like the rest.
+    let (_, power_session) = power_user(&pool, "power@example.com").await;
+    let power = key(&app, &power_session, Some("mcp")).await;
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&power), Some(rpc("tools/list", json!({})))).await;
+    let staging: Vec<&Value> = r["result"]["tools"].as_array().unwrap().iter().filter(|t| t["annotations"]["readOnlyHint"] == false && t["annotations"]["idempotentHint"] == false).collect();
+    assert_eq!(staging.len(), 21);
+    for name in ["start_lab_run", "more_lab_games", "run_lab_again"] {
+        let tool = staging.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} isn't listed for a power user"));
+        assert_eq!(tool["inputSchema"]["properties"]["op_id"]["type"], "string", "{name}");
+    }
+}
+
+#[test]
+fn tool_calls_are_counted_per_account() {
+    use crate::auth::User;
+    use crate::limits::{Limits, MCP_CALLS_PER_DAY, MCP_CALLS_PER_MINUTE, RateLimiter};
+    let who = |id: &str, limited: bool, admin: bool| User { id: id.into(), email: format!("{id}@example.com"), display_name: id.into(), is_admin: admin, limited, power: admin };
+    let limits = Limits::default();
+    let invited = who("invited", false, false);
+    for _ in 0..MCP_CALLS_PER_MINUTE {
+        super::count_call(&limits, &invited).unwrap();
+    }
+    let refused = super::count_call(&limits, &invited).unwrap_err().to_string();
+    assert!(refused.contains("Too many tool calls. Try again in"), "{refused}");
+    super::count_call(&limits, &who("someone-else", false, false)).expect("each account has its own count");
+    for _ in 0..MCP_CALLS_PER_MINUTE * 3 {
+        super::count_call(&limits, &who("admin", false, true)).expect("admins aren't counted");
+    }
+
+    // The day's count is only for accounts that joined through open sign-up.
+    let roomy = Limits { mcp_calls: RateLimiter::new("tool calls", 100_000, std::time::Duration::from_secs(60)), ..Limits::default() };
+    let open = who("open", true, false);
+    for _ in 0..MCP_CALLS_PER_DAY {
+        super::count_call(&roomy, &open).unwrap();
+    }
+    let refused = super::count_call(&roomy, &open).unwrap_err().to_string();
+    assert!(refused.contains("Too many tool calls today") && refused.ends_with("Try again in 24 hours."), "{refused}");
+    for _ in 0..MCP_CALLS_PER_DAY + 50 {
+        super::count_call(&roomy, &invited).expect("an invited account has no daily count");
+    }
+
+    // A call the minute's limit refuses doesn't use up the day's.
+    let tight = Limits { mcp_calls: RateLimiter::new("tool calls", 1, std::time::Duration::from_secs(60)), ..Limits::default() };
+    super::count_call(&tight, &open).unwrap();
+    for _ in 0..MCP_CALLS_PER_DAY * 2 {
+        assert!(super::count_call(&tight, &open).is_err());
+    }
+    assert!(tight.mcp_calls_daily.allows(&open.id).is_ok(), "refused calls weren't counted toward the day");
+}
+
+#[tokio::test]
+async fn a_flood_of_tool_calls_is_refused_as_a_tool_error() {
+    let (app, pool) = app().await;
+    let (_, a_session) = user(&pool, "bryan@example.com").await;
+    let (_, b_session) = user(&pool, "someone@example.com").await;
+    let mcp = key(&app, &a_session, Some("mcp")).await;
+    let other = key(&app, &b_session, Some("mcp")).await;
+    for n in 0..crate::limits::MCP_CALLS_PER_MINUTE {
+        let (err, text) = call(&app, &mcp, "changes", json!({})).await;
+        assert!(!err, "call {n}: {text}");
+    }
+    // The answer is a tool result the assistant can read, not an HTTP error its client retries.
+    let (err, text) = call(&app, &mcp, "changes", json!({})).await;
+    assert!(err && text.starts_with("Too many tool calls"), "{text}");
+    // Reading a resource runs a tool, so it is counted too.
+    let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("resources/read", json!({"uri": "yama://research/sources"})))).await;
+    assert!(r["error"]["message"].as_str().is_some_and(|m| m.starts_with("Too many tool calls")), "{r}");
+    // Listing tools and other accounts go on.
+    let (status, _) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (err, text) = call(&app, &other, "changes", json!({})).await;
+    assert!(!err, "{text}");
 }

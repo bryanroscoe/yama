@@ -38,7 +38,8 @@ resource when supported).
 Read the existing full report before refreshing it. Preserve its stable report,
 deck and build IDs and unrelated content, including allocations and sources.
 `save_research` saves directly and idempotently; a plan tracking a refreshed build
-follows its updated advice. Read back the saved report with `research` and report
+follows its updated advice. A document that drops a deck or build a plan tracks is
+refused: keep it, or pass `stop_plans: true` only when the person asked to drop that plan. Read back the saved report with `research` and report
 what was stored. Do not claim persistence from a local document alone.
 
 Use `review_research` only for a choice the person actually stated, using the
