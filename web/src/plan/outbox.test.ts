@@ -66,6 +66,25 @@ describe("applyReply", () => {
 });
 
 describe("PlanOutbox", () => {
+  it("sends a user's taps only while that user is the one signed in", async () => {
+    const kv = new MemoryKV();
+    const server = fakeServer();
+    // The server takes ops as whoever is signed in (the cookie), whatever user the box is for.
+    let signedIn = "u1";
+    const box = new PlanOutbox(kv, server.post, false, (userId) => userId === signedIn);
+    box.enqueue("u1", review("a"));
+    // Another account signs in on this tab before the delayed sync runs.
+    signedIn = "u2";
+    await box.sync("u1");
+    expect(server.seen.size).toBe(0);
+    expect(box.pendingCount("u1")).toBe(1);
+    // The taps wait for their own account, and go up when it is back.
+    signedIn = "u1";
+    await box.sync("u1");
+    expect(server.seen.size).toBe(1);
+    expect(box.pendingCount("u1")).toBe(0);
+  });
+
   it("keeps answers through airplane mode and a reload, then sends them once", async () => {
     const kv = new MemoryKV();
     const phone = new PlanOutbox(kv, offline(), false);

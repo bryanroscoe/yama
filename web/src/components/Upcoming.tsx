@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { api, type CalendarRun, type CalendarSet, type CalendarView, type DeckSummary, type PreconSummary } from "../api";
 import { useMe } from "../auth";
 import { isNetworkError } from "../cardDetail";
-import { queryFailure } from "./QueryError";
+import { queryFailure, RefreshFailed } from "./QueryError";
 import { Details, ErrorText } from "./ui";
 import {
   daysBetween,
@@ -59,6 +59,8 @@ export function ReleaseCalendar() {
   const past = placed ? groups.filter((g) => !headlined(g, view.today, names)) : [];
   return (
     <>
+      {/* Quiet when offline, as before; a refresh the server refused says the calendar may be old. */}
+      {!isNetworkError(calendar.error) && <RefreshFailed query={calendar} what="the release calendar" />}
       {top.map((g) => (
         <PreconsOut key={g.code} group={g} today={view.today} names={names} />
       ))}

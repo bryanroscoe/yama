@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { api, ApiError, setToken, type User } from "./api";
 import { ErrorText } from "./components/ui";
@@ -12,8 +12,7 @@ import { Landing } from "./pages/Landing";
 import { chooseGuest } from "./guest";
 import { isNative, nativeGoogleCredential } from "./native";
 import { ask } from "./components/confirm";
-
-const ME_KEY = "yama.me";
+import { accountConfirmed, ME_KEY, SIGN_IN_MUTATION, signingOut } from "./session";
 
 /** The account this device last saw signed in, if any (kept by useMe). */
 export function savedMe(): User | undefined {
@@ -32,7 +31,8 @@ export function savedMe(): User | undefined {
  * used so the life counter still opens.
  */
 export function useMe() {
-  return useQuery({
+  const kept = useContext(KeptAccount);
+  const me = useQuery({
     queryKey: ["me"],
     // Read once, when the query is first made; stale from the start, so it's checked straight away.
     initialData: savedMe,
@@ -40,6 +40,8 @@ export function useMe() {
     queryFn: async () => {
       try {
         const me = await api<User>("/api/me");
+        // The server's own answer, not this device's saved copy (session.ts).
+        accountConfirmed();
         localStorage.setItem(ME_KEY, JSON.stringify(me));
         noteViewing(me);
         return me;
@@ -63,7 +65,15 @@ export function useMe() {
     retryOnMount: false,
     retry: (failures) => failures < 1 && navigator.onLine,
   });
+  return kept && !me.data ? ({ ...me, data: kept } as typeof me) : me;
 }
+
+/**
+ * Set around an account page that is kept open while its sign-in has ended (RequireAccount): the
+ * page goes on reading as its account through `useMe`, so it doesn't empty itself or unmount what
+ * is typed into it. Outside such a page it is null, and `useMe` says who is really signed in.
+ */
+export const KeptAccount = createContext<User | null>(null);
 
 /**
  * Whether the signed-in account may start simulations and watched AI games and use Ask Claude:
@@ -102,10 +112,15 @@ export function useLogout() {
       logoutRequest: () => api("/api/auth/logout", { method: "POST" }),
       authConfig: async () => qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config")),
       cloudflareLogout: () => {
+        // Access still holds the sign-in until its own logout page has run: other tabs aren't
+        // told to reload yet, or the server would sign them straight back in.
+        signingOut({ tellOtherTabs: false });
         localStorage.removeItem(ME_KEY);
         location.href = "/cdn-cgi/access/logout";
       },
       finish: () => {
+        // Every other tab of this browser signs out with this one (session.ts).
+        signingOut();
         setToken(null);
         localStorage.removeItem(ME_KEY);
         // Not qc.clear(): it removes the "me" query out from under the mounted observer, which keeps
@@ -156,6 +171,7 @@ export function useDeleteAccount() {
         if (!answerLost.current) throw new Error("Your sign-in has run out. Sign in again to delete your account.");
       }
       await clearPlans();
+      signingOut();
       setToken(null);
       localStorage.removeItem(ME_KEY);
       qc.setQueryData(["me"], null);
@@ -254,6 +270,7 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
   const [password, setPassword] = useState("");
 
   const signedIn = (r: { user: User; token: string }) => {
+    accountConfirmed();
     setToken(r.token);
     // Remembered now, not at the next check: games started or saved from here on are this account's.
     localStorage.setItem(ME_KEY, JSON.stringify(r.user));
@@ -262,17 +279,20 @@ export function SignInForm({ heading: SignInTitle, title = "Sign in to Yama", co
   };
 
   const google = useMutation({
+    mutationKey: [SIGN_IN_MUTATION],
     mutationFn: (credential: string) => api<{ user: User; token: string }>("/api/auth/google", { method: "POST", json: { credential } }),
     onSuccess: signedIn,
     onError: setError,
   });
   const dev = useMutation({
+    mutationKey: [SIGN_IN_MUTATION],
     mutationFn: () => api<{ user: User; token: string }>("/api/auth/dev", { method: "POST", json: { email, name } }),
     onSuccess: signedIn,
     onError: setError,
   });
 
   const withPassword = useMutation({
+    mutationKey: [SIGN_IN_MUTATION],
     mutationFn: () => api<{ user: User; token: string }>("/api/auth/password", { method: "POST", json: { email, password } }),
     onSuccess: signedIn,
     onError: setError,

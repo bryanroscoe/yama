@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "../api";
-import { finishChoices, finishFor, finishWord, ownedFinishes, printingLabel, reprintOps } from "./collectionEdit";
+import { finishChoices, finishFor, finishWord, opIds, ownedFinishes, printingLabel, reprintOps } from "./collectionEdit";
 
 const row: CollectionItem = {
   id: "row",
@@ -85,5 +85,40 @@ describe("finishChoices", () => {
   });
   it("offers every finish until the printing is known", () => {
     expect(finishChoices("nonfoil", undefined)).toEqual(["nonfoil", "foil", "etched"]);
+  });
+});
+
+describe("op ids for a screen's taps", () => {
+  const counter = () => {
+    let n = 0;
+    return () => `op-${++n}`;
+  };
+
+  it("sends the same op again when a save failed, so a lost answer never adds a second copy", () => {
+    const ids = opIds(counter());
+    const first = ids.idFor("adjust:1");
+    // The save failed (or only its answer was lost): the same tap is the same op.
+    expect(ids.idFor("adjust:1")).toBe(first);
+    expect(ids.idFor("adjust:1")).toBe(first);
+  });
+
+  it("makes a new op once the server confirmed the last one", () => {
+    const ids = opIds(counter());
+    const first = ids.idFor("ltr-258:nonfoil:real");
+    ids.saved("ltr-258:nonfoil:real");
+    expect(ids.idFor("ltr-258:nonfoil:real")).not.toBe(first);
+  });
+
+  it("keeps different changes apart", () => {
+    const ids = opIds(counter());
+    const add = ids.idFor("adjust:1");
+    const remove = ids.idFor("adjust:-1");
+    expect(remove).not.toBe(add);
+    // One confirmed save doesn't make another change's failed op new.
+    ids.saved("adjust:-1");
+    expect(ids.idFor("adjust:1")).toBe(add);
+    // A sheet's save confirms everything it sent.
+    ids.saved();
+    expect(ids.idFor("adjust:1")).not.toBe(add);
   });
 });

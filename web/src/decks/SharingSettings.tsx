@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, publicOrigin, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
@@ -7,15 +7,27 @@ import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 import { ask } from "../components/confirm";
 
+/** A handle being typed, and the saved handle it was typed over. */
+export interface TypedHandle {
+  value: string;
+  over: string | null;
+}
+
+/** The handle box's text: what's being typed while the saved handle is still the one it was typed over, else the saved handle. */
+export function handleShown(typed: TypedHandle | null, saved: string | null): string {
+  return typed && typed.over === saved ? typed.value : (saved ?? "");
+}
+
 /** Sharing: your handle and profile, what new decks start as, and the collection. */
 export function SharingSettings() {
   const qc = useQueryClient();
   const userId = useMe().data?.id;
   const sharing = useQuery({ queryKey: ["sharing", userId], queryFn: ({ signal }) => api<Sharing>("/api/me/sharing", { signal }), enabled: !!userId });
-  const [handle, setHandle] = useState("");
-  useEffect(() => {
-    if (sharing.data) setHandle(sharing.data.handle ?? "");
-  }, [sharing.data]);
+  // What's typed in the handle box holds until the saved handle itself changes. It used to be
+  // reset by any save on this form (changing "New decks start as" wiped a handle being typed).
+  const [typed, setTyped] = useState<TypedHandle | null>(null);
+  const handle = handleShown(typed, sharing.data?.handle ?? null);
+  const setHandle = (value: string) => setTyped({ value, over: sharing.data?.handle ?? null });
   const [copied, copy] = useCopy();
   const done = (s: Sharing) => {
     qc.setQueryData(["sharing", userId], s);
