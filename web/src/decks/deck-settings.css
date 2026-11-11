@@ -68,3 +68,6 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.deck-settings-hint {
+  font-weight: 400;
+}

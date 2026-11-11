@@ -7,6 +7,7 @@ import { api, type Container, type DeckSummary, type DeckView } from "../api";
 import { SearchPicker } from "../components/SearchPicker";
 import { ErrorText, Dialog, Segmented } from "../components/ui";
 import { UnsavedPrompt, useUnsavedChanges } from "../unsaved";
+import { foldersOf } from "./deckIndex";
 import "./deck-settings.css";
 
 type Ownership = "owned" | "planned" | "";
@@ -16,8 +17,18 @@ const OWNERSHIP: { value: Ownership; label: string }[] = [
   { value: "", label: "Not recorded" },
 ];
 
+/** The sheet's choices. `folder` is what was typed in Folder, or null while it hasn't been touched. */
+interface Choices {
+  name: string;
+  ownership: Ownership;
+  container: string;
+  parent: string | null;
+  list: string;
+  folder?: string | null;
+}
+
 /** The PATCH body for the sheet's choices: only what can change, and nothing a configuration can't hold. */
-export function settingsPatch(deck: Pick<DeckView, "parent_id" | "configurations">, s: { name: string; ownership: Ownership; container: string; parent: string | null; list: string }) {
+export function settingsPatch(deck: Pick<DeckView, "parent_id" | "configurations">, s: Choices) {
   // A deck with lists of its own stays a main deck.
   const hasLists = deck.configurations.length > 1 && !deck.parent_id;
   const parent = hasLists ? null : s.parent;
@@ -26,15 +37,17 @@ export function settingsPatch(deck: Pick<DeckView, "parent_id" | "configurations
     container_id: s.container || null,
     // Ownership belongs to a main deck.
     ...(!parent ? { acquisition_status: s.ownership || null } : {}),
+    // So does its folder on the Decks list; blank takes it out of its folder. Left alone unless typed in.
+    ...(!parent && s.folder != null ? { folder: s.folder.trim() || null } : {}),
     ...(hasLists ? {} : { parent_id: parent }),
     // A list of another deck has its own name ("Stock"); a list made its own deck drops it.
     ...(parent ? { configuration: s.list.trim() || null } : deck.parent_id ? { configuration: null } : {}),
   };
 }
 
-/** Whether the sheet's choices differ from the deck's: closing then asks first. */
-export function settingsChanged(deck: Pick<DeckView, "name" | "acquisition_status" | "container_id" | "parent_id" | "configuration">, s: { name: string; ownership: Ownership; container: string; parent: string | null; list: string }): boolean {
-  return s.name !== deck.name || s.ownership !== (deck.acquisition_status ?? "") || s.container !== (deck.container_id ?? "") || s.parent !== deck.parent_id || s.list !== (deck.configuration ?? "");
+/** Whether the sheet's choices differ from the deck's: closing then asks first. `savedFolder` is the deck's folder now. */
+export function settingsChanged(deck: Pick<DeckView, "name" | "acquisition_status" | "container_id" | "parent_id" | "configuration">, s: Choices, savedFolder: string | null = null): boolean {
+  return (s.folder != null && s.folder.trim() !== (savedFolder ?? "")) || s.name !== deck.name || s.ownership !== (deck.acquisition_status ?? "") || s.container !== (deck.container_id ?? "") || s.parent !== deck.parent_id || s.list !== (deck.configuration ?? "");
 }
 
 export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; onClose: () => void }) {
@@ -46,6 +59,11 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   const [container, setContainer] = useState(deck.container_id ?? "");
   const [parent, setParent] = useState<string | null>(deck.parent_id);
   const [list, setList] = useState(deck.configuration ?? "");
+  // The deck page's data doesn't carry the folder; the Decks list's does. Null until typed in,
+  // so a save made before the list arrives leaves the folder alone.
+  const [folder, setFolder] = useState<string | null>(null);
+  const savedFolder = decks.data?.find((x) => x.id === deck.id)?.folder?.trim() || null;
+  const folders = foldersOf(decks.data ?? []);
   const [picking, setPicking] = useState<"box" | "parent" | null>(null);
   const hasLists = deck.configurations.length > 1 && !deck.parent_id;
   const mains = (decks.data ?? []).filter((x) => !x.parent_id && x.id !== deck.id);
@@ -53,11 +71,11 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
   const parentName = mains.find((m) => m.id === parent)?.name ?? (parent ? deck.configurations[0]?.name ?? "Another deck" : null);
 
   // Closing (Close, Cancel, Escape, a tap outside) or leaving the page with changes asks first.
-  const guard = useUnsavedChanges(settingsChanged(deck, { name, ownership, container, parent, list }), { onLeave: closeSheet });
+  const guard = useUnsavedChanges(settingsChanged(deck, { name, ownership, container, parent, list, folder }, savedFolder), { onLeave: closeSheet });
   const onClose = () => guard.close(closeSheet);
 
   const save = useMutation({
-    mutationFn: () => api(`/api/decks/${encodeURIComponent(deck.id)}`, { method: "PATCH", json: settingsPatch(deck, { name, ownership, container, parent, list }) }),
+    mutationFn: () => api(`/api/decks/${encodeURIComponent(deck.id)}`, { method: "PATCH", json: settingsPatch(deck, { name, ownership, container, parent, list, folder }) }),
     onSuccess: () => {
       // Every deck in its group lists the group.
       void qc.invalidateQueries({ queryKey: ["deck"] });
@@ -101,6 +119,24 @@ export function DeckSettings({ deck, onClose: closeSheet }: { deck: DeckView; on
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />
         </label>
+        {!parent && (
+          <label>
+            Folder
+            <input
+              value={folder ?? savedFolder ?? ""}
+              onChange={(e) => setFolder(e.target.value)}
+              maxLength={120}
+              list="deck-settings-folders"
+              placeholder={decks.isPending ? "…" : "None"}
+              disabled={decks.isPending}
+              autoComplete="off"
+            />
+            <datalist id="deck-settings-folders">
+              {folders.map((f) => <option key={f} value={f} />)}
+            </datalist>
+            <span className="small dim deck-settings-hint">Groups decks on your Decks list. Only you see it.</span>
+          </label>
+        )}
         {!parent && (
           <div className="deck-settings-field">
             <span className="deck-settings-label" id="own-label">This deck is</span>

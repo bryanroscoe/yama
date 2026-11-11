@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-deck-list-folders",
+    date: "2026-11-11",
+    title: "Folders, search and sorting for your decks",
+    items: [
+      "Put a deck in a folder from its settings (More, Deck settings). Only you see your folders.",
+      "The Decks list can search by name or commander, show one folder, one bracket or the decks that include a color, and sort by name, most recently changed or record.",
+    ],
+    link: { to: "/decks", label: "Open Decks" },
+  },
+  {
     id: "2026-11-11-add-cards-search",
     date: "2026-11-11",
     title: "Search for cards while you edit a deck",
