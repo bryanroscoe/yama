@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router";
 import { KeptAccount, SignInForm, useMe } from "../auth";
 import { accountPageOpen, releaseSession, useKeptAccount } from "../session";
 import { ALPHA_NOTE } from "./AlphaTag";
+import { Dialog } from "./Dialog";
 
 /** What each section keeps for an account, said where it asks someone to sign in. */
 const SECTIONS: Record<string, { title: string; lede: string; extra?: ReactNode }> = {
@@ -76,23 +77,23 @@ export function RequireAccount({ children }: { children?: ReactNode }) {
   );
 }
 
+/** Escape and a tap outside do nothing here: closing would drop what's typed underneath. */
+const stayOpen = () => {};
+
 /**
  * Over a page whose sign-in ended: the ways back in, or carrying on signed out (which closes the
- * page). Not dismissed by Escape or a tap outside, since closing it drops what's typed underneath.
+ * page). The shared Dialog keeps focus in it and the page under it out of reach meanwhile.
  */
 function SignInAgain() {
   return (
-    <>
-      <div className="scrim" />
-      <div className="sheet sheet-centered" role="dialog" aria-modal="true" aria-label="Sign in again">
-        <div className="login-side session-ended">
-          <div className="login-inner">
-            <SignInForm heading="h2" title="Sign in again" />
-            <p className="small dim">Your sign-in ended. This page is kept as it is: sign in to carry on where you were.</p>
-            <button type="button" className="quiet" onClick={releaseSession}>Continue signed out</button>
-          </div>
+    <Dialog label="Sign in again" centered onClose={stayOpen}>
+      <div className="login-side session-ended">
+        <div className="login-inner">
+          <SignInForm heading="h2" title="Sign in again" />
+          <p className="small dim">Your sign-in ended. This page is kept as it is: sign in to carry on where you were.</p>
+          <button type="button" className="quiet" onClick={releaseSession}>Continue signed out</button>
         </div>
       </div>
-    </>
+    </Dialog>
   );
 }
