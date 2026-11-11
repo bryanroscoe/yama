@@ -60,9 +60,17 @@ describe("addToList", () => {
 
   it("starts a list, and writes under a heading that has no cards yet", () => {
     expect(addToList("", "Sol Ring")).toBe("1 Sol Ring");
-    expect(addToList("Commander\n1 Omo, Queen of Vesuva\n", "Sol Ring")).toBe("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n1 Sol Ring");
+    expect(addToList("Commander\n1 Omo, Queen of Vesuva\n", "Sol Ring")).toBe("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n1 Sol Ring\n");
+    expect(addToList("Commander\n1 Omo, Queen of Vesuva", "Sol Ring")).toBe("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n1 Sol Ring");
     expect(addToList("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n\nSideboard\n1 Negate", "Sol Ring")).toBe("Commander\n1 Omo, Queen of Vesuva\n\nDeck\n1 Sol Ring\n\nSideboard\n1 Negate");
     expect(addToList("1 Island\n1 Forest\n", "Sol Ring")).toBe("1 Island\n1 Forest\n1 Sol Ring\n");
+  });
+
+  it("keeps a file's own line endings and its last line break", () => {
+    const crlf = "Commander\r\n1 Omo, Queen of Vesuva\r\n\r\nDeck\r\n1 Island\r\n";
+    expect(addToList(crlf, "Sol Ring")).toBe("Commander\r\n1 Omo, Queen of Vesuva\r\n\r\nDeck\r\n1 Island\r\n1 Sol Ring\r\n");
+    expect(removeFromList(addToList(crlf, "Sol Ring"), "Sol Ring")).toBe(crlf);
+    expect(addToList("Commander\r\n1 Omo, Queen of Vesuva\r\n", "Sol Ring")).toBe("Commander\r\n1 Omo, Queen of Vesuva\r\n\r\nDeck\r\n1 Sol Ring\r\n");
   });
 
   it("adds to another board under its own heading", () => {

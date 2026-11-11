@@ -67,7 +67,18 @@ export function parseDeckList(text: string): ListLine[] {
 //
 // The deck editor's list is text (Edit the list). Adding or removing a card from the card search
 // changes that text and nothing else: one line gains or loses a copy, every other line stays as
-// typed (set codes, foil marks, comments, blank lines), so the text stays the source of truth.
+// typed (set codes, foil marks, comments, blank lines, line endings), so the text stays the
+// source of truth.
+//
+// These read a list the way `parseDeckList` does. The editor's list is read by the server's
+// import preview, which knows more dialects (other sites' tags, files, lists split by a blank
+// line), so the editor only offers these edits on a text both read the same way
+// (web/src/decks/listReading.ts).
+
+/** The text's own line ending, so an edit doesn't rewrite every line of a file that uses CRLF. */
+function eol(text: string): string {
+  return text.includes("\r\n") ? "\r\n" : "\n";
+}
 
 /** Whether a line written as `written` names the card `name`: the same name, or its front face. */
 function names(written: string, name: string): boolean {
@@ -103,6 +114,7 @@ const HEADINGS: Record<string, string> = { commander: "Commander", main: "Deck",
  * section).
  */
 export function addToList(text: string, name: string, board = "main"): string {
+  const nl = eol(text);
   const lines = text.split(/\r?\n/);
   let at = "main";
   /** Index of the last line belonging to `board`: a card, or failing that its heading. */
@@ -115,7 +127,7 @@ export function addToList(text: string, name: string, board = "main"): string {
     } else if (line.kind === "card" && at === board) {
       if (names(line.name, name)) {
         lines[i] = recount(lines[i]!, line.qty, 1)!;
-        return lines.join("\n");
+        return lines.join(nl);
       }
       last = i;
     }
@@ -123,13 +135,15 @@ export function addToList(text: string, name: string, board = "main"): string {
   const row = `1 ${name}`;
   if (last >= 0) {
     lines.splice(last + 1, 0, row);
-    return lines.join("\n");
+    return lines.join(nl);
   }
   const body = text.replace(/\s+$/, "");
-  if (!body) return board === "main" ? row : `${HEADINGS[board] ?? "Deck"}\n${row}`;
+  if (!body) return board === "main" ? row : `${HEADINGS[board] ?? "Deck"}${nl}${row}`;
+  // The list ends as it did: with a line break if it had one.
+  const end = /\n\s*$/.test(text) ? nl : "";
   // No line of that board yet. A list that ends in the main deck with no heading just takes the line.
-  if (board === "main" && at === "main") return `${body}\n${row}`;
-  return `${body}\n\n${HEADINGS[board] ?? "Deck"}\n${row}`;
+  if (board === "main" && at === "main") return `${body}${nl}${row}${end}`;
+  return `${body}${nl}${nl}${HEADINGS[board] ?? "Deck"}${nl}${row}${end}`;
 }
 
 /**
@@ -153,7 +167,7 @@ export function removeFromList(text: string, name: string, board?: string): stri
   const next = recount(lines[hit.index]!, hit.qty, -1);
   if (next === null) lines.splice(hit.index, 1);
   else lines[hit.index] = next;
-  return lines.join("\n");
+  return lines.join(eol(text));
 }
 
 /** "Commander", "Deck" and "Sideboard" sections of `N Name` lines, in the order given. */

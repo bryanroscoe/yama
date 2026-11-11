@@ -3,9 +3,9 @@
 // typing, pasting and searching all edit the same thing and the unsaved-changes guard sees them.
 import { useQuery } from "@tanstack/react-query";
 import { addToList, countInList, identityName, removeFromList } from "@yama/core";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, type SearchResult } from "../api";
-import { CardImage, ErrorText, Loading, ManaCost } from "../components/ui";
+import { CardImage, EmptyState, ErrorText, Loading, ManaCost } from "../components/ui";
 import { identityQuery } from "../lab/logic";
 import { offlineSearch } from "../offline/cards";
 import { anyNumber, fitFor, inListText, moreText, ownedText, type Hit } from "./cardFit";
@@ -15,17 +15,20 @@ const SHOWN = 12;
 
 const isNetworkError = (e: unknown) => e instanceof TypeError || !navigator.onLine;
 
-export function AddCards({ text, onChange, identity, disabled = false }: {
+export function AddCards({ text, onChange, identity, disabled = false, note }: {
   /** The list as it stands in the box. */
   text: string;
   /** The list with a card added or removed. */
   onChange: (next: string) => void;
   /** The deck's color identity, or null with no commander chosen. */
   identity: string | null;
-  /** While another list is loading into the box. */
+  /** The buttons are off: another list is loading, a save is on its way, or the list can't be edited line by line. */
   disabled?: boolean;
+  /** Why the buttons are off, when it needs saying. */
+  note?: ReactNode;
 }) {
   const heading = useId();
+  const root = useRef<HTMLElement>(null);
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [fits, setFits] = useState(true);
@@ -34,7 +37,8 @@ export function AddCards({ text, onChange, identity, disabled = false }: {
     return () => clearTimeout(t);
   }, [typed]);
   const within = fits ? identityQuery(identity) : "";
-  const query = q ? `${q} ${within}`.trim() : "";
+  // In brackets, so an "or" in what was typed can't reach past the color filter.
+  const query = q ? (within ? `(${q}) ${within}` : q) : "";
   const results = useQuery({
     queryKey: ["search", query, "edhrec", 1],
     queryFn: async ({ signal }): Promise<SearchResult> => {
@@ -51,17 +55,33 @@ export function AddCards({ text, onChange, identity, disabled = false }: {
   });
   const hits = ((results.data?.cards ?? []) as Hit[]).slice(0, SHOWN);
   const [said, setSaid] = useState("");
+  // A press can take its own button away (Add, on a card a deck holds once). Focus then goes to
+  // the button that stands for the card now, instead of being dropped.
+  const focusNext = useRef<{ card: string; act: "add" | "remove" } | null>(null);
+  useEffect(() => {
+    const want = focusNext.current;
+    if (!want) return;
+    focusNext.current = null;
+    const row = [...(root.current?.querySelectorAll<HTMLElement>("[data-card]") ?? [])].find((el) => el.dataset.card === want.card);
+    if (row && !row.contains(document.activeElement)) row.querySelector<HTMLElement>(`[data-act="${want.act}"]`)?.focus();
+  }, [text]);
   const add = (c: Hit) => {
-    onChange(addToList(text, c.name));
-    setSaid(`Added ${c.name} to the list.`);
+    const next = addToList(text, c.name);
+    onChange(next);
+    focusNext.current = { card: c.oracle_id, act: "remove" };
+    setSaid(`Added ${c.name}: ${inListText(countInList(next, c.name, "main")).toLowerCase()}.`);
   };
-  const remove = (c: Hit) => {
-    onChange(removeFromList(text, c.name));
-    setSaid(`Took ${c.name} out of the list.`);
+  /** Takes a copy from the main deck, else from the sideboard. Never the commander. */
+  const remove = (c: Hit, board: "main" | "side") => {
+    const next = removeFromList(text, c.name, board);
+    onChange(next);
+    const left = countInList(next, c.name, board);
+    focusNext.current = { card: c.oracle_id, act: left ? "remove" : "add" };
+    setSaid(left ? `Removed one ${c.name}: ${left} left.` : `Removed ${c.name} from the ${board === "main" ? "list" : "sideboard"}.`);
   };
 
   return (
-    <section className="edit-list-add" aria-labelledby={heading}>
+    <section ref={root} className="edit-list-add" aria-labelledby={heading}>
       <h2 id={heading}>Add cards</h2>
       <form
         role="search"
@@ -88,17 +108,24 @@ export function AddCards({ text, onChange, identity, disabled = false }: {
           </label>
         )}
       </form>
+      {note}
       <ErrorText error={results.error} retry={() => void results.refetch()} />
       {query && results.isPending && <Loading small>Searching…</Loading>}
       {query && results.data && (
         <>
           <ul className="edit-list-hits" aria-label="Search results" aria-busy={results.isFetching}>
             {hits.map((c) => {
-              const copies = countInList(text, c.name);
+              const main = countInList(text, c.name, "main");
+              const side = countInList(text, c.name, "side");
+              const leads = countInList(text, c.name, "commander") > 0;
               const fit = fitFor(c, identity);
               const owned = ownedText(c);
+              const where = leads ? "Your commander" : main ? inListText(main) : side ? "In the sideboard" : "";
+              // The commander is changed in the list itself or with the commander picker, not from here.
+              const canRemove = !leads && (main > 0 || side > 0);
+              const canAdd = !leads && (main === 0 || anyNumber(c));
               return (
-                <li key={c.oracle_id}>
+                <li key={c.oracle_id} data-card={c.oracle_id}>
                   <CardImage src={c.image_small} name={c.name} className="edit-list-hit-thumb" />
                   <span className="edit-list-hit-text">
                     <span className="edit-list-hit-name">
@@ -110,24 +137,29 @@ export function AddCards({ text, onChange, identity, disabled = false }: {
                       {owned && <span className={c.owned ? "edit-list-hit-own" : "dim"}>{owned}.</span>}
                     </span>
                   </span>
+                  {/* Remove and Add keep their own places, so a second press never lands on the other. */}
                   <span className="edit-list-hit-actions">
-                    {copies > 0 && <span className="small edit-list-hit-in">{inListText(copies)}</span>}
-                    {copies > 0 && (
-                      <button type="button" disabled={disabled} onClick={() => remove(c)} aria-label={`Take ${c.name} out of the list`}>
-                        Remove
-                      </button>
-                    )}
-                    {(copies === 0 || anyNumber(c)) && (
-                      <button type="button" className={copies === 0 ? "primary" : undefined} disabled={disabled} onClick={() => add(c)} aria-label={copies ? `Add another ${c.name}` : `Add ${c.name} to the list`}>
-                        {copies ? "Add another" : "Add"}
-                      </button>
-                    )}
+                    <span className="small edit-list-hit-in">{where}</span>
+                    <span className="edit-list-hit-slot">
+                      {canRemove && (
+                        <button type="button" data-act="remove" disabled={disabled} onClick={() => remove(c, main > 0 ? "main" : "side")} aria-label={`Remove ${c.name} from the ${main > 0 ? "list" : "sideboard"}`}>
+                          Remove
+                        </button>
+                      )}
+                    </span>
+                    <span className="edit-list-hit-slot">
+                      {canAdd && (
+                        <button type="button" data-act="add" className={main === 0 ? "primary" : undefined} disabled={disabled} onClick={() => add(c)} aria-label={main ? `Add another ${c.name}` : `Add ${c.name} to the list`}>
+                          {main ? "Add another" : "Add"}
+                        </button>
+                      )}
+                    </span>
                   </span>
                 </li>
               );
             })}
           </ul>
-          {hits.length === 0 && <p className="small dim edit-list-add-note">No cards match{within ? " in the commander's colors" : ""}.</p>}
+          {hits.length === 0 && <EmptyState variant="compact">No cards match{within ? " in the commander's colors" : ""}.</EmptyState>}
           {moreText(results.data.total, hits.length) && <p className="small dim edit-list-add-note">{moreText(results.data.total, hits.length)}</p>}
         </>
       )}

@@ -12,6 +12,11 @@ export function identityOf(commanders: { color_identity: string }[]): string | n
   return "WUBRG".split("").filter((k) => all.includes(k)).join("");
 }
 
+/** "red", "black and red", "white, blue and black". */
+function wordList(words: string[]): string {
+  return words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words.join("");
+}
+
 export interface Fit {
   ok: boolean;
   text: string;
@@ -28,7 +33,7 @@ export function fitFor(card: Pick<Card, "legalities" | "color_identity">, identi
   if (status && status !== "legal") return { ok: false, text: "Not legal in Commander" };
   if (identity === null) return { ok: true, text: status ? "Legal in Commander" : "" };
   const outside = identityKeys(card.color_identity).filter((k) => k !== "C" && !identity.includes(k));
-  if (outside.length) return { ok: false, text: `Outside your commander's colors (${outside.map((k) => MANA[k].name.toLowerCase()).join(" and ")})` };
+  if (outside.length) return { ok: false, text: `Outside your commander's colors (${wordList(outside.map((k) => MANA[k].name.toLowerCase()))})` };
   return { ok: true, text: status ? "Legal in this deck" : "In your commander's colors" };
 }
 

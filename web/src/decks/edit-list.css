@@ -281,12 +281,36 @@
 .edit-list-hit-own {
   color: var(--good);
 }
+/* Remove and Add each have a place of their own: when a press takes one away the other
+   doesn't slide under the pointer. */
 .edit-list-hit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: auto 5.5rem 7.5rem;
+  justify-content: end;
   align-items: center;
   gap: 8px;
+}
+.edit-list-hit-slot {
+  display: flex;
+  justify-content: flex-end;
+}
+.edit-list-hit-slot > button {
+  width: 100%;
+  justify-content: center;
+  padding-inline: 0.5rem;
+}
+.edit-list-add-blocked {
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.edit-list-add-blocked p {
+  margin: 0;
 }
 .edit-list-hit-in {
   white-space: nowrap;
@@ -303,6 +327,6 @@
   }
   .edit-list-hit-actions {
     grid-column: 1 / -1;
-    justify-content: flex-start;
+    grid-template-columns: minmax(0, 1fr) 5.5rem 7.5rem;
   }
 }

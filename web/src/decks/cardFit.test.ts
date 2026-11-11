@@ -20,6 +20,7 @@ describe("fitFor", () => {
   it("names the colors a card adds outside the commander's", () => {
     expect(fitFor(card({ color_identity: "UR" }), "WUG")).toEqual({ ok: false, text: "Outside your commander's colors (red)" });
     expect(fitFor(card({ color_identity: "BR" }), "")).toEqual({ ok: false, text: "Outside your commander's colors (black and red)" });
+    expect(fitFor(card({ color_identity: "WUB" }), "G")).toEqual({ ok: false, text: "Outside your commander's colors (white, blue and black)" });
   });
 
   it("puts a ban or an illegal card before colors", () => {

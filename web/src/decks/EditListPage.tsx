@@ -24,6 +24,7 @@ import { ask } from "../components/confirm";
 import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
 import { AddCards } from "./AddCards";
 import { identityOf } from "./cardFit";
+import { sameReading, tidyText } from "./listReading";
 import "./import.css";
 import "../plan/plans.css";
 import "./edit-list.css";
@@ -68,6 +69,8 @@ function EditList({ id }: { id: string }) {
     base.current = d.version_id;
     const text = listText(d.cards);
     setStartText(text);
+    // Yama wrote this text itself, so the card search can edit it before the preview answers.
+    if (!list.text) trusted.current = text;
     prefill(text);
   }, [d, prefill]);
   const current = start ?? buttons[0] ?? null;
@@ -119,6 +122,9 @@ function EditList({ id }: { id: string }) {
   // The colors Add cards searches within: the commanders as last read from the box, so they
   // don't flicker back to the saved deck's while a changed list is being read again.
   const readIdentity = useRef<string | null | undefined>(undefined);
+  // The text the card search may edit line by line: one the preview read the way the search's
+  // own reader does (listReading.ts), or one a press of the search made from such a text.
+  const trusted = useRef<string | null>(null);
 
   const [mode, setMode] = useState<"box" | "new">("box");
   const [name, setName] = useState<string | null>(null);
@@ -187,9 +193,35 @@ function EditList({ id }: { id: string }) {
   const busy = list.sourceLoading || check.isPending;
   const cmdrs = draft ? commanders(draft) : [];
   if (draft) readIdentity.current = identityOf(cmdrs);
+  const savedCmdrs = d.cards.filter((e) => e.board === "commander");
+  // A commander Yama has no card data for has unknown colors: no color filter, not "colorless".
   const identity = readIdentity.current !== undefined
     ? readIdentity.current
-    : identityOf(d.cards.filter((e) => e.board === "commander").map((e) => ({ color_identity: e.card?.color_identity ?? "" })));
+    : savedCmdrs.some((e) => !e.card) ? null : identityOf(savedCmdrs.map((e) => ({ color_identity: e.card!.color_identity })));
+  const agrees = draft ? sameReading(list.text, draft) : null;
+  if (agrees) trusted.current = list.text;
+  else if (agrees === false && trusted.current === list.text) trusted.current = null;
+  const searchEdits = !list.text.trim() || trusted.current === list.text;
+  const edit = (next: string) => {
+    trusted.current = next;
+    list.setUserText(next);
+  };
+  const searchNote = searchEdits || list.sourceLoading ? null : agrees === false && draft ? (
+    <div className="edit-list-add-blocked" role="status">
+      {tidyText(draft) === list.text.trim() ? (
+        // Already Yama's format, and still read differently (a card whose name holds a bracket, say).
+        <p>Add and Remove can't change this list a line at a time. Type in the list instead.</p>
+      ) : (
+        <>
+          <p>This list is written in another site's format, so Add and Remove can't change it a line at a time.</p>
+          <button type="button" onClick={() => edit(tidyText(draft))}>Rewrite it in Yama's format</button>
+          <p className="small dim">Keeps every card, its board and its printing. Comments and other sites' tags are dropped.</p>
+        </>
+      )}
+    </div>
+  ) : check.error ? null : (
+    <Loading small>Reading the list…</Loading>
+  );
   const blocked = !draft || !c?.ready || busy || save.isPending
     || (mode === "box" && (moved || (noChanges && !edited)))
     || (mode === "new" && !listName.trim());
@@ -234,7 +266,7 @@ function EditList({ id }: { id: string }) {
           </section>
 
           {/* A press edits the text below, as typing would; the list is read again a moment later. */}
-          <AddCards text={list.text} onChange={list.setUserText} identity={identity} disabled={list.sourceLoading} />
+          <AddCards text={list.text} onChange={edit} identity={identity} disabled={!searchEdits || list.sourceLoading || save.isPending} note={searchNote} />
 
           <div className="edit-list-box">
             <label className={`import-drop${list.dragging ? " dragging" : ""}`} {...list.dropProps}>
