@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { CardRef } from "../components/CardRef";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { report, reports, safeUrl, type ResearchBundle } from "../research/api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { choicesFor, knownStockChoices, optionalUse, portfolioRows, sourceSnapshot, sourceCarts, type SourceChoice } from "./sourcing-model";
@@ -22,7 +22,7 @@ export function Sourcing() {
     <nav className="row wrap"><Link to="/decks/plans/get/trip">Active plan store trip</Link><a href="/docs/mcp/#local-shopping">How local sourcing works</a></nav>
     <label>Saved sourcing evidence <select value={id} onChange={e => setParams(e.target.value ? { report: e.target.value } : {})}><option value="">Choose a report</option>{notes.data?.map(n => <option key={n.id} value={n.id}>{n.title} · revision {n.revision}</option>)}</select></label>
     <ErrorText error={notes.error ?? snapshot.error} />
-    {(notes.isPending || (!!id && snapshot.isPending)) && <p>Loading sourcing evidence…</p>}
+    {(notes.isPending || (!!id && snapshot.isPending)) && <Loading>Loading sourcing evidence…</Loading>}
     {!notes.isPending && !id && <p>No sourcing report selected. Ask your assistant to save a portfolio source check with per-copy allocations and dated store offers, then choose it here. Your active plan trip remains available above.</p>}
     {snapshot.data && <Portfolio key={`${userId}:${id}:${snapshot.data.revision}`} bundle={snapshot.data} />}
   </>;

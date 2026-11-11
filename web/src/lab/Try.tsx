@@ -7,7 +7,7 @@ import { api, ApiError, type DeckSummary, type DeckView, type SearchResult } fro
 import { useMe } from "../auth";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { CardImage, Details, ErrorText, ManaCost } from "../components/ui";
+import { CardImage, Details, ErrorText, ManaCost, Loading, EmptyState } from "../components/ui";
 import { useCardArt } from "../components/useCardArt";
 import { offlineSearch } from "../offline/cards";
 import type { ExperimentDetail, ExperimentItem, NewExperiment, Pace, PreconDetail, TryPrefill } from "./api";
@@ -243,7 +243,7 @@ function TryForm() {
               <span className="n">1.</span> Start from
             </h2>
             <DeckChooser value={chosen} onChange={choose} paste initial={!decks.data?.length && planLists.length ? "plan" : "deck"} />
-            {chosen && !base && (deck.isFetching || precon.isFetching) && <p className="small dim">Loading the list…</p>}
+            {chosen && !base && (deck.isFetching || precon.isFetching) && <Loading small>Loading the list…</Loading>}
             <ErrorText error={deck.error ?? (precon.error instanceof ApiError && precon.error.status === 404 ? new Error(`No precon has the id "${chosen?.precon}".`) : precon.error)} />
             {conf && conf.confidence.level !== "ok" && (
               <ConfidenceNote level={conf.confidence.level} lead={baseConfidenceSentence(conf, "run")} reasons={conf.confidence.reasons} fold>
@@ -440,7 +440,7 @@ function ChangesPanel({
 }) {
   const art = useCardArt(swaps.flatMap((s) => [s.out, s.in].filter((x): x is string => !!x)));
   if (!swaps.length) {
-    return <p className="small dim lab-diff-empty">No swaps yet.</p>;
+    return <EmptyState variant="compact">No swaps yet.</EmptyState>;
   }
   const remove = (id: string) => setSwaps((s) => s.filter((x) => x.id !== id));
   return (

@@ -11,6 +11,7 @@ import { PLAY_SPEEDS, type PlaySpeed } from "./motion";
 import { TAP_MANA } from "./pay";
 import { answerBy, moved, shift, type PassChoice, type SettingsSection } from "./turns";
 import type { Act, CardMeta, CardView, ResolveAllView, StackItem, TapMana, TurnsView } from "./types";
+import { Segmented } from "../components/ui";
 
 const seatDot = (tone: SeatTone | undefined) => (tone ? ({ ["--seat" as string]: `var(--${tone})` } as React.CSSProperties) : undefined);
 
@@ -181,7 +182,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
         {section === "answers" && <Answers turns={turns} meta={meta} whose={whose} onAct={onAct} disabled={disabled} />}
         {section === "hand" && <HandOrder hand={hand} meta={meta} onAct={onAct} disabled={disabled} compact={compact} />}
         {section === "pay" && <Paying value={turns.tap_mana} onChange={onTapMana} disabled={disabled} />}
-        {section === "speed" && <div className="gs-speed"><h3>Playback speed</h3><p>Card movement, effects and combat cues. Saved on this device.</p><div className="segmented" role="group" aria-label="Playback speed">{PLAY_SPEEDS.map((s) => <button key={s.value} type="button" aria-pressed={speed === s.value} onClick={() => onSpeed?.(s.value)}>{s.label}</button>)}</div></div>}
+        {section === "speed" && <div className="gs-speed"><h3>Playback speed</h3><p>Card movement, effects and combat cues. Saved on this device.</p><Segmented label="Playback speed" value={speed} onChange={(v) => onSpeed?.(v)} options={PLAY_SPEEDS} /></div>}
         {section === "rewind" && <div><h3>Correct a mistake</h3><p>Undo your last decision and everything the computers did afterward, including plays, targets, payments, discards and combat choices. Repeat to go back further.</p><p>{rewindSteps} of up to 8 recent decisions available. Cards revealed since that decision return to their earlier state; you still know what you saw.</p><p>Available during a solo game. History survives reconnecting, but ends when the server restarts or the game finishes.</p>{rewindChanged && <p role="status">A newer choice was made. Cancel and reopen Rewind to review it.</p>}</div>}
         {section === "concede" && (solo ? <p>End this game against the computers now. It is saved as abandoned, with no winner.</p> : <Concede compact={compact} />)}
       </div>

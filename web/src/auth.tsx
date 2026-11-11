@@ -11,6 +11,7 @@ import { noteViewing } from "./viewing";
 import { Landing } from "./pages/Landing";
 import { chooseGuest } from "./guest";
 import { isNative, nativeGoogleCredential } from "./native";
+import { ask } from "./components/confirm";
 
 const ME_KEY = "yama.me";
 
@@ -89,7 +90,7 @@ export function useLogout() {
       userId,
       pending: () => outbox.pendingCount(userId),
       flush: () => within(userId ? outbox.sync(userId) : Promise.resolve(), 4000),
-      confirmDiscard: (n) => window.confirm(discardQuestion(n, outbox.sending(userId))),
+      confirmDiscard: (n) => ask({ title: "Sign out anyway?", body: discardQuestion(n, outbox.sending(userId)), confirm: "Sign out", danger: true }),
       clearPlan: async (id) => {
         await clearPlanData(id);
         if (alsoClear) await clearPlanData(alsoClear);

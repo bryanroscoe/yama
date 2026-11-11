@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { api, type GameRow } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { usePendingDeletes } from "./store";
 import { isPlaceholderName } from "./playerNames";
 import { recentGameText } from "./recent";
@@ -54,7 +54,7 @@ export function GameHistoryPage() {
       {filter === "unfinished" && <p className="dim">Games still in progress or abandoned.</p>}
       {filter === "unnamed" && <p className="dim">Games with an unnamed human seat or a temporary name like Player 2, Guest 1 or Dude 2.</p>}
       <ErrorText error={games.error} />
-      {games.isPending && <p role="status">Loading games…</p>}
+      {games.isPending && <Loading>Loading games…</Loading>}
       {games.data && shown.length === 0 && <p>No matching games on this page.</p>}
       <ol className="gh-list">
         {shown.map((g) => {

@@ -6,6 +6,7 @@ import { checkAuthorize, decideAuthorize } from "./api";
 import { ConsentView } from "./ConsentView";
 import { authParams } from "./logic";
 import "./oauth.css";
+import { Loading } from "../components/ui";
 
 /** How long a request the app got wrong stays on screen before the browser goes back to the app. */
 const BOUNCE_MS = 2500;
@@ -34,7 +35,7 @@ export function OAuthConsent() {
     <main className="oauth">
       <div className="oauth-inner">
         <Wordmark className="oauth-wordmark" />
-        {check.isPending && <p className="dim">Checking what the app asks for…</p>}
+        {check.isPending && <Loading>Checking what the app asks for…</Loading>}
         {check.error && (
           <section className="oauth-panel" role="alert">
             <h1>Yama can't connect this app</h1>
@@ -45,7 +46,7 @@ export function OAuthConsent() {
           <section className="oauth-panel" role="status">
             <h1>The app's request didn't work</h1>
             <p>{bounce.error}</p>
-            <p className="dim small">Taking you back to the app to say so…</p>
+            <Loading small quiet>Taking you back to the app to say so…</Loading>
           </section>
         )}
         {check.data?.ok && (
@@ -57,7 +58,7 @@ export function OAuthConsent() {
             onDeny={() => decide.mutate(false)}
           />
         )}
-        {decide.isSuccess && <p className="dim small">Taking you back to the app…</p>}
+        {decide.isSuccess && <Loading small>Taking you back to the app…</Loading>}
         <p className="dim small">Unofficial fan software. Not affiliated with, endorsed by, or sponsored by Wizards of the Coast.</p>
       </div>
     </main>

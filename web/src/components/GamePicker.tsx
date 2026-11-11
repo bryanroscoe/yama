@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Pips } from "./ui";
 import { pickerPlacement } from "./pickerPlacement";
 import "./gamePicker.css";
+import { useModalLayer } from "./Dialog";
 
 /** One selectable item, with optional commander art, colors and supporting text. */
 export interface Option<T> {
@@ -155,6 +156,8 @@ export function Combobox<T>({
               e.preventDefault();
               if (options[active]) pick(options[active]);
             } else if (e.key === "Escape") {
+              // Handled here while the list is open: the dialog this sits in stays.
+              if (showList) e.preventDefault();
               setOpen(false);
             }
           }}
@@ -277,40 +280,17 @@ export function PickerSheet<T>({ label, query, onQuery, options, onPick, onClose
   const list = useRef<HTMLUListElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    // Focus goes into the picker (its heading, so no keyboard comes up) and back to whatever opened it.
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Everything else on the page is inert while it's open, so Tab, a switch or a screen reader
-    // can't reach the seat editor hidden under it (aria-modal alone doesn't keep focus in).
-    const others = [...document.body.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el !== root.current && !el.inert);
-    for (const el of others) el.inert = true;
-    heading.current?.focus();
-    // Escape closes this picker only, not the seat sheet under it.
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      closeRef.current();
-    };
-    window.addEventListener("keydown", key, true);
-    // The page under it stays put while the list scrolls.
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", key, true);
-      document.body.style.overflow = overflow;
-      for (const el of others) el.inert = false;
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
-    };
-  }, []);
+  // A modal layer (components/Dialog.tsx): focus goes to the heading, so no keyboard comes up,
+  // and back to whatever opened it; the seat editor under it is inert; Escape closes this
+  // picker only.
+  const layer = useModalLayer(root, onClose, heading);
   // A new search starts at the top of its matches.
   // (A block body: newer browsers' scrollTo returns a promise, which mustn't become a cleanup.)
   useEffect(() => {
     if (list.current) list.current.scrollTop = 0;
   }, [query]);
   return createPortal(
-    <div ref={root} className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}>
+    <div ref={root} className="picker" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} tabIndex={-1} {...layer}>
       <div className="picker-head">
         <h2 id={`${id}-title`} ref={heading} tabIndex={-1}>{label}</h2>
         <button type="button" className="quiet" onClick={onClose}>Close</button>

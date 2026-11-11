@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { Printing } from "../api";
 import { printingOptions } from "./printings";
 import type { Added, Finish, Fix } from "./session";
+import { Loading, DialogHead, ErrorText } from "../components/ui";
 
 const FINISH_LABEL: Record<Finish, string> = { nonfoil: "regular", foil: "foil", proxy: "proxy" };
 const PRINTINGS_FIRST = 12;
@@ -22,15 +23,10 @@ export function AddedList({ added, onFix, onRetry, onClose }: AddedListProps) {
   const copies = added.reduce((n, a) => n + a.copies, 0);
   return (
     <div className="scan-added">
-      <div className="sheet-head">
-        <div>
-          <h2>Added while scanning</h2>
-          <p className="dim small">
-            {copies === 1 ? "1 card" : `${copies} cards`}, newest first. Fixes change only the copies added here.
-          </p>
-        </div>
-        <button onClick={onClose}>Back to scanning</button>
-      </div>
+      <DialogHead onClose={onClose}>Added while scanning</DialogHead>
+      <p className="dim small">
+        {copies === 1 ? "1 card" : `${copies} cards`}, newest first. Fixes change only the copies added here.
+      </p>
       {added.length === 0 ? <p className="dim">Nothing added yet.</p> : (
         <ul className="scan-added-list">
           {added.map((a) => <AddedRow key={a.key} a={a} onFix={onFix} onRetry={onRetry} />)}
@@ -110,7 +106,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
           </div>
         </div>
       </div>
-      {a.pending && !a.pending.error && <p className="dim small">Saving…</p>}
+      {a.pending && !a.pending.error && <Loading small quiet>Saving…</Loading>}
       {a.pending?.error && (
         <div className="scan-step is-tap" role="alert">
           <p>
@@ -122,7 +118,7 @@ function AddedRow({ a, onFix, onRetry }: { a: Added; onFix: AddedListProps["onFi
           </button>
         </div>
       )}
-      {error && !a.pending?.error && <p className="error">{error}</p>}
+      {!a.pending?.error && <ErrorText error={error} />}
       {printings && (
         <div className="scan-printings" role="listbox" aria-label={`Printings of ${a.name}`}>
           {(showAll ? printings : printings.slice(0, PRINTINGS_FIRST)).map((p) => (

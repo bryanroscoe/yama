@@ -5,9 +5,10 @@
 // whoever may look at them: the server names them for that seat alone.
 
 import { useEffect, useMemo, useState } from "react";
-import { Sheet } from "../components/ui";
+import { Dialog } from "../components/ui";
 import { cameText, type Names } from "./feed";
 import type { CardMeta, CardView, View } from "./types";
+import { WideOverlay } from "./Inspector";
 
 export type BrowsedZone = "graveyard" | "exile" | "command";
 
@@ -50,16 +51,6 @@ export function ZoneBrowser(props: {
   const [type, setType] = useState<(typeof TYPE_FILTERS)[number]["id"]>("all");
   const [q, setQ] = useState("");
   useEffect(() => setType("all"), [seat, zone]);
-  useEffect(() => {
-    if (!wide || paused) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
-      e.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [wide, onClose, paused]);
   const all = zoneCards(view, seat, zone);
   const filter = TYPE_FILTERS.find((t) => t.id === type)!;
   const shown = useMemo(() => {
@@ -148,12 +139,12 @@ export function ZoneBrowser(props: {
       </p>
     </div>
   );
-  if (!wide) return <Sheet label={`${whose} cards`} onClose={onClose}>{body}</Sheet>;
+  if (!wide) return <Dialog label={`${whose} cards`} onClose={onClose}>{body}</Dialog>;
   return (
-    <div className="gi-overlay" onClick={onClose}>
+    <WideOverlay onClose={() => !paused && onClose()}>
       <section className="gz-dialog" role="dialog" aria-modal="true" aria-label={`${whose} cards`} onClick={(e) => e.stopPropagation()}>
         {body}
       </section>
-    </div>
+    </WideOverlay>
   );
 }

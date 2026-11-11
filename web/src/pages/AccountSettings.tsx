@@ -120,7 +120,7 @@ function OfflineCardsSetting() {
           {s.downloading ? "Saving…" : s.count ? "Update" : "Save"}
         </button>
       </div>
-      {s.error && <p className="error small">{s.error}</p>}
+      <ErrorText small error={s.error} />
     </div>
   );
 }

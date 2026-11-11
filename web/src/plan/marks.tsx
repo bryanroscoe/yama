@@ -16,7 +16,7 @@ import {
 } from "@yama/core/plan";
 import { useState } from "react";
 import { Link } from "react-router";
-import { Sheet } from "../components/ui";
+import { Dialog } from "../components/ui";
 import { deviceId, outbox } from "./outbox";
 import type { PlanView } from "./view";
 import { fmtDate, usd, NO_PRICE } from "@yama/core";
@@ -143,7 +143,7 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
     onClose();
   };
   return (
-    <Sheet label={`Mark ${swap.in} bought`} onClose={onClose}>
+    <Dialog title={<>Mark {swap.in} bought</>} onClose={onClose}>
       <form
         className="stack"
         onSubmit={(e) => {
@@ -151,10 +151,6 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
           submit();
         }}
       >
-        <div className="sheet-head">
-          <h2>Mark {swap.in} bought</h2>
-          <button type="button" className="quiet" onClick={onClose}>Cancel</button>
-        </div>
         <p className="dim small">
           This goes to your {view.app} inbox. It isn't an order and doesn't count the card as yours until your plan records the purchase.
         </p>
@@ -194,7 +190,7 @@ export function MarkBoughtSheet({ swap, view, userId, storeKey, onClose }: { swa
           <button className="primary" disabled={!ok}>Mark bought</button>
         </div>
       </form>
-    </Sheet>
+    </Dialog>
   );
 }
 

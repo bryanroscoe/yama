@@ -4,7 +4,7 @@ import { usePower } from "../auth";
 import { PowerNote } from "../components/PowerOnly";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText } from "../components/ui";
+import { Details, ErrorText, Loading, EmptyState } from "../components/ui";
 import type { BatchComparison, ExperimentItem, PreconItem, RunDetail, RunListItem, ExperimentMode } from "./api";
 import { ConfidenceLine, ConfidenceMark, ConfidenceNote } from "./confidence";
 import {
@@ -35,6 +35,7 @@ import { RunWarnings, usePrecons } from "./Precons";
 import { LabHead } from "./LabLayout";
 import { stateLabel } from "./paired";
 import { fmtDate, count } from "@yama/core";
+import { ask } from "../components/confirm";
 
 /** A run's headline: the verdict when there is one, else where it has got to. */
 export function headline(e: ExperimentItem, name?: (label: string) => string): string {
@@ -129,14 +130,14 @@ export function RunsPage() {
       <ErrorText error={exps.error ?? stop.error ?? remove.error} />
       {exps.data?.length === 0 && batch.length === 0 && (
         power ? (
-          <p className="empty">
+          <EmptyState>
             No runs yet. <Link to="/lab/try">Try a change</Link> to play a list against a changed copy of it (or as it is), <Link to="/lab/compare">compare decks</Link> against each other, or start from a precon in{" "}
             <Link to="/lab">Precons</Link>.
-          </p>
+          </EmptyState>
         ) : (
-          <p className="empty">
+          <EmptyState>
             No runs. <PowerNote /> See the <Link to="/lab">simulated precon rankings</Link>.
-          </p>
+          </EmptyState>
         )
       )}
       {exps.data && exps.data.length > 0 && (
@@ -193,11 +194,11 @@ export function RunsPage() {
                     Open
                   </Link>
                   {live ? (
-                    <button className="quiet" disabled={stop.isPending} onClick={() => confirm("Stop this run? Games already played are kept.") && stop.mutate(e.id)}>
+                    <button className="quiet" disabled={stop.isPending} onClick={async () => (await ask({ title: "Stop this run?", body: "Games already played are kept.", confirm: "Stop run" })) && stop.mutate(e.id)}>
                       Stop
                     </button>
                   ) : (
-                    <button className="quiet" disabled={remove.isPending} onClick={() => confirm(`Delete ${e.name}? Its games and results go too.`) && remove.mutate(e.id)}>
+                    <button className="quiet" disabled={remove.isPending} onClick={async () => (await ask({ title: `Delete ${e.name}?`, body: "Its games and results go too.", confirm: "Delete run", danger: true })) && remove.mutate(e.id)}>
                       Delete
                     </button>
                   )}
@@ -321,7 +322,7 @@ export function BatchPage() {
     );
   }
   const d = run.data;
-  if (!d) return <p className="dim">Loading…</p>;
+  if (!d) return <Loading />;
   const r = d.run;
   const p = d.paired;
   const level = r.level ? `${Math.round(r.level * 100)}%` : "90%";

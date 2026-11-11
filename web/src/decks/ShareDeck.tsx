@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, shareUrl, type DeckView, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Dialog, Segmented } from "../components/ui";
 import { configurationLabel } from "./buildCatalog";
 import "./share.css";
 
@@ -78,12 +78,8 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
   const labelOf = (v: Visibility) => VISIBILITY_CHOICES.find((c) => c.value === v)?.label ?? v;
 
   return (
-    <Sheet label="Share deck" onClose={onClose}>
+    <Dialog title={<>Share {deck.name}</>} onClose={onClose}>
       <div className="share-sheet">
-        <div className="sheet-head">
-          <h2>Share {deck.name}</h2>
-          <button className="quiet" onClick={onClose}>Close</button>
-        </div>
         <fieldset className="share-choices">
           <legend className="share-legend">
             Who can see it
@@ -142,13 +138,14 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
                   </span>
                 </div>
                 {changing === c.id && (
-                  <div className="segmented share-row-choice" role="group" aria-label={`Who can see ${c.label}`}>
-                    {VISIBILITY_CHOICES.map((v) => (
-                      <button key={v.value} type="button" aria-pressed={c.visibility === v.value} disabled={set.isPending} onClick={() => set.mutate({ id: c.id, visibility: v.value })}>
-                        {v.value === "link" ? "With the link" : v.value === "public" ? "Public" : v.label}
-                      </button>
-                    ))}
-                  </div>
+                  <Segmented
+                    className="share-row-choice"
+                    label={`Who can see ${c.label}`}
+                    value={c.visibility}
+                    disabled={set.isPending}
+                    onChange={(visibility) => set.mutate({ id: c.id, visibility })}
+                    options={VISIBILITY_CHOICES.map((v) => [v.value, v.value === "link" ? "With the link" : v.value === "public" ? "Public" : v.label] as const)}
+                  />
                 )}
               </div>
             ))}
@@ -163,7 +160,7 @@ export function ShareDeck({ deck, onClose }: { deck: DeckView; onClose: () => vo
         )}
         <ErrorText error={set.error ?? reset.error} />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 
@@ -184,12 +181,8 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
     },
   });
   return (
-    <Sheet label="New configuration" onClose={onClose}>
+    <Dialog title="New configuration" onClose={onClose}>
       <form className="stack" onSubmit={(e) => { e.preventDefault(); make.mutate(); }}>
-        <div className="sheet-head">
-          <h2>New configuration</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
         <p className="small dim" style={{ margin: 0 }}>
           Another build of {main}, starting from this list. It shows under {main} in your decks, with its own versions, games and sharing.
         </p>
@@ -202,6 +195,6 @@ export function NewConfiguration({ deck, onClose }: { deck: DeckView; onClose: (
           <button className="primary" disabled={make.isPending || !label.trim()}>Make it</button>
         </div>
       </form>
-    </Sheet>
+    </Dialog>
   );
 }

@@ -285,12 +285,7 @@ button.link-button:hover {
   background: none;
   color: var(--text);
 }
-.plans-empty {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 24px;
-}
+
 .plans-crumbs {
   margin: 0 0 8px;
 }

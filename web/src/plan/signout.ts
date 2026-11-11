@@ -10,7 +10,7 @@ export interface SignOutSteps {
   /** Try to send them; bounded, never throws. */
   flush: () => Promise<void>;
   /** Ask before deleting answers that couldn't be sent. */
-  confirmDiscard: (count: number) => boolean;
+  confirmDiscard: (count: number) => boolean | Promise<boolean>;
   /** Delete the user's plan bundle and outbox from the device. Never throws. */
   clearPlan: (userId: string | null | undefined) => Promise<void>;
   /** Drop the plan queries, which aborts a bundle still on its way. */
@@ -29,7 +29,7 @@ export async function signOut(s: SignOutSteps): Promise<SignOutResult> {
   if (s.userId && s.pending() > 0) {
     await s.flush().catch(() => undefined);
     const left = s.pending();
-    if (left > 0 && !s.confirmDiscard(left)) return "cancelled";
+    if (left > 0 && !(await s.confirmDiscard(left))) return "cancelled";
   }
   await s.clearPlan(s.userId);
   s.dropQueries();
@@ -59,9 +59,9 @@ export function discardQuestion(count: number, stillSending: boolean): string {
   const one = count === 1;
   const n = one ? "1 answer on this device" : `${count} answers on this device`;
   if (stillSending) {
-    return `${n} ${one ? "is" : "are"} still on ${one ? "its" : "their"} way to Yama (slow connection). Signing out stops ${one ? "it" : "them"} and deletes ${one ? "it" : "them"} from this device, though Yama may already have ${one ? "it" : "some"}. Sign out anyway?`;
+    return `${n} ${one ? "is" : "are"} still on ${one ? "its" : "their"} way to Yama (slow connection). Signing out stops ${one ? "it" : "them"} and deletes ${one ? "it" : "them"} from this device, though Yama may already have ${one ? "it" : "some"}.`;
   }
-  return `${n} ${one ? "hasn't" : "haven't"} reached Yama yet (Yama couldn't be reached). Signing out deletes ${one ? "it" : "them"}. Sign out anyway?`;
+  return `${n} ${one ? "hasn't" : "haven't"} reached Yama yet (Yama couldn't be reached). Signing out deletes ${one ? "it" : "them"}.`;
 }
 
 /** Resolve after `promise` or `ms`, whichever comes first. */

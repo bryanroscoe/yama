@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, ApiError } from "../api";
 import { useMe } from "../auth";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Loading } from "../components/ui";
 import { outbox, useOutbox } from "../plan/outbox";
 import { usePlan } from "../plan/store";
 import { planView } from "../plan/view";
@@ -95,7 +95,7 @@ export function TrackPanel({ bundle, deck, build }: { bundle: ResearchBundle; de
   if (!ready) {
     return (
       <section className="note-track" aria-label="Archived plan">
-        {planError ? <ErrorText error={planError} /> : <p className="dim" role="status">Checking your plans…</p>}
+        {planError ? <ErrorText error={planError} /> : <Loading>Checking your plans…</Loading>}
       </section>
     );
   }

@@ -8,6 +8,7 @@ import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, u
 import { chosenLayout, subscribeLayout } from "./layouts";
 import { getShowArt, subscribeShowArt } from "./art";
 import { getCountTurns, subscribeCountTurns } from "./turns";
+import { DialogHead } from "../components/ui";
 
 /**
  * Where shared tables meet. Set (production): Yama's relay on Cloudflare (relay/), which works
@@ -482,10 +483,7 @@ export function JoinSheet({ gameId, onDone }: { gameId: string; onDone: () => vo
   }, [gameId]);
   return (
     <div className="stack join-sheet">
-      <div className="sheet-head">
-        <h2>Everyone on their own phone</h2>
-        <button className="quiet" onClick={onDone}>Done</button>
-      </div>
+      <DialogHead onClose={onDone}>Everyone on their own phone</DialogHead>
       <p className="dim" style={{ margin: 0 }}>
         Scan this with a phone camera, pick your seat and keep your own totals.{hostRelay(gameId) === "edge" ? " No account needed." : " Everyone signs in to Yama with Google the first time."}
       </p>

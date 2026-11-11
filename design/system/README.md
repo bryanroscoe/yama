@@ -4,17 +4,17 @@ Yama's visual system: a near-black, neutral table, so commander art and the five
 
 ## Content fundamentals
 
-Write like Bryan: direct, plain and useful. Headings, labels and buttons do the work.
+Write like Bryan: direct, plain and useful. Headings, labels and buttons do the work. American spelling, and one date style: "Oct 19, 2026" ([shared-code.md](shared-code.md) lists the formatting functions and the shared components).
 
 - **Sentence case everywhere.** No all-caps labels. No middle-dot meta strings ("Bracket 4 · 38 changes"); write a sentence or use separate lines.
 - **Cut before you explain.** Delete copy that repeats a heading or a button. An empty state needs one sentence. No feature pitches, rhetorical questions or reassurance after every action.
 - **Say the consequence where the decision is.** "Approve plan" sits beside "Nothing is bought until you mark it." Don't repeat it across the page.
 - **Help is one native disclosure** with a specific label ("How brackets work"), never a hover-only tooltip.
 - **Keep facts visible.** Errors, warnings, missing data, source dates, price sources and art credits stay beside what they qualify.
-- **Never invent numbers.** A missing price says "No price", never $0. A price carries its source and date: "Mothership, $0.75, checked 28 Oct".
+- **Never invent numbers.** A missing price says "No price", never $0. A price carries its source and date: "Mothership, $0.75, checked Oct 28".
 - **People never see internal words** like "promote", "planner", "note deck" or "tracked".
 
-Examples: "Waiting for your OK", "Approve plan", "38 changes", "6 to buy, $5.00", "Proposed by Claude on 28 Oct from the commander review".
+Examples: "Waiting for your OK", "Approve plan", "38 changes", "6 to buy, $5.00", "Proposed by Claude on Oct 28 from the commander review".
 
 ## Visual foundations
 
@@ -102,4 +102,4 @@ The wordmark is YAMA in caps (an acronym: Yet Another Magic App); its two A's ha
 
 Load the two Google families in `<helmet>`:
 `https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&family=Atkinson+Hyperlegible+Next:wght@400;700&display=swap`.
-Use the tokens as CSS variables (`var(--ground)` …) or their hex values. There is no component bundle: the components here are markup patterns with guidelines; copy their markup.
+Use the tokens as CSS variables (`var(--ground)` …) or their hex values. There is no component bundle: the components here are markup patterns with guidelines; copy their markup. The app's own shared components and formatting functions are listed in [shared-code.md](shared-code.md).

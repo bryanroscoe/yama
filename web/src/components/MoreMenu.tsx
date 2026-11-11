@@ -4,7 +4,7 @@
 // expands inline and never pushes the page down.
 import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Sheet } from "./ui";
+import { Dialog } from "./ui";
 
 const POPOVER = "(pointer: fine) and (min-width: 900px)";
 
@@ -65,7 +65,11 @@ export function MoreMenu({
   useEffect(() => {
     if (!open || !popover) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close(true);
+      if (e.key !== "Escape") return;
+      // Handled here: a dialog this sits in stays open.
+      e.preventDefault();
+      e.stopPropagation();
+      close(true);
     };
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
@@ -76,12 +80,12 @@ export function MoreMenu({
       if (e.target instanceof Node && pop.current?.contains(e.target)) return;
       close(false);
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     document.addEventListener("pointerdown", onDown);
     window.addEventListener("scroll", onMove, true);
     window.addEventListener("resize", onMove);
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onDown);
       window.removeEventListener("scroll", onMove, true);
       window.removeEventListener("resize", onMove);
@@ -139,9 +143,9 @@ export function MoreMenu({
           document.body,
         )}
       {open && !popover && (
-        <Sheet label={title ?? (typeof label === "string" ? label : "More")} onClose={() => close(true)}>
+        <Dialog label={title ?? (typeof label === "string" ? label : "More")} onClose={() => close(true)}>
           <div className="more-menu-sheet">{items}</div>
-        </Sheet>
+        </Dialog>
       )}
     </div>
   );

@@ -6,8 +6,7 @@ import { type DeckEntry, type DeckView } from "../api";
 import { artCredits } from "../components/ArtPanel";
 import { CardHover } from "../components/CardRef";
 import { Crop } from "../components/Crop";
-import { CardImage } from "../components/ui";
-import { CopyButton } from "../plan/parts";
+import { CardImage, EmptyState, Segmented, CopyButton } from "../components/ui";
 import { cardGroups, cardRows, copiesShown, copyChip, copyKinds, priceOf, rowPriceDates, showCounts, shownText, type CardGroupBy, type CardRow, type CardShow, type CardSort } from "./cardList";
 import { printingLabel } from "./priceList";
 import "./cards-tab.css";
@@ -32,17 +31,6 @@ function keep(key: string, v: string) {
   }
 }
 
-function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void }) {
-  return (
-    <span className="seg" role="group" aria-label={label}>
-      {options.map(([v, text]) => (
-        <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)}>
-          {text}
-        </button>
-      ))}
-    </span>
-  );
-}
 
 const copies = (n: number) => (n === 1 ? "1 card" : `${n} cards`);
 
@@ -131,7 +119,7 @@ export function DeckCardsTab({
     <div className="cards-tab">
       <div className="cards-controls">
         <div className="cards-controls-row">
-          <Segmented<CardShow>
+          <Segmented<CardShow> as="span" compact
             label="Show"
             value={show}
             onChange={setShow}
@@ -141,7 +129,7 @@ export function DeckCardsTab({
               ["proxy", <>Proxies <span className="num">{counts.proxy}</span></>],
             ]}
           />
-          <Segmented<CardView> label="View" value={view} onChange={setView} options={[["pictures", "Pictures"], ["list", "List"], ["table", "Table"]]} />
+          <Segmented<CardView> as="span" compact label="View" value={view} onChange={setView} options={[["pictures", "Pictures"], ["list", "List"], ["table", "Table"]]} />
           <span className="cards-total">
             <b className="num">{total.usd != null ? usd(total.usd) : "No price"}</b>
             <span className="dim">{total.unpriced ? `${copies(total.unpriced)} without a price. ` : ""}{priceLine}</span>
@@ -151,11 +139,11 @@ export function DeckCardsTab({
         <div className="cards-controls-row">
           <span className="cards-control-label">
             <span aria-hidden="true">Group by</span>
-            <Segmented<CardGroupBy> label="Group by" value={groupBy} onChange={setGroupBy} options={[["type", "Type"], ["mv", "Mana value"], ["none", "None"]]} />
+            <Segmented<CardGroupBy> as="span" compact label="Group by" value={groupBy} onChange={setGroupBy} options={[["type", "Type"], ["mv", "Mana value"], ["none", "None"]]} />
           </span>
           <span className="cards-control-label">
             <span aria-hidden="true">Sort</span>
-            <Segmented<CardSort> label="Sort" value={sort} onChange={setSort} options={[["mv", "Mana value"], ["name", "Name"], ["price", "Price"]]} />
+            <Segmented<CardSort> as="span" compact label="Sort" value={sort} onChange={setSort} options={[["mv", "Mana value"], ["name", "Name"], ["price", "Price"]]} />
           </span>
         </div>
       </div>
@@ -178,7 +166,7 @@ export function DeckCardsTab({
         </nav>
       )}
 
-      {groups.length === 0 && <p className="cards-empty">{empty}</p>}
+      {groups.length === 0 && <EmptyState variant="boxed">{empty}</EmptyState>}
 
       {groups.map((g) => {
         const open = !collapsed.has(g.id);

@@ -13,7 +13,7 @@ import { DeckResults } from "../components/DeckResults";
 import { statCards } from "../components/DeckStats";
 import { HelpPopover } from "../components/HelpPopover";
 import { NameList, useOnlineSupport } from "../components/OnlineSupport";
-import { CardImage, ErrorText } from "../components/ui";
+import { CardImage, ErrorText, Loading, Segmented } from "../components/ui";
 import { PowerLine, ScoreTable, ScryCheckButton, useDeckAnalysis } from "./DeckAnalysis";
 import { colorShares, curveColumns, isStockConfiguration, landFaceCopies, curveSpread, DIAL, dialArc, dialPoint, groupTotal, marginSpan, pctWidth, points, POWER_BANDS, REFERENCES, referenceOf, type Reference } from "./statsTab";
 import "./deckStatsTab.css";
@@ -87,17 +87,13 @@ function PowerSection({ deckId, versionId, cards, images, inDeck, onCard }: { de
         {a && (
           <span className="stats-compare">
             <span className="dim">Compare with</span>
-            <span className="segmented" role="group" aria-label="Compare with">
-              {([["none", "Nothing"], ...REFERENCES.map((x) => [x.key, x.label])] as [Reference, string][]).map(([key, label]) => (
-                <button key={key} type="button" aria-pressed={ref === key} onClick={() => setRef(key)}>{label}</button>
-              ))}
-            </span>
+            <Segmented as="span" label="Compare with" value={ref} onChange={setRef} options={[["none", "Nothing"], ...REFERENCES.map((x) => [x.key, x.label])] as [Reference, string][]} />
           </span>
         )}
       </div>
       <ErrorText error={q.error} />
       {versionId == null && <p className="dim">Add cards to see the deck's power level.</p>}
-      {q.isPending && versionId != null && <p className="dim">Working it out…</p>}
+      {q.isPending && versionId != null && <Loading>Working it out…</Loading>}
       {a && selected && (
         <>
           <div className="power-grid">
@@ -265,10 +261,7 @@ function CurveSection({ deck: d }: { deck: DeckView }) {
           </HelpPopover>
         </span>
         {stockRef && (
-          <span className="segmented" role="group" aria-label="Compare with">
-            <button type="button" aria-pressed={cmp === "none"} onClick={() => setCmp("none")}>Nothing</button>
-            <button type="button" aria-pressed={cmp === "stock"} onClick={() => setCmp("stock")}>Stock</button>
-          </span>
+          <Segmented as="span" label="Compare with" value={cmp} onChange={setCmp} options={[["none", "Nothing"], ["stock", "Stock"]]} />
         )}
       </div>
       <ErrorText error={stock.error} />

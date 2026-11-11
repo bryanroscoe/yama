@@ -22,6 +22,7 @@ import { refreshOfflineCardsIfStale } from "./offline/cards";
 // Catches the browser's install prompt as early as it fires, for the Install Yama buttons.
 import "./install";
 import { installNative, isNative } from "./native";
+import { ConfirmHost } from "./components/confirm";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false } },
@@ -62,6 +63,8 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      {/* Draws the questions components/confirm's ask() and tell() raise, over everything. */}
+      <ConfirmHost />
     </QueryClientProvider>
   </StrictMode>,
 );

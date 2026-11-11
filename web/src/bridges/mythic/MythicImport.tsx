@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { BackButton } from "../../components/DeckTabs";
 import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
-import { Details, ErrorText } from "../../components/ui";
+import { Details, ErrorText, Loading, CopyButton } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
 import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
@@ -25,7 +25,6 @@ export function MythicImportPage() {
   const [me, setMe] = useState<string | null>(null);
   const [players, setPlayers] = useState<Record<string, string | null>>({});
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const [copied, setCopied] = useState(false);
   // A match to a Yama game depends on who's who: changing that drops the matches chosen so far,
   // which the next preview may no longer offer.
   const dropMatches = () => setChoices((c) => Object.fromEntries(Object.entries(c).filter(([, v]) => !v.startsWith("link:"))));
@@ -69,10 +68,6 @@ export function MythicImportPage() {
       setFileError(e);
     }
   };
-  const copy = async () => {
-    await navigator.clipboard.writeText(MYTHIC_SNIPPET);
-    setCopied(true);
-  };
   const others = p?.players.filter((x) => x.mythic_id !== me) ?? [];
   const members = group?.members ?? [];
   const account = useMe().data;
@@ -100,7 +95,7 @@ export function MythicImportPage() {
               <li>Paste the snippet and press Enter. It reads your games and decks and saves a mythic-games file. It doesn't change anything in Mythic.</li>
             </ol>
             <div className="row">
-              <button onClick={() => void copy()}>{copied ? "Copied" : "Copy the snippet"}</button>
+              <CopyButton text={MYTHIC_SNIPPET} label="Copy the snippet" />
             </div>
             <Details label="What the snippet does">
               <p>It reads Mythic's web settings and your sign-in from the mythic.tools page, asks Mythic for each of your games and the names of the commanders in them, and for your decks with their lists, and saves them as a file. Nothing is sent anywhere else.</p>
@@ -135,7 +130,7 @@ export function MythicImportPage() {
                   <button className="outline" onClick={() => setChoices({})}>Start the choices over</button>
                 </div>
               )}
-              {preview.isLoading && <p className="dim">Reading the file…</p>}
+              {preview.isLoading && <Loading>Reading the file…</Loading>}
               {p && (
                 <>
                   {p.players.length > 0 && (

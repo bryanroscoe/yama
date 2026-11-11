@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ErrorText } from "../components/ui";
 import { adminApi, type LabRun } from "./api";
 import { ago, count } from "@yama/core";
+import { ask } from "../components/confirm";
 
 /** Imported lab runs everyone sees (precon ratings): rename or delete. Adding one stays on the
  *  command line (`yama-server import-lab`). */
@@ -82,7 +83,7 @@ function RunRow({ run }: { run: LabRun }) {
           <button
             className="outline danger"
             disabled={del.isPending}
-            onClick={() => window.confirm(`Delete ${run.name}? Its ratings go too, for everyone.`) && del.mutate()}
+            onClick={async () => (await ask({ title: `Delete ${run.name}?`, body: "Its ratings go too, for everyone.", confirm: "Delete run", danger: true })) && del.mutate()}
           >
             Delete
           </button>

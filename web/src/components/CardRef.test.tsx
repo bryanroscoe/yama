@@ -51,9 +51,12 @@ describe("shared card references", () => {
     await q.fetchQuery(options);await q.fetchQuery(options);expect(api).toHaveBeenCalledTimes(1);q.clear();
   });
   it("listens to the surrounding control’s focus and preserves its existing activation",()=>{
-    const listeners=new Map<string,()=>void>();const control={addEventListener:(n:string,f:()=>void)=>listeners.set(n,f),removeEventListener:(n:string)=>listeners.delete(n)};
+    const listeners=new Map<string,()=>void>();let keyboard=false;const control={matches:(q:string)=>q===":focus-visible"&&keyboard,addEventListener:(n:string,f:()=>void)=>listeners.set(n,f),removeEventListener:(n:string)=>listeners.delete(n)};
     const node={parentElement:{closest:()=>control}} as unknown as HTMLElement;const open=vi.fn();const close=vi.fn();
-    const cleanup=listenForPreviewControl(node,open,close);listeners.get("focus")!();expect(open).toHaveBeenCalledOnce();listeners.get("click")!();expect(close).toHaveBeenCalledOnce();listeners.get("blur")!();expect(close).toHaveBeenCalledTimes(2);cleanup();expect(listeners.size).toBe(0);
+    const cleanup=listenForPreviewControl(node,open,close);
+    // Focus handed back by a closing dialog (not from the keyboard) doesn't open the preview.
+    listeners.get("focus")!();expect(open).not.toHaveBeenCalled();
+    keyboard=true;listeners.get("focus")!();expect(open).toHaveBeenCalledOnce();listeners.get("click")!();expect(close).toHaveBeenCalledOnce();listeners.get("blur")!();expect(close).toHaveBeenCalledTimes(2);cleanup();expect(listeners.size).toBe(0);
   });
   it("clamps previews to narrow and short viewports",()=>{
     const p=previewPosition({left:305,right:340,top:650,bottom:680},360,700);

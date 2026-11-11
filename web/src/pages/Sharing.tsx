@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, publicOrigin, shareUrl, type DeckSummary, type Sharing, type TradeCompare, type TradeMatch, type Visibility } from "../api";
 import { useMe } from "../auth";
 import { AreaHead } from "../components/DeckTabs";
-import { CardImage, ErrorText } from "../components/ui";
+import { CardImage, ErrorText, Loading } from "../components/ui";
 import { SharingSettings } from "../decks/SharingSettings";
 import { useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, reports } from "../research/api";
@@ -106,7 +106,7 @@ export function ComparePage() {
     <Link className="sharing-browse" to="/sharing">← Sharing</Link>
     <AreaHead title={`You and ${at}`} />
     <p className="dim">Cards you could trade, from what {at} shares. Market prices are dated TCGplayer market prices from Scryfall, not offers. Copies are real cards; proxies aren't counted.</p>
-    {q.isPending && enabled && <p>Comparing…</p>}
+    {q.isPending && enabled && <Loading>Comparing…</Loading>}
     <ErrorText error={q.error} />
     {c && <>
       {c.yourself && <p className="small">This is your own profile, so both lists are yours.</p>}
@@ -157,7 +157,7 @@ export function SharingPage() {
     <nav className="sharing-jumps" aria-label="On this page"><a href="#sharing-trade">Trade</a><a href="#sharing-notes">Plans</a><a href="#sharing-decks">Decks</a><a href="#sharing">Settings</a></nav>
     <section className="grp-section" aria-labelledby="sharing-profile">
       <h2 id="sharing-profile">Your public profile</h2>
-      {sharing.isPending && <p>Loading profile…</p>}
+      {sharing.isPending && <Loading>Loading profile…</Loading>}
       <ErrorText error={sharing.error} />
       {profile ? <><p>{profileHolds(sharing.data!)} appear here.</p><div className="row"><a className="button outline" href={profile} target="_blank" rel="noreferrer">Open my public profile</a><button className="outline" onClick={() => void copy(profile)}>Copy profile link</button>{copied && <span className="small" role="status">{copied}</span>}{copied?.startsWith("Couldn't") && <input className="share-fallback" aria-label="Public profile link" readOnly value={profile} onFocus={(e) => e.currentTarget.select()} />}</div></> : sharing.data && <p>Choose a handle in <a href="#sharing">Sharing settings</a> to give your public pages a profile.</p>}
     </section>
@@ -165,7 +165,7 @@ export function SharingPage() {
     <section className="grp-section" aria-labelledby="sharing-decks">
       <h2 id="sharing-decks">Shared decks</h2>
       <ErrorText error={decks.error} />
-      {decks.isPending && <p>Loading decks…</p>}
+      {decks.isPending && <Loading>Loading decks…</Loading>}
       {sharedDecks?.length === 0 && <p>No decks shared yet. Open a deck and choose Share.</p>}
       <ul className="sharing-list">{sharedDecks?.map((d) => <SharedLink key={d.id} name={d.configuration ? `${d.name} — ${d.configuration}` : d.name} manage={`/decks/${d.id}`} url={d.share_token ? shareUrl(d.share_token) : null} visibility={d.visibility} />)}</ul>
       <Link className="sharing-browse" to="/decks">All my decks</Link>
@@ -174,7 +174,7 @@ export function SharingPage() {
       <h2 id="sharing-notes">Shared plans</h2>
       <p className="dim">Plans for one or more decks, with their builds and changes, shared by link or on your profile.</p>
       <ErrorText error={notes.error} />
-      {notes.isPending && <p>Loading plans…</p>}
+      {notes.isPending && <Loading>Loading plans…</Loading>}
       {sharedNotes?.length === 0 && <p>No plans shared yet. Open a plan and choose Share this plan.</p>}
       <ul className="sharing-list">{sharedNotes?.map((n) => <SharedLink key={n.id} name={n.title} manage={`/decks/research/${encodeURIComponent(n.id)}`} url={n.share_token ? noteShareUrl(n.share_token) : null} visibility={n.visibility!} />)}</ul>
       <Link className="sharing-browse" to="/decks/plans">All my plans</Link>

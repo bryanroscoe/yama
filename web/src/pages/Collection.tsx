@@ -8,7 +8,7 @@ import { Link } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, ApiError, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { CardImage, Details, ErrorText, Sheet } from "../components/ui";
+import { CardImage, Details, ErrorText, Dialog, Loading, EmptyState, Segmented } from "../components/ui";
 import "./collection.css";
 import "../decks/collect.css";
 import { changeText, keptText, missingLabel, missingText, previewLines, resultLines, type MythicReport } from "./mythicImport";
@@ -203,16 +203,9 @@ export function CollectionPage() {
           <h2 id="coll-cards-h">{heading}</h2>
           {chosen && <button className="outline small" onClick={() => setDeleting(chosen)}>Delete {(KIND_LABEL[chosen.kind] ?? "container").toLowerCase()}</button>}
           {container && <button className="quiet small" onClick={() => setContainer("")}>Show everything</button>}
-          <div className="segmented coll-sort" role="group" aria-label="Order">
-            <button aria-pressed={sort === "value"} onClick={() => setSort("value")}>By value</button>
-            <button aria-pressed={sort === "name"} onClick={() => setSort("name")}>By name</button>
-          </div>
+          <Segmented className="coll-sort" label="Order" value={sort} onChange={setSort} options={[["value", "By value"], ["name", "By name"]]} />
           {(proxies > 0 || kind !== "all") && (
-            <div className="segmented coll-kind" role="group" aria-label="Real cards or proxies">
-              <button aria-pressed={kind === "all"} onClick={() => setKind("all")}>All</button>
-              <button aria-pressed={kind === "real"} onClick={() => setKind("real")}>Real</button>
-              <button aria-pressed={kind === "proxy"} onClick={() => setKind("proxy")}>Proxies</button>
-            </div>
+            <Segmented className="coll-kind" label="Real cards or proxies" value={kind} onChange={setKind} options={[["all", "All"], ["real", "Real"], ["proxy", "Proxies"]]} />
           )}
           {!!items.data?.length && !items.isPlaceholderData && filter.trim() === query && (
             <button className="outline coll-sell" onClick={() => setSelling(true)}>Sell list</button>
@@ -231,19 +224,22 @@ export function CollectionPage() {
         )}
         <ErrorText error={items.error ?? summary.error} />
         {items.data && items.data.length === 0 && !query && !container && kind === "all" && (
-          <div className="empty stack">
-            <p>No cards yet.</p>
-            <div className="row">
-              <button className="outline" onClick={() => setImporting(true)}>Import from Mythic Tools</button>
-              <button className="outline" onClick={() => setScanning(true)}>Scan cards</button>
-              <Link className="button outline" to="/cards">Add from card search</Link>
-            </div>
-          </div>
+          <EmptyState
+            action={
+              <>
+                <button className="outline" onClick={() => setImporting(true)}>Import from Mythic Tools</button>
+                <button className="outline" onClick={() => setScanning(true)}>Scan cards</button>
+                <Link className="button outline" to="/cards">Add from card search</Link>
+              </>
+            }
+          >
+            No cards yet.
+          </EmptyState>
         )}
         {items.data && items.data.length === 0 && (query || container || kind !== "all") && (
-          <p className="empty">
+          <EmptyState>
             {kind === "proxy" ? "No proxies" : kind === "real" ? "No real cards" : "Nothing"} here{query ? ` called "${query}"` : ""}.
-          </p>
+          </EmptyState>
         )}
         <ul className="coll-list">
           {shown.map((i) => {
@@ -357,12 +353,8 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
   };
   const r = result ?? preview.data;
   return (
-    <Sheet label="Import" onClose={onClose}>
+    <Dialog title="Import from Mythic Tools" onClose={onClose}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>Import from Mythic Tools</h2>
-          <button className="quiet" onClick={onClose}>{result ? "Done" : "Close"}</button>
-        </div>
         <p className="dim">
           Choose a Mythic Tools CSV to preview the changes. Cards you've moved in Yama stay where you put them.
         </p>
@@ -373,7 +365,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           CSV file
           <input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && void choose(e.target.files[0])} />
         </label>
-        {preview.isFetching && <p className="dim">Checking the file against your collection…</p>}
+        {preview.isFetching && <Loading>Checking the file against your collection…</Loading>}
         <ErrorText error={preview.error ?? apply.error} />
         {r && (
           <>
@@ -423,7 +415,7 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           </>
         )}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 
@@ -439,7 +431,7 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
     },
   });
   return (
-    <Sheet label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
+    <Dialog label={`Delete ${label}`} onClose={() => { if (!remove.isPending) onClose(); }}>
       <div className="stack">
         <h2>Delete “{container.name}”?</h2>
         <p>Any cards inside will stay in your collection as loose cards. Saved decks and their lists will stay too.</p>
@@ -449,7 +441,7 @@ export function DeleteContainer({ container, onClose, onDeleted }: { container: 
         </div>
         <ErrorText error={remove.error} />
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 
@@ -704,7 +696,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   );
   return (
     <div className="scan-overlay">
-      <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+      <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
         <ScannerView
           onAccept={accept}
           onClose={onClose}
@@ -720,9 +712,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           acceptLabel="Add and scan next"
         />
         {reviewing && (
-          <Sheet onClose={() => setReviewing(false)} label="Added while scanning">
+          <Dialog onClose={() => setReviewing(false)} label="Added while scanning">
             <AddedList added={added} onFix={fix} onRetry={retry} onClose={() => setReviewing(false)} />
-          </Sheet>
+          </Dialog>
         )}
       </Suspense>
     </div>

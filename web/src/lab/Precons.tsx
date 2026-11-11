@@ -7,7 +7,7 @@ import { Link, useSearchParams } from "react-router";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { WinBar, winCeiling } from "../components/Crop";
-import { Details, ErrorText, Pips } from "../components/ui";
+import { Details, ErrorText, Pips, Loading, EmptyState } from "../components/ui";
 import { usePlan } from "../plan/store";
 import type { PreconItem, PreconList, Rating, RunLabel, RunListItem } from "./api";
 import { LabHead } from "./LabLayout";
@@ -192,7 +192,7 @@ export function PreconsPage() {
     return (
       <>
         <LabHead title="Lab" index />
-        {!precons.error && <p className="dim">Loading…</p>}
+        {!precons.error && <Loading />}
         <ErrorText error={precons.error} />
       </>
     );
@@ -391,7 +391,7 @@ export function PreconsPage() {
           );
         })}
       </ol>
-      {rows.length === 0 && <p className="empty">No precon matches. Clear the search or a color.</p>}
+      {rows.length === 0 && <EmptyState>No precon matches. Clear the search or a color.</EmptyState>}
 
       {run && (
         <section className="lab-about" id="how-ratings-work" aria-labelledby="how-ratings-work-title">

@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { api } from "../api";
 import { ArtPanel as SharedArtPanel, artCredits } from "../components/ArtPanel";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Pips } from "../components/ui";
+import { Details, ErrorText, Pips, Loading } from "../components/ui";
 import type { ExperimentDetail, TableDeck, TableGame, TableView, Tables } from "./api";
 import { enginesOf } from "./engines";
 import { LabHead } from "./LabLayout";
@@ -103,7 +103,7 @@ function Wait({ id, error }: { id?: string; error: unknown }) {
         <ErrorText error={error} />
       </>
     );
-  return <p className="dim">Loading…</p>;
+  return <Loading />;
 }
 
 /** One deck's games in a head-to-head or tournament run: its record, who it met, every table. */
@@ -160,7 +160,7 @@ export function RunDeckPage() {
         )}
       </ArtPanel>
       <ErrorText error={tables.error} />
-      {tables.isPending && <p className="dim">Loading the games…</p>}
+      {tables.isPending && <Loading>Loading the games…</Loading>}
       {data && (
         <>
           <section className="rt-stats" aria-label="Record">
@@ -332,7 +332,7 @@ export function RunTablePage() {
         <h1>Table {table}</h1>
       </header>
       <ErrorText error={tables.error} />
-      {tables.isPending && <p className="dim">Loading the table…</p>}
+      {tables.isPending && <Loading>Loading the table…</Loading>}
       {data && !t && <p className="dim">This run has no table {table}.</p>}
       {t && (
         <>

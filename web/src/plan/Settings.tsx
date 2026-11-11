@@ -2,16 +2,16 @@ import { localBuyRule, MAX_TIERS, rulesAt, shoppingRulesDraft, shoppingRulesProb
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Details, ErrorText } from "../components/ui";
+import { Details, ErrorText, CopyButton } from "../components/ui";
 import { ConnectedApps } from "../oauth/ConnectedApps";
 import { publicOrigin } from "../api";
 import { createKey, listImports, listKeys, removeShoppingRules, revokeKey, saveShoppingRules, type KeyScope, type ScriptKey } from "./api";
 import { outbox, useOutbox } from "./outbox";
 import { PlansHead, shortHash, usePlanOutlet } from "./PlanLayout";
 import { SettingsHowTo } from "./howto";
-import { CopyButton } from "./parts";
 import { clearPlanData } from "./store";
 import { fmtDate, usd } from "@yama/core";
+import { ask } from "../components/confirm";
 
 const VIA: Record<string, string> = { web: "uploaded in the browser", token: "sent by a script", cli: "imported on the server" };
 
@@ -321,7 +321,7 @@ function Keys() {
                 <button
                   className="quiet small"
                   disabled={revoke.isPending}
-                  onClick={() => window.confirm(`Revoke "${k.name}"? Scripts using it stop working.`) && revoke.mutate(k.id)}
+                  onClick={async () => (await ask({ title: `Revoke "${k.name}"?`, body: "Scripts using it stop working.", confirm: "Revoke key", danger: true })) && revoke.mutate(k.id)}
                 >
                   Revoke
                 </button>
@@ -341,10 +341,13 @@ function ThisDevice({ userId }: { userId: string }) {
   const box = useOutbox(userId);
   const clear = async () => {
     const n = box.pending.length;
-    const ask = n
-      ? `${n === 1 ? "1 answer hasn't" : `${n} answers haven't`} reached Yama yet and will be deleted. Clear the plan data on this device anyway?`
-      : "Clear the plan data saved on this device? Your plans stay in Yama and download again when you open them.";
-    if (!window.confirm(ask)) return;
+    const sure = await ask({
+      title: n ? "Clear the plan data on this device anyway?" : "Clear the plan data saved on this device?",
+      body: n ? `${n === 1 ? "1 answer hasn't" : `${n} answers haven't`} reached Yama yet and will be deleted.` : "Your plans stay in Yama and download again when you open them.",
+      confirm: "Clear plan data",
+      danger: true,
+    });
+    if (!sure) return;
     await clearPlanData(userId);
     qc.removeQueries({ queryKey: ["plan"] });
     qc.removeQueries({ queryKey: ["plan-cache"] });
@@ -367,7 +370,7 @@ function ThisDevice({ userId }: { userId: string }) {
 
 function Imports() {
   const imports = useQuery({ queryKey: ["plan-imports"], queryFn: listImports });
-  if (!imports.data?.length) return <ErrorText error={imports.error} />;
+  if (!imports.data?.length) return <ErrorText error={imports.error} retry={() => void imports.refetch()} />;
   return (
     <section className="stack">
       <h3>Import history</h3>

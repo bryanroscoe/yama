@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useDeleteAccount } from "../auth";
-import { ErrorText, Sheet } from "../components/ui";
+import { ErrorText, Dialog } from "../components/ui";
 
 /** Whether what was typed confirms the account's email: case and spaces at the ends don't matter. */
 export function confirmsEmail(email: string, typed: string): boolean {
@@ -32,7 +32,7 @@ function DeleteSheet({ email, onClose }: { email: string; onClose: () => void })
   const del = useDeleteAccount();
   const ok = confirmsEmail(email, typed);
   return (
-    <Sheet onClose={onClose} label="Delete your account">
+    <Dialog onClose={onClose} label="Delete your account">
       <form
         className="grp-delete"
         onSubmit={(e) => {
@@ -63,6 +63,6 @@ function DeleteSheet({ email, onClose }: { email: string; onClose: () => void })
           </button>
         </div>
       </form>
-    </Sheet>
+    </Dialog>
   );
 }

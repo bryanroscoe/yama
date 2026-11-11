@@ -6,12 +6,12 @@ import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameR
 import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText, Pips, Sheet } from "../components/ui";
+import { ErrorText, Pips, Dialog, Loading, Segmented } from "../components/ui";
 import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
-import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable } from "./store";
+import { discardGame, dropGuestGames, saveGuestGames, startGame, sync, useGuestGames, useWaitingGuestGame, useOutbox, usePendingDeletes, useRejected, useSyncStatus, useTable, DISCARD_GAME } from "./store";
 import { isGuest } from "../guest";
 import { LayoutPicker, LayoutSketch } from "./LayoutPicker";
 import { useLayoutChoice } from "./layouts";
@@ -28,6 +28,7 @@ import { forgetTable, followedTable } from "./following";
 import { tablePlay } from "./playLoader";
 import "./seats.css";
 import "./home.css";
+import { ask } from "../components/confirm";
 
 /** The last setup on this device: an account's, or (apart, so no names carry over) a guest's. */
 const lastSetupKey = () => (isGuest() ? "yama.table.lastSetup.guest" : "yama.table.lastSetup");
@@ -71,7 +72,7 @@ export function TableHome() {
   // Why games are still on this device: beside Recent games' upload status, not under its links.
   const notes = (
     <>
-      {syncStatus.error && outbox.length > 0 && <p className="small error">{syncStatus.error}</p>}
+      {outbox.length > 0 && <ErrorText small error={syncStatus.error} />}
       {!guest && rejected.length > 0 && (
         <p className="small error">
           {rejected.length} finished {rejected.length === 1 ? "game" : "games"} couldn't be saved to Yama ({rejected[rejected.length - 1]!.error}). {rejected.length === 1 ? "It's" : "They're"} kept on this device.
@@ -117,7 +118,7 @@ export function TableHome() {
           )}
           <div className="row">
             <button className="primary" onClick={() => navigate("/table/play")}>Back to the table</button>
-            <button className="quiet" disabled={hosting.following === game.setup.id} onClick={() => confirm("Throw this game away? It won't count, and it's deleted from Yama.") && discardGame()}>
+            <button className="quiet" disabled={hosting.following === game.setup.id} onClick={async () => (await ask(DISCARD_GAME)) && discardGame()}>
               Discard
             </button>
           </div>
@@ -182,7 +183,7 @@ function SaveGuestGames() {
       </p>
       <div className="row">
         {what && <button className="primary" onClick={saveGuestGames}>{one ? "Save it" : "Save them"}</button>}
-        <button className="quiet" onClick={() => confirm("Throw away the games counted without an account? They were never saved to Yama.") && dropGuestGames()}>
+        <button className="quiet" onClick={async () => (await ask({ title: "Throw away the games counted without an account?", body: "They were never saved to Yama.", confirm: "Throw them away", danger: true })) && dropGuestGames()}>
           Throw away
         </button>
       </div>
@@ -462,12 +463,12 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
             <LayoutPicker n={seats.length} art={seatArt} className="ng-layout" />
           </details>}
           {editing !== null && seats[editing] && (
-            <Sheet label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
+            <Dialog label={`Seat ${editing + 1}`} onClose={() => setEditing(null)}>
               <div className="stack">
                 <SeatEditor {...seatProps(editing)} />
                 <button className="primary" onClick={() => setEditing(null)}>Done</button>
               </div>
-            </Sheet>
+            </Dialog>
           )}
         </>
       )}
@@ -516,7 +517,7 @@ function WhoPlaying({ groups, groupId, groupReady, onGroup, people, seats, onTog
       )}
       <p className="small dim who-help">Tap a player to add or remove them.</p>
       {!groupReady ? (
-        <p className="small dim" style={{ margin: 0 }}>Loading players…</p>
+        <Loading small className="who-help">Loading players…</Loading>
       ) : people.length > 0 ? (
         <div className="who-chips">
           {shown.map((p) => {
@@ -550,11 +551,7 @@ function Choice<T extends string | number>({ label, options, value, onChange, na
   return (
     <div className="setup-choice">
       <span id={id} className="field-label">{label}</span>
-      <div className="segmented" role="group" aria-labelledby={id}>
-        {options.map((n) => (
-          <button key={n} type="button" aria-pressed={n === value} onClick={() => onChange(n)}>{name(n)}</button>
-        ))}
-      </div>
+      <Segmented labelledBy={id} value={value} onChange={onChange} options={options.map((n) => [n, name(n)] as const)} />
     </div>
   );
 }
@@ -836,12 +833,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   });
 
   return (
-    <Sheet label={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
+    <Dialog title={editing ? "Edit the game" : "Log a game"} onClose={onClose}>
       <form className="stack capture" onSubmit={(e) => { e.preventDefault(); save.mutate(false); }}>
-        <div className="sheet-head">
-          <h2>{editing ? "Edit the game" : "Log a game"}</h2>
-          <button type="button" className="quiet" onClick={onClose}>Close</button>
-        </div>
         <div className="row" style={{ alignItems: "end" }}>
           <label style={{ flex: "1 1 12rem" }}>
             Playgroup
@@ -918,6 +911,6 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           )}
         </div>
       </form>
-    </Sheet>
+    </Dialog>
   );
 }

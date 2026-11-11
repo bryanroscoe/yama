@@ -8,7 +8,7 @@ import { Link, useParams } from "react-router";
 import { usePower } from "../auth";
 import { api } from "../api";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
-import { CardImage, Details, ErrorText, ManaCost, Pips } from "../components/ui";
+import { CardImage, Details, ErrorText, ManaCost, Pips, Loading } from "../components/ui";
 import { CardSheet } from "../pages/Cards";
 import type { Matchup, PreconDetail, PreconItem, RatingV2, RunLabel } from "./api";
 import { ConfidenceNote } from "./confidence";
@@ -49,7 +49,7 @@ function PreconDetailBody({ id }: { id: string | undefined }) {
     );
   }
   const d = detail.data;
-  if (!d) return <p className="dim">Loading…</p>;
+  if (!d) return <Loading />;
   const p = d.precon;
   const support = (d.engine_support ?? null) as EngineSupport | null;
   const partly = new Set([...(support?.partly_unimplemented ?? []), ...(support?.other_face_partly_unimplemented ?? [])]);

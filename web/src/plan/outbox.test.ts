@@ -307,7 +307,7 @@ describe("signOut", () => {
     });
     await expect(signOut(s)).resolves.toBe("signed-out");
     expect(asked).toEqual([
-      "1 answer on this device is still on its way to Yama (slow connection). Signing out stops it and deletes it from this device, though Yama may already have it. Sign out anyway?",
+      "1 answer on this device is still on its way to Yama (slow connection). Signing out stops it and deletes it from this device, though Yama may already have it.",
     ]);
     // The logout reply came first; the inputs reply comes after both clears.
     resolve({ revision: 2, results: [{ op_id: "a", status: "applied", seq: 1 }] });
@@ -316,7 +316,7 @@ describe("signOut", () => {
   });
 
   it("says no connection only when sending failed", () => {
-    expect(discardQuestion(2, false)).toBe("2 answers on this device haven't reached Yama yet (Yama couldn't be reached). Signing out deletes them. Sign out anyway?");
+    expect(discardQuestion(2, false)).toBe("2 answers on this device haven't reached Yama yet (Yama couldn't be reached). Signing out deletes them.");
     expect(discardQuestion(2, true)).toMatch(/^2 answers on this device are still on their way to Yama \(slow connection\)\. .*Yama may already have some\./);
   });
 

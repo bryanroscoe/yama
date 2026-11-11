@@ -5,7 +5,7 @@ import { api } from "../api";
 import { saveExport } from "../download";
 import { useMe } from "../auth";
 import { LabHead } from "../lab/LabLayout";
-import { Details, ErrorText } from "../components/ui";
+import { Details, ErrorText, Loading } from "../components/ui";
 import { KINDS, count, dataset, datasets, object, percent, periodLabel, preconEvidence, recordName, setPreconEvidence, sourceUrl, text, type Dataset, type DatasetRead, type EvidenceRecord, type Source } from "./api";
 import "./datasets.css";
 import { fmtDate } from "@yama/core";
@@ -58,7 +58,7 @@ export function SharedPreconEvidence({ owner, names }: { owner: string; names: s
     onSuccess: (r) => { client.setQueryData(["precon-evidence"], r); void client.invalidateQueries({ queryKey: ["lab"] }); },
   });
   const r = report.data;
-  if (!r || names.length === 0) return <ErrorText error={report.error} />;
+  if (!r || names.length === 0) return <ErrorText error={report.error} retry={() => void report.refetch()} />;
   const on = new Set(r.sources.filter((s) => s.owner === owner).map((s) => s.source_name));
   const matched = Object.keys(r.matched).length;
   return <section className="dataset-card">
@@ -87,7 +87,7 @@ function DatasetIndex() {
     <LabHead title="Datasets" />
     <p>Explore historical precon and commander evidence saved to your account. Source dates, periods and counts stay attached to each observation.</p>
     <ErrorText error={list.error} />
-    {list.isPending && <p role="status">Loading datasets…</p>}
+    {list.isPending && <Loading>Loading datasets…</Loading>}
     {list.data?.length === 0 && <p>No datasets have been imported into your account yet.</p>}
     {list.data?.map((d) => <DatasetCard key={d.id} d={d} />)}
     {me.data?.is_admin && !me.data.viewing && <UploadDataset />}
@@ -172,7 +172,7 @@ function DatasetDetail({ id }: { id: string }) {
   return <div className="datasets-page">
     <LabHead title="Dataset evidence" back={{ to: "/lab/datasets", label: "Back to datasets" }} />
     <ErrorText error={read.error} />
-    {read.isPending && <p role="status">Loading evidence…</p>}
+    {read.isPending && <Loading>Loading evidence…</Loading>}
     {head && <>
       <h2>{head.title}</h2>
       <p className="dim">Private to your account. Revision {head.revision}, imported {fmtDate(head.imported_at)}.</p>

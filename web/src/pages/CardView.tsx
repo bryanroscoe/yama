@@ -12,7 +12,7 @@ import { cardDetailQuery } from "../cardDetail";
 import { isGuest } from "../guest";
 import { PriceHistory } from "../components/PriceHistory";
 import { Rulings } from "../components/Rulings";
-import { CardImage, ErrorText, ManaCost, Pips } from "../components/ui";
+import { CardImage, ErrorText, ManaCost, Pips, Loading } from "../components/ui";
 import { ownedFinishes } from "./collectionEdit";
 import "./cards.css";
 import { priceSource, shortDate, usd } from "@yama/core";
@@ -132,7 +132,7 @@ export function CardView({ oracleId, onBack, backLabel, readOnly = false, close 
               <Link to={signInPath(pathname + search)}>Sign in</Link> to open a card from a link, or search for it.
             </p>
           ) : (
-            detail.isPending && <p className="dim">Loading the card…</p>
+            detail.isPending && <Loading>Loading the card…</Loading>
           )}
         </div>
       </div>

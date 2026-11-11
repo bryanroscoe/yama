@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, type Member, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
+import { ask } from "../components/confirm";
 
 /** The server's caps (server/src/playgroups.rs), so the fields stop where a save would. */
 const NAME_MAX = 60;
@@ -50,18 +51,18 @@ export function Members({ group }: { group: Playgroup }) {
   const error = addGuest.error ?? remove.error ?? handOn.error ?? leave.error;
   const busy = remove.isPending || handOn.isPending || leave.isPending;
 
-  const askRemove = (m: Member) => {
-    const text = m.user_id
-      ? `Remove ${m.display_name} from ${group.name}? Their past games stay. The join code changes, so share the new one with anyone you invite next.`
-      : `Remove ${m.display_name} from ${group.name}? Their past games stay under their name.`;
-    if (window.confirm(text)) remove.mutate(m);
+  const askRemove = async (m: Member) => {
+    const body = m.user_id
+      ? "Their past games stay. The join code changes, so share the new one with anyone you invite next."
+      : "Their past games stay under their name.";
+    if (await ask({ title: `Remove ${m.display_name} from ${group.name}?`, body, confirm: "Remove", danger: true })) remove.mutate(m);
   };
-  const askHandOn = (m: Member) => {
-    if (window.confirm(`Make ${m.display_name} the owner of ${group.name}? You stay a member, and only they can then rename it, remove people or delete it.`)) handOn.mutate(m);
+  const askHandOn = async (m: Member) => {
+    if (await ask({ title: `Make ${m.display_name} the owner of ${group.name}?`, body: "You stay a member, and only they can then rename it, remove people or delete it.", confirm: "Make them the owner", danger: true })) handOn.mutate(m);
   };
-  const askLeave = () => {
-    const next = owner ? " It passes to the member who has been in it longest." : "";
-    if (window.confirm(`Leave ${group.name}?${next} Games you played stay in your own history.`)) leave.mutate();
+  const askLeave = async () => {
+    const next = owner ? "It passes to the member who has been in it longest. " : "";
+    if (await ask({ title: `Leave ${group.name}?`, body: `${next}Games you played stay in your own history.`, confirm: "Leave", danger: true })) leave.mutate();
   };
 
   return (
@@ -120,11 +121,11 @@ function OwnerTools({ group, alone, onChange, onGone }: { group: Playgroup; alon
   });
   const newCode = useMutation({ mutationFn: () => api(`/api/playgroups/${group.id}/code`, { method: "POST" }), onSuccess: onChange });
   const remove = useMutation({ mutationFn: () => api(`/api/playgroups/${group.id}`, { method: "DELETE" }), onSuccess: onGone });
-  const askNewCode = () => {
-    if (window.confirm(`Make a new join code for ${group.name}? The code ${group.join_code} stops working. Everyone already in the group stays.`)) newCode.mutate();
+  const askNewCode = async () => {
+    if (await ask({ title: `Make a new join code for ${group.name}?`, body: `The code ${group.join_code} stops working. Everyone already in the group stays.`, confirm: "Make a new code", danger: true })) newCode.mutate();
   };
-  const askDelete = () => {
-    if (window.confirm(`Delete ${group.name}? Its stats and guests go. The games stay in your own history, without the playgroup. This can't be undone.`)) remove.mutate();
+  const askDelete = async () => {
+    if (await ask({ title: `Delete ${group.name}?`, body: "Its stats and guests go. The games stay in your own history, without the playgroup. This can't be undone.", confirm: "Delete playgroup", danger: true })) remove.mutate();
   };
   return (
     <div className="grp-you" role="group" aria-label="Owner settings">

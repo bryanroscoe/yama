@@ -6,12 +6,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useModalLayer } from "../components/Dialog";
 import { useNavigate, useParams } from "react-router";
 import { BackButton } from "../components/DeckTabs";
 import { api, type DeckSummary, type DeckVersion, type DeckVersionRow, type DeckView } from "../api";
 import { useMe } from "../auth";
 import { LoadFailed, queryFailure, RefreshFailed } from "../components/QueryError";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../components/ui";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
 import { NameEntry } from "../scanner/NameEntry";
@@ -27,6 +28,8 @@ import { addCard, deviceFlag, fixCard, loadDraft, removeCard, setDeviceFlag, sto
 import "../scanner/scanner.css";
 import "./deckScan.css";
 import "./deckCheck.css";
+import { ask } from "../components/confirm";
+import { plural } from "@yama/core";
 
 const scanner = () => import("../scanner");
 const ScannerView = lazy(() => scanner().then((m) => ({ default: m.ScannerView })));
@@ -95,7 +98,7 @@ export function DeckCheckPage() {
 
   // Only with no deck to show: a refresh that failed leaves the check in progress on screen.
   if (queryFailure(deck) === "page") return <main className="page"><LoadFailed query={deck} /></main>;
-  if (!deck.data || !draft) return <main className="page"><p className="dim">Loading the deck…</p></main>;
+  if (!deck.data || !draft) return <Loading page>Loading the deck…</Loading>;
   const d = deck.data;
   const t = target.data;
   const sum = t && verdicts ? tally(t, verdicts) : null;
@@ -104,9 +107,19 @@ export function DeckCheckPage() {
     setMuted(on);
     setDeviceFlag(MUTE, on);
   };
-  const saveAsScan = () => {
+  const saveAsScan = async () => {
     const existing = loadDraft(id);
-    if (existing && existing.cards.length > 0 && !confirm(`A scan of this deck is already in progress on this device (${existing.cards.length} cards). Replace it with this check's ${draft.cards.length} cards?`)) return;
+    if (
+      existing &&
+      existing.cards.length > 0 &&
+      !(await ask({
+        title: `Replace the scan with this check's ${plural(draft.cards.length, "card")}?`,
+        body: `A scan of this deck is already in progress on this device (${plural(existing.cards.length, "card")}).`,
+        confirm: "Replace the scan",
+        danger: true,
+      }))
+    )
+      return;
     storeDraft(toScanDraft(draft, t));
     navigate(`/decks/${id}/scan`);
   };
@@ -145,7 +158,7 @@ export function DeckCheckPage() {
       </div>
 
       <ErrorText error={target.error} />
-      {!t && !target.error && <p className="dim">Loading the list…</p>}
+      {!t && !target.error && <Loading>Loading the list…</Loading>}
       {t && verdicts && sum && (
         <>
           <Tally sum={sum} />
@@ -164,7 +177,7 @@ export function DeckCheckPage() {
           {sum.checked > 0 && (
             <div className="row">
               <button onClick={saveAsScan}>Save as a deck scan</button>
-              <button className="quiet" onClick={() => confirm("Start the check over? The cards checked so far are cleared.") && setDraft((x) => ({ ...x, cards: [] }))}>
+              <button className="quiet" onClick={async () => (await ask({ title: "Start the check over?", body: "The cards checked so far are cleared.", confirm: "Start over", danger: true })) && setDraft((x) => ({ ...x, cards: [] }))}>
                 Start over
               </button>
             </div>
@@ -375,6 +388,8 @@ function CheckedList({ verdicts, setDraft }: { verdicts: Verdict[]; setDraft: Se
 function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClose }: {
   deck: DeckView; target: CheckTarget; draft: CheckDraft; verdicts: Verdict[]; setDraft: SetDraft; muted: boolean; onMute: (on: boolean) => void; onClose: () => void;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+  const layer = useModalLayer(root, onClose);
   const [catalog, setCatalog] = useState<ScanCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -416,9 +431,9 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
     </div>
   );
   return (
-    <div className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Check ${deck.name}`}>
+    <div ref={root} className="scan-overlay" role="dialog" aria-modal="true" aria-label={`Check ${deck.name}`} tabIndex={-1} {...layer}>
       {catalog ? (
-        <Suspense fallback={<p className="dim" style={{ padding: "1rem" }}>Starting the scanner…</p>}>
+        <Suspense fallback={<Loading padded>Starting the scanner…</Loading>}>
           <ScannerView
             catalog={catalog}
             identityOnly
@@ -442,17 +457,13 @@ function Camera({ deck, target, draft, verdicts, setDraft, muted, onMute, onClos
             }}
           />
           {reviewing && (
-            <Sheet onClose={() => setReviewing(false)} label="Checked cards">
+            <Dialog title="Checked cards" onClose={() => setReviewing(false)}>
               <div className="stack">
-                <div className="sheet-head">
-                  <h2>Checked cards</h2>
-                  <button className="quiet" onClick={() => setReviewing(false)}>Back to checking</button>
-                </div>
                 <Tally sum={sum} />
                 <TakeOut verdicts={verdicts} />
                 <CheckedList verdicts={verdicts} setDraft={setDraft} />
               </div>
-            </Sheet>
+            </Dialog>
           )}
         </Suspense>
       ) : (

@@ -5,7 +5,7 @@ import { CardRef } from "../components/CardRef";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import { Details, ErrorText, Sheet } from "../components/ui";
+import { Details, ErrorText, Dialog, Loading } from "../components/ui";
 import { isViewing } from "../viewingFlag";
 import { boxText, buttonText, groups, outcomeText, printingText, resultText, SAME_CHOICES, summary, type CollectPreview, type SamePrinting } from "./collect";
 import "./collect.css";
@@ -36,16 +36,10 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
   const g = p ? groups(p) : null;
 
   return (
-    <Sheet label="Add to my collection" onClose={onClose}>
+    <Dialog title={title} onClose={onClose}>
       <div className="stack">
-        <div className="sheet-head">
-          <h2>{title}</h2>
-          <button type="button" className="quiet" onClick={onClose}>
-            {result ? "Done" : "Close"}
-          </button>
-        </div>
         <ErrorText error={preview.error} />
-        {!p && !preview.error && <p className="dim">Checking your collection…</p>}
+        {!p && !preview.error && <Loading>Checking your collection…</Loading>}
         {p && (
           <>
             <p className="dim">{boxText(p)}</p>
@@ -127,7 +121,7 @@ export function CollectSheet({ deckId, offer = false, onClose }: { deckId: strin
           </>
         )}
       </div>
-    </Sheet>
+    </Dialog>
   );
 }
 

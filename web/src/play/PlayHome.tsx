@@ -8,7 +8,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
-import { ErrorText } from "../components/ui";
+import { ErrorText, Segmented } from "../components/ui";
 import { AlphaTag, ALPHA_NOTE } from "../components/AlphaTag";
 import { OnlineSupport } from "../components/OnlineSupport";
 import { BracketChips } from "../components/Bracket";
@@ -241,10 +241,7 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
               </div>
               <div className="ph-seat-fields">
                 {i > 0 && (
-                  <div className="segmented ph-kind" role="group" aria-label={`Who plays seat ${i + 1}`}>
-                    <button type="button" aria-pressed={s.kind === "ai"} onClick={() => update(i, { kind: "ai" })}>Computer</button>
-                    <button type="button" aria-pressed={s.kind === "friend"} onClick={() => update(i, { kind: "friend" })}>A friend</button>
-                  </div>
+                  <Segmented className="ph-kind" label={`Who plays seat ${i + 1}`} value={s.kind} onChange={(kind) => update(i, { kind })} options={[["ai", "Computer"], ["friend", "A friend"]]} />
                 )}
                 {s.kind !== "friend" && (
                   <SavedDeckPicker decks={decks} value={deckOf(s)} onChange={(deckId) => update(i, { deckId })} />
