@@ -280,6 +280,7 @@ export function ZonePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
   const total = ctx.zone.total ?? p.options.length + ctx.zone.others.length;
   const s = q.trim().toLowerCase();
   const shown = s ? eligible.filter((o) => o.name.toLowerCase().includes(s) || (ctx.meta[o.name]?.oracle_text ?? "").toLowerCase().includes(s)) : eligible;
+  const few = shown.length > 0 && shown.length <= 4;
   const picked = (o: DecisionOption) => draft.ids.indexOf(o.id);
   // "in your graveyard", "in Sam's graveyard", "on the battlefield".
   const label = ctx.zone.label;
@@ -295,7 +296,7 @@ export function ZonePick({ p, draft, onDraft, ctx, compact, disabled }: Props) {
       {eligible.length > 12 && (
         <input type="search" className="dw-filter" placeholder="Filter by name or text" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter the cards" />
       )}
-      <div className="dw-cards">
+      <div className={`dw-cards${few ? " few" : ""}`} style={few ? { "--choice-columns": compact ? Math.min(2, shown.length) : shown.length } as CSSProperties : undefined}>
         {shown.map((o) => (
           <CardPick
             key={o.id}
