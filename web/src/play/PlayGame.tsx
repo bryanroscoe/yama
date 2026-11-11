@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, publicOrigin } from "../api";
+import { api, ApiError, publicOrigin } from "../api";
 import { useMe } from "../auth";
 import { ArtPanel, artCredit } from "../components/ArtPanel";
 import { queryFailure, RefreshFailed } from "../components/QueryError";
@@ -27,8 +27,20 @@ export function PlayGame() {
     refetchOnWindowFocus: "always",
   });
   // Only with no game to show, or when the game is gone or not yours: one failed check (the lobby
-  // asks every 4 s) leaves the lobby or board up.
-  if (queryFailure(game) === "page") return <main className="page"><ErrorText error={game.error} /></main>;
+  // asks every 4 s) leaves the lobby or board up. A table the host cancelled, or a game they
+  // deleted, is gone for everyone who had it open: say so, with the way back.
+  if (queryFailure(game) === "page") {
+    return (
+      <main className="page">
+        <p><Link to="/play">Play online</Link></p>
+        {game.error instanceof ApiError && game.error.status === 404 ? (
+          <p role="alert">This game isn't here any more. Its host may have cancelled the table or deleted the game.</p>
+        ) : (
+          <ErrorText error={game.error} />
+        )}
+      </main>
+    );
+  }
   if (!game.data) return <main className="page" />;
   if (game.data.runtime_error) return <main className="page"><Link to="/play">Play online</Link><p role="alert">{game.data.runtime_error}</p></main>;
   if (game.data.status === "lobby") return <Lobby game={game.data} notice={<RefreshFailed query={game} what="this game" />} />;
@@ -153,7 +165,7 @@ function Lobby({ game, notice }: { game: OnlineGame; notice?: ReactNode }) {
               type="button"
               className="quiet"
               disabled={cancel.isPending || start.isPending}
-              onClick={() => confirm("Cancel this table? Its code stops working, and anyone who joined is sent back to Play online.") && cancel.mutate()}
+              onClick={() => confirm("Cancel this table? Its code stops working, and the table closes for anyone who joined.") && cancel.mutate()}
             >
               {cancel.isPending ? "Cancelling…" : "Cancel this table"}
             </button>
