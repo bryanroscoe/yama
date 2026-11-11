@@ -4,6 +4,7 @@ import { CollectionItemSheet } from "./CollectionItemSheet";
 import { SellSheet } from "./SellSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { exportLink } from "../download";
 import { api, API_BASE, type CollectionItem, type CollectionSummary, type Container, type DeckSummary } from "../api";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -230,8 +231,13 @@ export function CollectionPage() {
         )}
         <ErrorText error={items.error ?? summary.error} />
         {items.data && items.data.length === 0 && !query && !container && kind === "all" && (
-          <div className="empty">
-            <p>No cards yet. Import a collection or add cards from search.</p>
+          <div className="empty stack">
+            <p>No cards yet.</p>
+            <div className="row">
+              <button className="outline" onClick={() => setImporting(true)}>Import from Mythic Tools</button>
+              <button className="outline" onClick={() => setScanning(true)}>Scan cards</button>
+              <Link className="button outline" to="/cards">Add from card search</Link>
+            </div>
           </div>
         )}
         {items.data && items.data.length === 0 && (query || container || kind !== "all") && (

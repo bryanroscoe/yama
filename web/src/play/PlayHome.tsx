@@ -193,6 +193,10 @@ function NewGame({ decks }: { decks: DeckSummary[] }) {
       <section className="ph-new">
         <h2>New game</h2>
         <p className="dim">Add a deck to start playing.</p>
+        <div className="row">
+          <Link className="button primary" to="/decks/import">Add a deck</Link>
+          <Link className="button outline" to="/lab">Start from a precon</Link>
+        </div>
       </section>
     );
   }

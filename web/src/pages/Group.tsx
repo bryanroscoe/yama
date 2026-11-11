@@ -26,7 +26,7 @@ export function GroupPage() {
       {groups.data?.length === 0 && (
         <>
           <h1>Playgroup</h1>
-          <p className="empty">No playgroup yet.</p>
+          <GroupActions />
         </>
       )}
       {group && (
@@ -47,7 +47,8 @@ export function GroupPage() {
       </div>
       <ExportGames group={group} />
       <MythicImportEntry />
-      <GroupActions />
+      {/* With no playgroup yet, starting or joining one sits at the top instead. */}
+      {groups.data?.length !== 0 && <GroupActions />}
     </main>
   );
 }
