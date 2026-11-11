@@ -127,6 +127,9 @@ export function CollectionPage() {
   // The filters offer what the rows in view hold; a choice those rows no longer have is dropped.
   const options = useMemo(() => filterOptions(items.data ?? []), [items.data]);
   const filters = useMemo(() => clampFilters(chosenFilters, options), [chosenFilters, options]);
+  // Once the rows are in, a choice they don't hold is forgotten: left chosen, it would come
+  // back unasked when another box or search brought rows that have it.
+  if (items.data && !items.isPlaceholderData && Object.values(filters).join("|") !== Object.values(chosenFilters).join("|")) setFilters(filters);
   const filtering = activeFilters(filters) > 0;
   const sorted = useMemo(
     () => (items.data ?? []).filter((i) => passes(i, filters)).sort(sort === "value" ? byValue : (a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
