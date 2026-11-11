@@ -139,7 +139,7 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   with ids and fields as long as real ones. The lists these tools page through are bounded by
   how they are built, not only on the fixture: a page is a number of rows and each row has a
   longest length (`overview`'s summary is at most about 15,000 characters whatever the account
-  holds, a section page about 17,000). Tools that return one thing whole (`deck`, `plan_deck`,
+  holds, a section page about 19,000). Tools that return one thing whole (`deck`, `plan_deck`,
   `research` with `full`) are as large as that thing; the results-and-paging work gives those a
   cursor too. The rest is reached by asking: `overview` takes `section` (decks, plans, notes),
   whose rows are decks and their configurations, plans, or note decks; `review_queue` lists 15

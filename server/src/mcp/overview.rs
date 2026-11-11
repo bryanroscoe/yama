@@ -28,7 +28,7 @@ const NAME: usize = 80;
 const LINE: usize = 320;
 /// The longest row in a section's listing: a deck or plan, and a note deck with its builds.
 const FULL_LINE: usize = 420;
-const NOTE_DECK_LINE: usize = 900;
+const NOTE_DECK_LINE: usize = 800;
 /// Builds named on a note deck in the notes section (a deck may have 12).
 const SECTION_BUILDS: usize = 12;
 /// Rows a section's page holds when `limit` is left out, and the most it may hold. The largest
