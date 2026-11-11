@@ -1,7 +1,8 @@
 // A logged game back in the Log a game form, to edit it. Saving it again under the same id
 // stores what the form says now (server/src/games.rs, create_game).
 
-import { FORMATS, type FunRating, type TableFormat, type WinCondition } from "@yama/core";
+import { FORMATS, noteText, type FunRating, type TableFormat, type WinCondition } from "@yama/core";
+import type { KnockoutAnswer } from "../components/GameCapture";
 import type { DeckSummary, GameDetail, GameSeat } from "../api";
 import { emptySeat, type SeatDraft } from "./seats";
 import { localDay } from "./versions";
@@ -23,6 +24,26 @@ export function isLoggedGame(g: Pick<GameDetail, "mode" | "status" | "events">):
   return g.mode === "in_person" && g.status === "finished" && g.events.length === 0;
 }
 
+/**
+ * A logged game's per-seat answers (fun, and who was knocked out when and by whom) for the seats
+ * being saved. `kept` lists the form's places that are saved, in order: a seat left blank is
+ * dropped and the rest are numbered from 0, so every answer follows its player. `winner` is the
+ * winner's place in the form, or null for a draw.
+ */
+export function seatResults(kept: number[], winner: number | null, fun: FunRating[], outs: KnockoutAnswer[]) {
+  const seatOf = (place: number | null) => {
+    const seat = place === null ? -1 : kept.indexOf(place);
+    return seat >= 0 ? seat : null;
+  };
+  return kept.flatMap((place, seat) => {
+    const rating = fun.find((r) => r.seat === place)?.rating ?? null;
+    // The winner wasn't knocked out, whatever was ticked before they were picked.
+    const out = place === winner ? undefined : outs.find((k) => k.seat === place);
+    if (rating === null && !out) return [];
+    return [{ seat, fun: rating, eliminated_turn: out?.turn ?? null, eliminated_by_seat: out ? seatOf(out.by) : null }];
+  });
+}
+
 export interface LogForm {
   groupId: string;
   /** The game's format and starting life, kept as they were (a copied Standard game stays one). */
@@ -36,6 +57,10 @@ export interface LogForm {
   first: number | null;
   condition: WinCondition | null;
   fun: FunRating[];
+  /** Who was knocked out, by their place in the form. */
+  outs: KnockoutAnswer[];
+  /** What was written about the game ("" for none). */
+  note: string;
   seats: SeatDraft[];
   /** Each seat's label as saved, for a "partner" that turns out to be part of a deck's name. */
   savedLabels: (string | null)[];
@@ -61,6 +86,9 @@ export function formFromGame(g: GameDetail, decks: DeckSummary[] = []): LogForm 
     first: place(g.first_seat),
     condition: (g.win_condition as WinCondition | null) ?? null,
     fun: seats.flatMap((s, i) => (s.fun != null ? [{ seat: i, rating: s.fun }] : [])),
+    // A seat was knocked out if the game says when or by whom.
+    outs: seats.flatMap((s, i) => (s.eliminated_turn != null || s.eliminated_by_seat != null ? [{ seat: i, turn: s.eliminated_turn, by: place(s.eliminated_by_seat) }] : [])),
+    note: noteText(g.note) ?? "",
     savedLabels: seats.map((s) => s.deck_label),
     seats: seats.map((s) => {
       const mine = decks.find((d) => d.id === g.your_decks?.[s.seat]);

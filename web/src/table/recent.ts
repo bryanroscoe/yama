@@ -1,6 +1,6 @@
 // The words on a Recent games row (the Table tab): who won with what, and over whom.
 
-import { winConditionLabel } from "@yama/core";
+import { noteText, winConditionLabel } from "@yama/core";
 import type { GameRow, GameSeat } from "../api";
 
 /** "Terra" from "Terra, Herald of Hope": the name a table calls a commander by. */
@@ -76,7 +76,7 @@ export function recentGameText(g: GameRow & { note?: string | null }): RecentTex
   const how = winner ? winConditionLabel(g.win_condition) : null;
   const others = winner ? g.seats.filter((s) => s.seat !== winner.seat) : g.seats;
   const people = winner ? (others.length ? `Over ${listNames(seatLabels(others, [cmdr]))}` : null) : listNames(seatLabels(g.seats));
-  const sub = [how, people, g.note].filter(Boolean).join(". ");
+  const sub = [how, people, noteText(g.note)].filter(Boolean).join(". ");
   const short = [cmdr && shortName(cmdr), turnsText(g)].filter(Boolean).join(", ") || sub;
   return { title, with: withCmdr, sub, short };
 }

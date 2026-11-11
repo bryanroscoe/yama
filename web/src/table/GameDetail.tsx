@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatLabel, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
+import { formatLabel, noteText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
@@ -187,7 +187,8 @@ export function GameDetailPage() {
     g.turns ? `${turnsText(g)}.` : null,
     how ? `Won by ${how.toLowerCase()}.` : null,
     first ? `${seatName(first)} went first.` : null,
-    g.note ? `${g.note}.` : null,
+    // What the table wrote, as written (the old fixed "Logged after the game" isn't a note).
+    noteText(g.note),
   ].filter(Boolean);
 
   return (

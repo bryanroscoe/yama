@@ -913,6 +913,9 @@ struct OnlineGame {
     /// Your own fun rating for a finished game, 1 to 5, if you gave one (game detail only).
     #[serde(skip_serializing_if = "Option::is_none")]
     fun: Option<i64>,
+    /// What the host wrote about a finished game.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
     /// Deck name → cards the engine can't play yet (left out of the game).
     missing_cards: HashMap<String, Vec<String>>,
     /// When play started and, once it's over, when it ended (for the game's length).
@@ -975,12 +978,13 @@ struct Row {
     game_status: Option<String>,
     win_condition: Option<String>,
     first_seat: Option<i64>,
+    note: Option<String>,
 }
 
 /// The columns a [`Row`] reads; `o` is online_games, `g` games, `p` playgroups.
 const ROW_SELECT: &str =
     "SELECT o.game_id, o.code, o.host_id, o.stage, o.seats, o.created_at, o.updated_at, g.winner_seat, g.turns, p.name AS playgroup,
-     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status, g.win_condition, g.first_seat
+     g.started_at, g.ended_at, o.rematch_id, g.engine_version, g.status AS game_status, g.win_condition, g.first_seat, g.note
      FROM online_games o LEFT JOIN games g ON g.id = o.game_id LEFT JOIN playgroups p ON p.id = g.playgroup_id";
 
 impl Row {
@@ -1101,6 +1105,7 @@ fn summarize(
         first: if r.stage == "lobby" { r.first_seat.and_then(|f| u8::try_from(f).ok()) } else { None },
         win_condition: if r.stage == "over" { r.win_condition.clone() } else { None },
         fun: None,
+        note: if r.stage == "over" { r.note.clone() } else { None },
         missing_cards,
         started_at: (r.stage != "lobby").then(|| r.started_at.clone()).flatten(),
         ended_at: if r.stage == "over" { r.ended_at.clone() } else { None },
@@ -1163,6 +1168,9 @@ struct ResultRequest {
     /// The caller's own fun rating, 1 to 5.
     #[serde(default, deserialize_with = "present")]
     fun: Option<Option<i64>>,
+    /// A note about the game, from its host (whoever recorded a table game writes its note).
+    #[serde(default, deserialize_with = "present")]
+    note: Option<Option<String>>,
 }
 
 /// A seated player answers the end-of-game questions for a finished game: how it was won (for
@@ -1197,6 +1205,12 @@ async fn record_result(
     {
         return Err(AppError::bad("fun ratings go from 1 to 5"));
     }
+    if let Some(note) = &body.note {
+        if r.host_id != user.id {
+            return Err(AppError::Forbidden("Only the host writes the game's note.".into()));
+        }
+        crate::games::check_note(note.as_deref())?;
+    }
     let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(how) = &body.win_condition {
         sqlx::query("UPDATE games SET win_condition = ? WHERE id = ? AND mode = 'online' AND status = 'finished'").bind(how.as_deref()).bind(&id).execute(&mut *tx).await?;
@@ -1204,15 +1218,20 @@ async fn record_result(
     if let Some(fun) = body.fun {
         sqlx::query("UPDATE game_seats SET fun = ? WHERE game_id = ? AND seat = ? AND user_id = ?").bind(fun).bind(&id).bind(seat).bind(&user.id).execute(&mut *tx).await?;
     }
-    let saved: (Option<String>, Option<i64>) =
-        sqlx::query_as("SELECT g.win_condition, s.fun FROM games g JOIN game_seats s ON s.game_id = g.id WHERE g.id = ? AND s.seat = ?")
+    if let Some(note) = &body.note {
+        // An empty note is no note.
+        let text = note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+        sqlx::query("UPDATE games SET note = ? WHERE id = ? AND mode = 'online' AND status = 'finished'").bind(text).bind(&id).execute(&mut *tx).await?;
+    }
+    let saved: (Option<String>, Option<i64>, Option<String>) =
+        sqlx::query_as("SELECT g.win_condition, s.fun, g.note FROM games g JOIN game_seats s ON s.game_id = g.id WHERE g.id = ? AND s.seat = ?")
             .bind(&id)
             .bind(seat)
             .fetch_optional(&mut *tx)
             .await?
             .unwrap_or_default();
     tx.commit().await?;
-    Ok(Json(serde_json::json!({ "win_condition": saved.0, "fun": saved.1 })))
+    Ok(Json(serde_json::json!({ "win_condition": saved.0, "fun": saved.1, "note": saved.2 })))
 }
 
 pub(crate) fn deck_lines(cards: &[DeckCard]) -> Vec<DeckLine<'_>> {

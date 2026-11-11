@@ -1924,6 +1924,16 @@ async fn a_seated_player_answers_the_end_of_game_questions() {
     let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&host_token), None).await;
     assert_eq!((&game["win_condition"], &game["fun"]), (&serde_json::Value::Null, &serde_json::json!(2)));
 
+    // The host writes the game's note; another player may not, and an empty note is no note.
+    assert_eq!(post("won", &friend_token, serde_json::json!({ "note": "Mine" })).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(post("won", &host_token, serde_json::json!({ "note": "x".repeat(1001) })).await.0, StatusCode::BAD_REQUEST);
+    let (status, saved) = post("won", &host_token, serde_json::json!({ "note": "  Ben's first online game  " })).await;
+    assert_eq!((status, &saved["note"], &saved["fun"]), (StatusCode::OK, &serde_json::json!("Ben's first online game"), &serde_json::json!(2)), "{saved}");
+    let (_, game) = request(&app, Method::GET, "/api/play/won", Some(&friend_token), None).await;
+    assert_eq!(game["note"], "Ben's first online game");
+    assert_eq!(post("won", &host_token, serde_json::json!({ "note": "   " })).await.0, StatusCode::OK);
+    assert_eq!(sqlx::query_scalar::<_, Option<String>>("SELECT note FROM games WHERE id = 'won'").fetch_one(&pool).await.unwrap(), None);
+
     // A draw can be rated, but nobody won it any particular way.
     assert_eq!(post("drawn", &friend_token, serde_json::json!({ "win_condition": "combat" })).await.0, StatusCode::BAD_REQUEST);
     assert_eq!(post("drawn", &friend_token, serde_json::json!({ "fun": 5 })).await.0, StatusCode::OK);

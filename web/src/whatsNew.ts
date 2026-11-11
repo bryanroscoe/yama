@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-log-a-game-more",
+    date: "2026-11-11",
+    title: "Log a game with knockouts, a note and its format",
+    items: [
+      "Log a game now asks the game type and starting life, and who was knocked out: the turn and who did it are each optional.",
+      "Every game can carry a note: write one on the table's finish sheet, in Log a game, or (as the host) on the online game-over screen.",
+    ],
+    link: { to: "/", label: "Open Table" },
+  },
+  {
     id: "2026-11-11-online-setup",
     date: "2026-11-11",
     title: "Choose who goes first online, and play against precons",

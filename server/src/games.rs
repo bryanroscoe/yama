@@ -90,6 +90,10 @@ pub(crate) struct Finish {
     pub(crate) first_seat: Option<i64>,
     /// How the winner won (crate::stats::WIN_CONDITIONS), if anyone said. Ignored for a draw.
     pub(crate) win_condition: Option<String>,
+    /// Anything the table wrote about the game at the end. Left out or empty, the game keeps the
+    /// note it has.
+    #[serde(default)]
+    pub(crate) note: Option<String>,
     #[serde(default)]
     pub(crate) seats: Vec<SeatResult>,
 }
@@ -120,6 +124,16 @@ pub(crate) const MAX_TURNS: i64 = 10_000;
 pub(crate) const MAX_LIFE: i64 = 1_000_000_000_000;
 /// Seat numbers run from 0; a game has at most 10 seats, numbered by whoever recorded it.
 const MAX_SEAT: i64 = 99;
+/// The longest note a game keeps, in characters (packages/core NOTE_MAX).
+pub(crate) const MAX_NOTE: usize = 1000;
+
+/// A note is free text, shown to everyone who can see the game and exported with it.
+pub(crate) fn check_note(note: Option<&str>) -> AppResult<()> {
+    match note {
+        Some(n) if n.chars().count() > MAX_NOTE => Err(AppError::bad(format!("a note can be up to {MAX_NOTE} characters"))),
+        _ => Ok(()),
+    }
+}
 
 /// Check a finish against the game's seats. Everything here comes from the phone's event log,
 /// so the same finish arrives unchanged on every retry; a bad value is a bug worth a 400.
@@ -136,6 +150,7 @@ fn check_finish(f: &Finish, seats: &[i64]) -> AppResult<()> {
     if !turn(f.turns) {
         return Err(AppError::bad(format!("turns go from 0 to {MAX_TURNS}")));
     }
+    check_note(f.note.as_deref())?;
     if let Some(w) = &f.win_condition && !crate::stats::WIN_CONDITIONS.contains(&w.as_str()) {
         return Err(AppError::bad(format!("unknown win condition {w:?}")));
     }
@@ -329,6 +344,7 @@ pub(crate) async fn check_game(pool: &SqlitePool, user: &str, g: &NewGame) -> Ap
     if !(1..=MAX_LIFE).contains(&g.starting_life) {
         return Err(AppError::bad("starting life is out of range"));
     }
+    check_note(g.note.as_deref())?;
     check_time(g.started_at.as_deref(), "started_at")?;
     if let Some(f) = &g.finish {
         check_finish(f, &seat_numbers)?;
@@ -701,13 +717,16 @@ async fn finish_in(conn: &mut sqlx::SqliteConnection, id: &str, f: Finish, repla
         }
     }
     sqlx::query(
-        "UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ? WHERE id = ?",
+        // The finish sheet's note, when it wrote one; otherwise the game keeps what it has (a
+        // logged game's note arrives with the game itself).
+        "UPDATE games SET status = 'finished', winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ?, note = COALESCE(?, note) WHERE id = ?",
     )
     .bind(f.winner_seat)
     .bind(f.turns)
     .bind(f.ended_at.unwrap_or_else(now))
     .bind(f.first_seat)
     .bind(win_condition)
+    .bind(f.note.as_deref().map(str::trim).filter(|n| !n.is_empty()))
     .bind(id)
     .execute(&mut *conn)
     .await?;
@@ -1975,5 +1994,38 @@ mod tests {
         assert_eq!(ids(&group), ["playing"]);
         let (_, history) = send(&app, Method::GET, "/api/games/history?filter=unfinished", Some(&token), None).await;
         assert_eq!(ids(&history["games"]), ["playing"]);
+    }
+
+    #[tokio::test]
+    async fn a_finish_carries_the_tables_note_and_keeps_the_one_it_has_otherwise() {
+        let pool = setup().await;
+        let note = |id: &'static str| {
+            let pool = pool.clone();
+            async move { sqlx::query_scalar::<_, Option<String>>("SELECT note FROM games WHERE id = ?").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        // The finish sheet's note is stored, trimmed.
+        let table = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d01";
+        create_game(&pool, "me", new_game(table, None)).await.unwrap();
+        finish_as(&pool, table, "me", finish(json!({ "winner_seat": 0, "note": "  Sam's new deck  ", "seats": [] }))).await.unwrap();
+        assert_eq!(note(table).await.as_deref(), Some("Sam's new deck"));
+        // A logged game's note arrives with the game; a finish without one leaves it alone.
+        let logged = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d02";
+        let mut g = new_game(logged, Some(json!({ "winner_seat": 0, "seats": [] })));
+        g.note = Some("Played at the shop".into());
+        create_game(&pool, "me", g).await.unwrap();
+        assert_eq!(note(logged).await.as_deref(), Some("Played at the shop"));
+        // Saving it again with the note cleared clears it.
+        create_game(&pool, "me", new_game(logged, Some(json!({ "winner_seat": 0, "seats": [] })))).await.unwrap();
+        assert_eq!(note(logged).await, None);
+        // A note longer than the limit is refused, on a finish and on a game.
+        let long = "x".repeat(MAX_NOTE + 1);
+        let other = "6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d03";
+        create_game(&pool, "me", new_game(other, None)).await.unwrap();
+        assert!(matches!(finish_as(&pool, other, "me", finish(json!({ "winner_seat": 0, "note": long, "seats": [] }))).await, Err(AppError::BadRequest(_))));
+        let mut g = new_game("6f1c2c43-6c1e-4d6c-9f55-1d2b8a7f0d04", None);
+        g.note = Some(long);
+        assert!(matches!(create_game(&pool, "me", g).await, Err(AppError::BadRequest(_))));
+        // Exactly the limit is fine, counted in characters.
+        finish_as(&pool, other, "me", finish(json!({ "winner_seat": 0, "note": "é".repeat(MAX_NOTE), "seats": [] }))).await.unwrap();
     }
 }

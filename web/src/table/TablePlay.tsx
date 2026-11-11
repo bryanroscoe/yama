@@ -18,6 +18,7 @@ import {
   type CommanderPick,
   type CounterKind,
   type Loss,
+  type FinishDetails,
   type FunRating,
   type LoggedEvent,
   type PlayerState,
@@ -31,7 +32,7 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { Pips, Dialog, Segmented, DialogHead } from "../components/ui";
 import { useCardArt, type CardArt } from "../components/useCardArt";
-import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { FirstPlayerPicker, FunPicker, NotePicker, WinConditionPicker } from "../components/GameCapture";
 import { panelArt, setShowArt, useShowArt } from "./art";
 import { tableLayout, useLandscape, useLayoutChoice } from "./layouts";
 import { CommanderFields, resolveDraft, type CommanderDraft } from "./pickers";
@@ -1117,11 +1118,13 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   winner: number | null;
   onBack: () => void;
   /** `again`: start a new game with the same seats straight after saving this one. */
-  onSave: (details: { winCondition?: WinCondition; fun?: FunRating[] }, firstSeat: number | null, again: boolean) => void;
+  onSave: (details: FinishDetails, firstSeat: number | null, again: boolean) => void;
 }) {
   const [condition, setCondition] = useState<WinCondition | null>(null);
   const [fun, setFun] = useState<FunRating[]>([]);
   const [first, setFirst] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const details = (): FinishDetails => ({ winCondition: condition ?? undefined, fun, ...(note.trim() ? { note: note.trim() } : {}) });
   const winnerName = state.players.find((p) => p.seat === winner)?.name;
   const seats = state.players.map((p) => ({ seat: p.seat, name: p.name }));
   const firstName = state.players.find((p) => p.seat === state.firstSeat)?.name;
@@ -1135,9 +1138,10 @@ function FinishSheet({ state, winner, onBack, onSave }: {
         <p className="first-said small">{firstName} went first.</p>
       )}
       <FunPicker seats={seats} value={fun} onChange={setFun} />
+      <NotePicker value={note} onChange={setNote} />
       <div className="row">
-        <button className="primary" onClick={() => onSave({ winCondition: condition ?? undefined, fun }, first, false)}>Save the game</button>
-        <button onClick={() => onSave({ winCondition: condition ?? undefined, fun }, first, true)}>Save and play again</button>
+        <button className="primary" onClick={() => onSave(details(), first, false)}>Save the game</button>
+        <button onClick={() => onSave(details(), first, true)}>Save and play again</button>
       </div>
     </div>
   );

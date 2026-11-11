@@ -7,7 +7,7 @@ import { useMe } from "../auth";
 import { ArtMosaic } from "../components/ArtMosaic";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
 import { ErrorText, Pips, Dialog, Loading, Segmented } from "../components/ui";
-import { FirstPlayerPicker, FunPicker, WinConditionPicker } from "../components/GameCapture";
+import { FirstPlayerPicker, FunPicker, KnockoutPicker, NotePicker, WinConditionPicker, type KnockoutAnswer } from "../components/GameCapture";
 import { useCardArt } from "../components/useCardArt";
 import { localDay, versionOn } from "./versions";
 import { afterRemoving, applyDraftPatch, applySeatPatch, withDraftIds, emptySeat, fitSeatsToGroup, patchSeat, personPatch, seatDeckLabel, seatHolds, rebuildForGroup, stillHolds, togglePerson, withHandles, withoutGroup, type SeatDraft, type SeatPatch } from "./seats";
@@ -20,7 +20,7 @@ import { recentGameText, turnsText, winningSeat } from "./recent";
 import { resolveDraft, type CommanderDraft, type Person } from "./pickers";
 import { availablePeople, deckCommanders, SeatEditor, usePeople } from "./SeatEditor";
 import { gameSummary } from "./history";
-import { formFromGame, settleRebuilt } from "./logEdit";
+import { formFromGame, seatResults, settleRebuilt } from "./logEdit";
 import { useInstall } from "../install";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
@@ -666,7 +666,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
 }
 
 /** A new game's answers: nobody has said who won, who went first, how, or how fun it was. */
-const UNANSWERED = { turns: "", winner: null, first: null, condition: null, fun: [] as FunRating[] } as const;
+const UNANSWERED = { turns: "", winner: null, first: null, condition: null, fun: [] as FunRating[], outs: [] as KnockoutAnswer[], note: "" } as const;
 
 /**
  * Log a game played without Yama, or (`editing`) change one logged before: the same form, filled
@@ -685,8 +685,13 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     return editing ? f : { ...f, ...UNANSWERED };
   });
   const [groupId, setGroupId] = useState(form?.groupId ?? "");
-  const format = form?.format ?? "commander";
-  const startingLife = form?.startingLife ?? 40;
+  const [format, setFormat] = useState<TableFormat>(form?.format ?? "commander");
+  const [startingLife, setStartingLife] = useState(form?.startingLife ?? 40);
+  // Choosing a game type sets its usual starting life, as New game does.
+  const chooseFormat = (f: TableFormat) => {
+    setFormat(f);
+    setStartingLife(FORMATS.find((x) => x.key === f)!.life);
+  };
   const cmdr = format === "commander";
   // The day here, not in UTC: after 7 pm in Texas, UTC is already tomorrow.
   const [date, setDate] = useState(() => form?.date ?? localDay());
@@ -696,6 +701,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
   const [first, setFirst] = useState<number | null>(form?.first ?? null);
   const [condition, setCondition] = useState<WinCondition | null>(form?.condition ?? null);
   const [fun, setFun] = useState<FunRating[]>(form?.fun ?? []);
+  const [outs, setOuts] = useState<KnockoutAnswer[]>(form?.outs ?? []);
+  const [note, setNote] = useState(form?.note ?? "");
   // One id per form, so pressing Save again after a failed or slow upload can't log it twice.
   const [gameId, setGameId] = useState(() => editing?.id ?? crypto.randomUUID());
   // Games saved from this form with "Save and log another".
@@ -746,6 +753,11 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
     setFun((all) => all.flatMap((r) => {
       const seat = afterRemoving(r.seat, i);
       return seat === null ? [] : [{ ...r, seat }];
+    }));
+    // The removed player's knockout goes with them; one they dealt keeps its turn and loses its name.
+    setOuts((all) => all.flatMap((k) => {
+      const seat = afterRemoving(k.seat, i);
+      return seat === null ? [] : [{ ...k, seat, by: afterRemoving(k.by, i) }];
     }));
   };
   const chooseGroup = (id: string) => {
@@ -809,9 +821,9 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
             ended_at: at,
             first_seat: seatOf(first) !== null && seatOf(first)! >= 0 ? seatOf(first) : null,
             win_condition: winnerSeat === null ? null : condition,
-            seats: fun.map((r) => ({ seat: seatOf(r.seat), fun: r.rating })).filter((r) => r.seat !== null && r.seat >= 0),
+            seats: seatResults(filled.map((f) => f.i), winner === "draw" ? null : winner, fun, outs),
           },
-          note: editing?.note ?? "Logged after the game",
+          note: note.trim() || null,
         },
       });
     },
@@ -828,6 +840,8 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
       setFirst(UNANSWERED.first);
       setCondition(UNANSWERED.condition);
       setFun(UNANSWERED.fun);
+      setOuts(UNANSWERED.outs);
+      setNote(UNANSWERED.note);
       setSavedHere((n) => n + 1);
     },
   });
@@ -849,11 +863,14 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           </label>
           <label style={{ flex: "0 1 6rem" }}>
             Turns
-            <input inputMode="numeric" value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
+            <input inputMode="numeric" maxLength={4} value={turns} onChange={(e) => setTurns(e.target.value.replace(/\D/g, ""))} />
           </label>
         </div>
+        <div className="row" style={{ alignItems: "end" }}>
+          <Choice label="Game type" options={FORMATS.map((f) => f.key)} value={format} onChange={chooseFormat} name={(f) => formatLabel(f)} />
+          <Choice label="Starting life" options={startingLife && ![40, 30, 25, 20].includes(startingLife) ? [startingLife, 40, 30, 25, 20] : [40, 30, 25, 20]} value={startingLife} onChange={setStartingLife} />
+        </div>
         <p className="small dim" style={{ margin: 0 }}>
-          {!cmdr && `A ${formatLabel(format)} game at ${startingLife} life, like the game it started from. `}
           List the players clockwise, so turn order counts from whoever went first.
         </p>
         {seats.map((s, i) => (
@@ -893,9 +910,16 @@ export function LogGame({ onClose, editing, copyFrom }: { onClose: () => void; e
           <>
             {typeof winner === "number" && <WinConditionPicker value={condition} onChange={setCondition} winner={named.find((n) => n.seat === winner)?.name} />}
             <FirstPlayerPicker key={gameId} seats={named} value={first} onChange={setFirst} />
+            <KnockoutPicker
+              seats={named}
+              winner={typeof winner === "number" ? winner : null}
+              value={outs.filter((k) => named.some((n) => n.seat === k.seat))}
+              onChange={setOuts}
+            />
             <FunPicker seats={named} value={fun.filter((r) => named.some((n) => n.seat === r.seat))} onChange={setFun} />
           </>
         )}
+        <NotePicker value={note} onChange={setNote} />
         <ErrorText error={save.error} />
         {savedHere > 0 && !save.isPending && !save.error && (
           <p className="small dim" role="status">

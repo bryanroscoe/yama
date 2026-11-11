@@ -9,7 +9,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { WIN_CONDITIONS, type WinCondition } from "@yama/core";
+import { NOTE_MAX, WIN_CONDITIONS, type WinCondition } from "@yama/core";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
@@ -156,6 +156,9 @@ export function GameOver(props: {
   // What this player has answered on this screen. Until they do, the saved answers show: the
   // engine's reading of how the game was won, and a rating given earlier.
   const [answers, setAnswers] = useState<{ how?: WinCondition | null; fun?: number | null }>({});
+  // The host's note: what's typed here, until it's saved (undefined: showing the saved one).
+  const [noteDraft, setNoteDraft] = useState<string | undefined>(undefined);
+  const [savedNote, setSavedNote] = useState<string | null | undefined>(undefined);
   // The host by account, not by seat: a table whose host chose who goes first is numbered from
   // that player, so the host isn't always seat 1.
   const me = useMe();
@@ -256,6 +259,20 @@ export function GameOver(props: {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+  // The game's note, as the table's finish sheet keeps one. The host writes it; everyone reads it.
+  const note = savedNote !== undefined ? savedNote : (game?.note ?? null);
+  const saveNote = async () => {
+    if (noteDraft === undefined) return;
+    setError(null);
+    try {
+      const saved = await api<{ note: string | null }>(`/api/play/${id}/result`, { method: "POST", json: { note: noteDraft } });
+      setSavedNote(saved.note);
+      setNoteDraft(undefined);
+      void qc.invalidateQueries({ queryKey: ["games"] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const ai = seats.some((s) => s.ai);
   // A playgroup's stats compare its people: a game one person played against the computer is
   // kept in the group's history and left out of its figures.
@@ -325,6 +342,24 @@ export function GameOver(props: {
                 value={fun === null ? [] : [{ seat: names.you!, rating: fun }]}
                 onChange={(v) => void answer({ fun: v[0]?.rating ?? null })}
               />
+              {host ? (
+                <div className="question">
+                  <p>Notes <span className="optional">(optional)</span></p>
+                  <textarea
+                    className="capture-note"
+                    rows={2}
+                    maxLength={NOTE_MAX}
+                    aria-label="Notes about this game"
+                    value={noteDraft ?? note ?? ""}
+                    onChange={(e) => setNoteDraft(e.target.value)}
+                  />
+                  {noteDraft !== undefined && noteDraft.trim() !== (note ?? "") && (
+                    <button type="button" className="small" style={{ justifySelf: "start" }} onClick={() => void saveNote()}>Save the note</button>
+                  )}
+                </div>
+              ) : (
+                note && <p className="small dim">{note}</p>
+              )}
             </section>
           )}
           <div className="go-group">

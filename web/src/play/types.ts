@@ -899,6 +899,8 @@ export interface OnlineGame {
   win_condition?: string | null;
   /** Your own fun rating for a finished game, 1 to 5 (game detail only). */
   fun?: number | null;
+  /** What the host wrote about a finished game. */
+  note?: string | null;
   missing_cards: Record<string, string[]>;
   /** When play started and, once over, ended (newer servers). */
   started_at?: string | null;

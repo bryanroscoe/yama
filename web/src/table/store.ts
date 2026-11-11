@@ -483,7 +483,8 @@ export function finishGame(winnerSeat: number | null, details: FinishDetails = {
   }
   const fun = details.fun?.length ? details.fun : undefined;
   const winCondition = winnerSeat === null ? undefined : details.winCondition;
-  log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}) }, now, Infinity);
+  const note = details.note?.trim();
+  log = record(log, { type: "finish", winnerSeat, endedAt: now.toISOString(), ...(winCondition ? { winCondition } : {}), ...(fun ? { fun } : {}), ...(note ? { note } : {}) }, now, Infinity);
   // A finished game uploads whole: drop the in-flight mark so nothing is held back. One counted
   // without an account waits on this phone instead.
   const saved = saveFinished({ ...current, log, frozenThrough: undefined });

@@ -85,8 +85,10 @@ describe("recent game text", () => {
 
   it("adds how it was won and the note", () => {
     const g = game([seat(0, "Bryan", "Éowyn, Shieldmaiden"), seat(1, "Sam", "Quintorius, History Chaser")], { winner_seat: 0, win_condition: "combat" });
-    const t = recentGameText({ ...g, note: "Logged after the game" });
+    const t = recentGameText({ ...g, note: "Sam's new deck" });
     expect(t.with).toBe("Éowyn");
-    expect(t.sub).toBe("Combat. Over Quintorius. Logged after the game");
+    expect(t.sub).toBe("Combat. Over Quintorius. Sam's new deck");
+    // The fixed note logged games used to get isn't something anyone wrote.
+    expect(recentGameText({ ...g, note: "Logged after the game" }).sub).toBe("Combat. Over Quintorius");
   });
 });

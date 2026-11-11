@@ -90,9 +90,26 @@ export interface FunRating {
   rating: number;
 }
 
+/** The longest note a game keeps (the server refuses more). */
+export const NOTE_MAX = 1000;
+
+/**
+ * "Logged after the game" was the fixed note every logged game got before Log a game had a notes
+ * field. It says nothing the page doesn't already say, so it isn't shown or offered for editing.
+ */
+export const LEGACY_LOGGED_NOTE = "Logged after the game";
+
+/** A game's note as people wrote it: trimmed, or null when there is none worth showing. */
+export function noteText(note: string | null | undefined): string | null {
+  const text = note?.trim();
+  return text && text !== LEGACY_LOGGED_NOTE ? text : null;
+}
+
 export interface FinishDetails {
   winCondition?: WinCondition;
   fun?: FunRating[];
+  /** Anything the table wants to remember about the game. */
+  note?: string;
 }
 
 export type TableEvent =
@@ -527,6 +544,7 @@ export function toServerFinish(setup: TableSetup, log: LoggedEvent[]) {
     first_seat: state.firstSeat,
     // A draw has no way it was won.
     win_condition: f.winnerSeat === null ? null : (f.winCondition ?? null),
+    note: f.note?.trim() ? f.note.trim().slice(0, NOTE_MAX) : null,
     seats: state.players.map((p) => ({
       seat: p.seat,
       final_life: p.life,
