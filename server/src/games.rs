@@ -848,9 +848,9 @@ pub(crate) struct HistoryParams {
     pub q: String,
     #[serde(default)]
     pub offset: u32,
-    /// Only games played in this playgroup, including ones the caller wasn't in when they are
-    /// a member of it (as `GET /api/games?playgroup=` lists them). Membership is checked in the
-    /// query; for anyone else it narrows their own games to none.
+    /// Only games played in this playgroup. Its owner and members also get the ones they weren't
+    /// in (`playgroups::is_member`'s rule, as `GET /api/games?playgroup=` lists them); the rule
+    /// is checked in the query. Anyone else gets only their own games that were played in it.
     #[serde(default)]
     pub playgroup: Option<String>,
 }
@@ -917,13 +917,15 @@ pub(crate) async fn history_page(pool: &SqlitePool, user_id: &str, p: HistoryPar
              LEFT JOIN playgroup_members m ON m.id=s.member_id WHERE s.game_id=g.id
          ) AS names FROM games g
          WHERE (g.created_by = ? OR g.id IN (SELECT game_id FROM game_seats WHERE user_id = ?)
-                OR (g.playgroup_id = ? AND EXISTS (SELECT 1 FROM playgroup_members pm WHERE pm.playgroup_id = g.playgroup_id AND pm.user_id = ?)))
+                OR (g.playgroup_id = ? AND EXISTS (SELECT 1 FROM playgroups pg LEFT JOIN playgroup_members pm ON pm.playgroup_id = pg.id
+                                                   WHERE pg.id = g.playgroup_id AND (pg.owner_id = ? OR pm.user_id = ?))))
            AND {NOT_A_LOBBY} AND ({filter}) AND (? IS NULL OR g.playgroup_id = ?)
          ORDER BY {order} LIMIT ? OFFSET ?"
     )))
     .bind(user_id)
     .bind(user_id)
     .bind(p.playgroup.as_deref())
+    .bind(user_id)
     .bind(user_id)
     .bind(p.playgroup.as_deref())
     .bind(p.playgroup.as_deref())

@@ -1121,24 +1121,56 @@ async fn wishes_containers_and_copies_change_only_when_applied() {
     assert!(err && text.contains("nonfoil, foil or etched"), "{text}");
     let (err, text) = call(&app, &other, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "proxy": true})).await;
     assert!(err && text.contains("no binder, deck box or list called"), "{text}");
-    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "qty": 1, "proxy": true, "note": "playtest", "price_paid": 0.25})).await;
-    assert!(!err && text.contains("Mark 1 Sol Ring in Trade Binder: a proxy, note \"playtest\", paid 0.25 each"), "{text}");
+    // A note or a price is for all the copies; a finish or proxy mark may be for some.
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "qty": 1, "note": "playtest"})).await;
+    assert!(err && text.contains("can't be set on only some") && text.contains("all 3 Sol Ring"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "qty": 1, "proxy": true})).await;
+    assert!(!err && text.contains("Mark 1 Sol Ring in Trade Binder: a proxy") && text.contains("the other 2 stay"), "{text}");
     apply(text).await;
     let copies = || async {
         sqlx::query_as::<_, (i64, bool, Option<String>, Option<f64>)>("SELECT qty, proxy, note, purchase_price FROM collection_items WHERE owner_id = ? ORDER BY proxy").bind(&a).fetch_all(&pool).await.unwrap()
     };
-    assert_eq!(copies().await, [(2, false, None, None), (1, true, Some("playtest".to_string()), Some(0.25))]);
+    assert_eq!(copies().await, [(2, false, None, None), (1, true, None, None)]);
+    // Only the copies an edit would change count: one proxy can become a real card, not three.
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "qty": 3, "proxy": false})).await;
+    assert!(err && text.contains("holds 1 Sol Ring that this would change, not 3"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "finish": "nonfoil"})).await;
+    assert!(err && text.contains("is already nonfoil"), "{text}");
+    let (err, text) = call(&app, &mcp, "edit_copies", json!({"card": "Sol Ring", "container": "Trade Binder", "note": "playtest", "price_paid": 0.25})).await;
+    assert!(!err && text.contains("Mark 3 Sol Ring in Trade Binder: note \"playtest\", paid 0.25 each"), "{text}");
+    apply(text).await;
+    let noted = (Some("playtest".to_string()), Some(0.25));
+    assert_eq!(copies().await, [(2, false, noted.0.clone(), noted.1), (1, true, noted.0.clone(), noted.1)]);
 
-    // Two copies leave for good: the real ones first, as a move takes them.
+    // A copy leaves for good.
     let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 5, "from": "Trade Binder"})).await;
     assert!(err && text.contains("holds 3"), "{text}");
     let (err, text) = call(&app, &other, "remove_from_collection", json!({"card": "Sol Ring", "from": "Trade Binder"})).await;
     assert!(err && text.contains("no binder, deck box or list called"), "{text}");
-    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 2, "from": "Trade Binder"})).await;
-    assert!(!err && text.contains("Remove 2 Sol Ring from Trade Binder"), "{text}");
+    // A real copy and a proxy are there: which one goes has to be said, and the change names it.
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 1, "from": "Trade Binder"})).await;
+    assert!(err && text.contains("are not all alike: 2 × TST #1, nonfoil, NM; 1 × TST #1, nonfoil, NM, proxy") && text.contains("Nothing was staged"), "{text}");
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 2, "from": "Trade Binder", "proxy": true})).await;
+    assert!(err && text.contains("holds 1 Sol Ring like that, not 2"), "{text}");
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "qty": 1, "from": "Trade Binder", "proxy": false})).await;
+    assert!(!err && text.contains("Remove 1 Sol Ring from Trade Binder") && text.contains("1 × TST #1, nonfoil, NM. 2 of the 3 Sol Ring there stay"), "{text}");
     assert_eq!(copies().await.len(), 2, "staged, not applied");
+    let removal = change_id(&text);
     apply(text).await;
-    assert_eq!(copies().await, [(1, true, Some("playtest".to_string()), Some(0.25))]);
+    assert_eq!(copies().await, [(1, false, noted.0.clone(), noted.1), (1, true, noted.0.clone(), noted.1)]);
+    // Applied again after a crash between the collection's commit and the change's own status:
+    // nothing more leaves, though another copy is there to take.
+    sqlx::query("UPDATE assistant_changes SET status = 'pending', decided_at = NULL WHERE id = ?").bind(&removal).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": removal})).await;
+    assert!(!err, "{text}");
+    assert_eq!(copies().await.iter().map(|c| c.0).sum::<i64>(), 2, "the retry removed nothing");
+    // The rows a removal names are the ones it takes from: once they have changed it is refused.
+    let (err, text) = call(&app, &mcp, "remove_from_collection", json!({"card": "Sol Ring", "from": "Trade Binder", "proxy": true})).await;
+    assert!(!err, "{text}");
+    sqlx::query("UPDATE collection_items SET qty = 0 WHERE owner_id = ? AND proxy = 1").bind(&a).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &mcp, "apply_change", json!({"id": change_id(&text)})).await;
+    assert!(err && text.contains("changed after this was suggested, so nothing was removed"), "{text}");
+    sqlx::query("UPDATE collection_items SET qty = 1 WHERE owner_id = ? AND proxy = 1").bind(&a).execute(&pool).await.unwrap();
 
     // Two wishes with one name: the name alone is refused, the id takes one off.
     let wish = crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() };
@@ -1185,9 +1217,69 @@ async fn a_playgroups_games_are_listed_for_its_members_only() {
     }
     let (err, text) = call(&app, &a_key, "list_games", json!({"playgroup": "Nope"})).await;
     assert!(err && text.contains("Friday night"), "{text}");
+    let (err, text) = call(&app, &a_key, "list_games", json!({"playgroup": "pg-1", "query": "nobody"})).await;
+    assert!(!err && !text.contains("g-group"), "the search still narrows a playgroup's games: {text}");
     // Someone who isn't in the playgroup gets nothing from it, by name or by id.
     for wanted in ["Friday night", "pg-1"] {
         let (err, text) = call(&app, &b_key, "list_games", json!({"playgroup": wanted})).await;
         assert!(err && text.contains("no playgroup called") && !text.contains("g-group"), "{text}");
     }
+    // The route under the tool takes a playgroup's id from anyone: the rule is in its query.
+    let history = |session: String| {
+        let app = app.clone();
+        async move { send(&app, Method::GET, "/api/games/history?playgroup=pg-1", Some(&session), None).await.1["games"].to_string() }
+    };
+    assert!(history(a_session.clone()).await.contains("g-group"), "a member");
+    assert!(!history(b_session.clone()).await.contains("g-group"), "someone who isn't in it");
+    // An owner from before owners had member rows is in it too, as everywhere else in the app.
+    sqlx::query("INSERT INTO playgroups (id, name, owner_id, join_code, created_at) VALUES ('pg-2', 'Old group', ?, 'JOIN2', 't')").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, turns, winner_seat, playgroup_id) VALUES ('g-old', 'in_person', ?, 'finished', '2026-10-01', 5, 0, 'pg-2')").bind(&friend).execute(&pool).await.unwrap();
+    let (err, text) = call(&app, &a_key, "list_games", json!({"playgroup": "Old group"})).await;
+    assert!(!err && text.contains("g-old"), "{text}");
+    // Someone who has left sees none of the games they weren't in.
+    sqlx::query("DELETE FROM playgroup_members WHERE id = 'm-a'").execute(&pool).await.unwrap();
+    assert!(!history(a_session.clone()).await.contains("g-group"), "after leaving");
+    let (err, text) = call(&app, &a_key, "list_games", json!({"playgroup": "pg-1"})).await;
+    assert!(err && !text.contains("g-group"), "{text}");
+}
+
+/// A stored change is applied for the account it belongs to, whatever its payload names: every
+/// applier binds the owner again, so ids of someone else's rows find nothing.
+#[tokio::test]
+async fn a_change_naming_another_accounts_rows_changes_nothing_when_applied() {
+    let (app, pool) = app().await;
+    seed_cards(&pool).await;
+    let (a, _) = user(&pool, "bryan@example.com").await;
+    let (b, b_session) = user(&pool, "someone@example.com").await;
+    let (deck_id, _) = deck(&pool, &a, "Elf Ball").await;
+    sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES ('box-a', ?, 'binder', 'Box A', 't')").bind(&a).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, container_id, created_at, updated_at) VALUES ('item-a', ?, 'p-o-sol', 3, 'box-a', 't', 't')").bind(&a).execute(&pool).await.unwrap();
+    let wish = crate::plan::wants::add(&pool, &a, &crate::plan::wants::NewWant { name: "Sol Ring".into(), ..Default::default() }, "page", None).await.unwrap();
+    let other = key(&app, &b_session, Some("mcp")).await;
+    let forged = [
+        ("update_deck", json!({"deck_id": deck_id, "deck": "Elf Ball", "name": "Taken", "set_bracket": true, "bracket": 5})),
+        ("remove_wish", json!({"want_id": wish["id"], "name": "Sol Ring"})),
+        ("remove_from_collection", json!({"name": "Sol Ring", "qty": 1, "from_id": "box-a", "from": "Box A", "rows": [{"id": "item-a", "qty": 1}]})),
+        ("edit_copies", json!({"oracle_id": "o-sol", "name": "Sol Ring", "qty": 3, "container_id": "box-a", "container": "Box A", "proxy": true, "set_note": false, "set_price": false})),
+        ("move_cards", json!({"oracle_id": "o-sol", "name": "Sol Ring", "qty": 1, "from_id": "box-a", "from": "Box A", "to_id": "box-a", "to": "Box A"})),
+    ];
+    for (n, (kind, payload)) in forged.iter().enumerate() {
+        let id = format!("forged-{n}");
+        sqlx::query("INSERT INTO assistant_changes (id, owner_id, kind, summary, payload, via, created_at) VALUES (?, ?, ?, 'forged', ?, 'key', 'now')")
+            .bind(&id)
+            .bind(&b)
+            .bind(*kind)
+            .bind(payload.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (err, text) = call(&app, &other, "apply_change", json!({"id": id})).await;
+        assert!(err && text.contains("Not applied"), "{kind} was applied to another account's rows: {text}");
+    }
+    let deck_now: (String, Option<i64>) = sqlx::query_as("SELECT name, bracket FROM decks WHERE id = ?").bind(&deck_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(deck_now, ("Elf Ball".to_string(), None));
+    let copies: Vec<(i64, bool, Option<String>)> = sqlx::query_as("SELECT qty, proxy, container_id FROM collection_items WHERE owner_id = ?").bind(&a).fetch_all(&pool).await.unwrap();
+    assert_eq!(copies, [(3, false, Some("box-a".to_string()))]);
+    let wishes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shopping_wants WHERE owner_id = ? AND retired_at IS NULL").bind(&a).fetch_one(&pool).await.unwrap();
+    assert_eq!(wishes, 1);
 }

@@ -1308,7 +1308,7 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "remove_from_collection",
         aliases: &[],
         title: "Remove copies from their collection",
-        description: staged!("Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded, lost or entered by mistake."),
+        description: staged!("Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded or lost. When the copies there differ, say which with set and number, finish or proxy."),
         schema: || {
             json!({
                 "type": "object",
@@ -1316,6 +1316,10 @@ pub(super) const TOOLS: &[Tool] = &[
                     "card": {"type": "string"},
                     "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies (default 1)."},
                     "from": {"type": "string", "description": "Their binder, deck box or list, by name."},
+                    "set": {"type": "string", "maxLength": 10, "description": "Only copies of this printing: its set code, such as \"cmm\"."},
+                    "number": {"type": "string", "maxLength": 20, "description": "Collector number in that set."},
+                    "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"], "description": "Only copies with this finish."},
+                    "proxy": {"type": "boolean", "description": "Only proxies (true) or only real cards (false)."},
                 },
                 "required": ["card", "from"],
                 "additionalProperties": false,
@@ -1335,18 +1339,18 @@ pub(super) const TOOLS: &[Tool] = &[
         name: "edit_copies",
         aliases: &[],
         title: "Correct copies in their collection",
-        description: staged!("Correct the copies of a card in one of their binders, deck boxes or lists: finish, proxy or not, a note, or the price paid for each. Give only what changes."),
+        description: staged!("Correct the copies of a card in one of their binders, deck boxes or lists: finish or proxy mark for some or all of them, a note or the price paid each for all of them. Give only what changes."),
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "card": {"type": "string"},
                     "container": {"type": "string", "description": "Their binder, deck box or list, by name."},
-                    "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies; every copy of the card there if left out."},
+                    "qty": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many copies get a new finish or proxy mark; every copy that would change if left out. A note or price is for all of them: leave it out."},
                     "finish": {"type": "string", "enum": ["nonfoil", "foil", "etched"]},
                     "proxy": {"type": "boolean"},
                     "note": {"type": ["string", "null"], "maxLength": 500, "description": "A note on the copies; null clears it."},
-                    "price_paid": {"type": ["number", "null"], "minimum": 0, "description": "What each copy cost; null clears it."},
+                    "price_paid": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000, "description": "What each copy cost; null clears it."},
                 },
                 "required": ["card", "container"],
                 "additionalProperties": false,
@@ -2322,11 +2326,15 @@ async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
 /// Games one `list_games` answer lists unless `limit` asks for more (the page itself holds 50).
 const GAMES_PAGE: usize = 10;
 
-/// The Game history page's list (`games::history_page`), same search and filter.
-/// One of the playgroups the caller is in, by id or name: (id, name).
+/// One of the playgroups the caller owns or is a member of (`playgroups::is_member`'s rule), by
+/// id or name: (id, name).
 async fn their_playgroup(pool: &SqlitePool, owner: &str, wanted: &str) -> AppResult<(String, String)> {
     let all: Vec<(String, String)> =
-        sqlx::query_as("SELECT p.id, p.name FROM playgroups p JOIN playgroup_members m ON m.playgroup_id = p.id WHERE m.user_id = ? ORDER BY p.name, p.id").bind(owner).fetch_all(pool).await?;
+        sqlx::query_as("SELECT DISTINCT p.id, p.name FROM playgroups p LEFT JOIN playgroup_members m ON m.playgroup_id = p.id WHERE p.owner_id = ? OR m.user_id = ? ORDER BY p.name, p.id")
+            .bind(owner)
+            .bind(owner)
+            .fetch_all(pool)
+            .await?;
     if let Some(group) = all.iter().find(|(id, name)| id == wanted || name.eq_ignore_ascii_case(wanted)) {
         return Ok(group.clone());
     }
@@ -2340,6 +2348,7 @@ async fn their_playgroup(pool: &SqlitePool, owner: &str, wanted: &str) -> AppRes
     }
 }
 
+/// The Game history page's list (`games::history_page`), same search and filter.
 async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
     use crate::games::{HistoryFilter, HistoryOrder, HistoryParams};
     let word = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|w| !w.is_empty());
@@ -2367,8 +2376,16 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
         Some(wanted) => Some(their_playgroup(pool, &user.id, wanted).await?.0),
         None => None,
     };
-    // A cursor continues one search; the older offset argument still works.
-    let scope = super::page::scope("games", &[word("filter").unwrap_or("all"), word("order").unwrap_or("newest"), &q, playgroup.as_deref().unwrap_or("")]);
+    // A cursor continues one search; the older offset argument still works. The playgroup is
+    // part of the search only when one is given, so a cursor handed out before the argument
+    // existed still continues its list.
+    let scope = {
+        let mut searched = vec![word("filter").unwrap_or("all"), word("order").unwrap_or("newest"), q.as_str()];
+        if let Some(group) = &playgroup {
+            searched.push(group.as_str());
+        }
+        super::page::scope("games", &searched)
+    };
     let offset = u32::try_from(super::page::start(args, &scope, offset as usize)?).map_err(|_| AppError::bad("cursor is out of range"))?;
     let summary = arg::summary(args)?;
     let page = crate::games::history_page(pool, &user.id, HistoryParams { filter, order, q, offset, playgroup }).await?;

@@ -2332,7 +2332,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded, lost or entered by mistake. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "description": "Remove copies of a card from one of their binders, deck boxes or lists for good: sold, traded or lost. When the copies there differ, say which with set and number, finish or proxy. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2340,9 +2340,23 @@
             "maxLength": 300,
             "type": "string"
           },
+          "finish": {
+            "description": "Only copies with this finish.",
+            "enum": [
+              "nonfoil",
+              "foil",
+              "etched"
+            ],
+            "type": "string"
+          },
           "from": {
             "description": "Their binder, deck box or list, by name.",
             "maxLength": 300,
+            "type": "string"
+          },
+          "number": {
+            "description": "Collector number in that set.",
+            "maxLength": 20,
             "type": "string"
           },
           "op_id": {
@@ -2352,11 +2366,20 @@
             "pattern": "^[A-Za-z0-9_-]+$",
             "type": "string"
           },
+          "proxy": {
+            "description": "Only proxies (true) or only real cards (false).",
+            "type": "boolean"
+          },
           "qty": {
             "description": "How many copies (default 1).",
             "maximum": 100,
             "minimum": 1,
             "type": "integer"
+          },
+          "set": {
+            "description": "Only copies of this printing: its set code, such as \"cmm\".",
+            "maxLength": 10,
+            "type": "string"
           }
         },
         "required": [
@@ -2375,7 +2398,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Correct the copies of a card in one of their binders, deck boxes or lists: finish, proxy or not, a note, or the price paid for each. Give only what changes. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "description": "Correct the copies of a card in one of their binders, deck boxes or lists: finish or proxy mark for some or all of them, a note or the price paid each for all of them. Give only what changes. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2413,6 +2436,7 @@
           },
           "price_paid": {
             "description": "What each copy cost; null clears it.",
+            "maximum": 1000000,
             "minimum": 0,
             "type": [
               "number",
@@ -2423,7 +2447,7 @@
             "type": "boolean"
           },
           "qty": {
-            "description": "How many copies; every copy of the card there if left out.",
+            "description": "How many copies get a new finish or proxy mark; every copy that would change if left out. A note or price is for all of them: leave it out.",
             "maximum": 100,
             "minimum": 1,
             "type": "integer"

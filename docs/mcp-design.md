@@ -143,7 +143,7 @@ Write (staged):
 | `start_lab_run` | An experiment in any mode (change, compare, solo, versus) on phase, Forge or both, under the lab's usual allowance |
 | `add_lab_games`, `rerun_lab_run`, `cancel_lab_run` | More pods on a finished run, a fresh run of the same experiment, or a cancel |
 | `add_to_collection`, `move_cards`, `set_condition` | Collection ops (by name and printing; a condition for every copy in a container, or one card's) |
-| `edit_copies`, `remove_from_collection`, `create_container` | The copies of a card in one container: finish, proxy, note or price paid, for some or all of them; copies that leave the collection; a new binder, deck box, box or list (2026-11-11) |
+| `edit_copies`, `remove_from_collection`, `create_container` | The copies of a card in one container: a finish or proxy mark for some or all of them (the ones it would change), a note or price paid for all of them; copies that leave the collection, pinned row by row when staged and told apart by set and number, finish or proxy when they are not all alike; a new binder, deck box, box or list (2026-11-11) |
 | `update_deck` | A deck's name, its declared bracket (1 to 5, or cleared), or both (2026-11-11) |
 | `remove_wish` | One want they added, off their shopping list, by name or id; two with one name are refused until the id says which (2026-11-11) |
 | `set_shopping_rules` | A new buy rule and sealed cap as a rule set from the day they apply it (parts left out keep the rule in force) |
