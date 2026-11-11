@@ -41,7 +41,7 @@ describe("empty pages lead somewhere", () => {
     ]);
     // The actions sit with the message, not only in the page head.
     const empty = html.slice(html.indexOf("No cards yet."));
-    expect(empty).toMatch(/<button[^>]*>Import from Mythic Tools<\/button>/);
+    expect(empty).toMatch(/<button[^>]*>Import a list or a file<\/button>/);
     expect(empty).toMatch(/<button[^>]*>Scan cards<\/button>/);
     expect(links(empty)).toContain("Add from card search -> /cards");
   });

@@ -79,3 +79,15 @@ export function finishChoices(current: string, printingFinishes: string[] | unde
   const list = printingFinishes && printingFinishes.length > 0 ? printingFinishes : ["nonfoil", "foil", "etched"];
   return list.includes(current) ? list : [current, ...list];
 }
+
+/** The languages cards are printed in, by Scryfall's code (server/src/collection.rs `LANGS`). */
+export const LANGUAGES: [string, string][] = [
+  ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"], ["it", "Italian"], ["pt", "Portuguese"], ["ja", "Japanese"], ["ko", "Korean"],
+  ["ru", "Russian"], ["zhs", "Simplified Chinese"], ["zht", "Traditional Chinese"], ["he", "Hebrew"], ["la", "Latin"], ["grc", "Ancient Greek"], ["ar", "Arabic"],
+  ["sa", "Sanskrit"], ["ph", "Phyrexian"], ["qya", "Quenya"],
+];
+
+/** "Japanese" for "ja"; a code Yama has no name for is shown as it is. */
+export function languageName(code: string): string {
+  return LANGUAGES.find(([c]) => c === code)?.[1] ?? code;
+}
