@@ -20,7 +20,8 @@ import { buildFamilies, configurationLabel, resolveBuildFamily, type SwapPair as
 import { newListName, otherLists, pairEdits, startButtons, type CardFacts, type StartList } from "./editList";
 import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./ImportParts";
 import { checks, commanderChoices, commanders, diff, draftFrom, setCommanders, toSave } from "./importLogic";
-import { ACCEPT, useListImport } from "./useListImport";
+import { ask } from "../components/confirm";
+import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
 import "./import.css";
 import "../plan/plans.css";
 import "./edit-list.css";
@@ -57,6 +58,7 @@ function EditList({ id }: { id: string }) {
     initialText: () => "",
     // Editing keeps the deck's name: a new version doesn't rename it.
     makeDraft: (p) => ({ ...draftFrom(p, deck.data?.name ?? ""), name: deck.data?.name || "This deck" }),
+    confirmReplace: (what) => ask(replaceQuestion(what)),
   });
   const { prefill } = list;
   useEffect(() => {
