@@ -22,6 +22,8 @@ import { CommanderPicker, GuideTabs, LinkNote, Skipped, UnknownLines } from "./I
 import { checks, commanderChoices, commanders, diff, draftFrom, setCommanders, toSave } from "./importLogic";
 import { ask } from "../components/confirm";
 import { ACCEPT, replaceQuestion, useListImport } from "./useListImport";
+import { AddCards } from "./AddCards";
+import { identityOf } from "./cardFit";
 import "./import.css";
 import "../plan/plans.css";
 import "./edit-list.css";
@@ -114,6 +116,9 @@ function EditList({ id }: { id: string }) {
   const c = draft ? checks(draft) : null;
   const [all, setAll] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  // The colors Add cards searches within: the commanders as last read from the box, so they
+  // don't flicker back to the saved deck's while a changed list is being read again.
+  const readIdentity = useRef<string | null | undefined>(undefined);
 
   const [mode, setMode] = useState<"box" | "new">("box");
   const [name, setName] = useState<string | null>(null);
@@ -181,6 +186,10 @@ function EditList({ id }: { id: string }) {
   const noChanges = !!changes && !changes.added.length && !changes.removed.length;
   const busy = list.sourceLoading || check.isPending;
   const cmdrs = draft ? commanders(draft) : [];
+  if (draft) readIdentity.current = identityOf(cmdrs);
+  const identity = readIdentity.current !== undefined
+    ? readIdentity.current
+    : identityOf(d.cards.filter((e) => e.board === "commander").map((e) => ({ color_identity: e.card?.color_identity ?? "" })));
   const blocked = !draft || !c?.ready || busy || save.isPending
     || (mode === "box" && (moved || (noChanges && !edited)))
     || (mode === "new" && !listName.trim());
@@ -223,6 +232,9 @@ function EditList({ id }: { id: string }) {
             )}
             <ErrorText error={notes.error} />
           </section>
+
+          {/* A press edits the text below, as typing would; the list is read again a moment later. */}
+          <AddCards text={list.text} onChange={list.setUserText} identity={identity} disabled={list.sourceLoading} />
 
           <div className="edit-list-box">
             <label className={`import-drop${list.dragging ? " dragging" : ""}`} {...list.dropProps}>
