@@ -297,8 +297,9 @@ screen reader reads them as its name.
 - A control whose name is already on the page takes `aria-labelledby`; a search box or a bare
   number in a row takes `aria-label`. `conventions.test.ts` fails on an `<input>`, `<select>`
   or `<textarea>` with no name at all, and a `<label>` with no words in it doesn't count.
-- A label that lays itself out (a class of its own, markup in its words, two controls) can
-  stay a `<label>`: 73 plain ones moved to these components, the rest are still written out.
+- A label with its own class keeps it: `<Field className="scan-copies" label="Copies">`,
+  `<CheckRow className="plan-check" …>`. A label with markup in its words or two controls,
+  and a label dressed as a button around a hidden file input, stay a `<label>`.
 
 ### BackLink (`components/BackLink.tsx`)
 
