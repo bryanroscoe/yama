@@ -102,14 +102,14 @@ const TOOLS: &[Tool] = &[
         description: "Start here. This person's Yama account at a glance: how many decks, deck plans and saved notes they have, and the \
                       first few of each, with which note build each plan tracks and its plan key. A deck's configurations (other builds of \
                       it) are listed under that deck, not as decks of their own. The answer stays small on a large account: to list one \
-                      kind in full, call again with section decks, plans or notes, limit at a time; the answer ends with next_cursor \
-                      for the page after.",
+                      kind in full, call again with section decks, plans or notes, limit rows at a time; the answer ends with \
+                      next_cursor for the page after.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "section": {"type": "string", "enum": ["decks", "plans", "notes"], "description": "List this kind in full instead of the summary: decks (with ids and each configuration), plans (archived ones included) or notes (every note deck and its builds)."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "With section: how many to list (default 40 decks or plans, 10 notes)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "With section: how many rows to list. A row is a deck or one of its configurations, a plan, or a note's deck. Default 40 (15 for notes); at most 100 (40 for notes)."},
                     "cursor": {"type": "string", "maxLength": 200, "description": "With section: next_cursor from the page before, to continue it."},
                 },
                 "additionalProperties": false,
@@ -320,16 +320,17 @@ const TOOLS: &[Tool] = &[
         name: "review_queue",
         title: "Proposals to review",
         description: "Proposed swaps waiting for their answer: every plan deck's count of waiting and answered proposals, then the \
-                      waiting ones with their reasons, 20 at a time, deck by deck. plan narrows it to one deck; answered true also \
-                      lists the ones they answered, with their answers. The answer ends with next_cursor when there are more.",
+                      waiting ones with their reasons, 15 at a time, deck by deck. plan narrows it to one deck; answered true also \
+                      lists the ones they answered, with their answers. The answer ends with next_cursor when there are more. A \
+                      cursor counts from the start of the list: after a proposal is answered, start again without one.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
                     "plan": {"type": "string", "maxLength": 300, "description": "Only this plan: its key or deck name from `overview`."},
                     "answered": {"type": "boolean", "description": "Also list the proposals they already answered (default false: only counted)."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Swaps to list (default 20)."},
-                    "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the page before, with the same plan and answered."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Swaps to list (default 15)."},
+                    "cursor": {"type": "string", "maxLength": 600, "description": "next_cursor from the page before, with the same plan and answered."},
                 },
                 "additionalProperties": false,
             })
@@ -425,7 +426,7 @@ const TOOLS: &[Tool] = &[
         name: "games",
         title: "Your game history",
         description: "Games they played in person with Yama's life counter or online, newest first, as the Game history page lists \
-                      them: 15 at a time (limit, up to 50), each with its seats (player, commander, final life, knockout turn), winner seat, \
+                      them: 10 at a time (limit, up to 50), each with its seats (player, commander, final life, knockout turn), winner seat, \
                       turns, status and note; next_offset continues the list. search matches a player's or commander's name; filter unfinished or unnamed finds games \
                       to tidy up. These are real games, unlike lab results. Use `game` for one game's events.",
         schema: || {
@@ -435,7 +436,7 @@ const TOOLS: &[Tool] = &[
                     "search": {"type": "string", "description": "A player's or commander's name, or part of one."},
                     "filter": {"type": "string", "enum": ["all", "unfinished", "unnamed"], "description": "unfinished: not finished; unnamed: a seat still called Player 2 or similar (default all)."},
                     "order": {"type": "string", "enum": ["newest", "oldest"]},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Games to list (default 15)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Games to list (default 10)."},
                     "offset": {"type": "integer", "minimum": 0, "description": "Games to skip: next_offset from the answer before."}
                 },
                 "additionalProperties": false
@@ -527,11 +528,14 @@ const TOOLS: &[Tool] = &[
         name: "changes",
         title: "Changes waiting for review",
         description: "The changes you (or another Claude) staged that they haven't applied or discarded yet, with ids, newest first, \
-                      25 at a time (next_cursor continues). Check here before staging the same change twice.",
+                      25 at a time (next_cursor continues; after a change is applied or discarded, start again without a cursor). A \
+                      long summary is cut in the list: id gives one change whole, with its details and status, which is the way to \
+                      check exactly what apply_change would apply. Check here before staging the same change twice.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": {
+                    "id": {"type": "string", "maxLength": 300, "description": "One change's id, for that change whole instead of the list."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Changes to list (default 25)."},
                     "cursor": {"type": "string", "maxLength": 200, "description": "next_cursor from the page before."},
                 },
@@ -1668,7 +1672,7 @@ async fn playgroups(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<S
 }
 
 /// Games one `games` answer lists unless `limit` asks for more (the page itself holds 50).
-const GAMES_PAGE: usize = 15;
+const GAMES_PAGE: usize = 10;
 
 /// The Game history page's list (`games::history_page`), same search and filter.
 async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
@@ -1704,6 +1708,16 @@ async fn games(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String
     }
     // A seat or a game says only what was recorded: an absent field is one nobody filled in.
     without_nulls(&mut out);
+    // A guest's name is already the seat's display name.
+    for game in out["games"].as_array_mut().into_iter().flatten() {
+        for seat in game["seats"].as_array_mut().into_iter().flatten() {
+            if let Some(seat) = seat.as_object_mut() {
+                if seat.get("guest_name").is_some() && seat.get("guest_name") == seat.get("display_name") {
+                    seat.remove("guest_name");
+                }
+            }
+        }
+    }
     out["has_more"] = json!(more);
     if more {
         out["next_offset"] = json!(u64::from(offset) + limit as u64);
@@ -2005,7 +2019,23 @@ pub(super) async fn precon_id(pool: &SqlitePool, wanted: &str) -> AppResult<(Str
 /// Changes one `changes` answer lists unless `limit` asks for more.
 const CHANGES_PAGE: usize = 25;
 
+/// The longest a change's summary is in the list, and its details when it is read whole.
+const CHANGE_SUMMARY: usize = 400;
+const CHANGE_DETAIL: usize = 12_000;
+
 async fn changes_text(pool: &SqlitePool, user: &User, args: &Value) -> AppResult<String> {
+    if args.get("id").is_some_and(|id| !id.is_null()) {
+        // One change whole: the list cuts a long summary, and applying needs the exact change.
+        let c = changes::one(pool, &user.id, text_arg(args, "id")?).await?;
+        let mut out = format!("Change {} ({}, staged {}): {}\n", c.id, c.status, c.created_at.get(..10).unwrap_or(&c.created_at), c.summary);
+        if let Some(d) = c.detail.as_deref().filter(|d| !d.trim().is_empty()) {
+            let _ = writeln!(out, "{}", clip(d.trim(), CHANGE_DETAIL));
+        }
+        if let Some(e) = &c.error {
+            let _ = writeln!(out, "The last try to apply it failed: {e}");
+        }
+        return Ok(out);
+    }
     let page = super::page::page(args, "changes", CHANGES_PAGE, changes::MAX_PENDING as usize)?;
     let waiting = changes::list(pool, &user.id, true, None).await?;
     if waiting.is_empty() {
@@ -2013,7 +2043,8 @@ async fn changes_text(pool: &SqlitePool, user: &User, args: &Value) -> AppResult
     }
     let mut out = format!("{} change{} waiting for their review, newest first:\n", waiting.len(), if waiting.len() == 1 { " is" } else { "s are" });
     for c in waiting.iter().skip(page.offset).take(page.limit) {
-        let _ = write!(out, "- {} (id {}, staged {}", clip(&c.summary, 240), c.id, c.created_at.get(..10).unwrap_or(&c.created_at));
+        let cut = if c.summary.chars().count() > CHANGE_SUMMARY { "; cut here, `changes` with this id shows it whole" } else { "" };
+        let _ = write!(out, "- {} (id {}, staged {}{cut}", clip(&c.summary, CHANGE_SUMMARY), c.id, c.created_at.get(..10).unwrap_or(&c.created_at));
         if let Some(e) = &c.error {
             let _ = write!(out, "; the last try to apply it failed: {}", clip(e, 240));
         }
@@ -2048,7 +2079,7 @@ async fn review_queue(pool: &SqlitePool, user: &User, args: &Value) -> AppResult
 }
 
 /// Swaps one `review_queue` answer lists unless `limit` asks for more.
-const REVIEW_PAGE: usize = 20;
+const REVIEW_PAGE: usize = 15;
 
 /// Text people typed, cut to `max` characters for a list line.
 fn clip(text: &str, max: usize) -> String {

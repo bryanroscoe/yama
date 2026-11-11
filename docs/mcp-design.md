@@ -74,9 +74,10 @@ returning every list to a client that only needs one decision.
 **Deck plans (2026-11-04).** Bryan: "I would expect plans to be part of the MCP." A deck plan is a
 note's deck (its builds, swaps and reasons) and, once one build is chosen, that build tracked as
 the deck's plan: `track_build` stages it, and applying makes a Yama-made plan deck that Buy, Trip,
-prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `overview` lists
-every note deck with its builds and which one it tracks, beside imported plans; `plan_deck` on an
-untracked note deck lists its builds. Saving the note again updates the plan.
+prints, marks and the plan tools work on (ARCHITECTURE.md, "Plans from notes"). `overview` counts the
+notes and lists the newest few with their decks, builds and which one each tracks, beside the
+plans; its `notes` section lists every note deck. `plan_deck` on an untracked note deck lists its
+builds. Saving the note again updates the plan.
 
 Read (no review needed):
 
@@ -133,12 +134,20 @@ change to an imported plan goes in as an idea or a review answer and reaches the
   context window.
 - **Default answers have a size budget** (2026-11-11). A client rejects an answer above its own
   limit: `overview` on Bryan's account was 62,304 characters and never arrived. So what a tool
-  says when nothing asks it for more stays under 20,000 characters, `overview` under 8,000, on an
-  account of any size, and `mcp/tests_budget.rs` fails if one grows past that on a large fixture
-  account. The rest is reached by asking: `overview` takes `section` (decks, plans, notes) and
-  lists a deck's configurations under it; `review_queue` lists 20 waiting swaps at a time, for
-  every plan or one; `changes` lists 25; `games` 15; `collection_cards` 25. JSON answers are compact, not indented. Lists page with `limit` and an opaque
-  `cursor`, answering `next_cursor` (`mcp/page.rs`); `games` still takes its older `offset`.
+  says when nothing asks it for more has a budget of 20,000 characters, 8,000 for `overview`,
+  and `mcp/tests_budget.rs` fails if one grows past that on a fixture account larger than Bryan's,
+  with ids and fields as long as real ones. The lists these tools page through are bounded by
+  how they are built, not only on the fixture: a page is a number of rows and each row has a
+  longest length (`overview`'s summary is at most about 15,000 characters whatever the account
+  holds, a section page about 17,000). Tools that return one thing whole (`deck`, `plan_deck`,
+  `research` with `full`) are as large as that thing; the results-and-paging work gives those a
+  cursor too. The rest is reached by asking: `overview` takes `section` (decks, plans, notes),
+  whose rows are decks and their configurations, plans, or note decks; `review_queue` lists 15
+  waiting swaps at a time, for every plan or one; `changes` lists 25 and gives one whole by `id`;
+  `games` 10; `collection_cards` 20. JSON answers are compact, not indented. Lists page with
+  `limit` and an opaque `cursor`, answering `next_cursor` (`mcp/page.rs`); `games` still takes its
+  older `offset`. A cursor counts from the start of its list, so after a proposal is answered or
+  a change applied the list has shifted: start again without one.
 - Everything returned is the person's own data, marked as data: deck names, notes and reasons are
   typed by people and are never instructions.
 

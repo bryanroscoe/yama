@@ -17,13 +17,17 @@ const OVERVIEW_BUDGET: usize = 8_000;
 const DECKS: usize = 40;
 const PLANS: usize = 30;
 const NOTES: usize = 12;
+/// One more note, as wide as a collection-wide audit: its decks alone must not fill an answer.
+const WIDE_NOTE_DECKS: usize = 60;
+const NOTE_DECKS: usize = NOTES * 4 + WIDE_NOTE_DECKS;
 
 fn deck_name(i: usize) -> String {
     format!("Deck {i:03}, with the kind of long name people give a deck")
 }
 
 /// An account bigger than Bryan's: decks with configurations, plans with proposals, notes with
-/// many builds, games, lab runs, staged changes, containers and playgroups.
+/// many builds, games, lab runs, staged changes, containers and playgroups. Ids are the length
+/// real ones are and the optional fields are filled in, so a row weighs what a real row weighs.
 async fn large_account(pool: &SqlitePool, owner: &str) {
     let cards = || {
         vec![
@@ -85,23 +89,43 @@ async fn large_account(pool: &SqlitePool, owner: &str) {
         let doc = json!({"schema": "yama-research/1", "id": format!("note-{n:02}"), "title": format!("Research note {n:02} with a long title"), "generated_at": "2026-11-01T00:00:00Z", "decks": decks});
         crate::deck_research::save(pool, owner, &doc).await.unwrap();
     }
+    let wide: Vec<Value> = (0..WIDE_NOTE_DECKS)
+        .map(|d| {
+            let builds: Vec<Value> = (1..=6)
+                .map(|b| json!({"id": format!("b{b}"), "label": format!("Bracket {} build with a label", b.min(5)), "bracket": b.min(5), "list": "Commander\n1 Saheeli\nDeck\n99 Island"}))
+                .collect();
+            json!({"key": format!("wide-{d:02}"), "name": format!("Wide note deck {d:02} with a long name"), "commander": "Saheeli", "recommended_build": "b3", "builds": builds})
+        })
+        .collect();
+    let doc = json!({"schema": "yama-research/1", "id": "note-wide", "title": "A collection-wide audit with a long title", "generated_at": "2026-11-01T00:00:00Z", "decks": wide});
+    crate::deck_research::save(pool, owner, &doc).await.unwrap();
     for g in 0..120 {
-        let id = format!("game-{g:03}");
-        sqlx::query("INSERT INTO games (id, mode, created_by, status, started_at, turns, winner_seat, note) VALUES (?, 'in_person', ?, 'finished', ?, 9, 0, 'A long game with a note about how it went and who did what')")
+        let id = crate::util::new_id();
+        sqlx::query(
+            "INSERT INTO games (id, mode, created_by, status, started_at, ended_at, turns, winner_seat, first_seat, win_condition, note)
+             VALUES (?, 'in_person', ?, 'finished', ?, ?, 9, 0, 1, 'commander_damage', 'A long game with a note about how it went and who did what')",
+        )
+        .bind(&id)
+        .bind(owner)
+        .bind(format!("2026-10-{:02}T20:{:02}:00Z", g % 28 + 1, g % 60))
+        .bind(format!("2026-10-{:02}T22:{:02}:00Z", g % 28 + 1, g % 60))
+        .execute(pool)
+        .await
+        .unwrap();
+        for seat in 0..4 {
+            sqlx::query(
+                "INSERT INTO game_seats (game_id, seat, guest_name, commander_name, deck_label, final_life, eliminated_turn, eliminated_by_seat, fun)
+                 VALUES (?, ?, ?, 'Atraxa, Praetors'' Voice', 'A precon with a long label', ?, ?, ?, 4)",
+            )
             .bind(&id)
-            .bind(owner)
-            .bind(format!("2026-10-{:02}T20:{:02}:00Z", g % 28 + 1, g % 60))
+            .bind(seat)
+            .bind(format!("Player with a long name {seat}"))
+            .bind(if seat == 0 { 12 } else { 0 })
+            .bind((seat != 0).then_some(7 + seat))
+            .bind((seat != 0).then_some(0))
             .execute(pool)
             .await
             .unwrap();
-        for seat in 0..4 {
-            sqlx::query("INSERT INTO game_seats (game_id, seat, guest_name, commander_name, deck_label, final_life) VALUES (?, ?, ?, 'Atraxa, Praetors'' Voice', 'A precon with a long label', 12)")
-                .bind(&id)
-                .bind(seat)
-                .bind(format!("Player with a name {seat}"))
-                .execute(pool)
-                .await
-                .unwrap();
         }
     }
     for e in 0..40 {
@@ -127,7 +151,7 @@ async fn large_account(pool: &SqlitePool, owner: &str) {
             .unwrap();
     }
     for b in 0..30 {
-        let id = format!("box-{b:02}");
+        let id = crate::util::new_id();
         sqlx::query("INSERT INTO containers (id, owner_id, kind, name, created_at) VALUES (?, ?, 'binder', ?, 't')")
             .bind(&id)
             .bind(owner)
@@ -137,8 +161,11 @@ async fn large_account(pool: &SqlitePool, owner: &str) {
             .unwrap();
         for (p, printing) in ["p-o-cmd", "p-o-sol", "p-o-sig", "p-o-forest"].iter().enumerate() {
             for condition in ["NM", "LP", "MP", "HP", "DMG"] {
-                sqlx::query("INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, container_id, created_at, updated_at) VALUES (?, ?, ?, 2, ?, ?, 't', 't')")
-                    .bind(format!("item-{b}-{p}-{condition}"))
+                sqlx::query(
+                    "INSERT INTO collection_items (id, owner_id, scryfall_id, qty, condition, container_id, purchase_price, purchase_currency, note, created_at, updated_at)
+                     VALUES (?, ?, ?, 2, ?, ?, 12.5, 'USD', 'Bought at the prerelease, a little wear on one corner', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')",
+                )
+                .bind(format!("{}-{p}", crate::util::new_id()))
                     .bind(owner)
                     .bind(printing)
                     .bind(condition)
@@ -204,6 +231,7 @@ async fn default_answers_stay_small_on_a_large_account() {
         ("overview", json!({"section": "decks"})),
         ("overview", json!({"section": "plans"})),
         ("overview", json!({"section": "notes"})),
+        ("changes", json!({"id": "change-000"})),
     ];
     for (name, args) in starts {
         let (err, text) = call(&app, &mcp, name, args.clone()).await;
@@ -220,7 +248,7 @@ async fn default_answers_stay_small_on_a_large_account() {
     assert!(text.contains("2 configurations: after prints, stock") || text.contains("2 configurations: stock, after prints"), "{text}");
     assert!(!text.lines().any(|l| l.starts_with("- ") && l.contains("(stock)")), "a configuration listed as a deck of its own:\n{text}");
     assert!(text.contains("Deck plans: 30") && text.contains("5 archived"), "{text}");
-    assert!(text.contains("Notes: 12 saved notes with 48 decks"), "{text}");
+    assert!(text.contains(&format!("Notes: {} saved notes with {NOTE_DECKS} decks", NOTES + 1)), "{text}");
 }
 
 #[tokio::test]
@@ -238,32 +266,61 @@ async fn overview_pages_reach_everything() {
     let mut seen: Vec<String> = summary.lines().filter(|l| l.starts_with("- Deck ")).map(|l| l[2..10].to_string()).collect();
     assert_eq!(seen.len(), 20, "{summary}");
     let mut cursor = Some(cursor);
-    let mut pages = 0;
+    let (mut pages, mut configurations) = (0, 0);
     while let Some(c) = cursor.take() {
+        // Seven rows a page doesn't divide a deck and its two configurations evenly: a page may
+        // start or end inside a deck, and nothing is lost or repeated.
         let (err, text) = call(&app, &mcp, "overview", json!({"section": "decks", "cursor": c, "limit": 7})).await;
         assert!(!err, "{text}");
         let decks: Vec<&str> = text.lines().filter(|l| l.starts_with("- Deck ")).collect();
-        assert!(decks.len() <= 7, "{text}");
-        assert_eq!(text.lines().filter(|l| l.starts_with("  - configuration ")).count(), decks.len() * 2, "{text}");
+        let under = text.lines().filter(|l| l.starts_with("  - configuration ")).count();
+        assert!(decks.len() + under <= 7, "{text}");
         assert!(decks.iter().all(|l| l.contains("(id ")), "the full listing names ids: {text}");
+        assert!(text.lines().filter(|l| l.starts_with("  - configuration ")).all(|l| l.contains(" of Deck ")), "a configuration names its deck: {text}");
         seen.extend(decks.iter().map(|l| l[2..10].to_string()));
+        configurations += under;
         cursor = text.lines().find_map(|l| l.strip_prefix("next_cursor: ")).map(str::to_string);
         pages += 1;
-        assert!(pages < 10, "the cursor never ends");
+        assert!(pages < 20, "the cursor never ends");
     }
+    assert_eq!(seen.len(), DECKS, "every deck listed: {seen:?}");
     seen.sort();
     seen.dedup();
-    assert_eq!(seen.len(), DECKS, "every deck once: {seen:?}");
+    assert_eq!(seen.len(), DECKS, "and none twice: {seen:?}");
+    assert_eq!(configurations, 40, "the 20 decks after the summary's have 40 configurations");
 
     // Plans and notes page the same way, and a cursor is good only for its own list.
     let (_, text) = call(&app, &mcp, "overview", json!({"section": "plans", "limit": 100})).await;
     assert_eq!(text.lines().filter(|l| l.starts_with("- Plan ")).count(), PLANS, "{text}");
     assert!(text.contains("That is all of them."), "{text}");
+    // Notes page by note deck, so one wide note is several pages and each stays small.
     let (_, first) = call(&app, &mcp, "overview", json!({"section": "notes", "limit": 5})).await;
-    assert_eq!(first.lines().filter(|l| l.starts_with("- Research note ")).count(), 5, "{first}");
-    assert_eq!(first.lines().filter(|l| l.starts_with("  - Note deck ")).count(), 20, "{first}");
+    assert_eq!(first.lines().filter(|l| l.starts_with("  - ")).count(), 5, "{first}");
+    assert!(first.lines().any(|l| l.starts_with("- ") && l.contains("(note id ")), "{first}");
     assert!(first.contains("b5 (Bracket 5 build with a label, bracket 5)"), "{first}");
-    let notes_cursor = first.lines().find_map(|l| l.strip_prefix("next_cursor: ")).unwrap();
+    let notes_cursor = first.lines().find_map(|l| l.strip_prefix("next_cursor: ")).unwrap().to_string();
+    let mut note_decks: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    for page in 0.. {
+        assert!(page < 20, "the cursor never ends");
+        let args = match &cursor {
+            Some(c) => json!({"section": "notes", "cursor": c}),
+            None => json!({"section": "notes"}),
+        };
+        let (err, text) = call(&app, &mcp, "overview", args).await;
+        assert!(!err, "{text}");
+        assert!(text.chars().count() <= DEFAULT_BUDGET, "a notes page is {} characters", text.chars().count());
+        note_decks.extend(text.lines().filter(|l| l.starts_with("  - ")).filter_map(|l| l.split("(deck key ").nth(1)).map(|rest| rest.split(')').next().unwrap().to_string()));
+        cursor = text.lines().find_map(|l| l.strip_prefix("next_cursor: ")).map(str::to_string);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(note_decks.len(), NOTE_DECKS, "every note deck listed");
+    note_decks.sort();
+    note_decks.dedup();
+    assert_eq!(note_decks.len(), NOTE_DECKS, "and none twice");
+    let notes_cursor = notes_cursor.as_str();
     let (err, text) = call(&app, &mcp, "overview", json!({"section": "plans", "cursor": notes_cursor})).await;
     assert!(err && text.contains("cursor"), "{text}");
     let (err, text) = call(&app, &mcp, "overview", json!({"cursor": notes_cursor})).await;
@@ -294,12 +351,16 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     let (err, first) = call(&app, &mcp, "review_queue", json!({})).await;
     assert!(!err, "{first}");
     assert!(first.contains("- Plan 000, with a long name too: 11 waiting for an answer, 1 answered"), "{first}");
-    assert!(first.contains("Swaps 1 to 20 of 299 waiting for an answer"), "{first}");
+    assert!(first.contains("Swaps 1 to 15 of 299 waiting for an answer"), "{first}");
+    assert!(first.contains("\nPlan 000, with a long name too, waiting for an answer:") && first.contains("Want means an agent moves the swap"), "{first}");
     assert!(!first.contains("Plan 025"), "an archived plan's proposals aren't in Review: {first}");
     assert!(!first.contains("Their answer: want"), "answered swaps are only counted by default: {first}");
     let next = first.lines().find_map(|l| l.strip_prefix("next_cursor: ")).unwrap();
     let (err, second) = call(&app, &mcp, "review_queue", json!({"cursor": next})).await;
-    assert!(!err && second.contains("Swaps 21 to 40 of 299"), "{second}");
+    assert!(!err && second.contains("Swaps 16 to 30 of 299"), "{second}");
+    // The next page goes on where the first stopped: the rest of the second plan, then the third.
+    assert!(!second.contains("\nPlan 000, with a long name too, waiting") && second.contains("\nPlan 001, with a long name too, waiting") && second.contains("\nPlan 002, with a long name too, waiting"), "{second}");
+    assert_eq!(first.matches("\n- Card in ").count() + second.matches("\n- Card in ").count(), 30, "15 swaps a page");
     let (err, text) = call(&app, &mcp, "review_queue", json!({"cursor": next, "answered": true})).await;
     assert!(err && text.contains("cursor"), "a cursor is for one listing: {text}");
 
@@ -313,18 +374,35 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     let (err, first) = call(&app, &mcp, "changes", json!({})).await;
     assert!(!err && first.starts_with("50 changes are waiting"), "{first}");
     assert_eq!(first.lines().filter(|l| l.starts_with("- ")).count(), 25, "{first}");
-    assert!(first.lines().all(|l| l.chars().count() < 400), "a long summary is cut: {first}");
+    assert!(first.lines().all(|l| l.chars().count() < 600), "a long summary is cut: {first}");
+    assert!(first.contains("`changes` with this id shows it whole"), "{first}");
     let next = first.lines().find_map(|l| l.strip_prefix("next_cursor: ")).unwrap();
     let (_, second) = call(&app, &mcp, "changes", json!({"cursor": next})).await;
     assert_eq!(second.lines().filter(|l| l.starts_with("- ")).count(), 25, "{second}");
     assert!(!second.contains("next_cursor"), "{second}");
+    let ids = |text: &str| -> Vec<String> { text.split("(id ").skip(1).map(|rest| rest.split(',').next().unwrap().to_string()).collect() };
+    let mut all = ids(&first);
+    all.extend(ids(&second));
+    assert_eq!(all.len(), 50);
+    all.sort();
+    all.dedup();
+    assert_eq!(all.len(), 50, "the second page repeats none of the first");
+    // One change whole, for checking exactly what applying it would do; only the owner's.
+    let (err, whole) = call(&app, &mcp, "changes", json!({"id": "change-007"})).await;
+    assert!(!err && whole.starts_with("Change change-007 (pending") && whole.chars().count() > 1000, "{whole}");
+    let (_, other) = power_user(&pool, "other@example.com").await;
+    let other = key(&app, &other, Some("mcp")).await;
+    let (err, text) = call(&app, &other, "changes", json!({"id": "change-007"})).await;
+    assert!(err && text == "change not found", "{text}");
 
-    // Games: 15 by default, more on request, and next_offset walks the rest.
+    // Games: 10 by default, more on request, and next_offset walks the rest.
     let (_, text) = call(&app, &mcp, "games", json!({})).await;
     let page: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(page["games"].as_array().unwrap().len(), 15);
+    assert_eq!(page["games"].as_array().unwrap().len(), 10);
     assert_eq!(page["has_more"], true);
-    assert_eq!(page["next_offset"], 15);
+    assert_eq!(page["next_offset"], 10);
+    assert_eq!(page["games"][0]["seats"][1]["display_name"], "Player with a long name 1");
+    assert!(page["games"][0]["seats"][1].get("guest_name").is_none(), "the name isn't said twice: {text}");
     assert!(!text.contains("null"), "empty fields are left out: {text}");
     let (_, text) = call(&app, &mcp, "games", json!({"offset": 100, "limit": 50})).await;
     let page: Value = serde_json::from_str(&text).unwrap();

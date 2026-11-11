@@ -1,7 +1,12 @@
 //! Paging for list answers: `limit` plus an opaque `cursor`, and `next_cursor` in the answer.
 //!
 //! A cursor is where the next page starts, tied to the list it came from (its scope), so a cursor
-//! from one tool or section can't be replayed against another. It holds no account data.
+//! from one tool or section can't be replayed against another. It holds the scope and a number:
+//! at most the caller's own filter (a plan key), never a row.
+//!
+//! It counts from the start of the list. A list the conversation itself shortens (proposals once
+//! answered, changes once applied) shifts under it, so those tools say to start again without a
+//! cursor after something on the list was dealt with.
 
 use crate::error::{AppError, AppResult};
 use base64::Engine as _;

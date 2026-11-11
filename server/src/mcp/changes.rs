@@ -138,6 +138,11 @@ pub async fn list(pool: &SqlitePool, owner: &str, pending_only: bool, conversati
     Ok(views)
 }
 
+/// One of the owner's changes, whatever its status (the `changes` tool with an id).
+pub(super) async fn one(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
+    load_view(pool, owner, id).await
+}
+
 async fn load_view(pool: &SqlitePool, owner: &str, id: &str) -> AppResult<ChangeView> {
     let mut view = ChangeView::from(load(pool, owner, id).await?);
     preview::enrich(pool, std::slice::from_mut(&mut view)).await?;

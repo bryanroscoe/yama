@@ -206,7 +206,7 @@ pub fn catalog() -> Vec<Value> {
             "Owned cards and locations",
             "Read your collection, including quantities, proxies and containers. Filter by card-name text or to copies outside deck containers. Outside a deck box does not establish that a copy is unreserved in an upgrade plan.",
             schema(
-                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("Page",1,1,10000),"limit":number("Rows",25,1,100)}),
+                json!({"query":string("Optional card-name substring"),"outside_decks":{"type":"boolean","default":false},"page":number("Page",1,1,10000),"limit":number("Rows",20,1,100)}),
                 &[],
             ),
             false,
@@ -927,7 +927,7 @@ async fn collection(st: &AppState, user: &User, args: &Value) -> AppResult<Value
         .unwrap_or("")
         .to_lowercase();
     let outside = boolean(args, "outside_decks", false)?;
-    let limit = integer(args, "limit", 25, 1, 100)? as usize;
+    let limit = integer(args, "limit", 20, 1, 100)? as usize;
     let page = integer(args, "page", 1, 1, 10000)? as usize;
     let mut rows = crate::collection::items_for_owner(&st.pool, &user.id).await?;
     rows.retain(|i| {

@@ -1,11 +1,13 @@
 //! `overview`: the account at a glance, small whatever the account's size.
 //!
 //! The default answer counts everything and lists only the first few of each kind. `section`
-//! lists one kind in full, `limit` at a time, with `next_cursor` for the page after. A deck's
-//! configurations are builds of that deck, so they're listed under it and never as decks of their
-//! own. Every row is the caller's (`owner_id` is bound in each query).
+//! lists one kind in full, `limit` rows at a time, with `next_cursor` for the page after. A row
+//! is one line of bounded length (a deck or one of its configurations, a plan, a note's deck),
+//! so a page has a size whatever the account holds: a note with a hundred decks is several
+//! pages, not one. A deck's configurations are builds of that deck, so they're listed under it
+//! and never as decks of their own. Every row is the caller's (`owner_id` is bound in each query).
 
-use super::page::{self, Page};
+use super::page;
 use crate::advisor::context::plan_state_text;
 use crate::error::{AppError, AppResult};
 use serde_json::Value;
@@ -15,22 +17,28 @@ use std::fmt::Write as _;
 
 /// How many of each kind the default answer lists.
 const SUMMARY_DECKS: usize = 20;
-const SUMMARY_PLANS: usize = 15;
+const SUMMARY_PLANS: usize = 12;
 const SUMMARY_NOTES: usize = 5;
 /// Note decks listed under those notes, across all of them.
-const SUMMARY_NOTE_DECKS: usize = 10;
+const SUMMARY_NOTE_DECKS: usize = 6;
 /// Builds named on each of those note decks.
-const SUMMARY_BUILDS: usize = 5;
+const SUMMARY_BUILDS: usize = 3;
 /// The longest a name people typed is shown, and the longest one line gets.
 const NAME: usize = 80;
 const LINE: usize = 320;
-/// The longest line in a section's full listing (a note deck with all its builds).
-const FULL_LINE: usize = 1200;
-/// The most a section's page may hold, and what it holds when `limit` is left out.
-const MAX_PAGE: usize = 100;
+/// The longest row in a section's listing: a deck or plan, and a note deck with its builds.
+const FULL_LINE: usize = 420;
+const NOTE_DECK_LINE: usize = 900;
+/// Builds named on a note deck in the notes section (a deck may have 12).
+const SECTION_BUILDS: usize = 12;
+/// Rows a section's page holds when `limit` is left out, and the most it may hold. The largest
+/// page is still an answer a client accepts: 40 rows of at most `FULL_LINE` or 15 of
+/// `NOTE_DECK_LINE` with their note lines.
 const DECKS_PAGE: usize = 40;
 const PLANS_PAGE: usize = 40;
-const NOTES_PAGE: usize = 10;
+const NOTES_PAGE: usize = 15;
+const MAX_PAGE: usize = 100;
+const MAX_NOTES_PAGE: usize = 40;
 
 fn clip(text: &str, max: usize) -> String {
     let text = text.trim_end();
@@ -51,7 +59,7 @@ fn line(out: &mut String, text: &str) {
     let _ = writeln!(out, "{}", clip(text, LINE));
 }
 
-/// One line of a section's listing.
+/// One row of a section's listing.
 fn full_line(out: &mut String, text: &str) {
     let _ = writeln!(out, "{}", clip(text, FULL_LINE));
 }
@@ -152,16 +160,22 @@ fn deck_summary(d: &DeckRow, configurations: &[&DeckRow]) -> String {
     format!("- {}{}", clip(&d.name, NAME), if facts.is_empty() { String::new() } else { format!(" ({})", facts.join("; ")) })
 }
 
-/// A deck in the decks section: its id, then each configuration with its own name and id.
-fn deck_full(out: &mut String, d: &DeckRow, configurations: &[&DeckRow]) {
-    let mut facts = vec![format!("id {}", d.id)];
-    facts.extend(deck_facts(d));
-    full_line(out, &format!("- {} ({})", clip(&d.name, NAME), facts.join("; ")));
-    for c in configurations {
-        let mut facts = vec![format!("id {}", c.id)];
-        facts.extend(deck_facts(c));
-        full_line(out, &format!("  - configuration {:?}: {} ({})", configuration_label(c), clip(&c.name, NAME), facts.join("; ")));
+/// The decks section's rows: each deck with its id, then each of its configurations with its
+/// own name and id. A configuration names its deck, so a page that starts in the middle of a
+/// deck's configurations still reads.
+fn deck_rows(groups: &[(&DeckRow, Vec<&DeckRow>)]) -> Vec<String> {
+    let mut rows = Vec::new();
+    for (d, configurations) in groups {
+        let mut facts = vec![format!("id {}", d.id)];
+        facts.extend(deck_facts(d));
+        rows.push(format!("- {} ({})", clip(&d.name, NAME), facts.join("; ")));
+        for c in configurations {
+            let mut facts = vec![format!("id {}", c.id)];
+            facts.extend(deck_facts(c));
+            rows.push(format!("  - configuration {:?} of {}: {} ({})", configuration_label(c), clip(&d.name, 40), clip(&c.name, NAME), facts.join("; ")));
+        }
     }
+    rows
 }
 
 fn decks_heading(groups: &[(&DeckRow, Vec<&DeckRow>)]) -> String {
@@ -231,6 +245,9 @@ fn plans_heading(plans: &[PlanRow]) -> String {
             n => Some(format!("{n} {words}")),
         })
         .collect();
+    if plans.is_empty() {
+        return "Deck plans: none yet.".into();
+    }
     format!(
         "Deck plans: {} ({}). A plan belongs to one deck; approving it is one decision for the whole plan (`approve_plan`), after skipping any \
          change and answering its open questions. Only approved plans feed the shopping list and prints.",
@@ -312,7 +329,7 @@ fn note_deck_line(d: &NoteDeck, shown: usize) -> String {
         .builds
         .iter()
         .take(shown)
-        .map(|(id, label, bracket)| format!("{id} ({}{})", clip(label, 40), bracket.map(|n| format!(", bracket {n}")).unwrap_or_default()))
+        .map(|(id, label, bracket)| format!("{} ({}{})", clip(id, 40), clip(label, 40), bracket.map(|n| format!(", bracket {n}")).unwrap_or_default()))
         .collect();
     if d.builds.len() > shown {
         builds.push(format!("{} more", d.builds.len() - shown));
@@ -346,7 +363,7 @@ pub(super) async fn untracked_note_deck(pool: &SqlitePool, owner: &str, key: &st
             out.push_str("Not a plan yet. This deck is in their notes; `research` reads its builds and `track_build` makes one a plan version waiting for their OK:\n");
         }
         full_line(&mut out, &note_line(d));
-        full_line(&mut out, &note_deck_line(d, usize::MAX));
+        let _ = writeln!(out, "{}", clip(&note_deck_line(d, SECTION_BUILDS), NOTE_DECK_LINE));
     }
     Ok(out)
 }
@@ -372,13 +389,14 @@ pub(super) async fn overview(pool: &SqlitePool, owner: &str, args: &Value) -> Ap
     match section {
         Some("decks") => {
             let page = page::page(args, "overview.decks", DECKS_PAGE, MAX_PAGE)?;
-            let rows = load_decks(pool, owner).await?;
-            let groups = grouped(&rows);
+            let decks = load_decks(pool, owner).await?;
+            let groups = grouped(&decks);
+            let rows = deck_rows(&groups);
             full_line(&mut out, &decks_heading(&groups));
-            for (d, configurations) in groups.iter().skip(page.offset).take(page.limit) {
-                deck_full(&mut out, d, configurations);
+            for row in rows.iter().skip(page.offset).take(page.limit) {
+                full_line(&mut out, row);
             }
-            next_cursor(&mut out, page.next("overview.decks", groups.len()));
+            next_cursor(&mut out, page.next("overview.decks", rows.len()));
         }
         Some("plans") => {
             let page = page::page(args, "overview.plans", PLANS_PAGE, MAX_PAGE)?;
@@ -390,17 +408,20 @@ pub(super) async fn overview(pool: &SqlitePool, owner: &str, args: &Value) -> Ap
             next_cursor(&mut out, page.next("overview.plans", plans.len()));
         }
         Some(_) => {
-            let page = page::page(args, "overview.notes", NOTES_PAGE, MAX_PAGE)?;
+            // A row is one note deck; its note's line goes above the first of them on a page.
+            let page = page::page(args, "overview.notes", NOTES_PAGE, MAX_NOTES_PAGE)?;
             let decks = note_decks(pool, owner).await?;
             let notes = by_note(&decks);
             full_line(&mut out, &notes_heading(&notes));
-            for note in notes.iter().skip(page.offset).take(page.limit) {
-                full_line(&mut out, &note_line(note[0]));
-                for d in note {
-                    full_line(&mut out, &note_deck_line(d, usize::MAX));
+            let mut note = "";
+            for d in decks.iter().skip(page.offset).take(page.limit) {
+                if note != d.note {
+                    full_line(&mut out, &note_line(d));
+                    note = &d.note;
                 }
+                let _ = writeln!(out, "{}", clip(&note_deck_line(d, SECTION_BUILDS), NOTE_DECK_LINE));
             }
-            next_cursor(&mut out, page.next("overview.notes", notes.len()));
+            next_cursor(&mut out, page.next("overview.notes", decks.len()));
         }
         None => {
             if args.get("cursor").is_some_and(|c| !c.is_null()) {
@@ -427,8 +448,10 @@ async fn summary(pool: &SqlitePool, owner: &str, out: &mut String) -> AppResult<
     for (d, configurations) in groups.iter().take(SUMMARY_DECKS) {
         line(out, &deck_summary(d, configurations));
     }
-    if let Some(cursor) = (Page { offset: 0, limit: SUMMARY_DECKS }).next("overview.decks", groups.len()) {
-        let _ = writeln!(out, "({} more: call `overview` with section \"decks\" and cursor \"{cursor}\".)", groups.len() - SUMMARY_DECKS);
+    if groups.len() > SUMMARY_DECKS {
+        // The decks section's rows are decks and their configurations: start after the ones listed.
+        let listed: usize = groups.iter().take(SUMMARY_DECKS).map(|(_, configurations)| 1 + configurations.len()).sum();
+        let _ = writeln!(out, "({} more: call `overview` with section \"decks\" and cursor \"{}\".)", groups.len() - SUMMARY_DECKS, page::cursor("overview.decks", listed));
     }
 
     let plans = load_plans(pool, owner).await?;
