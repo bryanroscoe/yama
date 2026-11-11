@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, oneshot, watch};
 mod board;
 mod board_data;
+mod results;
 
 use yama_play::{Act, AttackAt, DeckLine, DeckSupport, Difficulty, Engine, Match, PassMode, PayMode, SeatDeck, Setup, Stops, View};
 
@@ -381,9 +382,14 @@ fn run_game(
         let _ = board_updates.send(Arc::new(updates));
         let _ = views.send(Arc::new(snapshot(m, seats)));
     };
+    // Knockouts go to the game record when one happens or a rewind takes one back, and once more
+    // when the game ends; the saves in between leave the seats alone.
+    let recorded_outs = std::cell::Cell::new(None);
     let save = |m: &Match| {
-        if let Err(e) = rt.block_on(persist(pool, game_id, m)) {
-            tracing::error!(game_id, error = %e, "saving online game failed");
+        let outs = m.outs().len();
+        match rt.block_on(persist(pool, game_id, m, recorded_outs.get() != Some(outs))) {
+            Ok(()) => recorded_outs.set(Some(outs)),
+            Err(e) => tracing::error!(game_id, error = %e, "saving online game failed"),
         }
     };
     let humans: Vec<u8> = seats.iter().filter(|s| s.kind == "human").map(|s| s.seat).collect();
@@ -395,7 +401,7 @@ fn run_game(
         }
         let before = m.clone();
         m.abandon();
-        match rt.block_on(persist(pool, game_id, m)) {
+        match rt.block_on(persist(pool, game_id, m, true)) {
             Ok(()) => { publish(m); let _ = reply.send(Ok(())); true }
             Err(e) => { *m = before; let _ = reply.send(Err(format!("Could not save the ended game: {e}"))); false }
         }
@@ -404,8 +410,8 @@ fn run_game(
         let before = m.clone();
         let result = m.go_back_to(seat, revision, checkpoint).map_err(|e| e.to_string());
         let result = match result {
-            Ok(()) => match rt.block_on(persist(pool, game_id, m)) {
-                Ok(()) => Ok(()),
+            Ok(()) => match rt.block_on(persist(pool, game_id, m, true)) {
+                Ok(()) => { recorded_outs.set(Some(m.outs().len())); Ok(()) }
                 Err(e) => { *m = before; Err(format!("Could not save the restored game: {e}")) }
             },
             err => err,
@@ -649,7 +655,9 @@ fn snapshot(m: &Match, seats: &[SeatCfg]) -> Snapshot {
     snap
 }
 
-async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<()> {
+/// Save the game as it stands. `knockouts` also writes each seat's knockout to the game record
+/// (always done once the game is over): the caller asks for it when the knockouts have changed.
+async fn persist(pool: &SqlitePool, game_id: &str, m: &Match, knockouts: bool) -> anyhow::Result<()> {
     let stage = if m.is_over() { "over" } else { "live" };
     let mut tx = pool.begin().await?;
     history::archive_original(&mut tx, game_id, yama_play::ENGINE_VERSION).await?;
@@ -660,14 +668,45 @@ async fn persist(pool: &SqlitePool, game_id: &str, m: &Match) -> anyhow::Result<
         .bind(m.revision as i64).bind(stage).bind(now()).bind(game_id).bind(game_id).bind(yama_play::ENGINE_VERSION)
         .execute(&mut *tx).await?.rows_affected();
     anyhow::ensure!(changed == 1, "saved game identity changed; refusing current-runtime write");
+    // The spectator's feed says who dealt a knockout's damage; nobody is out in most saves.
+    let events = if (knockouts || m.is_over()) && !m.outs().is_empty() { m.events(None) } else { vec![] };
+    if knockouts || m.is_over() {
+        let found = results::knockouts(m.outs(), &events);
+        // A rewind can take a knockout back: seats still in the game have none.
+        sqlx::query(
+            "UPDATE game_seats SET eliminated_turn = NULL, eliminated_by_seat = NULL
+             WHERE game_id = ? AND eliminated_turn IS NOT NULL AND seat NOT IN (SELECT value FROM json_each(?))",
+        )
+        .bind(game_id)
+        .bind(serde_json::to_string(&found.iter().map(|k| k.seat).collect::<Vec<_>>())?)
+        .execute(&mut *tx)
+        .await?;
+        for k in &found {
+            // The feed keeps only the newest happenings, so a knockout from long ago can't name who
+            // did it any more: keep the name stored when it happened (same seat, same turn).
+            sqlx::query(
+                "UPDATE game_seats SET eliminated_by_seat = CASE WHEN ?1 IS NOT NULL THEN ?1 WHEN eliminated_turn = ?2 THEN eliminated_by_seat END,
+                        eliminated_turn = ?2
+                 WHERE game_id = ?3 AND seat = ?4",
+            )
+            .bind(k.by.map(i64::from))
+            .bind(i64::from(k.turn))
+            .bind(game_id)
+            .bind(i64::from(k.seat))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
     if m.is_over() {
         let view = m.view(None);
-        sqlx::query("UPDATE games SET status = ?, winner_seat = ?, turns = ?, ended_at = ?, first_seat = ? WHERE id = ?")
+        let winner = if m.abandoned() { None } else { m.winner() };
+        sqlx::query("UPDATE games SET status = ?, winner_seat = ?, turns = ?, ended_at = ?, first_seat = ?, win_condition = ? WHERE id = ?")
             .bind(if m.abandoned() { "abandoned" } else { "finished" })
-            .bind(if m.abandoned() { None } else {m.winner().map(i64::from) })
+            .bind(winner.map(i64::from))
             .bind(i64::from(m.turn()))
             .bind(now())
             .bind(i64::from(m.starting_seat()))
+            .bind(results::win_condition(m.outs(), &events, winner))
             .bind(game_id)
             .execute(&mut *tx)
             .await?;
@@ -1493,8 +1532,11 @@ async fn start_game(st: &AppState, id: &str, user: &str) -> AppResult<()> {
         .await?;
     for s in &seats {
         sqlx::query(
-            "INSERT OR REPLACE INTO game_seats (game_id, seat, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
-             VALUES (?,?,?,?,?,?,?,?)",
+            // A seated person who belongs to the game's playgroup sits there as that member, as at
+            // the table, so the group's pages count the game as theirs.
+            "INSERT OR REPLACE INTO game_seats (game_id, seat, member_id, user_id, guest_name, ai_kind, deck_version_id, deck_label, commander_name)
+             VALUES (?1, ?2, (SELECT m.id FROM playgroup_members m JOIN games g ON g.playgroup_id = m.playgroup_id WHERE g.id = ?1 AND m.user_id = ?3),
+                     ?3, ?4, ?5, ?6, ?7, ?8)",
         )
         .bind(id)
         .bind(i64::from(s.seat))

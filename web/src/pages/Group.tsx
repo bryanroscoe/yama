@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { api, API_BASE, type GameRow, type GameSeat, type PlayerStat, type PlaygroupStats, type Playgroup } from "../api";
+import { api, API_BASE, type GameRow, type PlaygroupStats, type Playgroup } from "../api";
 import { useMe } from "../auth";
 import { ErrorText } from "../components/ui";
 import { ArtPanel, artCredits } from "../components/ArtPanel";
@@ -14,6 +14,7 @@ import { MythicImportEntry } from "../bridges/mythic/MythicImport";
 import { HelpPopover } from "../components/HelpPopover";
 import { exportLink } from "../download";
 import { percent, fmtMonth } from "@yama/core";
+import { playerKeys, readGames, type Rival } from "./groupGames";
 
 export function GroupPage() {
   const groups = useQuery({ queryKey: ["playgroups"], queryFn: ({ signal }) => api<Playgroup[]>("/api/playgroups", { signal }) });
@@ -57,59 +58,9 @@ export function GroupPage() {
   );
 }
 
-/** Who sat in a seat, as the stats key players: the member row, else the account, else the name. */
-const seatKey = (s: GameSeat) => s.member_id ?? s.user_id ?? `guest:${s.guest_name ?? s.display_name ?? "?"}`;
 /** "Terra" from "Terra, Herald of Hope". */
 const shortName = (name: string) => name.split(",")[0]!.trim();
 const listNames = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
-
-interface Rival {
-  key: string;
-  name: string;
-  shared: number;
-  mine: number;
-  theirs: number;
-}
-
-/**
- * From the group's finished games: each player's most-played commander, who played each
- * commander, and your record against each other player in the games you both sat in.
- */
-function readGames(games: GameRow[], me: string | undefined) {
-  const played = new Map<string, Map<string, number>>();
-  const byCommander = new Map<string, Map<string, string>>();
-  const rivals = new Map<string, Rival>();
-  for (const g of games) {
-    if (g.status !== "finished") continue;
-    const winner = g.seats.find((s) => s.seat === g.winner_seat);
-    for (const s of g.seats) {
-      const k = seatKey(s);
-      if (s.commander_name) {
-        const m = played.get(k) ?? new Map<string, number>();
-        m.set(s.commander_name, (m.get(s.commander_name) ?? 0) + 1);
-        played.set(k, m);
-        const who = byCommander.get(s.commander_name) ?? new Map<string, string>();
-        who.set(k, s.display_name ?? s.guest_name ?? "?");
-        byCommander.set(s.commander_name, who);
-      }
-    }
-    if (!me || !g.seats.some((s) => seatKey(s) === me)) continue;
-    for (const s of g.seats) {
-      const k = seatKey(s);
-      if (k === me) continue;
-      const r = rivals.get(k) ?? { key: k, name: s.display_name ?? s.guest_name ?? "?", shared: 0, mine: 0, theirs: 0 };
-      r.shared += 1;
-      if (winner && seatKey(winner) === me) r.mine += 1;
-      if (winner && seatKey(winner) === k) r.theirs += 1;
-      rivals.set(k, r);
-    }
-  }
-  const favourite = (k: string) => [...(played.get(k) ?? new Map()).entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-  const list = [...rivals.values()];
-  const beatsMe = list.filter((r) => r.theirs > r.mine).sort((a, b) => b.theirs - b.mine - (a.theirs - a.mine) || b.theirs - a.theirs)[0];
-  const iBeat = list.filter((r) => r.mine > r.theirs).sort((a, b) => b.mine - b.theirs - (a.mine - a.theirs) || b.mine - a.mine)[0];
-  return { favourite, players: (c: string) => [...(byCommander.get(c)?.values() ?? [])], beatsMe, iBeat };
-}
 
 function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNode }) {
   const me = useMe().data;
@@ -117,9 +68,10 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
   const games = useQuery({ queryKey: ["games", "group", group.id], queryFn: ({ signal }) => api<GameRow[]>(`/api/games?playgroup=${group.id}`, { signal }) });
   const [shared, setShared] = useState(false);
   const s = stats.data;
-  const myKey = group.members.find((m) => m.user_id && m.user_id === me?.id)?.id ?? me?.id;
-  const read = readGames(games.data ?? [], myKey);
-  const playerKey = (p: PlayerStat) => p.member_id ?? p.key;
+  const keys = playerKeys(group.members);
+  const myKey = keys.account(me?.id);
+  const read = readGames(games.data ?? [], myKey, keys.seat);
+  const playerKey = keys.player;
   const favourites = new Map((s?.players ?? []).map((p) => [p.key, read.favourite(playerKey(p))]));
   const rivalArt = (r?: Rival) => (r ? read.favourite(r.key) : null);
   const art = useCardArt([...favourites.values(), ...(s?.commanders ?? []).map((c) => c.commander), rivalArt(read.beatsMe), rivalArt(read.iBeat)]);

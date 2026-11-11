@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-11-online-results",
+    date: "2026-11-11",
+    title: "Online games count fully in playgroup stats",
+    items: [
+      "An online game now saves who went out when, who knocked them out and how the game was won, wherever the rules engine says. How games were won, first and last out and knockouts read them like games at the table.",
+      "Your rivalries on the Playgroup page count online games too.",
+    ],
+    link: { to: "/group", label: "Open Playgroup" },
+  },
+  {
     id: "2026-11-11-change-your-name",
     date: "2026-11-11",
     title: "Change the name you go by",
