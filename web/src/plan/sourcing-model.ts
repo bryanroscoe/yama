@@ -50,11 +50,11 @@ export function portfolioRows(cards: SourceCard[], doc: ResearchDocument, decks:
   if (bracket) for (const d of doc.decks) {
     // Older source checks explicitly label cEDH but omit its numeric bracket metadata.
     const builds = d.builds.filter(b => String(b.bracket ?? (/\bcEDH\b/i.test(b.label) ? 5 : null)) === bracket);
-    names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side").map(l => l.name.split(" // ")[0]!))));
+    names.set(d.key, new Set(builds.flatMap(b => parseDeckList(b.list).filter(l => l.board !== "side").map(l => l.name.split(" // ")[0]!.trim().toLowerCase()))));
   }
   const groups = new Map<string, SourceCard>();
   for (const c of cards) {
-    const uses = c.uses.filter(u => decks.has(u.deck) && (!bracket || names.get(u.deck)?.has(c.name)) && (scope === "all" || (scope === "optional") === optionalUse(u)));
+    const uses = c.uses.filter(u => decks.has(u.deck) && (!bracket || names.get(u.deck)?.has(c.name.split(" // ")[0]!.trim().toLowerCase())) && (scope === "all" || (scope === "optional") === optionalUse(u)));
     if (!uses.length) continue;
     const row = groups.get(c.name) ?? { ...c, uses: [], offers: [] };
     const ids = new Set(row.uses.map(u => u.id));

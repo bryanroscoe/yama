@@ -13,7 +13,7 @@ describe("portfolio sourcing",()=>{
     expect(sourceCarts(sourceCards(raw),{"Sol Ring":[{offer:offer.url,qty:1}]},new Map([["https://mothershipatx.com","javascript:alert({items})"]]))[0]!.url).toBeUndefined();
   });
   it("matches supported import formats and excludes sideboard cards when selecting a bracket",()=>{
-    for(const list of ["Commander\n1 Leader\nDeck\n1x Sol Ring", "1 Leader\n1 Sol Ring (C21) 263 *F*", "1 Leader\nSol Ring #tag"]){
+    for(const list of ["Commander\n1 Leader\nDeck\n1x Sol Ring", "1 Leader\n1 Sol Ring (C21) 263 *F*", "1 Leader\nSol Ring #tag", "1 Leader\n1x sol ring (C21) 263"]){
       const formatted={...doc,decks:[{...doc.decks[0]!,builds:[{id:"b2",label:"B2",bracket:2,list}]}]};
       expect(portfolioRows(sourceCards(raw),formatted,new Set(["a"]),"2","all")[0]!.uses).toHaveLength(1);
     }
