@@ -123,6 +123,9 @@ function NotePage({ bundle }: { bundle: ResearchBundle }) {
           <span className="tag plain">Archived</span> A research note, kept for reference. It's never a current plan, and nothing in it is on your shopping list. Open a deck and choose Use a deck from it to make that build a new version of the deck's plan, waiting for your OK.
         </p>
         {doc.summary && <p className="note-summary">{doc.summary}</p>}
+        {Array.isArray(doc.local_sources) && doc.local_sources.length > 0 && (
+          <p><Link className="button outline" to={`/decks/plans/get/sourcing?report=${encodeURIComponent(doc.id)}`}>Source cards across all these decks</Link></p>
+        )}
         <p className="dim">
           {doc.decks.length} {doc.decks.length === 1 ? "deck" : "decks"}. Saved {fmtDate(bundle.updated_at)}
           {bundle.revision > 1 ? `, revision ${bundle.revision}` : ""}.
