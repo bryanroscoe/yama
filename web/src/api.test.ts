@@ -67,4 +67,37 @@ describe("API authentication across origins", () => {
     expect(options.credentials).toBe(credentials);
     expect(options.headers.get("Authorization")).toBe(token ? `Bearer ${token}` : null);
   });
+
+  it("keeps no bearer token on the web, where the session cookie is the sign-in", async () => {
+    vi.stubEnv("VITE_API_BASE", "");
+    vi.resetModules();
+    // A token an older build stored. Its session may have ended, and the server reads
+    // Authorization before the cookie without falling back.
+    localStorage.setItem("yama.token", "stale-token");
+    const fetcher = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ id: "me" }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const { api, currentToken, setToken } = await import("./api");
+    expect(localStorage.getItem("yama.token")).toBeNull();
+    expect(currentToken()).toBeNull();
+    await api("/api/me");
+    expect(fetcher.mock.calls[0]![1].headers.get("Authorization")).toBeNull();
+    expect(fetcher.mock.calls[0]![1].credentials).toBe("include");
+    // Signing in doesn't store one either.
+    setToken("fresh-token");
+    expect(localStorage.getItem("yama.token")).toBeNull();
+    await api("/api/me");
+    expect(fetcher.mock.calls[1]![1].headers.get("Authorization")).toBeNull();
+  });
+
+  it("keeps the bearer token in the native app, which has no cookie", async () => {
+    vi.stubEnv("VITE_API_BASE", "https://api.yama.example");
+    vi.resetModules();
+    localStorage.setItem("yama.token", "native-token");
+    const { currentToken, setToken } = await import("./api");
+    expect(currentToken()).toBe("native-token");
+    setToken("next-token");
+    expect(localStorage.getItem("yama.token")).toBe("next-token");
+    setToken(null);
+    expect(currentToken()).toBeNull();
+  });
 });

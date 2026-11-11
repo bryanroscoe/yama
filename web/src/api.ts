@@ -42,20 +42,42 @@ export function publicOrigin(): string {
  */
 export const FETCH_CREDENTIALS: RequestCredentials = API_BASE ? "omit" : "include";
 
-/** Native apps can't share the web cookie, so they keep the bearer token. Web relies on the cookie. */
+/**
+ * Only the native apps keep the bearer token: they can't share the web cookie. On the web the
+ * HttpOnly session cookie is the sign-in, and a 90-day token readable by any script on the page
+ * has no business in localStorage (project review, 11 Nov 2026).
+ */
+const KEEPS_TOKEN = !!API_BASE;
+
+/**
+ * Drop a token an older web build stored. It did more than sit there: the server reads
+ * `Authorization` before the cookie and doesn't fall back, so a token whose session had ended
+ * turned every request into a 401 even with a good cookie.
+ */
+function dropWebToken() {
+  if (KEEPS_TOKEN) return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // No storage (blocked, or not a browser): nothing is stored there either.
+  }
+}
+dropWebToken();
+
+/** Remember the session token after signing in (native apps only), or forget it (null). */
 export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
+  if (token && KEEPS_TOKEN) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-/** The bearer token, for requests made where localStorage isn't (a worker). */
+/** The bearer token a request carries: the native apps' stored one; none on the web. */
 export function currentToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return KEEPS_TOKEN ? localStorage.getItem(TOKEN_KEY) : null;
 }
 
 async function apiResponse(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   let body = init.body;
   if (init.json !== undefined) {

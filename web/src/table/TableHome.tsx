@@ -25,13 +25,12 @@ import { useInstall } from "../install";
 import { useHosting } from "./share";
 import { SharedTables } from "./SharedTables";
 import { forgetTable, followedTable } from "./following";
+import { readLastSetup, writeLastSetup } from "./lastSetup";
 import { tablePlay } from "./playLoader";
 import "./seats.css";
 import "./home.css";
 import { ask } from "../components/confirm";
 
-/** The last setup on this device: an account's, or (apart, so no names carry over) a guest's. */
-const lastSetupKey = () => (isGuest() ? "yama.table.lastSetup.guest" : "yama.table.lastSetup");
 
 /** Laptop layout (the rail and inline seat cards) from 900 px, as in styles.css. */
 function useWide(): boolean {
@@ -230,29 +229,15 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
   const [life, setLife] = useState(40);
   const [format, setFormat] = useState<TableFormat>("commander");
   /** Everyone keeps their own totals on their own phone: the join code shows as the game opens. */
-  const [phones, setPhones] = useState<"one" | "everyone">(() => {
-    try {
-      return JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null")?.phones === "everyone" ? "everyone" : "one";
-    } catch {
-      return "one";
-    }
-  });
+  // The last setup on this device of whoever is using the Table: this account's, or a guest's
+  // (lastSetup.ts). Read once, as the form opens.
+  const [last] = useState(() => readLastSetup(localStorage, guest ? null : me.data?.id));
+  const [phones, setPhones] = useState<"one" | "everyone">(() => (last?.phones === "everyone" ? "everyone" : "one"));
   const wide = useWide();
   const [editing, setEditing] = useState<number | null>(null);
-  const [restored] = useState(() => {
-    try {
-      return !!JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null")?.seats?.length;
-    } catch {
-      return false;
-    }
-  });
+  const restored = !!last?.seats?.length;
   const [seats, setSeats] = useState<SeatDraft[]>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
-      if (saved?.seats?.length) return withDraftIds(saved.seats);
-    } catch {
-      /* ignore */
-    }
+    if (last?.seats?.length) return withDraftIds(last.seats as Omit<SeatDraft, "draftId">[]);
     return withDraftIds([
       { ...emptySeat(), name: me.data?.display_name ?? "Me", userId: me.data?.id },
       emptySeat(),
@@ -261,15 +246,10 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
     ]);
   });
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(lastSetupKey()) ?? "null");
-      if (saved?.groupId) setGroupId(saved.groupId);
-      if (saved?.life) setLife(saved.life);
-      if (FORMATS.some((f) => f.key === saved?.format)) setFormat(saved.format);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+    if (last?.groupId) setGroupId(last.groupId);
+    if (last?.life) setLife(last.life);
+    if (FORMATS.some((f) => f.key === last?.format)) setFormat(last!.format as TableFormat);
+  }, [last]);
 
   // "Play this deck" on a deck page: put that deck in your seat.
   const location = useLocation();
@@ -370,7 +350,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       playgroupId: groupId || undefined,
       players,
     };
-    localStorage.setItem(lastSetupKey(), JSON.stringify({ seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() }));
+    writeLastSetup(localStorage, guest ? null : me.data?.id, { seats: seatsNow, groupId, life, format, phones, at: new Date().toISOString() });
     const followed = followedTable(me.data?.id ?? null);
     if (followed) forgetTable(me.data?.id ?? null, followed.gameId);
     startGame(setup);

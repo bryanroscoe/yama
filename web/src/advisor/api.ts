@@ -1,7 +1,7 @@
 // The advisor's routes (server/src/advisor). Answers stream as server-sent events over a POST, so
 // `ask` reads the response body itself instead of using EventSource.
 
-import { api, API_BASE, ApiError, FETCH_CREDENTIALS } from "../api";
+import { api, API_BASE, ApiError, currentToken, FETCH_CREDENTIALS } from "../api";
 import { parseSse, type ContextKind, type StreamEvent } from "./logic";
 
 export interface AdvisorModel {
@@ -87,7 +87,7 @@ export interface AskInput {
  */
 export async function ask(input: AskInput, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
   const headers = new Headers({ "Content-Type": "application/json", Accept: "text/event-stream" });
-  const token = localStorage.getItem("yama.token");
+  const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(`${API_BASE}/api/advisor/ask`, { method: "POST", headers, body: JSON.stringify(input), credentials: FETCH_CREDENTIALS, signal });
   if (!res.ok || !res.body) {

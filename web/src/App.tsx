@@ -1,8 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch } from "react-router";
 import { chooseGuest, useGuestChosen } from "./guest";
-import { useQueryClient } from "@tanstack/react-query";
 import { afterSignIn, Login, useMe } from "./auth";
+import { useLapsedAccount } from "./session";
 import { AlphaTag } from "./components/AlphaTag";
 import { RequireAccount } from "./components/RequireAccount";
 import { RailMe } from "./components/RailMe";
@@ -171,21 +171,14 @@ export function App() {
   const me = useMe();
   useRestoreHosting(me.data?.id ?? null);
   const guestChosen = useGuestChosen();
-  const qc = useQueryClient();
   const { search } = useLocation();
-  const signedOutNow = !me.data && !me.isPending;
   const answered = useRef(false);
   if (!me.isPending) answered.current = true;
-  // Signed out: an earlier session's lists (its games, playgroups, decks, people) go from this
-  // tab's cache, so nothing of that account shows.
-  useEffect(() => {
-    if (!signedOutNow) return;
-    const accountLists = new Set(["table-active", "table-live", "sharing", "games", "playgroups", "decks", "people-search", "people-decks", "stats", "game"]);
-    // Card searches carry the account's copies; the guest's own (keyed `true`, Cards.tsx) stay,
-    // since the Cards page may already be running one.
-    const accountSearch = (key: readonly unknown[]) => key[0] === "search" && key[4] !== true;
-    qc.removeQueries({ predicate: (q) => accountLists.has(String(q.queryKey[0])) || accountSearch(q.queryKey) });
-  }, [signedOutNow, qc]);
+  // An account's cached data leaves this tab when the account signs out or another signs in
+  // (session.ts does it as /api/me answers, before any page renders as someone else). A page
+  // waiting for its account to sign in again keeps that data until it stops waiting: render
+  // again then, so nothing still on screen holds on to what was just removed.
+  useLapsedAccount();
   const joining = useMatch("/table/join/:gameId");
   // Another tab started or stopped viewing as someone: this one reloads as whoever it is now.
   useEffect(() => {

@@ -12,8 +12,7 @@ import { Landing } from "./pages/Landing";
 import { chooseGuest } from "./guest";
 import { isNative, nativeGoogleCredential } from "./native";
 import { ask } from "./components/confirm";
-
-const ME_KEY = "yama.me";
+import { ME_KEY, signingOut } from "./session";
 
 /** The account this device last saw signed in, if any (kept by useMe). */
 export function savedMe(): User | undefined {
@@ -102,10 +101,13 @@ export function useLogout() {
       logoutRequest: () => api("/api/auth/logout", { method: "POST" }),
       authConfig: async () => qc.getQueryData<AuthConfig>(["auth-config"]) ?? (await api<AuthConfig>("/api/auth/config")),
       cloudflareLogout: () => {
+        signingOut();
         localStorage.removeItem(ME_KEY);
         location.href = "/cdn-cgi/access/logout";
       },
       finish: () => {
+        // Every other tab of this browser signs out with this one (session.ts).
+        signingOut();
         setToken(null);
         localStorage.removeItem(ME_KEY);
         // Not qc.clear(): it removes the "me" query out from under the mounted observer, which keeps
@@ -156,6 +158,7 @@ export function useDeleteAccount() {
         if (!answerLost.current) throw new Error("Your sign-in has run out. Sign in again to delete your account.");
       }
       await clearPlans();
+      signingOut();
       setToken(null);
       localStorage.removeItem(ME_KEY);
       qc.setQueryData(["me"], null);
