@@ -1935,15 +1935,30 @@ turn; End turn requests a mode rather than a single priority pass. Pass to my tu
 passes spell-response priority too, while blockers and required choices still wait.
 Voluntarily starting a new play cancels passing; required answers do not.
 
-The original board offers one conservative Go back checkpoint for an own-main-phase,
-empty-stack pass. Only priority passes and phase changes can preserve it; effects,
-triggers, hidden information, another human's decision or other actions invalidate it.
-It restores the whole adapter/engine state, cancels passing, advances the transport
-revision and refreshes Phase interaction authority before durable save and publication.
-Discard selection stays local until confirmed and can be reset. Checkpoints last only
-in the live process (including browser reconnect); a server restart drops availability.
-The saved replay retains discarded actions as private `yama_rewinds` audit metadata,
-plus a monotonic `yama_revision`; they are not applied as current game actions.
+The original board keeps up to eight recent human-decision checkpoints in a solo
+match. Rewind restores the last choice and subsequent computer responses, including
+resolved spells, targets, life/mana payments, searches, discards and combat declarations;
+repeated rewinds walk backward through the retained choices. It is explicitly a solo
+practice affordance: revealed information cannot be unlearned. The confirmation explains
+this before submitting. Shared games retain the conservative own-main-phase, empty-stack
+Go back checkpoint; effects, triggers, revealed information or another human decision
+invalidate that checkpoint. No player can use solo history to erase another human's action.
+
+Snapshots are bounded, flat and shared immutably across command rollback copies; they
+are captured only for accepted human gameplay inputs through both board protocols, not
+preferences, automatic passes or rejected inputs. Restoration resets AI caches, cancels
+adapter and engine automatic passing, preserves current priority mode and phase stops,
+advances transport/feed sequences and refreshes Phase interaction authority before
+durable save and publication. Older checkpoints remain available after a rewind, and a
+new choice branches from the restored state. Discard selection can also be reset locally
+before confirmation. Checkpoints last in the live process, including browser reconnect;
+a server restart or finished game ends availability. The saved replay retains discarded
+actions as private `yama_rewinds` audit metadata, plus a monotonic `yama_revision`; those
+actions are not replayed as current game actions. The restored replay is saved before
+acknowledgment; failed persistence restores the original live match and its history.
+Rewind is admitted between bounded AI batches and stops automatic progression. Its optional solo checkpoint
+token stays valid through computer-only progress, while a newer human choice invalidates
+it; legacy/shared requests still require the exact current transport revision.
 
 A host who is the only human may explicitly End game. It stops the driver immediately,
 saves `yama_abandoned` in the replay and records abandoned/no winner in history; it

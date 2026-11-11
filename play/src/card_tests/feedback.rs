@@ -1,6 +1,203 @@
 use super::*;
 use crate::{PassMode, turns::Verdict};
 
+fn solo(t: &mut Table) {
+    for seat in 1..t.m.player_count() {
+        t.m.ai.insert(PlayerId(seat as u8), crate::ai_config(crate::AiDifficulty::VeryEasy, t.m.player_count() as u8, 7, false));
+    }
+}
+
+#[test]
+fn solo_rewind_restores_plays_and_repeated_history_without_restoring_old_authority() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Plains").hand(0, "Sol Ring").build();
+        solo(&mut t);
+        t.m.prepare_board().unwrap();
+        let namespace = t.m.state.interaction_session_id.clone();
+        let logged = t.m.log.actions.len();
+        let land = t.id("Plains");
+        let play = AiDecisionContract::issue(&t.m.state, PlayerId(0)).candidates.into_iter()
+            .find(|c| matches!(c.action, GameAction::PlayLand { object_id, .. } if object_id == land)).unwrap().action;
+        t.m.submit(0, play).unwrap();
+        t.cast(t.id("Sol Ring"));
+        assert!(t.m.state.objects[&land].tapped);
+        assert_eq!(t.m.view(Some(0)).rewind_steps, 2);
+        assert_eq!(t.m.view(Some(1)).rewind_steps, 0);
+        assert!(t.m.go_back(1, t.m.revision).is_err());
+        let stale = t.m.revision;
+        t.m.go_back(0, stale).unwrap();
+        assert!(!t.m.state.objects[&land].tapped);
+        assert_eq!(t.zone(land), Zone::Battlefield);
+        assert!(t.m.revision > stale);
+        assert_ne!(namespace, t.m.state.interaction_session_id);
+        assert!(matches!(t.m.go_back(0, stale), Err(ChoiceError::Stale)));
+        t.m.go_back(0, t.m.revision).unwrap();
+        assert_eq!(t.zone(land), Zone::Hand);
+        assert_eq!(t.m.view(Some(0)).rewind_steps, 0);
+        assert!(!t.m.view(Some(0)).can_go_back);
+        assert_eq!(t.m.rewinds.len(), 2);
+        assert!(t.m.log.actions[logged..].iter().all(|a| a.action.is_actor_scoped_preference()), "undone gameplay is absent from the active replay");
+        t.play_land(land);
+        assert_eq!(t.m.view(Some(0)).rewind_steps, 1, "new play branches from the restored position");
+    });
+}
+
+#[test]
+fn solo_rewind_can_restore_fetch_payment_search_and_computer_responses() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Windswept Heath").top(0, "Forest").build();
+        solo(&mut t);
+        let fetch = t.id("Windswept Heath");
+        let forest = t.id("Forest");
+        let library = t.m.state.players[0].library.clone();
+        t.activate(fetch, None);
+        t.drive_answering(|_, _, d| d.pending.as_ref().filter(|p| p.purpose == "search").and_then(|p| choose_named(p, "Forest"))).unwrap();
+        assert_eq!(t.zone(fetch), Zone::Graveyard);
+        assert_eq!(t.zone(forest), Zone::Battlefield);
+        assert_eq!(t.m.state.players[0].life, 39);
+        assert!(t.m.log.actions.iter().any(|a| a.actor == PlayerId(1)));
+        assert!(!t.m.solo_history.is_empty());
+        while !t.m.solo_history.is_empty() { t.m.go_back(0, t.m.revision).unwrap(); }
+        assert_eq!(t.zone(fetch), Zone::Battlefield);
+        assert_eq!(t.zone(forest), Zone::Library);
+        assert_eq!(t.m.state.players[0].life, 40);
+        assert_eq!(t.m.state.players[0].library, library);
+        assert!(t.m.state.stack.is_empty());
+        assert_eq!(t.m.state.active_player, PlayerId(0));
+        assert!(t.m.controls(0).passing.is_none());
+    });
+}
+
+#[test]
+fn solo_history_is_flat_bounded_and_refused_inputs_do_not_add_checkpoints() {
+    big_stack(|| {
+        let mut t = Board::new(2).build();
+        solo(&mut t);
+        for _ in 0..10 {
+            let saved = t.m.solo_checkpoint(0);
+            t.m.keep_solo_checkpoint(saved);
+        }
+        assert_eq!(t.m.solo_history.len(), 8);
+        assert!(t.m.solo_history.iter().all(|s| s.solo_history.is_empty() && s.rewind.is_none()));
+        assert!(t.m.choose(0, t.m.revision, usize::MAX).is_err());
+        assert_eq!(t.m.solo_history.len(), 8);
+        t.m.abandon();
+        assert!(t.m.solo_history.is_empty());
+        assert!(t.m.go_back(0, t.m.revision).is_err());
+    });
+}
+
+#[test]
+fn solo_rewind_checkpoint_survives_computer_progress_but_not_a_new_human_choice() {
+    big_stack(|| {
+        let mut t = Board::new(2).hand(0, "Plains").build();
+        solo(&mut t);
+        t.choose(0, |o| o.kind == OptionKind::Pass);
+        let revision = t.m.revision;
+        let checkpoint = t.m.view(Some(0)).rewind_checkpoint;
+        t.choose(1, |o| o.kind == OptionKind::Pass);
+        assert!(t.m.revision > revision);
+        t.m.go_back_to(0, revision, checkpoint).unwrap();
+        t.play_land(t.id("Plains"));
+        assert!(matches!(t.m.go_back_to(0, t.m.revision, checkpoint), Err(ChoiceError::Stale)));
+        assert_eq!(t.m.view(Some(0)).rewind_steps, 1);
+    });
+}
+
+#[test]
+fn solo_rewind_keeps_full_control_and_cancels_temporary_hold_in_engine_too() {
+    big_stack(|| {
+        for hold in [false, true] {
+            let mut t = Board::new(2).hand(0, "Plains").build();
+            solo(&mut t);
+            if hold { t.m.set_hold(0, true); }
+            t.play_land(t.id("Plains"));
+            if !hold { t.m.set_full_control(0, true); }
+            assert_eq!(t.m.view(Some(0)).rewind_steps, 1, "preferences do not add checkpoints");
+            t.m.go_back(0, t.m.revision).unwrap();
+            assert_eq!(t.m.controls(0).full_control, !hold);
+            assert!(!t.m.controls(0).hold);
+            let expected = if hold { crate::PriorityPassingMode::Standard } else { crate::PriorityPassingMode::FullControl };
+            assert_eq!(t.m.state.priority_passing_mode(PlayerId(0)), expected);
+        }
+    });
+}
+
+#[test]
+fn solo_rewind_preserves_current_phase_stops_in_both_boards() {
+    big_stack(|| {
+        use engine::types::phase::{PhaseStop, PhaseStopScope};
+        for clear in [false, true] {
+            let mut t = Board::new(2).hand(0, "Plains").build();
+            solo(&mut t);
+            let stops = vec![PhaseStop { phase: Phase::Draw, scope: PhaseStopScope::OwnTurn }];
+            if clear { t.m.submit(0, GameAction::SetPhaseStops { stops: stops.clone() }).unwrap(); }
+            t.play_land(t.id("Plains"));
+            let current = if clear { vec![] } else { stops };
+            t.m.submit(0, GameAction::SetPhaseStops { stops: current.clone() }).unwrap();
+            assert_eq!(t.m.view(Some(0)).rewind_steps, 1);
+            t.m.go_back(0, t.m.revision).unwrap();
+            assert_eq!(t.m.state.phase_stops.get(&PlayerId(0)).cloned().unwrap_or_default(), current);
+            assert_eq!(t.m.controls(0).stops.as_ref().is_some_and(|s| s.own.contains("Draw")), !clear);
+        }
+    });
+}
+
+#[test]
+fn solo_rewind_cancels_engine_auto_pass_saved_at_an_interactive_choice() {
+    big_stack(|| {
+        let mut t = Board::new(2).build();
+        solo(&mut t);
+        // A mandatory decision can be reached while an engine turn pass is armed.
+        t.m.state.auto_pass.insert(PlayerId(0), engine::types::game_state::AutoPassMode::UntilTurnBoundary { until: Default::default() });
+        let checkpoint = t.m.solo_checkpoint(0);
+        t.m.keep_solo_checkpoint(checkpoint);
+        t.m.go_back(0, t.m.revision).unwrap();
+        assert!(!t.m.state.auto_pass.contains_key(&PlayerId(0)));
+        assert!(matches!(t.m.log.actions.last().unwrap().action, GameAction::CancelAutoPass));
+        assert!(t.m.controls(0).passing.is_none());
+    });
+}
+
+#[test]
+fn solo_rewind_records_opaque_choices_and_refuses_the_old_capability_after_restore() {
+    big_stack(|| {
+        use engine::types::interaction::{InteractionOpportunityResponse, InteractionResponse, InteractionSubmission};
+        use engine::game::interaction::resolve_interaction_response;
+        let mut t = Board::new(2).hand(0, "Plains").build();
+        solo(&mut t);
+        t.m.prepare_board().unwrap();
+        let crate::board::ServerMessage::StateUpdate { viewer_interaction, .. } = crate::board::state_update(&t.m.state, PlayerId(0), t.m.revision, "g", &Default::default()) else { panic!("state update") };
+        let submission = viewer_interaction.opportunities.iter().find_map(|o| {
+            let InteractionOpportunityResponse::ExactChoices { choices } = &o.response else { return None };
+            choices.iter().find_map(|choice| {
+                let submission = InteractionSubmission { interaction_id: o.interaction_id.clone(), response: InteractionResponse::Choose { choice_id: choice.id.clone() } };
+                matches!(resolve_interaction_response(&t.m.state, PlayerId(0), &submission).ok()?, GameAction::PlayLand { .. }).then_some(submission)
+            })
+        }).expect("land play capability");
+        t.m.submit_interaction(0, submission.clone()).unwrap();
+        assert_eq!(t.m.view(Some(0)).rewind_steps, 1);
+        t.m.go_back(0, t.m.revision).unwrap();
+        assert_eq!(t.zone(t.id("Plains")), Zone::Hand);
+        assert!(t.m.submit_interaction(0, submission).is_err());
+        assert_eq!(t.m.view(Some(0)).rewind_steps, 0);
+    });
+}
+
+#[test]
+fn solo_rewind_restores_attack_declaration() {
+    big_stack(|| {
+        let mut t = Board::new(2).field(0, "Grizzly Bears").build();
+        solo(&mut t);
+        t.pass_until(|t| matches!(t.m.state.waiting_for, WaitingFor::DeclareAttackers { .. }));
+        let before = t.m.state.waiting_for.clone();
+        t.m.declare_attackers(0, t.m.revision, &[]).unwrap();
+        t.m.go_back(0, t.m.revision).unwrap();
+        assert_eq!(t.m.state.waiting_for, before);
+        assert_eq!(t.m.state.phase, Phase::DeclareAttackers);
+    });
+}
+
 #[test]
 fn wishclaw_names_the_opponent_who_receives_control() {
     big_stack(|| {
@@ -241,7 +438,7 @@ fn going_back_does_not_cancel_another_seats_pass_mode() {
 }
 
 #[test]
-fn go_back_from_unsubmitted_cleanup_discard_restores_the_main_phase() {
+fn solo_go_back_from_cleanup_discard_can_walk_back_to_main_phase() {
     big_stack(|| {
         let mut board = Board::new(2).phase(Phase::PostCombatMain);
         for _ in 0..8 { board = board.hand(0, "Plains"); }
@@ -254,7 +451,13 @@ fn go_back_from_unsubmitted_cleanup_discard_restores_the_main_phase() {
         }
         assert!(matches!(t.m.state.waiting_for, WaitingFor::DiscardToHandSize { .. }));
         assert!(t.m.view(Some(0)).can_go_back);
+        let discard = t.m.state.players[0].hand[0];
+        t.act(0, Act::SelectCards { cards: vec![discard.0] });
+        assert_eq!(t.zone(discard), Zone::Graveyard);
         t.m.go_back(0, t.m.revision).unwrap();
+        assert_eq!(t.hand(0).len(), 8);
+        assert!(matches!(t.m.state.waiting_for, WaitingFor::DiscardToHandSize { .. }));
+        while t.m.state.phase != Phase::PostCombatMain { t.m.go_back(0, t.m.revision).unwrap(); }
         assert_eq!(t.m.state.phase, Phase::PostCombatMain);
         assert!(matches!(t.m.state.waiting_for, WaitingFor::Priority { player } if player == PlayerId(0)));
         assert_eq!(t.hand(0).len(), 8);

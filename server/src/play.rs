@@ -85,6 +85,7 @@ enum Cmd {
     GoBack {
         seat: u8,
         revision: u64,
+        checkpoint: Option<u64>,
         reply: oneshot::Sender<Result<(), String>>,
     },
     EndSolo {
@@ -399,13 +400,29 @@ fn run_game(
             Err(e) => { *m = before; let _ = reply.send(Err(format!("Could not save the ended game: {e}"))); false }
         }
     };
-    // Admit solo termination between bounded batches, including after the human is out.
+    let restore = |m: &mut Match, seat, revision, checkpoint, reply: oneshot::Sender<Result<(), String>>| {
+        let before = m.clone();
+        let result = m.go_back_to(seat, revision, checkpoint).map_err(|e| e.to_string());
+        let result = match result {
+            Ok(()) => match rt.block_on(persist(pool, game_id, m)) {
+                Ok(()) => Ok(()),
+                Err(e) => { *m = before; Err(format!("Could not save the restored game: {e}")) }
+            },
+            err => err,
+        };
+        let restored = result.is_ok();
+        if restored { publish(m); }
+        let _ = reply.send(result);
+        restored
+    };
+    // Admit solo termination and rewind between batches, including after the human is out.
     // Other commands retain their FIFO order until the next human decision.
     let ai_turns = |m: &mut Match| loop {
         for _ in 0..32 {
             let Ok(cmd) = cmds.try_recv() else { break };
             match cmd {
                 Cmd::EndSolo { seat, reply } => if finish_solo(m, seat, reply) { return },
+                Cmd::GoBack { seat, revision, checkpoint, reply } => if restore(m, seat, revision, checkpoint, reply) { return },
                 other => queued.borrow_mut().push_back(other),
             }
         }
@@ -449,24 +466,10 @@ fn run_game(
             Cmd::GoBack {
                 seat,
                 revision,
+                checkpoint,
                 reply,
             } => {
-                let before = m.clone();
-                let result = m.go_back(seat, revision).map_err(|e| e.to_string());
-                let result = match result {
-                    Ok(()) => match rt.block_on(persist(pool, game_id, &m)) {
-                        Ok(()) => Ok(()),
-                        Err(e) => {
-                            m = before;
-                            Err(format!("Could not save the restored game: {e}"))
-                        }
-                    },
-                    err => err,
-                };
-                if result.is_ok() {
-                    publish(&mut m);
-                }
-                let _ = reply.send(result);
+                restore(&mut m, seat, revision, checkpoint, reply);
                 // The restored decision stays put, without automatic passing or AI work.
                 continue;
             }
@@ -1544,6 +1547,7 @@ async fn prepare_match<T: Send + 'static>(build: impl FnOnce() -> anyhow::Result
 enum ClientMessage {
     GoBack {
         revision: u64,
+        checkpoint: Option<u64>,
     },
     Choose {
         revision: u64,
@@ -1797,12 +1801,13 @@ async fn watch_game(socket: WebSocket, pool: SqlitePool, live: LiveGame, you: Op
             let Message::Text(text) = msg else { continue };
             let (Some(seat), Ok(m)) = (you, serde_json::from_str::<ClientMessage>(&text)) else { continue; };
             match m {
-                ClientMessage::GoBack { revision } => {
+                ClientMessage::GoBack { revision, checkpoint } => {
                     let (tx, rx) = oneshot::channel();
                     if cmds
                         .send(Cmd::GoBack {
                             seat,
                             revision,
+                            checkpoint,
                             reply: tx,
                         })
                         .is_ok()

@@ -1547,3 +1547,50 @@ async fn ending_a_solo_game_is_durable_and_does_not_award_a_winner() {
     assert!(restored.winner().is_none());
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn solo_rewind_interrupts_ai_progress_and_saves_the_restored_branch() {
+    let st = crate::testutil::state().await;
+    let pool = st.pool.clone();
+    let (host, _) = crate::testutil::user(&pool, "rewind@example.com").await;
+    let e = engine();
+    let mut seats = vec![seat(0, "You"), seat(1, "Computer"), seat(2, "Computer")];
+    seats[0].user_id = Some(host.clone());
+    for s in &mut seats[1..] { s.kind = "ai".into(); s.user_id = None; s.difficulty = Some("Easy".into()); }
+    let ais = [(1, Difficulty::Easy), (2, Difficulty::Easy)];
+    let mut m = e.new_match_first(5, vec![deck(&[("Mountain", 99)]), deck(&[("Island", 99)]), deck(&[("Forest", 99)])], &ais, Some(0)).unwrap();
+    let decision = m.decision(0).expect("opening hand");
+    let keep = decision.options.iter().find(|o| o.kind == OptionKind::Keep).unwrap().index;
+    m.choose(0, decision.revision, keep).unwrap();
+    let revision = m.revision;
+    let checkpoint = m.view(Some(0)).rewind_checkpoint;
+    assert!(checkpoint.is_some());
+    // Elimination models the case in which no further human prompt will stop the AI.
+    m.concede(0).unwrap();
+    assert!(m.revision > revision && !m.is_over());
+    sqlx::query("INSERT INTO games (id,mode,created_by,format,status,starting_life,started_at,engine_version) VALUES ('solo-rewind','online',?,'commander','in_progress',40,'2026-11-11T00:00:00Z',?)").bind(&host).bind(yama_play::ENGINE_VERSION).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO online_games (game_id,code,host_id,stage,seats,replay,created_at,updated_at) VALUES ('solo-rewind','REWIND',?,'live',?,?,'2026-11-11T00:00:00Z','2026-11-11T00:00:00Z')").bind(&host).bind(serde_json::to_string(&seats).unwrap()).bind(m.replay_json()).execute(&pool).await.unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (reply, result) = oneshot::channel();
+    tx.send(Cmd::GoBack { seat: 0, revision, checkpoint, reply }).unwrap();
+    tx.send(Cmd::Stop).unwrap();
+    let (views, mut latest) = watch::channel(Arc::new(Snapshot::default()));
+    let (updates, _) = broadcast::channel(16);
+    let rt = tokio::runtime::Handle::current();
+    let worker_pool = pool.clone();
+    let thread = std::thread::Builder::new().stack_size(32 << 20).spawn(move || run_game("solo-rewind", m, &seats, &HashMap::new(), rx, views, updates, &worker_pool, &rt)).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), result).await.unwrap().unwrap().unwrap();
+    tokio::task::spawn_blocking(move || thread.join().unwrap()).await.unwrap();
+    let live = latest.borrow_and_update().clone();
+    let view = &live.views[&Some(0)];
+    assert!(!view.players[0].eliminated);
+    assert!(view.revision > revision);
+    assert_eq!(view.rewind_steps, 0, "restoration must not immediately auto-pass the restored choice");
+    let replay: String = sqlx::query_scalar("SELECT replay FROM online_games WHERE game_id='solo-rewind'").fetch_one(&pool).await.unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&replay).unwrap();
+    assert_eq!(saved["yama_rewinds"].as_array().unwrap().len(), 1);
+    let resumed = e.resume(&replay, &ais).unwrap();
+    assert!(!resumed.view(Some(0)).players[0].eliminated);
+    assert_eq!(resumed.revision, view.revision);
+    assert_eq!(resumed.view(Some(0)).decision.unwrap().options.iter().filter(|o| o.kind == OptionKind::Keep).count(), 1);
+}

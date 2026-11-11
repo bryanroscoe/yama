@@ -77,6 +77,8 @@ fn board(turn: u32, life: i32, over: bool, reveal: bool) -> View {
         over,
         abandoned: false,
         can_go_back: false,
+        rewind_steps: 0,
+        rewind_checkpoint: None,
         winner: over.then_some(0),
         turns: None,
         resolve_all: None,

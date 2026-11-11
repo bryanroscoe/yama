@@ -122,6 +122,7 @@ const SECTIONS: { id: SettingsSection; label: string; short: string }[] = [
   { id: "hand", label: "Hand order", short: "Hand" },
   { id: "speed", label: "Playback speed", short: "Speed" },
   { id: "pay", label: "Paying mana", short: "Mana" },
+  { id: "rewind", label: "Rewind", short: "Rewind" },
   { id: "concede", label: "Concede", short: "Concede" },
 ];
 
@@ -130,7 +131,9 @@ const SECTIONS: { id: SettingsSection; label: string; short: string }[] = [
  * for you, your hand's order and conceding. Changes go to the game at once; conceding is confirmed
  * only with the main button (the rail's on a laptop, `buttons` at the foot of the sheet on a phone).
  */
-export function GameSettings({ section, onSection, turns, hand, meta, whose, tone, onAct, onTapMana, disabled, compact, buttons, speed, onSpeed, solo }: {
+export function GameSettings({ section, onSection, turns, hand, meta, whose, tone, onAct, onTapMana, disabled, compact, buttons, speed, onSpeed, solo, rewindSteps = 0, rewindChanged = false }: {
+  rewindSteps?: number;
+  rewindChanged?: boolean;
   speed?: PlaySpeed;
   onSpeed?: (speed: PlaySpeed) => void;
   solo?: boolean;
@@ -151,7 +154,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
   const counts: Partial<Record<SettingsSection, number>> = { yields: turns.yields.length, answers: turns.answers.length };
   const nav = compact ? (
     <div role="tablist" aria-label="Sections" className="gs-tabs">
-      {SECTIONS.map((s) => (
+      {SECTIONS.filter((s) => s.id !== "rewind" || solo).map((s) => (
         <button key={s.id} type="button" role="tab" aria-selected={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
           {s.id === "concede" && solo ? "End game" : s.short}
         </button>
@@ -160,7 +163,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
   ) : (
     <nav aria-label="Sections" className="gs-nav">
       <h2>This game</h2>
-      {SECTIONS.map((s) => (
+      {SECTIONS.filter((s) => s.id !== "rewind" || solo).map((s) => (
         <button key={s.id} type="button" aria-current={section === s.id} className={`${section === s.id ? "on" : ""}${s.id === "concede" ? " bad" : ""}`} onClick={() => onSection(s.id)}>
           {s.id === "concede" && solo ? "End game" : s.label}
           {counts[s.id] !== undefined && <span>{counts[s.id]}</span>}
@@ -179,6 +182,7 @@ export function GameSettings({ section, onSection, turns, hand, meta, whose, ton
         {section === "hand" && <HandOrder hand={hand} meta={meta} onAct={onAct} disabled={disabled} compact={compact} />}
         {section === "pay" && <Paying value={turns.tap_mana} onChange={onTapMana} disabled={disabled} />}
         {section === "speed" && <div className="gs-speed"><h3>Playback speed</h3><p>Card movement, effects and combat cues. Saved on this device.</p><div className="segmented" role="group" aria-label="Playback speed">{PLAY_SPEEDS.map((s) => <button key={s.value} type="button" aria-pressed={speed === s.value} onClick={() => onSpeed?.(s.value)}>{s.label}</button>)}</div></div>}
+        {section === "rewind" && <div><h3>Correct a mistake</h3><p>Undo your last decision and everything the computers did afterward, including plays, targets, payments, discards and combat choices. Repeat to go back further.</p><p>{rewindSteps} of up to 8 recent decisions available. Cards revealed since that decision return to their earlier state; you still know what you saw.</p><p>Available during a solo game. History survives reconnecting, but ends when the server restarts or the game finishes.</p>{rewindChanged && <p role="status">A newer choice was made. Cancel and reopen Rewind to review it.</p>}</div>}
         {section === "concede" && (solo ? <p>End this game against the computers now. It is saved as abandoned, with no winner.</p> : <Concede compact={compact} />)}
       </div>
       {buttons}

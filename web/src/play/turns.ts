@@ -144,10 +144,11 @@ export function moved(order: number[], from: number, to: number): number[] {
 }
 
 /** GSettings' sections, in order. */
-export type SettingsSection = "yields" | "answers" | "hand" | "pay" | "speed" | "concede";
+export type SettingsSection = "yields" | "answers" | "hand" | "pay" | "speed" | "rewind" | "concede";
 
 /** The rail (or the sheet's buttons) while the settings are open: Close, Done, or Concede with Cancel. */
 export function settingsButtons(section: SettingsSection, solo = false): { title: string; body: string; primary: string; secondary: string | null } {
+  if (section === "rewind") return { title: "Rewind one decision?", body: "Return to before your last choice, including the computer responses since then.", primary: "Rewind one decision", secondary: "Cancel" };
   if (section === "concede" && solo) return { title: "End game?", body: "Stop the computers and save this game without a winner.", primary: "End game", secondary: "Cancel" };
   if (section === "concede") return { title: "Concede?", body: "You leave the game. This can't be undone.", primary: "Concede", secondary: "Cancel" };
   if (section === "hand") return { title: "Hand order", body: "Only you see the order.", primary: "Done", secondary: null };

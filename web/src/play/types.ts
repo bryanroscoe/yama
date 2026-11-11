@@ -794,6 +794,8 @@ export interface View {
   over: boolean;
   abandoned?: boolean;
   can_go_back?: boolean;
+  rewind_steps?: number;
+  rewind_checkpoint?: number | null;
   winner: number | null;
   /** Your own turn controls (newer servers, people only). */
   turns?: TurnsView;

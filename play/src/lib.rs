@@ -397,6 +397,7 @@ impl Engine {
             abandoned: false,
             rewind: None,
             rewind_seat: None,
+            solo_history: Vec::new(),
             rewinds: Vec::new(),
             rng: StdRng::seed_from_u64(header.seed ^ 0x9e37_79b9_7f4a_7c15),
             log: ReplayLog::new(header),
@@ -479,6 +480,8 @@ pub struct Match {
     abandoned: bool,
     rewind: Option<Box<Match>>,
     rewind_seat: Option<u8>,
+    /// Flat, bounded snapshots: a snapshot never contains other snapshots.
+    solo_history: Vec<Arc<Match>>,
     rewinds: Vec<serde_json::Value>,
     state: GameState,
     log: ReplayLog,
@@ -1163,6 +1166,7 @@ impl Match {
             .candidates
             .get(index)
             .is_some_and(|c| matches!(c.action, GameAction::PassPriority))
+            && !self.solo_for(seat)
             && self.state.active_player.0 == seat
             && self.state.stack.is_empty()
             && matches!(
@@ -1176,7 +1180,10 @@ impl Match {
             self.rewind = Some(Box::new(saved));
             self.rewind_seat = Some(seat);
         }
-        self.choose_issued(seat, contract, index)
+        let saved = contract.candidates.get(index).filter(|c| !c.action.is_actor_scoped_preference()).and_then(|_| self.solo_checkpoint(seat));
+        let result = self.choose_issued(seat, contract, index);
+        if result.is_ok() { self.keep_solo_checkpoint(saved); }
+        result
     }
 
     /// [`Match::choose`], with `seat`'s decision already issued for the game as it stands.
@@ -1264,9 +1271,11 @@ impl Match {
         let mut next = self.state.clone();
         match apply_interaction(&mut next, actor, owner, action.clone()) {
             Ok(result) => {
+                let saved = self.solo_checkpoint(seat);
                 self.state = next;
                 self.log.push_action(actor, action);
                 self.accepted(&result, Some(seat));
+                self.keep_solo_checkpoint(saved);
                 Ok(())
             }
             Err(e) => Err(ChoiceError::Rejected(self.plain_reason(owner, &e.to_string()))),
@@ -1296,6 +1305,7 @@ impl Match {
         if let Act::ForgetAnswer { id } = answer {
             return self.forget_answer(seat, id).map_err(ChoiceError::DoesntFit);
         }
+        let saved = (!preference).then(|| self.solo_checkpoint(seat)).flatten();
         let answered = match answer {
             Act::RememberAnswer { accept } => self.remember_answer(seat, *accept),
             _ => act::answer(&mut self.state, PlayerId(seat), answer),
@@ -1321,6 +1331,7 @@ impl Match {
                 if matches!(answer, Act::ResolveAll) && self.controls.get(&seat).is_some_and(|c| c.hold) {
                     self.set_hold(seat, false);
                 }
+                self.keep_solo_checkpoint(saved);
                 Ok(())
             }
             Err(act::Refusal::NotYours) => Err(ChoiceError::NotYourTurn),
@@ -1607,6 +1618,7 @@ impl Match {
                 return passed;
             };
             if self.rewind.is_none()
+                && !self.solo_for(seat)
                 && self.state.active_player.0 == seat
                 && self.state.stack.is_empty()
                 && format!("{:?}", self.state.phase) == "PostCombatMain"
@@ -1740,18 +1752,52 @@ impl Match {
         Ok(())
     }
 
-    /// A single safe phase/pass reversal. Restores every adapter field; revisions never rewind.
+    fn solo_for(&self, seat: u8) -> bool {
+        usize::from(seat) < self.player_count() && !self.is_ai(seat)
+            && (0..self.player_count()).all(|s| s == usize::from(seat) || self.is_ai(s as u8))
+    }
+
+    fn solo_checkpoint(&self, seat: u8) -> Option<Arc<Match>> {
+        if !self.solo_for(seat) || self.is_over() { return None; }
+        let mut saved = self.clone();
+        saved.solo_history.clear();
+        saved.rewind = None;
+        saved.rewind_seat = None;
+        saved.rewinds.clear();
+        Some(Arc::new(saved))
+    }
+
+    fn keep_solo_checkpoint(&mut self, saved: Option<Arc<Match>>) {
+        if let Some(saved) = saved {
+            if self.solo_history.len() == 8 { self.solo_history.remove(0); }
+            self.solo_history.push(saved);
+        }
+    }
+
+    /// Solo games can rewind recent decisions and subsequent computer responses. Shared
+    /// games retain the conservative phase/pass reversal. Transport revisions never rewind.
     pub fn go_back(&mut self, seat: u8, revision: u64) -> Result<(), ChoiceError> {
-        if revision != self.revision {
+        self.go_back_to(seat, revision, None)
+    }
+
+    /// A solo checkpoint token stays valid while only computers advance. A newer human
+    /// choice replaces it, so a delayed request cannot erase an unconfirmed human choice.
+    pub fn go_back_to(&mut self, seat: u8, revision: u64, checkpoint: Option<u64>) -> Result<(), ChoiceError> {
+        let solo = self.solo_for(seat) && !self.solo_history.is_empty();
+        let same_checkpoint = solo && checkpoint.is_some_and(|r| self.solo_history.last().is_some_and(|s| s.revision == r) && revision >= r);
+        if revision > self.revision || (revision != self.revision && !same_checkpoint) || (checkpoint.is_some() && !same_checkpoint) {
             return Err(ChoiceError::Stale);
         }
-        if self.is_over() || self.rewind_seat != Some(seat) {
+        if self.is_over() || (!solo && self.rewind_seat != Some(seat)) {
             return Err(ChoiceError::DoesntFit(
                 "Cannot go back after an effect, revealed information or another decision.".into(),
             ));
         }
         if self.rewinds.len() >= 128 { return Err(ChoiceError::DoesntFit("This game has reached its undo history limit.".into())); }
-        let Some(mut saved) = self.rewind.take() else {
+        let snapshot = if solo {
+            self.solo_history.last().map(|s| Box::new((**s).clone()))
+        } else { self.rewind.clone() };
+        let Some(mut saved) = snapshot else {
             return Err(ChoiceError::DoesntFit(
                 "There is no safe phase change to go back to.".into(),
             ));
@@ -1759,11 +1805,41 @@ impl Match {
         let audit = serde_json::json!({"seat": seat, "revision": self.revision, "actions": &self.log.actions[saved.log.actions.len()..]});
         saved.rewinds = self.rewinds.clone();
         saved.rewinds.push(audit);
+        if solo {
+            saved.solo_history = self.solo_history[..self.solo_history.len() - 1].to_vec();
+        }
         saved.revision = self.revision + 1;
         saved.controls = self.controls.clone();
         let own = saved.controls.entry(seat).or_default();
         own.passing = None;
         own.hold = false;
+        let me = PlayerId(seat);
+        // Cancel the engine's session too. Session teardown can restore an older
+        // auto-pass baseline, so a second cancel removes that standing mode.
+        for _ in 0..2 {
+            let action = GameAction::CancelAutoPass;
+            let result = engine::game::engine::apply(&mut saved.state, me, action.clone())
+                .map_err(|_| ChoiceError::DoesntFit("Could not pause the restored game.".into()))?;
+            saved.log.push_action(me, action);
+            saved.accepted(&result, None);
+            if !saved.state.auto_pass.contains_key(&me) { break; }
+        }
+        if saved.state.auto_pass.contains_key(&me) {
+            return Err(ChoiceError::DoesntFit("Could not cancel automatic passing.".into()));
+        }
+        let stops = self.state.phase_stops.get(&me).cloned().unwrap_or_default();
+        if saved.state.phase_stops.get(&me).cloned().unwrap_or_default() != stops {
+            let action = GameAction::SetPhaseStops { stops };
+            let result = engine::game::engine::apply(&mut saved.state, me, action.clone())
+                .map_err(|_| ChoiceError::DoesntFit("Could not restore the current phase stops.".into()))?;
+            saved.log.push_action(me, action);
+            saved.accepted(&result, None);
+        }
+        saved.sync_passing_mode(seat);
+        let want = if saved.controls(seat).full_control { PriorityPassingMode::FullControl } else { PriorityPassingMode::Standard };
+        if saved.state.priority_passing_mode(PlayerId(seat)) != want {
+            return Err(ChoiceError::DoesntFit("Could not restore the current priority settings.".into()));
+        }
         saved.feed.keep_sequence_after(&self.feed);
         saved.marks.clear();
         saved.board_ready = false;
@@ -1789,6 +1865,7 @@ impl Match {
         self.abandoned = true;
         self.rewind = None;
         self.rewind_seat = None;
+        self.solo_history.clear();
         self.revision += 1;
         self.lines.push(LogLine::public(
             self.turn(),
@@ -2137,10 +2214,12 @@ impl Match {
             }
         }
         let (next, result) = accepted.ok_or(rejection)?;
+        let saved = (!preference).then(|| self.solo_checkpoint(seat)).flatten();
         self.state = next;
         self.board_controls(seat, &action);
         self.log.push_action(actor, action);
         self.board_accepted(seat, &result, preference, passed);
+        self.keep_solo_checkpoint(saved);
         Ok(())
     }
 
@@ -2162,10 +2241,12 @@ impl Match {
         board::screen(&applied.action).map_err(|_| ActionRejection::new(ActionRejectionCode::ActionNotAllowed))?;
         let passed = self.passes_over_own(owner, &applied.action);
         let preference = applied.action.is_actor_scoped_preference();
+        let saved = (!preference).then(|| self.solo_checkpoint(seat)).flatten();
         self.state = next;
         self.board_controls(seat, &applied.action);
         self.log.push_action(owner, applied.action.clone());
         self.board_accepted(seat, &applied.result, preference, passed);
+        self.keep_solo_checkpoint(saved);
         Ok(applied.action)
     }
 
@@ -2545,8 +2626,10 @@ impl Match {
             over: self.is_over(),
             abandoned: self.abandoned,
             can_go_back: viewer
-                .is_some_and(|seat| self.rewind_seat == Some(seat) && self.rewind.is_some() && self.rewinds.len() < 128)
+                .is_some_and(|seat| ((self.solo_for(seat) && !self.solo_history.is_empty()) || (self.rewind_seat == Some(seat) && self.rewind.is_some())) && self.rewinds.len() < 128)
                 && !self.is_over(),
+            rewind_steps: viewer.filter(|seat| self.solo_for(*seat)).map_or(0, |_| self.solo_history.len()),
+            rewind_checkpoint: viewer.filter(|seat| self.solo_for(*seat)).and_then(|_| self.solo_history.last().map(|s| s.revision)),
             winner: self.winner(),
             turns: viewer.filter(|seat| !self.is_ai(*seat)).map(|seat| self.turns_view(state, seat)),
             resolve_all: self.resolve_all_view(),
@@ -2786,6 +2869,8 @@ pub struct View {
     pub over: bool,
     pub abandoned: bool,
     pub can_go_back: bool,
+    pub rewind_steps: usize,
+    pub rewind_checkpoint: Option<u64>,
     pub winner: Option<u8>,
     /// The viewer's own turn controls, yields and remembered answers (people only).
     #[serde(skip_serializing_if = "Option::is_none")]

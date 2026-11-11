@@ -242,6 +242,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const [sheet, setSheet] = useState<SheetKind>(null);
   // This game's settings (GSettings), open at a section, and the ways to pass (GPriority's menu).
   const [settings, setSettings] = useState<SettingsSection | null>(null);
+  const [rewindCheckpoint, setRewindCheckpoint] = useState<number | null>(null);
   // Whether phase's own board is served here, to open this game on it.
   const playStatus = useQuery({ queryKey: ["play-status"], queryFn: () => api<{ enabled: boolean; reason: string | null; board?: boolean }>("/api/play/status") });
   const [passMenu, setPassMenu] = useState(false);
@@ -402,6 +403,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
   const you = msg?.you ?? null;
   const seats = msg?.seats ?? [];
   const solo = seats.filter((s) => !s.ai).length === 1 && seats.some((s) => s.seat === you && !s.ai);
+  const openRewind = () => { setRewindCheckpoint(view?.rewind_checkpoint ?? null); setSettings("rewind"); };
   const decision = realDecision(view?.decision ?? null);
 
   useEffect(() => {
@@ -1508,7 +1510,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
     if (settingsOpen) {
       const b = settingsButtons(settings!, solo);
       return {
-        primary: { label: settings === "concede" && solo ? "End game" : b.primary, run: settings === "concede" ? (solo ? endSolo : concede) : () => setSettings(null), disabled: endingSolo },
+        primary: { label: settings === "concede" && solo ? "End game" : b.primary, run: settings === "concede" ? (solo ? endSolo : concede) : settings === "rewind" ? () => { sendRaw({ type: "go_back", revision: view.revision, checkpoint: rewindCheckpoint }); setSettings(null); } : () => setSettings(null), disabled: endingSolo || (settings === "rewind" && (!view.can_go_back || pending || !connected || rewindCheckpoint !== view.rewind_checkpoint)) },
         secondary: b.secondary ? { label: b.secondary, run: () => setSettings("yields") } : null,
       };
     }
@@ -1659,7 +1661,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
       ? () => sendWatch(watchStatus.playing ? { type: "pause" } : { type: "play" })
       : null
     : // Space never concedes: that takes a click on the main button.
-      controls.primary && !controls.primary.disabled && controls.primary.run && !(settingsOpen && settings === "concede") ? controls.primary.run : null;
+      controls.primary && !controls.primary.disabled && controls.primary.run && !(settingsOpen && (settings === "concede" || settings === "rewind")) ? controls.primary.run : null;
   // Options the buttons already cover don't repeat in the list.
   const onButtons = new Set(
     decision ? [optionOf(decision, "keep"), optionOf(decision, "mulligan"), optionOf(decision, "pay_rest"), payingByHand ? optionOf(decision, "cancel") : undefined] : [],
@@ -2025,7 +2027,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         </button>
       )}
       {controls.primary && (
-        <button type="button" className="primary pb-primary" onClick={controls.primary.run} disabled={controls.primary.disabled} aria-keyshortcuts="Space">
+        <button type="button" className="primary pb-primary" onClick={controls.primary.run} disabled={controls.primary.disabled} aria-keyshortcuts={settingsOpen && (settings === "rewind" || settings === "concede") ? undefined : "Space"}>
           {controls.primary.art && <img className="pb-primary-art" src={controls.primary.art} alt="" />}
           <span><CostText text={controls.primary.label} /></span>
         </button>
@@ -2057,8 +2059,10 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
         speed={playSpeed}
         onSpeed={changeSpeed}
         solo={solo}
+        rewindSteps={view.rewind_steps}
+        rewindChanged={rewindCheckpoint !== view.rewind_checkpoint}
         section={settings!}
-        onSection={setSettings}
+        onSection={(s) => s === "rewind" ? openRewind() : setSettings(s)}
         turns={savedTurns}
         hand={view.hand}
         meta={meta}
@@ -2336,7 +2340,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
             <AlphaTag />
             <span className="pb-engine">Phase engine{seats.some((s) => s.ai) ? `, AI ${[...new Set(seats.flatMap((s) => s.ai ? [s.ai.toLowerCase()] : []))].join(" / ")}` : ""}</span>
             {settingsButton}
-            {playing && <button type="button" className="rail-log" disabled={!view.can_go_back || pending || !connected} title={view.can_go_back ? "Restore the previous decision" : "Go back is available after a phase change, before effects or other decisions"} onClick={() => sendRaw({ type: "go_back", revision: view.revision })}>Go back</button>}
+            {(playing || canEndSolo) && <button type="button" className="rail-log" disabled={!view.can_go_back || pending || !connected} title={solo ? "Rewind a recent decision and the computer responses" : view.can_go_back ? "Restore the previous decision" : "Go back is available after a phase change, before effects or other decisions"} onClick={() => solo ? openRewind() : sendRaw({ type: "go_back", revision: view.revision })}>{solo ? "Rewind" : "Go back"}</button>}
             {(playing || canEndSolo) && <button type="button" className="rail-log" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
             {phaseButton}
             <button type="button" className="rail-log" onClick={() => setSheet("log")}>Game log</button>
@@ -2834,7 +2838,7 @@ export function Board({ id, live, watch = false, phaseBoard = false }: { id: str
           <Link to={leaveTo}>Leave</Link>
           <AlphaTag />
           {playing && savedTurns && <button type="button" className="quiet" onClick={() => setSettings("yields")}>Settings</button>}
-          {playing && <button type="button" className="quiet" disabled={!view.can_go_back || pending || !connected} onClick={() => sendRaw({ type: "go_back", revision: view.revision })}>Go back</button>}
+          {(playing || canEndSolo) && <button type="button" className="quiet" disabled={!view.can_go_back || pending || !connected} onClick={() => solo ? openRewind() : sendRaw({ type: "go_back", revision: view.revision })}>{solo ? "Rewind" : "Go back"}</button>}
           {(playing || canEndSolo) && <button type="button" className="quiet" onClick={() => setSettings("concede")}>{solo ? "End game" : "Concede"}</button>}
           {phaseButton}
           <button type="button" className="quiet" onClick={() => setSheet("log")}>Game log</button>
