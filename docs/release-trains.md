@@ -57,14 +57,13 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    for a substantive change) and every finding resolved; rebased on current `origin/main`; the
    cheap checks passing on the exact head:
    - web or core touched: `npm test`, `npm run typecheck`, `npm run build`;
-   - Rust touched: `CARGO_BUILD_JOBS=1 cargo check -p yama-server` and the tests of the modules you
-     touched, in the shared target under its lock as `scripts/local-ci.sh` does. Not while a train
-     is `testing` (below). If nothing compiled your head, say so: it can be admitted, marked
-     unverified, and is the first thing ejected if the train fails there;
+   - Rust touched: do not compile it. `rustfmt --check` the files you changed, read your diff for
+     compile errors, set `rust_compiled` to false, and name the places most likely to fail in
+     `notes`. The train compiles and tests every member once (point 5);
    - the Python suites you touched.
 
-   These replace AGENTS.md's "before committing" full `cargo test` while a coordinator is active:
-   the whole Rust suite runs once, on the train.
+   These replace AGENTS.md's "before committing" `cargo test` while a coordinator is active: Rust
+   is compiled and its whole suite run once, on the train.
 2. Write one admission file per PR or stack, `admit/<short-name>.json`:
 
    ```json
@@ -76,7 +75,7 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
      "rebased_on": "the origin/main SHA your head contains",
      "reviews": "which reviews ran and that every finding is resolved",
      "checks": "what passed on this exact head, and what did not run",
-     "rust_compiled": true,
+     "rust_compiled": false,
      "touches": ["server", "web", "migrations"],
      "migrations": ["0081_example.sql"],
      "live_check": "what to look at on yama.ing after the deploy",
@@ -100,8 +99,9 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    If you need the compiler for longer (an engine build, generating snapshot files for a stack),
    ask the coordinator for a **window**: when it is granted, write `trains/<NAME>-WINDOW` with your
    thread id, the start time and what you are building, and delete it when you finish. While a
-   window file exists the coordinator starts no Rust stage. If you cannot proceed (no disk, say),
-   write the reason in the file so the next train can go first.
+   window file exists the coordinator starts no Rust stage, so never leave one standing: if you
+   cannot proceed (no disk, say), delete the file, tell the coordinator why, and ask again when you
+   can.
 6. Wait on the receipt with one bounded wait (at most two hours). Its `status` moves through
    `testing`, `merged` and `deployed`; an ejected member is listed with the reason. After
    `deployed`, do your live check, run `scripts/sync-main.sh`, and clean up as AGENTS.md says.
@@ -117,8 +117,12 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    did in the merge commit; otherwise eject the member. Renumber colliding migrations on the train
    branch, with every reference to the old name. Check that every commit is authored and committed
    as `bryanroscoe@gmail.com`. The receipt listing a member is the acknowledgment that it was cut.
-2. **Test.** Wait for any `trains/*-WINDOW` file to go, unless the train is web-only: then
-   `scripts/local-ci.sh` skips Rust and needs no compiler, so it can run during a window. Write the
+2. **Test.** Wait for any `trains/*-WINDOW` file to go. The one exception is a web-only train,
+   which `scripts/local-ci.sh` runs without Rust. The script skips Rust only on a positive answer
+   and falls back to the full run if its fetch, diff or classification fails, so during a window
+   confirm the answer first (`git diff --name-only origin/main...HEAD` classified by
+   `scripts/ci/gate.py`'s `rust_needed`, as the script does) and stop the run if its log reaches
+   "== Rust tests". Write the
    receipt with `status: testing`, then run
    `CARGO_BUILD_JOBS=1 scripts/local-ci.sh --no-amend` once on the train head, and the Android
    build if a member touched the paths AGENTS.md names. Fix an integration failure on the train
@@ -149,9 +153,12 @@ Everything lives in `~/Developer/.agent-tasks/yama-release-trains/`: `admit/` fo
    at" line, not the run's head, since a run can deploy an older queued revision.
 6. **Stacked members.** A member PR whose base is its parent PR's branch, not main, stays open after
    the merge even though its head is in main, and GitHub refuses to retarget it ("no new commits").
-   Confirm the PR's head and its base branch are both ancestors of main, then fast-forward the base
-   branch to main (`git push origin origin/main:refs/heads/<base branch>`); GitHub then marks the
-   PR merged. Check every member's state after each train.
+   The base branch is the head branch of another member of the same train, so it is frozen and
+   now merged. Fetch, confirm that, and confirm the PR's head and its base branch are both
+   ancestors of main; then advance the base branch to main with an ordinary push, never a forced
+   one (`git push origin origin/main:refs/heads/<base branch>`), and GitHub marks the PR merged.
+   Do not advance a branch that is not a merged member's head: ask its owner instead. Check every
+   member's state after each train.
 7. **Receipt.** `trains/train-N.json` records the base, each member's PRs and head, the ejected
    and why, the tested commit and tree, the aggregate PR, the merge commit, and the deployed
    revision and time. Comment it on each member PR.
