@@ -128,6 +128,60 @@ because its 0-100 is a ceiling only optimized decks approach, not anchored on pr
 - Not yet built: a win-turn estimate (ScryCheck anchors it on Playgroup.gg), "popular in
   similar decks" suggestions, and an upgrade path tied to the weakest vector.
 
+## Measuring the method (2026-11-11)
+
+Bryan, 11 Nov 2026: "we should measure before changing the score. Ideally we could do this
+programmatically." `yama-server power-eval [--lists DIR] [--json]` (`analysis/eval.rs`) does
+that. It reads the card data and the public precon catalog in the database, and a folder of
+text lists if one is given. It calls no outside service and no model, and writes nothing.
+Run it on a copy of production's data (`deploy/pull-db.sh`), before and after any change to a
+rule, point, weight, curve, cap or margin, and put both outputs in the PR.
+
+It prints:
+
+- **Stock precons.** How many land in Brackets 2, 3 and 4 under each way of reading a bracket:
+  the power band, Wizards' Game Changer rule (none in Bracket 2, up to three in Bracket 3), the
+  higher of the two and the lower.
+- **Stock precons against real games.** The rank correlation, with a 95% interval, between the
+  stock list's real win rate and power, each vector, the Game Changer count and the
+  commander's record over every list. A scoring change should raise power's figure, or at
+  least not lower it. The win rates are noisy (about half of the spread between precons is
+  sampling), so no score can reach 1.
+- **Reference lists** (`--lists`). Files are named `<deck>-<step>-<kind>.txt`, as in
+  commander-decks' `decks/compare`; a kind ending `bracket-N` is a list built for Bracket N.
+  Reported: power by label, each rule against the labels, how often power ± margin reaches
+  the label, and whether the same deck built for a higher bracket scores higher. Bryan's
+  builds are labelled by Game Changer count, so the Game Changer rule's agreement with them
+  is circular; lists whose author stated a bracket for other reasons are the ones that test it.
+
+`--json` gives every scored list with its inputs, for a closer look (set `RUST_LOG=off`, or
+the server's log lines share the output). A reference list that is also saved as a deck reads
+that deck's stored Commander Spellbook answer, matched by its cards; nothing is asked of
+Spellbook.
+
+```sh
+deploy/pull-db.sh    # a copy of production's data: real people's data, delete it afterwards
+DATABASE_URL=sqlite://data/yama.db YAMA_OFFLINE=1 target/debug/yama-server power-eval \
+  --lists ../commander-decks/decks/compare
+```
+
+First run, 11 Nov 2026, method 2026-11-08, 178 stock precons and Bryan's 78 lists (34 built for
+a named bracket):
+
+- Power against the stock list's real win rate: +0.06 (−0.17 to +0.28) over the 85 precons
+  with 40 or more games, +0.30 (−0.01 to +0.58) over the 47 with 200 or more. The commander's
+  record over every list gets +0.44 and +0.59 on the same decks. Of the vectors, Threats
+  (+0.28) and Speed (+0.19) lean the right way; Consistency (−0.11) and Mana base (−0.18) lean
+  the wrong way.
+- A Game Changer in a stock precon does not show in its results: the 8 such precons with 40 or
+  more games won 21.6% of 2,248 games, the 77 without won 20.8% of 23,550, and the count's rank
+  correlation with win rate is +0.02.
+- Bryan's builds: the same deck built for the next bracket up always scores higher (2 to 3 by
+  0.5, 3 to 4 by 1.4), but decks differ more than brackets do (Bracket 3 builds run from 4.4
+  to 6.3), so the band alone names the bracket a list was built for half the time.
+- Power ± margin reaches that bracket for 74% of them at today's ±0.5, 85% at ±0.7 and 94% at
+  ±1.0.
+
 ## Precon comparison (2026-11-09)
 
 The public `/precons` table and stock detail pages show computed power (1–10), its

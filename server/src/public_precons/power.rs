@@ -13,13 +13,7 @@ pub struct Power {
 }
 
 pub(super) async fn assign(pool: &SqlitePool, rows: &mut [Precon]) -> AppResult<()> {
-    let lists: Vec<Vec<DeckCard>> = rows.iter().map(|p| {
-        let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(&p.stock_cards)?;
-        Ok(cards.into_iter().map(|c| DeckCard {
-            oracle_id: c.oracle_id.unwrap_or_default(), name: c.name,
-            qty: i64::from(c.qty), board: c.board,
-        }).collect())
-    }).collect::<Result<_, serde_json::Error>>().map_err(anyhow::Error::from)?;
+    let lists: Vec<Vec<DeckCard>> = rows.iter().map(Precon::stock_list).collect::<anyhow::Result<_>>()?;
     let all: Vec<_> = lists.iter().flatten().cloned().collect();
     let info = crate::decks::card_info(pool, &all).await?;
     let produced = crate::decks::produced_mana(pool, &all.iter().map(|c| c.oracle_id.as_str()).collect::<Vec<_>>()).await?;
@@ -53,7 +47,8 @@ fn ranks(xs: &[f64]) -> Vec<f64> {
         xs.iter().filter(|y| *y < x).count() as f64 + (xs.iter().filter(|y| *y == x).count() as f64 - 1.0) / 2.0
     }).collect()
 }
-fn correlation(points: &[(f64, f64)]) -> Option<f64> {
+/// Spearman's rank correlation, ties averaged. `None` under four pairs or with no variation.
+pub(crate) fn correlation(points: &[(f64, f64)]) -> Option<f64> {
     if points.len() < 4 { return None; }
     let x = ranks(&points.iter().map(|p| p.0).collect::<Vec<_>>());
     let y = ranks(&points.iter().map(|p| p.1).collect::<Vec<_>>());

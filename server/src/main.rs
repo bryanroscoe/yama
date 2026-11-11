@@ -291,6 +291,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("precon-evidence") => precon_evidence::cli(&pool, &args[1..]).await,
         Some("commander-evidence") => public_commanders::cli(&pool, &args[1..]).await,
+        // Read-only: scores the precon catalog and a folder of lists (docs/deck-analysis.md).
+        Some("power-eval") => analysis::eval::cli(&pool, &args[1..]).await,
         Some("import-research") => {
             let file = args.get(1).filter(|a| !a.starts_with("--")).context("usage: yama-server import-research FILE --owner EMAIL [--dry-run]")?;
             let email = flag_value(&args, "--owner").context("--owner EMAIL is required")?;

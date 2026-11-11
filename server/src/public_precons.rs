@@ -2,6 +2,7 @@
 //! Publication copies reviewed results; importing or deleting a run cannot change that copy.
 mod consensus;
 mod power;
+pub(crate) use power::correlation;
 pub(crate) mod v2;
 pub(crate) mod html;
 #[cfg(test)]
@@ -193,6 +194,12 @@ impl Precon {
             url: Some(&r.url),
             as_of: r.fetched_at.clone(),
         })
+    }
+
+    /// The stock list as deck cards. A card Yama's data doesn't know has an empty id.
+    pub(crate) fn stock_list(&self) -> anyhow::Result<Vec<crate::decks::DeckCard>> {
+        let cards: Vec<crate::lab::PreconCard> = serde_json::from_str(&self.stock_cards)?;
+        Ok(cards.into_iter().map(|c| crate::decks::DeckCard { oracle_id: c.oracle_id.unwrap_or_default(), name: c.name, qty: i64::from(c.qty), board: c.board }).collect())
     }
 
     /// Games-weighted win share over every list under the commander, across the sources that have one.

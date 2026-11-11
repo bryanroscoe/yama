@@ -9,6 +9,7 @@
 //! It reads card text, not how the deck plays.
 
 pub mod classify;
+pub mod eval;
 pub mod history;
 pub mod lands;
 mod text;

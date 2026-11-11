@@ -652,6 +652,19 @@ pub async fn results(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<
     Ok(rows.into_iter().filter_map(|r| Some((r.version_id, r.row.result()?))).collect())
 }
 
+/// The newest stored answer for exactly this list, summarized with these cards' names. For the
+/// measuring command (analysis/eval.rs), whose lists are files and not saved decks; like
+/// [`reuse`], it reads only what Spellbook said about the same cards.
+pub async fn stored_for_list(pool: &SqlitePool, cards: &[DeckCard]) -> sqlx::Result<Option<CheckResult>> {
+    let source: Option<(String, String)> =
+        sqlx::query_as("SELECT estimate, checked_at FROM deck_version_checks WHERE source = ? AND list_hash = ? AND estimate IS NOT NULL ORDER BY checked_at DESC LIMIT 1")
+            .bind(SPELLBOOK)
+            .bind(list_hash(cards))
+            .fetch_optional(pool)
+            .await?;
+    Ok(source.and_then(|(raw, at)| Some(summarize(serde_json::from_str::<Estimate>(&raw).ok()?, cards, &at))))
+}
+
 /// The estimated bracket of each version that has an answer: version id → (tag, bracket).
 pub async fn estimates(pool: &SqlitePool, version_ids: &[String]) -> sqlx::Result<HashMap<String, Estimated>> {
     if version_ids.is_empty() {
