@@ -324,7 +324,8 @@ impl PlayHub {
         let hub = self.clone();
         let rt = tokio::runtime::Handle::current();
         std::thread::Builder::new()
-            .name(format!("game-{}", &game_id[..8]))
+            // An id shorter than eight bytes (only tests make them) names the thread whole.
+            .name(format!("game-{}", game_id.get(..8).unwrap_or(&game_id)))
             .stack_size(STACK)
             .spawn(move || {
                 run_game(&game_id, m, &seats, &prefs, cmd_rx, view_tx, board_tx, &pool, &rt);
