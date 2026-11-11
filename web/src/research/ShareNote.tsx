@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { Button, ButtonLink, ErrorText } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Field } from "../components/ui";
 import { VISIBILITY_CHOICES, useCopy } from "../decks/ShareDeck";
 import { noteShareUrl, resetNoteLink, setNoteSharing, type NoteSharing, type ResearchBundle } from "./api";
 import { planSummariesKey } from "./view";
@@ -42,7 +42,7 @@ export function ShareNote({ bundle }: { bundle: ResearchBundle }) {
     </fieldset>
     <p className="small dim">A shared plan shows its title and summaries, decks, builds, changes with their reasons, sources, full lists and how to pilot them, as written, plus a shopping list worked out from market prices. Read them before sharing. Your answers and notes, ownership and acquisition fields, method notes, combos and your agent's store checks stay private.</p>
     {visibility !== "private" && link && <div className="stack share-link">
-      <label>Link<input readOnly value={link} onFocus={(e) => e.currentTarget.select()} /></label>
+      <Field label="Link"><input readOnly value={link} onFocus={(e) => e.currentTarget.select()} /></Field>
       <div className="row">
         <Button variant="primary" onClick={() => void copy(link)}>Copy link</Button>
         <ButtonLink href={link} target="_blank" rel="noreferrer">Open</ButtonLink>

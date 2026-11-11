@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api, ApiError, type CollectionItem, type Container, type Printing } from "../api";
 import { CardRef } from "../components/CardRef";
-import { Button, CardImage, Dialog, ErrorText, Loading, Segmented } from "../components/ui";
+import { Button, CardImage, Dialog, ErrorText, Field, Loading, Segmented } from "../components/ui";
 import type { ScanCandidate } from "../scanner";
 import { finishChoices, finishFor, finishWord, languageChoices, markDone, markOps, markWords, opIds, printingLabel, reprintOps, type Mark, type Op, type Scope } from "./collectionEdit";
 // The scan choices and their notes, shown here outside the scanner too.
@@ -220,25 +220,22 @@ export function CollectionItemSheet({ item, containers, onClose }: { item: Colle
           )}
         </section>
 
-        <label>
-          Kept in
+        <Field label="Kept in">
           <select value={item.container_id ?? ""} disabled={busy} onChange={(e) => one({ container_id: e.target.value || null })}>
             <option value="">Not filed anywhere</option>
             {containers.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
           </select>
-        </label>
-        <label>
-          Condition
+        </Field>
+        <Field label="Condition">
           <select value={item.condition} disabled={busy} onChange={(e) => one({ condition: e.target.value })}>
             {["NM", "LP", "MP", "HP", "DMG"].map((c) => <option key={c}>{c}</option>)}
           </select>
-        </label>
-        <label>
-          Finish
+        </Field>
+        <Field label="Finish">
           <select value={item.finish} disabled={busy} onChange={(e) => one({ finish: e.target.value })}>
             {finishes.map((f) => <option key={f} value={f}>{finishWord(f).replace(/^./, (c) => c.toUpperCase())}</option>)}
           </select>
-        </label>
+        </Field>
         <label style={{ display: "flex", gap: "0.5rem", alignItems: "center", fontWeight: 400 }}>
           <input type="checkbox" checked={item.proxy} disabled={busy} style={{ width: "auto", minHeight: 0 }} onChange={(e) => one({ proxy: e.target.checked })} />
           This is a proxy

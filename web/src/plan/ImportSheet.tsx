@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { importReport } from "../research/api";
-import { Button, Details, Dialog, ErrorText, Loading, StatusPill } from "../components/ui";
+import { Button, Details, Dialog, ErrorText, Field, Loading, StatusPill } from "../components/ui";
 import { uploadPlan } from "./api";
 import { shortHash } from "./PlanLayout";
 import type { PlanView } from "./view";
@@ -62,8 +62,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
             <p className="dim small">
               A plan file an agent saved (yama-research/1), or your planner's JSON export. A planner export shows what importing it would change first.
             </p>
-            <label>
-              Plan file
+            <Field label="Plan file">
               <input
                 type="file"
                 accept=".json,application/json"
@@ -76,7 +75,7 @@ export function ImportSheet({ view, onClose }: { view: PlanView; onClose: () => 
                   if (f) read.mutate(f);
                 }}
               />
-            </label>
+            </Field>
           </>
         )}
         {(check.isPending || read.isPending) && <Loading>Checking the file…</Loading>}

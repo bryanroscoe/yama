@@ -7,7 +7,7 @@ import { ArtPanel, artCredit, artCredits } from "../components/ArtPanel";
 import { HowTo } from "../components/HowTo";
 import { useCardArt } from "../components/useCardArt";
 import { AreaHead, BackButton } from "../components/DeckTabs";
-import { Button, ButtonLink, ErrorText, Loading, Pips, StatusPill } from "../components/ui";
+import { Button, ButtonLink, ErrorText, Field, Loading, Pips, StatusPill } from "../components/ui";
 import { useMe } from "../auth";
 import { usePlan } from "../plan/store";
 import { buildNotes, buildNotesKey } from "../research/api";
@@ -220,7 +220,7 @@ function FamilyPage({ family, status, art }: { family: BuildFamily; status: Reac
         {swaps && swaps.length > 0 && <section className="note-section" aria-labelledby="bc-print">
           <SectionHead id="bc-print" eyebrow={`${parts} two-sided card${parts === 1 ? "" : "s"}`}>Print swap cards</SectionHead>
           <p className="small">Print on US Letter, double-sided, <b>flip on long edge</b>, actual size (100%), headers and footers off. Cut on the lines. Each card is 2.5 × 3.5 inches; the back undoes the same swaps. Test one sheet for your printer's alignment first.</p>
-          <div className="row bc-print"><label>Swaps per card <select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><Button variant="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</Button></div>
+          <div className="row bc-print"><Field label="Swaps per card"><select value={rows} onChange={(e) => setRows(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></Field><Button variant="primary" disabled={overflow || !fontsReady} onClick={() => window.print()}>Print double-sided swap cards</Button></div>
           {overflow && <p className="error" role="alert">Some text does not fit. Choose fewer swaps per card before printing.</p>}
         </section>}
 

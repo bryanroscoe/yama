@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, publicOrigin, type Sharing, type Visibility } from "../api";
 import { useMe } from "../auth";
-import { Button, ErrorText } from "../components/ui";
+import { Button, ErrorText, Field } from "../components/ui";
 import { useCopy, VISIBILITY_CHOICES } from "./ShareDeck";
 import "./share.css";
 import { ask } from "../components/confirm";
@@ -82,12 +82,11 @@ export function SharingSettings() {
         </div>
       )}
 
-      <label>
-        New decks start as
+      <Field label="New decks start as">
         <select value={s.new_deck_visibility} onChange={(e) => save.mutate({ new_deck_visibility: e.target.value })} disabled={save.isPending}>
           {VISIBILITY_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
-      </label>
+      </Field>
 
       <div className="grp-you-line">
         <span className="grp-you-text">

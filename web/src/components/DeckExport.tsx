@@ -6,6 +6,7 @@ import { Dialog } from "./ui";
 import "./decks.css";
 import { CopyButton } from "./CopyButton";
 import { Button } from "./Button";
+import { Field } from "./Field";
 
 const LAST_FORMAT = "yama.deck.exportFormat";
 
@@ -61,10 +62,9 @@ export function DeckExport({ deck, onClose }: { deck: DeckView; onClose: () => v
             {noPrinting > 0 && `${noPrinting} ${noPrinting === 1 ? "card has" : "cards have"} no paper printing on file and ${noPrinting === 1 ? "goes" : "go"} by name only.`}
           </p>
         )}
-        <label>
-          List
+        <Field label="List">
           <textarea readOnly value={text} onFocus={(e) => e.currentTarget.select()} aria-label="Deck list to copy" spellCheck={false} />
-        </label>
+        </Field>
         <div className="row">
           <CopyButton variant="primary" text={text} label="Copy" />
           <Button onClick={download}>Download .{fileName.split(".").pop()}</Button>

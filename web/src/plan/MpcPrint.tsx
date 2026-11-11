@@ -17,7 +17,7 @@ import { Link } from "react-router";
 import { api, errorMessage } from "../api";
 import { PlansHead, usePlanOutlet } from "./PlanLayout";
 import { fmtDateTime } from "@yama/core";
-import { Button, EmptyState, StatusPill } from "../components/ui";
+import { Button, EmptyState, Field, StatusPill } from "../components/ui";
 
 /** Yama's answer from MPC Autofill (server/src/mpc.rs): images for each name, best first. */
 export interface MpcImages {
@@ -186,8 +186,7 @@ export function MpcPrint() {
       {cards.length > 0 && (
         <>
           <section className="plan-section mpc-settings" aria-label="Project">
-            <label>
-              Card stock{" "}
+            <Field label="Card stock">
               <select value={saved.stock} onChange={(e) => update({ stock: e.target.value as MpcStock })}>
                 {MPC_STOCKS.map((s) => (
                   <option key={s} value={s}>
@@ -195,7 +194,7 @@ export function MpcPrint() {
                   </option>
                 ))}
               </select>
-            </label>
+            </Field>
             <label className="plan-check">
               <input type="checkbox" checked={saved.foil} onChange={(e) => update({ foil: e.target.checked })} /> Holographic foil
             </label>

@@ -2,7 +2,7 @@ import { localBuyRule, MAX_TIERS, rulesAt, shoppingRulesDraft, shoppingRulesProb
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Button, CopyButton, Details, ErrorText } from "../components/ui";
+import { Button, CopyButton, Details, ErrorText, Field } from "../components/ui";
 import { ConnectedApps } from "../oauth/ConnectedApps";
 import { publicOrigin } from "../api";
 import { createKey, listImports, listKeys, removeShoppingRules, revokeKey, saveShoppingRules, type KeyScope, type ScriptKey } from "./api";
@@ -112,14 +112,12 @@ function ShoppingRules() {
             if (!problems.length) save.mutate(draft);
           }}
         >
-          <label>
-            Most a card may cost: $
+          <Field label="Most a card may cost: $">
             <input type="number" inputMode="decimal" min={0} step={0.05} value={numText(lb.max_usd)} onChange={(e) => setLb({ max_usd: textNum(e.target.value) })} placeholder="no limit" />
-          </label>
-          <label>
-            Fine whatever the market at or under: $
+          </Field>
+          <Field label="Fine whatever the market at or under: $">
             <input type="number" inputMode="decimal" min={0} step={0.05} value={numText(lb.always_ok_usd)} onChange={(e) => setLb({ always_ok_usd: textNum(e.target.value) })} placeholder="none" />
-          </label>
+          </Field>
           <fieldset className="stack">
             <legend className="small">Compared with market</legend>
             {lb.tiers.map((t, i) => {
@@ -129,10 +127,9 @@ function ShoppingRules() {
                   {last && t.market_under == null ? (
                     <span>{i ? "Otherwise" : "Any market"}</span>
                   ) : (
-                    <label>
-                      When market is under $
+                    <Field label="When market is under $">
                       <input type="number" inputMode="decimal" min={0} step={0.05} value={numText(t.market_under)} onChange={(e) => setTier(i, { market_under: textNum(e.target.value) })} />
-                    </label>
+                    </Field>
                   )}
                   <label>
                     , at most
@@ -176,9 +173,8 @@ function ShoppingRules() {
             />{" "}
             a deck before tax
           </label>
-          <label>
-            Note <input type="text" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="why it changed" />
-          </label>
+          <Field label="Note"><input type="text" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="why it changed" />
+          </Field>
           {problems.length > 0 && (
             <ul className="small" role="alert">
               {problems.map((p) => (

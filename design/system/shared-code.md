@@ -272,3 +272,30 @@ their middles.
 - Don't add a `something-actions` class for a row that only lines buttons up.
   `conventions.test.ts` lists the rows that still have one because they do more (a grid on
   phones, their own gap or button sizes). A dialog's answers stay in `.dialog-actions`.
+
+### Field and CheckRow (`components/Field.tsx`)
+
+A control and its words in one `<label>`, so pressing the words reaches the control and a
+screen reader reads them as its name.
+
+```tsx
+<Field label="Deck name"><input value={name} onChange={…} /></Field>
+<Field label="Finish"><select value={finish} onChange={…}>…</select></Field>
+<Field label="Most a card may cost" error={priceError}><input inputMode="decimal" … /></Field>
+<CheckRow checked={proxy} onChange={(e) => setProxy(e.target.checked)}>Proxy</CheckRow>
+<CheckRow type="radio" name="who" value="me" checked={who === "me"} onChange={…}>Only me</CheckRow>
+```
+
+- `Field`: the label is 14 px bold above the control, which is an `<input>`, a `<select>` or a
+  `<textarea>` (or a component that passes aria attributes on to one). With `error` the control
+  gets `aria-invalid` and is described by the error, which is announced when it appears
+  (`role="alert"`). `hint` is for the rare fact a label can't carry: no hint lines under fields
+  (design/tokens.md, rule 5). The control's name stays the label's words alone; a hint or an
+  error describes it.
+- `CheckRow`: a 20 px box beside its words; the whole row is the target. Everything an
+  `<input>` takes (`checked`, `onChange`, `name`, `value`, `disabled`) passes to the box.
+- A control whose name is already on the page takes `aria-labelledby`; a search box or a bare
+  number in a row takes `aria-label`. `conventions.test.ts` fails on an `<input>`, `<select>`
+  or `<textarea>` with no name at all, and a `<label>` with no words in it doesn't count.
+- A label that lays itself out (a class of its own, markup in its words, two controls) can
+  stay a `<label>`: 73 plain ones moved to these components, the rest are still written out.

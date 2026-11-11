@@ -33,6 +33,18 @@ function uses(pattern: RegExp, allowed: (file: string, line: string) => boolean 
   return found;
 }
 
+/** The opening tag that starts at `from`, to the `>` that closes it (not one inside `{…}`). */
+function openingTag(text: string, from: number): string {
+  let depth = 0;
+  for (let i = from; i < text.length; i++) {
+    const c = text[i];
+    if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) return text.slice(from, i + 1);
+  }
+  return text.slice(from);
+}
+
 // The online board belongs to another stream of work; its files join these rules when it does.
 const BOARD = /^web\/src\/play\//;
 const BOARD_FILES = /^web\/src\/play\/(Board|Decide)\.tsx$/;
@@ -161,6 +173,43 @@ describe("buttons use the shared components", () => {
     // Use <ButtonLink to="…"> (a page in the app) or <ButtonLink href="…"> from components/ui.
     // The class written as a string, in braces, in a template or as cx's first name.
     const found = uses(/className=\{?\s*(cx\()?["'`]button[\s"'`]/, (file) => file === BUTTON || BOARD_FILES.test(file));
+    expect(found).toEqual([]);
+  });
+});
+
+describe("every control has a name", () => {
+  /** A label's own words: what is left of it without its control and without tags. */
+  const wordsOf = (label: string) =>
+    label
+      .replace(/<(select|textarea)\b[^]*?<\/\1>/g, "")
+      .replace(/<(input|select|textarea)\b[^]*?\/>/g, "")
+      .replace(/^<label\b[^>]*>/, "")
+      .replace(/<\/?[A-Za-z][^>]*>/g, "");
+
+  it("no input, select or textarea goes without a label that has words, an aria-label or aria-labelledby", () => {
+    // Use <Field label="…"> or <CheckRow> from components/ui. A control whose name is already
+    // on the page takes aria-labelledby; a search box or a bare number takes aria-label; a
+    // label written by hand with htmlFor names its control by id.
+    const found: string[] = [];
+    for (const path of sources(WEB)) {
+      const file = relative(ROOT, path);
+      if (BOARD_FILES.test(file) || file === "web/src/components/Field.tsx") continue;
+      const text = readFileSync(path, "utf8");
+      // A <label> counts only when it says something: a letter or an expression beside the control.
+      const inside: [number, number][] = [...text.matchAll(/<(label|Field|CheckRow)\b/g)]
+        .map((m): [number, number, string] => [m.index, text.indexOf(`</${m[1]}>`, m.index), m[1] ?? ""])
+        .filter(([from, to, tag]) => tag !== "label" || /[A-Za-z{]/.test(wordsOf(text.slice(from, to))))
+        .map(([from, to]) => [from, to]);
+      for (const m of text.matchAll(/<(input|select|textarea)\b/g)) {
+        const tag = openingTag(text, m.index);
+        if (inside.some(([from, to]) => from < m.index && m.index < to)) continue;
+        // The hidden attribute itself, not a class or an aria- attribute that ends in "hidden".
+        if (/aria-label(ledby)?=|type="hidden"|(?<![\w-])hidden(?=[\s/>={])/.test(tag)) continue;
+        const id = /\bid="([^"]+)"/.exec(tag)?.[1];
+        if (id && text.includes(`htmlFor="${id}"`)) continue;
+        found.push(`${file}:${text.slice(0, m.index).split("\n").length}: ${tag.replace(/\s+/g, " ").slice(0, 100)}`);
+      }
+    }
     expect(found).toEqual([]);
   });
 });

@@ -424,6 +424,12 @@ label > span.hint {
   color: var(--dim);
   font-size: var(--t-sm);
 }
+/* Field's error sits under its control, in --bad. */
+label > span.field-error {
+  font-weight: 400;
+  color: var(--bad);
+  font-size: var(--t-sm);
+}
 .row {
   display: flex;
   gap: 12px;

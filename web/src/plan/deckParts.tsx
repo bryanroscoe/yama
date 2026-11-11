@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { api, type DeckSummary } from "../api";
 import { useMe } from "../auth";
-import { Button, ErrorText } from "../components/ui";
+import { Button, ErrorText, Field } from "../components/ui";
 import { linkDeck } from "./api";
 import { deviceId, outbox, useOutbox } from "./outbox";
 import type { PlanView } from "./view";
@@ -130,18 +130,15 @@ export function Ideas({ deck, view }: { deck: PlanDeck; view: PlanView }) {
             submit();
           }}
         >
-          <label>
-            Card to put in
+          <Field label="Card to put in">
             <input value={inn} onChange={(e) => setInn(e.target.value)} required maxLength={200} />
-          </label>
-          <label>
-            Card to take out (optional)
+          </Field>
+          <Field label="Card to take out (optional)">
             <input value={out} onChange={(e) => setOut(e.target.value)} maxLength={200} />
-          </label>
-          <label>
-            Why (optional)
+          </Field>
+          <Field label="Why (optional)">
             <textarea value={why} onChange={(e) => setWhy(e.target.value)} maxLength={2000} />
-          </label>
+          </Field>
           <div className="row">
             <Button type="submit" variant="primary" disabled={!inn.trim()}>Send to the inbox</Button>
             <Button variant="quiet" onClick={() => setOpen(false)}>Cancel</Button>

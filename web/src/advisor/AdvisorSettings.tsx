@@ -3,7 +3,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button, ErrorText } from "../components/ui";
+import { Button, ErrorText, Field } from "../components/ui";
 import { deleteAllConversations, removeKey, saveKey, setModel, type AdvisorStatus } from "./api";
 import { useAdvisorStatus } from "./AskClaude";
 import { modeLine } from "./logic";
@@ -61,10 +61,9 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
             save.mutate();
           }}
         >
-          <label>
-            Anthropic API key
+          <Field label="Anthropic API key">
             <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" required />
-          </label>
+          </Field>
           <p className="small dim">
             From console.anthropic.com. Stored encrypted for your questions; removable anytime.
           </p>
@@ -76,8 +75,7 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
       )}
       {s.available && (
         <div className="advisor-model-row">
-          <label>
-            Model
+          <Field label="Model">
             <select value={s.model} onChange={(e) => model.mutate(e.target.value)} disabled={model.isPending}>
               {s.models.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -85,7 +83,7 @@ export function AdvisorSettings({ className = "grp-you-row grp-you-stack" }: { c
                 </option>
               ))}
             </select>
-          </label>
+          </Field>
           <Button variant="quiet" onClick={() => clear.mutate()} disabled={clear.isPending}>Delete all conversations</Button>
         </div>
       )}

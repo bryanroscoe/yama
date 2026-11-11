@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { BackButton } from "../../components/DeckTabs";
 import { api, type Playgroup } from "../../api";
 import { useMe } from "../../auth";
-import { Button, ButtonLink, CopyButton, Details, ErrorText, Loading } from "../../components/ui";
+import { Button, ButtonLink, CopyButton, Details, ErrorText, Field, Loading } from "../../components/ui";
 import { applyLabel, initialMatches, parseExport, resultText, statusText, useMythicBridge, type MythicApplied, type MythicExport, type MythicGameRow, type MythicPreview } from "./mythic";
 import { MythicDecks } from "./MythicDecks";
 import { MYTHIC_SNIPPET } from "./snippet";
@@ -110,13 +110,12 @@ export function MythicImportPage() {
                 <span className="visually-hidden">Mythic games file</span>
                 <input type="file" accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} />
               </label>
-              <label>
-                Playgroup{" "}
+              <Field label="Playgroup">
                 <select value={groupId ?? group?.id ?? ""} onChange={(e) => { setGroupId(e.target.value); setPlayers({}); dropMatches(); }}>
                   {groups.data?.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                   <option value="">No playgroup</option>
                 </select>
-              </label>
+              </Field>
             </div>
             <ErrorText error={fileError ?? groups.error} />
           </section>
@@ -135,13 +134,12 @@ export function MythicImportPage() {
                 <>
                   {p.players.length > 0 && (
                     <div className="stack">
-                      <label>
-                        Which player are you in Mythic?{" "}
+                      <Field label="Which player are you in Mythic?">
                         <select value={me ?? ""} onChange={(e) => { setMe(e.target.value); dropMatches(); }}>
                           {!me && <option value="">Choose</option>}
                           {p.players.map((x) => <option key={x.mythic_id} value={x.mythic_id}>{x.name}</option>)}
                         </select>
-                      </label>
+                      </Field>
                       {playgroupId && others.length > 0 && (
                         <table className="mythic-players">
                           <thead>

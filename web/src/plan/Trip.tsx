@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { artCredits } from "../components/ArtPanel";
 import { Crop } from "../components/Crop";
-import { Button, ButtonLink, CopyButton, EmptyState, ErrorText, Loading } from "../components/ui";
+import { Button, ButtonLink, CheckRow, CopyButton, EmptyState, ErrorText, Field, Loading } from "../components/ui";
 import {
   addSealedQuote,
   addWant,
@@ -501,23 +501,21 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
         <label>
           {kind === "card" ? "Card" : "Product"} <input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} required />
         </label>
+        <Field label="How many"><input type="number" min={1} max={99} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(99, Number(e.target.value) || 1)))} />
+        </Field>
         <label>
-          How many <input type="number" min={1} max={99} value={qty} onChange={(e) => setQty(Math.max(1, Math.min(99, Number(e.target.value) || 1)))} />
-        </label>
-        <label>
-          <select value={kind} onChange={(e) => setKind(e.target.value as ShoppingWant["kind"])}>
+          <select aria-label="A card or a sealed product" value={kind} onChange={(e) => setKind(e.target.value as ShoppingWant["kind"])}>
             <option value="card">A card</option>
             <option value="sealed">A sealed product</option>
           </select>
         </label>
         <label>
-          <select value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
+          <select aria-label="How much you want it" value={priority} onChange={(e) => setPriority(e.target.value as ShoppingWant["priority"])}>
             <option value="need">{kind === "sealed" ? "Worth a trip for it" : "To buy: worth a trip"}</option>
             <option value="along">Only along the way</option>
           </select>
         </label>
-        <label>
-          For{" "}
+        <Field label="For">
           <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
             <option value="">No deck</option>
             {(decks.data ?? []).map((d) => (
@@ -526,10 +524,9 @@ function MyList({ view, userId }: { view: PlanView; userId: string }) {
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Why <input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} />
-        </label>
+        </Field>
+        <Field label="Why"><input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={500} />
+        </Field>
         <Button type="submit" variant="primary" disabled={add.isPending}>
           Add to the list
         </Button>
@@ -674,8 +671,7 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
           if (store) add.mutate();
         }}
       >
-        <label>
-          Store{" "}
+        <Field label="Store">
           <select value={store} disabled={add.isPending} onChange={(e) => setStore(e.target.value)}>
             {stores.map((s) => (
               <option key={s.key} value={s.key}>
@@ -683,19 +679,14 @@ function SealedRow({ it, stores, userId, today, capped, trip }: { it: SealedItem
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Price $<input type="number" min={0} step={0.01} value={price} disabled={add.isPending} onChange={(e) => setPrice(e.target.value)} placeholder="unknown" />
-        </label>
-        <label>
-          <input type="checkbox" checked={inStock} disabled={add.isPending} onChange={(e) => setInStock(e.target.checked)} /> In stock
-        </label>
-        <label>
-          On <input type="date" value={date} disabled={add.isPending} max={today} onChange={(e) => setDate(e.target.value)} />
-        </label>
-        <label>
-          Note <input value={note} disabled={add.isPending} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
-        </label>
+        </Field>
+        <Field label="Price $"><input type="number" min={0} step={0.01} value={price} disabled={add.isPending} onChange={(e) => setPrice(e.target.value)} placeholder="unknown" />
+        </Field>
+        <CheckRow checked={inStock} disabled={add.isPending} onChange={(e) => setInStock(e.target.checked)}>In stock</CheckRow>
+        <Field label="On"><input type="date" value={date} disabled={add.isPending} max={today} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Note"><input value={note} disabled={add.isPending} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="what the store said" />
+        </Field>
         <Button type="submit" variant="outline" disabled={add.isPending}>
           Record the price
         </Button>
