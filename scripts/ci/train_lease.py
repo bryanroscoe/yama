@@ -70,16 +70,16 @@ def holder(lease, now):
     return thread if until > now and isinstance(thread, str) and thread else None
 
 
-def grant(root, thread, hours, now, old=None, title=None):
+def grant(root, thread, hours, now, renewing=None, title=None):
+    """Write a lease for `thread`. `renewing` is the live lease being extended; its start stays."""
     lease = {
         "active": True,
         "coordinator_thread": thread,
-        "title": title or (old or {}).get("title") or "",
-        "since": (old or {}).get("since") if (old or {}).get("coordinator_thread") == thread else None,
+        "title": title or (renewing or {}).get("title") or "",
+        "since": (renewing or {}).get("since") or now.strftime(STAMP),
         "lease_until": (now + dt.timedelta(hours=hours)).strftime(STAMP),
         "note": "Only the coordinator merges to main while this lease is live. docs/release-trains.md",
     }
-    lease["since"] = lease["since"] or now.strftime(STAMP)
     write(root, lease)
     return lease
 
@@ -112,10 +112,12 @@ def main(argv=None, now=None):
             print(f"the lease is held by {held_by} until {lease.get('lease_until')}", file=sys.stderr)
             return 1
         if args.action in ("acquire", "renew"):
-            if args.action == "renew" and (lease or {}).get("coordinator_thread") != args.thread:
-                print("nothing to renew: this thread is not the coordinator on file (use acquire)", file=sys.stderr)
+            # Only a live lease renews. A lapsed or released one is gone: its old holder stops, and
+            # coordinating again is a fresh `acquire`, in line behind anyone who took it meanwhile.
+            if args.action == "renew" and held_by != args.thread:
+                print("nothing to renew: this thread holds no live lease (use acquire)", file=sys.stderr)
                 return 1
-            print(json.dumps(grant(root, args.thread, args.hours, now, old=lease, title=args.title)))
+            print(json.dumps(grant(root, args.thread, args.hours, now, renewing=lease if held_by else None, title=args.title)))
             return 0
         if args.action == "release":
             if (lease or {}).get("coordinator_thread") == args.thread:

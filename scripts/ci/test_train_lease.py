@@ -68,6 +68,21 @@ class Lease(unittest.TestCase):
         self.assertIs(self.file()["active"], False)
         self.assertEqual(self.do("status", now=lapsed), 3)
 
+    def test_a_lapsed_or_released_lease_does_not_renew(self):
+        # Nobody else has taken it, and still the old holder can't revive it and merge.
+        self.do("acquire", "--thread", "a", "--hours", "1")
+        lapsed = NOON + dt.timedelta(hours=2)
+        self.assertEqual(self.do("renew", "--thread", "a", now=lapsed), 1)
+        self.assertEqual(self.do("status", now=lapsed), 3)
+        self.assertEqual(self.do("run", "--thread", "a", "--", "true", now=lapsed), 1)
+        # Coordinating again is a fresh acquire, with a new start time.
+        self.assertEqual(self.do("acquire", "--thread", "a", "--hours", "1", now=lapsed), 0)
+        self.assertEqual(self.file()["since"], "2026-11-11T14:00:00Z")
+        self.assertEqual(self.do("release", "--thread", "a", now=lapsed), 0)
+        self.assertEqual(self.do("renew", "--thread", "a", now=lapsed), 1)
+        self.assertEqual(self.do("run", "--thread", "a", "--", "true", now=lapsed), 1)
+        self.assertIs(self.file()["active"], False)
+
     def test_run_needs_a_live_lease_and_passes_the_commands_status_on(self):
         self.assertEqual(self.do("run", "--thread", "a", "--", "true"), 1, "no lease at all")
         self.do("acquire", "--thread", "a", "--hours", "1")
