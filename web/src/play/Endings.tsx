@@ -9,7 +9,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { NOTE_MAX, WIN_CONDITIONS, type WinCondition } from "@yama/core";
+import { GAME_WORDS, NOTE_MAX, WIN_CONDITIONS, wonText, type WinCondition } from "@yama/core";
 import { api } from "../api";
 import { useMe } from "../auth";
 import { FunPicker, WinConditionPicker } from "../components/GameCapture";
@@ -189,7 +189,7 @@ export function GameOver(props: {
   const rows = standings(view.players, outs, view.winner, !view.abandoned, names).map((r) => view.abandoned ? { ...r, place: "", how: r.out ? r.how : "Game ended" } : r);
   const winner = view.winner;
   const hero = winner === null ? art(rows[0]?.seat ?? 0) : art(winner);
-  const title = view.abandoned ? "Game ended" : winner === null ? "Drawn game" : winner === names.you ? "You won" : `${names.Who(winner)} won`;
+  const title = view.abandoned ? "Game ended" : winner === null ? GAME_WORDS.draw : wonText(winner === names.you ? "You" : names.Who(winner));
   const deck = (seat: number) => seats.find((s) => s.seat === seat)?.commander ?? seats.find((s) => s.seat === seat)?.deck_name ?? null;
   const last = lastOut(outs.filter((o) => o.seat !== winner), names);
   const length = lengthText(game?.started_at, game?.ended_at);
@@ -289,7 +289,7 @@ export function GameOver(props: {
           </span>
           <h1>{title}</h1>
           <span>
-            {winner === null ? "No one wins." : deck(winner) ? `With ${deck(winner)}.` : ""}
+            {winner === null ? "Nobody won." : deck(winner) ? `With ${deck(winner)}.` : ""}
             {last ? ` Last one out: ${last}.` : ""}
           </span>
         </div>

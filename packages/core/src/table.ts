@@ -46,16 +46,35 @@ export type PlayerPick = Pick<PlayerSetup, "name" | "memberId" | "userId">;
 
 export type TableFormat = "commander" | "standard" | "other";
 
-/** The game types New game offers, with the starting life each one usually uses. */
+/**
+ * The game types New game and Log a game offer, with the starting life each one usually uses.
+ * `label` is the one name a game type goes by: on the picker, on a game's page and in its log.
+ */
 export const FORMATS: { key: TableFormat; label: string; life: number }[] = [
   { key: "commander", label: "Commander", life: 40 },
-  { key: "standard", label: "Constructed (20 life)", life: 20 },
-  { key: "other", label: "Something else", life: 20 },
+  { key: "standard", label: "Constructed", life: 20 },
+  { key: "other", label: "Other", life: 20 },
 ];
 
+/** A game type's name, as the picker shows it (`FORMATS`). */
 export function formatLabel(f: TableFormat): string {
-  return f === "commander" ? "Commander" : f === "standard" ? "Constructed" : "Casual";
+  return FORMATS.find((x) => x.key === f)?.label ?? "Other";
 }
+
+/**
+ * The words the game pages share, so the same thing has one name wherever it shows: a game that
+ * isn't over is "Still going", a game nobody won is "A draw", and a result is told in the past
+ * ("Sam won"). Counts keep "wins" ("3 wins").
+ */
+export const GAME_WORDS = {
+  going: "Still going",
+  draw: "A draw",
+  abandoned: "Abandoned",
+  finished: "Finished",
+} as const;
+
+/** "Sam won" for a result. */
+export const wonText = (name: string) => `${name} won`;
 
 export interface TableSetup {
   id: string;

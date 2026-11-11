@@ -4,6 +4,7 @@
 // and your games.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { GAME_WORDS, wonText } from "@yama/core";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type DeckSummary, type Playgroup } from "../api";
@@ -37,11 +38,11 @@ export function tableWho(seats: SeatInfo[], you: number | null): string {
 /** What a game in the list says first: who won, that it's waiting, or that it's under way. */
 function gameStatus(g: OnlineGame): { text: string; tone: "" | "warn" | "dim" } {
   if (g.status === "lobby") return { text: `Waiting for players, code ${g.code}`, tone: "warn" };
-  if (g.status === "in_progress") return { text: "In progress", tone: "" };
-  if (g.winner === null || g.winner === undefined) return { text: g.status === "abandoned" ? "Abandoned" : "Finished", tone: "dim" };
+  if (g.status === "in_progress") return { text: GAME_WORDS.going, tone: "" };
+  if (g.winner === null || g.winner === undefined) return { text: g.status === "abandoned" ? GAME_WORDS.abandoned : GAME_WORDS.draw, tone: "dim" };
   const w = g.seats.find((s) => s.seat === g.winner);
   const who = !w ? "Someone" : w.seat === g.you ? "You" : w.ai ? "The computer" : w.name;
-  return { text: `${who} won${g.turns ? ` on turn ${g.turns}` : ""}`, tone: "dim" };
+  return { text: `${wonText(who)}${g.turns ? ` on turn ${g.turns}` : ""}`, tone: "dim" };
 }
 
 export function PlayHome() {

@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatLabel, noteText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
+import { formatLabel, GAME_WORDS, noteText, wonText, winConditionLabel, WIN_CONDITIONS, type LoggedEvent, type TableEvent, type TableFormat, type TableSetup, fmtDateTime, fmtTime } from "@yama/core";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { api, type DeckSummary, type GameDetail, type GameSeat } from "../api";
 import { MythicNote } from "../bridges/mythic/MythicImport";
@@ -180,7 +180,7 @@ export function GameDetailPage() {
   // Logged after it was played (Log a game): finished, with nothing from the table. A note
   // doesn't say so; any game can carry one.
   const logged = isLoggedGame(g);
-  const title = going ? "Still going" : winner ? `${seatName(winner)} won` : g.status === "finished" ? "A draw" : "Game";
+  const title = going ? GAME_WORDS.going : winner ? wonText(seatName(winner)) : g.status === "finished" ? GAME_WORDS.draw : "Game";
   const facts = [
     `${fmtDateTime(g.started_at, { weekday: "long", year: false })}.`,
     `${formatLabel(setup.format)}, ${g.seats.length} players at ${setup.startingLife} life.`,

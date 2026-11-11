@@ -72,13 +72,13 @@ describe("recent game text", () => {
   it("lists every seat once for a draw or a game still going", () => {
     const seats = [seat(0, "Bryan", "Éowyn, Shieldmaiden"), seat(1, "Sam", "Quintorius, History Chaser"), seat(2, "Player 3", null), seat(3, "Priya", "Terra, Herald of Hope")];
     expect(recentGameText(game(seats, { status: "in_progress", turns: null }))).toEqual({
-      title: "In progress",
+      title: "Still going",
       with: null,
       sub: "Éowyn, Quintorius, Player 3 and Terra",
       short: "Éowyn, Quintorius, Player 3 and Terra",
     });
     const draw = recentGameText(game(seats, { turns: 14 }));
-    expect(draw.title).toBe("Draw");
+    expect(draw.title).toBe("A draw");
     expect(draw.sub).toBe("Éowyn, Quintorius, Player 3 and Terra");
     expect(draw.short).toBe("14 turns");
   });

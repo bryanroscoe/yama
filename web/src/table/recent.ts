@@ -1,6 +1,6 @@
 // The words on a Recent games row (the Table tab): who won with what, and over whom.
 
-import { noteText, winConditionLabel } from "@yama/core";
+import { GAME_WORDS, noteText, winConditionLabel, wonText } from "@yama/core";
 import type { GameRow, GameSeat } from "../api";
 
 /** "Terra" from "Terra, Herald of Hope": the name a table calls a commander by. */
@@ -57,7 +57,7 @@ export function turnsText(g: Pick<GameRow, "mode" | "turns">): string | null {
 }
 
 export interface RecentText {
-  /** "Sam won", "Draw" or "In progress". */
+  /** "Sam won", "A draw" or "Still going". */
   title: string;
   /** The winning seat's own commander for this game ("Éowyn"), when it isn't the player's name. */
   with: string | null;
@@ -71,7 +71,7 @@ export function recentGameText(g: GameRow & { note?: string | null }): RecentTex
   const finished = g.status === "finished";
   const winner = winningSeat(g);
   const cmdr = winner?.commander_name ?? null;
-  const title = !finished ? "In progress" : winner ? `${winner.display_name?.trim() || `Seat ${winner.seat + 1}`} won` : "Draw";
+  const title = !finished ? GAME_WORDS.going : winner ? wonText(winner.display_name?.trim() || `Seat ${winner.seat + 1}`) : GAME_WORDS.draw;
   const withCmdr = winner && cmdr && cmdr !== winner.display_name && shortName(cmdr) !== winner.display_name ? shortName(cmdr) : null;
   const how = winner ? winConditionLabel(g.win_condition) : null;
   const others = winner ? g.seats.filter((s) => s.seat !== winner.seat) : g.seats;

@@ -7,6 +7,9 @@ import {
   dangerOf,
   initialState,
   lossOf,
+  FORMATS,
+  formatLabel,
+  GAME_WORDS,
   lossesOf,
   NOTE_MAX,
   noteText,
@@ -16,6 +19,7 @@ import {
   toServerEvents,
   toServerFinish,
   turnPosition,
+  wonText,
   type TableSetup,
 } from "./table";
 
@@ -267,6 +271,18 @@ describe("first player", () => {
     expect(turnPosition([0, 1, 2, 3], 2, 0)).toBe(3);
     expect(turnPosition([0, 1, 2, 3], 2, 1)).toBe(4);
     expect(turnPosition([0, 1, 2, 3], null, 1)).toBeNull();
+  });
+});
+
+describe("the words game pages share", () => {
+  it("names a game type the way the picker does", () => {
+    // The picker's buttons and a game's page read the same list.
+    expect(FORMATS.map((f) => formatLabel(f.key))).toEqual(FORMATS.map((f) => f.label));
+    expect(FORMATS.map((f) => f.label)).toEqual(["Commander", "Constructed", "Other"]);
+  });
+
+  it("has one name each for a game still going, a draw and a result", () => {
+    expect([GAME_WORDS.going, GAME_WORDS.draw, wonText("Sam")]).toEqual(["Still going", "A draw", "Sam won"]);
   });
 });
 

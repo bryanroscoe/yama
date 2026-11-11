@@ -20,6 +20,8 @@ import {
   type Loss,
   type FinishDetails,
   type FunRating,
+  GAME_WORDS,
+  wonText,
   type LoggedEvent,
   type PlayerState,
   type TableEvent,
@@ -262,7 +264,7 @@ export function TableScreen({ game, state, following }: { game: Pick<LocalGame, 
         </Dialog>
       )}
       {finishing && (
-        <Dialog label="End the game" onClose={() => setFinishing(null)}>
+        <Dialog label="Finish the game" onClose={() => setFinishing(null)}>
           <FinishSheet
             state={state}
             winner={finishing.winner}
@@ -1130,7 +1132,7 @@ function FinishSheet({ state, winner, onBack, onSave }: {
   const firstName = state.players.find((p) => p.seat === state.firstSeat)?.name;
   return (
     <div className="stack capture">
-      <DialogHead onClose={onBack}>{winnerName ? `${winnerName} wins` : "A draw"}</DialogHead>
+      <DialogHead onClose={onBack}>{winnerName ? wonText(winnerName) : GAME_WORDS.draw}</DialogHead>
       {winnerName && <WinConditionPicker value={condition} onChange={setCondition} winner={winnerName} />}
       {state.firstSeat === null ? (
         <FirstPlayerPicker seats={seats} value={first} onChange={setFirst} />

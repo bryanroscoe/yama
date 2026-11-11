@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FORMATS, formatLabel, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime, fmtWeekday, shortDate, fmtDate } from "@yama/core";
+import { FORMATS, formatLabel, GAME_WORDS, type FunRating, type PlayerSetup, type TableFormat, type TableSetup, type WinCondition, fmtDateTime, fmtWeekday, shortDate, fmtDate } from "@yama/core";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { api, type DeckSummary, type DeckVersionRow, type GameDetail, type GameRow, type Playgroup } from "../api";
@@ -405,7 +405,7 @@ function NewGame({ onStart }: { onStart: (share: boolean) => void }) {
       commander: format === "commander",
     };
   };
-  const startLabel = starting ? "Starting…" : "Start game";
+  const startLabel = starting ? "Starting…" : "Start the game";
   const startSub = `${seats.length} ${seats.length === 1 ? "player" : "players"} at ${life} life`;
   const artists = seats.filter((s) => s.art).map((s) => s.artist);
   const people = usePeople(group, groups.data);
@@ -648,7 +648,7 @@ function RecentGames({ waiting, notes }: { waiting: ReactNode; notes: ReactNode 
                   <span className="rg-weekday">{fmtWeekday(g.started_at)}, </span>
                   {shortDate(g.started_at)}
                 </span>
-                {g.turns ? <span className="rg-turns">{turnsText(g)}</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">Still going</span> : null}
+                {g.turns ? <span className="rg-turns">{turnsText(g)}</span> : g.status === "in_progress" ? <span className="rg-turns rg-live">{GAME_WORDS.going}</span> : null}
               </span>
               </Link>
             </li>
