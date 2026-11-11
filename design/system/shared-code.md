@@ -125,6 +125,8 @@ Every dialog:
   `onClose`. A question with its own answers (`DialogHead close={false}`) has no Close.
 - moves focus in when it opens (to the heading, so no keyboard comes up on a phone; a field with
   `autoFocus` keeps it) and back to what opened it when it closes.
+- opened from a `MoreMenu` action, gives focus back to the menu's button: the item that was
+  pressed is gone by then (`returnFocusTo(from, to)` in `Dialog.tsx` names such a stand-in).
 - keeps Tab inside, makes the rest of the page `inert`, and stops the page scrolling under it.
 - answers Escape only when it is the top layer, and only after anything open inside it (a menu,
   a card preview, a search list) has had its turn. The page's own Escape shortcuts don't run.

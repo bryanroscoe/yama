@@ -4,6 +4,7 @@
 // expands inline and never pushes the page down.
 import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { returnFocusTo } from "./Dialog";
 import { Dialog } from "./ui";
 
 const POPOVER = "(pointer: fine) and (min-width: 900px)";
@@ -121,8 +122,13 @@ export function MoreMenu({
   const onPick = (e: MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("button, a")) setOpen(false);
   };
+  // An action's dialog opens from an item that is gone once the menu closes: when that dialog
+  // closes, focus comes back to the menu's button, not to the top of the page.
+  const returnToButton = (el: HTMLDivElement | null) => {
+    if (el && button.current) returnFocusTo(el, button.current);
+  };
   const items = (
-    <div id={id} className="more-menu-items" onClick={onPick}>
+    <div id={id} ref={returnToButton} className="more-menu-items" onClick={onPick}>
       {children}
     </div>
   );
